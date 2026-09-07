@@ -6,6 +6,7 @@ const (
 	defaultMaxSkills            = 64
 	defaultMaxAgents            = 64
 	defaultMaxEventHandlers     = 64
+	defaultMaxHooks             = 256
 	defaultMaxDirectoryEntries  = 1024
 	defaultMaxFileBytes         = 128 * 1024
 	defaultMaxTotalContextBytes = 1024 * 1024
@@ -19,6 +20,7 @@ type Limits struct {
 	MaxSkills            int
 	MaxAgents            int
 	MaxEventHandlers     int
+	MaxHooks             int
 	MaxDirectoryEntries  int
 	MaxFileBytes         int64
 	MaxTotalContextBytes int64
@@ -38,6 +40,7 @@ func defaultLimits() Limits {
 		MaxSkills:            defaultMaxSkills,
 		MaxAgents:            defaultMaxAgents,
 		MaxEventHandlers:     defaultMaxEventHandlers,
+		MaxHooks:             defaultMaxHooks,
 		MaxDirectoryEntries:  defaultMaxDirectoryEntries,
 		MaxFileBytes:         defaultMaxFileBytes,
 		MaxTotalContextBytes: defaultMaxTotalContextBytes,
@@ -65,6 +68,10 @@ func (l Limits) withDefaults() Limits {
 
 	if l.MaxEventHandlers == 0 {
 		l.MaxEventHandlers = defaults.MaxEventHandlers
+	}
+
+	if l.MaxHooks == 0 {
+		l.MaxHooks = defaults.MaxHooks
 	}
 
 	if l.MaxDirectoryEntries == 0 {
@@ -101,5 +108,6 @@ func (l Limits) validate() error {
 func (l Limits) hasInvalidCounts() bool {
 	return l.MaxFiles < 1 || l.MaxInstructions < 1 ||
 		l.MaxSkills < 1 || l.MaxAgents < 1 ||
-		l.MaxEventHandlers < 1 || l.MaxDirectoryEntries < 1
+		l.MaxEventHandlers < 1 || l.MaxHooks < 1 ||
+		l.MaxDirectoryEntries < 1
 }

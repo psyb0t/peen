@@ -109,6 +109,20 @@ func TestWriteFile_CreatesNewFile(t *testing.T) {
 	}
 }
 
+func TestWriteNewFileAtomicNeverReplacesExistingPath(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "existing.txt")
+	require.NoError(t, os.WriteFile(path, []byte("keep"), newFileMode))
+
+	err := writeNewFileAtomic(path, []byte("replace"), newFileMode)
+	require.ErrorIs(t, err, commerr.ErrAlreadyExists)
+
+	content, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	assert.Equal(t, "keep", string(content))
+}
+
 func TestWriteFile_TildeRelativePath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -204,6 +218,27 @@ func TestWriteFile_ReplaceExisting(t *testing.T) {
 			assert.Equal(t, "replacement content", string(written))
 		})
 	}
+}
+
+func TestWriteFile_RejectsListedOnlyExistingFile(t *testing.T) {
+	t.Parallel()
+
+	exec := newWriteFileTestExecutor(t, Limits{})
+	path := filepath.Join(exec.Workspace(), "listed-only.txt")
+	content := []byte("keep")
+	require.NoError(t, os.WriteFile(path, content, newFileMode))
+	exec.observe(path)
+
+	_, err := exec.WriteFile(context.Background(), WriteFileInput{
+		Path:           path,
+		Content:        "replacement",
+		ExpectedSHA256: hashBytes(content),
+	})
+	require.ErrorIs(t, err, ErrHashRequired)
+
+	written, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	assert.Equal(t, content, written)
 }
 
 func TestWriteFile_RejectsNonRegularExistingPath(t *testing.T) {

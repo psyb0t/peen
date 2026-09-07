@@ -20,6 +20,7 @@ const (
 	skillsDirectoryName       = "skills"
 	agentsSubdirectory        = "agents"
 	eventHandlersSubdirectory = "events"
+	hooksFileName             = "hooks.yaml"
 	skillFileName             = "SKILL.md"
 	agentsFileExtension       = ".md"
 	rootDirectory             = "/"
@@ -47,6 +48,7 @@ type resolutionState struct {
 	skills        map[string]discoveredSkill
 	agents        map[string]Agent
 	eventHandlers map[string]EventHandler
+	hooks         []Hook
 }
 
 type discoveredSkill struct {
@@ -62,6 +64,7 @@ type manifestSnapshot struct {
 	Skills        []Skill         `json:"skills"`
 	Agents        []Agent         `json:"agents"`
 	EventHandlers []EventHandler  `json:"eventHandlers"`
+	Hooks         []Hook          `json:"hooks"`
 	Manifest      []ManifestEntry `json:"manifest"`
 }
 
@@ -106,7 +109,11 @@ func (r Resolver) Resolve(workspace string) (Snapshot, error) {
 
 	state := newResolutionState(r.limits)
 	for priority, layer := range layers {
-		if err := state.discoverLayer(layer, priority); err != nil {
+		if err := state.discoverLayer(
+			layer,
+			priority,
+			layer == r.configRoot,
+		); err != nil {
 			return Snapshot{}, ctxerrors.Wrapf(
 				err,
 				"discover harness layer %s",
@@ -253,7 +260,11 @@ func newResolutionState(limits Limits) *resolutionState {
 	}
 }
 
-func (s *resolutionState) discoverLayer(layer string, priority int) error {
+func (s *resolutionState) discoverLayer(
+	layer string,
+	priority int,
+	configLayer bool,
+) error {
 	if err := s.discoverInstructions(layer, priority); err != nil {
 		return ctxerrors.Wrap(err, "discover instruction file")
 	}
@@ -279,6 +290,14 @@ func (s *resolutionState) discoverLayer(layer string, priority int) error {
 
 	if err := s.discoverEventHandlers(agentsDirectory); err != nil {
 		return ctxerrors.Wrap(err, "discover event handlers")
+	}
+
+	if err := s.discoverHooks(
+		agentsDirectory,
+		priority,
+		configLayer,
+	); err != nil {
+		return ctxerrors.Wrap(err, "discover hooks")
 	}
 
 	return nil
@@ -796,7 +815,14 @@ func (s *resolutionState) snapshot(
 	skills, skillContents := resolvedSkills(s.skills)
 	agents := resolvedAgents(s.agents)
 	eventHandlers := resolvedEventHandlers(s.eventHandlers)
-	manifest := resolvedManifest(s.instructions, skills, agents, eventHandlers)
+	hooks := cloneHooks(s.hooks)
+	manifest := resolvedManifest(
+		s.instructions,
+		skills,
+		agents,
+		eventHandlers,
+		hooks,
+	)
 
 	hash, err := snapshotHash(
 		configRoot,
@@ -805,6 +831,7 @@ func (s *resolutionState) snapshot(
 		skills,
 		agents,
 		eventHandlers,
+		hooks,
 		manifest,
 	)
 	if err != nil {
@@ -819,6 +846,7 @@ func (s *resolutionState) snapshot(
 		skills:        cloneSkills(skills),
 		agents:        cloneAgents(agents),
 		eventHandlers: cloneEventHandlers(eventHandlers),
+		hooks:         hooks,
 		manifest:      append([]ManifestEntry(nil), manifest...),
 		skillContents: skillContents,
 	}, nil
@@ -869,9 +897,10 @@ func resolvedManifest(
 	skills []Skill,
 	agents []Agent,
 	eventHandlers []EventHandler,
+	hooks []Hook,
 ) []ManifestEntry {
 	manifestCapacity := len(instructions) + len(skills) + len(agents) +
-		len(eventHandlers)
+		len(eventHandlers) + len(hooks)
 
 	manifest := make([]ManifestEntry, 0, manifestCapacity)
 	for _, instruction := range instructions {
@@ -910,6 +939,16 @@ func resolvedManifest(
 		})
 	}
 
+	for _, hook := range hooks {
+		manifest = append(manifest, ManifestEntry{
+			Kind:     SourceKindHook,
+			Name:     string(hook.Event),
+			Source:   hook.Source,
+			Priority: hook.Priority,
+			Hash:     hook.Hash,
+		})
+	}
+
 	return manifest
 }
 
@@ -920,6 +959,7 @@ func snapshotHash(
 	skills []Skill,
 	agents []Agent,
 	eventHandlers []EventHandler,
+	hooks []Hook,
 	manifest []ManifestEntry,
 ) (string, error) {
 	manifestData := manifestSnapshot{
@@ -930,6 +970,7 @@ func snapshotHash(
 		Skills:        skills,
 		Agents:        agents,
 		EventHandlers: eventHandlers,
+		Hooks:         hooks,
 		Manifest:      manifest,
 	}
 	//nolint:musttag // Internal hash includes typed contract values.

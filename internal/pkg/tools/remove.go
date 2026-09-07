@@ -95,6 +95,10 @@ func (e *Executor) removeFile(
 		return RemovePathOutput{}, err
 	}
 
+	if err := e.requireObservedContent(path, content); err != nil {
+		return RemovePathOutput{}, err
+	}
+
 	if hashBytes(content) != input.ExpectedSHA256 {
 		return RemovePathOutput{}, ctxerrors.Wrap(ErrStaleHash, path)
 	}

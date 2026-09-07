@@ -141,6 +141,35 @@ func writeFileAtomic(path string, content []byte, mode fs.FileMode) error {
 	return nil
 }
 
+// writeNewFileAtomic publishes a fully synced temporary file only if path is
+// still absent. The final rename cannot replace a destination created after an
+// earlier existence check.
+func writeNewFileAtomic(path string, content []byte, mode fs.FileMode) error {
+	directory := filepath.Dir(path)
+
+	temporary, err := os.CreateTemp(directory, temporaryFilePrefix)
+	if err != nil {
+		return wrapPathError(err, "create temporary file")
+	}
+
+	temporaryPath := temporary.Name()
+	if err := finishTemporaryFile(temporary, content, mode); err != nil {
+		removeQuietly(temporaryPath)
+
+		return err
+	}
+
+	if err := renameNoReplace(temporaryPath, path); err != nil {
+		removeQuietly(temporaryPath)
+
+		return wrapPathError(err, "publish new file")
+	}
+
+	syncDirectory(directory)
+
+	return nil
+}
+
 // resolveWriteTarget follows a symlink so an atomic replacement lands on the
 // file the link points at. Renaming onto the link itself would silently turn
 // it into a regular file, which is not what writing to that path normally

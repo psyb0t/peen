@@ -116,6 +116,7 @@ state:
     skills/<skill-name>/SKILL.md
     agents/<agent-name>.md
     events/<event-type>.md
+    hooks.yaml
   peen.db
 ```
 
@@ -133,6 +134,9 @@ Every file here is optional; a missing one is normal, not an error.
 - `.agents/agents/<name>.md`: a named child agent `launch_agent` can run by
   name.
 - `.agents/events/<type>.md`: a handler for one session event type.
+- `.agents/hooks.yaml`: ordered lifecycle actions that can deny an operation,
+  run a direct executable, add model context, or publish a session event. See
+  [docs/peen/hooks.md](docs/peen/hooks.md).
 - `peen.db`: the SQLite database. Peen creates `PEEN_CONFIG_DIR` itself
   (mode `0700`) if it does not exist yet, and the database file at `0600`. It
   refuses a symlinked config directory or database path.
@@ -195,6 +199,15 @@ and the next message without a `workspace` field uses `PEEN_WORKING_DIR`
 again. `~` expands to the running user's home directory, and the result must
 be an existing, readable directory. The workspace is a default directory, not
 a containment boundary: an absolute path outside it is accepted.
+
+Before a file tool can overwrite, edit, move, delete, or patch an existing
+regular file, that file's contents must have been read in the current turn.
+Peen checks the observed content hash again under its mutation lock. A directory
+listing does not count as reading the file. New files and move destinations are
+checked for absence, then published with no-replace filesystem operations so a
+concurrently created target is never silently overwritten. `edit_file` handles
+exact replacements in one file. `apply_patch` handles strict coordinated
+updates, additions, deletions, and moves across files.
 
 ## Compaction modes
 

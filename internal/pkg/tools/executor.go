@@ -85,6 +85,12 @@ func (e *Executor) Limits() Limits {
 	return e.limits
 }
 
+// ResolvePath reports the normalized host path a tool argument refers to.
+// It does not observe, create, or otherwise touch the path.
+func (e *Executor) ResolvePath(raw string) (string, error) {
+	return e.resolvePath(raw)
+}
+
 // resolvePath maps a tool path onto the host filesystem. An empty path is the
 // workspace, `~` expands to the running user's home, a relative path resolves
 // from the workspace, and an absolute path is used as given.
@@ -154,6 +160,34 @@ func (e *Executor) requireObserved(path string) error {
 	}
 
 	return ctxerrors.Wrap(ErrNotObserved, "read the path before changing it")
+}
+
+func (e *Executor) requireObservedContent(path string, content []byte) error {
+	key := observationKey(path)
+
+	e.observedMutex.RLock()
+	seen, ok := e.observed[key]
+	e.observedMutex.RUnlock()
+
+	if !ok {
+		return ctxerrors.Wrap(
+			ErrNotObserved,
+			"read the file before patching it",
+		)
+	}
+
+	if !seen.hasHash {
+		return ctxerrors.Wrap(
+			ErrHashRequired,
+			"read the file contents before patching it",
+		)
+	}
+
+	if seen.hash != hashBytes(content) {
+		return ctxerrors.Wrap(ErrStaleHash, path)
+	}
+
+	return nil
 }
 
 // observationKey collapses symlinked spellings of one path onto a single

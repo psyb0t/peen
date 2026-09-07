@@ -124,6 +124,8 @@ func (s *HTTPServer) Run(ctx context.Context) (runErr error) {
 // every secret redacted: never PEEN_API_TOKEN, and never a provider API key
 // resolved through an upstream's apiKeyEnv. Only counts, names, bounds, and
 // booleans are safe to print here.
+//
+//nolint:funlen // One record lists every safe config field.
 func logValidatedConfig(
 	ctx context.Context,
 	config peenconfig.Config,
@@ -154,6 +156,9 @@ func logValidatedConfig(
 		"max_concurrent_tools", config.MaxConcurrentTools,
 		"tool_timeout", config.ToolTimeout,
 		"max_tool_result_tokens", config.MaxToolResultTokens,
+		"enable_workspace_hooks", config.EnableWorkspaceHooks,
+		"hook_command_timeout", config.HookCommandTimeout,
+		"max_hook_command_output", config.MaxHookCommandOutput,
 		"tool_max_list_entries", config.ToolMaxListEntries,
 		"tool_max_list_depth", config.ToolMaxListDepth,
 		"tool_max_search_matches", config.ToolMaxSearchMatches,
@@ -315,6 +320,9 @@ func runtimeOptions(
 		MaxConcurrentTools:   config.MaxConcurrentTools,
 		ToolTimeout:          config.ToolTimeout,
 		MaxToolResultTokens:  config.MaxToolResultTokens,
+		EnableWorkspaceHooks: config.EnableWorkspaceHooks,
+		HookCommandTimeout:   config.HookCommandTimeout,
+		MaxHookCommandOutput: config.MaxHookCommandOutput,
 	}
 }
 

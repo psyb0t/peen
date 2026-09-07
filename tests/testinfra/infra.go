@@ -79,20 +79,16 @@ exec /app/app run`
 	// incoming request to know which round it is currently serving.
 	providerRoleTool = "tool"
 
-	// scriptedToolNameReadFile, scriptedToolNameEditFile, and
-	// scriptedToolNameRunCommand are the exact tool names a scripted turn
-	// requests, matching internal/pkg/agent/tools.go's registrations.
+	// These names match internal/pkg/agent/tools.go's registrations.
 	scriptedToolNameReadFile   = "read_file"
 	scriptedToolNameEditFile   = "edit_file"
+	scriptedToolNameApplyPatch = "apply_patch"
 	scriptedToolNameRunCommand = "run_command"
 
-	// ScriptedCallIDReadFile, ScriptedCallIDEditFile, and
-	// ScriptedCallIDRunCommand are the fixed call IDs a scripted turn's
-	// three tool calls carry, exported so a test can pair a durable tool
-	// message or an SSE tool_use/tool_result block to the call that
-	// produced it.
+	// These fixed call IDs let tests pair durable tool messages and SSE blocks.
 	ScriptedCallIDReadFile   = "call-scripted-read-file"
 	ScriptedCallIDEditFile   = "call-scripted-edit-file"
+	ScriptedCallIDApplyPatch = "call-scripted-apply-patch"
 	ScriptedCallIDRunCommand = "call-scripted-run-command"
 
 	// scriptedRoundReadFile, scriptedRoundEditFile, and
@@ -261,19 +257,18 @@ func (i *Infra) ModelDiscoveryObserved() bool {
 	return i.provider != nil && i.provider.modelsListed.Load()
 }
 
-// ScriptedToolTurn drives the provider mock through one fixed tool
-// conversation: a read_file call, then an edit_file call, then a
-// run_command call, then a plain text answer. The three argument payloads
-// are the caller's fixture business, never hardcoded in the mock.
+// ScriptedToolTurn drives read_file, one mutation, run_command, and a final
+// answer. Set exactly one of EditFileArguments and ApplyPatchArguments.
 type ScriptedToolTurn struct {
 	ReadFileArguments   map[string]any
 	EditFileArguments   map[string]any
+	ApplyPatchArguments map[string]any
 	RunCommandArguments map[string]any
 	FinalAnswer         string
 }
 
 // EnableScriptedToolTurn makes every subsequent provider completion follow
-// script's fixed read_file/edit_file/run_command/text conversation instead
+// script's fixed tool conversation instead
 // of the default single fixed text response. Off by default, so a test that
 // never calls this sees byte-identical behavior to before this method
 // existed. Call DisableScriptedToolTurn (for example via t.Cleanup) once the
@@ -537,6 +532,14 @@ func scriptedCompletionStream(
 			script.ReadFileArguments,
 		)
 	case scriptedRoundEditFile:
+		if script.ApplyPatchArguments != nil {
+			return openAIToolCallStream(
+				ScriptedCallIDApplyPatch,
+				scriptedToolNameApplyPatch,
+				script.ApplyPatchArguments,
+			)
+		}
+
 		return openAIToolCallStream(
 			ScriptedCallIDEditFile,
 			scriptedToolNameEditFile,

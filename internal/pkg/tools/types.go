@@ -130,6 +130,46 @@ type EditFileOutput struct {
 	SHA256        string `json:"sha256"`
 }
 
+// PatchOperation identifies one file-level apply_patch action.
+type PatchOperation string
+
+// PatchOutcome identifies whether one reported operation fully completed.
+type PatchOutcome string
+
+const (
+	PatchOperationAdd    PatchOperation = "add"
+	PatchOperationUpdate PatchOperation = "update"
+	PatchOperationDelete PatchOperation = "delete"
+	PatchOperationMove   PatchOperation = "move"
+
+	PatchOutcomeApplied PatchOutcome = "applied"
+	PatchOutcomePartial PatchOutcome = "partial"
+)
+
+// ApplyPatchInput carries one complete Codex-compatible patch document.
+type ApplyPatchInput struct {
+	Patch string `json:"patch"`
+}
+
+// ApplyPatchFileResult reports one file operation that reached the filesystem.
+type ApplyPatchFileResult struct {
+	Operation   PatchOperation `json:"operation"`
+	Outcome     PatchOutcome   `json:"outcome"`
+	Path        string         `json:"path"`
+	Destination string         `json:"destination,omitempty"`
+	Bytes       int            `json:"bytes"`
+	SHA256      string         `json:"sha256,omitempty"`
+}
+
+// ApplyPatchOutput reports applied files and one bounded combined diff. Error
+// is populated by the agent adapter when a later filesystem operation fails.
+type ApplyPatchOutput struct {
+	Files         []ApplyPatchFileResult `json:"files"`
+	Diff          string                 `json:"diff"`
+	DiffTruncated bool                   `json:"diffTruncated"`
+	Error         string                 `json:"error,omitempty"`
+}
+
 // MovePathInput renames one file or directory. Destination must not exist.
 type MovePathInput struct {
 	Source      string `json:"source"`

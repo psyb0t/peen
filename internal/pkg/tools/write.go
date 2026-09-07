@@ -93,7 +93,7 @@ func (e *Executor) createFile(
 		return WriteFileOutput{}, wrapPathError(err, "create parent directory")
 	}
 
-	if err := writeFileAtomic(path, content, newFileMode); err != nil {
+	if err := writeNewFileAtomic(path, content, newFileMode); err != nil {
 		return WriteFileOutput{}, ctxerrors.Wrap(err, "write new file")
 	}
 
@@ -107,16 +107,16 @@ func (e *Executor) replaceFile(
 	input WriteFileInput,
 	content []byte,
 ) (WriteFileOutput, error) {
-	if err := e.requireObserved(path); err != nil {
-		return WriteFileOutput{}, err
-	}
-
 	if input.ExpectedSHA256 == "" {
 		return WriteFileOutput{}, ctxerrors.Wrap(ErrHashRequired, path)
 	}
 
 	current, mode, err := readRegularFile(path, int64(e.Limits().MaxWriteBytes))
 	if err != nil {
+		return WriteFileOutput{}, err
+	}
+
+	if err := e.requireObservedContent(path, current); err != nil {
 		return WriteFileOutput{}, err
 	}
 

@@ -317,6 +317,8 @@ func childSystemPrompt(
 // registry and resolved rules, and its own event sink feeding this run's
 // ring buffer and JSONL mirror. The child gets no session-event injection;
 // per the plan, a child agent has no private notification path.
+//
+//nolint:funlen // Keep child request lifecycle together.
 func (r *Runtime) runChildAgent(
 	runCtx context.Context,
 	deps *launchAgentDeps,
@@ -343,6 +345,25 @@ func (r *Runtime) runChildAgent(
 
 	childToolSet := hostToolSet(deps.executor, nil, deps.snapshot)
 	childToolSet.Add(launchAgentTool(deps, nil))
+
+	childHooks, err := newToolHookRuntime(
+		deps.snapshot,
+		deps.executor.Workspace(),
+		uuid.Nil,
+		deps.sessionID,
+		deps.parentTurnID,
+		deps.executor,
+		nil,
+		r.enableWorkspaceHooks,
+		r.hookCommandTimeout,
+		r.maxHookCommandOutput,
+		r.eventBus,
+	)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "create child tool hooks")
+	}
+
+	bindToolHooks(childToolSet, childHooks)
 
 	sink := newAgentRunSink(run, transcript)
 	depthCtx := contextWithAgentDepth(runCtx, depth)

@@ -63,6 +63,17 @@ package; see [docs/development.md](../development.md).
 | `PEEN_TOOL_COMMAND_TIMEOUT` | `2m` | Default `run_command` wait bound. The command is never killed when this elapses; a still-running command returns a job handle instead. |
 | `PEEN_TOOL_MAX_COMMAND_TIMEOUT` | `15m` | Largest wait bound a call may request. Must not exceed `PEEN_TOOL_TIMEOUT`. |
 
+## Hook execution limits
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `PEEN_ENABLE_WORKSPACE_HOOKS` | `false` | Allows executable actions from workspace `.agents/hooks.yaml` layers. Hooks under `PEEN_CONFIG_DIR` always run. |
+| `PEEN_HOOK_COMMAND_TIMEOUT` | `30s` | Bound on one `command` hook action. Must not exceed `PEEN_TOOL_TIMEOUT`. |
+| `PEEN_MAX_HOOK_COMMAND_OUTPUT` | `65536` | Maximum stdout or stderr captured from one hook command. |
+
+See [hook configuration](hooks.md) for the file format, matching rules, event
+order, and execution policy.
+
 ## Session events
 
 | Variable | Default | Meaning |
@@ -128,6 +139,11 @@ bytewise for stable, repeatable results.
   an optional `agent` naming which effective agent handles it, and an
   optional `delivery` override. The body is the instruction the agent
   receives when that event type arrives.
+- **Hooks** (`.agents/hooks.yaml`): additive ordered action groups. A hook
+  document under `PEEN_CONFIG_DIR` is executable. Documents from workspace
+  ancestor layers are resolved, hashed, and listed in the context manifest,
+  but their actions only execute when `PEEN_ENABLE_WORKSPACE_HOOKS=true`.
+  See [hook configuration](hooks.md).
 
 ## Session events
 

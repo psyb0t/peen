@@ -25,6 +25,14 @@ var (
 	ErrMatchNotUnique = errors.New("exact text matched more than once")
 	// ErrOverlappingEdits reports edits that replace the same region.
 	ErrOverlappingEdits = errors.New("edits overlap")
+	// ErrInvalidPatch reports malformed apply_patch input.
+	ErrInvalidPatch = errors.New("invalid patch")
+	// ErrPatchConflict reports file operations whose source or target collides.
+	ErrPatchConflict = errors.New("patch paths conflict")
+	// ErrPatchMatchNotFound reports strict update context absent from a source.
+	ErrPatchMatchNotFound = errors.New("patch context was not found")
+	// ErrPatchMatchNotUnique reports ambiguous strict update context.
+	ErrPatchMatchNotUnique = errors.New("patch context matched more than once")
 	// ErrDirectoryNotEmpty reports a non-recursive removal of a full tree.
 	ErrDirectoryNotEmpty = errors.New("directory is not empty")
 	// ErrLimitExceeded reports input too large to bound by truncation.

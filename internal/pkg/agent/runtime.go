@@ -48,13 +48,16 @@ type Runtime struct {
 	compactionMode    config.CompactionMode
 	compactionOptions compactionOptions
 
-	toolLimits          tools.Limits
-	maxToolRounds       int
-	maxConcurrentTools  int
-	toolTimeout         time.Duration
-	maxToolResultTokens int
-	eventBus            *events.Bus
-	wakes               *wakeLimiter
+	toolLimits           tools.Limits
+	maxToolRounds        int
+	maxConcurrentTools   int
+	toolTimeout          time.Duration
+	maxToolResultTokens  int
+	enableWorkspaceHooks bool
+	hookCommandTimeout   time.Duration
+	maxHookCommandOutput int
+	eventBus             *events.Bus
+	wakes                *wakeLimiter
 
 	// jobsMutex guards jobs. A job registry is per SESSION, not per turn,
 	// because a command started in one turn must still be visible, readable
@@ -125,6 +128,7 @@ type preparedTurn struct {
 	eventBus      *events.Bus
 	pendingEvents string
 	snapshot      harness.Snapshot
+	toolHooks     *toolHookRuntime
 }
 
 // NewRuntime validates the dependencies shared by every Peen turn.
@@ -172,19 +176,22 @@ func NewRuntime(options RuntimeOptions) (*Runtime, error) {
 		maxMessageBytes:      options.MaxMessageBytes,
 		turnSlots:            newTurnSlots(options.MaxConcurrentTurns),
 
-		compactionMode:      compactionMode,
-		compactionOptions:   compaction,
-		toolLimits:          options.ToolLimits,
-		maxToolRounds:       options.MaxToolRounds,
-		maxConcurrentTools:  options.MaxConcurrentTools,
-		toolTimeout:         options.ToolTimeout,
-		maxToolResultTokens: options.MaxToolResultTokens,
-		eventBus:            options.Events,
-		wakes:               newWakeLimiter(options.MaxEventWakesPerHour),
-		jobs:                map[uuid.UUID]*tools.JobRegistry{},
-		agentLimits:         options.AgentLimits.withDefaults(),
-		configDirectory:     options.ConfigDirectory,
-		agentRuns:           map[uuid.UUID]*AgentRunRegistry{},
+		compactionMode:       compactionMode,
+		compactionOptions:    compaction,
+		toolLimits:           options.ToolLimits,
+		maxToolRounds:        options.MaxToolRounds,
+		maxConcurrentTools:   options.MaxConcurrentTools,
+		toolTimeout:          options.ToolTimeout,
+		maxToolResultTokens:  options.MaxToolResultTokens,
+		enableWorkspaceHooks: options.EnableWorkspaceHooks,
+		hookCommandTimeout:   options.HookCommandTimeout,
+		maxHookCommandOutput: options.MaxHookCommandOutput,
+		eventBus:             options.Events,
+		wakes:                newWakeLimiter(options.MaxEventWakesPerHour),
+		jobs:                 map[uuid.UUID]*tools.JobRegistry{},
+		agentLimits:          options.AgentLimits.withDefaults(),
+		configDirectory:      options.ConfigDirectory,
+		agentRuns:            map[uuid.UUID]*AgentRunRegistry{},
 	}, nil
 }
 
@@ -267,6 +274,7 @@ func (r *Runtime) acquireTurnSlot(ctx context.Context) (func(), error) {
 	}
 }
 
+//nolint:funlen // Turn creation has one contiguous failure-safe lease boundary.
 func (r *Runtime) prepareTurn(
 	ctx context.Context,
 	input TurnRequest,
@@ -305,7 +313,7 @@ func (r *Runtime) prepareTurn(
 		return nil, err
 	}
 
-	return &preparedTurn{
+	prepared := &preparedTurn{
 		opened:         opening.opened,
 		lease:          lease,
 		modelReference: basis.modelReference,
@@ -321,7 +329,36 @@ func (r *Runtime) prepareTurn(
 		eventBus:       r.eventBus,
 		pendingEvents:  opening.pendingEvents,
 		snapshot:       basis.snapshot,
-	}, nil
+	}
+
+	toolHooks, err := r.newToolHookRuntime(prepared)
+	if err != nil {
+		return nil, r.finalizeFailedTurn(ctx, prepared, err)
+	}
+
+	prepared.toolHooks = toolHooks
+
+	if opening.opened.Created {
+		if err := prepared.runLifecycleHook(
+			ctx,
+			r,
+			harness.HookEventSessionStart,
+			map[string]bool{"created": true},
+		); err != nil {
+			return nil, r.finalizeFailedTurn(ctx, prepared, err)
+		}
+	}
+
+	if err := prepared.runLifecycleHook(
+		ctx,
+		r,
+		harness.HookEventPostUserMessage,
+		userMessageHookInput(input, basis.workspace),
+	); err != nil {
+		return nil, r.finalizeFailedTurn(ctx, prepared, err)
+	}
+
+	return prepared, nil
 }
 
 // resolveTurnBasis settles everything a turn needs before its durable record
@@ -378,6 +415,20 @@ func (r *Runtime) resolveContext(
 		return harness.Snapshot{}, "", "", "", ctxerrors.Wrap(
 			err,
 			"build system prompt",
+		)
+	}
+
+	systemPrompt, err = r.appendPreUserHookContext(
+		ctx,
+		snapshot,
+		workspace,
+		input,
+		systemPrompt,
+	)
+	if err != nil {
+		return harness.Snapshot{}, "", "", "", ctxerrors.Wrap(
+			err,
+			"run pre-user-message hooks",
 		)
 	}
 
@@ -827,15 +878,27 @@ func (r *Runtime) saveSnapshots(
 		return "", "", ctxerrors.Wrap(err, "save context snapshot")
 	}
 
+	promptHash, err := r.savePromptSnapshot(ctx, systemPrompt)
+	if err != nil {
+		return "", "", ctxerrors.Wrap(err, "save prompt snapshot")
+	}
+
+	return contextHash, promptHash, nil
+}
+
+func (r *Runtime) savePromptSnapshot(
+	ctx context.Context,
+	systemPrompt string,
+) (string, error) {
 	promptHash := hash(systemPrompt)
 	if err := r.store.SavePromptSnapshot(ctx, &models.PromptSnapshot{
 		Hash:            promptHash,
 		EffectivePrompt: systemPrompt,
 	}); err != nil {
-		return "", "", ctxerrors.Wrap(err, "save prompt snapshot")
+		return "", ctxerrors.Wrap(err, "save prompt snapshot")
 	}
 
-	return contextHash, promptHash, nil
+	return promptHash, nil
 }
 
 func (r *Runtime) runLease(
@@ -870,6 +933,15 @@ func (r *Runtime) startLease(
 	ctx context.Context,
 	prepared *preparedTurn,
 ) error {
+	if err := prepared.runLifecycleHook(
+		ctx,
+		r,
+		harness.HookEventTurnStart,
+		turnHookInput(prepared),
+	); err != nil {
+		return ctxerrors.Wrap(err, "run turn-start hooks")
+	}
+
 	payload := turnStartedPayload{
 		SessionID: prepared.opened.Session.ID.String(),
 		Model:     prepared.modelReference,
@@ -906,6 +978,7 @@ func (r *Runtime) runProvider(
 		r.launchAgentDeps(prepared),
 		prepared.injectSessionEvents,
 	))
+	bindToolHooks(toolSet, prepared.toolHooks)
 
 	request := elelem.NewRequest(prepared.model.Client).
 		WithModel(prepared.model.Model).
@@ -1062,6 +1135,15 @@ func (r *Runtime) completeLease(
 	prepared *preparedTurn,
 	response *elelem.Response,
 ) (*TurnResult, error) {
+	if err := prepared.runLifecycleHook(
+		ctx,
+		r,
+		harness.HookEventTurnStop,
+		turnStopHookInput(prepared, response),
+	); err != nil {
+		return nil, ctxerrors.Wrap(err, "run turn-stop hooks")
+	}
+
 	if err := prepared.turn.emit(EventTypeTurnCompleted, turnCompletedPayload{
 		Model: prepared.modelReference,
 		Text:  response.Text,
@@ -1112,6 +1194,20 @@ func (r *Runtime) finalizeFailedTurn(
 	runErr error,
 ) error {
 	state, classification, eventType := failedTurnState(runErr)
+	if state == models.TurnStateCancelled {
+		hookErr := prepared.runLifecycleHook(
+			context.WithoutCancel(ctx),
+			r,
+			harness.HookEventTurnCancelled,
+			map[string]string{"reason": classification},
+		)
+		if hookErr != nil {
+			runErr = errors.Join(
+				runErr,
+				ctxerrors.Wrap(hookErr, "run turn-cancelled hooks"),
+			)
+		}
+	}
 
 	eventErr := prepared.turn.emit(
 		eventType,

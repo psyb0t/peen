@@ -16,6 +16,10 @@ const (
 	defaultMaxWriteBytes         = 4 * 1024 * 1024
 	defaultMaxEdits              = 64
 	defaultMaxDiffBytes          = 64 * 1024
+	defaultMaxPatchBytes         = 1024 * 1024
+	defaultMaxPatchFiles         = 64
+	defaultMaxPatchHunks         = 256
+	defaultMaxPatchChangedBytes  = 4 * 1024 * 1024
 	defaultMaxRemoveEntries      = 20000
 	defaultMaxCommandOutputBytes = 64 * 1024
 	defaultCommandTimeout        = 2 * time.Minute
@@ -40,6 +44,10 @@ type Limits struct {
 	MaxWriteBytes         int
 	MaxEdits              int
 	MaxDiffBytes          int
+	MaxPatchBytes         int
+	MaxPatchFiles         int
+	MaxPatchHunks         int
+	MaxPatchChangedBytes  int
 	MaxRemoveEntries      int
 	MaxCommandOutputBytes int
 	CommandTimeout        time.Duration
@@ -75,6 +83,10 @@ func DefaultLimits() Limits {
 		MaxWriteBytes:         defaultMaxWriteBytes,
 		MaxEdits:              defaultMaxEdits,
 		MaxDiffBytes:          defaultMaxDiffBytes,
+		MaxPatchBytes:         defaultMaxPatchBytes,
+		MaxPatchFiles:         defaultMaxPatchFiles,
+		MaxPatchHunks:         defaultMaxPatchHunks,
+		MaxPatchChangedBytes:  defaultMaxPatchChangedBytes,
 		MaxRemoveEntries:      defaultMaxRemoveEntries,
 		MaxCommandOutputBytes: defaultMaxCommandOutputBytes,
 		CommandTimeout:        defaultCommandTimeout,
@@ -92,6 +104,7 @@ func (l Limits) withDefaults() Limits {
 	defaults := DefaultLimits()
 
 	l = l.withFileToolDefaults(defaults)
+	l = l.withPatchToolDefaults(defaults)
 	l = l.withJobToolDefaults(defaults)
 
 	return l
@@ -154,6 +167,26 @@ func (l Limits) withFileToolDefaults(defaults Limits) Limits {
 	return l
 }
 
+func (l Limits) withPatchToolDefaults(defaults Limits) Limits {
+	if l.MaxPatchBytes == 0 {
+		l.MaxPatchBytes = defaults.MaxPatchBytes
+	}
+
+	if l.MaxPatchFiles == 0 {
+		l.MaxPatchFiles = defaults.MaxPatchFiles
+	}
+
+	if l.MaxPatchHunks == 0 {
+		l.MaxPatchHunks = defaults.MaxPatchHunks
+	}
+
+	if l.MaxPatchChangedBytes == 0 {
+		l.MaxPatchChangedBytes = defaults.MaxPatchChangedBytes
+	}
+
+	return l
+}
+
 func (l Limits) withJobToolDefaults(defaults Limits) Limits {
 	if l.MaxJobOutputLines == 0 {
 		l.MaxJobOutputLines = defaults.MaxJobOutputLines
@@ -192,6 +225,10 @@ func (l Limits) validate() error {
 		l.MaxWriteBytes,
 		l.MaxEdits,
 		l.MaxDiffBytes,
+		l.MaxPatchBytes,
+		l.MaxPatchFiles,
+		l.MaxPatchHunks,
+		l.MaxPatchChangedBytes,
 		l.MaxRemoveEntries,
 		l.MaxCommandOutputBytes,
 		l.MaxJobOutputLines,

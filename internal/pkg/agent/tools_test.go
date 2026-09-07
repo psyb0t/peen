@@ -55,6 +55,7 @@ func TestHostToolSetRegistersEveryTool(t *testing.T) {
 		toolNameReadFile,
 		toolNameWriteFile,
 		toolNameEditFile,
+		toolNameApplyPatch,
 		toolNameMovePath,
 		toolNameMakeDirectory,
 		toolNameRemovePath,
@@ -77,6 +78,40 @@ func TestHostToolSetRegistersEveryTool(t *testing.T) {
 			name,
 		)
 	}
+}
+
+func TestFileSafetyInstructionsReachTheModel(t *testing.T) {
+	t.Parallel()
+
+	assert.Contains(t, defaultSystemPrompt, "Read every existing regular file")
+	assert.Contains(t, defaultSystemPrompt, "never overwrite a destination")
+	assert.Contains(t, readFileDescription, toolNameApplyPatch)
+	assert.Contains(t, writeFileDescription, "creation never replaces")
+	assert.Contains(t, applyPatchDescription, "destinations must not exist")
+	assert.Contains(t, removePathDescription, "Listing a regular file is not enough")
+	assert.Contains(t, runCommandDescription, "Do not use shell redirection")
+}
+
+func TestApplyPatchToolHandlerReturnsStructuredFailure(t *testing.T) {
+	t.Parallel()
+
+	executor := newToolTestExecutor(t)
+	tool, ok := hostToolSet(executor, nil, harness.Snapshot{}).Get(toolNameApplyPatch)
+	require.True(t, ok)
+
+	result, err := tool.Handler(context.Background(), elelem.ToolInput{
+		Name:      toolNameApplyPatch,
+		CallID:    "call_1",
+		Arguments: json.RawMessage(`{"patch":"invalid"}`),
+	})
+	require.NoError(t, err)
+	assert.True(t, result.IsError)
+
+	output := tools.ApplyPatchOutput{}
+	require.NoError(t, json.Unmarshal([]byte(result.Content), &output))
+	assert.Empty(t, output.Files)
+	assert.Contains(t, output.Error, tools.ErrInvalidPatch.Error())
+	assert.NotContains(t, output.Error, errorLocationMarker)
 }
 
 // Every schema must reject unknown fields, otherwise a model typo silently

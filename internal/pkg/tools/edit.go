@@ -57,10 +57,6 @@ func (e *Executor) applyEditsLocked(
 	path string,
 	edits []TextEdit,
 ) (EditFileOutput, error) {
-	if err := e.requireObserved(path); err != nil {
-		return EditFileOutput{}, err
-	}
-
 	content, mode, err := readRegularFile(path, int64(e.Limits().MaxWriteBytes))
 	if err != nil {
 		return EditFileOutput{}, ctxerrors.Wrap(err, "read file to edit")
@@ -68,6 +64,10 @@ func (e *Executor) applyEditsLocked(
 
 	if isBinary(content) {
 		return EditFileOutput{}, ctxerrors.Wrap(ErrBinaryContent, path)
+	}
+
+	if err := e.requireObservedContent(path, content); err != nil {
+		return EditFileOutput{}, err
 	}
 
 	matches, err := matchEdits(content, edits)

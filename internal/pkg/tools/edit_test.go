@@ -39,8 +39,11 @@ func writeEditFixture(t *testing.T, dir, name, content string) string {
 	return path
 }
 
-func observeEditFixture(exec *Executor, path string) {
-	exec.observe(path)
+func observeEditFixture(t *testing.T, exec *Executor, path string) {
+	t.Helper()
+
+	content := readFixtureContent(t, path)
+	exec.observeContent(path, hashBytes(content))
 }
 
 func readFixtureContent(t *testing.T, path string) []byte {
@@ -57,7 +60,7 @@ func TestExecutor_EditFile_SingleEdit(t *testing.T) {
 
 	exec, dir := newEditTestExecutor(t, Limits{})
 	path := writeEditFixture(t, dir, "single.txt", "hello world\n")
-	observeEditFixture(exec, path)
+	observeEditFixture(t, exec, path)
 
 	output, err := exec.EditFile(context.Background(), EditFileInput{
 		Path: path,
@@ -80,7 +83,7 @@ func TestExecutor_EditFile_DiffContent(t *testing.T) {
 
 	exec, dir := newEditTestExecutor(t, Limits{})
 	path := writeEditFixture(t, dir, "diff.txt", "hello world\n")
-	observeEditFixture(exec, path)
+	observeEditFixture(t, exec, path)
 
 	output, err := exec.EditFile(context.Background(), EditFileInput{
 		Path: path,
@@ -109,7 +112,7 @@ func TestExecutor_EditFile_SeveralNonOverlappingEdits(t *testing.T) {
 
 	exec, dir := newEditTestExecutor(t, Limits{})
 	path := writeEditFixture(t, dir, "several.txt", "one two three\n")
-	observeEditFixture(exec, path)
+	observeEditFixture(t, exec, path)
 
 	output, err := exec.EditFile(context.Background(), EditFileInput{
 		Path: path,
@@ -131,7 +134,7 @@ func TestExecutor_EditFile_DeletesText(t *testing.T) {
 
 	exec, dir := newEditTestExecutor(t, Limits{})
 	path := writeEditFixture(t, dir, "delete.txt", "keep DROP keep\n")
-	observeEditFixture(exec, path)
+	observeEditFixture(t, exec, path)
 
 	output, err := exec.EditFile(context.Background(), EditFileInput{
 		Path: path,
@@ -151,7 +154,7 @@ func TestExecutor_EditFile_TouchingRangesSucceed(t *testing.T) {
 
 	exec, dir := newEditTestExecutor(t, Limits{})
 	path := writeEditFixture(t, dir, "touching.txt", "abcdef")
-	observeEditFixture(exec, path)
+	observeEditFixture(t, exec, path)
 
 	output, err := exec.EditFile(context.Background(), EditFileInput{
 		Path: path,
@@ -172,7 +175,7 @@ func TestExecutor_EditFile_OverlappingEditsRejected(t *testing.T) {
 
 	exec, dir := newEditTestExecutor(t, Limits{})
 	path := writeEditFixture(t, dir, "overlap.txt", "abcdef")
-	observeEditFixture(exec, path)
+	observeEditFixture(t, exec, path)
 
 	before := readFixtureContent(t, path)
 
@@ -195,7 +198,7 @@ func TestExecutor_EditFile_MatchNotFound(t *testing.T) {
 
 	exec, dir := newEditTestExecutor(t, Limits{})
 	path := writeEditFixture(t, dir, "notfound.txt", "abc\n")
-	observeEditFixture(exec, path)
+	observeEditFixture(t, exec, path)
 
 	_, err := exec.EditFile(context.Background(), EditFileInput{
 		Path: path,
@@ -211,7 +214,7 @@ func TestExecutor_EditFile_MatchNotUnique(t *testing.T) {
 
 	exec, dir := newEditTestExecutor(t, Limits{})
 	path := writeEditFixture(t, dir, "notunique.txt", "abc abc\n")
-	observeEditFixture(exec, path)
+	observeEditFixture(t, exec, path)
 
 	before := readFixtureContent(t, path)
 
@@ -243,12 +246,41 @@ func TestExecutor_EditFile_UnobservedPath(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotObserved)
 }
 
+func TestExecutor_EditFile_RequiresContentObservation(t *testing.T) {
+	t.Parallel()
+
+	exec, dir := newEditTestExecutor(t, Limits{})
+	path := writeEditFixture(t, dir, "listed-only.txt", "abc\n")
+	exec.observe(path)
+
+	_, err := exec.EditFile(context.Background(), EditFileInput{
+		Path:  path,
+		Edits: []TextEdit{{Old: "abc", New: "xyz"}},
+	})
+	require.ErrorIs(t, err, ErrHashRequired)
+}
+
+func TestExecutor_EditFile_RejectsStaleContentObservation(t *testing.T) {
+	t.Parallel()
+
+	exec, dir := newEditTestExecutor(t, Limits{})
+	path := writeEditFixture(t, dir, "stale.txt", "abc\n")
+	observeEditFixture(t, exec, path)
+	require.NoError(t, os.WriteFile(path, []byte("changed\n"), testFileMode))
+
+	_, err := exec.EditFile(context.Background(), EditFileInput{
+		Path:  path,
+		Edits: []TextEdit{{Old: "changed", New: "xyz"}},
+	})
+	require.ErrorIs(t, err, ErrStaleHash)
+}
+
 func TestExecutor_EditFile_BinaryContentRejected(t *testing.T) {
 	t.Parallel()
 
 	exec, dir := newEditTestExecutor(t, Limits{})
 	path := writeEditFixture(t, dir, "binary.bin", "abc\x00def")
-	observeEditFixture(exec, path)
+	observeEditFixture(t, exec, path)
 
 	_, err := exec.EditFile(context.Background(), EditFileInput{
 		Path: path,
@@ -264,7 +296,7 @@ func TestExecutor_EditFile_WriteBoundExceeded(t *testing.T) {
 
 	exec, dir := newEditTestExecutor(t, Limits{MaxWriteBytes: testTinyWriteBytes})
 	path := writeEditFixture(t, dir, "toolarge.txt", "this content is too large\n")
-	observeEditFixture(exec, path)
+	observeEditFixture(t, exec, path)
 
 	_, err := exec.EditFile(context.Background(), EditFileInput{
 		Path: path,
@@ -281,7 +313,7 @@ func TestExecutor_EditFile_ModePreserved(t *testing.T) {
 	exec, dir := newEditTestExecutor(t, Limits{})
 	path := writeEditFixture(t, dir, "mode.txt", "abc\n")
 	require.NoError(t, os.Chmod(path, testFileModeReadWriteOwner))
-	observeEditFixture(exec, path)
+	observeEditFixture(t, exec, path)
 
 	_, err := exec.EditFile(context.Background(), EditFileInput{
 		Path: path,
@@ -301,7 +333,7 @@ func TestExecutor_EditFile_CRLFContent(t *testing.T) {
 
 	exec, dir := newEditTestExecutor(t, Limits{})
 	path := writeEditFixture(t, dir, "crlf.txt", "line1\r\nline2\r\n")
-	observeEditFixture(exec, path)
+	observeEditFixture(t, exec, path)
 
 	output, err := exec.EditFile(context.Background(), EditFileInput{
 		Path: path,
@@ -321,7 +353,7 @@ func TestExecutor_EditFile_MultiByteUnicode(t *testing.T) {
 
 	exec, dir := newEditTestExecutor(t, Limits{})
 	path := writeEditFixture(t, dir, "unicode.txt", "café \U0001F600 world\n")
-	observeEditFixture(exec, path)
+	observeEditFixture(t, exec, path)
 
 	output, err := exec.EditFile(context.Background(), EditFileInput{
 		Path: path,
@@ -341,7 +373,7 @@ func TestExecutor_EditFile_NoTrailingNewline(t *testing.T) {
 
 	exec, dir := newEditTestExecutor(t, Limits{})
 	path := writeEditFixture(t, dir, "notrailing.txt", "abc")
-	observeEditFixture(exec, path)
+	observeEditFixture(t, exec, path)
 
 	output, err := exec.EditFile(context.Background(), EditFileInput{
 		Path: path,
@@ -362,7 +394,7 @@ func TestExecutor_EditFile_DiffTruncated(t *testing.T) {
 	exec, dir := newEditTestExecutor(t, Limits{MaxDiffBytes: testSmallDiffBytes})
 	original := strings.Repeat("filler line\n", 50) + "target\n"
 	path := writeEditFixture(t, dir, "truncated.txt", original)
-	observeEditFixture(exec, path)
+	observeEditFixture(t, exec, path)
 
 	output, err := exec.EditFile(context.Background(), EditFileInput{
 		Path: path,
@@ -380,7 +412,7 @@ func TestExecutor_EditFile_CancelledContext(t *testing.T) {
 
 	exec, dir := newEditTestExecutor(t, Limits{})
 	path := writeEditFixture(t, dir, "cancelled.txt", "abc\n")
-	observeEditFixture(exec, path)
+	observeEditFixture(t, exec, path)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -399,7 +431,7 @@ func TestExecutor_EditFile_SHA256MatchesDisk(t *testing.T) {
 
 	exec, dir := newEditTestExecutor(t, Limits{})
 	path := writeEditFixture(t, dir, "hash.txt", "abc\n")
-	observeEditFixture(exec, path)
+	observeEditFixture(t, exec, path)
 
 	output, err := exec.EditFile(context.Background(), EditFileInput{
 		Path: path,
@@ -447,7 +479,7 @@ func TestExecutor_EditFile_Validation(t *testing.T) {
 
 			exec, dir := newEditTestExecutor(t, Limits{})
 			path := writeEditFixture(t, dir, "placeholder", "abc\n")
-			observeEditFixture(exec, path)
+			observeEditFixture(t, exec, path)
 
 			input := tc.input
 			if input.Path == "placeholder" {
@@ -465,7 +497,7 @@ func TestExecutor_EditFile_MaxEditsExceeded(t *testing.T) {
 
 	exec, dir := newEditTestExecutor(t, Limits{MaxEdits: 1})
 	path := writeEditFixture(t, dir, "maxedits.txt", "abc def\n")
-	observeEditFixture(exec, path)
+	observeEditFixture(t, exec, path)
 
 	_, err := exec.EditFile(context.Background(), EditFileInput{
 		Path: path,

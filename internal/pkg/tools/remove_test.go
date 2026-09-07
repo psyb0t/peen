@@ -182,7 +182,7 @@ func TestRemovePath_RegularFileHashChecks(t *testing.T) {
 			require.NoError(t, os.WriteFile(path, []byte("content"), newFileMode))
 
 			if tc.observe {
-				exec.observe(path)
+				exec.observeContent(path, hashBytes([]byte("content")))
 			}
 
 			_, err := exec.RemovePath(context.Background(), RemovePathInput{
@@ -195,6 +195,26 @@ func TestRemovePath_RegularFileHashChecks(t *testing.T) {
 			require.NoError(t, statErr)
 		})
 	}
+}
+
+func TestRemovePath_RejectsListedOnlyRegularFile(t *testing.T) {
+	t.Parallel()
+
+	exec := newRemovePathTestExecutor(t, Limits{})
+	path := filepath.Join(exec.Workspace(), "listed-only.txt")
+	content := []byte("keep")
+	require.NoError(t, os.WriteFile(path, content, newFileMode))
+	exec.observe(path)
+
+	_, err := exec.RemovePath(context.Background(), RemovePathInput{
+		Path:           path,
+		ExpectedSHA256: hashBytes(content),
+	})
+	require.ErrorIs(t, err, ErrHashRequired)
+
+	written, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	assert.Equal(t, content, written)
 }
 
 func TestRemovePath_EmptyDirectory(t *testing.T) {

@@ -173,6 +173,21 @@ func TestMovePath_MissingObservation(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotObserved)
 }
 
+func TestMovePath_RejectsListedOnlyRegularFile(t *testing.T) {
+	t.Parallel()
+
+	exec := newMovePathTestExecutor(t)
+	source := filepath.Join(exec.Workspace(), "listed-only.txt")
+	require.NoError(t, os.WriteFile(source, []byte("keep"), newFileMode))
+	exec.observe(source)
+
+	_, err := exec.MovePath(context.Background(), MovePathInput{
+		Source:      source,
+		Destination: filepath.Join(exec.Workspace(), "destination.txt"),
+	})
+	require.ErrorIs(t, err, ErrHashRequired)
+}
+
 func TestMovePath_MissingSource(t *testing.T) {
 	t.Parallel()
 
@@ -205,6 +220,23 @@ func TestMovePath_DestinationCollision(t *testing.T) {
 	content, err := os.ReadFile(destination)
 	require.NoError(t, err)
 	assert.Equal(t, "taken", string(content))
+}
+
+func TestRenameNoReplaceNeverReplacesExistingPath(t *testing.T) {
+	t.Parallel()
+
+	directory := t.TempDir()
+	source := filepath.Join(directory, "source.txt")
+	destination := filepath.Join(directory, "destination.txt")
+	require.NoError(t, os.WriteFile(source, []byte("source"), newFileMode))
+	require.NoError(t, os.WriteFile(destination, []byte("keep"), newFileMode))
+
+	err := renameNoReplace(source, destination)
+	require.ErrorIs(t, err, os.ErrExist)
+
+	content, readErr := os.ReadFile(destination)
+	require.NoError(t, readErr)
+	assert.Equal(t, "keep", string(content))
 }
 
 func TestMovePath_ValidationAndCancellation(t *testing.T) {

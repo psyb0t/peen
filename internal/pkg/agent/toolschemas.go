@@ -77,7 +77,8 @@ WHOLE file, not of the window.
 When truncated is true, call again with offset set to the nextOffset.
 Binary files are rejected. Use run_command for those.
 Reading a file is what makes it eligible for write_file, edit_file,
-move_path, and remove_path in this turn.`
+apply_patch, move_path, and remove_path in this turn. A directory listing
+does not count as reading a regular file.`
 
 const readFileSchema = `{
   "type": "object",
@@ -103,6 +104,8 @@ const writeFileDescription = `Create a text file, or replace one.
 This writes the file's entire content.
 Parent directories are created as needed.
 Creating a NEW file needs no expectedSha256 and no prior read.
+The target is checked for absence and creation never replaces a path that
+appears concurrently.
 Replacing an EXISTING file requires reading it first in this turn and
 passing its current expectedSha256. A mismatch means the file changed
 underneath you and the write is refused.
@@ -170,9 +173,35 @@ const editFileSchema = `{
   "additionalProperties": false
 }`
 
+const applyPatchDescription = `Apply one strict multi-file patch.
+Use the Codex patch envelope with *** Begin Patch and *** End Patch.
+Supported actions are *** Add File, *** Update File, *** Delete File, and
+*** Move to on an update. Update hunks use @@ plus exact context, removal,
+and addition lines prefixed with a space, -, or +.
+Existing source files must have been read earlier in this turn. Context is
+matched exactly, including whitespace, and ambiguous matches are rejected.
+Add and move destinations must not exist, and are never overwritten.
+All actions are checked before the first mutation. Individual writes are
+atomic, but a multi-file patch is not globally transactional. If an
+unexpected later operation fails, files lists the operations that completed.
+The result includes a bounded combined diff and hashes for written files.`
+
+const applyPatchSchema = `{
+  "type": "object",
+  "properties": {
+    "patch": {
+      "type": "string",
+      "description": "Complete patch document, including begin and end markers."
+    }
+  },
+  "required": ["patch"],
+  "additionalProperties": false
+}`
+
 const movePathDescription = `Rename one file or directory.
 Also use this to move something between directories.
-The source must have been read or listed in this turn.
+Regular files must have been read in this turn and still match that read.
+Directories and symlinks must have been read or listed in this turn.
 The destination must NOT exist. This tool never overwrites.
 Missing parent directories of the destination are created.`
 
@@ -209,8 +238,9 @@ const makeDirectorySchema = `{
 }`
 
 const removePathDescription = `Remove a file or directory.
-It must have been read or listed earlier in this turn.
-Removing a FILE requires its current expectedSha256.
+Removing a FILE requires reading its contents in this turn and passing its
+current expectedSha256. Listing a regular file is not enough.
+Removing a DIRECTORY or symlink requires reading or listing it first.
 Removing a non-empty DIRECTORY requires recursive true, and no hash.
 A symlink is removed as a link. Its target is left alone.
 Removal is permanent. There is no undo and no trash.`
@@ -251,7 +281,9 @@ stdout and stderr come back separately with the exit status. A non-zero exit
 is a normal result to read and react to, not a tool failure.
 Output is bounded and drops oldest, reporting how many lines it dropped.
 Prefer the file tools for reading and editing. They are bounded and
-report content hashes.`
+report content hashes. Do not use shell redirection, cp, mv, sed -i, or
+similar shell operations for manual file changes. Use the file tools so
+existing files are read first and new destinations cannot be overwritten.`
 
 const runCommandSchema = `{
   "type": "object",

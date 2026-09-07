@@ -11,6 +11,7 @@ var (
 	ErrInvalidSkill         = errors.New("invalid agent skill")
 	ErrInvalidAgent         = errors.New("invalid named agent")
 	ErrInvalidEventHandler  = errors.New("invalid event handler")
+	ErrInvalidHook          = errors.New("invalid hook configuration")
 	ErrResourceLimit        = errors.New("harness resource limit exceeded")
 	ErrSkillNotFound        = errors.New("skill not found")
 	ErrAgentNotFound        = errors.New("agent not found")

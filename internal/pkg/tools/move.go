@@ -50,11 +50,12 @@ func (e *Executor) MovePath(
 func (e *Executor) movePathLocked(
 	source, destination string,
 ) (MovePathOutput, error) {
-	if _, err := os.Lstat(source); err != nil {
+	info, err := os.Lstat(source)
+	if err != nil {
 		return MovePathOutput{}, wrapPathError(err, "stat move source")
 	}
 
-	if err := e.requireObserved(source); err != nil {
+	if err := e.requireMoveObservation(source, info); err != nil {
 		return MovePathOutput{}, err
 	}
 
@@ -67,13 +68,32 @@ func (e *Executor) movePathLocked(
 		return MovePathOutput{}, wrapPathError(err, "create destination parent")
 	}
 
-	if err := os.Rename(source, destination); err != nil {
+	if err := renameNoReplace(source, destination); err != nil {
 		return MovePathOutput{}, wrapPathError(err, "rename path")
 	}
 
 	e.observe(destination)
 
 	return MovePathOutput{Source: source, Destination: destination}, nil
+}
+
+func (e *Executor) requireMoveObservation(
+	source string,
+	info fs.FileInfo,
+) error {
+	if !info.Mode().IsRegular() {
+		return e.requireObserved(source)
+	}
+
+	content, _, err := readRegularFile(
+		source,
+		int64(e.limits.MaxWriteBytes),
+	)
+	if err != nil {
+		return ctxerrors.Wrap(err, "read file before moving it")
+	}
+
+	return e.requireObservedContent(source, content)
 }
 
 // checkDestinationFree rejects a move whose destination already exists,

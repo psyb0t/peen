@@ -120,10 +120,13 @@ func runtimeOptions(
 		CompactionOutputTokens: options.CompactionOutputTokens,
 		CompactionTimeout:      options.CompactionTimeout,
 
-		MaxToolRounds:       options.MaxToolRounds,
-		MaxConcurrentTools:  options.MaxConcurrentTools,
-		ToolTimeout:         options.ToolTimeout,
-		MaxToolResultTokens: options.MaxToolResultTokens,
+		MaxToolRounds:        options.MaxToolRounds,
+		MaxConcurrentTools:   options.MaxConcurrentTools,
+		ToolTimeout:          options.ToolTimeout,
+		MaxToolResultTokens:  options.MaxToolResultTokens,
+		EnableWorkspaceHooks: options.EnableWorkspaceHooks,
+		HookCommandTimeout:   options.HookCommandTimeout,
+		MaxHookCommandOutput: options.MaxHookCommandOutput,
 
 		MaxEventWakesPerHour: options.MaxEventWakesPerHour,
 		Events:               events.NewBus(events.Options{}),

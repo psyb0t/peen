@@ -25,6 +25,7 @@ const (
 
 	hostToolsToolNameReadFile   = "read_file"
 	hostToolsToolNameEditFile   = "edit_file"
+	hostToolsToolNameApplyPatch = "apply_patch"
 	hostToolsToolNameRunCommand = "run_command"
 
 	// hostToolsMessageCount is one user message, three assistant/tool round
@@ -61,6 +62,13 @@ const (
 	hostToolsCommandFileJSON = "host-tools-json-command-output.txt"
 	hostToolsFinalAnswerJSON = "host tools turn complete"
 
+	hostToolsFixtureFilePatch = "host-tools-patch-fixture.txt"
+	hostToolsContentPatch     = "alpha\nTOOLS_PATCH_MARKER\nomega\n"
+	hostToolsEditedPatch      = "alpha\nTOOLS_PATCH_REPLACED\nomega\n"
+	hostToolsEditOldPatch     = "TOOLS_PATCH_MARKER"
+	hostToolsEditNewPatch     = "TOOLS_PATCH_REPLACED"
+	hostToolsCommandFilePatch = "host-tools-patch-command-output.txt"
+
 	hostToolsFixtureFileSSE = "host-tools-sse-fixture.txt"
 	hostToolsContentSSE     = "alpha\nTOOLS_SSE_MARKER\nomega\n"
 	hostToolsEditedSSE      = "alpha\nTOOLS_SSE_REPLACED\nomega\n"
@@ -85,6 +93,7 @@ type hostToolsScenario struct {
 	editOld            string
 	editNew            string
 	editIsError        bool
+	useApplyPatch      bool
 	wantFixtureContent string
 	commandFileName    string
 	finalAnswer        string
@@ -111,6 +120,17 @@ func TestAPIHostToolsProductionWiring(t *testing.T) {
 		wantFixtureContent: hostToolsEditedJSON,
 		commandFileName:    hostToolsCommandFileJSON,
 		finalAnswer:        hostToolsFinalAnswerJSON,
+	})
+
+	runHostToolsScenario(t, hostToolsScenario{
+		fixtureFileName:    hostToolsFixtureFilePatch,
+		fixtureContent:     hostToolsContentPatch,
+		editOld:            hostToolsEditOldPatch,
+		editNew:            hostToolsEditNewPatch,
+		wantFixtureContent: hostToolsEditedPatch,
+		commandFileName:    hostToolsCommandFilePatch,
+		finalAnswer:        hostToolsFinalAnswerJSON,
+		useApplyPatch:      true,
 	})
 
 	sseResult := runHostToolsScenario(t, hostToolsScenario{
@@ -152,7 +172,7 @@ func runHostToolsScenario(
 	commandPath := hostToolsContainerPath(scenario.commandFileName)
 	seedContainerFile(t, fixturePath, scenario.fixtureContent)
 
-	integrationInfra.EnableScriptedToolTurn(testinfra.ScriptedToolTurn{
+	scriptedTurn := testinfra.ScriptedToolTurn{
 		ReadFileArguments: map[string]any{
 			"path": fixturePath,
 		},
@@ -170,7 +190,23 @@ func runHostToolsScenario(
 			"purpose": "write the marker file this test checks for",
 		},
 		FinalAnswer: scenario.finalAnswer,
-	})
+	}
+	if scenario.useApplyPatch {
+		scriptedTurn.EditFileArguments = nil
+		scriptedTurn.ApplyPatchArguments = map[string]any{
+			"patch": strings.Join([]string{
+				"*** Begin Patch",
+				"*** Update File: " + fixturePath,
+				"@@",
+				" alpha",
+				"-" + scenario.editOld,
+				"+" + scenario.editNew,
+				" omega",
+				"*** End Patch",
+			}, "\n"),
+		}
+	}
+	integrationInfra.EnableScriptedToolTurn(scriptedTurn)
 
 	result := runHostToolsTurn(t, scenario.useSSE)
 
@@ -183,7 +219,11 @@ func runHostToolsScenario(
 		t, scenario.fixtureFileName, scenario.wantFixtureContent,
 	)
 	assertHostToolsTranscript(
-		t, result.sessionID, scenario.editIsError, result.finalText,
+		t,
+		result.sessionID,
+		scenario.editIsError,
+		scenario.useApplyPatch,
+		result.finalText,
 	)
 
 	return result
@@ -317,6 +357,7 @@ func assertHostToolsTranscript(
 	t *testing.T,
 	sessionID uuid.UUID,
 	editIsError bool,
+	useApplyPatch bool,
 	finalAnswer string,
 ) {
 	t.Helper()
@@ -331,10 +372,27 @@ func assertHostToolsTranscript(
 		t, messages[1], messages[2],
 		hostToolsToolNameReadFile, testinfra.ScriptedCallIDReadFile, false,
 	)
+	mutationToolName := hostToolsToolNameEditFile
+	mutationCallID := testinfra.ScriptedCallIDEditFile
+	if useApplyPatch {
+		mutationToolName = hostToolsToolNameApplyPatch
+		mutationCallID = testinfra.ScriptedCallIDApplyPatch
+	}
 	assertToolRound(
-		t, messages[3], messages[4],
-		hostToolsToolNameEditFile, testinfra.ScriptedCallIDEditFile, editIsError,
+		t,
+		messages[3],
+		messages[4],
+		mutationToolName,
+		mutationCallID,
+		editIsError,
 	)
+	if useApplyPatch {
+		var output struct {
+			Files []json.RawMessage `json:"files"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(messages[4].Content), &output))
+		require.Len(t, output.Files, 1)
+	}
 	assertToolRound(
 		t, messages[5], messages[6],
 		hostToolsToolNameRunCommand, testinfra.ScriptedCallIDRunCommand, false,

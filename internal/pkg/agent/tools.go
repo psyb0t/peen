@@ -19,6 +19,7 @@ const (
 	toolNameReadFile      = "read_file"
 	toolNameWriteFile     = "write_file"
 	toolNameEditFile      = "edit_file"
+	toolNameApplyPatch    = "apply_patch"
 	toolNameMovePath      = "move_path"
 	toolNameMakeDirectory = "make_directory"
 	toolNameRemovePath    = "remove_path"
@@ -105,6 +106,7 @@ func mutatingHostTools(
 			executor.EditFile,
 			onPostRun,
 		),
+		applyPatchTool(executor, onPostRun),
 		hostTool(
 			toolNameMovePath,
 			movePathDescription,
@@ -133,6 +135,64 @@ func mutatingHostTools(
 			executor.RunCommand,
 			onPostRun,
 		),
+	}
+}
+
+func applyPatchTool(
+	executor *tools.JobExecutor,
+	onPostRun elelem.MessageInjector,
+) elelem.Tool {
+	return elelem.Tool{
+		Name:                   toolNameApplyPatch,
+		Description:            applyPatchDescription,
+		ArgumentsSchema:        json.RawMessage(applyPatchSchema),
+		Handler:                applyPatchToolHandler(executor.ApplyPatch),
+		PostRunMessageInjector: onPostRun,
+	}
+}
+
+func applyPatchToolHandler(
+	run func(
+		context.Context,
+		tools.ApplyPatchInput,
+	) (tools.ApplyPatchOutput, error),
+) elelem.ToolHandler {
+	return func(
+		ctx context.Context,
+		call elelem.ToolInput,
+	) (elelem.ToolResult, error) {
+		ctx = tools.ContextWithToolCallID(ctx, call.CallID)
+		ctx = contextWithParentToolCallID(ctx, call.CallID)
+
+		var input tools.ApplyPatchInput
+		if err := decodeToolArguments(call.Arguments, &input); err != nil {
+			return elelem.NewToolErrorResult(toolErrorMessage(err)), nil
+		}
+
+		output, err := run(ctx, input)
+		if err != nil {
+			if isTurnEndingError(err) {
+				return elelem.ToolResult{}, ctxerrors.Wrap(
+					err,
+					"run apply patch tool",
+				)
+			}
+
+			output.Error = toolErrorMessage(err)
+		}
+
+		encoded, marshalErr := json.Marshal(output)
+		if marshalErr != nil {
+			return elelem.ToolResult{}, ctxerrors.Wrap(
+				marshalErr,
+				"marshal apply patch result",
+			)
+		}
+
+		return elelem.ToolResult{
+			Content: string(encoded),
+			IsError: err != nil,
+		}, nil
 	}
 }
 

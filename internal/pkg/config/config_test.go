@@ -109,6 +109,9 @@ func TestParseUsesFixedEnvironmentBindings(t *testing.T) {
 	t.Setenv("PEEN_MAX_MESSAGE_BYTES", "131072")
 	t.Setenv("PEEN_MAX_SYSTEM_PROMPT_BYTES", "32768")
 	t.Setenv("PEEN_MAX_STORED_MESSAGE_BYTES", "524288")
+	t.Setenv("PEEN_ENABLE_WORKSPACE_HOOKS", "true")
+	t.Setenv("PEEN_HOOK_COMMAND_TIMEOUT", "20s")
+	t.Setenv("PEEN_MAX_HOOK_COMMAND_OUTPUT", "8192")
 
 	config, err := Parse()
 	require.NoError(t, err)
@@ -126,6 +129,9 @@ func TestParseUsesFixedEnvironmentBindings(t *testing.T) {
 	assert.Equal(t, 131072, config.MaxMessageBytes)
 	assert.Equal(t, 32768, config.MaxSystemPromptBytes)
 	assert.Equal(t, 524288, config.MaxStoredMessageBytes)
+	assert.True(t, config.EnableWorkspaceHooks)
+	assert.Equal(t, 20*time.Second, config.HookCommandTimeout)
+	assert.Equal(t, 8192, config.MaxHookCommandOutput)
 
 	upstreams, err := config.Upstreams()
 	require.NoError(t, err)
@@ -182,6 +188,8 @@ func testConfig(t *testing.T) Config {
 		ToolMaxCommandOutputBytes: 65536,
 		ToolCommandTimeout:        2 * time.Minute,
 		ToolMaxCommandTimeout:     15 * time.Minute,
+		HookCommandTimeout:        30 * time.Second,
+		MaxHookCommandOutput:      65536,
 		MaxPendingEvents:          256,
 		MaxEventSummaryBytes:      4096,
 		MaxEventDataBytes:         65536,
@@ -209,6 +217,8 @@ func clearToolBounds(c *Config) {
 	c.ToolMaxCommandOutputBytes = 0
 	c.ToolCommandTimeout = 0
 	c.ToolMaxCommandTimeout = 0
+	c.HookCommandTimeout = 0
+	c.MaxHookCommandOutput = 0
 	c.MaxPendingEvents = 0
 	c.MaxEventSummaryBytes = 0
 	c.MaxEventDataBytes = 0
@@ -253,6 +263,24 @@ func TestConfigValidateToolLimits(t *testing.T) {
 		{
 			name:    "negative command timeout",
 			mutate:  func(c *Config) { c.ToolCommandTimeout = -1 },
+			wantErr: true,
+		},
+		{
+			name:    "negative hook command timeout",
+			mutate:  func(c *Config) { c.HookCommandTimeout = -1 },
+			wantErr: true,
+		},
+		{
+			name:    "negative hook command output limit",
+			mutate:  func(c *Config) { c.MaxHookCommandOutput = -1 },
+			wantErr: true,
+		},
+		{
+			name: "hook command timeout outlives the harness tool timeout",
+			mutate: func(c *Config) {
+				c.ToolTimeout = time.Minute
+				c.HookCommandTimeout = time.Hour
+			},
 			wantErr: true,
 		},
 		{

@@ -103,6 +103,15 @@ type Options struct {
 	// MaxToolResultTokens bounds one tool result before it enters context.
 	// Zero takes the internal default.
 	MaxToolResultTokens int
+	// EnableWorkspaceHooks opts into executable hook actions from workspace
+	// .agents/hooks.yaml files. Config-directory hooks always run.
+	EnableWorkspaceHooks bool
+	// HookCommandTimeout bounds one executable hook action. Zero takes the
+	// internal default.
+	HookCommandTimeout time.Duration
+	// MaxHookCommandOutput bounds stdout or stderr from an executable hook
+	// action. Zero takes the internal default.
+	MaxHookCommandOutput int
 
 	// MaxEventWakesPerHour bounds how often an external event may start a
 	// turn for one session. Zero or negative disables the bound.

@@ -30,6 +30,8 @@ const (
 
 // Config is the deployment-owned configuration. Provider credentials stay in
 // individually named environment variables, never inside PEEN_UPSTREAMS.
+//
+//nolint:tagalign // Preserve the YAML-first tag convention.
 type Config struct {
 	ConfigDirectory  string `env:"PEEN_CONFIG_DIR,required"`
 	WorkingDirectory string `env:"PEEN_WORKING_DIR"`
@@ -60,10 +62,13 @@ type Config struct {
 	MaxSystemPromptBytes  int `default:"65536"   env:"PEEN_MAX_SYSTEM_PROMPT_BYTES"`  //nolint:lll // Immutable env tag.
 	MaxStoredMessageBytes int `default:"1048576" env:"PEEN_MAX_STORED_MESSAGE_BYTES"` //nolint:lll // Immutable env tag.
 
-	MaxToolRounds       int           `default:"32"   env:"PEEN_MAX_TOOL_ROUNDS"`        //nolint:lll // Immutable env tag.
-	MaxConcurrentTools  int           `default:"4"    env:"PEEN_MAX_CONCURRENT_TOOLS"`   //nolint:lll // Immutable env tag.
-	ToolTimeout         time.Duration `default:"15m"  env:"PEEN_TOOL_TIMEOUT"`           //nolint:lll // Immutable env tag.
-	MaxToolResultTokens int           `default:"8192" env:"PEEN_MAX_TOOL_RESULT_TOKENS"` //nolint:lll // Immutable env tag.
+	MaxToolRounds        int           `default:"32"   env:"PEEN_MAX_TOOL_ROUNDS"`          //nolint:lll // Immutable env tag.
+	MaxConcurrentTools   int           `default:"4"    env:"PEEN_MAX_CONCURRENT_TOOLS"`     //nolint:lll // Immutable env tag.
+	ToolTimeout          time.Duration `default:"15m"  env:"PEEN_TOOL_TIMEOUT"`             //nolint:lll // Immutable env tag.
+	MaxToolResultTokens  int           `default:"8192" env:"PEEN_MAX_TOOL_RESULT_TOKENS"`   //nolint:lll // Immutable env tag.
+	EnableWorkspaceHooks bool          `default:"false" env:"PEEN_ENABLE_WORKSPACE_HOOKS"`  //nolint:lll // Immutable env tag.
+	HookCommandTimeout   time.Duration `default:"30s" env:"PEEN_HOOK_COMMAND_TIMEOUT"`      //nolint:lll // Immutable env tag.
+	MaxHookCommandOutput int           `default:"65536" env:"PEEN_MAX_HOOK_COMMAND_OUTPUT"` //nolint:lll // Immutable env tag.
 
 	ToolMaxListEntries        int           `default:"1000"    env:"PEEN_TOOL_MAX_LIST_ENTRIES"`         //nolint:lll // Immutable env tag.
 	ToolMaxListDepth          int           `default:"16"      env:"PEEN_TOOL_MAX_LIST_DEPTH"`           //nolint:lll // Immutable env tag.
@@ -204,6 +209,7 @@ func (c Config) validateToolLimits() error {
 		c.MaxToolRounds,
 		c.MaxConcurrentTools,
 		c.MaxToolResultTokens,
+		c.MaxHookCommandOutput,
 		c.ToolMaxListEntries,
 		c.ToolMaxListDepth,
 		c.ToolMaxSearchMatches,
@@ -233,10 +239,12 @@ func (c Config) validateToolLimits() error {
 	return c.validateToolTimeouts()
 }
 
+//nolint:cyclop // Each timeout relationship needs an explicit validation error.
 func (c Config) validateToolTimeouts() error {
 	if c.ToolTimeout < 0 ||
 		c.ToolCommandTimeout < 0 ||
-		c.ToolMaxCommandTimeout < 0 {
+		c.ToolMaxCommandTimeout < 0 ||
+		c.HookCommandTimeout < 0 {
 		return ctxerrors.Wrap(ErrInvalidConfig, "tool timeout is negative")
 	}
 
@@ -256,6 +264,13 @@ func (c Config) validateToolTimeouts() error {
 		return ctxerrors.Wrap(
 			ErrInvalidConfig,
 			"maximum command timeout exceeds the tool timeout",
+		)
+	}
+
+	if c.ToolTimeout > 0 && c.HookCommandTimeout > c.ToolTimeout {
+		return ctxerrors.Wrap(
+			ErrInvalidConfig,
+			"hook command timeout exceeds the tool timeout",
 		)
 	}
 
