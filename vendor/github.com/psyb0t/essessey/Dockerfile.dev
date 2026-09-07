@@ -1,0 +1,33 @@
+# Development / CI tooling image for essessey.
+#
+# All Go tooling (lint, test, sec, generate) runs inside this image so a clean
+# host needs only Docker, and the toolchain is pinned here rather than drifting
+# with a loose setup-go version. The workspace is mounted at run time (see the
+# Makefile DEV_RUN wrapper), not baked in, so the image is reused without a
+# rebuild per change.
+FROM golang:1.26.6-alpine@sha256:3889b425f035be855a72fb4755265311293b6d414521f0a519d819df32222d83
+
+# gcc/musl-dev: cgo and the race detector. git/make/bash/jq: the make targets
+# and tooling scripts. python3/pip: semgrep (the SAST half of `make sec`), kept
+# in its own venv so its dependencies never touch anything else.
+RUN apk add --no-cache \
+	bash \
+	ca-certificates \
+	gcc \
+	git \
+	jq \
+	make \
+	musl-dev \
+	python3 \
+	py3-pip
+
+# govulncheck: the vulnerability-scan half of `make sec`.
+RUN go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+
+# semgrep in an isolated venv, reached through a symlink on PATH.
+ARG SEMGREP_VERSION=1.173.0
+RUN python3 -m venv /opt/semgrep \
+	&& /opt/semgrep/bin/pip install --no-cache-dir "semgrep==${SEMGREP_VERSION}" \
+	&& ln -sf /opt/semgrep/bin/semgrep /usr/local/bin/semgrep
+
+WORKDIR /app

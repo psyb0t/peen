@@ -1,0 +1,11 @@
+title = "essessey secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Local scratch and vendored deps — never committed"
+paths = [
+  '''(^|/)\.plan-and-delegate(?:/|$)''',
+  '''(^|/)vendor(?:/|$)''',
+]

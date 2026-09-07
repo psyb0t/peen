@@ -1,0 +1,14 @@
+.agents/
+.agent_notes/
+.agent_knowledge/
+.anustimes/
+.backup/
+.brutal_reviews/
+.plan-and-delegate/
+.research_files/
+.rule_audits/
+.secaudit/
+.telemetry/
+.testing/
+build/
+vendor/

@@ -1,0 +1,12 @@
+DROP INDEX IF EXISTS compactions_session_to_sequence_id_index;
+DROP TABLE IF EXISTS compactions;
+DROP INDEX IF EXISTS events_session_sequence_id_index;
+DROP TABLE IF EXISTS events;
+DROP INDEX IF EXISTS messages_turn_sequence_id_index;
+DROP INDEX IF EXISTS messages_session_sequence_id_index;
+DROP TABLE IF EXISTS messages;
+DROP INDEX IF EXISTS turns_session_state_id_index;
+DROP TABLE IF EXISTS turns;
+DROP TABLE IF EXISTS prompt_snapshots;
+DROP TABLE IF EXISTS context_snapshots;
+DROP TABLE IF EXISTS sessions;

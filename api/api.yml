@@ -1,0 +1,973 @@
+openapi: 3.1.0
+info:
+  title: Peen API
+  version: 0.1.0
+  description: Stateful agent sessions over JSON or Server-Sent Events.
+servers:
+  - url: /v1
+security:
+  - bearerAuth: []
+  - {}
+paths:
+  /messages:
+    post:
+      operationId: sendMessage
+      summary: Run one agent turn
+      parameters:
+        - $ref: '#/components/parameters/SessionIDOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageRequest'
+      responses:
+        '200':
+          description: Completed turn or live turn event stream
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageResponse'
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '406':
+          $ref: '#/components/responses/ErrorNotAcceptable'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+    get:
+      operationId: listMessages
+      summary: List stored conversation messages
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+        - $ref: '#/components/parameters/Order'
+      responses:
+        '200':
+          description: Message page
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessagePage'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session:
+    get:
+      operationId: getSession
+      summary: Read session details
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+      responses:
+        '200':
+          description: Session details
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/cancel:
+    post:
+      operationId: cancelSession
+      summary: Request cancellation for the active turn
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+      responses:
+        '202':
+          description: Cancellation request accepted
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelResponse'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/events:
+    get:
+      operationId: listSessionEvents
+      summary: List the session's pending events
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+      responses:
+        '200':
+          description: Pending events
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionEventPage'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+    post:
+      operationId: publishSessionEvent
+      summary: Report an event to the session from outside
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionEventRequest'
+      responses:
+        '202':
+          description: Event accepted
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionEvent'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/jobs:
+    get:
+      operationId: listSessionJobs
+      summary: List the commands this session has started
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [running, exited, signalled, failed]
+      responses:
+        '200':
+          description: Process jobs
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobPage'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/jobs/{jobId}/output:
+    get:
+      operationId: readSessionJobOutput
+      summary: Read a bounded window of one job's output
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/JobID'
+        - name: stream
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [stdout, stderr, both]
+            default: both
+        - name: stdoutCursor
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            default: 0
+        - name: stderrCursor
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            default: 0
+        - name: maxLines
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 2000
+            default: 500
+      responses:
+        '200':
+          description: Job output window
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobOutput'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/jobs/{jobId}/signal:
+    post:
+      operationId: signalSessionJob
+      summary: Stop one running job
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/JobID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobSignalRequest'
+      responses:
+        '202':
+          description: Signal accepted
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobSignalResponse'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/agents:
+    get:
+      operationId: listSessionAgentRuns
+      summary: List the child agent runs this session has started
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [running, completed, failed, cancelled]
+      responses:
+        '200':
+          description: Agent runs
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRunPage'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/agents/{agentRunId}/messages:
+    get:
+      operationId: listSessionAgentRunEvents
+      summary: Follow what one child agent run is doing
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/AgentRunID'
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        '200':
+          description: Agent run events
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRunEventPage'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/agents/{agentRunId}/cancel:
+    post:
+      operationId: cancelSessionAgentRun
+      summary: Cancel one child agent run without ending its parent turn
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/AgentRunID'
+      responses:
+        '202':
+          description: Cancellation request accepted
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRunCancelResponse'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API key
+  headers:
+    SessionID:
+      description: Created or resumed session UUID.
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RequestID:
+      description: Request correlation UUID.
+      required: true
+      schema:
+        type: string
+        format: uuid
+  parameters:
+    SessionIDOptional:
+      name: X-Session-ID
+      in: header
+      required: false
+      schema:
+        type: string
+        format: uuid
+    SessionIDRequired:
+      name: X-Session-ID
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AgentRunID:
+      name: agentRunId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    JobID:
+      name: jobId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 200
+        default: 50
+    Offset:
+      name: offset
+      in: query
+      required: false
+      schema:
+        type: integer
+        format: int32
+        minimum: 0
+        default: 0
+    Order:
+      name: order
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [asc, desc]
+        default: asc
+  responses:
+    ErrorBadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ErrorUnauthorized:
+      description: Authentication failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ErrorNotFound:
+      description: Session not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ErrorNotAcceptable:
+      description: Unsupported response representation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ErrorConflict:
+      description: Turn cannot run in its current state
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ErrorInternal:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    MessageRequest:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message:
+          type: string
+          minLength: 1
+        workspace:
+          type: string
+          minLength: 1
+        model:
+          type: string
+          minLength: 1
+        systemPrompt:
+          $ref: '#/components/schemas/SystemPrompt'
+    SystemPrompt:
+      type: object
+      additionalProperties: false
+      required: [mode, content]
+      properties:
+        mode:
+          type: string
+          enum: [append, replace]
+        content:
+          type: string
+          minLength: 1
+    MessageResponse:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message:
+          type: string
+    Message:
+      type: object
+      additionalProperties: false
+      required: [id, sequence, role, content, workspace, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sequence:
+          type: integer
+          format: int64
+          minimum: 1
+        role:
+          type: string
+          enum: [user, assistant, tool]
+        content:
+          type: string
+        workspace:
+          type: string
+        model:
+          type: [string, 'null']
+        thinking:
+          type: [string, 'null']
+        toolCalls:
+          type: [array, 'null']
+          items:
+            $ref: '#/components/schemas/MessageToolCall'
+        toolCallId:
+          type: [string, 'null']
+        isError:
+          type: boolean
+        incomplete:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+    MessageToolCall:
+      type: object
+      additionalProperties: false
+      required: [id, name, arguments]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        arguments:
+          type: object
+          additionalProperties: true
+    MessagePage:
+      type: object
+      additionalProperties: false
+      required: [items, limit, offset, hasMore]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Message'
+        limit:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 200
+        offset:
+          type: integer
+          format: int32
+          minimum: 0
+        hasMore:
+          type: boolean
+    Session:
+      type: object
+      additionalProperties: false
+      required:
+        [id, createdAt, updatedAt, messageCount, completedTurnCount, activeTurn, agent, model]
+      properties:
+        id:
+          type: string
+          format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        lastMessageAt:
+          type: [string, 'null']
+          format: date-time
+        messageCount:
+          type: integer
+          format: int64
+          minimum: 0
+        completedTurnCount:
+          type: integer
+          format: int64
+          minimum: 0
+        activeTurn:
+          type: boolean
+        agent:
+          type: string
+        model:
+          type: string
+    CancelResponse:
+      type: object
+      additionalProperties: false
+      required: [cancelRequested]
+      properties:
+        cancelRequested:
+          type: boolean
+    AgentRun:
+      type: object
+      additionalProperties: false
+      required:
+        [agentRunId, name, definition, depth, state, startedAt,
+         eventBufferedCount, eventDroppedCount]
+      properties:
+        agentRunId:
+          type: string
+          format: uuid
+        name:
+          description: The agent's name. Identification only for an ad-hoc run.
+          type: string
+        definition:
+          description: Whether the agent came from a file or was defined inline.
+          type: string
+          enum: [stored, adhoc]
+        parentToolCallId:
+          type: string
+        depth:
+          description: Nesting level. The root turn is 0.
+          type: integer
+          format: int32
+        state:
+          type: string
+          enum: [running, completed, failed, cancelled]
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+        eventBufferedCount:
+          type: integer
+          format: int32
+        eventDroppedCount:
+          description: Events evicted because the bounded buffer filled.
+          type: integer
+          format: int32
+    AgentRunPage:
+      type: object
+      additionalProperties: false
+      required: [agents, hasMore]
+      properties:
+        agents:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentRun'
+        hasMore:
+          type: boolean
+    AgentRunEvent:
+      type: object
+      additionalProperties: false
+      required: [sequence, type, createdAt]
+      properties:
+        sequence:
+          type: integer
+          format: int32
+        type:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+        createdAt:
+          type: string
+          format: date-time
+    AgentRunEventPage:
+      type: object
+      additionalProperties: false
+      required: [agentRunId, state, events, nextCursor, dropped]
+      properties:
+        agentRunId:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum: [running, completed, failed, cancelled]
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentRunEvent'
+        nextCursor:
+          description: Pass back as cursor to continue from here.
+          type: integer
+          format: int32
+        dropped:
+          description: Events dropped before this window.
+          type: integer
+          format: int32
+    AgentRunCancelResponse:
+      type: object
+      additionalProperties: false
+      required: [agentRunId, cancelRequested, state]
+      properties:
+        agentRunId:
+          type: string
+          format: uuid
+        cancelRequested:
+          description: >-
+            True when this request found a running agent and signalled it.
+            Cancelling an unknown, completed, or already cancelled run is not
+            an error and reports false with the current state.
+          type: boolean
+        state:
+          type: string
+          enum: [running, completed, failed, cancelled]
+    Job:
+      type: object
+      additionalProperties: false
+      required:
+        [jobId, pid, purpose, command, directory, state, startedAt, exitCode,
+         stdoutBufferedLines, stdoutDroppedLines, stderrBufferedLines,
+         stderrDroppedLines]
+      properties:
+        jobId:
+          type: string
+          format: uuid
+        pid:
+          description: Operating-system process ID of the job's shell.
+          type: integer
+          format: int32
+        purpose:
+          description: Why the agent said it was running this command.
+          type: string
+        command:
+          type: string
+        directory:
+          type: string
+        toolCallId:
+          description: The tool call that started this job.
+          type: string
+        state:
+          type: string
+          enum: [running, exited, signalled, failed]
+        startedAt:
+          type: string
+          format: date-time
+        endedAt:
+          type: string
+          format: date-time
+        exitCode:
+          description: Exit status once known, or -1 while it is not.
+          type: integer
+          format: int32
+        stdoutBufferedLines:
+          type: integer
+          format: int32
+        stdoutDroppedLines:
+          description: Lines evicted because the bounded buffer filled.
+          type: integer
+          format: int32
+        stderrBufferedLines:
+          type: integer
+          format: int32
+        stderrDroppedLines:
+          type: integer
+          format: int32
+    JobPage:
+      type: object
+      additionalProperties: false
+      required: [jobs, truncated]
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/Job'
+        truncated:
+          type: boolean
+    JobOutput:
+      type: object
+      additionalProperties: false
+      required:
+        [jobId, state, stdout, stderr, nextStdoutCursor, nextStderrCursor,
+         stdoutDroppedLines, stderrDroppedLines]
+      properties:
+        jobId:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum: [running, exited, signalled, failed]
+        stdout:
+          type: string
+        stderr:
+          type: string
+        nextStdoutCursor:
+          description: Pass back as stdoutCursor to continue from here.
+          type: integer
+          format: int32
+        nextStderrCursor:
+          type: integer
+          format: int32
+        stdoutDroppedLines:
+          type: integer
+          format: int32
+        stderrDroppedLines:
+          type: integer
+          format: int32
+    JobSignalRequest:
+      type: object
+      additionalProperties: false
+      required: [signal]
+      properties:
+        signal:
+          description: >-
+            stop sends SIGTERM to the process group then escalates to SIGKILL.
+            kill goes straight to SIGKILL.
+          type: string
+          enum: [stop, kill]
+    JobSignalResponse:
+      type: object
+      additionalProperties: false
+      required: [jobId, signalled, state]
+      properties:
+        jobId:
+          type: string
+          format: uuid
+        signalled:
+          description: >-
+            True when this request found a running job and signalled it.
+            Signalling an unknown, exited, or already signalled job is not an
+            error and reports false with the current state.
+          type: boolean
+        state:
+          type: string
+          enum: [running, exited, signalled, failed]
+    SessionEventRequest:
+      type: object
+      additionalProperties: false
+      required: [type, summary]
+      properties:
+        type:
+          description: >-
+            Dotted lowercase namespaced type. The job. and agent. prefixes are
+            reserved for Peen's own producers and are rejected here.
+          type: string
+          minLength: 1
+          maxLength: 128
+        summary:
+          description: The one line describing what happened.
+          type: string
+          minLength: 1
+        data:
+          description: Structured payload for programmatic consumers.
+          type: object
+          additionalProperties: true
+        delivery:
+          description: >-
+            queue waits for the next turn. wake starts a turn when the session
+            is idle and .agents/events declares a handler for this type.
+          type: string
+          enum: [queue, wake]
+          default: queue
+    SessionEvent:
+      type: object
+      additionalProperties: false
+      required: [id, type, source, summary, delivery, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        source:
+          type: string
+        summary:
+          type: string
+        data:
+          type: object
+          additionalProperties: true
+        delivery:
+          type: string
+          enum: [queue, wake]
+        createdAt:
+          type: string
+          format: date-time
+    SessionEventPage:
+      type: object
+      additionalProperties: false
+      required: [events, dropped]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionEvent'
+        dropped:
+          description: Events dropped before these because the queue was full.
+          type: integer
+          format: int32
+    Error:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true

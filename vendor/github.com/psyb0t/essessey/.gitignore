@@ -1,0 +1,24 @@
+.vscode
+.env
+# Root-anchored so it hides the generated coverage.txt/out but NOT the tracked
+# scripts/test-coverage.sh helper.
+/coverage.*
+*.out
+sec.sarif
+CLAUDE.md
+.test*
+.research_files
+.agent_notes
+.anustimes
+.brutal_reviews
+.plan-and-delegate
+ANUSTIMES.md
+.telemetry/
+coverage-percent.txt
+git-update.sh
+# Written by local tooling to exclude its own scratch dirs from a build
+# context. This module ships no Dockerfile, so the file has no meaning here.
+.dockerignore
+.anustimes/
+.brutal_reviews/
+.plan-and-delegate/
