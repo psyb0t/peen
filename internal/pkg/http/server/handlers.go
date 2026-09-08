@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/events"
@@ -40,6 +41,10 @@ func (s *Server) SendMessage(
 			return nil, ctxerrors.Wrap(err, "stream agent message")
 		}
 
+		if stream.Queued {
+			return queuedMessageResponse(stream.SessionID, requestID(ctx)), nil
+		}
+
 		return api.SendMessage200TexteventStreamResponse{
 			Body: stream.Body,
 			Headers: api.SendMessage200ResponseHeaders{
@@ -63,6 +68,10 @@ func (s *Server) SendMessage(
 		return nil, ctxerrors.Wrap(err, "send agent message")
 	}
 
+	if result.Queued {
+		return queuedMessageResponse(result.SessionID, requestID(ctx)), nil
+	}
+
 	return api.SendMessage200JSONResponse{
 		Body: result.Response,
 		Headers: api.SendMessage200ResponseHeaders{
@@ -70,6 +79,19 @@ func (s *Server) SendMessage(
 			XSessionID: result.SessionID,
 		},
 	}, nil
+}
+
+func queuedMessageResponse(
+	sessionID uuid.UUID,
+	requestID uuid.UUID,
+) api.SendMessage202JSONResponse {
+	return api.SendMessage202JSONResponse{
+		Body: api.MessageQueuedResponse{Queued: true},
+		Headers: api.SendMessage202ResponseHeaders{
+			XRequestID: requestID,
+			XSessionID: sessionID,
+		},
+	}
 }
 
 // ListMessages returns one stable bounded durable transcript page.

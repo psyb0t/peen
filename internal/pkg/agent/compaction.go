@@ -11,6 +11,7 @@ import (
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -44,6 +45,7 @@ type summarizeFunc func(context.Context, string) (compactionSummary, error)
 type compactionOptions struct {
 	Store           *session.Store
 	Models          ModelResolver
+	Metrics         *metrics.Metrics
 	ModelReference  string
 	Prompt          string
 	PromptHash      string
@@ -392,6 +394,7 @@ func (c *compactor) callModel(
 		WithSystem(c.options.Prompt).
 		UserText(transcript)
 
+	startedAt := time.Now()
 	response, err := elelem.NewRequest(model.Client).
 		WithModel(model.Model).
 		WithPrompt(prompt).
@@ -399,6 +402,18 @@ func (c *compactor) callModel(
 		WithTimeout(c.options.Timeout).
 		PreMaxTokensReached(rejectCompactionBudget).
 		Run(ctx)
+
+	observeModelRequest(
+		c.options.Metrics,
+		modelMetricStageCompaction,
+		modelMetricFunctionCompaction,
+		c.options.ModelReference,
+		startedAt,
+		time.Time{},
+		response,
+		err,
+	)
+
 	if err != nil {
 		return compactionSummary{}, ctxerrors.Wrap(
 			err,

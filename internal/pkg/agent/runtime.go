@@ -21,6 +21,7 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/tools"
 )
@@ -36,14 +37,22 @@ type Runtime struct {
 	maxContextTokens int
 	turnTimeout      time.Duration
 	baseSystemPrompt string
+	now              func() time.Time
 
-	maxSystemPromptBytes int
-	maxMessageBytes      int
+	maxSystemPromptBytes  int
+	maxMessageBytes       int
+	maxQueuedUserMessages int
 
 	// turnSlots bounds concurrent turns across every session. A nil channel
 	// disables the bound, which is what an embedding caller that wants none
 	// gets.
 	turnSlots chan struct{}
+
+	// userMessageQueues guards one bounded Elelem queue for each currently
+	// running session turn. It is deliberately process local because Elelem
+	// owns delivery only inside that request loop.
+	userMessageQueuesMutex sync.Mutex
+	userMessageQueues      map[uuid.UUID]*activeUserMessageQueue
 
 	compactionMode    config.CompactionMode
 	compactionOptions compactionOptions
@@ -57,6 +66,7 @@ type Runtime struct {
 	hookCommandTimeout   time.Duration
 	maxHookCommandOutput int
 	eventBus             *events.Bus
+	metrics              *metrics.Metrics
 	wakes                *wakeLimiter
 
 	// jobsMutex guards jobs. A job registry is per SESSION, not per turn,
@@ -129,21 +139,19 @@ type preparedTurn struct {
 	pendingEvents string
 	snapshot      harness.Snapshot
 	toolHooks     *toolHookRuntime
+	userMessages  *activeUserMessageQueue
 }
 
 // NewRuntime validates the dependencies shared by every Peen turn.
+//
+//nolint:funlen // Option mapping stays together.
 func NewRuntime(options RuntimeOptions) (*Runtime, error) {
 	if err := options.validate(); err != nil {
 		return nil, err
 	}
 
-	if options.BaseSystemPrompt == "" {
-		deploymentPrompt, err := LoadSystemPrompt(options.ConfigDirectory)
-		if err != nil {
-			return nil, ctxerrors.Wrap(err, "load deployment system prompt")
-		}
-
-		options.BaseSystemPrompt = deploymentPrompt
+	if err := resolveRuntimeBaseSystemPrompt(&options); err != nil {
+		return nil, err
 	}
 
 	if options.MaxSystemPromptBytes <= 0 {
@@ -152,6 +160,10 @@ func NewRuntime(options RuntimeOptions) (*Runtime, error) {
 
 	if options.MaxMessageBytes <= 0 {
 		options.MaxMessageBytes = defaultMaxMessageBytes
+	}
+
+	if options.MaxQueuedUserMessages == 0 {
+		options.MaxQueuedUserMessages = defaultMaxQueuedUserMessages
 	}
 
 	options = options.withToolDefaults()
@@ -171,10 +183,13 @@ func NewRuntime(options RuntimeOptions) (*Runtime, error) {
 		maxContextTokens: options.MaxContextTokens,
 		turnTimeout:      options.TurnTimeout,
 		baseSystemPrompt: options.BaseSystemPrompt,
+		now:              time.Now,
 
-		maxSystemPromptBytes: options.MaxSystemPromptBytes,
-		maxMessageBytes:      options.MaxMessageBytes,
-		turnSlots:            newTurnSlots(options.MaxConcurrentTurns),
+		maxSystemPromptBytes:  options.MaxSystemPromptBytes,
+		maxMessageBytes:       options.MaxMessageBytes,
+		maxQueuedUserMessages: options.MaxQueuedUserMessages,
+		turnSlots:             newTurnSlots(options.MaxConcurrentTurns),
+		userMessageQueues:     map[uuid.UUID]*activeUserMessageQueue{},
 
 		compactionMode:       compactionMode,
 		compactionOptions:    compaction,
@@ -187,6 +202,7 @@ func NewRuntime(options RuntimeOptions) (*Runtime, error) {
 		hookCommandTimeout:   options.HookCommandTimeout,
 		maxHookCommandOutput: options.MaxHookCommandOutput,
 		eventBus:             options.Events,
+		metrics:              options.Metrics,
 		wakes:                newWakeLimiter(options.MaxEventWakesPerHour),
 		jobs:                 map[uuid.UUID]*tools.JobRegistry{},
 		agentLimits:          options.AgentLimits.withDefaults(),
@@ -195,11 +211,34 @@ func NewRuntime(options RuntimeOptions) (*Runtime, error) {
 	}, nil
 }
 
+func resolveRuntimeBaseSystemPrompt(options *RuntimeOptions) error {
+	if options.BaseSystemPrompt != "" {
+		return nil
+	}
+
+	deploymentPrompt, err := LoadSystemPrompt(options.ConfigDirectory)
+	if err != nil {
+		return ctxerrors.Wrap(err, "load deployment system prompt")
+	}
+
+	options.BaseSystemPrompt = deploymentPrompt
+
+	return nil
+}
+
 // Run resolves context, records the turn, and runs the selected Elelem model.
 func (r *Runtime) Run(
 	ctx context.Context,
 	input TurnRequest,
 ) (*TurnResult, error) {
+	if err := r.validateTurnInput(input); err != nil {
+		return nil, err
+	}
+
+	if result, handled, err := r.queueActiveUserMessage(ctx, input); handled {
+		return result, err
+	}
+
 	release, err := r.acquireTurnSlot(ctx)
 	if err != nil {
 		return nil, err
@@ -546,6 +585,7 @@ func (r *Runtime) sessionJobs(
 		sessionID,
 		r.jobPublisher(),
 		r.toolLimits,
+		r.metrics,
 	)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create session job registry")
@@ -835,11 +875,21 @@ func (r *Runtime) systemPrompt(
 		return "", err
 	}
 
-	sections = append(sections, workspaceBlock)
+	sections = append(sections, workspaceBlock, r.currentTimeBlock())
 
 	content := strings.Join(sections, systemSectionGap)
 
 	return content, nil
+}
+
+func (r *Runtime) currentTimeBlock() string {
+	now := r.now
+	if now == nil {
+		now = time.Now
+	}
+
+	return "Trusted runtime context:\nCurrent UTC time: " +
+		now().UTC().Format(time.RFC3339)
 }
 
 // workspaceMetadataBlock states the directory relative tool paths resolve
@@ -907,6 +957,11 @@ func (r *Runtime) runLease(
 ) (*TurnResult, error) {
 	ctx = prepared.scopedContext(ctx)
 
+	if err := r.registerActiveUserMessageQueue(prepared); err != nil {
+		return nil, r.finalizeFailedTurn(ctx, prepared, err)
+	}
+	defer r.closeActiveUserMessageQueue(prepared)
+
 	turnContext, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -965,6 +1020,7 @@ func (r *Runtime) startLease(
 	return nil
 }
 
+//nolint:funlen // Request setup and lifecycle callbacks stay together.
 func (r *Runtime) runProvider(
 	ctx context.Context,
 	prepared *preparedTurn,
@@ -973,12 +1029,23 @@ func (r *Runtime) runProvider(
 		prepared.executor,
 		prepared.injectSessionEvents,
 		prepared.snapshot,
+		r.metrics,
 	)
-	toolSet.Add(launchAgentTool(
-		r.launchAgentDeps(prepared),
-		prepared.injectSessionEvents,
+	toolSet.Add(instrumentTool(
+		launchAgentTool(
+			r.launchAgentDeps(prepared),
+			prepared.injectSessionEvents,
+		),
+		r.metrics,
 	))
 	bindToolHooks(toolSet, prepared.toolHooks)
+
+	startedAt := time.Now()
+
+	var (
+		firstDeltaAt   time.Time
+		firstDeltaOnce sync.Once
+	)
 
 	request := elelem.NewRequest(prepared.model.Client).
 		WithModel(prepared.model.Model).
@@ -987,15 +1054,22 @@ func (r *Runtime) runProvider(
 		WithTimeout(r.turnTimeout).
 		WithTools(toolSet).
 		WithAutoToolCalls().
+		WithUserMessageQueue(prepared.userMessages.queue).
 		WithMaxRounds(r.maxToolRounds).
 		WithMaxConcurrentTools(r.maxConcurrentTools).
 		WithToolTimeout(r.toolTimeout).
 		WithMaxToolResultTokens(r.maxToolResultTokens).
+		OnRoundStart(prepared.onRoundStart).
 		OnRetry(prepared.onRetry).
 		OnAssistantMessage(prepared.onAssistantMessage).
 		OnToolCallStart(prepared.onToolCallStart).
 		OnToolResult(prepared.onToolResult).
-		OnMessageInjection(prepared.onMessageInjection)
+		OnMessageInjection(prepared.onMessageInjection).
+		OnDelta(func(_ context.Context, _ elelem.Delta) error {
+			firstDeltaOnce.Do(func() { firstDeltaAt = time.Now() })
+
+			return nil
+		})
 
 	// Bind appends its callbacks rather than replacing, so the adapter's block
 	// production and Peen's own durability hooks both run. Peen no longer
@@ -1011,11 +1085,65 @@ func (r *Runtime) runProvider(
 	}
 
 	response, err := request.Run(ctx)
+
+	observeModelRequest(
+		r.metrics,
+		modelMetricStageTurn,
+		modelMetricFunctionRunProvider,
+		prepared.modelReference,
+		startedAt,
+		firstDeltaAt,
+		response,
+		err,
+	)
+
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "run provider request")
 	}
 
 	return response, nil
+}
+
+func observeModelRequest(
+	collector *metrics.Metrics,
+	stage string,
+	function string,
+	model string,
+	startedAt time.Time,
+	firstDeltaAt time.Time,
+	response *elelem.Response,
+	runErr error,
+) {
+	outcome := metrics.OutcomeSuccess
+	if runErr != nil {
+		outcome = metrics.OutcomeError
+		if errors.Is(runErr, context.Canceled) ||
+			errors.Is(runErr, context.DeadlineExceeded) {
+			outcome = metrics.OutcomeCancelled
+		}
+	}
+
+	var inputTokens, outputTokens int64
+	if response != nil {
+		inputTokens = response.Usage.Prompt
+		outputTokens = response.Usage.Completion
+	}
+
+	firstTokenDuration := time.Duration(0)
+	if !firstDeltaAt.IsZero() {
+		firstTokenDuration = firstDeltaAt.Sub(startedAt)
+	}
+
+	collector.ModelCompleted(
+		stage,
+		function,
+		model,
+		outcome,
+		time.Since(startedAt),
+		firstTokenDuration,
+		inputTokens,
+		outputTokens,
+	)
 }
 
 // newTurnCompactor returns the turn's compaction hook, or nil under
@@ -1059,6 +1187,7 @@ func compactionSettings(
 	settings := compactionOptions{
 		Store:           options.Store,
 		Models:          options.Models,
+		Metrics:         options.Metrics,
 		ModelReference:  options.CompactionModel,
 		MaxOutputTokens: options.CompactionOutputTokens,
 		Timeout:         options.CompactionTimeout,
@@ -1270,6 +1399,20 @@ func (p *preparedTurn) onRetry(
 		Status:  attempt.Status,
 		DelayMS: attempt.Delay.Milliseconds(),
 	})
+}
+
+func (p *preparedTurn) onRoundStart(
+	ctx context.Context,
+	event *elelem.RoundEvent,
+) error {
+	if err := p.userMessages.checkpointDelivered(
+		ctx,
+		event.Messages,
+	); err != nil {
+		return ctxerrors.Wrap(err, "checkpoint queued user messages")
+	}
+
+	return nil
 }
 
 func (p *preparedTurn) onAssistantMessage(
@@ -1543,23 +1686,31 @@ func (t *runtimeTurn) emitProtocol(event essessey.Event) error {
 }
 
 func (t *runtimeTurn) record(event Event) error {
+	t.sinkMutex.Lock()
+	defer t.sinkMutex.Unlock()
+
 	t.mutex.Lock()
-	defer t.mutex.Unlock()
+	statusReporter := t.statusReporter
+	sink := t.sink
+	t.mutex.Unlock()
 
 	// Progress is advertised before the event it describes, so a client never
 	// sees a content block arrive while the stream still claims to be waiting.
-	if t.statusReporter != nil {
-		if err := t.statusReporter.report(event.Type); err != nil {
+	if statusReporter != nil {
+		if err := statusReporter.report(event.Type); err != nil {
 			return err
 		}
 	}
 
+	t.mutex.Lock()
 	t.events = append(t.events, event)
-	if t.sink == nil {
+	t.mutex.Unlock()
+
+	if sink == nil {
 		return nil
 	}
 
-	return t.sink(event)
+	return sink(event)
 }
 
 func (t *runtimeTurn) appendMessage(message session.MessageInput) {

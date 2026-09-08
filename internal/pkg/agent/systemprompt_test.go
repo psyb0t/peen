@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/psyb0t/elelem/elelemtest"
 	"github.com/stretchr/testify/assert"
@@ -196,6 +197,39 @@ func TestRuntimeSystemPromptCarriesTheWorkspace(t *testing.T) {
 		string(encoded),
 		"the path must be JSON encoded, not pasted raw",
 	)
+}
+
+func TestRuntimeSystemPromptsCarryTrustedUTCTime(t *testing.T) {
+	fixture := newRuntimeFixture(t, elelemtest.NewScriptedDriver())
+	providedTime := time.Date(
+		2031,
+		time.March,
+		4,
+		5,
+		6,
+		7,
+		0,
+		time.FixedZone("test", 3600),
+	)
+	fixture.runtime.now = func() time.Time { return providedTime }
+
+	snapshot, err := fixture.runtime.resolver.Resolve(fixture.workspace)
+	require.NoError(t, err)
+	rootPrompt, err := fixture.runtime.systemPrompt(
+		snapshot,
+		TurnRequest{},
+		fixture.workspace,
+	)
+	require.NoError(t, err)
+	childPrompt, err := fixture.runtime.childSystemPrompt(
+		snapshot,
+		"child instructions",
+	)
+	require.NoError(t, err)
+
+	expected := "Trusted runtime context:\nCurrent UTC time: 2031-03-04T04:06:07Z"
+	assert.Contains(t, rootPrompt, expected)
+	assert.Contains(t, childPrompt, expected)
 }
 
 // A deployment prompt file must actually reach the assembled prompt, not just

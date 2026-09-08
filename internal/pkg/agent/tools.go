@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"github.com/psyb0t/peen/internal/pkg/tools"
 )
 
@@ -49,13 +51,56 @@ func hostToolSet(
 	executor *tools.JobExecutor,
 	onPostRun elelem.MessageInjector,
 	snapshot harness.Snapshot,
+	collector *metrics.Metrics,
 ) *elelem.ToolSet {
 	registered := readOnlyHostTools(executor, onPostRun)
 	registered = append(registered, mutatingHostTools(executor, onPostRun)...)
 	registered = append(registered, jobHostTools(executor, onPostRun)...)
 	registered = append(registered, skillHostTools(snapshot, onPostRun)...)
 
-	return elelem.NewToolSet(registered...)
+	return elelem.NewToolSet(instrumentTools(registered, collector)...)
+}
+
+func instrumentTools(
+	tools []elelem.Tool,
+	collector *metrics.Metrics,
+) []elelem.Tool {
+	for index := range tools {
+		tools[index] = instrumentTool(tools[index], collector)
+	}
+
+	return tools
+}
+
+func instrumentTool(tool elelem.Tool, collector *metrics.Metrics) elelem.Tool {
+	handler := tool.Handler
+	if collector == nil || handler == nil {
+		return tool
+	}
+
+	tool.Handler = func(
+		ctx context.Context,
+		call elelem.ToolInput,
+	) (elelem.ToolResult, error) {
+		startedAt := time.Now()
+		result, err := handler(ctx, call)
+
+		outcome := metrics.OutcomeSuccess
+		if err != nil || result.IsError {
+			outcome = metrics.OutcomeError
+		}
+
+		if errors.Is(err, context.Canceled) ||
+			errors.Is(err, context.DeadlineExceeded) {
+			outcome = metrics.OutcomeCancelled
+		}
+
+		collector.ToolCompleted(tool.Name, outcome, time.Since(startedAt))
+
+		return result, err
+	}
+
+	return tool
 }
 
 func readOnlyHostTools(

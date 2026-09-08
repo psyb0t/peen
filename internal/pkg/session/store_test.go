@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/stretchr/testify/assert"
@@ -16,6 +17,17 @@ import (
 )
 
 const testWorkspace = "/workspace/project"
+
+func TestStoreGetMapsMissingSessionToCommonError(t *testing.T) {
+	t.Parallel()
+
+	store, handle := openTestStore(t)
+	t.Cleanup(func() { require.NoError(t, handle.Close()) })
+
+	_, err := store.Get(context.Background(), uuid.New())
+
+	require.ErrorIs(t, err, commerr.ErrNotFound)
+}
 
 func TestStoreRestartPaginationIsolationAndCompaction(t *testing.T) {
 	ctx := context.Background()

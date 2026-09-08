@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/peen/internal/pkg/metrics"
 )
 
 const (
@@ -27,6 +28,8 @@ type Options struct {
 	MaxDataBytes int
 	// SubscriberBuffer sizes each live subscriber's channel.
 	SubscriberBuffer int
+	// Metrics records bounded event-drop telemetry. Nil disables observation.
+	Metrics *metrics.Metrics
 }
 
 func (o Options) withDefaults() Options {
@@ -54,6 +57,7 @@ func (o Options) withDefaults() Options {
 // finishing process must not stall on a session nobody is draining.
 type Bus struct {
 	options Options
+	metrics *metrics.Metrics
 
 	mutex       sync.Mutex
 	pending     map[uuid.UUID]*queue
@@ -70,6 +74,7 @@ type queue struct {
 func NewBus(options Options) *Bus {
 	return &Bus{
 		options:     options.withDefaults(),
+		metrics:     options.Metrics,
 		pending:     map[uuid.UUID]*queue{},
 		subscribers: map[uuid.UUID]map[uint64]chan Notice{},
 	}
@@ -141,6 +146,8 @@ func (b *Bus) enqueue(notice Notice) {
 	for len(session.notices) > b.options.MaxPendingPerSession {
 		session.notices = session.notices[1:]
 		session.dropped++
+
+		b.metrics.EventDropped("pending")
 	}
 }
 
@@ -152,6 +159,7 @@ func (b *Bus) fanOut(notice Notice) {
 		select {
 		case channel <- notice:
 		default:
+			b.metrics.EventDropped("subscriber")
 		}
 	}
 }

@@ -17,4 +17,9 @@ const (
 	// ErrorCodeTurnCancelled reports a turn that ended because its session
 	// was explicitly cancelled.
 	ErrorCodeTurnCancelled aichteeteapee.ErrorCode = "TURN_CANCELLED"
+	// ErrorCodeUserMessageQueueFull reports an active turn that cannot accept
+	// another queued user message.
+	ErrorCodeUserMessageQueueFull = aichteeteapee.ErrorCode(
+		"USER_MESSAGE_QUEUE_FULL",
+	)
 )

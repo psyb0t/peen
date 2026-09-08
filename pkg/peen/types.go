@@ -70,6 +70,9 @@ type Options struct {
 	// MaxMessageBytes bounds one caller-supplied message. Zero takes the
 	// internal default.
 	MaxMessageBytes int
+	// MaxQueuedUserMessages bounds messages accepted while a session's turn is
+	// active. Zero takes the internal default.
+	MaxQueuedUserMessages int
 	// MaxSystemPromptBytes bounds one caller-supplied system prompt. Zero
 	// takes the internal default.
 	MaxSystemPromptBytes int
@@ -160,6 +163,9 @@ type MessageRequest struct {
 type MessageResult struct {
 	SessionID string
 	Message   string
+	// Queued reports that an active turn accepted the message. Message is empty
+	// because the original turn owns the eventual model response.
+	Queued bool
 }
 
 // Event is one transport-neutral Chatz-compatible essessey event, or one of

@@ -43,7 +43,7 @@ func newToolTestExecutor(t *testing.T) *tools.JobExecutor {
 func TestHostToolSetRegistersEveryTool(t *testing.T) {
 	t.Parallel()
 
-	set := hostToolSet(newToolTestExecutor(t), nil, harness.Snapshot{})
+	set := hostToolSet(newToolTestExecutor(t), nil, harness.Snapshot{}, nil)
 
 	wantNames := []string{
 		toolNameListJobs,
@@ -96,7 +96,7 @@ func TestApplyPatchToolHandlerReturnsStructuredFailure(t *testing.T) {
 	t.Parallel()
 
 	executor := newToolTestExecutor(t)
-	tool, ok := hostToolSet(executor, nil, harness.Snapshot{}).Get(toolNameApplyPatch)
+	tool, ok := hostToolSet(executor, nil, harness.Snapshot{}, nil).Get(toolNameApplyPatch)
 	require.True(t, ok)
 
 	result, err := tool.Handler(context.Background(), elelem.ToolInput{
@@ -119,7 +119,7 @@ func TestApplyPatchToolHandlerReturnsStructuredFailure(t *testing.T) {
 func TestHostToolSchemasRejectUnknownFields(t *testing.T) {
 	t.Parallel()
 
-	set := hostToolSet(newToolTestExecutor(t), nil, harness.Snapshot{})
+	set := hostToolSet(newToolTestExecutor(t), nil, harness.Snapshot{}, nil)
 
 	for _, tool := range set.Definitions() {
 		schema := map[string]any{}
@@ -142,7 +142,7 @@ func TestHostToolHandlerReturnsEncodedResult(t *testing.T) {
 	path := filepath.Join(executor.Workspace(), toolTestFileName)
 	require.NoError(t, os.WriteFile(path, []byte(toolTestContent), 0o600))
 
-	tool, ok := hostToolSet(executor, nil, harness.Snapshot{}).Get(toolNameReadFile)
+	tool, ok := hostToolSet(executor, nil, harness.Snapshot{}, nil).Get(toolNameReadFile)
 	require.True(t, ok)
 
 	result, err := tool.Handler(context.Background(), elelem.ToolInput{
@@ -198,7 +198,7 @@ func TestHostToolHandlerReportsFailuresToTheModel(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			tool, ok := hostToolSet(executor, nil, harness.Snapshot{}).Get(tc.tool)
+			tool, ok := hostToolSet(executor, nil, harness.Snapshot{}, nil).Get(tc.tool)
 			require.True(t, ok)
 
 			result, err := tool.Handler(context.Background(), elelem.ToolInput{
@@ -227,7 +227,7 @@ func TestHostToolHandlerEndsTurnOnCancellation(t *testing.T) {
 
 	executor := newToolTestExecutor(t)
 
-	tool, ok := hostToolSet(executor, nil, harness.Snapshot{}).Get(toolNameRunCommand)
+	tool, ok := hostToolSet(executor, nil, harness.Snapshot{}, nil).Get(toolNameRunCommand)
 	require.True(t, ok)
 
 	ctx, cancel := context.WithCancel(context.Background())

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
@@ -15,8 +17,9 @@ import (
 )
 
 const (
-	agentNameSeparator = ", "
-	agentsNoneMessage  = "no agents are available"
+	agentNameSeparator            = ", "
+	agentsNoneMessage             = "no agents are available"
+	childPromptAdditionalCapacity = 2
 )
 
 // agentDepthKey is the unexported context key carrying how many launch_agent
@@ -293,7 +296,7 @@ func agentNames(snapshot harness.Snapshot) []string {
 // resolved rules and skill catalogue the parent turn sees, with the child's
 // own instructions (from a stored agent file or an ad-hoc definition) in
 // place of the parent's root agent block.
-func childSystemPrompt(
+func (r *Runtime) childSystemPrompt(
 	snapshot harness.Snapshot,
 	childInstructions string,
 ) (string, error) {
@@ -302,12 +305,16 @@ func childSystemPrompt(
 		return "", ctxerrors.Wrap(err, "resolve child prompt blocks")
 	}
 
-	sections := make([]string, 0, len(blocks)+1)
+	sections := make(
+		[]string,
+		0,
+		len(blocks)+childPromptAdditionalCapacity,
+	)
 	for _, block := range blocks {
 		sections = append(sections, block.Content)
 	}
 
-	sections = append(sections, childInstructions)
+	sections = append(sections, childInstructions, r.currentTimeBlock())
 
 	return strings.Join(sections, systemSectionGap), nil
 }
@@ -335,7 +342,7 @@ func (r *Runtime) runChildAgent(
 		run.ID,
 	)
 
-	systemPrompt, err := childSystemPrompt(
+	systemPrompt, err := r.childSystemPrompt(
 		deps.snapshot,
 		definition.instructions,
 	)
@@ -343,8 +350,8 @@ func (r *Runtime) runChildAgent(
 		return nil, ctxerrors.Wrap(err, "build child system prompt")
 	}
 
-	childToolSet := hostToolSet(deps.executor, nil, deps.snapshot)
-	childToolSet.Add(launchAgentTool(deps, nil))
+	childToolSet := hostToolSet(deps.executor, nil, deps.snapshot, r.metrics)
+	childToolSet.Add(instrumentTool(launchAgentTool(deps, nil), r.metrics))
 
 	childHooks, err := newToolHookRuntime(
 		deps.snapshot,
@@ -367,6 +374,12 @@ func (r *Runtime) runChildAgent(
 
 	sink := newAgentRunSink(run, transcript)
 	depthCtx := contextWithAgentDepth(runCtx, depth)
+	startedAt := time.Now()
+
+	var (
+		firstDeltaAt   time.Time
+		firstDeltaOnce sync.Once
+	)
 
 	response, err := elelem.NewRequest(deps.model.Client).
 		WithModel(deps.model.Model).
@@ -382,7 +395,24 @@ func (r *Runtime) runChildAgent(
 		OnReasoning(sink.onReasoning).
 		OnToolCallStart(sink.onToolCallStart).
 		OnToolResult(sink.onToolResult).
+		OnDelta(func(_ context.Context, _ elelem.Delta) error {
+			firstDeltaOnce.Do(func() { firstDeltaAt = time.Now() })
+
+			return nil
+		}).
 		Run(depthCtx)
+
+	observeModelRequest(
+		r.metrics,
+		modelMetricStageChild,
+		modelMetricFunctionRunChild,
+		deps.modelReference,
+		startedAt,
+		firstDeltaAt,
+		response,
+		err,
+	)
+
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "run child agent request")
 	}

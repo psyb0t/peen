@@ -13,12 +13,14 @@ WIP.md
 .secaudit/
 .anustimes/
 .plan-and-delegate/
+.plan/
 .brutal_reviews/
 .rule_audits/
 .backup/
 .telemetry/
 scripts/.post-update-temp
 git-update.sh
+commit.txt
 
 # Build and generated local reports
 /build/

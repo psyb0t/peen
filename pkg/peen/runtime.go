@@ -108,9 +108,10 @@ func runtimeOptions(
 		MaxContextTokens: options.MaxContextTokens,
 		TurnTimeout:      options.TurnTimeout,
 
-		MaxSystemPromptBytes: options.MaxSystemPromptBytes,
-		MaxMessageBytes:      options.MaxMessageBytes,
-		MaxConcurrentTurns:   options.MaxConcurrentTurns,
+		MaxSystemPromptBytes:  options.MaxSystemPromptBytes,
+		MaxMessageBytes:       options.MaxMessageBytes,
+		MaxConcurrentTurns:    options.MaxConcurrentTurns,
+		MaxQueuedUserMessages: options.MaxQueuedUserMessages,
 
 		CompactionMode: internalconfig.CompactionMode(
 			options.CompactionMode,
@@ -167,6 +168,7 @@ func (r *Runtime) Message(
 	return MessageResult{
 		SessionID: result.SessionID.String(),
 		Message:   result.Text,
+		Queued:    result.Queued,
 	}, nil
 }
 
@@ -197,6 +199,7 @@ func (r *Runtime) Stream(
 	return MessageResult{
 		SessionID: result.SessionID.String(),
 		Message:   result.Text,
+		Queued:    result.Queued,
 	}, nil
 }
 

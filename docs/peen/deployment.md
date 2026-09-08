@@ -114,6 +114,12 @@ default `:8080`). If you expose the container beyond a trusted network, set
 `PEEN_API_TOKEN` to a real value; it is empty, and therefore unauthenticated,
 by default. See [Bearer authentication](../../README.md#bearer-authentication).
 
+Metrics bind only to `PEEN_METRICS_LISTEN_ADDRESS`, which defaults to the
+container's loopback interface at `127.0.0.1:9090`. Do not publish it with
+`-p` and assume it is reachable from the host. Run the scraper in the same
+network namespace as Peen, or collect metrics through an operator-controlled
+local proxy that shares that namespace.
+
 ### Isolation is the operator's job, not the image's
 
 The Ubuntu base and the fixed non-root user are the only isolation Peen

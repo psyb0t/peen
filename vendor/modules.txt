@@ -1053,7 +1053,7 @@ github.com/psyb0t/ctxerrors/commerr
 # github.com/psyb0t/ctxscope v1.0.3
 ## explicit; go 1.26
 github.com/psyb0t/ctxscope
-# github.com/psyb0t/elelem v0.6.0
+# github.com/psyb0t/elelem v0.7.0
 ## explicit; go 1.26.0
 github.com/psyb0t/elelem
 github.com/psyb0t/elelem/drivers/anthropic

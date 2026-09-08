@@ -12,7 +12,7 @@ paths:
   /messages:
     post:
       operationId: sendMessage
-      summary: Run one agent turn
+      summary: Run one agent turn or queue an active session message
       parameters:
         - $ref: '#/components/parameters/SessionIDOptional'
       requestBody:
@@ -36,6 +36,17 @@ paths:
             text/event-stream:
               schema:
                 type: string
+        '202':
+          description: Message accepted for the current active turn
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageQueuedResponse'
         '400':
           $ref: '#/components/responses/ErrorBadRequest'
         '401':
@@ -563,6 +574,13 @@ components:
       properties:
         message:
           type: string
+    MessageQueuedResponse:
+      type: object
+      additionalProperties: false
+      required: [queued]
+      properties:
+        queued:
+          type: boolean
     Message:
       type: object
       additionalProperties: false

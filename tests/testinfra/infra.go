@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/moby/moby/api/types/container"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -41,6 +42,7 @@ const (
 	appFixtureInstructionsPath = "/tmp/peen-test-AGENTS.md"
 	appFixtureAgentPath        = "/tmp/peen-test-default.md"
 	appFixtureFileMode         = 0o644
+	appFixtureDirectoryMode    = 0o755
 	appRootInstructions        = "Follow the request and use available tools."
 	//nolint:lll // Fixture content is byte exact and has no trailing newline.
 	appAgentDocument    = "---\nname: default\ndescription: API integration test agent\n---\nFollow the request and return the result."
@@ -49,9 +51,18 @@ cp /tmp/peen-test-AGENTS.md /tmp/peen/AGENTS.md
 cp /tmp/peen-test-default.md /tmp/peen/.agents/agents/default.md
 exec /app/app run`
 	appNetwork                = "tcp"
+	appHostNetwork            = "host"
 	appLoopbackAddress        = "127.0.0.1:0"
 	appURLPrefix              = "http://"
+	appReadyPath              = "/ready"
 	appRequestTimeout         = 30 * time.Second
+	appRestartTimeout         = 30 * time.Second
+	appRestartPollInterval    = 10 * time.Millisecond
+	appCoverageDirectory      = "/tmp/peen-coverage"
+	appCoverageBuildArgument  = "PEEN_ENABLE_COVERAGE"
+	appCoverageEnabled        = "true"
+	appCoverageEnvironment    = "GOCOVERDIR"
+	coverageDirectoryEnv      = "SERVICEPACK_COVDATA_DIR"
 	providerName              = "integration"
 	providerType              = "openai"
 	providerModel             = "test-model"
@@ -74,10 +85,11 @@ exec /app/app run`
 	// production container for API integration tests.
 	TestAPIToken = "EXAMPLE-DO-NOT-USE"
 
-	// providerRoleTool is the transcript role the OpenAI wire format uses
-	// for a tool result message. A scripted turn counts these in the
-	// incoming request to know which round it is currently serving.
-	providerRoleTool = "tool"
+	// providerRoleSystem and providerRoleTool are the transcript roles the
+	// OpenAI wire format uses for system instructions and tool results.
+	// A scripted turn counts tool results to select its current round.
+	providerRoleSystem = "system"
+	providerRoleTool   = "tool"
 
 	// These names match internal/pkg/agent/tools.go's registrations.
 	scriptedToolNameReadFile   = "read_file"
@@ -118,10 +130,15 @@ var errNoGoMod = errors.New("go.mod not found above the working directory")
 // just the application image; extend it with one field per external dependency
 // (for example: Postgres *PostgresResource) as your services grow.
 type Infra struct {
-	App      testcontainers.Container
-	baseURL  string
-	client   *http.Client
-	provider *openAIModelsMock
+	App        testcontainers.Container
+	baseURL    string
+	metricsURL string
+	client     *http.Client
+	provider   *openAIModelsMock
+}
+
+type appCoverage struct {
+	hostDirectory string
 }
 
 // Setup builds Peen's app image and starts it against a local OpenAI-compatible
@@ -140,7 +157,18 @@ func Setup(ctx context.Context) (*Infra, error) {
 		return setupFailure(provider, err)
 	}
 
-	return startApp(ctx, root, provider, listenAddress)
+	metricsListenAddress, err := reserveLoopbackAddress(ctx)
+	if err != nil {
+		return setupFailure(provider, err)
+	}
+
+	return startApp(
+		ctx,
+		root,
+		provider,
+		listenAddress,
+		metricsListenAddress,
+	)
 }
 
 func startApp(
@@ -148,15 +176,25 @@ func startApp(
 	root string,
 	provider *openAIModelsMock,
 	listenAddress string,
+	metricsListenAddress string,
 ) (*Infra, error) {
-	environment, err := appEnvironment(provider.server.URL, listenAddress)
+	environment, err := appEnvironment(
+		provider.server.URL,
+		listenAddress,
+		metricsListenAddress,
+	)
+	if err != nil {
+		return setupFailure(provider, err)
+	}
+
+	coverage, err := appCoverageFor(root)
 	if err != nil {
 		return setupFailure(provider, err)
 	}
 
 	container, err := testcontainers.GenericContainer(ctx,
 		testcontainers.GenericContainerRequest{
-			ContainerRequest: appContainerRequest(root, environment),
+			ContainerRequest: appContainerRequest(root, environment, coverage),
 			Started:          true,
 		},
 	)
@@ -165,18 +203,20 @@ func startApp(
 	}
 
 	return &Infra{
-		App:      container,
-		baseURL:  appURLPrefix + listenAddress,
-		client:   &http.Client{Timeout: appRequestTimeout},
-		provider: provider,
+		App:        container,
+		baseURL:    appURLPrefix + listenAddress,
+		metricsURL: appURLPrefix + metricsListenAddress,
+		client:     &http.Client{Timeout: appRequestTimeout},
+		provider:   provider,
 	}, nil
 }
 
 func appContainerRequest(
 	root string,
 	environment map[string]string,
+	coverage appCoverage,
 ) testcontainers.ContainerRequest {
-	return testcontainers.ContainerRequest{
+	request := testcontainers.ContainerRequest{
 		FromDockerfile: testcontainers.FromDockerfile{
 			Context:    root,
 			Dockerfile: appDockerfile,
@@ -196,10 +236,74 @@ func appContainerRequest(
 				FileMode:          appFixtureFileMode,
 			},
 		},
-		NetworkMode: "host",
+		NetworkMode: container.NetworkMode(appHostNetwork),
 		WaitingFor: wait.ForLog(appReadyLog).
 			WithStartupTimeout(appBootTimeout),
 	}
+	if coverage.hostDirectory == "" {
+		return request
+	}
+
+	coverageBuildValue := appCoverageEnabled
+	request.BuildArgs = map[string]*string{
+		appCoverageBuildArgument: &coverageBuildValue,
+	}
+	request.Env[appCoverageEnvironment] = appCoverageDirectory
+	request.HostConfigModifier = func(hostConfig *container.HostConfig) {
+		hostConfig.NetworkMode = container.NetworkMode(appHostNetwork)
+		hostConfig.Binds = append(
+			hostConfig.Binds,
+			coverage.hostDirectory+":"+appCoverageDirectory,
+		)
+	}
+	request.User = strconv.Itoa(os.Getuid()) + ":" + strconv.Itoa(os.Getgid())
+
+	return request
+}
+
+func appCoverageFor(root string) (appCoverage, error) {
+	configuredDirectory := os.Getenv(coverageDirectoryEnv)
+	if configuredDirectory == "" {
+		return appCoverage{}, nil
+	}
+
+	rootDirectory, err := filepath.Abs(root)
+	if err != nil {
+		return appCoverage{}, ctxerrors.Wrap(err, "resolve application root")
+	}
+
+	coverageDirectory, err := filepath.Abs(configuredDirectory)
+	if err != nil {
+		return appCoverage{}, ctxerrors.Wrap(err, "resolve coverage directory")
+	}
+
+	relativeDirectory, err := filepath.Rel(rootDirectory, coverageDirectory)
+	if err != nil {
+		return appCoverage{}, ctxerrors.Wrap(
+			err,
+			"check coverage directory scope",
+		)
+	}
+
+	if relativeDirectory == ".." || strings.HasPrefix(
+		relativeDirectory,
+		".."+string(filepath.Separator),
+	) {
+		return appCoverage{}, ctxerrors.New(
+			"coverage directory must stay within the application root",
+		)
+	}
+
+	info, err := os.Stat(coverageDirectory)
+	if err != nil {
+		return appCoverage{}, ctxerrors.Wrap(err, "inspect coverage directory")
+	}
+
+	if !info.IsDir() {
+		return appCoverage{}, ctxerrors.New("coverage path must be a directory")
+	}
+
+	return appCoverage{hostDirectory: coverageDirectory}, nil
 }
 
 func setupFailure(provider *openAIModelsMock, err error) (*Infra, error) {
@@ -251,6 +355,62 @@ func (i *Infra) Teardown(ctx context.Context) error {
 	return teardownErr
 }
 
+// Restart stops and starts the production application container, then waits
+// for its already-configured HTTP listener to become ready again.
+func (i *Infra) Restart(ctx context.Context) error {
+	if i == nil || i.App == nil {
+		return ctxerrors.New("application container is unavailable")
+	}
+
+	timeout := appRestartTimeout
+	if err := i.App.Stop(ctx, &timeout); err != nil {
+		return ctxerrors.Wrap(err, "stop application container")
+	}
+
+	if err := i.App.Start(ctx); err != nil {
+		return ctxerrors.Wrap(err, "start application container")
+	}
+
+	return i.waitForReady(ctx)
+}
+
+// WriteWorkspaceFile adds or replaces one relative fixture file below the
+// production container's configured default workspace.
+func (i *Infra) WriteWorkspaceFile(
+	ctx context.Context,
+	name string,
+	content []byte,
+) error {
+	if i == nil || i.App == nil {
+		return ctxerrors.New("application container is unavailable")
+	}
+
+	target, err := workspaceFilePath(name)
+	if err != nil {
+		return err
+	}
+
+	if err := i.App.CopyToContainer(
+		ctx,
+		content,
+		target,
+		appFixtureFileMode,
+	); err != nil {
+		return ctxerrors.Wrap(err, "write application workspace fixture")
+	}
+
+	return nil
+}
+
+// LastSystemPrompt returns the most recent provider request's system prompt.
+func (i *Infra) LastSystemPrompt() string {
+	if i == nil || i.provider == nil {
+		return ""
+	}
+
+	return i.provider.systemPrompt()
+}
+
 // ModelDiscoveryObserved reports whether the app called the configured models
 // endpoint during startup.
 func (i *Infra) ModelDiscoveryObserved() bool {
@@ -287,6 +447,50 @@ func (i *Infra) DisableScriptedToolTurn() {
 // process.
 func (i *Infra) APIURL(path string) string {
 	return i.baseURL + path
+}
+
+func (i *Infra) waitForReady(ctx context.Context) error {
+	for {
+		request, err := http.NewRequestWithContext(
+			ctx,
+			http.MethodGet,
+			i.APIURL(appReadyPath),
+			nil,
+		)
+		if err != nil {
+			return ctxerrors.Wrap(err, "create readiness request")
+		}
+
+		response, requestErr := i.client.Do(request)
+		if requestErr == nil {
+			closeErr := response.Body.Close()
+			if response.StatusCode == http.StatusOK && closeErr == nil {
+				return nil
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctxerrors.Wrap(ctx.Err(), "wait for application readiness")
+		case <-time.After(appRestartPollInterval):
+		}
+	}
+}
+
+func workspaceFilePath(name string) (string, error) {
+	cleaned := filepath.Clean(name)
+	if cleaned == "." || cleaned == ".." || filepath.IsAbs(cleaned) ||
+		strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return "", ctxerrors.New("workspace fixture path must be relative")
+	}
+
+	return filepath.Join(appWorkingDirectory, cleaned), nil
+}
+
+// MetricsURL returns the private metrics endpoint reachable from the Go test
+// process over the application container's loopback listener.
+func (i *Infra) MetricsURL(path string) string {
+	return i.metricsURL + path
 }
 
 // HTTPClient returns the client used to drive the production API container.
@@ -346,13 +550,78 @@ func (h *CompletionHold) Release() {
 }
 
 type openAIModelsMock struct {
-	server          *httptest.Server
-	modelsListed    atomic.Bool
-	completionCount atomic.Int64
-	holdMu          sync.Mutex
-	nextHold        *completionHold
-	scriptMu        sync.RWMutex
-	script          *ScriptedToolTurn
+	server           *httptest.Server
+	modelsListed     atomic.Bool
+	completionCount  atomic.Int64
+	holdMu           sync.Mutex
+	nextHold         *completionHold
+	scriptMu         sync.RWMutex
+	script           *ScriptedToolTurn
+	promptMu         sync.RWMutex
+	lastSystemPrompt string
+}
+
+// ProviderMock is a deterministic local OpenAI-compatible provider for
+// process-form tests. It exposes no credentials and accepts only Peen's fixed
+// integration model.
+type ProviderMock struct {
+	mock *openAIModelsMock
+}
+
+// NewProviderMock starts a local deterministic provider fixture.
+func NewProviderMock() *ProviderMock {
+	return &ProviderMock{mock: newOpenAIModelsMock()}
+}
+
+// BaseURL returns the fixture's OpenAI-compatible endpoint.
+func (m *ProviderMock) BaseURL() string {
+	if m == nil || m.mock == nil || m.mock.server == nil {
+		return ""
+	}
+
+	return m.mock.server.URL
+}
+
+// DefaultModel returns the qualified model reference accepted by the fixture.
+func (m *ProviderMock) DefaultModel() string {
+	return providerName + "/" + providerModel
+}
+
+// EnableScriptedToolTurn makes later completions issue the supplied tool
+// sequence before returning its final answer.
+func (m *ProviderMock) EnableScriptedToolTurn(script ScriptedToolTurn) {
+	if m == nil || m.mock == nil {
+		return
+	}
+
+	m.mock.setScript(&script)
+}
+
+// DisableScriptedToolTurn restores the fixture's ordinary text response.
+func (m *ProviderMock) DisableScriptedToolTurn() {
+	if m == nil || m.mock == nil {
+		return
+	}
+
+	m.mock.setScript(nil)
+}
+
+// LastSystemPrompt returns the latest completion request's system prompt.
+func (m *ProviderMock) LastSystemPrompt() string {
+	if m == nil || m.mock == nil {
+		return ""
+	}
+
+	return m.mock.systemPrompt()
+}
+
+// Close stops the fixture server.
+func (m *ProviderMock) Close() {
+	if m == nil || m.mock == nil || m.mock.server == nil {
+		return
+	}
+
+	m.mock.server.Close()
 }
 
 func (m *openAIModelsMock) setScript(script *ScriptedToolTurn) {
@@ -384,7 +653,8 @@ type providerCompletionRequest struct {
 // providerCompletionMessage carries only the field a scripted turn needs:
 // whether this transcript entry already carries a tool result.
 type providerCompletionMessage struct {
-	Role string `json:"role"`
+	Role    string          `json:"role"`
+	Content json.RawMessage `json:"content"`
 }
 
 // toolMessageCount reports how many transcript messages already carry a
@@ -400,6 +670,21 @@ func (r providerCompletionRequest) toolMessageCount() int {
 	}
 
 	return count
+}
+
+func (r providerCompletionRequest) systemPrompt() string {
+	for _, message := range r.Messages {
+		if message.Role != providerRoleSystem {
+			continue
+		}
+
+		var content string
+		if err := json.Unmarshal(message.Content, &content); err == nil {
+			return content
+		}
+	}
+
+	return ""
 }
 
 func newOpenAIModelsMock() *openAIModelsMock {
@@ -477,6 +762,8 @@ func (m *openAIModelsMock) handleCompletion(
 		return
 	}
 
+	m.recordSystemPrompt(completionRequest.systemPrompt())
+
 	if !m.awaitCompletionRelease(request.Context()) {
 		return
 	}
@@ -493,6 +780,20 @@ func (m *openAIModelsMock) handleCompletion(
 		script,
 		completionRequest.toolMessageCount(),
 	)
+}
+
+func (m *openAIModelsMock) recordSystemPrompt(prompt string) {
+	m.promptMu.Lock()
+	defer m.promptMu.Unlock()
+
+	m.lastSystemPrompt = prompt
+}
+
+func (m *openAIModelsMock) systemPrompt() string {
+	m.promptMu.RLock()
+	defer m.promptMu.RUnlock()
+
+	return m.lastSystemPrompt
 }
 
 func (m *openAIModelsMock) writeScriptedCompletion(
@@ -763,6 +1064,7 @@ func appendOpenAIStreamEvent(
 func appEnvironment(
 	providerBaseURL string,
 	listenAddress string,
+	metricsListenAddress string,
 ) (map[string]string, error) {
 	upstreams, err := json.Marshal([]map[string]string{{
 		"name":     providerName,
@@ -774,13 +1076,14 @@ func appEnvironment(
 	}
 
 	return map[string]string{
-		"PEEN_CONFIG_DIR":          appConfigDirectory,
-		"PEEN_WORKING_DIR":         appWorkingDirectory,
-		"PEEN_AGENT":               appAgentName,
-		"PEEN_HTTP_LISTEN_ADDRESS": listenAddress,
-		"PEEN_UPSTREAMS":           string(upstreams),
-		"PEEN_DEFAULT_MODEL":       providerName + "/" + providerModel,
-		"PEEN_API_TOKEN":           TestAPIToken,
+		"PEEN_CONFIG_DIR":             appConfigDirectory,
+		"PEEN_WORKING_DIR":            appWorkingDirectory,
+		"PEEN_AGENT":                  appAgentName,
+		"PEEN_HTTP_LISTEN_ADDRESS":    listenAddress,
+		"PEEN_METRICS_LISTEN_ADDRESS": metricsListenAddress,
+		"PEEN_UPSTREAMS":              string(upstreams),
+		"PEEN_DEFAULT_MODEL":          providerName + "/" + providerModel,
+		"PEEN_API_TOKEN":              TestAPIToken,
 	}, nil
 }
 

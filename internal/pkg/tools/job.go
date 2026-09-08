@@ -17,6 +17,7 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/events"
+	"github.com/psyb0t/peen/internal/pkg/metrics"
 )
 
 const (
@@ -41,6 +42,10 @@ const (
 	// process's numeric exit code into, inside the message of the error its
 	// Process.Wait returns. See exitCodeFromWaitError.
 	exitCodeMarker = "(exit "
+
+	jobOperationRunCommand = "run_command"
+	jobOutputStdout        = "stdout"
+	jobOutputStderr        = "stderr"
 )
 
 // EventPublisher is the minimal surface the job registry needs to announce
@@ -204,6 +209,7 @@ type JobRegistry struct {
 	publisher EventPublisher
 	limits    Limits
 	cmdr      commander.Commander
+	metrics   *metrics.Metrics
 
 	mu   sync.RWMutex
 	jobs map[uuid.UUID]*Job
@@ -215,6 +221,7 @@ func NewJobRegistry(
 	sessionID uuid.UUID,
 	publisher EventPublisher,
 	limits Limits,
+	collectors ...*metrics.Metrics,
 ) (*JobRegistry, error) {
 	if sessionID == uuid.Nil {
 		return nil, ctxerrors.Wrap(
@@ -228,11 +235,17 @@ func NewJobRegistry(
 		return nil, ctxerrors.Wrap(err, "validate job registry limits")
 	}
 
+	var collector *metrics.Metrics
+	if len(collectors) > 0 {
+		collector = collectors[0]
+	}
+
 	return &JobRegistry{
 		sessionID: sessionID,
 		publisher: publisher,
 		limits:    resolved,
 		cmdr:      commander.New(),
+		metrics:   collector,
 		jobs:      map[uuid.UUID]*Job{},
 	}, nil
 }
@@ -280,6 +293,7 @@ func (r *JobRegistry) Start(
 	r.mu.Lock()
 	r.jobs[job.ID] = job
 	r.mu.Unlock()
+	r.metrics.JobStarted()
 
 	go r.monitor(ctx, job)
 
@@ -465,8 +479,35 @@ func (r *JobRegistry) finalize(ctx context.Context, job *Job, waitErr error) {
 	// Publish before closing done: a caller unblocked by Done must always
 	// find the completion event already published, never racing it.
 	r.publish(ctx, job, state, exitCode, endedAt)
+	r.recordJobMetrics(job, state, exitCode, endedAt)
 
 	close(job.done)
+}
+
+func (r *JobRegistry) recordJobMetrics(
+	job *Job,
+	state JobState,
+	exitCode int,
+	endedAt time.Time,
+) {
+	snapshot := job.Snapshot()
+
+	outcome := metrics.OutcomeSuccess
+	if state == JobStateSignalled {
+		outcome = metrics.OutcomeCancelled
+	}
+
+	if state == JobStateFailed || exitCode != 0 {
+		outcome = metrics.OutcomeError
+	}
+
+	r.metrics.JobCompleted(
+		jobOperationRunCommand,
+		outcome,
+		endedAt.Sub(job.StartedAt),
+	)
+	r.metrics.JobOutputDropped(jobOutputStdout, snapshot.StdoutDroppedLines)
+	r.metrics.JobOutputDropped(jobOutputStderr, snapshot.StderrDroppedLines)
 }
 
 // publish announces one job's completion on the event bus. Summary carries

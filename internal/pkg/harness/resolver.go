@@ -15,16 +15,17 @@ import (
 )
 
 const (
-	agentsFileName            = "AGENTS.md"
-	agentsDirectoryName       = ".agents"
-	skillsDirectoryName       = "skills"
-	agentsSubdirectory        = "agents"
-	eventHandlersSubdirectory = "events"
-	hooksFileName             = "hooks.yaml"
-	skillFileName             = "SKILL.md"
-	agentsFileExtension       = ".md"
-	rootDirectory             = "/"
-	manifestVersion           = 1
+	agentsFileName              = "AGENTS.md"
+	agentsDirectoryName         = ".agents"
+	skillsDirectoryName         = "skills"
+	agentsSubdirectory          = "agents"
+	eventHandlersSubdirectory   = "events"
+	hooksFileName               = "hooks.yaml"
+	skillFileName               = "SKILL.md"
+	agentsFileExtension         = ".md"
+	rootDirectory               = "/"
+	manifestVersion             = 1
+	embeddedInstructionPriority = -1
 
 	// homeDirectoryAlias is the shorthand a caller may use for the running
 	// user's home directory. Only a leading "~" or "~/" expands; "~"
@@ -41,14 +42,16 @@ type Resolver struct {
 }
 
 type resolutionState struct {
-	limits        Limits
-	files         int
-	totalBytes    int64
-	instructions  []Instruction
-	skills        map[string]discoveredSkill
-	agents        map[string]Agent
-	eventHandlers map[string]EventHandler
-	hooks         []Hook
+	limits                 Limits
+	files                  int
+	totalBytes             int64
+	filesystemInstructions int
+	filesystemSkills       map[string]struct{}
+	instructions           []Instruction
+	skills                 map[string]discoveredSkill
+	agents                 map[string]Agent
+	eventHandlers          map[string]EventHandler
+	hooks                  []Hook
 }
 
 type discoveredSkill struct {
@@ -108,6 +111,10 @@ func (r Resolver) Resolve(workspace string) (Snapshot, error) {
 	}
 
 	state := newResolutionState(r.limits)
+	if err := state.discoverEmbedded(); err != nil {
+		return Snapshot{}, ctxerrors.Wrap(err, "discover embedded harness")
+	}
+
 	for priority, layer := range layers {
 		if err := state.discoverLayer(
 			layer,
@@ -253,11 +260,76 @@ func reverseStrings(values []string) {
 
 func newResolutionState(limits Limits) *resolutionState {
 	return &resolutionState{
-		limits:        limits,
-		skills:        make(map[string]discoveredSkill),
-		agents:        make(map[string]Agent),
-		eventHandlers: make(map[string]EventHandler),
+		limits:           limits,
+		filesystemSkills: make(map[string]struct{}),
+		skills:           make(map[string]discoveredSkill),
+		agents:           make(map[string]Agent),
+		eventHandlers:    make(map[string]EventHandler),
 	}
+}
+
+func (s *resolutionState) discoverEmbedded() error {
+	instructions, err := embeddedHarnessAsset(embeddedInstructionAsset)
+	if err != nil {
+		return ctxerrors.Wrap(err, "read embedded instructions")
+	}
+
+	if strings.TrimSpace(instructions) == "" {
+		return ctxerrors.Wrap(
+			ErrInvalidInstruction,
+			"embedded instructions are empty",
+		)
+	}
+
+	s.instructions = append(s.instructions, Instruction{
+		Source:   embeddedInstructionSource,
+		Priority: embeddedInstructionPriority,
+		Content:  instructions,
+		Hash:     hashString(instructions),
+	})
+
+	for _, asset := range embeddedSkillAssets() {
+		if err := s.discoverEmbeddedSkill(asset); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *resolutionState) discoverEmbeddedSkill(
+	asset embeddedSkillAsset,
+) error {
+	content, err := embeddedHarnessAsset(asset.asset)
+	if err != nil {
+		return ctxerrors.Wrapf(err, "read embedded skill %s", asset.name)
+	}
+
+	metadata, err := parseSkillDocument(content)
+	if err != nil {
+		return ctxerrors.Wrapf(err, "validate embedded skill %s", asset.name)
+	}
+
+	if metadata.Name != asset.name {
+		return ctxerrors.Wrapf(
+			ErrInvalidSkill,
+			"embedded skill name %s does not match %s",
+			metadata.Name,
+			asset.name,
+		)
+	}
+
+	if err := s.registerSkill(
+		metadata,
+		asset.source,
+		asset.directory,
+		content,
+		false,
+	); err != nil {
+		return ctxerrors.Wrapf(err, "register embedded skill %s", asset.name)
+	}
+
+	return nil
 }
 
 func (s *resolutionState) discoverLayer(
@@ -325,7 +397,7 @@ func (s *resolutionState) discoverInstructions(
 		)
 	}
 
-	if len(s.instructions) >= s.limits.MaxInstructions {
+	if s.filesystemInstructions >= s.limits.MaxInstructions {
 		return ctxerrors.Wrap(ErrResourceLimit, "instruction limit exceeded")
 	}
 
@@ -335,6 +407,7 @@ func (s *resolutionState) discoverInstructions(
 		Content:  content,
 		Hash:     hashString(content),
 	})
+	s.filesystemInstructions++
 
 	return nil
 }
@@ -393,7 +466,7 @@ func (s *resolutionState) discoverSkill(
 		)
 	}
 
-	metadata, _, err := parseSkillDocument(content)
+	metadata, err := parseSkillDocument(content)
 	if err != nil {
 		return ctxerrors.Wrap(err, "validate skill document")
 	}
@@ -405,9 +478,23 @@ func (s *resolutionState) discoverSkill(
 		)
 	}
 
-	if _, exists := s.skills[metadata.Name]; !exists &&
-		len(s.skills) >= s.limits.MaxSkills {
-		return ctxerrors.Wrap(ErrResourceLimit, "skill limit exceeded")
+	return s.registerSkill(metadata, source, skillDirectory, content, true)
+}
+
+func (s *resolutionState) registerSkill(
+	metadata skillFrontMatter,
+	source string,
+	directory string,
+	content string,
+	filesystemDiscovered bool,
+) error {
+	if filesystemDiscovered {
+		if _, exists := s.filesystemSkills[metadata.Name]; !exists &&
+			len(s.filesystemSkills) >= s.limits.MaxSkills {
+			return ctxerrors.Wrap(ErrResourceLimit, "skill limit exceeded")
+		}
+
+		s.filesystemSkills[metadata.Name] = struct{}{}
 	}
 
 	s.skills[metadata.Name] = discoveredSkill{
@@ -415,7 +502,7 @@ func (s *resolutionState) discoverSkill(
 			Name:          metadata.Name,
 			Description:   metadata.Description,
 			Source:        source,
-			Directory:     skillDirectory,
+			Directory:     directory,
 			Hash:          hashString(content),
 			Metadata:      cloneMetadata(metadata.Metadata),
 			License:       metadata.License,

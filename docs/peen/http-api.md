@@ -33,6 +33,29 @@ Request body:
 turn only) or `replace` (this text instead of the default prompt, for this
 turn only). Neither field is sticky.
 
+When `X-Session-ID` names a turn currently running in this Peen process and
+the request contains only `message`, Peen accepts it into that turn's FIFO
+user-message queue instead of opening another turn. It returns JSON `202`:
+
+```json
+{"queued": true}
+```
+
+This applies even when the request's `Accept` header asks for SSE. The active
+request remains the only live stream. A queued request cannot set `workspace`,
+`model`, or `systemPrompt`, because those settings belong to the already
+running turn. Peen writes a durable acceptance audit record before queueing,
+then writes the ordinary user transcript row at the provider round where
+Elelem actually delivers it. This preserves tool-result ordering.
+
+The live queue is bounded by `PEEN_MAX_QUEUED_USER_MESSAGES`, defaults to 16,
+and does not interrupt an in-flight provider request. A full queue returns
+`409` with code `USER_MESSAGE_QUEUE_FULL`. Queued delivery state is
+process-local until delivery. After a restart, cancellation, or a round limit
+that ends the turn before delivery, the acceptance audit does not cause Peen
+to replay the message automatically. Clients that need delivery across those
+boundaries must retry and tolerate duplicates.
+
 Response framing is chosen by `Accept`:
 
 - Missing or `application/json`: waits for the turn and returns
@@ -74,8 +97,8 @@ crosses the wire: a raw failure carries file paths, provider response bodies,
 and whatever a tool printed, and that stays in the transcript and the
 operator's logs.
 
-`409` means the session already has a turn running, or this turn was
-cancelled after it started running.
+`409` means the session already has a turn running, this turn was cancelled
+after it started running, or the active user-message queue is full.
 
 ## GET /v1/messages
 

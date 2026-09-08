@@ -279,9 +279,9 @@ func TestUseSkillHandlerUnknownNameListsEffectiveSkills(t *testing.T) {
 			wantSubstring: skillTestOtherName,
 		},
 		{
-			name:          "no skills available at all",
+			name:          "only embedded skills are available",
 			withSkill:     false,
-			wantSubstring: skillsNoneMessage,
+			wantSubstring: "freshness",
 		},
 	}
 
@@ -358,7 +358,7 @@ func TestHostToolSetUseSkillEndToEnd(t *testing.T) {
 	)
 	snapshot := fixture.resolve(t)
 
-	set := hostToolSet(newToolTestExecutor(t), nil, snapshot)
+	set := hostToolSet(newToolTestExecutor(t), nil, snapshot, nil)
 
 	tool, ok := set.Get(toolNameUseSkill)
 	require.True(t, ok)

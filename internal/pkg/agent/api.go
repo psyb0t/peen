@@ -131,6 +131,7 @@ func (r *Runtime) SendMessage(
 	return &MessageRunResult{
 		Response:  api.MessageResponse{Message: result.Text},
 		SessionID: result.SessionID,
+		Queued:    result.Queued,
 	}, nil
 }
 
@@ -145,6 +146,21 @@ func (r *Runtime) StreamMessage(
 	input, err := messageRequestToTurnRequest(request, sessionID, requestID)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "convert message request")
+	}
+
+	if err := r.validateTurnInput(input); err != nil {
+		return nil, translateOperationError(err)
+	}
+
+	if result, handled, err := r.queueActiveUserMessage(ctx, input); handled {
+		if err != nil {
+			return nil, translateOperationError(err)
+		}
+
+		return &StreamMessageResult{
+			SessionID: result.SessionID,
+			Queued:    true,
+		}, nil
 	}
 
 	prepared, err := r.prepareTurn(ctx, input)

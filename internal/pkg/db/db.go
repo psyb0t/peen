@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"gorm.io/gorm"
 )
 
@@ -14,6 +15,7 @@ import (
 type Config struct {
 	Directory   string
 	BusyTimeout time.Duration
+	Metrics     *metrics.Metrics
 }
 
 // Handle owns an open SQLite connection and its generated GORM query surface.

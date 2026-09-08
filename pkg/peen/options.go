@@ -33,8 +33,8 @@ func (o Options) validate() error {
 		return err
 	}
 
-	if o.MaxContextTokens < 0 {
-		return ctxerrors.Wrap(commerr.ErrValidationFailed, "max context tokens")
+	if o.MaxContextTokens < 0 || o.MaxQueuedUserMessages < 0 {
+		return ctxerrors.Wrap(commerr.ErrValidationFailed, "runtime bounds")
 	}
 
 	return nil

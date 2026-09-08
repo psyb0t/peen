@@ -89,21 +89,22 @@ func TestResolverOrdersLayersAndReplacesEffectiveDefinitions(t *testing.T) {
 
 	snapshot := resolveFixture(t, fixture)
 
+	instructions := snapshot.Instructions()
 	assert.Equal(t, []string{
 		"config rules",
 		"root rules",
 		"parent rules",
 		"workspace rules",
-	}, instructionContents(snapshot.Instructions()))
-	assert.Equal(t, 0, snapshot.Instructions()[0].Priority)
+	}, instructionContents(instructions[1:]))
+	assert.Equal(t, embeddedInstructionSource, instructions[0].Source)
+	assert.Equal(t, embeddedInstructionPriority, instructions[0].Priority)
 	assert.True(
 		t,
-		strictlyIncreasing(instructionPriorities(snapshot.Instructions())),
+		strictlyIncreasing(instructionPriorities(instructions)),
 	)
-	require.Len(t, snapshot.Skills(), 1)
-	assert.Equal(t, "workspace", snapshot.Skills()[0].Description)
 	activatedSkill, err := snapshot.ActivateSkill("shared-skill")
 	require.NoError(t, err)
+	assert.Equal(t, "workspace", activatedSkill.Description)
 	assert.Equal(
 		t,
 		skillDocument("shared-skill", "workspace", "workspace skill"),
@@ -112,6 +113,76 @@ func TestResolverOrdersLayersAndReplacesEffectiveDefinitions(t *testing.T) {
 	require.Len(t, snapshot.Agents(), 1)
 	assert.Equal(t, "workspace", snapshot.Agents()[0].Description)
 	assert.Equal(t, "workspace agent", snapshot.Agents()[0].Instructions)
+}
+
+func TestResolverIncludesEmbeddedBaseHarness(t *testing.T) {
+	t.Parallel()
+
+	fixture := newResolverFixture(t)
+	snapshot := resolveFixture(t, fixture)
+
+	instructions := snapshot.Instructions()
+	require.Len(t, instructions, 1)
+	assert.Equal(t, embeddedInstructionSource, instructions[0].Source)
+	assert.Equal(t, embeddedInstructionPriority, instructions[0].Priority)
+	assert.Contains(t, instructions[0].Content, "trusted runtime context")
+	assert.Equal(t, []string{"freshness", "planning"}, skillNames(snapshot.Skills()))
+
+	manifest := snapshot.Manifest()
+	require.Len(t, manifest, 3)
+	assert.Equal(t, embeddedInstructionSource, manifest[0].Source)
+	assert.Equal(t, embeddedSkillsSourcePrefix+"freshness/SKILL.md", manifest[1].Source)
+	assert.Equal(t, embeddedSkillsSourcePrefix+"planning/SKILL.md", manifest[2].Source)
+}
+
+func TestResolverFilesystemSkillsReplaceEmbeddedDefinitions(t *testing.T) {
+	t.Parallel()
+
+	fixture := newResolverFixture(t)
+	fixture.writeSkill(
+		t,
+		fixture.configRoot,
+		"planning",
+		"config planning",
+		"config content",
+	)
+	fixture.writeSkill(
+		t,
+		fixture.workspace,
+		"planning",
+		"workspace planning",
+		"workspace content",
+	)
+
+	limits := defaultLimits()
+	limits.MaxSkills = 1
+	resolver, err := NewResolver(fixture.configRoot, limits)
+	require.NoError(t, err)
+	snapshot, err := resolver.Resolve(fixture.workspace)
+	require.NoError(t, err)
+
+	planning, err := snapshot.ActivateSkill("planning")
+	require.NoError(t, err)
+	assert.Equal(t, "workspace planning", planning.Description)
+	assert.Contains(t, planning.Content, "workspace content")
+	assert.NotContains(t, planning.Content, "config content")
+	assert.Equal(
+		t,
+		filepath.Join(
+			fixture.workspace,
+			agentsDirectoryName,
+			skillsDirectoryName,
+			"planning",
+			skillFileName,
+		),
+		planning.Source,
+	)
+	assert.Contains(t, snapshot.Manifest(), ManifestEntry{
+		Kind:   SourceKindSkill,
+		Name:   "planning",
+		Source: planning.Source,
+		Hash:   planning.Hash,
+	})
 }
 
 func TestResolverProducesStableAndChangingHashes(t *testing.T) {
@@ -133,7 +204,11 @@ func TestResolverProducesStableAndChangingHashes(t *testing.T) {
 	second := resolveFixture(t, fixture)
 
 	assert.Equal(t, first.Hash(), second.Hash())
-	assert.Equal(t, []string{"alpha", "zulu"}, skillNames(second.Skills()))
+	assert.Equal(
+		t,
+		[]string{"alpha", "freshness", "planning", "zulu"},
+		skillNames(second.Skills()),
+	)
 
 	fixture.writeAgents(t, fixture.workspace, "changed rules")
 	third := resolveFixture(t, fixture)
@@ -145,8 +220,9 @@ func TestResolverHandlesMissingInputsAndCanonicalPaths(t *testing.T) {
 
 	fixture := newResolverFixture(t)
 	empty := resolveFixture(t, fixture)
-	assert.Empty(t, empty.Instructions())
-	assert.Empty(t, empty.Skills())
+	require.Len(t, empty.Instructions(), 1)
+	assert.Equal(t, embeddedInstructionSource, empty.Instructions()[0].Source)
+	assert.Equal(t, []string{"freshness", "planning"}, skillNames(empty.Skills()))
 	assert.Empty(t, empty.Agents())
 
 	actualConfigRoot := filepath.Join(fixture.root, "actual-config")
@@ -170,7 +246,7 @@ func TestResolverHandlesMissingInputsAndCanonicalPaths(t *testing.T) {
 	assert.Equal(t, actualConfigRoot, snapshot.ConfigRoot())
 	assert.Equal(t, actualWorkspace, snapshot.Workspace())
 	assert.Equal(t, []string{"config rules", "workspace rules"},
-		instructionContents(snapshot.Instructions()))
+		instructionContents(snapshot.Instructions()[1:]))
 }
 
 func TestExpandHome(t *testing.T) {
@@ -289,12 +365,13 @@ func TestResolverFollowsSkillSymlinks(t *testing.T) {
 	require.NoError(t, os.Symlink(actualSkillDirectory, linkedSkillDirectory))
 
 	snapshot := resolveFixture(t, fixture)
-	require.Len(t, snapshot.Skills(), 1)
-	assert.Equal(t, actualSkillDirectory, snapshot.Skills()[0].Directory)
+	linkedSkill, err := snapshot.ActivateSkill("linked-skill")
+	require.NoError(t, err)
+	assert.Equal(t, actualSkillDirectory, linkedSkill.Directory)
 	assert.Equal(
 		t,
 		filepath.Join(actualSkillDirectory, skillFileName),
-		snapshot.Skills()[0].Source,
+		linkedSkill.Source,
 	)
 }
 

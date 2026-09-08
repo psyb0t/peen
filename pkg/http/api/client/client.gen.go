@@ -562,6 +562,11 @@ type MessagePage struct {
 	Offset  int32     `json:"offset"`
 }
 
+// MessageQueuedResponse defines model for MessageQueuedResponse.
+type MessageQueuedResponse struct {
+	Queued bool `json:"queued"`
+}
+
 // MessageRequest defines model for MessageRequest.
 type MessageRequest struct {
 	Message      string        `json:"message"`
@@ -857,14 +862,14 @@ type ClientInterface interface {
 	// Corresponds with GET /messages (the `ListMessages` operationId).
 	ListMessages(ctx context.Context, params *ListMessagesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// SendMessageWithBody Run one agent turn
+	// SendMessageWithBody Run one agent turn or queue an active session message
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with POST /messages (the `SendMessage` operationId).
 	SendMessageWithBody(ctx context.Context, params *SendMessageParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// SendMessage Run one agent turn
+	// SendMessage Run one agent turn or queue an active session message
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -955,7 +960,7 @@ func (c *Client) ListMessages(ctx context.Context, params *ListMessagesParams, r
 	return c.Client.Do(req)
 }
 
-// SendMessageWithBody Run one agent turn
+// SendMessageWithBody Run one agent turn or queue an active session message
 //
 // Takes any type of body and a specified content type.
 //
@@ -972,7 +977,7 @@ func (c *Client) SendMessageWithBody(ctx context.Context, params *SendMessagePar
 	return c.Client.Do(req)
 }
 
-// SendMessage Run one agent turn
+// SendMessage Run one agent turn or queue an active session message
 //
 // Takes a body of the `application/json` content type.
 //
@@ -2032,14 +2037,14 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /messages (the `ListMessages` operationId).
 	ListMessagesWithResponse(ctx context.Context, params *ListMessagesParams, reqEditors ...RequestEditorFn) (*ListMessagesResponse, error)
 
-	// SendMessageWithBodyWithResponse Run one agent turn
+	// SendMessageWithBodyWithResponse Run one agent turn or queue an active session message
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /messages (the `SendMessage` operationId).
 	SendMessageWithBodyWithResponse(ctx context.Context, params *SendMessageParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SendMessageResponse, error)
 
-	// SendMessageWithResponse Run one agent turn
+	// SendMessageWithResponse Run one agent turn or queue an active session message
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -2214,11 +2219,19 @@ type SendMessageResponse200Headers struct {
 	XSessionID openapi_types.UUID
 }
 
+// SendMessageResponse202Headers the declared response headers of an HTTP 202 response for SendMessage
+type SendMessageResponse202Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
 type SendMessageResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
 	JSON200 *MessageResponse
+	// JSON202 the response for an HTTP 202 `application/json` response
+	JSON202 *MessageQueuedResponse
 	// JSON400 the response for an HTTP 400 `application/json` response
 	JSON400 *ErrorBadRequest
 	// JSON401 the response for an HTTP 401 `application/json` response
@@ -2233,11 +2246,18 @@ type SendMessageResponse struct {
 	JSON500 *ErrorInternal
 	// Headers200 the parsed response headers for an HTTP 200 response
 	Headers200 *SendMessageResponse200Headers
+	// Headers202 the parsed response headers for an HTTP 202 response
+	Headers202 *SendMessageResponse202Headers
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
 func (r SendMessageResponse) GetJSON200() *MessageResponse {
 	return r.JSON200
+}
+
+// GetJSON202 returns the response for an HTTP 202 `application/json` response
+func (r SendMessageResponse) GetJSON202() *MessageQueuedResponse {
+	return r.JSON202
 }
 
 // GetJSON400 returns the response for an HTTP 400 `application/json` response
@@ -3082,7 +3102,7 @@ func (c *ClientWithResponses) ListMessagesWithResponse(ctx context.Context, para
 	return ParseListMessagesResponse(rsp)
 }
 
-// SendMessageWithBodyWithResponse Run one agent turn
+// SendMessageWithBodyWithResponse Run one agent turn or queue an active session message
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -3095,7 +3115,7 @@ func (c *ClientWithResponses) SendMessageWithBodyWithResponse(ctx context.Contex
 	return ParseSendMessageResponse(rsp)
 }
 
-// SendMessageWithResponse Run one agent turn
+// SendMessageWithResponse Run one agent turn or queue an active session message
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -3359,6 +3379,13 @@ func ParseSendMessageResponse(rsp *http.Response) (*SendMessageResponse, error) 
 		}
 		response.JSON200 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
+		var dest MessageQueuedResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON202 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
 		var dest ErrorBadRequest
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -3424,6 +3451,23 @@ func ParseSendMessageResponse(rsp *http.Response) (*SendMessageResponse, error) 
 			headers.XSessionID = value
 		}
 		response.Headers200 = &headers
+	case rsp.StatusCode == 202:
+		var headers SendMessageResponse202Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers202 = &headers
 	}
 
 	return response, nil

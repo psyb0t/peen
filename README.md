@@ -4,15 +4,17 @@ Peen is one stateful coding agent, exposed over HTTP. A JSON request carries
 one message; Peen creates or resumes a durable session, runs the configured
 agent through Elelem, and returns either the final JSON answer or a live
 Server-Sent Events stream. Every turn, message, and event is recorded in
-SQLite, so a session survives a process restart.
+SQLite, so a session survives a process restart. A message accepted into an
+already active turn keeps its delivery state only in memory until its next
+provider round; after a restart clients retry it.
 
-Peen also acts as a small file-based agent harness. It resolves layered
-`AGENTS.md` files, Agent Skills, and named child agents from the directories
-around the current message's workspace, closest directory wins. The agent
-reads and edits files and runs shell commands with the same access as the
-operating-system user running the process: no sandbox, no allowlist, no
-approval step. Read [Security](#security) before you point this at anything
-you care about.
+Peen also acts as a small file-based agent harness. It starts with embedded
+operating rules and skills, then resolves layered `AGENTS.md` files, Agent
+Skills, and named child agents from the directories around the current
+message's workspace. The agent reads and edits files and runs shell commands
+with the same access as the operating-system user running the process: no
+sandbox, no allowlist, no approval step. Read [Security](#security) before you
+point this at anything you care about.
 
 ## Contents
 
@@ -21,6 +23,7 @@ you care about.
 - [The configuration directory](#the-configuration-directory)
 - [HTTP API](#http-api)
 - [Bearer authentication](#bearer-authentication)
+- [Metrics](#metrics)
 - [Workspaces](#workspaces)
 - [Compaction modes](#compaction-modes)
 - [Security](#security)
@@ -66,8 +69,9 @@ source-build paths.
 
 Other useful targets: `make test-unit`, `make test-integration`, `make
 test-api` (containerized, exercises the real HTTP stack against a scripted
-provider), `make test-real` (opt-in, contacts your real `PEEN_UPSTREAMS`), and
-`make lint`. Run `make help` for the complete list.
+provider), `make test-execution-forms` (source and local-install process
+contracts), `make test-real` (opt-in, contacts your real `PEEN_UPSTREAMS`),
+and `make lint`. Run `make help` for the complete list.
 
 ## Provider configuration
 
@@ -122,15 +126,20 @@ state:
 
 Every file here is optional; a missing one is normal, not an error.
 
-- `AGENTS.md`: project instructions applied to every turn. Also resolved from
-  every filesystem ancestor of the current message's workspace; the file
-  closest to the workspace wins on conflict.
+Peen always ships an embedded operating-rules block and `planning` and
+`freshness` skills. It applies those before the configuration directory layer
+without materializing them as files. A configuration or workspace skill with
+the same name replaces its embedded version.
+
+- `AGENTS.md`: project instructions applied to every turn. Peen keeps each
+  layer's block in order, from the embedded base through the workspace layer.
 - `SYSTEM.md`: replaces Peen's built-in default system prompt entirely.
 - `APPEND_SYSTEM.md`: appended after whichever prompt is active.
 - `COMPACTION.md`: replaces the built-in summarization prompt, read only when
   `PEEN_COMPACTION_MODE=summarize`; a change takes effect after restart.
 - `.agents/skills/<name>/SKILL.md`: an Agent Skill, loaded in full through
-  `use_skill` when the model needs it.
+  `use_skill` when the model needs it. A same-named later layer replaces an
+  earlier skill.
 - `.agents/agents/<name>.md`: a named child agent `launch_agent` can run by
   name.
 - `.agents/events/<type>.md`: a handler for one session event type.
@@ -150,7 +159,7 @@ Every operation is under `/v1`. Full request and response shapes:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| POST | `/v1/messages` | Run one agent turn. JSON or SSE, selected by `Accept`. |
+| POST | `/v1/messages` | Run one agent turn, or queue a plain message for an active session. JSON or SSE, selected by `Accept`. |
 | GET | `/v1/messages` | List stored conversation messages, paginated. |
 | GET | `/v1/session` | Read session details. |
 | POST | `/v1/session/cancel` | Request cancellation of the active turn. |
@@ -186,6 +195,14 @@ Set it to any non-empty value to require every request to carry
 missing or wrong token returns `401`.
 
 `/healthz` and `/ready` are exempt. Everything under `/v1` is not.
+
+## Metrics
+
+Prometheus metrics are available at `GET /metrics` only through the separate
+`PEEN_METRICS_LISTEN_ADDRESS` listener, which defaults to
+`127.0.0.1:9090`. This listener is loopback-only, unauthenticated, and never
+shares the public API surface. A scraper must run in Peen's network namespace.
+See [the configuration reference](docs/peen/configuration.md#metrics).
 
 ## Workspaces
 

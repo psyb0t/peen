@@ -13,12 +13,14 @@ import (
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/agent"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
+	"github.com/psyb0t/peen/internal/pkg/metrics"
 )
 
 // Dependencies are the transport-neutral operations required by the API.
 type Dependencies struct {
 	Runtime  agent.API
 	APIToken string
+	Metrics  *metrics.Metrics
 }
 
 // Server owns Peen's Echo router and HTTP lifecycle.

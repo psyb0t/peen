@@ -3,8 +3,10 @@ package config
 
 import (
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,6 +53,9 @@ type Config struct {
 	// session in this process, unlike MaxConcurrentAgentRunsPerSession, which
 	// only bounds one session's child-agent runs.
 	MaxConcurrentTurns int `default:"16" env:"PEEN_MAX_CONCURRENT_TURNS"` //nolint:lll // Immutable env tag.
+	// MaxQueuedUserMessages bounds messages accepted while a session has a
+	// running turn. They are delivered at an eligible provider round boundary.
+	MaxQueuedUserMessages int `default:"16" env:"PEEN_MAX_QUEUED_USER_MESSAGES"` //nolint:lll // Immutable env tag.
 
 	// MaxMessageBytes bounds a caller-supplied POST /v1/messages "message"
 	// field. MaxSystemPromptBytes bounds its optional
@@ -96,8 +101,9 @@ type Config struct {
 	MaxAgentRunEventBytes            int `default:"65536" env:"PEEN_MAX_AGENT_RUN_EVENT_BYTES"`         //nolint:lll // Immutable env tag.
 	MaxAdHocAgentInstructionBytes    int `default:"65536" env:"PEEN_MAX_ADHOC_AGENT_INSTRUCTION_BYTES"` //nolint:lll // Immutable env tag.
 
-	HTTPListenAddress string `default:":8080"      env:"PEEN_HTTP_LISTEN_ADDRESS"` //nolint:lll // Immutable env tag.
-	APIToken          string `env:"PEEN_API_TOKEN"`
+	HTTPListenAddress    string `default:":8080"           env:"PEEN_HTTP_LISTEN_ADDRESS"`   //nolint:lll // Immutable env tag.
+	MetricsListenAddress string `default:"127.0.0.1:9090" env:"PEEN_METRICS_LISTEN_ADDRESS"` //nolint:lll // Immutable env tag.
+	APIToken             string `env:"PEEN_API_TOKEN"`
 }
 
 // Upstream configures one deployment-owned named provider. The name is Peen's
@@ -140,6 +146,7 @@ func (c Config) Validate() error {
 	validators := []func() error{
 		c.validateDirectories,
 		c.validateRuntime,
+		c.validateMetricsListener,
 		c.validateUpstreamConfiguration,
 		c.validateAgentRunLimits,
 		c.validateMessageLimits,
@@ -148,6 +155,37 @@ func (c Config) Validate() error {
 		if err := validate(); err != nil {
 			return ctxerrors.Wrap(err, "validate Peen configuration")
 		}
+	}
+
+	return nil
+}
+
+// validateMetricsListener keeps the unauthenticated scrape endpoint private
+// to this process's loopback interfaces. The public API has its own listener
+// and may be deployed behind an authenticating proxy.
+func (c Config) validateMetricsListener() error {
+	host, port, err := net.SplitHostPort(c.MetricsListenAddress)
+	if err != nil || host == "" || port == "" {
+		return ctxerrors.Wrap(
+			ErrInvalidConfig,
+			"PEEN_METRICS_LISTEN_ADDRESS must be host:port",
+		)
+	}
+
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return ctxerrors.Wrap(
+			ErrInvalidConfig,
+			"PEEN_METRICS_LISTEN_ADDRESS must use a loopback IP address",
+		)
+	}
+
+	parsedPort, err := strconv.ParseUint(port, 10, 16)
+	if err != nil || parsedPort == 0 {
+		return ctxerrors.Wrap(
+			ErrInvalidConfig,
+			"PEEN_METRICS_LISTEN_ADDRESS must use a non-zero port",
+		)
 	}
 
 	return nil
@@ -316,6 +354,7 @@ func (c Config) validateAgentRunLimits() error {
 func (c Config) validateMessageLimits() error {
 	bounds := []int{
 		c.MaxConcurrentTurns,
+		c.MaxQueuedUserMessages,
 		c.MaxMessageBytes,
 		c.MaxSystemPromptBytes,
 		c.MaxStoredMessageBytes,

@@ -49,6 +49,14 @@ func Open(ctx context.Context, cfg Config) (*Handle, error) {
 		return nil, closeAfterOpenFailure(ctx, sqlDB, err)
 	}
 
+	if err := installDatabaseMetrics(database, sqlDB, cfg.Metrics); err != nil {
+		return nil, closeAfterOpenFailure(
+			ctx,
+			sqlDB,
+			ctxerrors.Wrap(err, "install database metrics"),
+		)
+	}
+
 	if err := commonsqlite.MigrateUp(
 		sqlDB,
 		sqliteMigrationsPath,

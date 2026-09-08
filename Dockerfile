@@ -3,6 +3,7 @@ FROM golang:1.26.6-alpine@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea0
 
 ARG BUILD_COMMIT=""
 ARG BUILD_VERSION="dev"
+ARG PEEN_ENABLE_COVERAGE="false"
 
 # Install build dependencies
 RUN apk add --no-cache \
@@ -28,9 +29,15 @@ COPY . .
 # binary falls back to the literal "servicepack" and introduces itself by the
 # framework's name in its own --help.
 RUN APP_NAME="$(head -n 1 go.mod | awk '{print $2}' | awk -F'/' '{print $NF}')" && \
-    CGO_ENABLED=0 go build -a \
-    -ldflags "-X main.appName=${APP_NAME} -X main.buildCommit=${BUILD_COMMIT} -X main.buildVersion=${BUILD_VERSION}" \
-    -o ./build/app ./cmd
+	if [ "$PEEN_ENABLE_COVERAGE" = "true" ]; then \
+		CGO_ENABLED=0 go build -a -cover \
+		-ldflags "-X main.appName=${APP_NAME} -X main.buildCommit=${BUILD_COMMIT} -X main.buildVersion=${BUILD_VERSION}" \
+		-o ./build/app ./cmd; \
+	else \
+		CGO_ENABLED=0 go build -a \
+		-ldflags "-X main.appName=${APP_NAME} -X main.buildCommit=${BUILD_COMMIT} -X main.buildVersion=${BUILD_VERSION}" \
+		-o ./build/app ./cmd; \
+	fi
 
 # Final stage - Ubuntu runtime
 #

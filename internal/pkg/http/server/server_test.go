@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/aichteeteapee"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/agent"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/stretchr/testify/assert"
@@ -258,6 +260,31 @@ func TestServerHandlersMapKnownOperationErrors(t *testing.T) {
 			},
 		},
 		{
+			name: "send maps a full active user message queue",
+			runtime: &testRuntime{
+				sessionID: sessionID,
+				sendErr: errors.Join(
+					commerr.ErrConflict,
+					elelem.ErrUserMessageQueueFull,
+				),
+			},
+			wantStatus: http.StatusConflict,
+			wantCode:   ErrorCodeUserMessageQueueFull,
+			write: func(instance *Server, recorder *httptest.ResponseRecorder) error {
+				response, err := instance.SendMessage(
+					context.Background(),
+					api.SendMessageRequestObject{
+						Body: &api.MessageRequest{Message: "inspect"},
+					},
+				)
+				if err != nil {
+					return err
+				}
+
+				return response.VisitSendMessageResponse(recorder)
+			},
+		},
+		{
 			name: "send maps busy session",
 			runtime: &testRuntime{
 				sessionID: sessionID,
@@ -312,6 +339,67 @@ func TestServerHandlersMapKnownOperationErrors(t *testing.T) {
 			require.NoError(t, tc.write(instance, recorder))
 			assert.Equal(t, tc.wantStatus, recorder.Code)
 			assertErrorCode(t, recorder, tc.wantCode)
+		})
+	}
+}
+
+func TestServerQueuedMessageReturnsAccepted(t *testing.T) {
+	t.Parallel()
+
+	sessionID := uuid.New()
+	testCases := []struct {
+		name    string
+		stream  bool
+		runtime *testRuntime
+	}{
+		{
+			name: "JSON",
+			runtime: &testRuntime{
+				sessionID:  sessionID,
+				sendQueued: true,
+			},
+		},
+		{
+			name:   "SSE request",
+			stream: true,
+			runtime: &testRuntime{
+				sessionID:    sessionID,
+				streamQueued: true,
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			instance, err := New(Dependencies{Runtime: tc.runtime})
+			require.NoError(t, err)
+			recorder := httptest.NewRecorder()
+			requestContext := t.Context()
+			if tc.stream {
+				requestContext = context.WithValue(
+					requestContext,
+					streamContextKey,
+					true,
+				)
+			}
+
+			response, err := instance.SendMessage(
+				requestContext,
+				api.SendMessageRequestObject{
+					Body: &api.MessageRequest{Message: "queue this"},
+				},
+			)
+			require.NoError(t, err)
+			require.NoError(t, response.VisitSendMessageResponse(recorder))
+
+			require.Equal(t, http.StatusAccepted, recorder.Code)
+			assert.Equal(t, sessionID.String(), recorder.Header().Get(headerSessionID))
+
+			body := api.MessageQueuedResponse{}
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
+			assert.True(t, body.Queued)
 		})
 	}
 }
@@ -504,15 +592,17 @@ func assertErrorCode(
 }
 
 type testRuntime struct {
-	sessionID  uuid.UUID
-	sendCalls  int
-	sendErr    error
-	streamErr  error
-	sessionErr error
-	listErr    error
-	cancelErr  error
-	eventsErr  error
-	jobsErr    error
+	sessionID    uuid.UUID
+	sendCalls    int
+	sendErr      error
+	sendQueued   bool
+	streamErr    error
+	streamQueued bool
+	sessionErr   error
+	listErr      error
+	cancelErr    error
+	eventsErr    error
+	jobsErr      error
 
 	agentRunsErr error
 }
@@ -535,6 +625,7 @@ func (r *testRuntime) SendMessage(
 	return &agent.MessageRunResult{
 		Response:  api.MessageResponse{Message: "response"},
 		SessionID: r.sessionID,
+		Queued:    r.sendQueued,
 	}, nil
 }
 
@@ -551,6 +642,7 @@ func (r *testRuntime) StreamMessage(
 	return &agent.StreamMessageResult{
 		Body:      io.NopCloser(strings.NewReader("")),
 		SessionID: r.sessionID,
+		Queued:    r.streamQueued,
 	}, nil
 }
 

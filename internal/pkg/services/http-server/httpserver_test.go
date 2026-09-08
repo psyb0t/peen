@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -51,6 +52,7 @@ Follow the test agent rules.`
 	serviceTestSessionID      = "X-Session-ID"
 	serviceTestBearerPrefix   = "Bearer "
 	serviceTestJSONMediaType  = "application/json"
+	serviceTestMetricsPath    = "/metrics"
 	serviceTestRequestTimeout = 5 * time.Second
 	// Startup opens SQLite, runs migrations and an integrity check, and
 	// discovers provider models. The listener-ready channel and the polling
@@ -128,6 +130,34 @@ func TestHTTPServiceRunsRealSQLiteAndAPI(t *testing.T) {
 	assert.Equal(t, []string{serviceTestMessage, serviceTestResponse}, messageContents(page.Items))
 	assert.False(t, page.HasMore)
 	assert.Len(t, fixture.driver.Requests(), 1)
+
+	publicMetrics := awaitHTTPResponse(
+		t,
+		fixture.client,
+		http.MethodGet,
+		fixture.url(serviceTestMetricsPath),
+		"",
+		"",
+	)
+	require.Equal(t, http.StatusNotFound, publicMetrics.StatusCode)
+	require.NoError(t, publicMetrics.Body.Close())
+
+	metricsRequest, err := http.NewRequestWithContext(
+		t.Context(),
+		http.MethodGet,
+		fixture.metricsURL(serviceTestMetricsPath),
+		nil,
+	)
+	require.NoError(t, err)
+
+	metricsResponse, err := fixture.client.Do(metricsRequest)
+	require.NoError(t, err)
+	metricsBody, readErr := io.ReadAll(metricsResponse.Body)
+	closeErr := metricsResponse.Body.Close()
+	require.NoError(t, readErr)
+	require.NoError(t, closeErr)
+	require.Equal(t, http.StatusOK, metricsResponse.StatusCode)
+	assert.Contains(t, string(metricsBody), "peen_http_requests_total")
 
 	cancel()
 	require.NoError(t, awaitServiceStop(t, serviceDone))
@@ -422,16 +452,21 @@ func awaitServiceStart(
 }
 
 type httpServiceFixture struct {
-	service       *HTTPServer
-	listener      net.Listener
-	listenerReady chan struct{}
-	driver        *elelemtest.ScriptedDriver
-	client        *http.Client
-	config        peenconfig.Config
+	service         *HTTPServer
+	listener        net.Listener
+	metricsListener net.Listener
+	listenerReady   chan struct{}
+	driver          *elelemtest.ScriptedDriver
+	client          *http.Client
+	config          peenconfig.Config
 }
 
 func (f httpServiceFixture) url(path string) string {
 	return "http://" + f.listener.Addr().String() + path
+}
+
+func (f httpServiceFixture) metricsURL(path string) string {
+	return "http://" + f.metricsListener.Addr().String() + path
 }
 
 func newHTTPServiceFixture(t *testing.T) httpServiceFixture {
@@ -475,6 +510,17 @@ func newHTTPServiceFixture(t *testing.T) httpServiceFixture {
 			require.NoError(t, closeErr)
 		}
 	})
+	metricsListener, metricsListenErr := (&net.ListenConfig{}).
+		Listen(t.Context(), "tcp", "127.0.0.1:0")
+	require.NoError(t, metricsListenErr)
+	t.Cleanup(func() {
+		if closeErr := metricsListener.Close(); closeErr != nil && !errors.Is(
+			closeErr,
+			net.ErrClosed,
+		) {
+			require.NoError(t, closeErr)
+		}
+	})
 
 	config := peenconfig.Config{
 		ConfigDirectory:        configDirectory,
@@ -488,6 +534,7 @@ func newHTTPServiceFixture(t *testing.T) httpServiceFixture {
 		CompactionTimeout:      time.Minute,
 		TurnTimeout:            time.Minute,
 		HTTPListenAddress:      listener.Addr().String(),
+		MetricsListenAddress:   metricsListener.Addr().String(),
 		APIToken:               serviceTestAPIToken,
 	}
 	require.NoError(t, config.Validate())
@@ -506,8 +553,12 @@ func newHTTPServiceFixture(t *testing.T) httpServiceFixture {
 		listen: func(
 			_ context.Context,
 			_ string,
-			_ string,
+			address string,
 		) (net.Listener, error) {
+			if address == config.MetricsListenAddress {
+				return metricsListener, nil
+			}
+
 			listenerReady <- struct{}{}
 
 			return listener, nil
@@ -515,12 +566,13 @@ func newHTTPServiceFixture(t *testing.T) httpServiceFixture {
 	})
 
 	return httpServiceFixture{
-		service:       service,
-		listener:      listener,
-		listenerReady: listenerReady,
-		driver:        driver,
-		client:        &http.Client{Timeout: serviceTestRequestTimeout},
-		config:        config,
+		service:         service,
+		listener:        listener,
+		metricsListener: metricsListener,
+		listenerReady:   listenerReady,
+		driver:          driver,
+		client:          &http.Client{Timeout: serviceTestRequestTimeout},
+		config:          config,
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/http/api"
+	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/tools"
 )
@@ -25,6 +26,9 @@ const (
 
 	// EventTypeTurnStarted marks durable turn initialization.
 	EventTypeTurnStarted = "turn.started"
+	// EventTypeUserMessageQueued records an accepted message waiting for an
+	// active turn's next eligible provider round.
+	EventTypeUserMessageQueued = "user_message.queued"
 	// EventTypeTextDelta carries one assistant text fragment.
 	EventTypeTextDelta = "text.delta"
 	// EventTypeThinkingDelta carries one assistant reasoning fragment.
@@ -60,9 +64,10 @@ const (
 	workspaceMetadataLead = "Current message workspace, the directory " +
 		"relative tool paths resolve from: "
 
-	defaultMaxSystemPromptBytes = 65536
-	defaultMaxMessageBytes      = 262144
-	defaultMaxConcurrentTurns   = 16
+	defaultMaxSystemPromptBytes  = 65536
+	defaultMaxMessageBytes       = 262144
+	defaultMaxConcurrentTurns    = 16
+	defaultMaxQueuedUserMessages = 16
 
 	// compactionSummaryLead marks the synthetic history message as a summary
 	// of earlier conversation rather than something the user just said.
@@ -135,10 +140,14 @@ type TurnRequest struct {
 type TurnResult struct {
 	SessionID uuid.UUID
 	Created   bool
-	Text      string
-	Thinking  string
-	Model     string
-	Events    []Event
+	// Queued reports that the input was accepted by a currently active turn.
+	// A queued result has no final model output because the original turn owns
+	// the next eligible provider round.
+	Queued   bool
+	Text     string
+	Thinking string
+	Model    string
+	Events   []Event
 
 	// FinishReason, HasToolCalls, and OutputTokens describe how the turn
 	// ended. The stream epilogue reports them, so a client can tell a
@@ -153,12 +162,14 @@ type TurnResult struct {
 type MessageRunResult struct {
 	Response  api.MessageResponse
 	SessionID uuid.UUID
+	Queued    bool
 }
 
 // StreamMessageResult carries a generated SSE body and durable header data.
 type StreamMessageResult struct {
 	Body      io.ReadCloser
 	SessionID uuid.UUID
+	Queued    bool
 }
 
 // RuntimeOptions supplies Peen's transport-independent turn dependencies.
@@ -188,6 +199,10 @@ type RuntimeOptions struct {
 	// MaxMessageBytes bounds one caller-supplied message. Zero takes the
 	// package default.
 	MaxMessageBytes int
+
+	// MaxQueuedUserMessages bounds user messages accepted while a session's
+	// turn is active. Zero takes the package default.
+	MaxQueuedUserMessages int
 
 	// CompactionMode selects what happens when a request exceeds
 	// MaxContextTokens. Empty takes drop-oldest, which installs no Peen hook
@@ -236,6 +251,9 @@ type RuntimeOptions struct {
 	// job, a finished child agent, or an outside report. A nil bus disables
 	// delivery, which is what an embedding caller that wants none gets.
 	Events *events.Bus
+	// Metrics records bounded runtime telemetry. A nil value disables metrics
+	// for embedding callers that do not expose an operator scrape endpoint.
+	Metrics *metrics.Metrics
 
 	// AgentLimits bounds launch_agent: child depth and turns, concurrent runs
 	// per session, and the agent run event ring buffer. Zero fields take the
@@ -260,7 +278,7 @@ func (o RuntimeOptions) validate() error {
 
 	if o.RootAgent == "" || o.DefaultModel == "" ||
 		o.DefaultWorkspace == "" || o.MaxContextTokens <= 0 ||
-		o.TurnTimeout <= 0 {
+		o.TurnTimeout <= 0 || o.MaxQueuedUserMessages < 0 {
 		return ctxerrors.Wrap(commerr.ErrValidationFailed, "runtime options")
 	}
 
@@ -315,6 +333,10 @@ type runtimeTurn struct {
 	// a JSON turn has nobody to advertise to.
 	statusReporter statusReporter
 
+	// sinkMutex preserves event and sink ordering without holding mutex while
+	// executing caller code. A sink may synchronously queue another user
+	// message, which checkpoints this turn and therefore needs mutex itself.
+	sinkMutex sync.Mutex
 	mutex     sync.Mutex
 	events    []Event
 	messages  []session.MessageInput

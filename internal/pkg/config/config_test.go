@@ -35,6 +35,20 @@ func TestConfigValidate(t *testing.T) {
 			wantErr: ErrInvalidConfig,
 		},
 		{
+			name: "metrics listener rejects public address",
+			mutate: func(config *Config) {
+				config.MetricsListenAddress = "0.0.0.0:9090"
+			},
+			wantErr: ErrInvalidConfig,
+		},
+		{
+			name: "metrics listener requires a port",
+			mutate: func(config *Config) {
+				config.MetricsListenAddress = "127.0.0.1"
+			},
+			wantErr: ErrInvalidConfig,
+		},
+		{
 			name:    "missing default model",
 			mutate:  func(config *Config) { config.DefaultModel = "" },
 			wantErr: ErrInvalidConfig,
@@ -104,8 +118,10 @@ func TestParseUsesFixedEnvironmentBindings(t *testing.T) {
 	t.Setenv("PEEN_COMPACTION_TIMEOUT", "3m")
 	t.Setenv("PEEN_TURN_TIMEOUT", "4m")
 	t.Setenv("PEEN_HTTP_LISTEN_ADDRESS", "127.0.0.1:8081")
+	t.Setenv("PEEN_METRICS_LISTEN_ADDRESS", "127.0.0.1:9091")
 	t.Setenv("PEEN_API_TOKEN", "test-token")
 	t.Setenv("PEEN_MAX_CONCURRENT_TURNS", "8")
+	t.Setenv("PEEN_MAX_QUEUED_USER_MESSAGES", "7")
 	t.Setenv("PEEN_MAX_MESSAGE_BYTES", "131072")
 	t.Setenv("PEEN_MAX_SYSTEM_PROMPT_BYTES", "32768")
 	t.Setenv("PEEN_MAX_STORED_MESSAGE_BYTES", "524288")
@@ -125,7 +141,9 @@ func TestParseUsesFixedEnvironmentBindings(t *testing.T) {
 	assert.Equal(t, 3*time.Minute, config.CompactionTimeout)
 	assert.Equal(t, 4*time.Minute, config.TurnTimeout)
 	assert.Equal(t, "127.0.0.1:8081", config.HTTPListenAddress)
+	assert.Equal(t, "127.0.0.1:9091", config.MetricsListenAddress)
 	assert.Equal(t, 8, config.MaxConcurrentTurns)
+	assert.Equal(t, 7, config.MaxQueuedUserMessages)
 	assert.Equal(t, 131072, config.MaxMessageBytes)
 	assert.Equal(t, 32768, config.MaxSystemPromptBytes)
 	assert.Equal(t, 524288, config.MaxStoredMessageBytes)
@@ -168,6 +186,7 @@ func testConfig(t *testing.T) Config {
 		CompactionTimeout:      time.Minute,
 		TurnTimeout:            time.Minute,
 		HTTPListenAddress:      ":8080",
+		MetricsListenAddress:   "127.0.0.1:9090",
 
 		// Mirrors the `default:` tags, which gonfiguration applies on Parse
 		// and a struct literal does not get.
@@ -336,6 +355,7 @@ func TestConfigValidateMessageLimits(t *testing.T) {
 			name: "zero means take the package default",
 			mutate: func(c *Config) {
 				c.MaxConcurrentTurns = 0
+				c.MaxQueuedUserMessages = 0
 				c.MaxMessageBytes = 0
 				c.MaxSystemPromptBytes = 0
 				c.MaxStoredMessageBytes = 0
@@ -344,6 +364,11 @@ func TestConfigValidateMessageLimits(t *testing.T) {
 		{
 			name:    "negative concurrent turn bound",
 			mutate:  func(c *Config) { c.MaxConcurrentTurns = -1 },
+			wantErr: true,
+		},
+		{
+			name:    "negative queued message bound",
+			mutate:  func(c *Config) { c.MaxQueuedUserMessages = -1 },
 			wantErr: true,
 		},
 		{

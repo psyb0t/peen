@@ -21,6 +21,20 @@ package; see [docs/development.md](../development.md).
 | `PEEN_COMPACTION_MODEL` | `PEEN_DEFAULT_MODEL` | Qualified `provider/model` used only for the summarization call. |
 | `PEEN_HTTP_LISTEN_ADDRESS` | `:8080` | Listener address. |
 | `PEEN_API_TOKEN` | empty | Bearer token. Empty disables authentication. |
+| `PEEN_METRICS_LISTEN_ADDRESS` | `127.0.0.1:9090` | Separate loopback-only Prometheus listener. See [metrics](#metrics). |
+
+## Metrics
+
+`GET /metrics` exposes Peen's application-owned Prometheus registry on
+`PEEN_METRICS_LISTEN_ADDRESS`. It never appears on the public API listener,
+is not part of `/v1`, and is not governed by `PEEN_API_TOKEN` because the
+listener itself is the access boundary.
+
+The value must be an explicit non-zero loopback IP address and port, such as
+`127.0.0.1:9090` or `[::1]:9090`. Wildcard and non-loopback addresses are
+rejected at startup. Run a scraper in the same network namespace as Peen. A
+Docker `-p` rule does not make a container loopback listener reachable from
+the host.
 
 ## Context and turn limits
 
@@ -32,6 +46,7 @@ package; see [docs/development.md](../development.md).
 | `PEEN_COMPACTION_TIMEOUT` | `2m` | Bound on the separate summarization call. |
 | `PEEN_TURN_TIMEOUT` | `10m` | Bound on one turn. |
 | `PEEN_MAX_CONCURRENT_TURNS` | `16` | Global cap on turns running at once, across every session in the process. |
+| `PEEN_MAX_QUEUED_USER_MESSAGES` | `16` | Per active-turn cap for caller messages waiting for Elelem's next provider round boundary. |
 
 ## Message size bounds
 
@@ -106,28 +121,29 @@ scripted test driver. Leave them unset for a normal deployment.
 Peen resolves `AGENTS.md`, skills, named agents, and event handlers in the
 same order, every turn:
 
-1. `PEEN_CONFIG_DIR` is the base layer.
-2. Every filesystem ancestor of the current message's workspace is then
+1. Embedded operating rules plus the `planning` and `freshness` skills are the
+   immutable base layer.
+2. `PEEN_CONFIG_DIR` extends the base layer.
+3. Every filesystem ancestor of the current message's workspace is then
    applied, from `/` down to the workspace itself.
-3. At each layer, `AGENTS.md` and `.agents/` are read before moving to the
+4. At each filesystem layer, `AGENTS.md` and `.agents/` are read before moving to the
    next, more specific layer.
 
 A missing layer is normal. An unreadable or malformed layer that does exist
 is a hard startup or turn error, never a silent skip. Entries are sorted
 bytewise for stable, repeatable results.
 
-- **`AGENTS.md`**: each file is kept as its own instruction block. On
-  conflict, the block from the layer closest to the workspace wins. A
-  message's own text cannot rewrite these.
+- **`AGENTS.md`**: each file is kept as its own instruction block in layer
+  order. A message's own text cannot rewrite these blocks.
 - **Skills** (`.agents/skills/<name>/SKILL.md`): only the name and
   description are placed in the system prompt at turn start (progressive
   disclosure). `use_skill` loads one full `SKILL.md` and its source directory
   on demand; files it references are then read with the normal `read_file`
   tool, so that read is a visible, ordinary tool call. A same-named skill in
-  a later layer replaces the earlier one as a whole unit; they are never
-  merged. `allowed-tools` in frontmatter is recorded but advisory only. Peen
-  has no permission layer, so it cannot narrow which tools a skill's turn may
-  call.
+  a later layer replaces the earlier or embedded one as a whole unit; they are
+  never merged. `allowed-tools` in frontmatter is recorded but advisory only.
+  Peen has no permission layer, so it cannot narrow which tools a skill's turn
+  may call.
 - **Named agents** (`.agents/agents/<name>.md`): YAML frontmatter with `name`
   and `description`, lowercase kebab-case, followed by system instructions.
   `launch_agent` runs one by name, or accepts an inline `agentDefinition` for
@@ -144,6 +160,10 @@ bytewise for stable, repeatable results.
   ancestor layers are resolved, hashed, and listed in the context manifest,
   but their actions only execute when `PEEN_ENABLE_WORKSPACE_HOOKS=true`.
   See [hook configuration](hooks.md).
+
+Every root and child turn also receives the server's current UTC timestamp as
+trusted runtime context. The embedded freshness guidance tells the model to
+inspect local project facts and verify external facts that may have changed.
 
 ## Session events
 

@@ -4,6 +4,11 @@
 the same durable agent runtime the HTTP service exposes, without starting
 Servicepack or an HTTP listener.
 
+When `Message` or `Stream` targets a session with a local active turn,
+`MessageResult.Queued` is true and `Message` is empty. The existing turn owns
+the eventual provider response. Queued input cannot override workspace or
+system-prompt settings, and it is not replayed automatically after a restart.
+
 ## Embedding example
 
 ```go

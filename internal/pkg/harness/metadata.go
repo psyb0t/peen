@@ -42,10 +42,10 @@ type eventHandlerFrontMatter struct {
 	Delivery string `yaml:"delivery"`
 }
 
-func parseSkillDocument(content string) (skillFrontMatter, string, error) {
-	frontMatter, body, err := splitFrontMatter(content, ErrInvalidSkill)
+func parseSkillDocument(content string) (skillFrontMatter, error) {
+	frontMatter, _, err := splitFrontMatter(content, ErrInvalidSkill)
 	if err != nil {
-		return skillFrontMatter{}, "", ctxerrors.Wrap(
+		return skillFrontMatter{}, ctxerrors.Wrap(
 			err,
 			"split skill frontmatter",
 		)
@@ -55,7 +55,7 @@ func parseSkillDocument(content string) (skillFrontMatter, string, error) {
 
 	values, err := validateSkillYAMLTypes(frontMatter)
 	if err != nil {
-		return skillFrontMatter{}, "", ctxerrors.Wrap(
+		return skillFrontMatter{}, ctxerrors.Wrap(
 			err,
 			"validate skill YAML types",
 		)
@@ -66,7 +66,7 @@ func parseSkillDocument(content string) (skillFrontMatter, string, error) {
 		&metadata,
 		ErrInvalidSkill,
 	); err != nil {
-		return skillFrontMatter{}, "", ctxerrors.Wrap(
+		return skillFrontMatter{}, ctxerrors.Wrap(
 			err,
 			"decode skill frontmatter",
 		)
@@ -77,13 +77,13 @@ func parseSkillDocument(content string) (skillFrontMatter, string, error) {
 		metadata,
 		compatibilityPresent,
 	); err != nil {
-		return skillFrontMatter{}, "", ctxerrors.Wrap(
+		return skillFrontMatter{}, ctxerrors.Wrap(
 			err,
 			"validate skill frontmatter",
 		)
 	}
 
-	return metadata, body, nil
+	return metadata, nil
 }
 
 func parseAgentDocument(content string) (agentFrontMatter, string, error) {

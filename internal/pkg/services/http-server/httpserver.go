@@ -14,13 +14,15 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	peenhttp "github.com/psyb0t/peen/internal/pkg/http/server"
+	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/tools"
 )
 
 const (
-	ServiceName = "http-server"
-	networkTCP  = "tcp"
+	ServiceName      = "http-server"
+	networkTCP       = "tcp"
+	serveWorkerCount = 2
 )
 
 type serviceDependencies struct {
@@ -62,6 +64,7 @@ func (s *HTTPServer) Name() string {
 	return ServiceName
 }
 
+//nolint:funlen // Paired server lifecycles belong in this method.
 func (s *HTTPServer) Run(ctx context.Context) (runErr error) {
 	ctx = ctxscope.Set(ctx, ctxscope.Attr("service", ServiceName))
 	logger := ctxscope.GetLogger(ctx)
@@ -82,7 +85,14 @@ func (s *HTTPServer) Run(ctx context.Context) (runErr error) {
 		return err
 	}
 
-	server, assembled, err := s.newAPIServer(ctx, config, upstreams)
+	metricRegistry := metrics.New()
+
+	server, assembled, err := s.newAPIServer(
+		ctx,
+		config,
+		upstreams,
+		metricRegistry,
+	)
 	if err != nil {
 		return err
 	}
@@ -93,18 +103,37 @@ func (s *HTTPServer) Run(ctx context.Context) (runErr error) {
 
 	runtime := assembled.Runtime
 
+	metricsServer, err := metrics.NewServer(metricRegistry)
+	if err != nil {
+		return ctxerrors.Wrap(err, "create metrics server")
+	}
+
+	metricsListener, err := s.dependencies.listen(
+		ctx,
+		networkTCP,
+		config.MetricsListenAddress,
+	)
+	if err != nil {
+		return ctxerrors.Wrap(err, "open metrics listener")
+	}
+
 	listener, err := s.dependencies.listen(
 		ctx,
 		networkTCP,
 		config.HTTPListenAddress,
 	)
 	if err != nil {
-		return ctxerrors.Wrap(err, "open HTTP listener")
+		return closeListenerAfter(
+			ctx,
+			metricsListener,
+			ctxerrors.Wrap(err, "open HTTP listener"),
+		)
 	}
 
 	logger.Info(
 		"HTTP service initialized",
 		"listen_address", config.HTTPListenAddress,
+		"metrics_listen_address", config.MetricsListenAddress,
 		"provider_count", len(upstreams),
 		"default_model", config.DefaultModel,
 	)
@@ -113,11 +142,61 @@ func (s *HTTPServer) Run(ctx context.Context) (runErr error) {
 		runErr = errors.Join(runErr, stopSessionJobs(ctx, runtime))
 	}()
 
-	if err := server.ServeListener(ctx, listener); err != nil {
-		return ctxerrors.Wrap(err, "serve HTTP API")
+	if err := serveBoth(
+		ctx,
+		server,
+		listener,
+		metricsServer,
+		metricsListener,
+	); err != nil {
+		return err
 	}
 
 	return nil
+}
+
+func serveBoth(
+	ctx context.Context,
+	apiServer *peenhttp.Server,
+	apiListener net.Listener,
+	metricsServer *metrics.Server,
+	metricsListener net.Listener,
+) error {
+	serveCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	serveErrors := make(chan error, serveWorkerCount)
+	go func() {
+		serveErrors <- apiServer.ServeListener(serveCtx, apiListener)
+	}()
+	go func() {
+		serveErrors <- metricsServer.ServeListener(serveCtx, metricsListener)
+	}()
+
+	firstErr := <-serveErrors
+
+	cancel()
+
+	secondErr := <-serveErrors
+
+	return errors.Join(firstErr, secondErr)
+}
+
+func closeListenerAfter(
+	ctx context.Context,
+	listener net.Listener,
+	cause error,
+) error {
+	if err := listener.Close(); err != nil {
+		ctxscope.GetLogger(ctx).Warn("close unserved listener", "err", err)
+
+		return errors.Join(
+			cause,
+			ctxerrors.Wrap(err, "close unserved listener"),
+		)
+	}
+
+	return cause
 }
 
 // logValidatedConfig records the validated startup configuration shape with
@@ -149,6 +228,7 @@ func logValidatedConfig(
 		"compaction_timeout", config.CompactionTimeout,
 		"turn_timeout", config.TurnTimeout,
 		"max_concurrent_turns", config.MaxConcurrentTurns,
+		"max_queued_user_messages", config.MaxQueuedUserMessages,
 		"max_message_bytes", config.MaxMessageBytes,
 		"max_system_prompt_bytes", config.MaxSystemPromptBytes,
 		"max_stored_message_bytes", config.MaxStoredMessageBytes,
@@ -184,6 +264,7 @@ func logValidatedConfig(
 		"max_adhoc_agent_instruction_bytes",
 		config.MaxAdHocAgentInstructionBytes,
 		"http_listen_address", config.HTTPListenAddress,
+		"metrics_listen_address", config.MetricsListenAddress,
 		"api_token_configured", config.APIToken != "",
 		"provider_count", len(upstreams),
 		"provider_names", upstreamNames,
@@ -247,6 +328,7 @@ func (s *HTTPServer) newAPIServer(
 	ctx context.Context,
 	config peenconfig.Config,
 	upstreams []peenconfig.Upstream,
+	metricRegistry *metrics.Metrics,
 ) (*peenhttp.Server, *agent.Assembled, error) {
 	// Discovery stays here because it is the one part that genuinely differs
 	// between the service and an embedding Go program: a deployment discovers
@@ -266,7 +348,7 @@ func (s *HTTPServer) newAPIServer(
 	}
 
 	assembled, err := agent.Assemble(ctx, agent.AssembleOptions{
-		Runtime:       runtimeOptions(config, registry),
+		Runtime:       runtimeOptions(config, registry, metricRegistry),
 		HarnessLimits: harnessLimits(),
 		StoreOptions: session.Options{
 			MaxStoredMessageBytes: config.MaxStoredMessageBytes,
@@ -279,6 +361,7 @@ func (s *HTTPServer) newAPIServer(
 	server, err := peenhttp.New(peenhttp.Dependencies{
 		Runtime:  assembled.Runtime,
 		APIToken: config.APIToken,
+		Metrics:  metricRegistry,
 	})
 	if err != nil {
 		return nil, nil, ctxerrors.Wrap(err, "create HTTP API server")
@@ -293,6 +376,7 @@ func (s *HTTPServer) newAPIServer(
 func runtimeOptions(
 	config peenconfig.Config,
 	registry agent.ModelResolver,
+	metricRegistry *metrics.Metrics,
 ) agent.RuntimeOptions {
 	return agent.RuntimeOptions{
 		Models:           registry,
@@ -302,16 +386,20 @@ func runtimeOptions(
 		MaxContextTokens: config.MaxContextTokens,
 		TurnTimeout:      config.TurnTimeout,
 
-		MaxSystemPromptBytes: config.MaxSystemPromptBytes,
-		MaxMessageBytes:      config.MaxMessageBytes,
-		MaxConcurrentTurns:   config.MaxConcurrentTurns,
+		MaxSystemPromptBytes:  config.MaxSystemPromptBytes,
+		MaxMessageBytes:       config.MaxMessageBytes,
+		MaxConcurrentTurns:    config.MaxConcurrentTurns,
+		MaxQueuedUserMessages: config.MaxQueuedUserMessages,
 
 		CompactionMode:         config.CompactionMode,
 		CompactionModel:        config.CompactionModel,
 		CompactionOutputTokens: config.CompactionOutputTokens,
 		CompactionTimeout:      config.CompactionTimeout,
 
-		Events:               events.NewBus(eventBusOptions(config)),
+		Events: events.NewBus(
+			eventBusOptions(config, metricRegistry),
+		),
+		Metrics:              metricRegistry,
 		MaxEventWakesPerHour: config.MaxEventWakesPerHour,
 		ConfigDirectory:      config.ConfigDirectory,
 		AgentLimits:          agentRunLimits(config),
@@ -327,11 +415,15 @@ func runtimeOptions(
 }
 
 // eventBusOptions maps the deployment's event bounds onto the event package.
-func eventBusOptions(config peenconfig.Config) events.Options {
+func eventBusOptions(
+	config peenconfig.Config,
+	metricRegistry *metrics.Metrics,
+) events.Options {
 	return events.Options{
 		MaxPendingPerSession: config.MaxPendingEvents,
 		MaxSummaryBytes:      config.MaxEventSummaryBytes,
 		MaxDataBytes:         config.MaxEventDataBytes,
+		Metrics:              metricRegistry,
 	}
 }
 

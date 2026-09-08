@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"net/http"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/psyb0t/aichteeteapee"
 	"github.com/psyb0t/ctxscope"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
+	"github.com/psyb0t/peen/internal/pkg/metrics"
 )
 
 func (s *Server) recoverPanic(next echo.HandlerFunc) echo.HandlerFunc {
@@ -61,6 +63,8 @@ func (s *Server) accessLog(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		startedAt := time.Now()
 
+		s.deps.Metrics.HTTPStarted()
+
 		ctxscope.GetLogger(c.Request().Context()).Info(
 			"HTTP request started",
 			"method", c.Request().Method,
@@ -68,7 +72,11 @@ func (s *Server) accessLog(next echo.HandlerFunc) echo.HandlerFunc {
 		)
 
 		err := next(c)
+
+		outcome := metrics.OutcomeSuccess
 		if err != nil {
+			outcome = metrics.OutcomeError
+
 			c.Error(err)
 
 			ctxscope.GetLogger(c.Request().Context()).Info(
@@ -80,7 +88,13 @@ func (s *Server) accessLog(next echo.HandlerFunc) echo.HandlerFunc {
 				"err", err,
 			)
 
+			s.recordHTTPMetrics(c, startedAt, outcome)
+
 			return nil
+		}
+
+		if c.Response().Status >= http.StatusInternalServerError {
+			outcome = metrics.OutcomeError
 		}
 
 		ctxscope.GetLogger(c.Request().Context()).Info(
@@ -91,8 +105,29 @@ func (s *Server) accessLog(next echo.HandlerFunc) echo.HandlerFunc {
 			"duration_ms", time.Since(startedAt).Milliseconds(),
 		)
 
+		s.recordHTTPMetrics(c, startedAt, outcome)
+
 		return nil
 	}
+}
+
+func (s *Server) recordHTTPMetrics(
+	c echo.Context,
+	startedAt time.Time,
+	outcome string,
+) {
+	route := c.Path()
+	if route == "" {
+		route = "unmatched"
+	}
+
+	s.deps.Metrics.HTTPCompleted(
+		c.Request().Method,
+		route,
+		strconv.Itoa(c.Response().Status),
+		outcome,
+		time.Since(startedAt),
+	)
 }
 
 func (s *Server) authenticate(next echo.HandlerFunc) echo.HandlerFunc {

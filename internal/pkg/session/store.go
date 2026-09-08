@@ -3,7 +3,6 @@ package session
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
 
@@ -13,7 +12,6 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/db"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
-	"gorm.io/gorm"
 )
 
 // Store persists sessions and protects each active session turn in-process.
@@ -235,10 +233,6 @@ func (s *Store) findSession(
 	result, err := session.WithContext(ctx).
 		Where(session.ID.Eq(sessionID)).
 		First()
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, ctxerrors.Wrap(commerr.ErrNotFound, "session")
-	}
-
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "query session")
 	}

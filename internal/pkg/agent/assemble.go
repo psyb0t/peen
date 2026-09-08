@@ -56,7 +56,10 @@ func Assemble(
 ) (*Assembled, error) {
 	configDirectory := options.Runtime.ConfigDirectory
 
-	handle, err := db.Open(ctx, db.Config{Directory: configDirectory})
+	handle, err := db.Open(ctx, db.Config{
+		Directory: configDirectory,
+		Metrics:   options.Runtime.Metrics,
+	})
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "open durable state")
 	}

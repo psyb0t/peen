@@ -11,6 +11,7 @@ import (
 	"github.com/psyb0t/aichteeteapee"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
+	"github.com/psyb0t/elelem"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 )
 
@@ -84,6 +85,12 @@ func mapSendMessageError(err error) (api.SendMessageResponseObject, bool) {
 		return api.SendMessage409JSONResponse{
 			ErrorConflictJSONResponse: api.ErrorConflictJSONResponse(
 				turnCancelledError(),
+			),
+		}, true
+	case errors.Is(err, elelem.ErrUserMessageQueueFull):
+		return api.SendMessage409JSONResponse{
+			ErrorConflictJSONResponse: api.ErrorConflictJSONResponse(
+				userMessageQueueFullError(),
 			),
 		}, true
 	case errors.Is(err, commerr.ErrConflict):
@@ -163,5 +170,12 @@ func turnCancelledError() api.Error {
 	return api.Error{
 		Code:    ErrorCodeTurnCancelled,
 		Message: "turn was cancelled",
+	}
+}
+
+func userMessageQueueFullError() api.Error {
+	return api.Error{
+		Code:    ErrorCodeUserMessageQueueFull,
+		Message: "active turn user message queue is full",
 	}
 }

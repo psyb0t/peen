@@ -29,20 +29,32 @@ import (
 )
 
 const (
-	apiBasePath          = "/v1"
-	messagesPath         = apiBasePath + "/messages"
-	sessionPath          = apiBasePath + "/session"
-	sessionCancelPath    = sessionPath + "/cancel"
-	headerAuthorization  = "Authorization"
-	headerAccept         = "Accept"
-	headerContentType    = "Content-Type"
-	headerRequestID      = "X-Request-ID"
-	headerSessionID      = "X-Session-ID"
-	bearerPrefix         = "Bearer "
-	jsonMediaType        = "application/json"
-	eventStreamMediaType = "text/event-stream"
-	integrationTimeout   = 5 * time.Minute
-	requestTimeout       = 30 * time.Second
+	apiBasePath           = "/v1"
+	messagesPath          = apiBasePath + "/messages"
+	sessionPath           = apiBasePath + "/session"
+	sessionCancelPath     = sessionPath + "/cancel"
+	headerAuthorization   = "Authorization"
+	headerAccept          = "Accept"
+	headerContentType     = "Content-Type"
+	headerRequestID       = "X-Request-ID"
+	headerSessionID       = "X-Session-ID"
+	bearerPrefix          = "Bearer "
+	jsonMediaType         = "application/json"
+	eventStreamMediaType  = "text/event-stream"
+	integrationTimeout    = 5 * time.Minute
+	requestTimeout        = 30 * time.Second
+	apiTestRestartTimeout = 30 * time.Second
+
+	apiTestWorkspaceRulesFile   = "AGENTS.md"
+	apiTestInitialRules         = "Initial image workspace rules."
+	apiTestUpdatedRules         = "Updated image workspace rules."
+	apiTestRestartMessage       = "prove durable image history"
+	apiTestReloadMessage        = "prove image harness reload"
+	apiTestQueuedSessionMessage = "create a queueable session"
+	apiTestActiveTurnMessage    = "hold this active turn"
+	apiTestQueuedMessage        = "queue this message for the active turn"
+	apiTestQueuedPageLimit      = 4
+	apiTestQueuedPageOffset     = 2
 
 	// apiTestChatStatusEvent is the advisory progress frame. It is not one of
 	// essessey's seven content-block types because it describes the stream
@@ -242,6 +254,74 @@ func TestAPIStreamsAndPersistsTurn(t *testing.T) {
 	)
 }
 
+func TestMetricsAreOnlyAvailableOnThePrivateListener(t *testing.T) {
+	publicResponse := apiRequest(
+		t,
+		http.MethodGet,
+		"/metrics",
+		nil,
+		authenticatedHeaders(),
+	)
+	requireAPIStatus(t, publicResponse, http.StatusNotFound)
+
+	privateResponse, err := integrationInfra.HTTPClient().Get(
+		integrationInfra.MetricsURL("/metrics"),
+	)
+	require.NoError(t, err)
+	metricsBody, readErr := io.ReadAll(privateResponse.Body)
+	closeErr := privateResponse.Body.Close()
+	require.NoError(t, readErr)
+	require.NoError(t, closeErr)
+	require.Equal(t, http.StatusOK, privateResponse.StatusCode)
+	assert.Contains(t, string(metricsBody), "peen_http_requests_total")
+}
+
+func TestProductionImageRestartsWithDurableStateAndFreshHarness(t *testing.T) {
+	require.NoError(t, integrationInfra.WriteWorkspaceFile(
+		t.Context(),
+		apiTestWorkspaceRulesFile,
+		[]byte(apiTestInitialRules),
+	))
+
+	initialResponse := apiRequest(
+		t,
+		http.MethodPost,
+		messagesPath,
+		messageJSON(t, apiTestRestartMessage),
+		authenticatedHeaders(),
+	)
+	requireAPIStatus(t, initialResponse, http.StatusOK)
+	sessionID := responseSessionID(t, initialResponse)
+	_ = decodeResponse[api.MessageResponse](t, initialResponse)
+
+	restartContext, cancelRestart := context.WithTimeout(
+		t.Context(),
+		apiTestRestartTimeout,
+	)
+	t.Cleanup(cancelRestart)
+	require.NoError(t, integrationInfra.Restart(restartContext))
+
+	page := listMessages(t, sessionID, 10, 0, "asc")
+	require.Len(t, page.Items, 2)
+	assert.Equal(t, apiTestRestartMessage, page.Items[0].Content)
+
+	require.NoError(t, integrationInfra.WriteWorkspaceFile(
+		t.Context(),
+		apiTestWorkspaceRulesFile,
+		[]byte(apiTestUpdatedRules),
+	))
+	reloadedResponse := apiRequest(
+		t,
+		http.MethodPost,
+		messagesPath,
+		messageJSON(t, apiTestReloadMessage),
+		withHeader(authenticatedHeaders(), headerSessionID, sessionID.String()),
+	)
+	requireAPIStatus(t, reloadedResponse, http.StatusOK)
+	_ = decodeResponse[api.MessageResponse](t, reloadedResponse)
+	assert.Contains(t, integrationInfra.LastSystemPrompt(), apiTestUpdatedRules)
+}
+
 func TestAPICancelsActiveTurn(t *testing.T) {
 	initialResponse := apiRequest(
 		t,
@@ -298,6 +378,90 @@ func TestAPICancelsActiveTurn(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return !getSession(t, sessionID).ActiveTurn
 	}, requestTimeout, 10*time.Millisecond)
+}
+
+func TestAPIQueuesMessageForActiveTurn(t *testing.T) {
+	initialResponse := apiRequest(
+		t,
+		http.MethodPost,
+		messagesPath,
+		messageJSON(t, apiTestQueuedSessionMessage),
+		authenticatedHeaders(),
+	)
+	requireAPIStatus(t, initialResponse, http.StatusOK)
+	_ = decodeResponse[api.MessageResponse](t, initialResponse)
+	sessionID := responseSessionID(t, initialResponse)
+
+	hold, err := integrationInfra.HoldNextCompletion()
+	require.NoError(t, err)
+	t.Cleanup(hold.Release)
+
+	activeRequest := messageJSON(t, apiTestActiveTurnMessage)
+	responseDone := make(chan apiCallResult, 1)
+	go func() {
+		responseDone <- sendMessageRequest(sessionID, activeRequest)
+	}()
+
+	select {
+	case <-hold.Observed:
+	case <-time.After(requestTimeout):
+		t.Fatal("provider mock did not receive the active turn")
+	}
+
+	require.Eventually(t, func() bool {
+		return getSession(t, sessionID).ActiveTurn
+	}, requestTimeout, 10*time.Millisecond)
+
+	queuedResponse := apiRequest(
+		t,
+		http.MethodPost,
+		messagesPath,
+		messageJSON(t, apiTestQueuedMessage),
+		withHeader(
+			withHeader(
+				authenticatedHeaders(),
+				headerSessionID,
+				sessionID.String(),
+			),
+			headerAccept,
+			eventStreamMediaType,
+		),
+	)
+	requireAPIStatus(t, queuedResponse, http.StatusAccepted)
+	assert.True(
+		t,
+		strings.HasPrefix(
+			queuedResponse.Header.Get(headerContentType),
+			jsonMediaType,
+		),
+	)
+	queued := decodeResponse[api.MessageQueuedResponse](t, queuedResponse)
+	assert.True(t, queued.Queued)
+
+	hold.Release()
+
+	select {
+	case result := <-responseDone:
+		require.NoError(t, result.err)
+		require.NotNil(t, result.response)
+		requireAPIStatus(t, result.response, http.StatusOK)
+		_ = decodeResponse[api.MessageResponse](t, result.response)
+	case <-time.After(requestTimeout):
+		t.Fatal("active turn did not finish after queued message delivery")
+	}
+
+	page := listMessages(
+		t,
+		sessionID,
+		apiTestQueuedPageLimit,
+		apiTestQueuedPageOffset,
+		"asc",
+	)
+	require.Len(t, page.Items, apiTestQueuedPageLimit)
+	assert.Equal(t, apiTestActiveTurnMessage, page.Items[0].Content)
+	assert.Equal(t, apiTestQueuedMessage, page.Items[2].Content)
+	assert.Equal(t, api.MessageRoleAssistant, page.Items[1].Role)
+	assert.Equal(t, api.MessageRoleAssistant, page.Items[3].Role)
 }
 
 func TestAPIReturnsDocumentedErrorEnvelopes(t *testing.T) {
