@@ -313,6 +313,7 @@ type runtimeFixture struct {
 func writeRuntimeFile(t *testing.T, path string, content string) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(filepath.Dir(path), runtimeTestDirectoryMode))
+	//nolint:gosec // Test fixture paths are created under t.TempDir.
 	require.NoError(t, os.WriteFile(path, []byte(content), runtimeTestFileMode))
 }
 

@@ -39,6 +39,11 @@ type CommandInput struct {
 // CommandRunner is a test seam around a direct executable invocation.
 type CommandRunner func(context.Context, CommandInput) ([]byte, error)
 
+// ContextTokenCounter estimates the active request's input tokens immediately
+// before a command action runs. It is an estimate for local hook policy, not
+// provider-reported billing usage.
+type ContextTokenCounter func(context.Context, Invocation) (int, error)
+
 // Options defines the execution policy for one turn's resolved hook list.
 type Options struct {
 	Snapshot             harness.Snapshot
@@ -48,6 +53,8 @@ type Options struct {
 	MaxCommandOutput     int
 	Publisher            EventPublisher
 	RunCommand           CommandRunner
+	StateRoot            string
+	ContextTokenCounter  ContextTokenCounter
 }
 
 // Invocation is one full lifecycle occurrence available to hook matching and
@@ -64,6 +71,17 @@ type Invocation struct {
 	Input     json.RawMessage   `json:"input,omitempty"`
 	Result    json.RawMessage   `json:"result,omitempty"`
 	Error     string            `json:"error,omitempty"`
+	// StateDirectory is a private, per-session directory available only to
+	// command actions. It is omitted when an invocation has no session.
+	StateDirectory string `json:"stateDirectory,omitempty"`
+	// ContextTokens is the estimated active request input token count at the
+	// command boundary. Zero means no counter was configured or the estimate
+	// itself was zero.
+	ContextTokens int `json:"contextTokens"`
+	// HasContextTokenEstimate is internal runner state. Callers that already
+	// hold an exact active-request estimate set it so Runner does not replace
+	// it with a broader lifecycle estimate.
+	HasContextTokenEstimate bool `json:"-"`
 }
 
 // Outcome is the non-destructive effect of a hook invocation. A caller makes

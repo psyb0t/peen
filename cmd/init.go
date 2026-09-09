@@ -1,5 +1,7 @@
 package main
 
+import "github.com/psyb0t/peen/internal/pkg/auditlog"
+
 // This file is yours - it never gets replaced by framework updates.
 // Use this init() to set up custom slog handlers, global config,
 // or anything else that needs to run before the app starts.
@@ -12,4 +14,7 @@ package main
 
 //nolint:gochecknoinits
 func init() {
+	if err := auditlog.Configure(); err != nil {
+		panic(err)
+	}
 }

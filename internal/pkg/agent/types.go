@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	defaultSystemPrompt = "You are a coding agent. Use the available tools to inspect and change the workspace. Read every existing regular file before changing, moving, or deleting it. Check that every new path is absent before creating or moving to it, and never overwrite a destination. Use file tools instead of shell commands for manual file changes. Keep changes within the user's request and preserve unrelated work. Do not invent file contents or claim success without evidence. Verify completed work with the available tools. Run tools without asking for permission. Only pause for approval when an activated skill explicitly requires it. Keep the final response concise: outcome, proof, and any real blocker." //nolint:lll // Prompt text must remain byte-exact.
+	defaultSystemPrompt = "You are a coding agent. Use the available tools to inspect and change the workspace. Read every existing regular file before changing, moving, or deleting it. Check that every new path is absent before creating or moving to it, and never overwrite a destination. Use file tools instead of shell commands for manual file changes. Treat ordering terms in active instructions, including before and after, as hard requirements: satisfy every prerequisite before a mutation. Keep changes within the user's request and preserve unrelated work. Do not invent file contents or claim success without evidence. Verify completed work with the available tools. Run tools without asking for permission. Only pause for approval when an activated skill explicitly requires it. Keep the final response concise: outcome, proof, and any real blocker." //nolint:lll // Prompt text must remain byte-exact.
 
 	// EventTypeTurnStarted marks durable turn initialization.
 	EventTypeTurnStarted = "turn.started"
@@ -58,6 +58,16 @@ const (
 
 	reasonCheckpointFailed = "turn_checkpoint_failed"
 	systemSectionGap       = "\n\n"
+
+	runtimeContextHeader              = "Trusted runtime context:"
+	runtimeContextLocalTimeLead       = "Current local time: "
+	runtimeContextTimezoneLead        = "Local timezone: "
+	runtimeContextOperatingSystemLead = "Operating system: "
+	runtimeContextArchitectureLead    = "Architecture: "
+	runtimeContextLogicalCPUsLead     = "Logical CPUs: "
+	runtimeContextGoRuntimeLead       = "Go runtime: "
+	//nolint:lll // Prompt guidance must remain byte-exact.
+	runtimeContextFreshnessGuidance = "Treat this as the current-time reference. Verify external facts that may have changed."
 
 	// workspaceMetadataLead introduces the JSON-encoded workspace path that
 	// every relative tool path resolves from.

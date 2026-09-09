@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/tools"
@@ -78,6 +79,27 @@ func TestHostToolSetRegistersEveryTool(t *testing.T) {
 			name,
 		)
 	}
+}
+
+func TestRestrictToolSet(t *testing.T) {
+	t.Parallel()
+
+	base := hostToolSet(newToolTestExecutor(t), nil, harness.Snapshot{}, nil)
+	restricted, err := restrictToolSet(
+		base,
+		[]string{toolNameListFiles, toolNameReadFile},
+	)
+	require.NoError(t, err)
+
+	_, found := restricted.Get(toolNameListFiles)
+	assert.True(t, found)
+	_, found = restricted.Get(toolNameReadFile)
+	assert.True(t, found)
+	_, found = restricted.Get(toolNameApplyPatch)
+	assert.False(t, found)
+
+	_, err = restrictToolSet(base, []string{"not_a_tool"})
+	require.ErrorIs(t, err, commerr.ErrValidationFailed)
 }
 
 func TestFileSafetyInstructionsReachTheModel(t *testing.T) {

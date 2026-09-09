@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"io/fs"
-	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -47,6 +46,7 @@ type resolutionState struct {
 	totalBytes             int64
 	filesystemInstructions int
 	filesystemSkills       map[string]struct{}
+	filesystemAgents       map[string]struct{}
 	instructions           []Instruction
 	skills                 map[string]discoveredSkill
 	agents                 map[string]Agent
@@ -262,6 +262,7 @@ func newResolutionState(limits Limits) *resolutionState {
 	return &resolutionState{
 		limits:           limits,
 		filesystemSkills: make(map[string]struct{}),
+		filesystemAgents: make(map[string]struct{}),
 		skills:           make(map[string]discoveredSkill),
 		agents:           make(map[string]Agent),
 		eventHandlers:    make(map[string]EventHandler),
@@ -290,6 +291,12 @@ func (s *resolutionState) discoverEmbedded() error {
 
 	for _, asset := range embeddedSkillAssets() {
 		if err := s.discoverEmbeddedSkill(asset); err != nil {
+			return err
+		}
+	}
+
+	for _, asset := range embeddedAgentAssets() {
+		if err := s.discoverEmbeddedAgent(asset); err != nil {
 			return err
 		}
 	}
@@ -327,6 +334,49 @@ func (s *resolutionState) discoverEmbeddedSkill(
 		false,
 	); err != nil {
 		return ctxerrors.Wrapf(err, "register embedded skill %s", asset.name)
+	}
+
+	return nil
+}
+
+func (s *resolutionState) discoverEmbeddedAgent(
+	asset embeddedAgentAsset,
+) error {
+	content, err := embeddedHarnessAsset(asset.asset)
+	if err != nil {
+		return ctxerrors.Wrapf(err, "read embedded agent %s", asset.name)
+	}
+
+	metadata, instructions, err := parseAgentDocument(content)
+	if err != nil {
+		return ctxerrors.Wrapf(err, "validate embedded agent %s", asset.name)
+	}
+
+	allowedTools, err := parseAgentAllowedTools(metadata.AllowedTools)
+	if err != nil {
+		return ctxerrors.Wrapf(
+			err,
+			"parse embedded agent %s allowed tools",
+			asset.name,
+		)
+	}
+
+	if metadata.Name != asset.name {
+		return ctxerrors.Wrapf(
+			ErrInvalidAgent,
+			"embedded agent name %s does not match %s",
+			metadata.Name,
+			asset.name,
+		)
+	}
+
+	s.agents[metadata.Name] = Agent{
+		Name:         metadata.Name,
+		Description:  metadata.Description,
+		Source:       asset.source,
+		Instructions: instructions,
+		AllowedTools: allowedTools,
+		Hash:         hashString(content),
 	}
 
 	return nil
@@ -504,7 +554,10 @@ func (s *resolutionState) registerSkill(
 			Source:        source,
 			Directory:     directory,
 			Hash:          hashString(content),
-			Metadata:      cloneMetadata(metadata.Metadata),
+			Metadata:      cloneSkillData(metadata.Metadata),
+			Homepage:      metadata.Homepage,
+			Permissions:   cloneSkillData(metadata.Permissions),
+			UserInvocable: metadata.UserInvocable,
 			License:       metadata.License,
 			Compatibility: metadata.Compatibility,
 			AllowedTools:  metadata.AllowedTools,
@@ -571,6 +624,11 @@ func (s *resolutionState) discoverNamedAgent(
 		return ctxerrors.Wrap(err, "validate named agent document")
 	}
 
+	allowedTools, err := parseAgentAllowedTools(metadata.AllowedTools)
+	if err != nil {
+		return ctxerrors.Wrap(err, "parse named agent allowed tools")
+	}
+
 	nameFromFile := strings.TrimSuffix(entryName, agentsFileExtension)
 	if metadata.Name != nameFromFile {
 		return ctxerrors.Wrap(
@@ -579,16 +637,18 @@ func (s *resolutionState) discoverNamedAgent(
 		)
 	}
 
-	if _, exists := s.agents[metadata.Name]; !exists &&
-		len(s.agents) >= s.limits.MaxAgents {
+	if _, exists := s.filesystemAgents[metadata.Name]; !exists &&
+		len(s.filesystemAgents) >= s.limits.MaxAgents {
 		return ctxerrors.Wrap(ErrResourceLimit, "named agent limit exceeded")
 	}
 
+	s.filesystemAgents[metadata.Name] = struct{}{}
 	s.agents[metadata.Name] = Agent{
 		Name:         metadata.Name,
 		Description:  metadata.Description,
 		Source:       source,
 		Instructions: body,
+		AllowedTools: allowedTools,
 		Hash:         hashString(content),
 	}
 
@@ -1067,13 +1127,6 @@ func snapshotHash(
 	}
 
 	return hashString(string(encoded)), nil
-}
-
-func cloneMetadata(metadata map[string]string) map[string]string {
-	cloned := make(map[string]string, len(metadata))
-	maps.Copy(cloned, metadata)
-
-	return cloned
 }
 
 func sortedMapKeys[T any](values map[string]T) []string {

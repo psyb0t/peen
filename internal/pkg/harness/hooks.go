@@ -2,6 +2,7 @@ package harness
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"path/filepath"
 	"regexp"
@@ -20,6 +21,7 @@ type hookDocument struct {
 }
 
 type rawHook struct {
+	Name    string       `yaml:"name"`
 	Match   HookMatch    `yaml:"match"`
 	Actions []HookAction `yaml:"actions"`
 }
@@ -101,6 +103,7 @@ func parseHookDocument(content string) ([]Hook, error) {
 	return parseHookGroups(document.Events)
 }
 
+//nolint:funlen // Hook parsing keeps document order and validation together.
 func parseHookGroups(hookGroups map[string][]rawHook) ([]Hook, error) {
 	eventNames := sortedMapKeys(hookGroups)
 	hooks := make([]Hook, 0)
@@ -116,6 +119,8 @@ func parseHookGroups(hookGroups map[string][]rawHook) ([]Hook, error) {
 		}
 
 		for groupIndex, group := range hookGroups[eventName] {
+			groupName := hookGroupName(event, group.Name, groupIndex)
+
 			if err := validateHookMatch(group.Match); err != nil {
 				return nil, ctxerrors.Wrapf(
 					err,
@@ -147,7 +152,15 @@ func parseHookGroups(hookGroups map[string][]rawHook) ([]Hook, error) {
 			}
 
 			actions := cloneHooks([]Hook{{Actions: group.Actions}})[0].Actions
+			for actionIndex := range actions {
+				actions[actionIndex].Name = hookActionName(
+					actions[actionIndex],
+					actionIndex,
+				)
+			}
+
 			hooks = append(hooks, Hook{
+				Name:    groupName,
 				Event:   event,
 				Match:   group.Match,
 				Actions: actions,
@@ -166,6 +179,8 @@ func validHookEvent(event HookEvent) bool {
 		HookEventTurnStart,
 		HookEventTurnStop,
 		HookEventTurnCancelled,
+		HookEventPreCompact,
+		HookEventPostCompact,
 		HookEventPreToolUse,
 		HookEventPostToolUse,
 		HookEventToolUseFailure,
@@ -250,6 +265,22 @@ func validateHookAction(action HookAction) error {
 	}
 
 	return nil
+}
+
+func hookGroupName(event HookEvent, configured string, groupIndex int) string {
+	if strings.TrimSpace(configured) != "" {
+		return configured
+	}
+
+	return fmt.Sprintf("%s-%d", event, groupIndex+1)
+}
+
+func hookActionName(action HookAction, actionIndex int) string {
+	if strings.TrimSpace(action.Name) != "" {
+		return action.Name
+	}
+
+	return fmt.Sprintf("%s-%d", action.Type, actionIndex+1)
 }
 
 //nolint:cyclop // Every matcher dimension has independent validation rules.

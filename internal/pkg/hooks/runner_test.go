@@ -1,9 +1,11 @@
 package hooks
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -106,6 +108,12 @@ pre_tool_use:
 		Snapshot:  snapshot,
 		Workspace: workspace,
 		Publisher: publisher,
+		ContextTokenCounter: func(
+			context.Context,
+			Invocation,
+		) (int, error) {
+			return 73, nil
+		},
 		RunCommand: func(_ context.Context, input CommandInput) ([]byte, error) {
 			received = input
 
@@ -144,11 +152,160 @@ pre_tool_use:
 	assert.Equal(t, harness.HookEventPreToolUse, invocation.Event)
 	assert.Equal(t, sessionID, invocation.SessionID)
 	assert.Equal(t, "read_file", invocation.Tool)
+	assert.Equal(t, 73, invocation.ContextTokens)
+	assert.Equal(
+		t,
+		filepath.Join(snapshot.ConfigRoot(), hookStateDirectoryName, sessionID.String()),
+		invocation.StateDirectory,
+	)
+	assertPrivateDirectory(t, filepath.Dir(invocation.StateDirectory))
+	assertPrivateDirectory(t, invocation.StateDirectory)
 
 	require.Len(t, publisher.notices, 1)
 	assert.Equal(t, "hook.checked", publisher.notices[0].Type)
 	assert.Equal(t, sessionID, publisher.notices[0].SessionID)
 	assert.Equal(t, hookFailureEventSource, publisher.notices[0].Source)
+}
+
+func TestRunnerUsesStablePrivateStatePerSession(t *testing.T) {
+	t.Parallel()
+
+	snapshot, workspace := testSnapshot(t, `version: 1
+pre_tool_use:
+  - actions:
+      - type: command
+        command: state-check
+`, "")
+	invocations := make([]Invocation, 0, 3)
+	runner, err := New(Options{
+		Snapshot:  snapshot,
+		Workspace: workspace,
+		RunCommand: func(_ context.Context, input CommandInput) ([]byte, error) {
+			invocation := Invocation{}
+			require.NoError(t, json.Unmarshal(input.Stdin, &invocation))
+			invocations = append(invocations, invocation)
+
+			return nil, nil
+		},
+	})
+	require.NoError(t, err)
+
+	sessionA := uuid.New()
+	sessionB := uuid.New()
+	for _, sessionID := range []uuid.UUID{sessionA, sessionA, sessionB} {
+		_, err = runner.Run(context.Background(), Invocation{
+			Event:     harness.HookEventPreToolUse,
+			SessionID: sessionID,
+		})
+		require.NoError(t, err)
+	}
+
+	require.Len(t, invocations, 3)
+	assert.Equal(t, invocations[0].StateDirectory, invocations[1].StateDirectory)
+	assert.NotEqual(t, invocations[0].StateDirectory, invocations[2].StateDirectory)
+	for _, invocation := range invocations {
+		relative, relErr := filepath.Rel(snapshot.ConfigRoot(), invocation.StateDirectory)
+		require.NoError(t, relErr)
+		assert.NotEqual(t, "..", relative)
+		assert.False(t, strings.HasPrefix(relative, ".."+string(filepath.Separator)))
+		assertPrivateDirectory(t, invocation.StateDirectory)
+	}
+}
+
+func TestRunnerRejectsPreActionWhenTokenEstimateFails(t *testing.T) {
+	t.Parallel()
+
+	snapshot, workspace := testSnapshot(t, `version: 1
+pre_tool_use:
+  - actions:
+      - type: command
+        command: token-check
+`, "")
+	commandCalled := false
+	runner, err := New(Options{
+		Snapshot:  snapshot,
+		Workspace: workspace,
+		ContextTokenCounter: func(
+			context.Context,
+			Invocation,
+		) (int, error) {
+			return 0, errHookCommandFailed
+		},
+		RunCommand: func(context.Context, CommandInput) ([]byte, error) {
+			commandCalled = true
+
+			return nil, nil
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = runner.Run(context.Background(), Invocation{
+		Event:     harness.HookEventPreToolUse,
+		SessionID: uuid.New(),
+	})
+	require.ErrorIs(t, err, errHookCommandFailed)
+	assert.False(t, commandCalled)
+}
+
+func TestRunnerDebugLogsEveryHookLifecycleAndName(t *testing.T) {
+	var captured bytes.Buffer
+	originalLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&captured, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	})))
+	t.Cleanup(func() { slog.SetDefault(originalLogger) })
+
+	snapshot, workspace := testSnapshot(t, `version: 1
+pre_tool_use:
+  - name: protected-read
+    match:
+      tool: read_file
+    actions:
+      - name: record-check
+        type: command
+        command: check-file
+`, "")
+	publisher := &testPublisher{}
+	runner, err := New(Options{
+		Snapshot:  snapshot,
+		Workspace: workspace,
+		Publisher: publisher,
+		RunCommand: func(context.Context, CommandInput) ([]byte, error) {
+			return []byte(`{"events":[{"type":"hook.checked","delivery":"queue"}]}`), nil
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = runner.Run(context.Background(), Invocation{
+		Event:     harness.HookEventPreToolUse,
+		SessionID: uuid.New(),
+		Tool:      "read_file",
+	})
+	require.NoError(t, err)
+	_, err = runner.Run(context.Background(), Invocation{
+		Event: harness.HookEventPreReadFile,
+		Tool:  "read_file",
+	})
+	require.NoError(t, err)
+
+	logs := captured.String()
+	for _, message := range []string{
+		"hook lifecycle event started",
+		"hook lifecycle event finished",
+		"hook group started",
+		"hook group finished",
+		"hook action started",
+		"hook action finished",
+		"hook command started",
+		"hook command finished",
+		"hook session event started",
+		"hook session event finished",
+	} {
+		assert.Contains(t, logs, message)
+	}
+	assert.Contains(t, logs, `"hook_name":"protected-read"`)
+	assert.Contains(t, logs, `"hook_action_name":"record-check"`)
+	assert.Contains(t, logs, `"hook_event":"pre_read_file"`)
 }
 
 func TestRunnerDeniesPreActionFailuresAndContinuesPostFailures(t *testing.T) {
@@ -280,4 +437,13 @@ func writeHookFixture(t *testing.T, root string, content string) {
 		[]byte(strings.TrimSpace(content)+"\n"),
 		0o600,
 	))
+}
+
+func assertPrivateDirectory(t *testing.T, path string) {
+	t.Helper()
+
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.True(t, info.IsDir())
+	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm())
 }

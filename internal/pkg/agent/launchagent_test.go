@@ -25,8 +25,9 @@ const (
 	launchAgentChildName    = "child-agent"
 	launchAgentGrandName    = "grandchild-agent"
 
-	launchAgentChildAgentFile = "---\nname: child-agent\ndescription: test child\n---\nDo the child task."
-	launchAgentGrandAgentFile = "---\nname: grandchild-agent\ndescription: test grandchild\n---\nDo the grandchild task."
+	launchAgentChildAgentFile           = "---\nname: child-agent\ndescription: test child\n---\nDo the child task."
+	launchAgentGrandAgentFile           = "---\nname: grandchild-agent\ndescription: test grandchild\n---\nDo the grandchild task."
+	launchAgentRestrictedChildAgentFile = "---\nname: child-agent\ndescription: test child\nallowed-tools: read_file\n---\nReview only."
 )
 
 // launchAgentFixtureOptions parameterizes newLaunchAgentFixture beyond what
@@ -219,6 +220,40 @@ func TestLaunchAgentNamedAgentReturnsFinalResponse(t *testing.T) {
 	require.Len(t, runs, 1)
 	assert.Equal(t, AgentRunStateCompleted, runs[0].Snapshot().State)
 	assert.Equal(t, launchAgentCallID, runs[0].ParentToolCallID)
+}
+
+func TestLaunchAgentAllowedToolsExcludeWrites(t *testing.T) {
+	driver := elelemtest.NewScriptedDriver(
+		elelemtest.ToolCall(
+			launchAgentCallID,
+			toolNameLaunchAgent,
+			launchAgentArguments(t, launchAgentInput{
+				Task:  "review the workspace",
+				Agent: launchAgentChildName,
+			}),
+		),
+		elelemtest.ToolCall(
+			"call_restricted_write",
+			toolNameWriteFile,
+			`{"path":"must-not-exist.txt","content":"blocked"}`,
+		),
+		elelemtest.Text("review complete"),
+		elelemtest.Text("parent complete"),
+	)
+	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
+		AgentFiles: map[string]string{
+			launchAgentChildName: launchAgentRestrictedChildAgentFile,
+		},
+	})
+
+	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
+		Message:   "launch the reviewer",
+		Workspace: fixture.workspace,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "parent complete", result.Text)
+	_, err = os.Stat(filepath.Join(fixture.workspace, "must-not-exist.txt"))
+	assert.True(t, os.IsNotExist(err))
 }
 
 func TestLaunchAgentAdHocDefinitionReturnsFinalResponse(t *testing.T) {

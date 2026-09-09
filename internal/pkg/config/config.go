@@ -20,6 +20,7 @@ type ProviderType string
 const (
 	ProviderTypeOpenAI    ProviderType = "openai"
 	ProviderTypeAnthropic ProviderType = "anthropic"
+	ProviderTypeZAICoding ProviderType = "zai-coding"
 )
 
 // CompactionMode determines how Peen handles an over-budget transcript.
@@ -425,7 +426,8 @@ func validateUpstream(upstream Upstream) error {
 	}
 
 	if upstream.Provider != ProviderTypeOpenAI &&
-		upstream.Provider != ProviderTypeAnthropic {
+		upstream.Provider != ProviderTypeAnthropic &&
+		upstream.Provider != ProviderTypeZAICoding {
 		return ctxerrors.Wrapf(
 			ErrInvalidUpstream,
 			"unsupported provider %q",

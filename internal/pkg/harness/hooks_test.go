@@ -10,7 +10,8 @@ import (
 
 const testHookDocument = `version: 1
 pre_tool_use:
-  - match:
+  - name: go-write-gate
+    match:
       tool: write_file
       path: "**/*.go"
       extensions: [".go"]
@@ -19,7 +20,8 @@ pre_tool_use:
         /expectedSha256:
           exists: true
     actions:
-      - type: inject
+      - name: go-rule
+        type: inject
         message: Read the Go instructions.
       - type: command
         command: scripts/check-go
@@ -76,12 +78,14 @@ pre_tool_use:
 	assert.Less(t, hooks[1].Priority, hooks[3].Priority)
 
 	firstWrite := hooks[1]
+	assert.Equal(t, "go-write-gate", firstWrite.Name)
 	assert.Equal(t, "write_file", firstWrite.Match.Tool)
 	assert.Equal(t, "**/*.go", firstWrite.Match.Path)
 	assert.Equal(t, []string{".go"}, firstWrite.Match.Extensions)
 	assert.Equal(t, "internal", firstWrite.Match.Root)
 	require.Len(t, firstWrite.Actions, 3)
 	assert.Equal(t, HookActionInject, firstWrite.Actions[0].Type)
+	assert.Equal(t, "go-rule", firstWrite.Actions[0].Name)
 	assert.Equal(t, HookActionCommand, firstWrite.Actions[1].Type)
 	assert.Equal(t, HookActionEmitEvent, firstWrite.Actions[2].Type)
 	assert.Equal(t, "scripts/check-go", firstWrite.Actions[1].Command)
@@ -89,6 +93,8 @@ pre_tool_use:
 	assert.Equal(t, "strict", firstWrite.Actions[1].Environment["CHECK_MODE"])
 	assert.Equal(t, "hook.write.checked", firstWrite.Actions[2].EventType)
 	assert.Equal(t, "go", firstWrite.Actions[2].Data["language"])
+	assert.Equal(t, "post_read_file-1", hooks[0].Name)
+	assert.Equal(t, "inject-1", hooks[0].Actions[0].Name)
 
 	assert.Contains(t, manifestKinds(snapshot.Manifest()), SourceKindHook)
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/hooks"
@@ -44,6 +45,7 @@ type toolHookRuntime struct {
 	turnID        uuid.UUID
 	executor      *tools.JobExecutor
 	sessionEvents elelem.MessageInjector
+	tokenCounter  elelem.TokenCounter
 
 	mutex    sync.Mutex
 	messages map[string][]string
@@ -62,7 +64,13 @@ func newToolHookRuntime(
 	commandTimeoutDuration time.Duration,
 	maxCommandOutput int,
 	publisher hooks.EventPublisher,
+	contextTokenCounter hooks.ContextTokenCounter,
+	tokenCounter elelem.TokenCounter,
 ) (*toolHookRuntime, error) {
+	if tokenCounter == nil {
+		tokenCounter = elelem.DefaultTokenCounter()
+	}
+
 	runner, err := hooks.New(hooks.Options{
 		Snapshot:             snapshot,
 		Workspace:            workspace,
@@ -70,6 +78,7 @@ func newToolHookRuntime(
 		CommandTimeout:       commandTimeoutDuration,
 		MaxCommandOutput:     maxCommandOutput,
 		Publisher:            publisher,
+		ContextTokenCounter:  contextTokenCounter,
 	})
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create tool hook runner")
@@ -82,6 +91,7 @@ func newToolHookRuntime(
 		turnID:        turnID,
 		executor:      executor,
 		sessionEvents: sessionEvents,
+		tokenCounter:  tokenCounter,
 		messages:      map[string][]string{},
 		denials:       map[string]string{},
 	}, nil
@@ -102,6 +112,8 @@ func (r *Runtime) newToolHookRuntime(
 		r.hookCommandTimeout,
 		r.maxHookCommandOutput,
 		r.eventBus,
+		prepared.hookContextTokens,
+		modelTokenCounter(prepared.model),
 	)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create turn hook runtime")
@@ -194,6 +206,24 @@ func (h *toolHookRuntime) runLifecycle(
 	event harness.HookEvent,
 	payload any,
 ) (hooks.Outcome, error) {
+	return h.runLifecycleWithEstimate(ctx, event, payload, nil)
+}
+
+func (h *toolHookRuntime) runLifecycleWithContextTokens(
+	ctx context.Context,
+	event harness.HookEvent,
+	payload any,
+	contextTokens int,
+) (hooks.Outcome, error) {
+	return h.runLifecycleWithEstimate(ctx, event, payload, &contextTokens)
+}
+
+func (h *toolHookRuntime) runLifecycleWithEstimate(
+	ctx context.Context,
+	event harness.HookEvent,
+	payload any,
+	contextTokens *int,
+) (hooks.Outcome, error) {
 	input, err := json.Marshal(payload)
 	if err != nil {
 		return hooks.Outcome{}, ctxerrors.Wrap(
@@ -202,14 +232,20 @@ func (h *toolHookRuntime) runLifecycle(
 		)
 	}
 
-	outcome, err := h.runner.Run(ctx, hooks.Invocation{
+	invocation := hooks.Invocation{
 		Event:     event,
 		SessionID: h.sessionID,
 		RequestID: h.requestID,
 		TurnID:    h.turnID,
 		Workspace: h.executor.Workspace(),
 		Input:     input,
-	})
+	}
+	if contextTokens != nil {
+		invocation.ContextTokens = *contextTokens
+		invocation.HasContextTokenEstimate = true
+	}
+
+	outcome, err := h.runner.Run(ctx, invocation)
 	if err != nil {
 		return hooks.Outcome{}, ctxerrors.Wrap(
 			err,
@@ -309,6 +345,19 @@ func (h *toolHookRuntime) run(
 		return nil
 	}
 
+	contextTokens, err := h.toolContextTokens(event)
+	if err != nil {
+		h.deny(event, hookFailureMessage(ctxerrors.Wrap(
+			err,
+			"estimate hook context tokens",
+		)))
+
+		return nil
+	}
+
+	invocation.ContextTokens = contextTokens
+	invocation.HasContextTokenEstimate = true
+
 	for _, hookEvent := range events {
 		invocation.Event = hookEvent
 
@@ -320,6 +369,93 @@ func (h *toolHookRuntime) run(
 		}
 
 		h.add(event.CallID, outcome.Injections)
+	}
+
+	return nil
+}
+
+func (h *toolHookRuntime) toolContextTokens(
+	event *elelem.ToolEvent,
+) (int, error) {
+	messages := append([]elelem.Message(nil), event.Messages...)
+	if event.Result != nil && event.Phase != elelem.ToolPhasePreRun {
+		messages = append(messages, elelem.Message{
+			Role:              elelem.RoleTool,
+			Content:           elelem.Text(event.Result.Content),
+			ToolCallID:        event.CallID,
+			ToolResultIsError: event.Result.IsError,
+		})
+	}
+
+	contextTokens, err := h.tokenCounter.Count(messages, nil)
+	if err != nil {
+		return 0, ctxerrors.Wrap(err, "count active hook messages")
+	}
+
+	return contextTokens, nil
+}
+
+func (p *preparedTurn) hookContextTokens(
+	_ context.Context,
+	_ hooks.Invocation,
+) (int, error) {
+	messages := p.prompt.Messages()
+	for _, input := range p.turn.messageSnapshot() {
+		message, err := elelemMessageInput(input)
+		if err != nil {
+			return 0, ctxerrors.Wrap(err, "convert active turn message")
+		}
+
+		messages = append(messages, message)
+	}
+
+	contextTokens, err := modelTokenCounter(p.model).Count(messages, nil)
+	if err != nil {
+		return 0, ctxerrors.Wrap(err, "count active lifecycle messages")
+	}
+
+	return contextTokens, nil
+}
+
+//nolint:ireturn // Elelem exposes token counting as an interface dependency.
+func modelTokenCounter(model ModelClient) elelem.TokenCounter {
+	if model.Client != nil {
+		driver := model.Client.Driver()
+		if driver != nil {
+			if counter := driver.TokenCounter(); counter != nil {
+				return counter
+			}
+		}
+	}
+
+	return elelem.DefaultTokenCounter()
+}
+
+func (p *preparedTurn) runCompactionHook(
+	ctx context.Context,
+	event harness.HookEvent,
+	payload compactionHookPayload,
+) error {
+	if p.toolHooks == nil {
+		return nil
+	}
+
+	outcome, err := p.toolHooks.runLifecycleWithContextTokens(
+		ctx,
+		event,
+		payload,
+		payload.EstimatedTokens,
+	)
+	if err != nil {
+		return ctxerrors.Wrap(err, "run compaction lifecycle hooks")
+	}
+
+	if len(outcome.Injections) > 0 {
+		ctxscope.GetLogger(ctx).Debug(
+			"compaction hook injections ignored",
+			"hook_event", event,
+			"injection_count", len(outcome.Injections),
+		)
 	}
 
 	return nil

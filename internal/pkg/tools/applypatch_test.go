@@ -182,6 +182,31 @@ func TestExecutor_ApplyPatch_PreservesMissingFinalNewline(t *testing.T) {
 	assert.Equal(t, "one\nchanged", string(content))
 }
 
+func TestExecutor_ApplyPatch_AcceptsModelCompatibleHunkSyntax(t *testing.T) {
+	t.Parallel()
+
+	executor, workspace := newApplyPatchTestExecutor(t, Limits{})
+	path := filepath.Join(workspace, "status.go")
+	writeObservedPatchFile(t, executor, path, "package status\n\nconst Value = \"legacy\"\n")
+
+	_, err := executor.ApplyPatch(context.Background(), ApplyPatchInput{
+		Patch: applyPatchText(strings.Join([]string{
+			"*** Update File: status.go",
+			"@@",
+			"package status",
+			"",
+			"-const Value = \"legacy\"",
+			"+const Value = \"current\"",
+			"@@",
+		}, "\n")),
+	})
+	require.NoError(t, err)
+
+	content, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	assert.Equal(t, "package status\n\nconst Value = \"current\"\n", string(content))
+}
+
 func TestExecutor_ApplyPatch_RequiresFreshObservedContent(t *testing.T) {
 	t.Parallel()
 

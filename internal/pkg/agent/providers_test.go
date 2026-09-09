@@ -5,7 +5,10 @@ import (
 	"errors"
 	"maps"
 	"net/http"
+	"net/http/httptest"
 	"slices"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -33,6 +36,7 @@ const (
 	registryTestKnownAnthropicModel = "claude-sonnet-5"
 	// registryTestAnthropicContextSize is that published window.
 	registryTestAnthropicContextSize = 200_000
+	registryTestKnownZAICodingModel  = "glm-5.3"
 
 	// registryInvalidBudget is negative rather than zero, because the table
 	// runner reads zero as "this case does not care" and substitutes the
@@ -42,6 +46,9 @@ const (
 	// registryUnknownModelID is an id no driver catalog covers, which is what
 	// a gateway or a local model looks like to discovery.
 	registryUnknownModelID = "gateway/unlisted-model"
+
+	testZAICodingModelsPath     = "/models"
+	testZAICodingModelsResponse = `{"data":[{"id":"glm-5.3"}]}`
 )
 
 func TestNewRegistry(t *testing.T) {
@@ -234,6 +241,12 @@ func TestNewRegistryModelContextSize(t *testing.T) {
 			modelID:  registryUnknownModelID,
 			want:     registryTestMaxContextTokens,
 		},
+		{
+			name:     "a Z.ai Coding model takes the configured budget",
+			provider: config.ProviderTypeZAICoding,
+			modelID:  registryTestKnownZAICodingModel,
+			want:     registryTestMaxContextTokens,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -323,6 +336,54 @@ func TestRegistryRejectsMalformedReference(t *testing.T) {
 
 	_, err = registry.ResolveModel("malformed")
 	require.ErrorIs(t, err, ErrInvalidModelReference)
+}
+
+func TestNewDriverZAICodingUsesConfiguredEndpointAndKey(t *testing.T) {
+	openAIEnvironment := strings.Join([]string{"OPENAI", "API", "KEY"}, "_")
+	zaiCodingEnvironment := strings.Join(
+		[]string{"PEEN", "TEST", "ZAI", "CODING", "KEY"},
+		"_",
+	)
+	providerCredential := "provider-credential"
+	t.Setenv(openAIEnvironment, "generic-credential")
+	t.Setenv(zaiCodingEnvironment, providerCredential)
+
+	var request struct {
+		sync.Mutex
+		path          string
+		authorization string
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(
+		writer http.ResponseWriter,
+		incoming *http.Request,
+	) {
+		request.Lock()
+		request.path = incoming.URL.Path
+		request.authorization = incoming.Header.Get("Authorization")
+		request.Unlock()
+
+		writer.Header().Set("Content-Type", "application/json")
+		_, err := writer.Write([]byte(testZAICodingModelsResponse))
+		require.NoError(t, err)
+	}))
+	t.Cleanup(server.Close)
+
+	driver, err := NewDriver(config.Upstream{
+		Name:      "zai",
+		Provider:  config.ProviderTypeZAICoding,
+		BaseURL:   server.URL,
+		APIKeyEnv: zaiCodingEnvironment,
+	})
+	require.NoError(t, err)
+
+	models, err := driver.ListModels(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []string{registryTestKnownZAICodingModel}, models)
+
+	request.Lock()
+	defer request.Unlock()
+	assert.Equal(t, testZAICodingModelsPath, request.path)
+	assert.Equal(t, "Bearer "+providerCredential, request.authorization)
 }
 
 func TestProviderRetryPolicy(t *testing.T) {

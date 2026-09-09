@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/glebarez/sqlite"
-	commondb "github.com/psyb0t/common-go/db"
 	commonsqlite "github.com/psyb0t/common-go/db/sqlite"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
@@ -18,6 +17,7 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/db/migrations"
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 const sqliteFileName = "peen.db"
@@ -32,7 +32,7 @@ func Open(ctx context.Context, cfg Config) (*Handle, error) {
 	database, err := gorm.Open(
 		sqlite.Open(sqliteDSN(databasePath, busyTimeout)),
 		&gorm.Config{
-			Logger:         commondb.NewGormSlogLogger(),
+			Logger:         logger.Discard,
 			TranslateError: true,
 		},
 	)

@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -318,6 +320,17 @@ func (r *Runtime) prepareTurn(
 	ctx context.Context,
 	input TurnRequest,
 ) (*preparedTurn, error) {
+	requestCtx := ctxscope.Set(
+		ctx,
+		ctxscope.Attr("request_id", input.RequestID.String()),
+	)
+	ctxscope.GetLogger(requestCtx).Info(
+		"agent turn requested",
+		"user_message_bytes", len(input.Message),
+		"user_message_sha256", hash(input.Message),
+		"requested_model", input.Model,
+	)
+
 	basis, err := r.resolveTurnBasis(ctx, input)
 	if err != nil {
 		return nil, err
@@ -347,18 +360,12 @@ func (r *Runtime) prepareTurn(
 		return nil, err
 	}
 
-	turnCompactor, err := r.newTurnCompactor(opening)
-	if err != nil {
-		return nil, err
-	}
-
 	prepared := &preparedTurn{
 		opened:         opening.opened,
 		lease:          lease,
 		modelReference: basis.modelReference,
 		model:          basis.model,
 		prompt:         opening.assembly.prompt,
-		compactor:      turnCompactor,
 		origin:         input.Origin,
 		workspace:      basis.workspace,
 		contextHash:    basis.contextHash,
@@ -376,6 +383,13 @@ func (r *Runtime) prepareTurn(
 	}
 
 	prepared.toolHooks = toolHooks
+
+	turnCompactor, err := r.newTurnCompactor(opening, prepared)
+	if err != nil {
+		return nil, r.finalizeFailedTurn(ctx, prepared, err)
+	}
+
+	prepared.compactor = turnCompactor
 
 	if opening.opened.Created {
 		if err := prepared.runLifecycleHook(
@@ -888,8 +902,18 @@ func (r *Runtime) currentTimeBlock() string {
 		now = time.Now
 	}
 
-	return "Trusted runtime context:\nCurrent UTC time: " +
-		now().UTC().Format(time.RFC3339)
+	current := now()
+
+	return strings.Join([]string{
+		runtimeContextHeader,
+		runtimeContextLocalTimeLead + current.Format(time.RFC3339),
+		runtimeContextTimezoneLead + current.Location().String(),
+		runtimeContextOperatingSystemLead + runtime.GOOS,
+		runtimeContextArchitectureLead + runtime.GOARCH,
+		runtimeContextLogicalCPUsLead + strconv.Itoa(runtime.NumCPU()),
+		runtimeContextGoRuntimeLead + runtime.Version(),
+		runtimeContextFreshnessGuidance,
+	}, "\n")
 }
 
 // workspaceMetadataBlock states the directory relative tool paths resolve
@@ -1015,6 +1039,8 @@ func (r *Runtime) startLease(
 		"agent turn started",
 		"model", prepared.modelReference,
 		"workspace", prepared.workspace,
+		"harness_hash", prepared.snapshot.Hash(),
+		"harness_manifest", prepared.snapshot.Manifest(),
 	)
 
 	return nil
@@ -1025,19 +1051,20 @@ func (r *Runtime) runProvider(
 	ctx context.Context,
 	prepared *preparedTurn,
 ) (*elelem.Response, error) {
-	toolSet := hostToolSet(
-		prepared.executor,
+	rootAgent, err := prepared.snapshot.Agent(r.rootAgent)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "resolve root agent tools")
+	}
+
+	toolSet, err := r.agentToolSet(
+		r.launchAgentDeps(prepared),
 		prepared.injectSessionEvents,
-		prepared.snapshot,
-		r.metrics,
+		rootAgent.AllowedTools,
 	)
-	toolSet.Add(instrumentTool(
-		launchAgentTool(
-			r.launchAgentDeps(prepared),
-			prepared.injectSessionEvents,
-		),
-		r.metrics,
-	))
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "build root agent tool set")
+	}
+
 	bindToolHooks(toolSet, prepared.toolHooks)
 
 	startedAt := time.Now()
@@ -1150,14 +1177,22 @@ func observeModelRequest(
 // drop-oldest where Elelem's own eviction is the policy.
 func (r *Runtime) newTurnCompactor(
 	opening turnOpening,
+	prepared *preparedTurn,
 ) (*compactor, error) {
 	if r.compactionMode != config.CompactionModeSummarize {
 		//nolint:nilnil // Drop-oldest deliberately installs no hook.
 		return nil, nil
 	}
 
+	options := r.compactionOptions
+	options.Workspace = prepared.workspace
+	options.Hook = composeCompactionHooks(
+		options.Hook,
+		prepared.runCompactionHook,
+	)
+
 	built, err := newCompactor(
-		r.compactionOptions,
+		options,
 		opening.opened.Session.ID,
 		opening.assembly.plan,
 		opening.assembly.active,
@@ -1167,6 +1202,35 @@ func (r *Runtime) newTurnCompactor(
 	}
 
 	return built, nil
+}
+
+func composeCompactionHooks(
+	first compactionHook,
+	second compactionHook,
+) compactionHook {
+	if first == nil {
+		return second
+	}
+
+	if second == nil {
+		return first
+	}
+
+	return func(
+		ctx context.Context,
+		event harness.HookEvent,
+		payload compactionHookPayload,
+	) error {
+		if err := first(ctx, event, payload); err != nil {
+			return ctxerrors.Wrap(err, "run configured compaction hook")
+		}
+
+		if err := second(ctx, event, payload); err != nil {
+			return ctxerrors.Wrap(err, "run harness compaction hook")
+		}
+
+		return nil
+	}
 }
 
 // compactionSettings resolves the summary-only settings and the deployment's
@@ -1302,6 +1366,10 @@ func (r *Runtime) completeLease(
 		"agent turn completed",
 		"model", prepared.modelReference,
 		"events", len(prepared.turn.events),
+		"response_bytes", len(response.Text),
+		"response_sha256", hash(response.Text),
+		"thinking_bytes", len(response.Reasoning),
+		"thinking_sha256", hash(response.Reasoning),
 	)
 
 	return &TurnResult{
@@ -1479,6 +1547,7 @@ func (p *preparedTurn) onToolCallStart(
 		"tool_name", call.Name,
 		"tool_call_id", call.CallID,
 		"argument_bytes", len(call.Arguments),
+		"argument_sha256", hash(string(call.Arguments)),
 	)
 
 	return p.turn.emit(EventTypeToolUse, toolUsePayload{
@@ -1516,6 +1585,7 @@ func (p *preparedTurn) onToolResult(
 		"tool_call_id", call.CallID,
 		"is_error", isError,
 		"result_bytes", len(content),
+		"result_sha256", hash(content),
 		"duration_ms", p.turn.toolDuration(call.CallID).Milliseconds(),
 	)
 
@@ -1620,6 +1690,38 @@ func elelemMessage(message *models.Message) (elelem.Message, error) {
 	}, nil
 }
 
+func elelemMessageInput(input session.MessageInput) (elelem.Message, error) {
+	role, err := elelemRole(input.Role)
+	if err != nil {
+		return elelem.Message{}, ctxerrors.Wrap(
+			err,
+			"convert active message role",
+		)
+	}
+
+	toolCalls := []elelem.ToolCall{}
+	if strings.TrimSpace(input.ToolCallsJSON) != "" {
+		if err := json.Unmarshal(
+			[]byte(input.ToolCallsJSON),
+			&toolCalls,
+		); err != nil {
+			return elelem.Message{}, ctxerrors.Wrap(
+				err,
+				"unmarshal active message tool calls",
+			)
+		}
+	}
+
+	return elelem.Message{
+		Role:              role,
+		Content:           elelem.Text(input.Content),
+		ToolCalls:         toolCalls,
+		ToolCallID:        input.ToolCallID,
+		ToolResultIsError: input.IsError,
+		Reasoning:         input.Thinking,
+	}, nil
+}
+
 func elelemRole(role models.MessageRole) (elelem.Role, error) {
 	switch role {
 	case models.MessageRoleUser:
@@ -1718,6 +1820,13 @@ func (t *runtimeTurn) appendMessage(message session.MessageInput) {
 	defer t.mutex.Unlock()
 
 	t.messages = append(t.messages, message)
+}
+
+func (t *runtimeTurn) messageSnapshot() []session.MessageInput {
+	t.mutex.Lock()
+	defer t.mutex.Unlock()
+
+	return append([]session.MessageInput(nil), t.messages...)
 }
 
 // markToolStarted records the call's start so the result hook can report a

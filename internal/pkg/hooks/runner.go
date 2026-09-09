@@ -29,6 +29,12 @@ const (
 	jsonPointerEscape = "~"
 	jsonPointerSlash  = "~1"
 	jsonPointerTilde  = "~0"
+
+	hookStateDirectoryName = "hook-state"
+	hookStateDirectoryMode = 0o700
+
+	hookRunOutcomeSucceeded = "succeeded"
+	hookRunOutcomeFailed    = "failed"
 )
 
 // Runner executes one turn's immutable, resolved hook list.
@@ -40,6 +46,8 @@ type Runner struct {
 	maxCommandOutput     int
 	publisher            EventPublisher
 	runCommand           CommandRunner
+	stateRoot            string
+	contextTokenCounter  ContextTokenCounter
 }
 
 // New validates execution bounds and captures a snapshot's hook list.
@@ -63,6 +71,21 @@ func New(options Options) (Runner, error) {
 		options.RunCommand = runCommand
 	}
 
+	if strings.TrimSpace(options.StateRoot) == "" {
+		configRoot := filepath.Clean(options.Snapshot.ConfigRoot())
+		if configRoot == "." || strings.TrimSpace(configRoot) == "" {
+			return Runner{}, ctxerrors.Wrap(
+				ErrDenied,
+				"hook state root is required",
+			)
+		}
+
+		options.StateRoot = filepath.Join(
+			configRoot,
+			hookStateDirectoryName,
+		)
+	}
+
 	return Runner{
 		hooks:                options.Snapshot.Hooks(),
 		workspace:            filepath.Clean(options.Workspace),
@@ -71,25 +94,45 @@ func New(options Options) (Runner, error) {
 		maxCommandOutput:     options.MaxCommandOutput,
 		publisher:            options.Publisher,
 		runCommand:           options.RunCommand,
+		stateRoot:            filepath.Clean(options.StateRoot),
+		contextTokenCounter:  options.ContextTokenCounter,
 	}, nil
 }
 
 // Run evaluates matching groups and actions serially. Config-root groups are
 // always executable. Workspace groups require explicit runtime opt-in.
 //
-//nolint:cyclop // Keep hook policy branches explicit.
+//nolint:funlen,nonamedreturns // One serial lifecycle boundary.
 func (r Runner) Run(
 	ctx context.Context,
 	invocation Invocation,
-) (Outcome, error) {
+) (outcome Outcome, runErr error) {
 	invocation.Workspace = r.workspace
+	ctx = ctxscope.Set(
+		ctx,
+		ctxscope.Attr("hook_event", string(invocation.Event)),
+	)
+	startedAt := time.Now()
+	matchedHookCount := 0
+	executedActionCount := 0
 
-	payload, err := invocationPayload(invocation)
-	if err != nil {
-		return Outcome{}, ctxerrors.Wrap(err, "encode hook invocation")
-	}
-
-	outcome := Outcome{}
+	ctxscope.GetLogger(ctx).Debug(
+		"hook lifecycle event started",
+		"tool_name", invocation.Tool,
+		"tool_call_id", invocation.CallID,
+	)
+	defer func() {
+		ctxscope.GetLogger(ctx).Debug(
+			"hook lifecycle event finished",
+			"outcome", hookRunOutcome(runErr),
+			"matched_hook_count", matchedHookCount,
+			"executed_action_count", executedActionCount,
+			"injection_count", len(outcome.Injections),
+			"tool_name", invocation.Tool,
+			"tool_call_id", invocation.CallID,
+			"duration_ms", time.Since(startedAt).Milliseconds(),
+		)
+	}()
 
 	for _, hook := range r.hooks {
 		if hook.Event != invocation.Event ||
@@ -101,40 +144,123 @@ func (r Runner) Run(
 			continue
 		}
 
-		for _, action := range hook.Actions {
-			if !matches(action.When, invocation) {
-				continue
-			}
+		matchedHookCount++
+		hookCtx := ctxscope.Set(
+			ctx,
+			ctxscope.Attr("hook_name", resolvedHookName(hook)),
+		)
+		hookStartedAt := time.Now()
+		executedBefore := executedActionCount
+		injectionsBefore := len(outcome.Injections)
+		ctxscope.GetLogger(hookCtx).Debug(
+			"hook group started",
+			"hook_source", hook.Source,
+			"hook_action_count", len(hook.Actions),
+			"tool_name", invocation.Tool,
+			"tool_call_id", invocation.CallID,
+		)
 
-			result, actionErr := r.runAction(ctx, action, invocation, payload)
-			if actionErr != nil {
-				if errors.Is(actionErr, ErrDenied) {
-					return outcome, ctxerrors.Wrap(actionErr, "run hook action")
-				}
+		err := r.runHookActions(
+			hookCtx,
+			hook,
+			invocation,
+			&outcome,
+			&executedActionCount,
+		)
+		ctxscope.GetLogger(hookCtx).Debug(
+			"hook group finished",
+			"hook_source", hook.Source,
+			"outcome", hookRunOutcome(err),
+			"executed_action_count", executedActionCount-executedBefore,
+			"injection_count", len(outcome.Injections)-injectionsBefore,
+			"tool_name", invocation.Tool,
+			"tool_call_id", invocation.CallID,
+			"duration_ms", time.Since(hookStartedAt).Milliseconds(),
+		)
 
-				if r.continuesOnFailure(invocation.Event, action) {
-					r.recordActionFailure(
-						ctx,
-						hook,
-						action,
-						invocation,
-						actionErr,
-					)
-
-					continue
-				}
-
-				return outcome, ctxerrors.Wrap(actionErr, "run hook action")
-			}
-
-			outcome.Injections = append(
-				outcome.Injections,
-				result.Injections...,
-			)
+		if err != nil {
+			return outcome, err
 		}
 	}
 
 	return outcome, nil
+}
+
+//nolint:funlen // Per-action logging and failure policy must stay adjacent.
+func (r Runner) runHookActions(
+	ctx context.Context,
+	hook harness.Hook,
+	invocation Invocation,
+	outcome *Outcome,
+	executedActionCount *int,
+) error {
+	for actionIndex, action := range hook.Actions {
+		if !matches(action.When, invocation) {
+			continue
+		}
+
+		*executedActionCount++
+		actionName := resolvedActionName(action, actionIndex)
+		actionCtx := ctxscope.Set(
+			ctx,
+			ctxscope.Attr("hook_name", resolvedHookName(hook)),
+			ctxscope.Attr("hook_action_name", actionName),
+		)
+		startedAt := time.Now()
+
+		ctxscope.GetLogger(actionCtx).Debug(
+			"hook action started",
+			"hook_action_type", action.Type,
+			"hook_source", hook.Source,
+			"tool_name", invocation.Tool,
+			"tool_call_id", invocation.CallID,
+		)
+
+		result, actionErr := r.runAction(actionCtx, action, invocation)
+		ctxscope.GetLogger(actionCtx).Debug(
+			"hook action finished",
+			"hook_action_type", action.Type,
+			"hook_source", hook.Source,
+			"tool_name", invocation.Tool,
+			"tool_call_id", invocation.CallID,
+			"outcome", hookRunOutcome(actionErr),
+			"injection_count", len(result.Injections),
+			"duration_ms", time.Since(startedAt).Milliseconds(),
+		)
+
+		if actionErr != nil {
+			if errors.Is(actionErr, ErrDenied) {
+				ctxscope.GetLogger(actionCtx).Warn(
+					"hook action denied operation",
+					"hook_action_type", action.Type,
+					"hook_source", hook.Source,
+					"tool_name", invocation.Tool,
+					"tool_call_id", invocation.CallID,
+					"err", actionErr,
+				)
+
+				return ctxerrors.Wrap(actionErr, "run hook action")
+			}
+
+			if r.continuesOnFailure(invocation.Event, action) {
+				r.recordActionFailure(
+					actionCtx,
+					hook,
+					action,
+					invocation,
+					actionErr,
+				)
+
+				continue
+			}
+
+			return ctxerrors.Wrap(actionErr, "run hook action")
+		}
+
+		outcome.Injections = append(outcome.Injections, result.Injections...)
+	}
+
+	return nil
 }
 
 func (r Runner) continuesOnFailure(
@@ -166,7 +292,6 @@ func (r Runner) runAction(
 	ctx context.Context,
 	action harness.HookAction,
 	invocation Invocation,
-	payload []byte,
 ) (actionResult, error) {
 	switch action.Type {
 	case harness.HookActionInject:
@@ -174,9 +299,9 @@ func (r Runner) runAction(
 	case harness.HookActionDeny:
 		return actionResult{}, ctxerrors.Wrap(ErrDenied, action.Reason)
 	case harness.HookActionEmitEvent:
-		return actionResult{}, r.publishActionEvent(action, invocation)
+		return actionResult{}, r.publishActionEvent(ctx, action, invocation)
 	case harness.HookActionCommand:
-		return r.runCommandAction(ctx, action, invocation, payload)
+		return r.runCommandAction(ctx, action, invocation)
 	default:
 		return actionResult{}, ctxerrors.Wrap(
 			ErrDenied,
@@ -185,12 +310,17 @@ func (r Runner) runAction(
 	}
 }
 
+//nolint:funlen,nonamedreturns // One command lifecycle boundary.
 func (r Runner) runCommandAction(
 	ctx context.Context,
 	action harness.HookAction,
 	invocation Invocation,
-	payload []byte,
-) (actionResult, error) {
+) (result actionResult, runErr error) {
+	commandInvocation, payload, err := r.commandInvocation(ctx, invocation)
+	if err != nil {
+		return actionResult{}, err
+	}
+
 	timeout := r.commandTimeout
 	if action.TimeoutSeconds > 0 {
 		timeout = time.Duration(action.TimeoutSeconds) * time.Second
@@ -198,6 +328,21 @@ func (r Runner) runCommandAction(
 
 	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+
+	startedAt := time.Now()
+
+	ctxscope.GetLogger(ctx).Debug(
+		"hook command started",
+		"context_tokens", commandInvocation.ContextTokens,
+		"has_state_directory", commandInvocation.StateDirectory != "",
+	)
+	defer func() {
+		ctxscope.GetLogger(ctx).Debug(
+			"hook command finished",
+			"outcome", hookRunOutcome(runErr),
+			"duration_ms", time.Since(startedAt).Milliseconds(),
+		)
+	}()
 
 	output, err := r.runCommand(commandCtx, CommandInput{
 		Command:     action.Command,
@@ -220,7 +365,11 @@ func (r Runner) runCommandAction(
 		return actionResult{}, nil
 	}
 
-	if err := r.publishCommandEvents(decision.Events, invocation); err != nil {
+	if err := r.publishCommandEvents(
+		ctx,
+		decision.Events,
+		commandInvocation,
+	); err != nil {
 		return actionResult{}, ctxerrors.Wrap(
 			err,
 			"publish hook command events",
@@ -237,6 +386,74 @@ func (r Runner) runCommandAction(
 	}
 
 	return actionResult{Injections: nonEmptyString(decision.Message)}, nil
+}
+
+func (r Runner) commandInvocation(
+	ctx context.Context,
+	invocation Invocation,
+) (Invocation, []byte, error) {
+	if !invocation.HasContextTokenEstimate && r.contextTokenCounter != nil {
+		contextTokens, err := r.contextTokenCounter(ctx, invocation)
+		if err != nil {
+			return Invocation{}, nil, ctxerrors.Wrap(
+				err,
+				"estimate hook context tokens",
+			)
+		}
+
+		if contextTokens < 0 {
+			return Invocation{}, nil, ctxerrors.Wrap(
+				ErrInvalidContextTokens,
+				"hook context token estimate is negative",
+			)
+		}
+
+		invocation.ContextTokens = contextTokens
+	}
+
+	if invocation.SessionID != uuid.Nil {
+		stateDirectory, err := r.sessionStateDirectory(invocation.SessionID)
+		if err != nil {
+			return Invocation{}, nil, ctxerrors.Wrap(
+				err,
+				"create hook session state directory",
+			)
+		}
+
+		invocation.StateDirectory = stateDirectory
+	}
+
+	payload, err := invocationPayload(invocation)
+	if err != nil {
+		return Invocation{}, nil, ctxerrors.Wrap(err, "encode hook invocation")
+	}
+
+	return invocation, payload, nil
+}
+
+func (r Runner) sessionStateDirectory(sessionID uuid.UUID) (string, error) {
+	if r.stateRoot == "." || strings.TrimSpace(r.stateRoot) == "" {
+		return "", ctxerrors.Wrap(ErrDenied, "hook state root is required")
+	}
+
+	if err := os.MkdirAll(r.stateRoot, hookStateDirectoryMode); err != nil {
+		return "", ctxerrors.Wrap(err, "create hook state root")
+	}
+
+	if err := os.Chmod(r.stateRoot, hookStateDirectoryMode); err != nil {
+		return "", ctxerrors.Wrap(err, "protect hook state root")
+	}
+
+	directory := filepath.Join(r.stateRoot, sessionID.String())
+	if err := os.MkdirAll(directory, hookStateDirectoryMode); err != nil {
+		return "", ctxerrors.Wrap(err, "create hook session state")
+	}
+
+	if err := os.Chmod(directory, hookStateDirectoryMode); err != nil {
+		return "", ctxerrors.Wrap(err, "protect hook session state")
+	}
+
+	return directory, nil
 }
 
 func nonEmptyString(value string) []string {
@@ -279,6 +496,7 @@ func decodeCommandDecision(output []byte) (commandDecision, bool, error) {
 }
 
 func (r Runner) publishActionEvent(
+	ctx context.Context,
 	action harness.HookAction,
 	invocation Invocation,
 ) error {
@@ -287,7 +505,7 @@ func (r Runner) publishActionEvent(
 		return ctxerrors.Wrap(err, "encode hook event data")
 	}
 
-	return r.publishEvent(emittedEvent{
+	return r.publishEvent(ctx, emittedEvent{
 		Type:     action.EventType,
 		Summary:  action.Summary,
 		Data:     data,
@@ -296,11 +514,12 @@ func (r Runner) publishActionEvent(
 }
 
 func (r Runner) publishCommandEvents(
+	ctx context.Context,
 	eventsToPublish []emittedEvent,
 	invocation Invocation,
 ) error {
 	for _, event := range eventsToPublish {
-		if err := r.publishEvent(event, invocation); err != nil {
+		if err := r.publishEvent(ctx, event, invocation); err != nil {
 			return err
 		}
 	}
@@ -308,7 +527,29 @@ func (r Runner) publishCommandEvents(
 	return nil
 }
 
-func (r Runner) publishEvent(event emittedEvent, invocation Invocation) error {
+//nolint:nonamedreturns // The deferred lifecycle log needs the final outcome.
+func (r Runner) publishEvent(
+	ctx context.Context,
+	event emittedEvent,
+	invocation Invocation,
+) (publishErr error) {
+	startedAt := time.Now()
+
+	ctxscope.GetLogger(ctx).Debug(
+		"hook session event started",
+		"hook_emitted_event_type", event.Type,
+		"hook_emitted_event_delivery", event.Delivery,
+	)
+	defer func() {
+		ctxscope.GetLogger(ctx).Debug(
+			"hook session event finished",
+			"hook_emitted_event_type", event.Type,
+			"hook_emitted_event_delivery", event.Delivery,
+			"outcome", hookRunOutcome(publishErr),
+			"duration_ms", time.Since(startedAt).Milliseconds(),
+		)
+	}()
+
 	if r.publisher == nil || invocation.SessionID == uuid.Nil {
 		return ErrEventUnavailable
 	}
@@ -347,9 +588,8 @@ func (r Runner) recordActionFailure(
 	ctxscope.GetLogger(ctx).Warn(
 		"hook action failed and continued",
 		"err", cause,
-		"event", invocation.Event,
-		"action", action.Type,
-		"source", hook.Source,
+		"hook_action_type", action.Type,
+		"hook_source", hook.Source,
 	)
 
 	if r.publisher == nil || invocation.SessionID == uuid.Nil {
@@ -357,9 +597,11 @@ func (r Runner) recordActionFailure(
 	}
 
 	data, err := json.Marshal(map[string]string{
-		"event":  string(invocation.Event),
-		"action": string(action.Type),
-		"source": hook.Source,
+		"event":       string(invocation.Event),
+		"hook_name":   resolvedHookName(hook),
+		"action":      action.Name,
+		"action_type": string(action.Type),
+		"source":      hook.Source,
 	})
 	if err != nil {
 		ctxscope.GetLogger(ctx).Warn(
@@ -384,6 +626,30 @@ func (r Runner) recordActionFailure(
 			"err", err,
 		)
 	}
+}
+
+func resolvedHookName(hook harness.Hook) string {
+	if strings.TrimSpace(hook.Name) != "" {
+		return hook.Name
+	}
+
+	return string(hook.Event)
+}
+
+func resolvedActionName(action harness.HookAction, actionIndex int) string {
+	if strings.TrimSpace(action.Name) != "" {
+		return action.Name
+	}
+
+	return fmt.Sprintf("%s-%d", action.Type, actionIndex+1)
+}
+
+func hookRunOutcome(err error) string {
+	if err == nil {
+		return hookRunOutcomeSucceeded
+	}
+
+	return hookRunOutcomeFailed
 }
 
 func invocationPayload(invocation Invocation) ([]byte, error) {
@@ -452,8 +718,11 @@ func newLimitedBuffer(limit int) *limitedBuffer {
 func (b *limitedBuffer) Write(content []byte) (int, error) {
 	if b.limit <= 0 || b.buffer.Len()+len(content) <= b.limit {
 		written, err := b.buffer.Write(content)
+		if err != nil {
+			return written, ctxerrors.Wrap(err, "write hook command output")
+		}
 
-		return written, ctxerrors.Wrap(err, "write hook command output")
+		return written, nil
 	}
 
 	remaining := b.limit - b.buffer.Len()

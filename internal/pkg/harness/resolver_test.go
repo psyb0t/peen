@@ -29,11 +29,32 @@ description: valid
 unknown: value
 ---
 `
-	testMetadataNumberFrontMatter = `---
+	testMetadataScalarFrontMatter = `---
 name: metadata-skill
 description: valid
+metadata: value
+---
+`
+	testUserInvocableStringFrontMatter = `---
+name: invocable-skill
+description: valid
+user-invocable: "true"
+---
+`
+	testCodexSkillFrontMatter = `---
+name: codex-skill
+description: valid
+homepage: https://example.invalid
+user-invocable: true
+permissions:
+  filesystem:
+    read:
+      - "**/*.go"
 metadata:
-  count: 1
+  openclaw:
+    requires:
+      bins:
+        - docker
 ---
 `
 	testNamedAgentLicenseFrontMatter = `---
@@ -110,9 +131,10 @@ func TestResolverOrdersLayersAndReplacesEffectiveDefinitions(t *testing.T) {
 		skillDocument("shared-skill", "workspace", "workspace skill"),
 		activatedSkill.Content,
 	)
-	require.Len(t, snapshot.Agents(), 1)
-	assert.Equal(t, "workspace", snapshot.Agents()[0].Description)
-	assert.Equal(t, "workspace agent", snapshot.Agents()[0].Instructions)
+	sharedAgent, err := snapshot.Agent("shared-agent")
+	require.NoError(t, err)
+	assert.Equal(t, "workspace", sharedAgent.Description)
+	assert.Equal(t, "workspace agent", sharedAgent.Instructions)
 }
 
 func TestResolverIncludesEmbeddedBaseHarness(t *testing.T) {
@@ -127,12 +149,79 @@ func TestResolverIncludesEmbeddedBaseHarness(t *testing.T) {
 	assert.Equal(t, embeddedInstructionPriority, instructions[0].Priority)
 	assert.Contains(t, instructions[0].Content, "trusted runtime context")
 	assert.Equal(t, []string{"freshness", "planning"}, skillNames(snapshot.Skills()))
+	assert.Equal(t, []string{embeddedDefaultAgentName}, agentNames(snapshot.Agents()))
 
 	manifest := snapshot.Manifest()
-	require.Len(t, manifest, 3)
+	require.Len(t, manifest, 4)
 	assert.Equal(t, embeddedInstructionSource, manifest[0].Source)
 	assert.Equal(t, embeddedSkillsSourcePrefix+"freshness/SKILL.md", manifest[1].Source)
 	assert.Equal(t, embeddedSkillsSourcePrefix+"planning/SKILL.md", manifest[2].Source)
+	assert.Equal(
+		t,
+		embeddedAgentsSourcePrefix+embeddedDefaultAgentName+agentsFileExtension,
+		manifest[3].Source,
+	)
+}
+
+func TestResolverFilesystemDefaultAgentReplacesEmbeddedDefault(t *testing.T) {
+	t.Parallel()
+
+	fixture := newResolverFixture(t)
+	fixture.writeAgent(
+		t,
+		fixture.configRoot,
+		embeddedDefaultAgentName,
+		"configured default",
+		testAgentBody,
+	)
+
+	limits := defaultLimits()
+	limits.MaxAgents = 1
+	resolver, err := NewResolver(fixture.configRoot, limits)
+	require.NoError(t, err)
+	snapshot, err := resolver.Resolve(fixture.workspace)
+	require.NoError(t, err)
+
+	defaultAgent, err := snapshot.Agent(embeddedDefaultAgentName)
+	require.NoError(t, err)
+	assert.Equal(t, "configured default", defaultAgent.Description)
+	assert.Equal(t, testAgentBody, defaultAgent.Instructions)
+	assert.Equal(
+		t,
+		filepath.Join(
+			fixture.configRoot,
+			agentsDirectoryName,
+			agentsSubdirectory,
+			embeddedDefaultAgentName+agentsFileExtension,
+		),
+		defaultAgent.Source,
+	)
+}
+
+func TestResolverNamedAgentParsesAllowedTools(t *testing.T) {
+	t.Parallel()
+
+	fixture := newResolverFixture(t)
+	fixture.writeAgentDocument(
+		t,
+		fixture.configRoot,
+		"restricted-agent",
+		`---
+name: restricted-agent
+description: restricted
+allowed-tools: list_files, read_file, use_skill
+---
+Inspect only.`,
+	)
+
+	snapshot := resolveFixture(t, fixture)
+	agent, err := snapshot.Agent("restricted-agent")
+	require.NoError(t, err)
+	assert.Equal(
+		t,
+		[]string{"list_files", "read_file", "use_skill"},
+		agent.AllowedTools,
+	)
 }
 
 func TestResolverFilesystemSkillsReplaceEmbeddedDefinitions(t *testing.T) {
@@ -223,7 +312,7 @@ func TestResolverHandlesMissingInputsAndCanonicalPaths(t *testing.T) {
 	require.Len(t, empty.Instructions(), 1)
 	assert.Equal(t, embeddedInstructionSource, empty.Instructions()[0].Source)
 	assert.Equal(t, []string{"freshness", "planning"}, skillNames(empty.Skills()))
-	assert.Empty(t, empty.Agents())
+	assert.Equal(t, []string{embeddedDefaultAgentName}, agentNames(empty.Agents()))
 
 	actualConfigRoot := filepath.Join(fixture.root, "actual-config")
 	actualWorkspace := filepath.Join(fixture.root, "actual-workspace")
@@ -396,9 +485,37 @@ func TestResolverFollowsNamedAgentSymlinks(t *testing.T) {
 	require.NoError(t, os.Symlink(actualAgentPath, linkedAgentPath))
 
 	snapshot := resolveFixture(t, fixture)
-	require.Len(t, snapshot.Agents(), 1)
-	assert.Equal(t, "linked-agent", snapshot.Agents()[0].Name)
-	assert.Equal(t, actualAgentPath, snapshot.Agents()[0].Source)
+	linkedAgent, err := snapshot.Agent("linked-agent")
+	require.NoError(t, err)
+	assert.Equal(t, actualAgentPath, linkedAgent.Source)
+}
+
+func TestResolverAcceptsCodexSkillFrontMatter(t *testing.T) {
+	t.Parallel()
+
+	fixture := newResolverFixture(t)
+	fixture.writeSkillDocument(
+		t,
+		fixture.configRoot,
+		"codex-skill",
+		testCodexSkillFrontMatter+testSkillBody,
+	)
+
+	snapshot := resolveFixture(t, fixture)
+	skill, err := snapshot.ActivateSkill("codex-skill")
+	require.NoError(t, err)
+	assert.Equal(t, "https://example.invalid", skill.Homepage)
+	assert.True(t, skill.UserInvocable)
+
+	filesystem, ok := skill.Permissions["filesystem"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{"**/*.go"}, filesystem["read"])
+
+	openclaw, ok := skill.Metadata["openclaw"].(map[string]any)
+	require.True(t, ok)
+	requires, ok := openclaw["requires"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, []any{"docker"}, requires["bins"])
 }
 
 func TestResolverRejectsMalformedDiscoveredInputs(t *testing.T) {
@@ -497,7 +614,7 @@ func TestResolverRejectsMalformedDiscoveredInputs(t *testing.T) {
 			wantErr: ErrInvalidSkill,
 		},
 		{
-			name: "skill metadata values must be strings",
+			name: "skill metadata must be a mapping",
 			setup: func(t *testing.T, fixture resolverFixture) {
 				t.Helper()
 
@@ -505,7 +622,21 @@ func TestResolverRejectsMalformedDiscoveredInputs(t *testing.T) {
 					t,
 					fixture.configRoot,
 					"metadata-skill",
-					testMetadataNumberFrontMatter+testSkillBody,
+					testMetadataScalarFrontMatter+testSkillBody,
+				)
+			},
+			wantErr: ErrInvalidSkill,
+		},
+		{
+			name: "skill user invocable must be a boolean",
+			setup: func(t *testing.T, fixture resolverFixture) {
+				t.Helper()
+
+				fixture.writeSkillDocument(
+					t,
+					fixture.configRoot,
+					"invocable-skill",
+					testUserInvocableStringFrontMatter+testSkillBody,
 				)
 			},
 			wantErr: ErrInvalidSkill,
@@ -1175,6 +1306,15 @@ func skillNames(skills []Skill) []string {
 	names := make([]string, 0, len(skills))
 	for _, skill := range skills {
 		names = append(names, skill.Name)
+	}
+
+	return names
+}
+
+func agentNames(agents []Agent) []string {
+	names := make([]string, 0, len(agents))
+	for _, agent := range agents {
+		names = append(names, agent.Name)
 	}
 
 	return names

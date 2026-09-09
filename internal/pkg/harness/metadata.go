@@ -14,19 +14,26 @@ import (
 const (
 	frontMatterDelimiter      = "---"
 	frontMatterMetaKey        = "metadata"
+	frontMatterPermissionsKey = "permissions"
+	frontMatterUserInvocable  = "user-invocable"
 	maxSkillNameLength        = 64
 	maxSkillDescriptionLength = 1024
 	maxCompatibilityLength    = 500
 	yamlMappingPairSize       = 2
+	yamlBoolTag               = "!!bool"
 	yamlStringTag             = "!!str"
 )
 
 type skillFrontMatter struct {
-	Name          string            `yaml:"name"`
-	Description   string            `yaml:"description"`
-	License       string            `yaml:"license"`
-	Compatibility string            `yaml:"compatibility"`
-	Metadata      map[string]string `yaml:"metadata"`
+	Name          string         `yaml:"name"`
+	Description   string         `yaml:"description"`
+	License       string         `yaml:"license"`
+	Compatibility string         `yaml:"compatibility"`
+	Metadata      map[string]any `yaml:"metadata"`
+	Homepage      string         `yaml:"homepage"`
+	Permissions   map[string]any `yaml:"permissions"`
+	//nolint:tagliatelle // Agent Skills requires the exact YAML spelling.
+	UserInvocable bool `yaml:"user-invocable"`
 	//nolint:tagliatelle // Agent Skills requires the exact YAML spelling.
 	AllowedTools string `yaml:"allowed-tools"`
 }
@@ -34,6 +41,8 @@ type skillFrontMatter struct {
 type agentFrontMatter struct {
 	Name        string `yaml:"name"`
 	Description string `yaml:"description"`
+	//nolint:tagliatelle // Agent Skills requires the exact YAML spelling.
+	AllowedTools *string `yaml:"allowed-tools"`
 }
 
 type eventHandlerFrontMatter struct {
@@ -130,6 +139,39 @@ func parseAgentDocument(content string) (agentFrontMatter, string, error) {
 	}
 
 	return metadata, body, nil
+}
+
+func parseAgentAllowedTools(value *string) ([]string, error) {
+	if value == nil {
+		return nil, nil
+	}
+
+	tools := strings.Split(*value, ",")
+	allowed := make([]string, 0, len(tools))
+	seen := make(map[string]struct{}, len(tools))
+
+	for _, tool := range tools {
+		tool = strings.TrimSpace(tool)
+		if tool == "" {
+			return nil, ctxerrors.Wrap(
+				ErrInvalidAgent,
+				"allowed-tools must contain non-empty tool names",
+			)
+		}
+
+		if _, exists := seen[tool]; exists {
+			return nil, ctxerrors.Wrapf(
+				ErrInvalidAgent,
+				"allowed-tools repeats %q",
+				tool,
+			)
+		}
+
+		seen[tool] = struct{}{}
+		allowed = append(allowed, tool)
+	}
+
+	return allowed, nil
 }
 
 func parseEventHandlerDocument(
@@ -264,16 +306,31 @@ func validateSkillYAMLTypes(
 	}
 
 	for key, value := range values {
-		if key == frontMatterMetaKey {
-			if err := validateMetadataNode(value, ErrInvalidSkill); err != nil {
-				return nil, ctxerrors.Wrap(err, "validate skill metadata")
+		switch key {
+		case frontMatterMetaKey, frontMatterPermissionsKey:
+			if err := validateObjectNode(value, ErrInvalidSkill); err != nil {
+				return nil, ctxerrors.Wrapf(
+					err,
+					"validate skill object field %s",
+					key,
+				)
 			}
-
-			continue
-		}
-
-		if err := validateStringNode(value, ErrInvalidSkill); err != nil {
-			return nil, ctxerrors.Wrapf(err, "validate skill field %s", key)
+		case frontMatterUserInvocable:
+			if err := validateBooleanNode(value, ErrInvalidSkill); err != nil {
+				return nil, ctxerrors.Wrapf(
+					err,
+					"validate skill field %s",
+					key,
+				)
+			}
+		default:
+			if err := validateStringNode(value, ErrInvalidSkill); err != nil {
+				return nil, ctxerrors.Wrapf(
+					err,
+					"validate skill field %s",
+					key,
+				)
+			}
 		}
 	}
 
@@ -352,9 +409,12 @@ func frontMatterValues(
 	return values, nil
 }
 
-func validateMetadataNode(value *yaml.Node, invalidError error) error {
+func validateObjectNode(value *yaml.Node, invalidError error) error {
 	if value.Kind != yaml.MappingNode {
-		return ctxerrors.Wrap(invalidError, "metadata must be a string mapping")
+		return ctxerrors.Wrap(
+			invalidError,
+			"frontmatter value must be a mapping",
+		)
 	}
 
 	for index := 0; index < len(value.Content); index += yamlMappingPairSize {
@@ -362,15 +422,53 @@ func validateMetadataNode(value *yaml.Node, invalidError error) error {
 			value.Content[index],
 			invalidError,
 		); err != nil {
-			return ctxerrors.Wrap(err, "metadata key is not a string")
+			return ctxerrors.Wrap(err, "frontmatter object key is not a string")
 		}
 
-		if err := validateStringNode(
+		if err := validateObjectValue(
 			value.Content[index+1],
 			invalidError,
 		); err != nil {
-			return ctxerrors.Wrap(err, "metadata value is not a string")
+			return ctxerrors.Wrap(err, "validate frontmatter object value")
 		}
+	}
+
+	return nil
+}
+
+func validateObjectValue(value *yaml.Node, invalidError error) error {
+	switch value.Kind {
+	case yaml.ScalarNode:
+		return nil
+	case yaml.MappingNode:
+		return validateObjectNode(value, invalidError)
+	case yaml.SequenceNode:
+		for _, item := range value.Content {
+			if err := validateObjectValue(item, invalidError); err != nil {
+				return ctxerrors.Wrap(err, "validate frontmatter list item")
+			}
+		}
+
+		return nil
+	case yaml.DocumentNode, yaml.AliasNode:
+		return ctxerrors.Wrap(
+			invalidError,
+			"frontmatter object value has an unsupported YAML type",
+		)
+	default:
+		return ctxerrors.Wrap(
+			invalidError,
+			"frontmatter object value has an unsupported YAML type",
+		)
+	}
+}
+
+func validateBooleanNode(value *yaml.Node, invalidError error) error {
+	if value.Kind != yaml.ScalarNode || value.Tag != yamlBoolTag {
+		return ctxerrors.Wrap(
+			invalidError,
+			"frontmatter value must be a boolean",
+		)
 	}
 
 	return nil

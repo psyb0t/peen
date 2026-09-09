@@ -173,11 +173,13 @@ const editFileSchema = `{
   "additionalProperties": false
 }`
 
-const applyPatchDescription = `Apply one strict multi-file patch.
+const applyPatchDescription = `Apply one exact-match multi-file patch.
 Use the Codex patch envelope with *** Begin Patch and *** End Patch.
 Supported actions are *** Add File, *** Update File, *** Delete File, and
 *** Move to on an update. Update hunks use @@ plus exact context, removal,
-and addition lines prefixed with a space, -, or +.
+and addition lines prefixed with a space, -, or +. A leading space is the
+preferred context prefix. Unprefixed context lines and a trailing bare @@
+delimiter are also accepted for compatible coding-model patch emitters.
 Existing source files must have been read earlier in this turn. Context is
 matched exactly, including whitespace, and ambiguous matches are rejected.
 Add and move destinations must not exist, and are never overwritten.

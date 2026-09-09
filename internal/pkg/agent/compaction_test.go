@@ -13,6 +13,7 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/config"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
+	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -112,6 +113,7 @@ var (
 	errCompactionSummarizeFailed = errors.New(
 		"compaction test summarizer failed",
 	)
+	errCompactionHookFailed = errors.New("compaction test hook failed")
 	errCompactionTurnFailed = errors.New("compaction test turn failed")
 )
 
@@ -472,6 +474,142 @@ func TestCompactionFirstRunStoresShapedRow(t *testing.T) {
 	assert.Equal(t, compactionScenarioSummaryText, compaction.Summary)
 	assert.NotEmpty(t, compaction.PromptHash)
 	assert.Nil(t, compaction.SupersedesCompactionID)
+}
+
+func TestCompactionHooksRunAroundStoredSummary(t *testing.T) {
+	driver := elelemtest.NewScriptedDriver(
+		compactionScriptedTurns(compactionTurnsBeforeFirstTrigger + 1)...,
+	).WithTokenCounter(compactionTokenCounter{
+		perMessage: compactionTestTokensPerMessage,
+	})
+	fixture := newStandardCompactionFixture(t, driver)
+	stub := newCompactionSummarizeStub(compactionScenarioSummaryText)
+	fixture.runtime.compactionOptions.Summarize = stub.summarize
+
+	type hookCall struct {
+		event   harness.HookEvent
+		payload compactionHookPayload
+	}
+	calls := make([]hookCall, 0, 2)
+	fixture.runtime.compactionOptions.Hook = func(
+		_ context.Context,
+		event harness.HookEvent,
+		payload compactionHookPayload,
+	) error {
+		calls = append(calls, hookCall{event: event, payload: payload})
+
+		return nil
+	}
+
+	_, _ = runCompactionTurns(
+		t,
+		fixture,
+		nil,
+		1,
+		compactionTurnsBeforeFirstTrigger+1,
+	)
+
+	require.Len(t, calls, 2)
+	assert.Equal(t, harness.HookEventPreCompact, calls[0].event)
+	assert.Equal(t, harness.HookEventPostCompact, calls[1].event)
+	assert.Equal(t, fixture.workspace, calls[0].payload.Workspace)
+	assert.Positive(t, calls[0].payload.EstimatedTokens)
+	assert.Equal(t, compactionTestMaxContextTokens, calls[0].payload.BudgetTokens)
+	assert.Positive(t, calls[0].payload.UnitsCovered)
+	assert.Positive(t, calls[0].payload.MessagesCovered)
+	assert.Zero(t, calls[0].payload.SummaryTokens)
+	assert.Equal(
+		t,
+		int64(compactionStubOutputTokens),
+		calls[1].payload.SummaryTokens,
+	)
+}
+
+func TestCompactionPreHookFailureLeavesNoRow(t *testing.T) {
+	driver := elelemtest.NewScriptedDriver(
+		compactionScriptedTurns(compactionTurnsBeforeFirstTrigger + 1)...,
+	).WithTokenCounter(compactionTokenCounter{
+		perMessage: compactionTestTokensPerMessage,
+	})
+	fixture := newStandardCompactionFixture(t, driver)
+	stub := newCompactionSummarizeStub(compactionScenarioSummaryText)
+	fixture.runtime.compactionOptions.Summarize = stub.summarize
+	fixture.runtime.compactionOptions.Hook = func(
+		_ context.Context,
+		event harness.HookEvent,
+		_ compactionHookPayload,
+	) error {
+		if event == harness.HookEventPreCompact {
+			return errCompactionHookFailed
+		}
+
+		return nil
+	}
+
+	sessionID, _ := runCompactionTurns(
+		t,
+		fixture,
+		nil,
+		1,
+		compactionTurnsBeforeFirstTrigger,
+	)
+	_, err := fixture.runtime.Run(context.Background(), TurnRequest{
+		SessionID: &sessionID,
+		Message:   compactionUserText(compactionTurnsBeforeFirstTrigger + 1),
+		Workspace: fixture.workspace,
+	})
+	require.ErrorIs(t, err, errCompactionHookFailed)
+	assert.Zero(t, stub.calls)
+
+	compaction, err := fixture.store.LatestCompaction(
+		context.Background(),
+		sessionID,
+	)
+	require.NoError(t, err)
+	assert.Nil(t, compaction)
+}
+
+func TestCompactionPostHookFailureKeepsStoredSummary(t *testing.T) {
+	driver := elelemtest.NewScriptedDriver(
+		compactionScriptedTurns(compactionTurnsBeforeFirstTrigger + 1)...,
+	).WithTokenCounter(compactionTokenCounter{
+		perMessage: compactionTestTokensPerMessage,
+	})
+	fixture := newStandardCompactionFixture(t, driver)
+	stub := newCompactionSummarizeStub(compactionScenarioSummaryText)
+	fixture.runtime.compactionOptions.Summarize = stub.summarize
+	fixture.runtime.compactionOptions.Hook = func(
+		_ context.Context,
+		event harness.HookEvent,
+		_ compactionHookPayload,
+	) error {
+		if event == harness.HookEventPostCompact {
+			return errCompactionHookFailed
+		}
+
+		return nil
+	}
+
+	sessionID, results := runCompactionTurns(
+		t,
+		fixture,
+		nil,
+		1,
+		compactionTurnsBeforeFirstTrigger+1,
+	)
+	assert.Equal(
+		t,
+		compactionAssistantText(compactionTurnsBeforeFirstTrigger+1),
+		results[len(results)-1].Text,
+	)
+	assert.Equal(t, 1, stub.calls)
+
+	compaction, err := fixture.store.LatestCompaction(
+		context.Background(),
+		sessionID,
+	)
+	require.NoError(t, err)
+	assert.NotNil(t, compaction)
 }
 
 // Drop-oldest installs no Peen hook at all, so Elelem's own whole-unit

@@ -27,16 +27,25 @@ func TestSnapshotReturnsIndependentCollections(t *testing.T) {
 
 	skills := snapshot.Skills()
 	skills[0].Metadata["source"] = testChangedValue
+	permissions, ok := skills[0].Permissions["filesystem"].(map[string]any)
+	require.True(t, ok)
+	permissions["read"] = testChangedValue
 
 	agents := snapshot.Agents()
 	agents[0].Description = testChangedValue
+	agents[0].AllowedTools[0] = testChangedValue
 
 	manifest := snapshot.Manifest()
 	manifest[0].Source = testChangedValue
 
 	assert.Equal(t, "instructions", snapshot.Instructions()[0].Content)
 	assert.Equal(t, "skill source", snapshot.Skills()[0].Metadata["source"])
+	returnedSkills := snapshot.Skills()
+	filesystem, ok := returnedSkills[0].Permissions["filesystem"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "skill read", filesystem["read"])
 	assert.Equal(t, "agent description", snapshot.Agents()[0].Description)
+	assert.Equal(t, "read_file", snapshot.Agents()[0].AllowedTools[0])
 	assert.Equal(t, "/workspace/AGENTS.md", snapshot.Manifest()[0].Source)
 }
 
@@ -61,11 +70,15 @@ func TestSnapshotContractAccessors(t *testing.T) {
 
 	blocks, err := snapshot.PromptBlocks(testAgentName)
 	require.NoError(t, err)
-	require.Len(t, blocks, 3)
+	require.Len(t, blocks, 4)
 	assert.Equal(t, SourceKindInstruction, blocks[0].Kind)
 	assert.Equal(t, SourceKindAgent, blocks[1].Kind)
 	assert.Equal(t, SourceKindSkill, blocks[2].Kind)
 	assert.Contains(t, blocks[2].Content, testSkillName)
+	assert.Equal(t, SourceKindAgent, blocks[3].Kind)
+	assert.Contains(t, blocks[3].Content, testAgentName)
+	assert.Contains(t, blocks[3].Content, "read_file")
+	assert.NotContains(t, blocks[3].Content, "agent instructions")
 
 	_, err = snapshot.ActivateSkill("missing")
 	require.ErrorIs(t, err, ErrSkillNotFound)
@@ -96,6 +109,36 @@ func TestRenderSkillCatalogueSortsWithoutMutatingInput(t *testing.T) {
 	assert.Equal(t, skillCatalogueEmpty, renderSkillCatalogue(nil))
 }
 
+func TestRenderAgentCatalogueSortsWithoutMutatingInput(t *testing.T) {
+	t.Parallel()
+
+	agents := []Agent{
+		{
+			Name:         "zulu",
+			Description:  "z description",
+			Source:       "/z",
+			Instructions: "z instructions",
+			AllowedTools: []string{"read_file"},
+		},
+		{
+			Name:         "alpha",
+			Description:  "a description",
+			Source:       "/a",
+			Instructions: "a instructions",
+			AllowedTools: []string{"list_files"},
+		},
+	}
+
+	catalogue := renderAgentCatalogue(agents)
+
+	assert.Equal(t, "zulu", agents[0].Name)
+	assert.Equal(t, "alpha", agents[1].Name)
+	assert.Less(t, strings.Index(catalogue, "alpha"), strings.Index(catalogue, "zulu"))
+	assert.Contains(t, catalogue, "allowed tools: list_files")
+	assert.NotContains(t, catalogue, "a instructions")
+	assert.Equal(t, agentCatalogueEmpty, renderAgentCatalogue(nil))
+}
+
 func testSnapshot() Snapshot {
 	return Snapshot{
 		configRoot: testConfigRoot,
@@ -113,13 +156,17 @@ func testSnapshot() Snapshot {
 			Source:      "/workspace/.agents/skills/sample-skill/SKILL.md",
 			Directory:   "/workspace/.agents/skills/sample-skill",
 			Hash:        "skill-hash",
-			Metadata:    map[string]string{"source": "skill source"},
+			Metadata:    map[string]any{"source": "skill source"},
+			Permissions: map[string]any{
+				"filesystem": map[string]any{"read": "skill read"},
+			},
 		}},
 		agents: []Agent{{
 			Name:         testAgentName,
 			Description:  "agent description",
 			Source:       "/workspace/.agents/agents/sample-agent.md",
 			Instructions: "agent instructions",
+			AllowedTools: []string{"read_file"},
 			Hash:         "agent-hash",
 		}},
 		manifest: []ManifestEntry{{

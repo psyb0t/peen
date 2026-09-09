@@ -49,20 +49,22 @@ fi
 
 cd "${repo_root}"
 normalized_env_file=""
-env_file_args=()
 
 if [[ ! -f .env ]]; then
-	log WARN "no .env found, real provider calls will skip"
-else
-	umask 077
-	normalized_env_file="$(mktemp)"
-	sed -E \
-		-e "s/^([^=]+)='(.*)'$/\\1=\\2/" \
-		-e 's/^([^=]+)="(.*)"$/\1=\2/' \
-		.env >"${normalized_env_file}"
-	env_file_args=(--env-file "${normalized_env_file}")
-	log INFO "using deployment .env without printing values"
+	log ERROR "missing .env, make test-real requires live provider configuration"
+	exit 1
 fi
+
+umask 077
+normalized_env_file="$(mktemp)"
+sed -E \
+	-e "s/^([^=]+)='(.*)'$/\\1=\\2/" \
+	-e 's/^([^=]+)="(.*)"$/\1=\2/' \
+	.env >"${normalized_env_file}"
+log INFO "using deployment .env without printing values"
+
+: "${PEEN_TEST_DEFAULT_MODEL:=zai/glm-5.3-flash}"
+export PEEN_TEST_DEFAULT_MODEL
 
 if [[ -n "${DEBUG:-}" ]]; then
 	log DEBUG "building the development image and starting tagged real-provider tests"
@@ -76,7 +78,8 @@ fi
 if ! docker run --rm --init \
 	--network host \
 	--user "$(id -u):$(id -g)" \
-	"${env_file_args[@]}" \
+	--env-file "${normalized_env_file}" \
+	-e PEEN_TEST_DEFAULT_MODEL \
 	-e HOME=/tmp \
 	-e GOPATH=/tmp/go \
 	-e GOCACHE=/tmp/go-cache \
@@ -84,7 +87,7 @@ if ! docker run --rm --init \
 	-v "${repo_root}:${repo_root}" \
 	-w "${repo_root}" \
 	peen-dev \
-	go test -race -tags real -count=1 -timeout=600s ./tests/real/...; then
+	go test -race -tags real -count=1 -timeout=1200s ./tests/real/...; then
 	log ERROR "run real provider tests"
 	exit 1
 fi

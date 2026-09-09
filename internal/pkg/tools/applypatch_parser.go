@@ -239,6 +239,12 @@ func parseUpdateHunks(
 	hunks := make([]patchHunk, 0)
 
 	for index < len(lines)-1 && !isPatchActionHeader(lines[index]) {
+		if isClosingPatchHunkDelimiter(lines, index) {
+			index++
+
+			continue
+		}
+
 		if !strings.HasPrefix(lines[index], patchHunkPrefix) {
 			return nil, index, ctxerrors.Wrapf(
 				ErrInvalidPatch,
@@ -259,6 +265,20 @@ func parseUpdateHunks(
 	return hunks, index, nil
 }
 
+// isClosingPatchHunkDelimiter accepts the trailing bare @@ that several
+// coding-model patch emitters produce after their final hunk. It is not a new
+// hunk because it is followed immediately by an action boundary or the patch
+// end marker.
+func isClosingPatchHunkDelimiter(lines []string, index int) bool {
+	if lines[index] != patchHunkPrefix {
+		return false
+	}
+
+	next := index + 1
+
+	return next >= len(lines)-1 || isPatchActionHeader(lines[next])
+}
+
 func parsePatchHunk(lines []string, index int) (patchHunk, int, error) {
 	header := lines[index]
 	hunk := patchHunk{anchor: strings.TrimSpace(
@@ -274,12 +294,7 @@ func parsePatchHunk(lines []string, index int) (patchHunk, int, error) {
 			break
 		}
 
-		line, err := parsePatchLine(lines[index], index)
-		if err != nil {
-			return patchHunk{}, index, err
-		}
-
-		hunk.lines = append(hunk.lines, line)
+		hunk.lines = append(hunk.lines, parsePatchLine(lines[index]))
 		index++
 	}
 
@@ -295,24 +310,16 @@ func isPatchHunkBoundary(lines []string, index int) bool {
 		strings.HasPrefix(lines[index], patchHunkPrefix)
 }
 
-func parsePatchLine(value string, index int) (patchLine, error) {
+func parsePatchLine(value string) patchLine {
 	if value == "" {
-		return patchLine{}, ctxerrors.Wrapf(
-			ErrInvalidPatch,
-			"line %d: invalid hunk line",
-			index+1,
-		)
+		return patchLine{kind: patchLineContext}
 	}
 
 	switch value[0] {
 	case patchLineContext, patchLineAdd, patchLineDelete:
-		return patchLine{kind: value[0], text: value[1:]}, nil
+		return patchLine{kind: value[0], text: value[1:]}
 	default:
-		return patchLine{}, ctxerrors.Wrapf(
-			ErrInvalidPatch,
-			"line %d: invalid hunk line",
-			index+1,
-		)
+		return patchLine{kind: patchLineContext, text: value}
 	}
 }
 

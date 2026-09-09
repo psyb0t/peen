@@ -12,6 +12,7 @@ import (
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/elelem/drivers/anthropic"
 	"github.com/psyb0t/elelem/drivers/openai"
+	"github.com/psyb0t/elelem/drivers/zaicoding"
 	"github.com/psyb0t/peen/internal/pkg/config"
 )
 
@@ -201,31 +202,11 @@ func (r *Registry) ResolveModel(qualifiedModel string) (ModelClient, error) {
 func NewDriver(upstream config.Upstream) (elelem.Driver, error) {
 	switch upstream.Provider {
 	case config.ProviderTypeOpenAI:
-		options := []openai.DriverOption{
-			openai.WithoutEnvironmentDefaults(),
-		}
-		if upstream.APIKeyEnv != "" {
-			options = append(options, openai.WithAPIKey(upstream.APIKey()))
-		}
-
-		if upstream.BaseURL != "" {
-			options = append(options, openai.WithBaseURL(upstream.BaseURL))
-		}
-
-		return withProviderRetry(openai.NewDriver(options...)), nil
+		return newOpenAIDriver(upstream), nil
 	case config.ProviderTypeAnthropic:
-		options := []anthropic.DriverOption{
-			anthropic.WithoutEnvironmentDefaults(),
-		}
-		if upstream.APIKeyEnv != "" {
-			options = append(options, anthropic.WithAPIKey(upstream.APIKey()))
-		}
-
-		if upstream.BaseURL != "" {
-			options = append(options, anthropic.WithBaseURL(upstream.BaseURL))
-		}
-
-		return withProviderRetry(anthropic.NewDriver(options...)), nil
+		return newAnthropicDriver(upstream), nil
+	case config.ProviderTypeZAICoding:
+		return newZAICodingDriver(upstream), nil
 	default:
 		return nil, ctxerrors.Wrapf(
 			ErrModelUnavailable,
@@ -233,6 +214,52 @@ func NewDriver(upstream config.Upstream) (elelem.Driver, error) {
 			upstream.Provider,
 		)
 	}
+}
+
+//nolint:ireturn // Elelem's driver contract is an interface.
+func newOpenAIDriver(upstream config.Upstream) elelem.Driver {
+	options := []openai.DriverOption{
+		openai.WithoutEnvironmentDefaults(),
+	}
+	if upstream.APIKeyEnv != "" {
+		options = append(options, openai.WithAPIKey(upstream.APIKey()))
+	}
+
+	if upstream.BaseURL != "" {
+		options = append(options, openai.WithBaseURL(upstream.BaseURL))
+	}
+
+	return withProviderRetry(openai.NewDriver(options...))
+}
+
+//nolint:ireturn // Elelem's driver contract is an interface.
+func newAnthropicDriver(upstream config.Upstream) elelem.Driver {
+	options := []anthropic.DriverOption{
+		anthropic.WithoutEnvironmentDefaults(),
+	}
+	if upstream.APIKeyEnv != "" {
+		options = append(options, anthropic.WithAPIKey(upstream.APIKey()))
+	}
+
+	if upstream.BaseURL != "" {
+		options = append(options, anthropic.WithBaseURL(upstream.BaseURL))
+	}
+
+	return withProviderRetry(anthropic.NewDriver(options...))
+}
+
+//nolint:ireturn // Elelem's driver contract is an interface.
+func newZAICodingDriver(upstream config.Upstream) elelem.Driver {
+	options := []zaicoding.DriverOption{}
+	if upstream.APIKeyEnv != "" {
+		options = append(options, zaicoding.WithAPIKey(upstream.APIKey()))
+	}
+
+	if upstream.BaseURL != "" {
+		options = append(options, zaicoding.WithBaseURL(upstream.BaseURL))
+	}
+
+	return withProviderRetry(zaicoding.NewDriver(options...))
 }
 
 //nolint:ireturn // Elelem's retry decorator returns the Driver contract.
@@ -307,6 +334,8 @@ func modelMetadata(
 		model = openai.LookupModel(modelID)
 	case config.ProviderTypeAnthropic:
 		model = anthropic.LookupModel(modelID)
+	case config.ProviderTypeZAICoding:
+		model = zaicoding.LookupModel(modelID)
 	default:
 		model = elelem.Model{ID: modelID}
 	}

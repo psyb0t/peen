@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 )
@@ -54,7 +55,7 @@ func useSkillHandler(
 	snapshot harness.Snapshot,
 ) func(context.Context, useSkillInput) (useSkillOutput, error) {
 	return func(
-		_ context.Context,
+		ctx context.Context,
 		input useSkillInput,
 	) (useSkillOutput, error) {
 		activated, err := snapshot.ActivateSkill(input.Name)
@@ -65,6 +66,13 @@ func useSkillHandler(
 				err,
 			)
 		}
+
+		ctxscope.GetLogger(ctx).Info(
+			"skill activated",
+			"skill_name", activated.Name,
+			"skill_hash", activated.Hash,
+			"skill_source", activated.Source,
+		)
 
 		return useSkillOutput{
 			Name:      activated.Name,

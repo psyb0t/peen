@@ -6,8 +6,8 @@ canonical, commented list. This page groups the same settings by purpose and
 adds the harness, event, job, and agent-run behavior they control.
 
 Framework-level logging (`LOG_LEVEL`, `LOG_FORMAT`, `LOG_ADD_SOURCE`) is
-handled by the underlying Servicepack logging setup, not by Peen's own config
-package; see [docs/development.md](../development.md).
+handled by the underlying Servicepack logging setup. Peen adds a JSON audit
+sink configured by `PEEN_LOG_DIRECTORY` and `PEEN_LOG_RETENTION_DAYS`.
 
 ## Core
 
@@ -15,13 +15,49 @@ package; see [docs/development.md](../development.md).
 | --- | --- | --- |
 | `PEEN_CONFIG_DIR` | required, absolute | Harness base layer and durable state root. See [the root README](../../README.md#the-configuration-directory). |
 | `PEEN_WORKING_DIR` | process cwd at startup | Default message workspace. Peen changes into this directory at startup. |
-| `PEEN_AGENT` | `default` | Root agent name selected from `.agents/agents/`. |
+| `PEEN_AGENT` | `default` | Root agent name. `default` is embedded and may be replaced by `.agents/agents/default.md`. |
 | `PEEN_UPSTREAMS` | required, JSON | Named provider list. See [provider configuration](../../README.md#provider-configuration). |
 | `PEEN_DEFAULT_MODEL` | required | Qualified `provider/model` for the root agent and, unless overridden, compaction. |
 | `PEEN_COMPACTION_MODEL` | `PEEN_DEFAULT_MODEL` | Qualified `provider/model` used only for the summarization call. |
 | `PEEN_HTTP_LISTEN_ADDRESS` | `:8080` | Listener address. |
 | `PEEN_API_TOKEN` | empty | Bearer token. Empty disables authentication. |
 | `PEEN_METRICS_LISTEN_ADDRESS` | `127.0.0.1:9090` | Separate loopback-only Prometheus listener. See [metrics](#metrics). |
+
+## Logging and audit trail
+
+`LOG_LEVEL` controls which structured application records go to stdout. The
+audit sink retains debug-and-above records in the active UTC-day file,
+`PEEN_LOG_DIRECTORY/YYYYMMDD-000000.log`. When `PEEN_LOG_DIRECTORY` is empty,
+the directory defaults to `PEEN_CONFIG_DIR/logs`; set a path to override it.
+`PEEN_LOG_RETENTION_DAYS=14` keeps at most 14 daily files. The directory and
+files are created as `0700` and `0600` respectively.
+
+`ctxscope` carries request, session, turn, child-agent, model, tool-call, and
+service fields through the log chain. Audit records name the resolved harness
+manifest, skill activation, hook actions, child-agent lifecycle, provider and
+tool outcomes, plus content byte counts and SHA-256 digests. Raw user prompts,
+model thinking, tool arguments, tool results, environment values, and
+credentials are not copied into logs. Hook records may include bounded
+operational counters such as the active-context token estimate. The durable
+session transcript and per-agent JSONL mirror retain the sensitive, verbatim
+trace for authorized debugging. ORM SQL statement previews are deliberately
+disabled because expanded statements can contain persisted sensitive content.
+
+## Model selection
+
+`PEEN_UPSTREAMS` accepts `openai`, `anthropic`, and `zai-coding` provider
+types. The `.env.example` shows an OpenAI-compatible AIGate entry and Z.ai's
+Coding endpoint. `zai-coding` preserves Z.ai thinking state through tool rounds
+and applies its model-specific thinking controls.
+
+Set `PEEN_DEFAULT_MODEL=zai/glm-5.3` for the default coding model and
+`PEEN_COMPACTION_MODEL=zai/glm-5.3-flash` for lightweight background work.
+Model choice is per message. Peen does not classify requests or select a model
+automatically.
+
+The maintained Z.ai Coding catalog contains GLM 5.3 and GLM 5.3 Flash. GLM 5.3
+supports its documented reasoning effort values. GLM 5.3 Flash uses preserved
+thinking without numeric or disabling controls.
 
 ## Metrics
 
@@ -109,20 +145,13 @@ order, and execution policy.
 | `PEEN_MAX_AGENT_RUN_EVENT_BYTES` | `65536` | Byte cap on that same buffer. |
 | `PEEN_MAX_ADHOC_AGENT_INSTRUCTION_BYTES` | `65536` | Size cap on an inline `agentDefinition.instructions` string. |
 
-## Testing-only settings
-
-`PEEN_FORCE_REAL_LLM` and `PEEN_REAL_MODEL_AIGATE` are read directly by
-`tests/real`, not by the production `Config` struct. They select whether
-`make test-real` contacts your configured `PEEN_UPSTREAMS` instead of the
-scripted test driver. Leave them unset for a normal deployment.
-
 ## Harness layering
 
 Peen resolves `AGENTS.md`, skills, named agents, and event handlers in the
 same order, every turn:
 
-1. Embedded operating rules plus the `planning` and `freshness` skills are the
-   immutable base layer.
+1. Embedded operating rules, the `planning` and `freshness` skills, and the
+   `default` root agent are the immutable base layer.
 2. `PEEN_CONFIG_DIR` extends the base layer.
 3. Every filesystem ancestor of the current message's workspace is then
    applied, from `/` down to the workspace itself.
@@ -141,16 +170,19 @@ bytewise for stable, repeatable results.
   on demand; files it references are then read with the normal `read_file`
   tool, so that read is a visible, ordinary tool call. A same-named skill in
   a later layer replaces the earlier or embedded one as a whole unit; they are
-  never merged. `allowed-tools` in frontmatter is recorded but advisory only.
-  Peen has no permission layer, so it cannot narrow which tools a skill's turn
-  may call.
+  never merged. `homepage`, `user-invocable`, `permissions`, and nested
+  `metadata` are accepted and retained in the resolved skill record.
+  `allowed-tools` and `permissions` are advisory only. Peen has no permission
+  layer, so it cannot narrow which tools a skill's turn may call.
 - **Named agents** (`.agents/agents/<name>.md`): YAML frontmatter with `name`
   and `description`, lowercase kebab-case, followed by system instructions.
-  `launch_agent` runs one by name, or accepts an inline `agentDefinition` for
-  a one-off job no stored file covers. Exactly one of the two must be
-  supplied. A child shares the parent turn's session, workspace, resolved
-  rules, tool registry, and model; it cannot select its own model or
-  provider.
+  An optional `allowed-tools` string is a comma-separated allowlist enforced
+  for that stored agent, including a replacement `default` root agent. Omit it
+  to expose the normal host tool set. `launch_agent` runs one by name, or
+  accepts an inline `agentDefinition` for a one-off job no stored file covers.
+  Exactly one of the two must be supplied. A child shares the parent turn's
+  session, workspace, resolved rules, and model; it cannot select its own
+  model or provider.
 - **Event handlers** (`.agents/events/<type>.md`): frontmatter with `type`,
   an optional `agent` naming which effective agent handles it, and an
   optional `delivery` override. The body is the instruction the agent
@@ -161,9 +193,11 @@ bytewise for stable, repeatable results.
   but their actions only execute when `PEEN_ENABLE_WORKSPACE_HOOKS=true`.
   See [hook configuration](hooks.md).
 
-Every root and child turn also receives the server's current UTC timestamp as
-trusted runtime context. The embedded freshness guidance tells the model to
-inspect local project facts and verify external facts that may have changed.
+Every root and child turn also receives the server's current local timestamp,
+timezone, operating system, CPU architecture, logical CPU count, and Go
+runtime as trusted runtime context. The embedded freshness guidance tells the
+model to inspect local project facts and verify external facts that may have
+changed.
 
 ## Session events
 

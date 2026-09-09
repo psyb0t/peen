@@ -25,6 +25,12 @@ func TestConfigValidate(t *testing.T) {
 			mutate: func(*Config) {},
 		},
 		{
+			name: "valid Z.ai Coding upstream",
+			mutate: func(config *Config) {
+				config.UpstreamsJSON = `[{"name":"zai","provider":"zai-coding"}]`
+			},
+		},
+		{
 			name:    "relative config directory",
 			mutate:  func(config *Config) { config.ConfigDirectory = "relative" },
 			wantErr: ErrInvalidConfig,

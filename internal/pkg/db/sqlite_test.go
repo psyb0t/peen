@@ -1,10 +1,13 @@
 package db
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,6 +26,30 @@ func TestOpenUsesPrivateFilesystemState(t *testing.T) {
 	databaseInfo, err := os.Stat(filepath.Join(stateDirectory, sqliteFileName))
 	require.NoError(t, err)
 	assert.Equal(t, sqliteFileMode, databaseInfo.Mode().Perm())
+}
+
+func TestOpenDoesNotLogSQLValues(t *testing.T) {
+	var output bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+
+	handle, err := Open(context.Background(), Config{Directory: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, handle.Close()) })
+
+	output.Reset()
+	sensitiveSQLValue := "controlled-sensitive-sql-value"
+	handle.GormDB.Logger.Trace(
+		context.Background(),
+		time.Now(),
+		func() (string, int64) {
+			return "INSERT INTO messages (content) VALUES ('" + sensitiveSQLValue + "')", 1
+		},
+		nil,
+	)
+
+	assert.NotContains(t, output.String(), sensitiveSQLValue)
 }
 
 func TestOpenRejectsSymlinkDirectory(t *testing.T) {

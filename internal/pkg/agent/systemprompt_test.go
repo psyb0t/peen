@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -199,8 +200,9 @@ func TestRuntimeSystemPromptCarriesTheWorkspace(t *testing.T) {
 	)
 }
 
-func TestRuntimeSystemPromptsCarryTrustedUTCTime(t *testing.T) {
+func TestRuntimeSystemPromptsCarryTrustedSystemContext(t *testing.T) {
 	fixture := newRuntimeFixture(t, elelemtest.NewScriptedDriver())
+	location := time.FixedZone("test", 3600)
 	providedTime := time.Date(
 		2031,
 		time.March,
@@ -209,7 +211,7 @@ func TestRuntimeSystemPromptsCarryTrustedUTCTime(t *testing.T) {
 		6,
 		7,
 		0,
-		time.FixedZone("test", 3600),
+		location,
 	)
 	fixture.runtime.now = func() time.Time { return providedTime }
 
@@ -224,12 +226,29 @@ func TestRuntimeSystemPromptsCarryTrustedUTCTime(t *testing.T) {
 	childPrompt, err := fixture.runtime.childSystemPrompt(
 		snapshot,
 		"child instructions",
+		fixture.workspace,
 	)
 	require.NoError(t, err)
 
-	expected := "Trusted runtime context:\nCurrent UTC time: 2031-03-04T04:06:07Z"
-	assert.Contains(t, rootPrompt, expected)
-	assert.Contains(t, childPrompt, expected)
+	for _, prompt := range []string{rootPrompt, childPrompt} {
+		assert.Contains(t, prompt, runtimeContextHeader)
+		assert.Contains(
+			t,
+			prompt,
+			runtimeContextLocalTimeLead+providedTime.Format(time.RFC3339),
+		)
+		assert.Contains(t, prompt, runtimeContextTimezoneLead+location.String())
+		assert.Contains(t, prompt, runtimeContextOperatingSystemLead+runtime.GOOS)
+		assert.Contains(t, prompt, runtimeContextArchitectureLead+runtime.GOARCH)
+		assert.Contains(t, prompt, runtimeContextLogicalCPUsLead)
+		assert.Contains(t, prompt, runtimeContextGoRuntimeLead+runtime.Version())
+		assert.Contains(t, prompt, runtimeContextFreshnessGuidance)
+	}
+
+	encodedWorkspace, err := json.Marshal(fixture.workspace)
+	require.NoError(t, err)
+	assert.Contains(t, childPrompt, workspaceMetadataLead)
+	assert.Contains(t, childPrompt, string(encodedWorkspace))
 }
 
 // A deployment prompt file must actually reach the assembled prompt, not just

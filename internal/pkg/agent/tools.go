@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
@@ -101,6 +102,53 @@ func instrumentTool(tool elelem.Tool, collector *metrics.Metrics) elelem.Tool {
 	}
 
 	return tool
+}
+
+// restrictToolSet keeps only a named agent's explicit tool allowlist. A nil
+// list means the agent definition supplied no restriction, so it preserves
+// the complete host set. An empty list deliberately exposes no tools.
+func restrictToolSet(
+	toolSet *elelem.ToolSet,
+	allowedTools []string,
+) (*elelem.ToolSet, error) {
+	if allowedTools == nil {
+		return toolSet, nil
+	}
+
+	restricted := elelem.NewToolSet()
+	seen := make(map[string]struct{}, len(allowedTools))
+
+	for _, name := range allowedTools {
+		if name == "" {
+			return nil, ctxerrors.Wrap(
+				commerr.ErrValidationFailed,
+				"agent allowed-tools contains an empty name",
+			)
+		}
+
+		if _, exists := seen[name]; exists {
+			return nil, ctxerrors.Wrapf(
+				commerr.ErrValidationFailed,
+				"agent allowed-tools repeats %q",
+				name,
+			)
+		}
+
+		tool, found := toolSet.Get(name)
+		if !found {
+			return nil, ctxerrors.Wrapf(
+				commerr.ErrValidationFailed,
+				"agent allowed-tools names unavailable tool %q",
+				name,
+			)
+		}
+
+		seen[name] = struct{}{}
+
+		restricted.Add(tool)
+	}
+
+	return restricted, nil
 }
 
 func readOnlyHostTools(

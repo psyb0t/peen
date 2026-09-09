@@ -13,13 +13,17 @@ context snapshot, but their actions run only when
 
 ## File format
 
-Every event names a list of groups. Each group has an optional `match` and a
-nonempty, ordered `actions` list.
+Every event names a list of groups. Give every group and action a meaningful
+`name`. The name appears in debug logs and in hook-failure event metadata. A
+missing group name gets the stable fallback `<event>-<position>` and a missing
+action name gets `<type>-<position>`, so existing hook files keep working.
+Each group has an optional `match` and a nonempty, ordered `actions` list.
 
 ```yaml
 version: 1
 pre_write_file:
-  - match:
+  - name: go-write-gate
+    match:
       tool: write_file
       root: internal
       path: "**/*.go"
@@ -28,15 +32,18 @@ pre_write_file:
         /expectedSha256:
           exists: true
     actions:
-      - type: inject
+      - name: go-rules
+        type: inject
         message: Read the Go rules before changing this file.
-      - type: command
+      - name: go-check
+        type: command
         command: scripts/check-go
         args: ["--workspace-check"]
         environment:
           CHECK_MODE: strict
         timeout_seconds: 20
-      - type: emit_event
+      - name: report-go-check
+        type: emit_event
         event_type: hook.go.checked
         summary: Go write check completed.
         data:
@@ -51,7 +58,13 @@ turn before the hook can run.
 ## Events and ordering
 
 Lifecycle events are `pre_user_message`, `post_user_message`, `session_start`,
-`turn_start`, `turn_stop`, and `turn_cancelled`.
+`turn_start`, `turn_stop`, `turn_cancelled`, `pre_compact`, and `post_compact`.
+Compaction hooks run immediately before Peen summarizes a completed history
+prefix and after the replacement summary is committed. Their input includes
+the active context estimate, budget, compaction round, and covered unit and
+message counts. Post-compaction input also includes the summary output-token
+count. A pre-compaction failure stops compaction. A post-compaction failure is
+logged and continues because the durable replacement already succeeded.
 
 Every tool can use `pre_tool_use`, `post_tool_use`, and `tool_use_failure`.
 File tools also have these specific events:
@@ -112,7 +125,12 @@ does not invoke a shell. The child receives only `PATH` and the declared
 environment, runs in the workspace unless `working_dir` changes it, and reads
 one JSON invocation from standard input. The invocation contains the event,
 session, request, turn, tool, call, workspace, affected paths, input, result,
-and error when available.
+and error when available. For a session-bound hook it also includes
+`stateDirectory`, a private stable directory at
+`PEEN_CONFIG_DIR/hook-state/<session-id>`, and `contextTokens`, the estimated
+active-context input tokens at that hook boundary. `contextTokens` is for
+local policy only. It is not provider billing usage. A hook without a session
+does not receive `stateDirectory`.
 
 A command may write this JSON object to standard output:
 
@@ -149,3 +167,13 @@ action, but the whole tool call remains bounded by `PEEN_TOOL_TIMEOUT`.
 Hooks run with the process user's filesystem and executable access. They are
 not a sandbox or a permission system. Treat configuration-directory hooks as
 deployment code. Enable workspace hooks only for workspaces you trust.
+
+## Logging
+
+At debug level Peen records start and finish entries for every hook lifecycle
+event, including events with no matching group. A matching group and each
+executed action also record start and finish entries with their resolved
+`hook_name` and `hook_action_name`. Command and emitted-session-event actions
+have their own start and finish entries. These records include outcome,
+duration, bounded counts, and safe identifiers. They do not include hook stdin,
+tool content, command output, declared environment values, or credentials.

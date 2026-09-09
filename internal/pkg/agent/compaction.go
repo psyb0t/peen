@@ -11,6 +11,7 @@ import (
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
@@ -26,6 +27,8 @@ const (
 	// compactionReasonBudgetExceeded is the stable reason logged when a
 	// request's transcript no longer fits the configured budget.
 	compactionReasonBudgetExceeded = "context_budget_exceeded"
+	compactionOutcomeSucceeded     = "succeeded"
+	compactionOutcomeFailed        = "failed"
 )
 
 // compactionSummary is one summarization call's result.
@@ -41,6 +44,24 @@ type compactionSummary struct {
 // deterministic seam so prefix selection can be proven without a provider.
 type summarizeFunc func(context.Context, string) (compactionSummary, error)
 
+// compactionHookPayload gives hooks the stable facts of one real summary
+// replacement. It deliberately excludes transcript content and summary text.
+type compactionHookPayload struct {
+	Workspace       string `json:"workspace"`
+	EstimatedTokens int    `json:"estimatedTokens"`
+	BudgetTokens    int    `json:"budgetTokens"`
+	Round           int    `json:"round"`
+	UnitsCovered    int    `json:"unitsCovered"`
+	MessagesCovered int    `json:"messagesCovered"`
+	SummaryTokens   int64  `json:"summaryTokens,omitempty"`
+}
+
+type compactionHook func(
+	context.Context,
+	harness.HookEvent,
+	compactionHookPayload,
+) error
+
 // compactionOptions are the deployment settings one compactor needs.
 type compactionOptions struct {
 	Store           *session.Store
@@ -51,6 +72,8 @@ type compactionOptions struct {
 	PromptHash      string
 	MaxOutputTokens int
 	Timeout         time.Duration
+	Workspace       string
+	Hook            compactionHook
 
 	// Summarize replaces the provider call. Nil uses the configured model.
 	Summarize summarizeFunc
@@ -139,10 +162,31 @@ func newCompactor(
 // them. Elelem aborts the run on a handler error, which is the point: the
 // alternative to a stored summary is dropping conversation the caller can
 // neither see in the response nor reconstruct afterwards.
+//
+//nolint:funlen,nonamedreturns // One compaction safety boundary.
 func (c *compactor) handle(
 	ctx context.Context,
 	event *elelem.TokenLimitEvent,
-) error {
+) (handleErr error) {
+	startedAt := time.Now()
+
+	ctxscope.GetLogger(ctx).Debug(
+		"context compaction started",
+		"estimated_tokens", event.EstimatedTokens,
+		"budget_tokens", event.BudgetTokens,
+		"round", event.Round,
+	)
+	defer func() {
+		ctxscope.GetLogger(ctx).Debug(
+			"context compaction finished",
+			"outcome", compactionOutcome(handleErr),
+			"estimated_tokens", event.EstimatedTokens,
+			"budget_tokens", event.BudgetTokens,
+			"round", event.Round,
+			"duration_ms", time.Since(startedAt).Milliseconds(),
+		)
+	}()
+
 	if err := c.plan.verify(event.Messages); err != nil {
 		return ctxerrors.Wrap(err, "verify reconstruction plan")
 	}
@@ -150,6 +194,13 @@ func (c *compactor) handle(
 	units, err := c.selectPrefix(event)
 	if err != nil {
 		return err
+	}
+
+	messagesCovered := c.plan.messageCount(units)
+
+	payload := c.hookPayload(event, units, messagesCovered, 0)
+	if err := c.runHook(ctx, harness.HookEventPreCompact, payload); err != nil {
+		return ctxerrors.Wrap(err, "run pre-compaction hooks")
 	}
 
 	summary, err := c.summarize(ctx, c.renderTranscript(event.Messages, units))
@@ -165,10 +216,27 @@ func (c *compactor) handle(
 		)
 	}
 
-	messagesCovered := c.plan.messageCount(units)
-
 	if err := c.commit(ctx, event, units, text, summary); err != nil {
 		return err
+	}
+
+	payload = c.hookPayload(
+		event,
+		units,
+		messagesCovered,
+		summary.OutputTokens,
+	)
+	if err := c.runHook(
+		ctx,
+		harness.HookEventPostCompact,
+		payload,
+	); err != nil {
+		ctxscope.GetLogger(ctx).Warn(
+			"post-compaction hook failed, continuing",
+			"err", err,
+			"units_covered", units,
+			"messages_covered", messagesCovered,
+		)
 	}
 
 	ctxscope.GetLogger(ctx).Info(
@@ -184,6 +252,47 @@ func (c *compactor) handle(
 	)
 
 	return nil
+}
+
+func (c *compactor) hookPayload(
+	event *elelem.TokenLimitEvent,
+	units int,
+	messages int,
+	summaryTokens int64,
+) compactionHookPayload {
+	return compactionHookPayload{
+		Workspace:       c.options.Workspace,
+		EstimatedTokens: event.EstimatedTokens,
+		BudgetTokens:    event.BudgetTokens,
+		Round:           event.Round,
+		UnitsCovered:    units,
+		MessagesCovered: messages,
+		SummaryTokens:   summaryTokens,
+	}
+}
+
+func (c *compactor) runHook(
+	ctx context.Context,
+	event harness.HookEvent,
+	payload compactionHookPayload,
+) error {
+	if c.options.Hook == nil {
+		return nil
+	}
+
+	if err := c.options.Hook(ctx, event, payload); err != nil {
+		return ctxerrors.Wrap(err, "run compaction hook")
+	}
+
+	return nil
+}
+
+func compactionOutcome(err error) string {
+	if err == nil {
+		return compactionOutcomeSucceeded
+	}
+
+	return compactionOutcomeFailed
 }
 
 // selectPrefix picks the smallest completed prefix whose removal leaves room

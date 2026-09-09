@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/tools"
@@ -89,6 +90,7 @@ type launchAgentOutput struct {
 type childDefinition struct {
 	name         string
 	instructions string
+	allowedTools []string
 	kind         AgentRunDefinition
 }
 
@@ -182,6 +184,8 @@ func (r *Runtime) launchAgent(
 		return launchAgentOutput{}, err
 	}
 
+	runCtx = childAgentContext(runCtx, run, definition, depth, input.Task)
+
 	response, runErr := r.runChildAgent(
 		runCtx,
 		deps,
@@ -192,6 +196,29 @@ func (r *Runtime) launchAgent(
 	)
 
 	return r.finishAgentRun(ctx, registry, run, response, runErr)
+}
+
+func childAgentContext(
+	ctx context.Context,
+	run *AgentRun,
+	definition childDefinition,
+	depth int,
+	task string,
+) context.Context {
+	childCtx := ctxscope.Set(
+		ctx,
+		ctxscope.Attr("agent_run_id", run.ID.String()),
+		ctxscope.Attr("agent_name", run.Name),
+		ctxscope.Attr("agent_depth", depth),
+	)
+	ctxscope.GetLogger(childCtx).Info(
+		"child agent started",
+		"agent_definition", definition.kind,
+		"task_bytes", len(task),
+		"task_sha256", hash(task),
+	)
+
+	return childCtx
 }
 
 // resolveChildDefinition validates that exactly one of Agent and
@@ -230,6 +257,7 @@ func storedChildDefinition(
 	return childDefinition{
 		name:         found.Name,
 		instructions: found.Instructions,
+		allowedTools: found.AllowedTools,
 		kind:         AgentRunDefinitionStored,
 	}, nil
 }
@@ -299,6 +327,7 @@ func agentNames(snapshot harness.Snapshot) []string {
 func (r *Runtime) childSystemPrompt(
 	snapshot harness.Snapshot,
 	childInstructions string,
+	workspace string,
 ) (string, error) {
 	blocks, err := snapshot.PromptBlocks("")
 	if err != nil {
@@ -314,7 +343,17 @@ func (r *Runtime) childSystemPrompt(
 		sections = append(sections, block.Content)
 	}
 
-	sections = append(sections, childInstructions, r.currentTimeBlock())
+	workspaceBlock, err := workspaceMetadataBlock(workspace)
+	if err != nil {
+		return "", err
+	}
+
+	sections = append(
+		sections,
+		childInstructions,
+		workspaceBlock,
+		r.currentTimeBlock(),
+	)
 
 	return strings.Join(sections, systemSectionGap), nil
 }
@@ -345,13 +384,20 @@ func (r *Runtime) runChildAgent(
 	systemPrompt, err := r.childSystemPrompt(
 		deps.snapshot,
 		definition.instructions,
+		deps.executor.Workspace(),
 	)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "build child system prompt")
 	}
 
-	childToolSet := hostToolSet(deps.executor, nil, deps.snapshot, r.metrics)
-	childToolSet.Add(instrumentTool(launchAgentTool(deps, nil), r.metrics))
+	childToolSet, err := r.agentToolSet(
+		deps,
+		nil,
+		definition.allowedTools,
+	)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "build child agent tool set")
+	}
 
 	childHooks, err := newToolHookRuntime(
 		deps.snapshot,
@@ -365,6 +411,8 @@ func (r *Runtime) runChildAgent(
 		r.hookCommandTimeout,
 		r.maxHookCommandOutput,
 		r.eventBus,
+		nil,
+		modelTokenCounter(deps.model),
 	)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create child tool hooks")
@@ -420,6 +468,27 @@ func (r *Runtime) runChildAgent(
 	return response, nil
 }
 
+func (r *Runtime) agentToolSet(
+	deps *launchAgentDeps,
+	onPostRun elelem.MessageInjector,
+	allowedTools []string,
+) (*elelem.ToolSet, error) {
+	toolSet := hostToolSet(
+		deps.executor,
+		onPostRun,
+		deps.snapshot,
+		r.metrics,
+	)
+	toolSet.Add(instrumentTool(launchAgentTool(deps, onPostRun), r.metrics))
+
+	restricted, err := restrictToolSet(toolSet, allowedTools)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "restrict agent tools")
+	}
+
+	return restricted, nil
+}
+
 // finishAgentRun records the run's terminal state and shapes the tool
 // result the parent sees.
 //
@@ -441,6 +510,13 @@ func (r *Runtime) finishAgentRun(
 	}
 
 	registry.Finish(parentCtx, run, AgentRunStateCompleted)
+	ctxscope.GetLogger(parentCtx).Info(
+		"child agent completed",
+		"agent_run_id", run.ID.String(),
+		"agent_name", run.Name,
+		"response_bytes", len(response.Text),
+		"response_sha256", hash(response.Text),
+	)
 
 	return launchAgentOutput{
 		AgentRunID: run.ID,
@@ -458,11 +534,22 @@ func (r *Runtime) finishFailedAgentRun(
 ) (launchAgentOutput, error) {
 	if !errors.Is(runErr, context.Canceled) {
 		registry.Finish(parentCtx, run, AgentRunStateFailed)
+		ctxscope.GetLogger(parentCtx).Warn(
+			"child agent failed",
+			"agent_run_id", run.ID.String(),
+			"agent_name", run.Name,
+			"err", runErr,
+		)
 
 		return launchAgentOutput{}, ctxerrors.Wrap(runErr, "run child agent")
 	}
 
 	registry.Finish(parentCtx, run, AgentRunStateCancelled)
+	ctxscope.GetLogger(parentCtx).Info(
+		"child agent cancelled",
+		"agent_run_id", run.ID.String(),
+		"agent_name", run.Name,
+	)
 
 	if parentCtx.Err() != nil {
 		return launchAgentOutput{}, ctxerrors.Wrap(runErr, "run child agent")

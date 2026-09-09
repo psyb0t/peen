@@ -33,7 +33,8 @@ point this at anything you care about.
 ## Quick start
 
 Requires Docker (the `make` targets build and test through Docker images) and
-an OpenAI-compatible or Anthropic-compatible upstream to point at.
+an OpenAI-compatible, Anthropic-compatible, or Z.ai Coding upstream to point
+at.
 
 ```bash
 cp .env.example .env
@@ -70,22 +71,37 @@ source-build paths.
 Other useful targets: `make test-unit`, `make test-integration`, `make
 test-api` (containerized, exercises the real HTTP stack against a scripted
 provider), `make test-execution-forms` (source and local-install process
-contracts), `make test-real` (opt-in, contacts your real `PEEN_UPSTREAMS`),
-and `make lint`. Run `make help` for the complete list.
+contracts), `make test-real` (runs a paid, isolated end-to-end coding fixture
+against `zai/glm-5.3` by default), and `make lint`. Run `make help` for the
+complete list.
+
+`make test-real` starts the actual Peen binary inside its own Docker container,
+with no Docker socket, a disposable layered workspace, a private SQLite state,
+and a per-run API token. The live model must load a skill, launch a read-only
+child agent, read and patch a small Go project, run its test, trigger hooks and
+events, and satisfy durable transcript, audit-log, and outbound-context checks.
+The forwarding check keeps only in-memory marker matches, so it never writes
+prompts or credentials to logs. Set `PEEN_TEST_DEFAULT_MODEL` to run this
+scenario against another configured `provider/model` without changing the
+live-test default or deployment default.
 
 ## Provider configuration
 
 `PEEN_UPSTREAMS` is a JSON array of named providers:
 
 ```json
-[{"name":"aigate","provider":"openai","baseUrl":"http://aigate:4000","apiKeyEnv":"AIGATE_TOKEN"}]
+[
+  {"name":"aigate","provider":"openai","baseUrl":"https://aigate.example/v1","apiKeyEnv":"AIGATE_TOKEN"},
+  {"name":"zai","provider":"zai-coding","baseUrl":"https://api.z.ai/api/coding/paas/v4","apiKeyEnv":"ZAI_TOKEN"}
+]
 ```
 
-Each entry has a unique `name`, a `provider` type (`openai` or `anthropic`),
-an optional `baseUrl`, and an optional `apiKeyEnv`. `apiKeyEnv` names an
-environment variable read at startup, so the credential never appears in
-`PEEN_UPSTREAMS` itself, in a config dump, or in a log line, and it can be
-rotated without touching the upstream list.
+Each entry has a unique `name`, a `provider` type (`openai`, `anthropic`, or
+`zai-coding`), an optional `baseUrl`, and an optional `apiKeyEnv`.
+`zai-coding` uses Z.ai's Coding endpoint and preserves its thinking state
+through tool rounds. `apiKeyEnv` names an environment variable read at startup,
+so the credential never appears in `PEEN_UPSTREAMS` itself, in a config dump,
+or in a log line, and it can be rotated without touching the upstream list.
 
 A model is addressed as `<upstream-name>/<model-id>`, split on only the first
 slash, so a provider's own model ID can itself contain slashes. Peen never
@@ -101,6 +117,10 @@ and only that one upstream stays unavailable.
 overrides the default for that one call. It must already be a discovered
 `provider/model` reference; it is not sticky and does not change what later
 messages in the same session use.
+
+For Z.ai Coding, use `zai/glm-5.3` for the main coding turn and
+`zai/glm-5.3-flash` for lightweight work. Peen does not infer task difficulty;
+the caller selects the model for each turn.
 
 The full list of tunables (context, tool, and event limits) is in
 `.env.example` and [docs/peen/configuration.md](docs/peen/configuration.md).
@@ -121,6 +141,7 @@ state:
     agents/<agent-name>.md
     events/<event-type>.md
     hooks.yaml
+  hook-state/<session-id>/
   peen.db
 ```
 
@@ -141,11 +162,14 @@ the same name replaces its embedded version.
   `use_skill` when the model needs it. A same-named later layer replaces an
   earlier skill.
 - `.agents/agents/<name>.md`: a named child agent `launch_agent` can run by
-  name.
+  name. Its optional `allowed-tools` frontmatter is an enforced comma-separated
+  tool allowlist.
 - `.agents/events/<type>.md`: a handler for one session event type.
 - `.agents/hooks.yaml`: ordered lifecycle actions that can deny an operation,
   run a direct executable, add model context, or publish a session event. See
   [docs/peen/hooks.md](docs/peen/hooks.md).
+- `hook-state/<session-id>/`: private persistent state for command hooks in
+  that session. Peen creates the directory tree with mode `0700`.
 - `peen.db`: the SQLite database. Peen creates `PEEN_CONFIG_DIR` itself
   (mode `0700`) if it does not exist yet, and the database file at `0600`. It
   refuses a symlinked config directory or database path.
@@ -203,6 +227,19 @@ Prometheus metrics are available at `GET /metrics` only through the separate
 `127.0.0.1:9090`. This listener is loopback-only, unauthenticated, and never
 shares the public API surface. A scraper must run in Peen's network namespace.
 See [the configuration reference](docs/peen/configuration.md#metrics).
+
+## Logging
+
+`LOG_LEVEL` controls the structured records Peen writes to stdout. The audit
+sink retains debug-and-above records in
+`PEEN_CONFIG_DIR/logs/YYYYMMDD-000000.log` by default, using UTC and keeping
+14 daily files. Set `PEEN_LOG_DIRECTORY` to override it. Correlated audit
+records show the resolved harness manifest, skill and hook activity,
+child-agent lifecycle, and tool outcomes. They contain identifiers, sizes, and
+SHA-256 digests, not raw prompts or tool output. Session storage and
+child-agent JSONL transcripts hold the sensitive verbatim trace for authorized
+debugging. ORM SQL statement previews are deliberately disabled because
+expanded statements can contain persisted sensitive content.
 
 ## Workspaces
 

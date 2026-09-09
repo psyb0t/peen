@@ -8,13 +8,17 @@ import (
 )
 
 const (
-	skillCatalogueEmpty = "No skills are available."
-	skillCatalogueTitle = "Available skills:\n"
-	skillCatalogueItem  = "- "
-	skillCatalogueIn    = " ("
-	skillCatalogueEnd   = ")\n"
+	skillCatalogueEmpty      = "No skills are available."
+	skillCatalogueTitle      = "Available skills:\n"
+	skillCatalogueItem       = "- "
+	skillCatalogueIn         = " ("
+	skillCatalogueEnd        = ")\n"
+	agentCatalogueEmpty      = "No named agents are available."
+	agentCatalogueTitle      = "Available named agents:\n"
+	agentCatalogueToolsLabel = "allowed tools: "
+	agentCatalogueSource     = "source: "
 
-	promptBlockExtraCapacity = 2
+	promptBlockExtraCapacity = 3
 )
 
 // SourceKind identifies one type of discovered harness file.
@@ -43,7 +47,10 @@ type Skill struct {
 	Source        string
 	Directory     string
 	Hash          string
-	Metadata      map[string]string
+	Metadata      map[string]any
+	Homepage      string
+	Permissions   map[string]any
+	UserInvocable bool
 	License       string
 	Compatibility string
 	AllowedTools  string
@@ -55,6 +62,7 @@ type Agent struct {
 	Description  string
 	Source       string
 	Instructions string
+	AllowedTools []string
 	Hash         string
 }
 
@@ -78,6 +86,8 @@ const (
 	HookEventTurnStart       HookEvent = "turn_start"
 	HookEventTurnStop        HookEvent = "turn_stop"
 	HookEventTurnCancelled   HookEvent = "turn_cancelled"
+	HookEventPreCompact      HookEvent = "pre_compact"
+	HookEventPostCompact     HookEvent = "post_compact"
 	HookEventPreToolUse      HookEvent = "pre_tool_use"
 	HookEventPostToolUse     HookEvent = "post_tool_use"
 	HookEventToolUseFailure  HookEvent = "tool_use_failure"
@@ -157,6 +167,7 @@ type HookMatch struct {
 //
 //nolint:tagalign // Preserve the YAML-first tag convention.
 type HookAction struct {
+	Name        string            `yaml:"name" json:"name,omitempty"`
 	Type        HookActionType    `yaml:"type" json:"type"`
 	When        HookMatch         `yaml:"when" json:"when,omitzero"`
 	Command     string            `yaml:"command" json:"command,omitempty"`
@@ -180,6 +191,7 @@ type HookAction struct {
 // Hook is one ordered matcher group from a layered hooks.yaml document.
 // ConfigLayer is true only for PEEN_CONFIG_DIR's hook document.
 type Hook struct {
+	Name        string       `json:"name"`
 	Event       HookEvent    `json:"event"`
 	Match       HookMatch    `json:"match,omitzero"`
 	Actions     []HookAction `json:"actions"`
@@ -325,7 +337,7 @@ func (s Snapshot) PromptBlocks(rootAgent string) ([]PromptBlock, error) {
 		})
 	}
 
-	blocks = append(blocks, s.skillCatalogueBlock())
+	blocks = append(blocks, s.skillCatalogueBlock(), s.agentCatalogueBlock())
 
 	return blocks, nil
 }
@@ -335,6 +347,17 @@ func (s Snapshot) skillCatalogueBlock() PromptBlock {
 
 	return PromptBlock{
 		Kind:    SourceKindSkill,
+		Name:    "catalogue",
+		Content: content,
+		Hash:    hashString(content),
+	}
+}
+
+func (s Snapshot) agentCatalogueBlock() PromptBlock {
+	content := renderAgentCatalogue(s.agents)
+
+	return PromptBlock{
+		Kind:    SourceKindAgent,
 		Name:    "catalogue",
 		Content: content,
 		Hash:    hashString(content),
@@ -355,13 +378,30 @@ func cloneSkills(skills []Skill) []Skill {
 }
 
 func cloneSkill(skill Skill) Skill {
-	skill.Metadata = maps.Clone(skill.Metadata)
+	skill.Metadata = cloneSkillData(skill.Metadata)
+	skill.Permissions = cloneSkillData(skill.Permissions)
 
 	return skill
 }
 
+func cloneSkillData(data map[string]any) map[string]any {
+	if len(data) == 0 {
+		return map[string]any{}
+	}
+
+	return cloneHookData(data)
+}
+
 func cloneAgents(agents []Agent) []Agent {
-	return append([]Agent(nil), agents...)
+	cloned := append([]Agent(nil), agents...)
+	for index := range cloned {
+		cloned[index].AllowedTools = append(
+			[]string(nil),
+			agents[index].AllowedTools...,
+		)
+	}
+
+	return cloned
 }
 
 func cloneEventHandlers(handlers []EventHandler) []EventHandler {
@@ -469,6 +509,36 @@ func renderSkillCatalogue(skills []Skill) string {
 		builder.WriteString(skill.Description)
 		builder.WriteString(skillCatalogueIn)
 		builder.WriteString(skill.Source)
+		builder.WriteString(skillCatalogueEnd)
+	}
+
+	return builder.String()
+}
+
+func renderAgentCatalogue(agents []Agent) string {
+	if len(agents) == 0 {
+		return agentCatalogueEmpty
+	}
+
+	cloned := cloneAgents(agents)
+	sort.Slice(cloned, func(left, right int) bool {
+		return cloned[left].Name < cloned[right].Name
+	})
+
+	var builder strings.Builder
+	builder.WriteString(agentCatalogueTitle)
+
+	for _, agent := range cloned {
+		builder.WriteString(skillCatalogueItem)
+		builder.WriteString(agent.Name)
+		builder.WriteString(": ")
+		builder.WriteString(agent.Description)
+		builder.WriteString(skillCatalogueIn)
+		builder.WriteString(agentCatalogueToolsLabel)
+		builder.WriteString(strings.Join(agent.AllowedTools, ", "))
+		builder.WriteString("; ")
+		builder.WriteString(agentCatalogueSource)
+		builder.WriteString(agent.Source)
 		builder.WriteString(skillCatalogueEnd)
 	}
 
