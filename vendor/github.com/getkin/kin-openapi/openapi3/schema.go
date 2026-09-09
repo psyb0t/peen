@@ -2663,7 +2663,7 @@ func (schema *Schema) visitJSONString(settings *schemaValidationSettings, value 
 				me = append(me, err)
 			}
 		}
-		if !cp.MatchString(value) {
+		if cp != nil && !cp.MatchString(value) {
 			err := &SchemaError{
 				Value:                 value,
 				Schema:                schema,
@@ -3185,10 +3185,4 @@ func deepCopyJSONValue(v any) any {
 	default:
 		return v // string, float64, bool, nil — all immutable
 	}
-}
-
-// UnmarshalJSON sets Schemas to a copy of data.
-func (schemas *Schemas) UnmarshalJSON(data []byte) (err error) {
-	*schemas, err = unmarshalStringMapP[SchemaRef](data)
-	return
 }

@@ -3,7 +3,7 @@ module github.com/psyb0t/peen
 go 1.26.6
 
 require (
-	github.com/getkin/kin-openapi v0.142.0
+	github.com/getkin/kin-openapi v0.147.0
 	github.com/glebarez/sqlite v1.11.1-0.20260802112547-caa6e2bf4e27
 	github.com/google/uuid v1.6.0
 	github.com/labstack/echo/v4 v4.15.1
