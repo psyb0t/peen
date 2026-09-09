@@ -23,7 +23,7 @@ const (
 	runtimeToolFinalText = "read it"
 
 	runtimeToolSecretFileName = "secret.txt"
-	runtimeToolSecretBody     = "sk-test-distinctive-secret-marker-9f3c2b"
+	runtimeToolSecretBody     = "test-private-content-redaction-marker"
 )
 
 func runtimeToolArguments(t *testing.T, path string) string {
