@@ -341,7 +341,7 @@ github.com/fsnotify/fsnotify/internal
 # github.com/fzipp/gocyclo v0.6.0
 ## explicit; go 1.18
 github.com/fzipp/gocyclo
-# github.com/getkin/kin-openapi v0.142.0
+# github.com/getkin/kin-openapi v0.144.0
 ## explicit; go 1.25
 github.com/getkin/kin-openapi/openapi3
 github.com/getkin/kin-openapi/openapi3filter
