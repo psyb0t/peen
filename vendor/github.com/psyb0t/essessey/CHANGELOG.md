@@ -4,6 +4,15 @@ All notable changes per release. Versions follow [semver](https://semver.org)
 pre-1.0 conventions: minor bumps may include breaking API changes (called out
 explicitly), patch bumps are docs / build / fixes only.
 
+## v0.7.5 — 2026-09-09
+
+Bug fix. No breaking API change.
+
+- `Reassemble` now retains streamed `thinking` blocks and their deltas in
+  `ParsedStream.Thinking`, instead of dropping them as unknown content.
+- The reassembly timeline now emits `TimelineKindThinking`, preserving the
+  order of reasoning, text, and completed tool executions.
+
 ## v0.7.4 — 2026-08-22
 
 CI change. No API change.

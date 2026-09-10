@@ -23,8 +23,8 @@
 // event plus SendStreamPreamble/SendStreamEpilogue for the open/close pair.
 // TextStreamer and LineStreamer accumulate a chunk-at-a-time answer into
 // correctly-indexed content blocks. Reassemble drains a Source back into a
-// ParsedStream — text, tool calls matched to their results, and an ordered
-// timeline.
+// ParsedStream with reasoning, text, tool calls matched to their results, and
+// an ordered timeline.
 //
 // Blocks open LAZILY, on first content, and the index advances only when a
 // block that actually opened is closed. A round producing no text of a given

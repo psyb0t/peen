@@ -129,13 +129,16 @@ src := sse.NewSource(resp.Body) // or nats/ws Source, or SliceSource in a test
 parsed := essessey.Reassemble(ctx, src)
 
 fmt.Println(parsed.Text)       // every text delta, concatenated
+fmt.Println(parsed.Thinking)   // every reasoning delta, concatenated
 fmt.Println(parsed.ToolNames)  // tools the model called
-fmt.Println(parsed.Timeline)   // text and tool activity, in the order it happened
+fmt.Println(parsed.Timeline)   // reasoning, text, and tool activity in order
 ```
 
 `ParsedStream` also carries `Tools` (each call matched to its result by content
 block index — the bookkeeping this package exists to do for you), `Executions`,
-`StreamID`, and `Error` if the stream carried one.
+`StreamID`, and `Error` if the stream carried one. Separate thinking blocks
+remain separate timeline entries, while `Thinking` holds their concatenated
+content.
 
 If you do want the raw events, a `Source` is just an iterator:
 
@@ -214,7 +217,7 @@ to do.
 
 | Package | Responsibility |
 |---|---|
-| **Core** (this package) | `Event`, the `Sink`/`Source` interfaces, `Publisher` (one `Send*` method per protocol event, plus `SendStreamPreamble`/`SendStreamEpilogue` for the open/close pair), `TextStreamer`/`LineStreamer` for turning a chunk-at-a-time answer into correctly-indexed content blocks, and `Reassemble`, which drains a `Source` back into a `ParsedStream` — accumulated text, tool calls matched to their results by content-block index, and an ordered timeline of both. |
+| **Core** (this package) | `Event`, the `Sink`/`Source` interfaces, `Publisher` (one `Send*` method per protocol event, plus `SendStreamPreamble`/`SendStreamEpilogue` for the open/close pair), `TextStreamer`/`LineStreamer` for turning a chunk-at-a-time answer into correctly-indexed content blocks, and `Reassemble`, which drains a `Source` back into a `ParsedStream` with accumulated reasoning and text, tool calls matched to their results by content-block index, and an ordered timeline. |
 | **[sse](sse/README.md)** | The SSE format itself: `FrameLines` renders the wire bytes, `WriterSink`/`HTTPSink` write framed events to an `io.Writer` or a flushing `http.ResponseWriter`, and `Source` scans them back off an `io.Reader` — a malformed frame gets warn-logged and skipped instead of nuking the whole stream. |
 | **[nats](nats/README.md)** | A `Sink` that publishes `Event.Data` unframed to `subjectPrefix.<eventType>`, and a `Source` whose `Deliver` method you wire in as a subscription callback. |
 | **[ws](ws/README.md)** | A `Sink` that writes the whole `Event` as one `WriteJSON` call, and a `Source` whose `Deliver` method you wire into a read loop. |

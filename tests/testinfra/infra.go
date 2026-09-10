@@ -85,11 +85,12 @@ exec /app/app run`
 	// production container for API integration tests.
 	TestAPIToken = "EXAMPLE-DO-NOT-USE"
 
-	// providerRoleSystem and providerRoleTool are the transcript roles the
-	// OpenAI wire format uses for system instructions and tool results.
+	// providerRoleSystem, providerRoleAssistant, and providerRoleTool are the
+	// transcript roles the OpenAI wire format uses for fixture messages.
 	// A scripted turn counts tool results to select its current round.
-	providerRoleSystem = "system"
-	providerRoleTool   = "tool"
+	providerRoleSystem    = "system"
+	providerRoleAssistant = "assistant"
+	providerRoleTool      = "tool"
 
 	// These names match internal/pkg/agent/tools.go's registrations.
 	scriptedToolNameReadFile   = "read_file"
@@ -111,7 +112,9 @@ exec /app/app run`
 	scriptedRoundRunCommand = 2
 
 	openAIToolCallType          = "function"
+	openAIDeltaFieldRole        = "role"
 	openAIDeltaFieldToolCalls   = "tool_calls"
+	openAIDeltaReasoningContent = "reasoning_content"
 	openAIFinishReasonStop      = "stop"
 	openAIFinishReasonToolCalls = "tool_calls"
 	openAIFieldIndex            = "index"
@@ -122,6 +125,10 @@ exec /app/app run`
 	// so a test can seed and read back fixture files under the container's
 	// default tool workspace without duplicating the path.
 	ContainerWorkingDirectory = appWorkingDirectory
+
+	// DefaultProviderReasoning is the visible reasoning emitted by ordinary
+	// provider completions in API integration tests.
+	DefaultProviderReasoning = "integration reasoning"
 )
 
 var errNoGoMod = errors.New("go.mod not found above the working directory")
@@ -946,7 +953,39 @@ func (m *openAIModelsMock) takeNextCompletionHold() *completionHold {
 func openAICompletionStream(sequence int64) ([]byte, error) {
 	text := providerResponsePrefix + strconv.FormatInt(sequence, 10)
 
-	return openAITextCompletionStream(text)
+	return openAIReasoningCompletionStream(DefaultProviderReasoning, text)
+}
+
+// openAIReasoningCompletionStream renders visible reasoning followed by text,
+// using OpenAI-compatible reasoning_content wire data.
+func openAIReasoningCompletionStream(
+	reasoning string,
+	text string,
+) ([]byte, error) {
+	chunks := []map[string]any{
+		openAIChunkEnvelope(map[string]any{
+			openAIFieldIndex: 0,
+			openAIFieldDelta: map[string]any{
+				openAIDeltaFieldRole:        providerRoleAssistant,
+				openAIDeltaReasoningContent: reasoning,
+			},
+			openAIFieldFinishReason: nil,
+		}),
+		openAIChunkEnvelope(map[string]any{
+			openAIFieldIndex: 0,
+			openAIFieldDelta: map[string]any{
+				"content": text,
+			},
+			openAIFieldFinishReason: nil,
+		}),
+		openAIChunkEnvelope(map[string]any{
+			openAIFieldIndex:        0,
+			openAIFieldDelta:        map[string]any{},
+			openAIFieldFinishReason: openAIFinishReasonStop,
+		}),
+	}
+
+	return encodeOpenAIStream(chunks)
 }
 
 // openAITextCompletionStream renders a plain two-chunk assistant text
@@ -957,8 +996,8 @@ func openAITextCompletionStream(text string) ([]byte, error) {
 		openAIChunkEnvelope(map[string]any{
 			openAIFieldIndex: 0,
 			openAIFieldDelta: map[string]any{
-				"role":    "assistant",
-				"content": text,
+				openAIDeltaFieldRole: providerRoleAssistant,
+				"content":            text,
 			},
 			openAIFieldFinishReason: nil,
 		}),
@@ -994,7 +1033,7 @@ func openAIToolCallStream(
 		openAIChunkEnvelope(map[string]any{
 			openAIFieldIndex: 0,
 			openAIFieldDelta: map[string]any{
-				"role": "assistant",
+				openAIDeltaFieldRole: providerRoleAssistant,
 				openAIDeltaFieldToolCalls: []map[string]any{{
 					openAIFieldIndex: 0,
 					"id":             callID,

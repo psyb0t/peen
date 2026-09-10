@@ -189,16 +189,18 @@ type ContentBlockDeltaToolResultData struct {
 	Delta ToolResultDelta `json:"delta"`
 }
 
-// TimelineItemKind marks whether a timeline entry is text or a tool execution.
+// TimelineItemKind marks whether a timeline entry is reasoning, text, or a
+// tool execution.
 type TimelineItemKind = string
 
 const (
-	TimelineKindText TimelineItemKind = "text"
-	TimelineKindTool TimelineItemKind = "tool"
+	TimelineKindThinking TimelineItemKind = "thinking"
+	TimelineKindText     TimelineItemKind = "text"
+	TimelineKindTool     TimelineItemKind = "tool"
 )
 
-// TimelineItem is one ordered entry produced by reassembly: a text segment OR
-// a completed tool execution (call + result pair).
+// TimelineItem is one ordered entry produced by reassembly: a reasoning or
+// text segment, or a completed tool execution (call + result pair).
 type TimelineItem struct {
 	Kind      TimelineItemKind `json:"kind"`
 	Text      string           `json:"text,omitempty"`

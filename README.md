@@ -72,7 +72,7 @@ Other useful targets: `make test-unit`, `make test-integration`, `make
 test-api` (containerized, exercises the real HTTP stack against a scripted
 provider), `make test-execution-forms` (source and local-install process
 contracts), `make test-real` (runs a paid, isolated end-to-end coding fixture
-against `zai/glm-5.3` by default), and `make lint`. Run `make help` for the
+against `zai/glm-5.3-flash` by default), and `make lint`. Run `make help` for the
 complete list.
 
 `make test-real` starts the actual Peen binary inside its own Docker container,

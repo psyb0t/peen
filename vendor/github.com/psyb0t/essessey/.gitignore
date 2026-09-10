@@ -1,5 +1,7 @@
 .vscode
 .env
+AGENTS.md
+.testing/
 # Root-anchored so it hides the generated coverage.txt/out but NOT the tracked
 # scripts/test-coverage.sh helper.
 /coverage.*

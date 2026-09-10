@@ -13,6 +13,7 @@ import (
 // ParsedStream is the structured reconstruction of a full streamed turn.
 type ParsedStream struct {
 	StreamID   string
+	Thinking   string
 	Text       string
 	ToolNames  []string
 	Tools      []ToolCall
@@ -22,8 +23,8 @@ type ParsedStream struct {
 }
 
 // Reassemble drains src and reconstructs a full streamed turn: accumulated
-// text, tool_use blocks matched against their tool_result blocks by
-// content-block index, and the ordered timeline of both.
+// reasoning, text, tool_use blocks matched against their tool_result blocks by
+// content-block index, and an ordered timeline of all three.
 //
 // A malformed individual event is warn-logged and dropped rather than
 // aborting reassembly — a single corrupted event degrades the result, not
@@ -33,9 +34,10 @@ type ParsedStream struct {
 // still returning whatever was accumulated so far.
 func Reassemble(ctx context.Context, src Source) ParsedStream {
 	r := &reassembler{
-		tools:     map[int]*inflightTool{},
-		results:   map[int]*inflightResult{},
-		textIndex: -1,
+		tools:         map[int]*inflightTool{},
+		results:       map[int]*inflightResult{},
+		thinkingIndex: -1,
+		textIndex:     -1,
 	}
 
 	return r.reassemble(ctx, src)
@@ -60,14 +62,19 @@ type reassembler struct {
 	curTextParts []string
 	allTextParts []string
 
+	curThinkingParts []string
+	allThinkingParts []string
+
 	// Parallel tools: N starts back-to-back, then N delta+stop pairs,
 	// keyed by content-block index so each delta/stop routes to the
 	// right block.
 	tools   map[int]*inflightTool
 	results map[int]*inflightResult
 
-	// textIndex is the index of the currently-open text block, or -1.
-	textIndex int
+	// thinkingIndex and textIndex are the currently open reasoning and text
+	// blocks, or -1 when that type has no open block.
+	thinkingIndex int
+	textIndex     int
 }
 
 func (r *reassembler) reassemble(
@@ -95,8 +102,7 @@ func (r *reassembler) reassemble(
 		}
 	}
 
-	r.flushAll(ctx)
-	r.result.Text = strings.Join(r.allTextParts, "")
+	r.finalize(ctx)
 
 	return r.result
 }
@@ -116,8 +122,7 @@ func (r *reassembler) handleEvent(
 	case EventTypeContentBlockStop:
 		r.onContentBlockStop(ctx, data)
 	case EventTypeMessageStop:
-		r.flushAll(ctx)
-		r.result.Text = strings.Join(r.allTextParts, "")
+		r.finalize(ctx)
 	}
 }
 
@@ -162,7 +167,8 @@ func (r *reassembler) onContentBlockStart(
 	var toolUse ContentBlockStartToolUseData
 	if json.Unmarshal(data, &toolUse) == nil &&
 		toolUse.ContentBlock.Type == ContentBlockTypeToolUse {
-		r.flushTextSegment()
+		r.closeTextBlock()
+		r.closeThinkingBlock()
 		r.result.ToolNames = append(
 			r.result.ToolNames,
 			toolUse.ContentBlock.Name,
@@ -178,7 +184,8 @@ func (r *reassembler) onContentBlockStart(
 	var toolResult ContentBlockStartToolResultData
 	if json.Unmarshal(data, &toolResult) == nil &&
 		toolResult.ContentBlock.Type == ContentBlockTypeToolResult {
-		r.flushTextSegment()
+		r.closeTextBlock()
+		r.closeThinkingBlock()
 		r.results[toolResult.Index] = &inflightResult{
 			toolUseID: toolResult.ContentBlock.ToolUseID,
 		}
@@ -186,12 +193,13 @@ func (r *reassembler) onContentBlockStart(
 		return
 	}
 
-	r.startTextOrUnknown(ctx, data, meta.Index)
+	r.startTextThinkingOrUnknown(ctx, data, meta.Index)
 }
 
-// startTextOrUnknown routes a non-tool content_block_start to the text
-// channel (recording its index) or drops it as unknown.
-func (r *reassembler) startTextOrUnknown(
+// startTextThinkingOrUnknown routes a non-tool content_block_start to the
+// matching text or reasoning channel, recording its index, or drops it as
+// unknown.
+func (r *reassembler) startTextThinkingOrUnknown(
 	ctx context.Context,
 	data json.RawMessage,
 	index int,
@@ -214,7 +222,13 @@ func (r *reassembler) startTextOrUnknown(
 
 	switch generic.ContentBlock.Type {
 	case ContentBlockTypeText, "":
+		r.closeThinkingBlock()
+		r.closeTextBlock()
 		r.textIndex = index
+	case ContentBlockTypeThinking:
+		r.closeTextBlock()
+		r.closeThinkingBlock()
+		r.thinkingIndex = index
 	default:
 		ctxscope.GetLogger(ctx).Warn(
 			"reassemble: unknown content_block type, dropping event",
@@ -233,9 +247,7 @@ func (r *reassembler) onContentBlockDelta(
 
 	var textDelta ContentBlockDeltaData
 	if json.Unmarshal(data, &textDelta) == nil &&
-		textDelta.Delta.Type == ContentBlockTypeTextDelta {
-		r.curTextParts = append(r.curTextParts, textDelta.Delta.Text)
-
+		r.handleTextOrThinkingDelta(ctx, textDelta) {
 		return
 	}
 
@@ -281,6 +293,47 @@ func (r *reassembler) onContentBlockDelta(
 	)
 }
 
+func (r *reassembler) handleTextOrThinkingDelta(
+	ctx context.Context,
+	delta ContentBlockDeltaData,
+) bool {
+	switch delta.Delta.Type {
+	case ContentBlockTypeTextDelta:
+		r.handleTextDelta(delta)
+
+		return true
+	case ContentBlockTypeThinkingDelta:
+		r.handleThinkingDelta(ctx, delta)
+
+		return true
+	default:
+		return false
+	}
+}
+
+func (r *reassembler) handleTextDelta(
+	delta ContentBlockDeltaData,
+) {
+	r.curTextParts = append(r.curTextParts, delta.Delta.Text)
+}
+
+func (r *reassembler) handleThinkingDelta(
+	ctx context.Context,
+	delta ContentBlockDeltaData,
+) {
+	if delta.Index == r.thinkingIndex {
+		r.curThinkingParts = append(r.curThinkingParts, delta.Delta.Text)
+
+		return
+	}
+
+	ctxscope.GetLogger(ctx).Warn(
+		"reassemble: thinking delta has no in-flight thinking block",
+		"index", delta.Index,
+		"reason", "orphan_delta",
+	)
+}
+
 func (r *reassembler) onContentBlockStop(
 	ctx context.Context,
 	data json.RawMessage,
@@ -311,8 +364,13 @@ func (r *reassembler) onContentBlockStop(
 	}
 
 	if stop.Index == r.textIndex {
-		r.flushTextSegment()
-		r.textIndex = -1
+		r.closeTextBlock()
+
+		return
+	}
+
+	if stop.Index == r.thinkingIndex {
+		r.closeThinkingBlock()
 
 		return
 	}
@@ -327,7 +385,8 @@ func (r *reassembler) onContentBlockStop(
 // flushAll finalizes any blocks that never received a content_block_stop
 // (truncated stream).
 func (r *reassembler) flushAll(ctx context.Context) {
-	r.flushTextSegment()
+	r.closeTextBlock()
+	r.closeThinkingBlock()
 
 	for idx, t := range r.tools {
 		r.finalizeTool(t)
@@ -338,6 +397,22 @@ func (r *reassembler) flushAll(ctx context.Context) {
 		r.finalizeResult(ctx, res)
 		delete(r.results, idx)
 	}
+}
+
+func (r *reassembler) finalize(ctx context.Context) {
+	r.flushAll(ctx)
+	r.result.Thinking = strings.Join(r.allThinkingParts, "")
+	r.result.Text = strings.Join(r.allTextParts, "")
+}
+
+func (r *reassembler) closeTextBlock() {
+	r.flushTextSegment()
+	r.textIndex = -1
+}
+
+func (r *reassembler) closeThinkingBlock() {
+	r.flushThinkingSegment()
+	r.thinkingIndex = -1
 }
 
 func (r *reassembler) flushTextSegment() {
@@ -356,6 +431,25 @@ func (r *reassembler) flushTextSegment() {
 	r.result.Timeline = append(r.result.Timeline, TimelineItem{
 		Kind: TimelineKindText,
 		Text: text,
+	})
+}
+
+func (r *reassembler) flushThinkingSegment() {
+	if len(r.curThinkingParts) == 0 {
+		return
+	}
+
+	thinking := strings.Join(r.curThinkingParts, "")
+	r.curThinkingParts = nil
+
+	if thinking == "" {
+		return
+	}
+
+	r.allThinkingParts = append(r.allThinkingParts, thinking)
+	r.result.Timeline = append(r.result.Timeline, TimelineItem{
+		Kind: TimelineKindThinking,
+		Text: thinking,
 	})
 }
 

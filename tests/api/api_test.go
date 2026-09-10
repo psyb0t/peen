@@ -239,11 +239,25 @@ func TestAPIStreamsAndPersistsTurn(t *testing.T) {
 			essessey.EventTypeContentBlockStart,
 			essessey.EventTypeContentBlockDelta,
 			essessey.EventTypeContentBlockStop,
+			essessey.EventTypeContentBlockStart,
+			essessey.EventTypeContentBlockDelta,
+			essessey.EventTypeContentBlockStop,
 			essessey.EventTypeMessageDelta,
 			essessey.EventTypeMessageStop,
 		},
 		streamEventTypes(events),
 	)
+
+	parsed := essessey.Reassemble(
+		t.Context(),
+		essessey.NewSliceSource(events),
+	)
+	require.Empty(t, parsed.Error)
+	assert.Equal(t, testinfra.DefaultProviderReasoning, parsed.Thinking)
+	require.Len(t, parsed.Timeline, 2)
+	assert.Equal(t, essessey.TimelineKindThinking, parsed.Timeline[0].Kind)
+	assert.Equal(t, testinfra.DefaultProviderReasoning, parsed.Timeline[0].Text)
+	assert.Equal(t, essessey.TimelineKindText, parsed.Timeline[1].Kind)
 
 	page := listMessages(t, sessionID, 10, 0, "asc")
 	require.Len(t, page.Items, 2)
@@ -252,6 +266,8 @@ func TestAPIStreamsAndPersistsTurn(t *testing.T) {
 		t,
 		strings.HasPrefix(page.Items[1].Content, "integration completion "),
 	)
+	assert.Equal(t, page.Items[1].Content, parsed.Text)
+	assert.Equal(t, page.Items[1].Content, parsed.Timeline[1].Text)
 }
 
 func TestMetricsAreOnlyAvailableOnThePrivateListener(t *testing.T) {

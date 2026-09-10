@@ -1,8 +1,25 @@
 # Changelog
 
-All notable changes per release. Versions follow [semver](https://semver.org)
-pre-1.0 conventions: minor bumps may include breaking REST changes (called
-out explicitly), patch bumps are docs / build / fixes only.
+All notable Peen changes per release. Versions follow
+[semver](https://semver.org). Peen release history starts at v0.1.0. Entries
+below document the Servicepack baseline from which Peen was created.
+
+## v0.1.0 (2026-09-10)
+
+Initial release of Peen, a stateful coding-agent service.
+
+- Exposes durable agent turns, queued user messages, cancellation, job control,
+  child agents, and both JSON and Server-Sent Events over the HTTP API.
+- Resolves workspace instructions, Agent Skills, named agents, events, and
+  additive lifecycle hooks from the configuration and workspace layers.
+- Provides safe file tools that require a current-turn content read before a
+  mutation and publish new files without replacing existing paths.
+- Supports OpenAI-compatible, Anthropic-compatible, and Z.ai Coding providers,
+  including thinking streams across tool rounds.
+- Adds structured audit logs, a loopback metrics listener, built-in planning
+  and freshness skills, and live end-to-end harness coverage.
+- Updates runtime and test dependencies to patched releases, including Kin
+  OpenAPI, Echo, Moby archive, x/crypto, x/mod, Elelem, and Essesey.
 
 ## v1.9.2 (2026-08-21)
 
