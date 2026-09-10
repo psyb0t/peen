@@ -13,7 +13,7 @@ require (
 	github.com/prometheus/client_golang v1.12.1
 	github.com/prometheus/client_model v0.2.0
 	github.com/prometheus/common v0.32.1
-	github.com/psyb0t/aichteeteapee v1.10.0
+	github.com/psyb0t/aichteeteapee v1.13.1
 	github.com/psyb0t/commander v0.5.8
 	github.com/psyb0t/common-go v0.7.1
 	github.com/psyb0t/ctxerrors v0.7.1

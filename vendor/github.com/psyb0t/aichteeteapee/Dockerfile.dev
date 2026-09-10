@@ -1,0 +1,26 @@
+# Development image for all Makefile-driven Go checks.
+#
+# Pins the Go 1.26.6 toolchain and carries the linter and security scanners, so
+# `make lint`, `make test`, `make test-coverage` and `make sec` run identically
+# in a local shell and in CI (the pipeline runs every make target inside this
+# image, so there is no host toolchain to drift).
+FROM golang:1.26.6-alpine@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df
+
+RUN apk add --no-cache \
+		bash=5.3.9-r1 \
+		build-base=0.5-r4 \
+		ca-certificates=20260611-r0 \
+		git=2.54.0-r0 \
+		jq=1.8.1-r0 \
+		make=4.4.1-r4 \
+		python3=3.14.7-r1 \
+		py3-pip=26.1.2-r0
+
+# govulncheck (Go vulnerability scan) and semgrep (SAST) back `make sec`.
+# golangci-lint stays a `tool` directive in go.mod, built from vendor at runtime.
+RUN go install golang.org/x/vuln/cmd/govulncheck@v1.6.0
+RUN pip install --break-system-packages --no-cache-dir semgrep==1.173.0
+
+WORKDIR /work
+
+CMD ["bash"]
