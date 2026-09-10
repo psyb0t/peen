@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/aichteeteapee"
+	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/agent"
@@ -22,13 +23,11 @@ import (
 
 const testAPIToken = "test-api-token"
 
-func TestServerServeListenerRejectsNilListener(t *testing.T) {
+func TestServerBuildsItsSerbewrListener(t *testing.T) {
 	instance, err := New(Dependencies{Runtime: newTestRuntime(uuid.New())})
 	require.NoError(t, err)
 
-	err = instance.ServeListener(context.Background(), nil)
-
-	require.ErrorIs(t, err, commerr.ErrRequiredFieldNotSet)
+	assert.NotNil(t, instance.httpServer)
 }
 
 func TestServerRequestMiddleware(t *testing.T) {
@@ -165,7 +164,7 @@ func TestServerRequestMiddleware(t *testing.T) {
 			}
 			recorder := httptest.NewRecorder()
 
-			instance.echo.ServeHTTP(recorder, request)
+			instance.testHandler.ServeHTTP(recorder, request)
 
 			assert.Equal(t, tc.wantStatus, recorder.Code)
 			assert.Equal(t, tc.wantSendCalls, runtime.sendCalls)
@@ -447,7 +446,7 @@ func TestServerStreamMessagePreHeaderFailureUsesJSONEnvelope(t *testing.T) {
 			request.Header.Set(headerAccept, mediaTypeSSE)
 
 			recorder := httptest.NewRecorder()
-			instance.echo.ServeHTTP(recorder, request)
+			instance.testHandler.ServeHTTP(recorder, request)
 
 			assert.Equal(t, tc.wantStatus, recorder.Code)
 			assert.NotContains(
@@ -545,7 +544,7 @@ func TestServerSessionEndpoints(t *testing.T) {
 			request.Header.Set(headerSessionID, sessionID.String())
 			recorder := httptest.NewRecorder()
 
-			instance.echo.ServeHTTP(recorder, request)
+			instance.testHandler.ServeHTTP(recorder, request)
 
 			assert.Equal(t, tc.wantStatus, recorder.Code)
 			if tc.wantCode != "" {
@@ -573,7 +572,7 @@ func TestServerRejectsMalformedSessionIDHeader(t *testing.T) {
 	request.Header.Set(headerSessionID, "not-a-uuid")
 
 	recorder := httptest.NewRecorder()
-	instance.echo.ServeHTTP(recorder, request)
+	instance.testHandler.ServeHTTP(recorder, request)
 
 	assert.Equal(t, http.StatusBadRequest, recorder.Code)
 	assertErrorCode(t, recorder, ErrorCodeInvalidSessionID)
@@ -596,6 +595,7 @@ type testRuntime struct {
 	sendCalls    int
 	sendErr      error
 	sendQueued   bool
+	runEvent     agent.Event
 	streamErr    error
 	streamQueued bool
 	sessionErr   error
@@ -627,6 +627,22 @@ func (r *testRuntime) SendMessage(
 		SessionID: r.sessionID,
 		Queued:    r.sendQueued,
 	}, nil
+}
+
+func (r *testRuntime) RunMessage(
+	ctx context.Context,
+	request api.MessageRequest,
+	sessionID *uuid.UUID,
+	requestID uuid.UUID,
+	sink agent.EventSink,
+) (*agent.MessageRunResult, error) {
+	if sink != nil && r.runEvent.Type != "" {
+		if err := sink(r.runEvent); err != nil {
+			return nil, ctxerrors.Wrap(err, "send test agent event")
+		}
+	}
+
+	return r.SendMessage(ctx, request, sessionID, requestID)
 }
 
 func (r *testRuntime) StreamMessage(

@@ -38,7 +38,7 @@ func TestOperationalProbesAnswerWithoutCredentials(t *testing.T) {
 				nil,
 			)
 			recorder := httptest.NewRecorder()
-			instance.echo.ServeHTTP(recorder, request)
+			instance.testHandler.ServeHTTP(recorder, request)
 
 			require.Equal(t, http.StatusOK, recorder.Code)
 
@@ -67,7 +67,7 @@ func TestOperationalProbesBypassTheSpecValidator(t *testing.T) {
 		nil,
 	)
 	recorder := httptest.NewRecorder()
-	instance.echo.ServeHTTP(recorder, request)
+	instance.testHandler.ServeHTTP(recorder, request)
 
 	assert.Equal(t, http.StatusOK, recorder.Code)
 }
@@ -92,7 +92,7 @@ func TestSkipOperationalDoesNotWidenTheAgentAPI(t *testing.T) {
 	request.Header.Set(headerSessionID, sessionID.String())
 
 	recorder := httptest.NewRecorder()
-	instance.echo.ServeHTTP(recorder, request)
+	instance.testHandler.ServeHTTP(recorder, request)
 
 	assert.Equal(t, http.StatusUnauthorized, recorder.Code)
 	assertUnauthorizedEnvelope(t, recorder)

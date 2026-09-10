@@ -184,6 +184,7 @@ Every operation is under `/v1`. Full request and response shapes:
 | Method | Path | Purpose |
 | --- | --- | --- |
 | POST | `/v1/messages` | Run one agent turn, or queue a plain message for an active session. JSON or SSE, selected by `Accept`. |
+| GET | `/v1/ws?sessionId=<uuid>` | Open a synchronized WebSocket view of one existing session and send or receive agent events. |
 | GET | `/v1/messages` | List stored conversation messages, paginated. |
 | GET | `/v1/session` | Read session details. |
 | POST | `/v1/session/cancel` | Request cancellation of the active turn. |
@@ -205,7 +206,11 @@ orchestrator health-checking the service has no bearer token to present:
 | GET | `/ready` | Readiness. Same answer, and that is accurate: the database is opened, migrated, and integrity-checked before the listener exists, so a process that failed any of those has no listener to probe. |
 
 Every operation except `POST /v1/messages` requires the `X-Session-ID` header
-and never creates a session; an unknown session returns `404`.
+and never creates a session; an unknown session returns `404`. `GET /v1/ws`
+uses its required `sessionId` query parameter instead, because browser WebSocket
+clients cannot set `X-Session-ID`. It also never creates a session. Connections
+for the same session share one hub client, so every connected browser or client
+receives the same agent events. See [the WebSocket contract](docs/peen/http-api.md#get-v1wssessioniduuid).
 `POST /v1/messages` accepts an optional `X-Session-ID` to resume a session,
 or creates a new UUID session when it is missing. Every JSON or SSE response
 carries the resolved `X-Session-ID` and a generated `X-Request-ID`. Errors
@@ -217,6 +222,11 @@ use one `{code, message, details}` envelope.
 Set it to any non-empty value to require every request to carry
 `Authorization: Bearer <PEEN_API_TOKEN>`. The comparison is constant-time. A
 missing or wrong token returns `401`.
+
+Native browser WebSockets cannot set `Authorization`. For `GET /v1/ws`, they
+instead send `peen.v1` and `peen.bearer.<base64url-token>` as subprotocols; the
+server selects `peen.v1` and verifies the second value. Do not put the bearer
+token in a query parameter. Use `wss://` outside local development.
 
 `/healthz` and `/ready` are exempt. Everything under `/v1` is not.
 

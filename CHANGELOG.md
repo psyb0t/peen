@@ -4,6 +4,20 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.2.0 (2026-09-10)
+
+Adds a synchronized WebSocket session interface and moves the HTTP server to
+Serbewr.
+
+- Adds `GET /v1/ws?sessionId=<uuid>` for synchronized session clients. Browser
+  clients authenticate with a WebSocket subprotocol, and connections in the
+  same session receive the same agent events.
+- Replaces Echo with aichteeteapee Serbewr and WShub while retaining the
+  existing JSON, Server-Sent Events, session, event, job, and child-agent API
+  contracts.
+- Updates the API runtime and vendored dependencies, removing the unused Echo
+  stack.
+
 ## v0.1.0 (2026-09-10)
 
 Initial release of Peen, a stateful coding-agent service.

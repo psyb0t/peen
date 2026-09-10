@@ -100,6 +100,52 @@ operator's logs.
 `409` means the session already has a turn running, this turn was cancelled
 after it started running, or the active user-message queue is full.
 
+## GET /v1/ws?sessionId={uuid}
+
+Opens a WebSocket connection for one existing session. This endpoint is outside
+the OpenAPI document because WebSocket frames are not HTTP request and response
+bodies. `sessionId` is required and must name an existing session. The endpoint
+never creates a session. Its query value is an identifier, not an authentication
+credential, and request logging excludes query strings.
+
+Peen maps the validated session ID to WShub's logical client ID. Several socket
+connections for that session therefore share one client and each receives the
+same outgoing event. The server retains WShub's default origin policy: an
+`Origin` header must match the request host outside explicitly enabled local
+development mode.
+
+The only accepted client event is `message.send`. Its `data` is the same object
+accepted by `POST /v1/messages`:
+
+```json
+{"type": "message.send", "data": {"message": "inspect this project"}}
+```
+
+`workspace`, `model`, and `systemPrompt` retain their normal per-message
+meaning. The runtime either starts the turn or queues a plain message behind the
+active turn. An unrecognized event type has no effect.
+
+Every server frame is a Dabluvee event with `id`, `type`, `data`, and
+`timestamp`. Peen emits:
+
+```json
+{"type":"agent.event","data":{"sessionId":"uuid","requestId":"uuid","event":{"type":"message.delta","payload":{}}}}
+{"type":"message.completed","data":{"sessionId":"uuid","requestId":"uuid","queued":false}}
+{"type":"message.failed","data":{"sessionId":"uuid","requestId":"uuid","code":"INTERNAL_SERVER_ERROR","message":"websocket message failed"}}
+```
+
+`agent.event` forwards the transport-neutral events generated while the turn
+runs. `message.completed` closes one submission, not the socket; `queued` says
+whether the message joined an active turn's FIFO queue. `message.failed` uses a
+fixed message and never exposes provider errors, file paths, or tool output.
+
+When `PEEN_API_TOKEN` is set, non-browser clients may use the normal
+`Authorization: Bearer <token>` handshake header. Browser clients send two
+WebSocket subprotocols: `peen.v1` and
+`peen.bearer.<base64url-token>`, where `base64url-token` is the bearer token's
+unpadded URL-safe Base64 form. Peen selects `peen.v1` and authenticates the
+other value. Never place a bearer token in the URL. Use `wss://` in deployment.
+
 ## GET /v1/messages
 
 Lists stored conversation messages for one existing session.

@@ -130,7 +130,7 @@ func TestSpecValidatorRejectsWhatTheDocumentForbids(t *testing.T) {
 			request.Header.Set(headerContentType, mediaTypeJSON)
 
 			recorder := httptest.NewRecorder()
-			instance.echo.ServeHTTP(recorder, request)
+			instance.testHandler.ServeHTTP(recorder, request)
 
 			assert.Equal(t, http.StatusBadRequest, recorder.Code)
 			assertErrorCode(
@@ -163,7 +163,7 @@ func TestSpecValidatorKeepsTheDocumentedErrorEnvelope(t *testing.T) {
 	request.Header.Set(headerSessionID, sessionID.String())
 
 	recorder := httptest.NewRecorder()
-	instance.echo.ServeHTTP(recorder, request)
+	instance.testHandler.ServeHTTP(recorder, request)
 
 	assert.Equal(t, http.StatusBadRequest, recorder.Code)
 	assertErrorCode(t, recorder, aichteeteapee.ErrorCodeValidationFailed)
@@ -190,7 +190,7 @@ func TestSpecValidatorLeavesAuthenticationToTheMiddleware(t *testing.T) {
 		request.Header.Set(headerContentType, mediaTypeJSON)
 
 		recorder := httptest.NewRecorder()
-		instance.echo.ServeHTTP(recorder, request)
+		instance.testHandler.ServeHTTP(recorder, request)
 
 		assert.Equal(t, http.StatusOK, recorder.Code)
 	})
@@ -211,7 +211,7 @@ func TestSpecValidatorLeavesAuthenticationToTheMiddleware(t *testing.T) {
 		request.Header.Set(headerContentType, mediaTypeJSON)
 
 		recorder := httptest.NewRecorder()
-		instance.echo.ServeHTTP(recorder, request)
+		instance.testHandler.ServeHTTP(recorder, request)
 
 		assert.Equal(t, http.StatusUnauthorized, recorder.Code)
 		assertUnauthorizedEnvelope(t, recorder)

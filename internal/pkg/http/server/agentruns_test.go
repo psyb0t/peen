@@ -151,7 +151,7 @@ func TestServerSessionAgentRunEndpoints(t *testing.T) {
 			request.Header.Set(headerSessionID, sessionID.String())
 
 			recorder := httptest.NewRecorder()
-			instance.echo.ServeHTTP(recorder, request)
+			instance.testHandler.ServeHTTP(recorder, request)
 
 			assert.Equal(t, tc.wantStatus, recorder.Code)
 
@@ -198,7 +198,7 @@ func TestServerSessionAgentRunEndpointsRequireTheBearerToken(t *testing.T) {
 			request.Header.Set(headerSessionID, sessionID.String())
 
 			recorder := httptest.NewRecorder()
-			instance.echo.ServeHTTP(recorder, request)
+			instance.testHandler.ServeHTTP(recorder, request)
 
 			assert.Equal(t, http.StatusUnauthorized, recorder.Code)
 			assertUnauthorizedEnvelope(t, recorder)
@@ -213,7 +213,7 @@ func TestServerSessionAgentRunEndpointsRejectMissingSessionHeader(t *testing.T) 
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, agentRunsPath(), nil)
 	recorder := httptest.NewRecorder()
 
-	instance.echo.ServeHTTP(recorder, request)
+	instance.testHandler.ServeHTTP(recorder, request)
 
 	assert.Equal(t, http.StatusBadRequest, recorder.Code)
 }

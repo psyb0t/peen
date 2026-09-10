@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/labstack/echo/v4"
 	"github.com/psyb0t/aichteeteapee"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
@@ -16,53 +15,86 @@ import (
 )
 
 func requestID(ctx context.Context) uuid.UUID {
-	value, found := ctx.Value(requestIDContextKey).(uuid.UUID)
+	value, found := ctx.Value(aichteeteapee.ContextKeyRequestID).(string)
 	if found {
-		return value
+		parsed, err := uuid.Parse(value)
+		if err == nil {
+			return parsed
+		}
 	}
 
 	return uuid.New()
 }
 
-func (s *Server) handleHTTPError(err error, c echo.Context) {
-	if c.Response().Committed {
+func (s *Server) handleRequestError(
+	w http.ResponseWriter,
+	r *http.Request,
+	err error,
+) {
+	code := aichteeteapee.ErrorCodeValidationFailed
+	message := validationFailureMessage
+
+	if isInvalidSessionIDError(err) {
+		code = ErrorCodeInvalidSessionID
+		message = invalidSessionIDMessage
+	}
+
+	logHTTPRejection(r.Context(), http.StatusBadRequest, code, err)
+	writeAPIError(w, http.StatusBadRequest, code, message)
+}
+
+func (s *Server) handleResponseError(
+	w http.ResponseWriter,
+	r *http.Request,
+	err error,
+) {
+	logHTTPRejection(
+		r.Context(),
+		http.StatusInternalServerError,
+		aichteeteapee.ErrorCodeInternalServerError,
+		err,
+	)
+	writeAPIError(
+		w,
+		http.StatusInternalServerError,
+		aichteeteapee.ErrorCodeInternalServerError,
+		internalServerErrorMessage,
+	)
+}
+
+func logHTTPRejection(
+	ctx context.Context,
+	status int,
+	code aichteeteapee.ErrorCode,
+	err error,
+) {
+	logger := ctxscope.GetLogger(ctx)
+	if status >= http.StatusInternalServerError {
+		logger.Error(
+			httpRequestFailedLogMessage,
+			"status", status,
+			"code", code,
+			"err", err,
+		)
+
 		return
 	}
 
-	status := http.StatusInternalServerError
-	code := aichteeteapee.ErrorCodeInternalServerError
-	message := "internal server error"
-
-	httpError := &echo.HTTPError{}
-	if errors.As(err, &httpError) {
-		status = httpError.Code
-
-		code = aichteeteapee.ErrorCodeFromHTTPStatus(status)
-		if status == http.StatusBadRequest {
-			code = aichteeteapee.ErrorCodeValidationFailed
-			message = "invalid request"
-
-			if isInvalidSessionIDParameter(httpError.Message) {
-				code = ErrorCodeInvalidSessionID
-				message = invalidSessionIDMessage
-			}
-		}
-	}
-
-	ctxscope.GetLogger(c.Request().Context()).Warn(
-		"HTTP request rejected",
+	logger.Warn(
+		httpRequestRejectedLogMessage,
 		"status", status,
 		"code", code,
 		"err", err,
 	)
+}
 
-	errorResponse := api.Error{Code: code, Message: message}
-	if writeErr := c.JSON(status, errorResponse); writeErr != nil {
-		ctxscope.GetLogger(c.Request().Context()).Debug(
-			"HTTP error response write failed",
-			"err", writeErr,
-		)
+func isInvalidSessionIDError(err error) bool {
+	invalidFormat := &api.InvalidParamFormatError{}
+	if errors.As(err, &invalidFormat) {
+		return invalidFormat.ParamName == headerSessionID
 	}
+
+	return false
 }
 
 //nolint:ireturn // Generated strict handler response interface.
@@ -102,19 +134,6 @@ func mapSendMessageError(err error) (api.SendMessageResponseObject, bool) {
 	default:
 		return nil, false
 	}
-}
-
-// isInvalidSessionIDParameter reports whether a parameter-binding error came
-// from a malformed X-Session-ID header. oapi-codegen's generated wrapper
-// produces this exact message text before specValidator ever sees the
-// request, so this is the only place that can recognize it.
-func isInvalidSessionIDParameter(rawMessage any) bool {
-	message, ok := rawMessage.(string)
-	if !ok {
-		return false
-	}
-
-	return strings.HasPrefix(message, invalidSessionIDParameterPrefix)
 }
 
 func validationError(message string) api.Error {

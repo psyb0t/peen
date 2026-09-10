@@ -346,7 +346,6 @@ github.com/fzipp/gocyclo
 github.com/getkin/kin-openapi/openapi3
 github.com/getkin/kin-openapi/openapi3filter
 github.com/getkin/kin-openapi/routers
-github.com/getkin/kin-openapi/routers/gorillamux
 github.com/getkin/kin-openapi/routers/legacy
 github.com/getkin/kin-openapi/routers/legacy/pathpattern
 # github.com/ghostiam/protogetter v0.3.20
@@ -688,9 +687,9 @@ github.com/google/uuid
 # github.com/gordonklaus/ineffassign v0.2.0
 ## explicit; go 1.23.0
 github.com/gordonklaus/ineffassign/pkg/ineffassign
-# github.com/gorilla/mux v1.8.1
-## explicit; go 1.20
-github.com/gorilla/mux
+# github.com/gorilla/websocket v1.5.3
+## explicit; go 1.12
+github.com/gorilla/websocket
 # github.com/gostaticanalysis/analysisutil v0.7.1
 ## explicit; go 1.16
 github.com/gostaticanalysis/analysisutil
@@ -765,15 +764,6 @@ github.com/kulti/thelper/pkg/analyzer
 # github.com/kunwardeep/paralleltest v1.0.15
 ## explicit; go 1.23.0
 github.com/kunwardeep/paralleltest/pkg/paralleltest
-# github.com/labstack/echo/v4 v4.15.4
-## explicit; go 1.25.0
-github.com/labstack/echo/v4
-github.com/labstack/echo/v4/middleware
-# github.com/labstack/gommon v0.5.0
-## explicit; go 1.23.0
-github.com/labstack/gommon/bytes
-github.com/labstack/gommon/color
-github.com/labstack/gommon/log
 # github.com/lasiar/canonicalheader v1.1.2
 ## explicit; go 1.22.0
 github.com/lasiar/canonicalheader
@@ -952,9 +942,6 @@ github.com/nunnatsa/ginkgolinter/internal/rules
 github.com/nunnatsa/ginkgolinter/internal/typecheck
 github.com/nunnatsa/ginkgolinter/linter
 github.com/nunnatsa/ginkgolinter/version
-# github.com/oapi-codegen/echo-middleware v1.0.2
-## explicit; go 1.20
-github.com/oapi-codegen/echo-middleware
 # github.com/oapi-codegen/oapi-codegen/v2 v2.8.0
 ## explicit; go 1.25.0
 github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
@@ -1035,10 +1022,13 @@ github.com/prometheus/common/model
 github.com/prometheus/procfs
 github.com/prometheus/procfs/internal/fs
 github.com/prometheus/procfs/internal/util
-# github.com/psyb0t/aichteeteapee v1.10.0
-## explicit; go 1.26
+# github.com/psyb0t/aichteeteapee v1.13.2-0.20260822195834-d97b09c11144
+## explicit; go 1.26.6
 github.com/psyb0t/aichteeteapee
-github.com/psyb0t/aichteeteapee/oapi-codegen/middleware
+github.com/psyb0t/aichteeteapee/serbewr
+github.com/psyb0t/aichteeteapee/serbewr/dabluvee-es
+github.com/psyb0t/aichteeteapee/serbewr/dabluvee-es/wshub
+github.com/psyb0t/aichteeteapee/serbewr/middleware
 # github.com/psyb0t/commander v0.5.8
 ## explicit; go 1.26
 github.com/psyb0t/commander
@@ -1312,12 +1302,6 @@ github.com/uudashr/iface/internal/directive
 github.com/uudashr/iface/opaque
 github.com/uudashr/iface/unexported
 github.com/uudashr/iface/unused
-# github.com/valyala/bytebufferpool v1.0.0
-## explicit
-github.com/valyala/bytebufferpool
-# github.com/valyala/fasttemplate v1.2.2
-## explicit; go 1.12
-github.com/valyala/fasttemplate
 # github.com/vmware-labs/yaml-jsonpath v0.3.2
 ## explicit; go 1.13
 github.com/vmware-labs/yaml-jsonpath/pkg/yamlpath
@@ -1413,8 +1397,6 @@ go.yaml.in/yaml/v3
 go.yaml.in/yaml/v4
 # golang.org/x/crypto v0.56.0
 ## explicit; go 1.26.0
-golang.org/x/crypto/acme
-golang.org/x/crypto/acme/autocert
 golang.org/x/crypto/blowfish
 golang.org/x/crypto/chacha20
 golang.org/x/crypto/cryptobyte
@@ -1437,15 +1419,6 @@ golang.org/x/mod/modfile
 golang.org/x/mod/module
 golang.org/x/mod/semver
 golang.org/x/mod/sumdb/dirhash
-# golang.org/x/net v0.58.0
-## explicit; go 1.25.0
-golang.org/x/net/http/httpguts
-golang.org/x/net/http2
-golang.org/x/net/http2/h2c
-golang.org/x/net/http2/hpack
-golang.org/x/net/idna
-golang.org/x/net/internal/httpcommon
-golang.org/x/net/internal/httpsfv
 # golang.org/x/sync v0.22.0
 ## explicit; go 1.25.0
 golang.org/x/sync/errgroup
@@ -1488,14 +1461,9 @@ golang.org/x/text/language
 golang.org/x/text/message
 golang.org/x/text/message/catalog
 golang.org/x/text/runes
-golang.org/x/text/secure/bidirule
 golang.org/x/text/transform
-golang.org/x/text/unicode/bidi
 golang.org/x/text/unicode/norm
 golang.org/x/text/width
-# golang.org/x/time v0.15.0
-## explicit; go 1.25.0
-golang.org/x/time/rate
 # golang.org/x/tools v0.49.0
 ## explicit; go 1.25.0
 golang.org/x/tools/cmd/goimports

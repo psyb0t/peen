@@ -117,19 +117,6 @@ func (s *HTTPServer) Run(ctx context.Context) (runErr error) {
 		return ctxerrors.Wrap(err, "open metrics listener")
 	}
 
-	listener, err := s.dependencies.listen(
-		ctx,
-		networkTCP,
-		config.HTTPListenAddress,
-	)
-	if err != nil {
-		return closeListenerAfter(
-			ctx,
-			metricsListener,
-			ctxerrors.Wrap(err, "open HTTP listener"),
-		)
-	}
-
 	logger.Info(
 		"HTTP service initialized",
 		"listen_address", config.HTTPListenAddress,
@@ -145,7 +132,6 @@ func (s *HTTPServer) Run(ctx context.Context) (runErr error) {
 	if err := serveBoth(
 		ctx,
 		server,
-		listener,
 		metricsServer,
 		metricsListener,
 	); err != nil {
@@ -158,7 +144,6 @@ func (s *HTTPServer) Run(ctx context.Context) (runErr error) {
 func serveBoth(
 	ctx context.Context,
 	apiServer *peenhttp.Server,
-	apiListener net.Listener,
 	metricsServer *metrics.Server,
 	metricsListener net.Listener,
 ) error {
@@ -167,7 +152,7 @@ func serveBoth(
 
 	serveErrors := make(chan error, serveWorkerCount)
 	go func() {
-		serveErrors <- apiServer.ServeListener(serveCtx, apiListener)
+		serveErrors <- apiServer.Serve(serveCtx)
 	}()
 	go func() {
 		serveErrors <- metricsServer.ServeListener(serveCtx, metricsListener)
@@ -180,23 +165,6 @@ func serveBoth(
 	secondErr := <-serveErrors
 
 	return errors.Join(firstErr, secondErr)
-}
-
-func closeListenerAfter(
-	ctx context.Context,
-	listener net.Listener,
-	cause error,
-) error {
-	if err := listener.Close(); err != nil {
-		ctxscope.GetLogger(ctx).Warn("close unserved listener", "err", err)
-
-		return errors.Join(
-			cause,
-			ctxerrors.Wrap(err, "close unserved listener"),
-		)
-	}
-
-	return cause
 }
 
 // logValidatedConfig records the validated startup configuration shape with
@@ -359,9 +327,11 @@ func (s *HTTPServer) newAPIServer(
 	}
 
 	server, err := peenhttp.New(peenhttp.Dependencies{
-		Runtime:  assembled.Runtime,
-		APIToken: config.APIToken,
-		Metrics:  metricRegistry,
+		Runtime:        assembled.Runtime,
+		APIToken:       config.APIToken,
+		ListenAddress:  config.HTTPListenAddress,
+		Metrics:        metricRegistry,
+		ServiceContext: func() context.Context { return ctx },
 	})
 	if err != nil {
 		return nil, nil, ctxerrors.Wrap(err, "create HTTP API server")

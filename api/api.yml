@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Peen API
-  version: 0.1.0
+  version: 1.0.0
   description: Stateful agent sessions over JSON or Server-Sent Events.
 servers:
   - url: /v1

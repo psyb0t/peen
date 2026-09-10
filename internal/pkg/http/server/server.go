@@ -1,16 +1,14 @@
-// Package server exposes Peen's client-facing Echo HTTP API.
+// Package server exposes Peen's client-facing Serbewr HTTP API.
 package server
 
 import (
 	"context"
-	"errors"
-	"net"
 	"net/http"
 
-	"github.com/labstack/echo/v4"
+	"github.com/psyb0t/aichteeteapee"
+	"github.com/psyb0t/aichteeteapee/serbewr"
+	"github.com/psyb0t/aichteeteapee/serbewr/dabluvee-es/wshub"
 	"github.com/psyb0t/ctxerrors"
-	"github.com/psyb0t/ctxerrors/commerr"
-	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/agent"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
@@ -18,16 +16,21 @@ import (
 
 // Dependencies are the transport-neutral operations required by the API.
 type Dependencies struct {
-	Runtime  agent.API
-	APIToken string
-	Metrics  *metrics.Metrics
+	Runtime        agent.API
+	APIToken       string
+	ListenAddress  string
+	Metrics        *metrics.Metrics
+	ServiceContext func() context.Context
 }
 
-// Server owns Peen's Echo router and HTTP lifecycle.
+// Server owns Peen's Serbewr listener and its generated OpenAPI handler.
 type Server struct {
-	deps       Dependencies
-	echo       *echo.Echo
-	httpServer *http.Server
+	deps                    Dependencies
+	router                  *serbewr.Router
+	httpServer              *serbewr.Server
+	testHandler             http.Handler
+	webSocketHub            wshub.Hub
+	webSocketUpgradeHandler http.Handler
 }
 
 var _ api.StrictServerInterface = (*Server)(nil)
@@ -38,100 +41,108 @@ func New(deps Dependencies) (*Server, error) {
 		return nil, ctxerrors.Wrap(ErrMissingDependency, "agent runtime")
 	}
 
-	validator, err := specValidator()
-	if err != nil {
-		return nil, err
+	if deps.ListenAddress == "" {
+		deps.ListenAddress = aichteeteapee.DefaultHTTPServerListenAddress
+	}
+
+	if deps.Metrics == nil {
+		deps.Metrics = metrics.New()
+	}
+
+	if deps.ServiceContext == nil {
+		deps.ServiceContext = context.Background
 	}
 
 	instance := &Server{deps: deps}
-	instance.echo = echo.New()
-	instance.echo.HideBanner = true
-	instance.echo.HTTPErrorHandler = instance.handleHTTPError
-	instance.echo.JSONSerializer = strictJSONSerializer{}
-	instance.echo.Use(
-		instance.requestContext,
-		instance.accessLog,
-		instance.recoverPanic,
-		// Everything from here down is about the agent API, so the
-		// unversioned probes skip it. They still get request scope, access
-		// logging, and panic recovery.
-		skipOperational(instance.authenticate),
-		skipOperational(instance.negotiateResponse),
-		skipOperational(instance.limitBody),
-		// After limitBody: the validator reads the body, so an oversized one
-		// is rejected on size before anything tries to parse it.
-		skipOperational(validator),
-	)
+	instance.configureWebSocketHub()
 
-	instance.registerOperationalRoutes()
+	validator, err := specValidator()
+	if err != nil {
+		instance.webSocketHub.Close()
 
-	api.RegisterHandlersWithBaseURL(
-		instance.echo,
-		api.NewStrictHandler(instance, nil),
-		apiBaseURL,
+		return nil, err
+	}
+
+	apiHandler := instance.newAPIHandler()
+
+	instance.router = newRouter(instance, apiHandler, validator)
+	instance.testHandler = newTestHandler(instance, apiHandler, validator)
+
+	instance.httpServer, err = serbewr.NewWithConfig(
+		serbewr.Config{
+			ListenAddress:       deps.ListenAddress,
+			ReadTimeout:         aichteeteapee.DefaultHTTPServerReadTimeout,
+			ReadHeaderTimeout:   defaultReadHeaderTimeout,
+			WriteTimeout:        aichteeteapee.DefaultHTTPServerWriteTimeout,
+			IdleTimeout:         aichteeteapee.DefaultHTTPServerIdleTimeout,
+			MaxHeaderBytes:      aichteeteapee.DefaultHTTPServerMaxHeaderBytes,
+			ShutdownTimeout:     aichteeteapee.DefaultHTTPServerShutdownTimeout,
+			ServiceName:         serviceName,
+			FileUploadMaxMemory: aichteeteapee.DefaultFileUploadMaxMemory,
+		},
 	)
-	instance.httpServer = &http.Server{
-		Handler:           instance.echo,
-		ReadHeaderTimeout: readHeaderTimeout,
+	if err != nil {
+		instance.webSocketHub.Close()
+
+		return nil, ctxerrors.Wrap(err, "create Serbewr HTTP server")
 	}
 
 	return instance, nil
 }
 
-// Serve listens until the service context is cancelled or the listener fails.
-func (s *Server) Serve(ctx context.Context, address string) error {
-	listener, err := (&net.ListenConfig{}).Listen(ctx, networkTCP, address)
-	if err != nil {
-		return ctxerrors.Wrap(err, "listen for HTTP requests")
-	}
-
-	return s.ServeListener(ctx, listener)
+func (s *Server) configureWebSocketHub() {
+	s.webSocketHub = wshub.NewHub(webSocketHubName)
+	s.webSocketHub.RegisterEventHandler(
+		webSocketMessageSendEventType,
+		s.handleWebSocketMessage,
+	)
+	s.webSocketUpgradeHandler = wshub.UpgradeHandler(
+		s.webSocketHub,
+		wshub.WithUpgradeHandlerSubprotocols(webSocketSubprotocol),
+	)
 }
 
-// ServeListener serves a caller-owned listener until its context ends.
-func (s *Server) ServeListener(
-	ctx context.Context,
-	listener net.Listener,
-) error {
-	if listener == nil {
-		return ctxerrors.Wrap(commerr.ErrRequiredFieldNotSet, "HTTP listener")
-	}
-
-	ctxscope.GetLogger(ctx).Info(
-		"HTTP server listening",
-		"address", listener.Addr().String(),
+func (s *Server) newAPIHandler() http.Handler {
+	strictHandler := api.NewStrictHandlerWithOptions(
+		s,
+		nil,
+		api.StrictHTTPServerOptions{
+			RequestErrorHandlerFunc:  s.handleRequestError,
+			ResponseErrorHandlerFunc: s.handleResponseError,
+		},
 	)
 
-	serveErrors := make(chan error, 1)
-	go func() {
-		serveErrors <- s.httpServer.Serve(listener)
-	}()
+	return api.HandlerWithOptions(
+		strictHandler,
+		api.StdHTTPServerOptions{
+			BaseURL:          apiBaseURL,
+			ErrorHandlerFunc: s.handleRequestError,
+		},
+	)
+}
 
-	select {
-	case err := <-serveErrors:
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
-		}
+//nolint:lll // The upstream constant name is part of the direct Serbewr configuration.
+const defaultReadHeaderTimeout = aichteeteapee.DefaultHTTPServerReadHeaderTimeout
 
+// Serve listens until the service context is cancelled or the listener fails.
+func (s *Server) Serve(ctx context.Context) error {
+	defer s.webSocketHub.Close()
+
+	if err := s.httpServer.Start(ctx, s.router); err != nil {
 		return ctxerrors.Wrap(err, "serve HTTP requests")
-	case <-ctx.Done():
-		shutdownContext, cancel := context.WithTimeout(
-			context.WithoutCancel(ctx),
-			shutdownTimeout,
-		)
-		defer cancel()
-
-		if err := s.httpServer.Shutdown(shutdownContext); err != nil {
-			return ctxerrors.Wrap(err, "shut down HTTP server")
-		}
-
-		serveErr := <-serveErrors
-		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			return ctxerrors.Wrap(serveErr, "wait for HTTP server shutdown")
-		}
-
-		ctxscope.GetLogger(ctx).Info("HTTP server stopped")
-
-		return nil
 	}
+
+	return nil
+}
+
+// Stop shuts down Serbewr. It is safe to call after Serve has already
+// stopped because Serbewr's shutdown is idempotent.
+func (s *Server) Stop(ctx context.Context) error {
+	s.webSocketHub.Close()
+
+	if err := s.httpServer.Stop(ctx); err != nil {
+		return ctxerrors.Wrap(err, "stop HTTP server")
+	}
+
+	return nil
 }

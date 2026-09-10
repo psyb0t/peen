@@ -35,6 +35,13 @@ type MessageAPI interface {
 		sessionID *uuid.UUID,
 		requestID uuid.UUID,
 	) (*MessageRunResult, error)
+	RunMessage(
+		ctx context.Context,
+		request api.MessageRequest,
+		sessionID *uuid.UUID,
+		requestID uuid.UUID,
+		sink EventSink,
+	) (*MessageRunResult, error)
 	StreamMessage(
 		ctx context.Context,
 		request api.MessageRequest,
@@ -118,10 +125,24 @@ func (r *Runtime) SendMessage(
 	sessionID *uuid.UUID,
 	requestID uuid.UUID,
 ) (*MessageRunResult, error) {
+	return r.RunMessage(ctx, request, sessionID, requestID, nil)
+}
+
+// RunMessage runs one completed API turn while forwarding each visible event
+// to sink. A nil sink retains the regular completed-response behavior.
+func (r *Runtime) RunMessage(
+	ctx context.Context,
+	request api.MessageRequest,
+	sessionID *uuid.UUID,
+	requestID uuid.UUID,
+	sink EventSink,
+) (*MessageRunResult, error) {
 	input, err := messageRequestToTurnRequest(request, sessionID, requestID)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "convert message request")
 	}
+
+	input.OnEvent = sink
 
 	result, err := r.Run(ctx, input)
 	if err != nil {

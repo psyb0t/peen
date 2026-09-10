@@ -121,7 +121,7 @@ func TestServerSessionEventEndpoints(t *testing.T) {
 			request.Header.Set(headerContentType, mediaTypeJSON)
 
 			recorder := httptest.NewRecorder()
-			instance.echo.ServeHTTP(recorder, request)
+			instance.testHandler.ServeHTTP(recorder, request)
 
 			assert.Equal(t, tc.wantStatus, recorder.Code)
 
@@ -165,7 +165,7 @@ func TestServerSessionEventEndpointsRequireTheBearerToken(t *testing.T) {
 			request.Header.Set(headerContentType, mediaTypeJSON)
 
 			recorder := httptest.NewRecorder()
-			instance.echo.ServeHTTP(recorder, request)
+			instance.testHandler.ServeHTTP(recorder, request)
 
 			assert.Equal(t, http.StatusUnauthorized, recorder.Code)
 			assertUnauthorizedEnvelope(t, recorder)
@@ -186,7 +186,7 @@ func TestServerSessionEventEndpointsRejectAMissingSessionHeader(t *testing.T) {
 	request.Header.Set(headerContentType, mediaTypeJSON)
 
 	recorder := httptest.NewRecorder()
-	instance.echo.ServeHTTP(recorder, request)
+	instance.testHandler.ServeHTTP(recorder, request)
 
 	assert.Equal(t, http.StatusBadRequest, recorder.Code)
 }
