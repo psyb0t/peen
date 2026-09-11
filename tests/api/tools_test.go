@@ -6,14 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"net/http"
 	"path"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/psyb0t/essessey"
-	essesseysse "github.com/psyb0t/essessey/sse"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/tests/testinfra"
 	"github.com/stretchr/testify/assert"
@@ -69,13 +66,6 @@ const (
 	hostToolsEditNewPatch     = "TOOLS_PATCH_REPLACED"
 	hostToolsCommandFilePatch = "host-tools-patch-command-output.txt"
 
-	hostToolsFixtureFileSSE = "host-tools-sse-fixture.txt"
-	hostToolsContentSSE     = "alpha\nTOOLS_SSE_MARKER\nomega\n"
-	hostToolsEditedSSE      = "alpha\nTOOLS_SSE_REPLACED\nomega\n"
-	hostToolsEditOldSSE     = "TOOLS_SSE_MARKER"
-	hostToolsEditNewSSE     = "TOOLS_SSE_REPLACED"
-	hostToolsCommandFileSSE = "host-tools-sse-command-output.txt"
-
 	hostToolsFixtureFileFail = "host-tools-fail-fixture.txt"
 	hostToolsContentFail     = "alpha\nTOOLS_FAIL_MARKER\nomega\n"
 	hostToolsEditOldFail     = "TOOLS_FAIL_TEXT_NOT_PRESENT"
@@ -85,8 +75,8 @@ const (
 )
 
 // hostToolsScenario is one scripted read_file/edit_file/run_command/answer
-// conversation, driven against its own fixture file so the JSON run, the
-// SSE run, and the failing-edit run never touch each other's state.
+// conversation, driven against its own fixture file so successful and
+// failing-edit runs never touch each other's state.
 type hostToolsScenario struct {
 	fixtureFileName    string
 	fixtureContent     string
@@ -97,16 +87,13 @@ type hostToolsScenario struct {
 	wantFixtureContent string
 	commandFileName    string
 	finalAnswer        string
-	useSSE             bool
 }
 
 // hostToolsResult is what a scenario run leaves behind for its caller to
-// assert on: the final answer text, the session it ran in, and the raw SSE
-// events when the scenario used the streaming transport.
+// assert on: the final answer text and the session it ran in.
 type hostToolsResult struct {
 	finalText string
 	sessionID uuid.UUID
-	events    []essessey.Event
 }
 
 func TestAPIHostToolsProductionWiring(t *testing.T) {
@@ -133,18 +120,7 @@ func TestAPIHostToolsProductionWiring(t *testing.T) {
 		useApplyPatch:      true,
 	})
 
-	sseResult := runHostToolsScenario(t, hostToolsScenario{
-		fixtureFileName:    hostToolsFixtureFileSSE,
-		fixtureContent:     hostToolsContentSSE,
-		editOld:            hostToolsEditOldSSE,
-		editNew:            hostToolsEditNewSSE,
-		wantFixtureContent: hostToolsEditedSSE,
-		commandFileName:    hostToolsCommandFileSSE,
-		finalAnswer:        hostToolsFinalAnswerJSON,
-		useSSE:             true,
-	})
-	assert.Equal(t, jsonResult.finalText, sseResult.finalText)
-	assertSSEToolBlocks(t, sseResult.events, sseResult.finalText)
+	assert.NotEmpty(t, jsonResult.finalText)
 
 	runHostToolsScenario(t, hostToolsScenario{
 		fixtureFileName:    hostToolsFixtureFileFail,
@@ -208,7 +184,7 @@ func runHostToolsScenario(
 	}
 	integrationInfra.EnableScriptedToolTurn(scriptedTurn)
 
-	result := runHostToolsTurn(t, scenario.useSSE)
+	result := runHostToolsTurn(t)
 
 	assert.Equal(
 		t,
@@ -229,62 +205,18 @@ func runHostToolsScenario(
 	return result
 }
 
-func runHostToolsTurn(t *testing.T, useSSE bool) hostToolsResult {
+func runHostToolsTurn(t *testing.T) hostToolsResult {
 	t.Helper()
 
-	if useSSE {
-		return sendHostToolsSSETurn(t)
-	}
-
-	return sendHostToolsJSONTurn(t)
-}
-
-func sendHostToolsJSONTurn(t *testing.T) hostToolsResult {
-	t.Helper()
-
-	response := apiRequest(
-		t,
-		http.MethodPost,
-		messagesPath,
-		messageJSON(t, hostToolsUserMessage),
-		authenticatedHeaders(),
-	)
-	requireAPIStatus(t, response, http.StatusOK)
-
-	sessionID := responseSessionID(t, response)
-	answer := decodeResponse[api.MessageResponse](t, response)
-	assert.NotEmpty(t, answer.Message)
-
-	return hostToolsResult{finalText: answer.Message, sessionID: sessionID}
-}
-
-func sendHostToolsSSETurn(t *testing.T) hostToolsResult {
-	t.Helper()
-
-	response := apiRequest(
-		t,
-		http.MethodPost,
-		messagesPath,
-		messageJSON(t, hostToolsUserMessage),
-		withHeader(authenticatedHeaders(), headerAccept, eventStreamMediaType),
-	)
-	requireAPIStatus(t, response, http.StatusOK)
-
-	sessionID := responseSessionID(t, response)
-	source := essesseysse.NewSource(response.Body)
-	events := readSSEEvents(t, source)
-	require.NoError(t, response.Body.Close())
-
-	parsed := essessey.Reassemble(
-		context.Background(),
-		&hostToolsEventSource{events: events},
-	)
-	assert.Empty(t, parsed.Error)
+	sessionID := uuid.New()
+	result := sendAPIWebSocketMessage(t, sessionID, hostToolsUserMessage)
+	require.False(t, result.result.Queued)
+	messages := collectAllMessages(t, sessionID)
+	require.NotEmpty(t, messages)
 
 	return hostToolsResult{
-		finalText: parsed.Text,
+		finalText: messages[len(messages)-1].Content,
 		sessionID: sessionID,
-		events:    events,
 	}
 }
 
@@ -458,85 +390,4 @@ func collectAllMessages(t *testing.T, sessionID uuid.UUID) []api.Message {
 	}
 
 	return messages
-}
-
-// assertSSEToolBlocks checks the raw SSE wire evidence a durable-message
-// assertion cannot: that a tool_use block and its tool_result block share
-// one call ID (via Reassemble's index-keyed pairing) and that no
-// content_block_start reuses an index already used earlier in the stream.
-func assertSSEToolBlocks(
-	t *testing.T,
-	events []essessey.Event,
-	wantFinalText string,
-) {
-	t.Helper()
-
-	parsed := essessey.Reassemble(
-		context.Background(),
-		&hostToolsEventSource{events: events},
-	)
-	assert.Empty(t, parsed.Error)
-	assert.Equal(t, wantFinalText, parsed.Text)
-
-	wantCallIDs := []string{
-		testinfra.ScriptedCallIDReadFile,
-		testinfra.ScriptedCallIDEditFile,
-		testinfra.ScriptedCallIDRunCommand,
-	}
-	wantNames := []string{
-		hostToolsToolNameReadFile,
-		hostToolsToolNameEditFile,
-		hostToolsToolNameRunCommand,
-	}
-
-	require.Len(t, parsed.Executions, len(wantCallIDs))
-
-	for i, execution := range parsed.Executions {
-		assert.Equal(t, wantCallIDs[i], execution.ToolUseID)
-		assert.Equal(t, wantNames[i], execution.Name)
-	}
-
-	assertNoRepeatedContentBlockIndex(t, events)
-}
-
-func assertNoRepeatedContentBlockIndex(t *testing.T, events []essessey.Event) {
-	t.Helper()
-
-	seen := make(map[int]bool, len(events))
-
-	for _, event := range events {
-		if event.Event != essessey.EventTypeContentBlockStart {
-			continue
-		}
-
-		var meta struct {
-			Index int `json:"index"`
-		}
-
-		require.NoError(t, json.Unmarshal(event.Data, &meta))
-		assert.False(t, seen[meta.Index])
-
-		seen[meta.Index] = true
-	}
-}
-
-// hostToolsEventSource replays an already-collected event slice as an
-// essessey.Source, so a stream read once via readSSEEvents can still be fed
-// into essessey.Reassemble.
-type hostToolsEventSource struct {
-	events []essessey.Event
-	index  int
-}
-
-func (s *hostToolsEventSource) Next(
-	_ context.Context,
-) (essessey.Event, error) {
-	if s.index >= len(s.events) {
-		return essessey.Event{}, essessey.ErrNoMoreEvents
-	}
-
-	event := s.events[s.index]
-	s.index++
-
-	return event, nil
 }

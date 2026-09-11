@@ -3,7 +3,6 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -15,8 +14,8 @@ import (
 // Every case here is rejected by the OpenAPI document alone. None of them has
 // a hand-written check in any handler, and several were reachable before the
 // validator existed: an out-of-range limit, a negative offset, a wrong-typed
-// query value, and a body field that violates its declared minimum length all
-// used to reach a handler or the runtime.
+// query value, and an invalid session-event body all used to reach a handler
+// or the runtime.
 //
 // The point of this test is that adding an endpoint to the spec now buys its
 // input validation, instead of each handler having to remember.
@@ -53,24 +52,6 @@ func TestSpecValidatorRejectsWhatTheDocumentForbids(t *testing.T) {
 			name:   "unknown order value",
 			method: http.MethodGet,
 			path:   apiBaseURL + "/messages?order=sideways",
-		},
-		{
-			name:   "empty message violates minLength",
-			method: http.MethodPost,
-			path:   apiBaseURL + "/messages",
-			body:   `{"message":""}`,
-		},
-		{
-			name:   "unknown body field",
-			method: http.MethodPost,
-			path:   apiBaseURL + "/messages",
-			body:   `{"message":"hi","nope":true}`,
-		},
-		{
-			name:   "wrong body field type",
-			method: http.MethodPost,
-			path:   apiBaseURL + "/messages",
-			body:   `{"message":42}`,
 		},
 		{
 			name:   "event type below minLength",
@@ -124,7 +105,7 @@ func TestSpecValidatorRejectsWhatTheDocumentForbids(t *testing.T) {
 				t.Context(),
 				tc.method,
 				tc.path,
-				strings.NewReader(tc.body),
+				nil,
 			)
 			request.Header.Set(headerSessionID, sessionID.String())
 			request.Header.Set(headerContentType, mediaTypeJSON)
@@ -183,11 +164,11 @@ func TestSpecValidatorLeavesAuthenticationToTheMiddleware(t *testing.T) {
 
 		request := httptest.NewRequestWithContext(
 			t.Context(),
-			http.MethodPost,
+			http.MethodGet,
 			apiBaseURL+"/messages",
-			strings.NewReader(`{"message":"hello"}`),
+			nil,
 		)
-		request.Header.Set(headerContentType, mediaTypeJSON)
+		request.Header.Set(headerSessionID, sessionID.String())
 
 		recorder := httptest.NewRecorder()
 		instance.testHandler.ServeHTTP(recorder, request)
@@ -204,11 +185,11 @@ func TestSpecValidatorLeavesAuthenticationToTheMiddleware(t *testing.T) {
 
 		request := httptest.NewRequestWithContext(
 			t.Context(),
-			http.MethodPost,
+			http.MethodGet,
 			apiBaseURL+"/messages",
-			strings.NewReader(`{"message":"hello"}`),
+			nil,
 		)
-		request.Header.Set(headerContentType, mediaTypeJSON)
+		request.Header.Set(headerSessionID, sessionID.String())
 
 		recorder := httptest.NewRecorder()
 		instance.testHandler.ServeHTTP(recorder, request)

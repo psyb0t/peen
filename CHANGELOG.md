@@ -4,6 +4,21 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.3.0 (2026-09-11)
+
+WebSocket is now Peen's only agent-turn transport. REST remains for durable
+session reads and control operations.
+
+- Breaking: Removed `POST /v1/messages` and HTTP Server-Sent Events. Send
+  `message.send` over `GET /v1/ws?sessionId=<uuid>` instead. A session UUID is
+  created atomically from the first accepted message, and all connections for
+  that session receive the same native agent events.
+- REST never creates or submits agent turns. It still lists durable messages,
+  session state, events, jobs, and child-agent runs, and provides cancellation
+  and external session-event control.
+- Updated aichteeteapee to v1.14.0 and regenerated the vendored dependency
+  tree.
+
 ## v0.2.0 (2026-09-10)
 
 Adds a synchronized WebSocket session interface and moves the HTTP server to

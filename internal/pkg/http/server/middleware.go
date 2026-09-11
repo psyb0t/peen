@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
@@ -231,11 +230,7 @@ func isSingleJSONValue(body []byte) bool {
 
 func negotiateResponse(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		stream, accepted := acceptedRepresentation(
-			r.Method,
-			r.Header.Get(headerAccept),
-		)
-		if !accepted {
+		if !acceptedRepresentation(r.Header.Get(headerAccept)) {
 			writeAPIError(
 				w,
 				http.StatusNotAcceptable,
@@ -246,29 +241,24 @@ func negotiateResponse(next http.Handler) http.Handler {
 			return
 		}
 
-		ctx := context.WithValue(r.Context(), streamContextKey, stream)
-		next.ServeHTTP(w, r.WithContext(ctx))
+		next.ServeHTTP(w, r)
 	})
 }
 
-func acceptedRepresentation(method string, accept string) (bool, bool) {
+func acceptedRepresentation(accept string) bool {
 	if accept == "" {
-		return false, true
+		return true
 	}
 
 	for value := range strings.SplitSeq(accept, ",") {
 		mediaType, _, _ := strings.Cut(strings.TrimSpace(value), ";")
 		switch mediaType {
 		case mediaTypeAny, mediaTypeJSON:
-			return false, true
-		case mediaTypeSSE:
-			if method == http.MethodPost {
-				return true, true
-			}
+			return true
 		}
 	}
 
-	return false, false
+	return false
 }
 
 type metricsResponseWriter struct {

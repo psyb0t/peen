@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	appReadyLog                = "HTTP server listening"
+	appReadyLog                = "Starting HTTP server on"
 	appDockerfile              = "Dockerfile"
 	appBootTimeout             = 5 * time.Minute
 	appConfigDirectory         = "/tmp/peen"

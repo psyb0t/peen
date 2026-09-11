@@ -252,8 +252,8 @@ func (r *Runtime) Run(
 		return nil, ctxerrors.Wrap(err, "prepare agent turn")
 	}
 
-	// A JSON turn publishes to the transcript alone. It builds the same
-	// blocks an SSE turn does, so both store the same protocol records.
+	// The runtime publishes protocol events to the transcript and the caller's
+	// optional live sink from one source of truth.
 	prepared.attachPublisher(ctx)
 
 	return r.runLease(ctx, prepared)
@@ -1792,17 +1792,8 @@ func (t *runtimeTurn) record(event Event) error {
 	defer t.sinkMutex.Unlock()
 
 	t.mutex.Lock()
-	statusReporter := t.statusReporter
 	sink := t.sink
 	t.mutex.Unlock()
-
-	// Progress is advertised before the event it describes, so a client never
-	// sees a content block arrive while the stream still claims to be waiting.
-	if statusReporter != nil {
-		if err := statusReporter.report(event.Type); err != nil {
-			return err
-		}
-	}
 
 	t.mutex.Lock()
 	t.events = append(t.events, event)

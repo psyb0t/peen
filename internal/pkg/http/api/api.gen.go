@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"path"
@@ -256,24 +255,6 @@ func (e SessionEventRequestDelivery) Valid() bool {
 	case SessionEventRequestDeliveryQueue:
 		return true
 	case SessionEventRequestDeliveryWake:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for SystemPromptMode.
-const (
-	SystemPromptModeAppend  SystemPromptMode = "append"
-	SystemPromptModeReplace SystemPromptMode = "replace"
-)
-
-// Valid indicates whether the value is a known member of the SystemPromptMode enum.
-func (e SystemPromptMode) Valid() bool {
-	switch e {
-	case SystemPromptModeAppend:
-		return true
-	case SystemPromptModeReplace:
 		return true
 	default:
 		return false
@@ -569,24 +550,6 @@ type MessagePage struct {
 	Offset  int32     `json:"offset"`
 }
 
-// MessageQueuedResponse defines model for MessageQueuedResponse.
-type MessageQueuedResponse struct {
-	Queued bool `json:"queued"`
-}
-
-// MessageRequest defines model for MessageRequest.
-type MessageRequest struct {
-	Message      string        `json:"message"`
-	Model        *string       `json:"model,omitempty"`
-	SystemPrompt *SystemPrompt `json:"systemPrompt,omitempty"`
-	Workspace    *string       `json:"workspace,omitempty"`
-}
-
-// MessageResponse defines model for MessageResponse.
-type MessageResponse struct {
-	Message string `json:"message"`
-}
-
 // MessageToolCall defines model for MessageToolCall.
 type MessageToolCall struct {
 	Arguments map[string]interface{} `json:"arguments"`
@@ -646,15 +609,6 @@ type SessionEventRequest struct {
 // SessionEventRequestDelivery queue waits for the next turn. wake starts a turn when the session is idle and .agents/events declares a handler for this type.
 type SessionEventRequestDelivery string
 
-// SystemPrompt defines model for SystemPrompt.
-type SystemPrompt struct {
-	Content string           `json:"content"`
-	Mode    SystemPromptMode `json:"mode"`
-}
-
-// SystemPromptMode defines model for SystemPrompt.Mode.
-type SystemPromptMode string
-
 // AgentRunID defines model for AgentRunID.
 type AgentRunID = openapi_types.UUID
 
@@ -670,23 +624,14 @@ type Offset = int32
 // Order defines model for Order.
 type Order string
 
-// SessionIDOptional defines model for SessionIDOptional.
-type SessionIDOptional = openapi_types.UUID
-
 // SessionIDRequired defines model for SessionIDRequired.
 type SessionIDRequired = openapi_types.UUID
 
 // ErrorBadRequest defines model for ErrorBadRequest.
 type ErrorBadRequest = Error
 
-// ErrorConflict defines model for ErrorConflict.
-type ErrorConflict = Error
-
 // ErrorInternal defines model for ErrorInternal.
 type ErrorInternal = Error
-
-// ErrorNotAcceptable defines model for ErrorNotAcceptable.
-type ErrorNotAcceptable = Error
 
 // ErrorNotFound defines model for ErrorNotFound.
 type ErrorNotFound = Error
@@ -704,11 +649,6 @@ type ListMessagesParams struct {
 
 // ListMessagesParamsOrder defines parameters for ListMessages.
 type ListMessagesParamsOrder string
-
-// SendMessageParams defines parameters for SendMessage.
-type SendMessageParams struct {
-	XSessionID *SessionIDOptional `json:"X-Session-ID,omitempty"`
-}
 
 // GetSessionParams defines parameters for GetSession.
 type GetSessionParams struct {
@@ -781,9 +721,6 @@ type SignalSessionJobParams struct {
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
-// SendMessageJSONRequestBody defines body for SendMessage for application/json ContentType.
-type SendMessageJSONRequestBody = MessageRequest
-
 // PublishSessionEventJSONRequestBody defines body for PublishSessionEvent for application/json ContentType.
 type PublishSessionEventJSONRequestBody = SessionEventRequest
 
@@ -795,9 +732,6 @@ type ServerInterface interface {
 	// ListMessages List stored conversation messages
 	// (GET /messages)
 	ListMessages(w http.ResponseWriter, r *http.Request, params ListMessagesParams)
-	// SendMessage Run one agent turn or queue an active session message
-	// (POST /messages)
-	SendMessage(w http.ResponseWriter, r *http.Request, params SendMessageParams)
 	// GetSession Read session details
 	// (GET /session)
 	GetSession(w http.ResponseWriter, r *http.Request, params GetSessionParams)
@@ -914,47 +848,6 @@ func (siw *ServerInterfaceWrapper) ListMessages(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListMessages(w, r, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// SendMessage operation middleware
-func (siw *ServerInterfaceWrapper) SendMessage(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params SendMessageParams
-
-	headers := r.Header
-
-	// ------------- Optional header parameter "X-Session-ID" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
-		var XSessionID SessionIDOptional
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: "uuid"})
-		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
-			return
-		}
-
-		params.XSessionID = &XSessionID
-
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.SendMessage(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1727,7 +1620,6 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	}
 
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/messages", wrapper.ListMessages)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/messages", wrapper.SendMessage)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session", wrapper.GetSession)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/session/cancel", wrapper.CancelSession)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/events", wrapper.ListSessionEvents)
@@ -1744,11 +1636,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 
 type ErrorBadRequestJSONResponse Error
 
-type ErrorConflictJSONResponse Error
-
 type ErrorInternalJSONResponse Error
-
-type ErrorNotAcceptableJSONResponse Error
 
 type ErrorNotFoundJSONResponse Error
 
@@ -1831,193 +1719,6 @@ func (response ListMessages404JSONResponse) VisitListMessagesResponse(w http.Res
 type ListMessages500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response ListMessages500JSONResponse) VisitListMessagesResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(500)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type SendMessageRequestObject struct {
-	Params SendMessageParams
-	Body   *SendMessageJSONRequestBody
-}
-
-type SendMessageResponseObject interface {
-	VisitSendMessageResponse(w http.ResponseWriter) error
-}
-
-type SendMessage200ResponseHeaders struct {
-	XRequestID openapi_types.UUID
-	XSessionID openapi_types.UUID
-}
-
-type SendMessage200JSONResponse struct {
-	Body    MessageResponse
-	Headers SendMessage200ResponseHeaders
-}
-
-func (response SendMessage200JSONResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
-	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type SendMessage200TexteventStreamResponse struct {
-	Body          io.Reader
-	Headers       SendMessage200ResponseHeaders
-	ContentLength int64
-}
-
-func (response SendMessage200TexteventStreamResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	if response.ContentLength != 0 {
-		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
-	}
-	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
-	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
-	w.WriteHeader(200)
-
-	if closer, ok := response.Body.(io.ReadCloser); ok {
-		defer closer.Close()
-	}
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		// If w doesn't support flushing, fall back to io.Copy.
-		_, err := io.Copy(w, response.Body)
-		return err
-	}
-	// text/event-stream messages are typically small; use a
-	// modest buffer and flush after each chunk so clients see
-	// events immediately instead of waiting on OS buffering.
-	buf := make([]byte, 4096)
-	for {
-		n, err := response.Body.Read(buf)
-		if n > 0 {
-			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
-				return writeErr
-			}
-			flusher.Flush()
-		}
-		if err != nil {
-			if err == io.EOF {
-				return nil
-			}
-			return err
-		}
-	}
-}
-
-type SendMessage202ResponseHeaders struct {
-	XRequestID openapi_types.UUID
-	XSessionID openapi_types.UUID
-}
-
-type SendMessage202JSONResponse struct {
-	Body    MessageQueuedResponse
-	Headers SendMessage202ResponseHeaders
-}
-
-func (response SendMessage202JSONResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
-	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
-	w.WriteHeader(202)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type SendMessage400JSONResponse struct{ ErrorBadRequestJSONResponse }
-
-func (response SendMessage400JSONResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(400)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type SendMessage401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
-
-func (response SendMessage401JSONResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type SendMessage404JSONResponse struct{ ErrorNotFoundJSONResponse }
-
-func (response SendMessage404JSONResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type SendMessage406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
-
-func (response SendMessage406JSONResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(406)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type SendMessage409JSONResponse struct{ ErrorConflictJSONResponse }
-
-func (response SendMessage409JSONResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(409)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type SendMessage500JSONResponse struct{ ErrorInternalJSONResponse }
-
-func (response SendMessage500JSONResponse) VisitSendMessageResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -2920,9 +2621,6 @@ type StrictServerInterface interface {
 	// ListMessages List stored conversation messages
 	// (GET /messages)
 	ListMessages(ctx context.Context, request ListMessagesRequestObject) (ListMessagesResponseObject, error)
-	// SendMessage Run one agent turn or queue an active session message
-	// (POST /messages)
-	SendMessage(ctx context.Context, request SendMessageRequestObject) (SendMessageResponseObject, error)
 	// GetSession Read session details
 	// (GET /session)
 	GetSession(ctx context.Context, request GetSessionRequestObject) (GetSessionResponseObject, error)
@@ -3013,39 +2711,6 @@ func (sh *strictHandler) ListMessages(w http.ResponseWriter, r *http.Request, pa
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListMessagesResponseObject); ok {
 		if err := validResponse.VisitListMessagesResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// SendMessage operation middleware
-func (sh *strictHandler) SendMessage(w http.ResponseWriter, r *http.Request, params SendMessageParams) {
-	var request SendMessageRequestObject
-
-	request.Params = params
-
-	var body SendMessageJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.SendMessage(ctx, request.(SendMessageRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "SendMessage")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(SendMessageResponseObject); ok {
-		if err := validResponse.VisitSendMessageResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -3336,63 +3001,58 @@ func (sh *strictHandler) SignalSessionJob(w http.ResponseWriter, r *http.Request
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"7Fxbbxu3tv4rBM8B8jKW7LQ9OPBbmqSFs9PGsFO0QJAHarikoT1DTnix7G3ov2/wNheJkmYcS917w2/2",
+	"DMm1yPWtK9foEeeiqgUHrhU+f8QFEArS/XkF3wwoffHO/kNB5ZLVmgmOz+MrlAspoST2Kfrjj4t3E5xh",
+	"Cd8Mk0DxuZYGMqzyAipi15gLWRGNz7ExjOIM64ca8DlWWjK+wKtVhq9BKSZ4iuRbCUQDRUIiCcpUQJHy",
+	"o5+B8irDNZGkAh32/mYBXF+ZwAmzDNREFzjDnFR2KokD6Hdu+YOYbSVyI2bfvf5HVjHdrP/NgHxoCZTu",
+	"ZXdBCnNiSo3PfzrN2tUZ1z+8xhmuyD2rTIXPX5+eZrhi3P931hBmXMMCpKP8aT5XsJW08G+TtJOkI7HT",
+	"NDFJQW6l5V4mSWGicpxh4HbpL+E/izz8dSdArxqRBJJecVqaf52EsScX774XmxJULbgCB833Ugr5M6FB",
+	"B+2jXHAN3P1J6rpkudPI6Y2ymvPYofW/Eub4HP/PtFX6qX+rpm5dT6+veRf8jpSMIhkIrjLPwwXXIDkp",
+	"j8GBp4QUyDuQCPzAwMfvQv8iDKeH5yNIFHGh0dyRjDz8wYnRhZDsn3AEPt4YXQDXYVU0J6wE6vAZpnZN",
+	"mOOBUmaHkvJSihqkZhZLc1IqyHDdefTYNWz7wWkZmzPOPF/rJvvPAnQBEukCkFsW5aQCNJeiQgTNWQnW",
+	"mi+JQm4VoIjxknGYdBRSaWG1JsOEFiKllJaFWheb1H8HpRlfoBLuoJygzwUgKYRG2kiOmEKnlsyGmVk3",
+	"LZYTCvSN7p0GJRpONKsgdSRwB1z/bOZzkEDfCsP7c3dQshPfSVHXnXn9Tb23QxSCO5ZbZziDnBgF7oRn",
+	"FpD2maNsj7cEOnCP3matE/sc5fZKITtigi6ohd08Ak/w8gHNhUSEI0JPCpEjafgkdSg1kcD1ZyHKt6Qs",
+	"Pbg2BilNpB532EoT7ViPgJGGc/suc4FNCdqhJ6hIhnPCc7Ank7bvrZn+0nfx7oR6cI/Aizx02U+CICXg",
+	"lgkxu4HcGdeouG8dq1fB9h9WjfNAy1l4b8LWsCANoGUBHOmCqegLvBVEBIVTD2pOOEWKLTixB42YniC/",
+	"l9IN4cjwWy6WPEONiDJrCUgpgdAH1MjILmtV1dpbwr3Zd4tLqIXUCrmtoyXThVOB3EiLMuQE0oHhTIgS",
+	"CD8mXtYPNFLeJXCn3CPlnPuweIzK1OShFIRuJ+QjlA02ld0Mz2GgNfNPHvccWrNomJB1drT3rC7J4sB6",
+	"Qb2ybjXE4T2awVxI8LqxZJyK5VDvchczL6ahUvtCgj5UmlPGREry4Cw53Ou3RiohN3m+JEqhGclvEVFW",
+	"V5SQSAtkYxXGTXDMBUgYyPuxdCna13BWvU22ItqFlqcCZbxgUjIpiPpNyK4yNAYptW27wzgltanv8gsJ",
+	"Q7+Hp/UZKZZ8pDqSE0EhGQVQ0ISVarR9qkCpIOfd4HKU2/GpDX0Qs9HbqSrC03ENZRJyLeRD8u34APOe",
+	"6bfh9Nas0j3z3s8oJHgOKPhZIdHJGVoWNuRmOrjUgVruixBDjGXNEobyUw2S2ED8RD0oDRWqpchBKXTx",
+	"Dom5c9s3YvZKIVVAWQ7kqTayFgpSKcdDJ91QhNnww6UYMUJxJjoIa7IlonzGINTKyrv/GA+1FvFrcikK",
+	"UsbA8SPjHl2DrLGdGaLLkROF0U8kKYxeJ9mXiHv87AmL7iUSm2mLfY9yUpZIF8SphJWpF/6NmE3wPgcU",
+	"S2+1g3rEW9aoeVept2QAUUvTJ5w8vbT8k7LdYrU+GV2bsUHkcBW3nvfaMdMGGUPySz9NmGGxieoMPVSE",
+	"8jTF3JK2fpfmbVszoVp719yC4hafjmCzm4RkEjLeCdUhoHxC+HUjZsODL+utE3GXlobnZFiU4+h1p2zZ",
+	"yrVDS6f2OmJPHmmb2Fda1EgBpwpdX/z6+f3Vbxb01kRGX7mQwtT2CUegclISDcqOub749R8XHz9O0C0r",
+	"S7QQYHVHErYodPd1v55W4wzb8fuj8MDwnqN4Uhw63OS0+vnUosSNmCVKEp79jZKEtwu9ekQ7z650tHrE",
+	"OAu1TfM7c7dXIH5rQ+dRIW9T5N4sKI2vS7BheGA8Jpcptc4wU002svmyEhTK9tWXuG6GubEaYU9RlD2B",
+	"GOWudYhSTGni6ng2ukg7iS0lkv/7Ee++LsuwLhi/tcvsZE4nCqi7xg23oQECsULb2tMvwaB2Vl8Keatq",
+	"kg/ItZwMO0Ued7pZA53uWvtKP4HDJziTHQl41p7OmGNKuZsy3rR+x7VpFu9Fk8vsvgLtHbvbS9Zc8Da3",
+	"rbsKC+sQGFkwkQtTxZrJqMSdpbPmeCkxAGChOt+ykNpeuL0bu61cszv4bCRPw8dlmmkTGGtgdnLyHqhv",
+	"Fk5TcDicHS2J0kHie1dPmZhQPnnqxtYscYcxU9NxW04hoj237oJrXCdllHVFHuUb+d2BqyNV7ynRZLSG",
+	"USjZHfj6U/Rr3wwYS2FJbiHpzAbiSAkj83QlT5mqIluqXsOuB1qSDaF22c6+9vmOroye4EBGXwOAgl6t",
+	"wx22q0PNzeAq18i7gR4ON/zT2sE2tfRd5fPuik9LeYagda3HQkuTayOBonBR5W6YaykWklQV0SxHueDK",
+	"VCBVJ6ZOg73t84lw71OLcmE2eBe+VcHmv65LYIKsbvjikULEdw6EdAOa7jOmEKMluDxg4gv4UwiwgLwk",
+	"EuzcgnBaggxEmEKW7W5itlcdO8q0We8SHFDJOCD/amazmmVBNCpIXQP3dbWK8Y/AF7rohh6bGtlf/Z3Q",
+	"GigqxRJkThS4TgAXsFG/B9dZcSNmE3cC7gAmqJYwZ/d25xKQBNe34wV5CcBfKSSW3MqUmhyk8jPdSCtE",
+	"oE2NpyL3Dcuv/3/PFtYgHs1GOLdNgLuAPTeS6Ydrq0MesjMgEuQb43tK/H+/RGV9c3mBbuEh9pK5WMCN",
+	"aIFYaF37ph3G52LzQK9tFjY3ZaxRexgpnzVSI8msBPTh+tPvyGaf/mz+hNm1yG/B49LDnmmbp2B7nujN",
+	"5QXO8B1IH+Dgs8np5NRFkzVwUjN8jn+YnE1OceY6DN0+p8EVun8WPuQUvlgv3PUo/siaCEHhfofkl7Qp",
+	"aodMNzvlVtneSb5ZccDA0Fs4ZKTr/Vt9Xeuie316+mx9Wt3EJNGtFV6j2r7Puh22f50Eq3riW0BTRMLw",
+	"aduNu8r6zYV7JrY9tY63H/3GUzOaA5qu9xi6eWcD5/V64dzMHwfObDr5Vhn+aTCfTR/iqmslHXqRbx+z",
+	"DsMqh+9aanBvx09VmxUkleBX0DFxeAYVOCQMI5s7Ghfj1eoLCo+FwisgbaN6PP4u8KZto8FWIxwOL/YY",
+	"/Bsb41T3dXP50KD4OfpFDqlJvbaRVP+t89zSS+JFk45oz11VvWBlCDSdDHw8HXWscPeH7ho2pWfTx7a1",
+	"aDX1CLN81UIllM+32qyp33G0r/MFSgLrr58d62tdRQnUhx5O70TjXQvJc6i93r4ownEUwcvBpXxrquBy",
+	"CGE0Ak5tBmizWt947fKG/fowKCVYU4f3sZJwZKXY4m3y5s76Ob4rGv3Z1Nnpzu+mftr73dQx/FpbBtvl",
+	"3FBTI3rR7ONo9i+iLMXSF25S6s0UoiKWOhpFHuXEDpPEPJ87enFD/zmZTfgGuCuPWEP1VygJr9PWtPf5",
+	"l+fzK0dIunda1Mvgjl/s6d+VMgT0vVKo7stilW0xmpdmVjJV9O5UnguK7kB/FvThIChsBNavh2tpYHVA",
+	"w92/fdpUAvfixU7/HXa6FtL3qzkRhNbCmC+7llphtGIU+qY6tmDuM9QffOvkf1lFamT33SF9TOygTbmW",
+	"0CAa2ldfdOrYtSj/OcDQGpQV0/TR9WaupqJp1U9q2BUQ2mpY6Os/ipr5nyTZrjwSSLXl1zRmwn0R3XYb",
+	"r/ebuwGp7tVtxHqt6QfM6dVax/vhKFXkvmmhT/3uyr4fXvk7KwgtEhPG6IOYIQ/q8A3si0U67j0Tab6p",
+	"8uePxNzVEfwHdiIKbptBar9PSMfEvmO+tUlHtUYHipw3Puk4cti8+R1F6vrWjXgJno+vVtda1E6FOt+S",
+	"+COInUMO992eoS9fV9mjhav/sSKvGEaW+BxP787w6uvqXwEAAP//",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

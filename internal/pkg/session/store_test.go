@@ -29,6 +29,58 @@ func TestStoreGetMapsMissingSessionToCommonError(t *testing.T) {
 	require.ErrorIs(t, err, commerr.ErrNotFound)
 }
 
+func TestStoreCreateOrResumeCreatesRequestedSessionIDAtomically(t *testing.T) {
+	ctx := context.Background()
+	store, handle := openTestStore(t)
+	t.Cleanup(func() { require.NoError(t, handle.Close()) })
+	requestedSessionID := uuid.New()
+
+	type result struct {
+		session *models.Session
+		created bool
+		err     error
+	}
+
+	start := make(chan struct{})
+	results := make(chan result, 2)
+	var waitGroup sync.WaitGroup
+	for range 2 {
+		waitGroup.Go(func() {
+			<-start
+			opened, err := store.CreateOrResume(
+				ctx,
+				&requestedSessionID,
+				OpenSessionOptions{
+					RootAgent: "peen",
+					ModelID:   "provider/model",
+				},
+			)
+			if err != nil {
+				results <- result{err: err}
+
+				return
+			}
+
+			results <- result{session: opened.Session, created: opened.Created}
+		})
+	}
+
+	close(start)
+	waitGroup.Wait()
+	close(results)
+
+	createdCount := 0
+	for opened := range results {
+		require.NoError(t, opened.err)
+		require.NotNil(t, opened.session)
+		assert.Equal(t, requestedSessionID, opened.session.ID)
+		if opened.created {
+			createdCount++
+		}
+	}
+	assert.Equal(t, 1, createdCount)
+}
+
 func TestStoreRestartPaginationIsolationAndCompaction(t *testing.T) {
 	ctx := context.Background()
 	stateDirectory := filepath.Join(t.TempDir(), "state")

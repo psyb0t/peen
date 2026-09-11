@@ -22,8 +22,8 @@ The exact scripts and override lookup live in the
 | `make test` | Docker + socket | Race-enabled `go test ./...`. |
 | `make test-unit` | Docker | Race-enabled `go test ./...` without Docker-socket access. |
 | `make test-integration` | Docker + socket | Uncached, race-enabled core integration tests with mocked LLM replies. |
-| `make test-api` | Docker + socket | Production image API tests with real HTTP, SQLite, migrations, SSE, and session handling. |
-| `make test-execution-forms` | Docker | Source-build and local-install process tests with real loopback HTTP. |
+| `make test-api` | Docker + socket | Production image API tests with real REST reads, WebSocket turns, SQLite, migrations, and session handling. |
+| `make test-execution-forms` | Docker | Source-build and local-install process tests with real loopback REST and WebSocket contracts. |
 | `make test-coverage` | Docker + socket | Race-enabled coverage check; default floor is `MIN_TEST_COVERAGE=90`. |
 | `make lint` | Docker | `shfmt`, ShellCheck, `go fix` diff check, and golangci-lint. |
 | `make lint-fix` | Docker | Apply supported formatting and lint fixes. Review its diff. |
@@ -44,9 +44,10 @@ Peen has four test layers. `make test-unit` covers pure and in-process package
 behaviour without a Docker socket. `make test-integration` is an uncached,
 race-enabled mock integration suite. It exercises the agent, session, and
 service paths against deterministic Elelem replies. `make test-api` builds the
-production image and drives its real HTTP API, SQLite database, migrations,
-SSE stream, session middleware, cancellation, and authentication. Its only
-mock is the external OpenAI-compatible provider. `make test-execution-forms`
+production image and drives its real REST reads, WebSocket turn protocol,
+SQLite database, migrations, session middleware, cancellation, and
+authentication. Its only mock is the external OpenAI-compatible provider.
+`make test-execution-forms`
 builds source and local `go install` artifacts, runs both as child processes,
 and checks guarded tools, restart persistence, harness reload, authentication,
 and the private metrics listener.

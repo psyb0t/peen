@@ -12,7 +12,6 @@ import (
 	"github.com/psyb0t/elelem/elelemtest"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
-	"github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -118,7 +117,7 @@ func TestRuntimeQueuesUserMessageAtActiveTurnRoundBoundary(t *testing.T) {
 	assert.Equal(t, queuedUserMessageText, payload.Message)
 }
 
-func TestRuntimeStreamMessageQueuesActiveTurn(t *testing.T) {
+func TestRuntimeRunMessageQueuesActiveTurn(t *testing.T) {
 	driver := elelemtest.NewScriptedDriver(
 		elelemtest.ToolCall(
 			runtimeToolCallID,
@@ -131,7 +130,7 @@ func TestRuntimeStreamMessageQueuesActiveTurn(t *testing.T) {
 
 	var (
 		sessionID uuid.UUID
-		queued    *StreamMessageResult
+		queued    *MessageRunResult
 		queueErr  error
 	)
 	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
@@ -152,11 +151,12 @@ func TestRuntimeStreamMessageQueuesActiveTurn(t *testing.T) {
 
 				sessionID = parsed
 			case EventTypeToolUse:
-				queued, queueErr = fixture.runtime.StreamMessage(
+				queued, queueErr = fixture.runtime.RunMessage(
 					context.Background(),
-					api.MessageRequest{Message: queuedUserMessageText},
+					MessageRequest{Message: queuedUserMessageText},
 					&sessionID,
 					uuid.New(),
+					nil,
 				)
 			}
 
@@ -166,7 +166,6 @@ func TestRuntimeStreamMessageQueuesActiveTurn(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, queueErr)
 	require.NotNil(t, queued)
-	assert.Nil(t, queued.Body)
 	assert.True(t, queued.Queued)
 	assert.Equal(t, result.SessionID, queued.SessionID)
 	assert.Equal(t, queuedUserMessageFinal, result.Text)

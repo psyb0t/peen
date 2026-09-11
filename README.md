@@ -1,12 +1,12 @@
 # peen
 
-Peen is one stateful coding agent, exposed over HTTP. A JSON request carries
-one message; Peen creates or resumes a durable session, runs the configured
-agent through Elelem, and returns either the final JSON answer or a live
-Server-Sent Events stream. Every turn, message, and event is recorded in
-SQLite, so a session survives a process restart. A message accepted into an
-already active turn keeps its delivery state only in memory until its next
-provider round; after a restart clients retry it.
+Peen is one stateful coding agent, exposed through durable REST reads and a
+WebSocket turn protocol. A client chooses a session UUID, sends messages over
+one or more sockets, and receives the agent's native events on every connected
+socket for that session. Every turn, message, and event is recorded in SQLite,
+so a session survives a process restart. A message accepted into an already
+active turn keeps its delivery state only in memory until its next provider
+round; after a restart clients retry it.
 
 Peen also acts as a small file-based agent harness. It starts with embedded
 operating rules and skills, then resolves layered `AGENTS.md` files, Agent
@@ -56,15 +56,19 @@ mkdir -p "$PEEN_CONFIG_DIR" "$PEEN_WORKING_DIR"
 ./build/peen run
 ```
 
-```bash
-curl -s http://localhost:8080/v1/messages \
-  -H 'Content-Type: application/json' \
-  -d '{"message":"list the files in the current directory"}'
+Connect a WebSocket client to
+`ws://localhost:8080/v1/ws?sessionId=<new-uuid>` and send this Dabluvee event:
+
+```json
+{"type":"message.send","data":{"message":"list the files in the current directory"}}
 ```
 
-Add `-H 'Accept: text/event-stream'` for the live event stream instead of the
-final JSON answer. See [Docker deployment](#docker-deployment) for running
-the same thing as a container with durable mounted state, and
+The socket streams native agent events followed by `message.completed`. The
+chosen UUID becomes the durable session ID on the first message. See
+[the WebSocket contract](docs/peen/http-api.md#websocket-turns) for framing,
+authentication, and multi-client synchronization. See
+[Docker deployment](#docker-deployment) for running the same thing as a
+container with durable mounted state, and
 [docs/peen/deployment.md](docs/peen/deployment.md) for `go install` and
 source-build paths.
 
@@ -113,10 +117,10 @@ window is at least `PEEN_MAX_CONTEXT_TOKENS`, or the process refuses to
 start. A discovery failure on an upstream neither setting selects is logged,
 and only that one upstream stays unavailable.
 
-`POST /v1/messages` also accepts an optional per-message `model` field that
-overrides the default for that one call. It must already be a discovered
-`provider/model` reference; it is not sticky and does not change what later
-messages in the same session use.
+The `data` of a `message.send` WebSocket event accepts an optional per-message
+`model` field that overrides the default for that one call. It must already be
+a discovered `provider/model` reference; it is not sticky and does not change
+what later messages in the same session use.
 
 For Z.ai Coding, use `zai/glm-5.3` for the main coding turn and
 `zai/glm-5.3-flash` for lightweight work. Peen does not infer task difficulty;
@@ -183,8 +187,7 @@ Every operation is under `/v1`. Full request and response shapes:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| POST | `/v1/messages` | Run one agent turn, or queue a plain message for an active session. JSON or SSE, selected by `Accept`. |
-| GET | `/v1/ws?sessionId=<uuid>` | Open a synchronized WebSocket view of one existing session and send or receive agent events. |
+| WS | `/v1/ws?sessionId=<uuid>` | Submit agent turns and receive synchronized agent events. |
 | GET | `/v1/messages` | List stored conversation messages, paginated. |
 | GET | `/v1/session` | Read session details. |
 | POST | `/v1/session/cancel` | Request cancellation of the active turn. |
@@ -205,16 +208,14 @@ orchestrator health-checking the service has no bearer token to present:
 | GET | `/healthz` | Liveness. Returns `200 {"status":"ok"}` while the process is serving. |
 | GET | `/ready` | Readiness. Same answer, and that is accurate: the database is opened, migrated, and integrity-checked before the listener exists, so a process that failed any of those has no listener to probe. |
 
-Every operation except `POST /v1/messages` requires the `X-Session-ID` header
-and never creates a session; an unknown session returns `404`. `GET /v1/ws`
-uses its required `sessionId` query parameter instead, because browser WebSocket
-clients cannot set `X-Session-ID`. It also never creates a session. Connections
-for the same session share one hub client, so every connected browser or client
-receives the same agent events. See [the WebSocket contract](docs/peen/http-api.md#get-v1wssessioniduuid).
-`POST /v1/messages` accepts an optional `X-Session-ID` to resume a session,
-or creates a new UUID session when it is missing. Every JSON or SSE response
-carries the resolved `X-Session-ID` and a generated `X-Request-ID`. Errors
-use one `{code, message, details}` envelope.
+Every REST operation requires the `X-Session-ID` header and never creates a
+session; an unknown session returns `404`. The WebSocket endpoint uses its
+required `sessionId` query parameter instead, because browser WebSocket clients
+cannot set `X-Session-ID`. A new UUID is accepted as a pending session, and its
+first `message.send` atomically creates that exact session. Connections for the
+same session share one hub client, so every connected browser or client receives
+the same agent events. No HTTP endpoint accepts an agent message. See
+[the WebSocket contract](docs/peen/http-api.md#websocket-turns).
 
 ## Bearer authentication
 
@@ -257,8 +258,8 @@ expanded statements can contain persisted sensitive content.
 changes into it at startup, and it is what a message's tools and relative
 paths resolve against when no override is given.
 
-A `workspace` field in the `POST /v1/messages` body overrides it for that one
-message only. It is never sticky: it does not change the session's default,
+A `workspace` field in a `message.send` event's `data` overrides it for that
+one message only. It is never sticky: it does not change the session's default,
 and the next message without a `workspace` field uses `PEEN_WORKING_DIR`
 again. `~` expands to the running user's home directory, and the result must
 be an existing, readable directory. The workspace is a default directory, not
@@ -307,12 +308,12 @@ container user, and the mounts you choose are the isolation boundary, not
 anything inside Peen itself.
 
 Tool calls and their results are recorded verbatim in the session transcript
-and streamed live over SSE, exactly like any other message. If the agent
-reads a file containing a secret, or a command prints one to stdout, that
-secret now exists in the SQLite transcript and in whatever received the SSE
-stream. Peen does not scan for or redact secret-shaped content in tool
-output. Treat the transcript and the event stream at the same sensitivity
-level as the files and commands the agent can reach.
+and sent live over the session's WebSocket connections, exactly like any other
+message. If the agent reads a file containing a secret, or a command prints one
+to stdout, that secret now exists in the SQLite transcript and in every client
+receiving the session event stream. Peen does not scan for or redact
+secret-shaped content in tool output. Treat the transcript and the event stream
+at the same sensitivity level as the files and commands the agent can reach.
 
 `remove_path` has exactly one built-in restriction, and it is a guard against
 a catastrophic typo, not a permission system: it refuses to remove the

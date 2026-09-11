@@ -88,7 +88,7 @@ the host.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PEEN_MAX_MESSAGE_BYTES` | `262144` | Bounds the `POST /v1/messages` `message` field. |
+| `PEEN_MAX_MESSAGE_BYTES` | `262144` | Bounds the `message` field in a `message.send` WebSocket event. |
 | `PEEN_MAX_SYSTEM_PROMPT_BYTES` | `65536` | Bounds `systemPrompt.content`. |
 | `PEEN_MAX_STORED_MESSAGE_BYTES` | `1048576` | Bounds any stored message row of any role, since an assistant or tool message is not bounded by a caller-facing setting. |
 

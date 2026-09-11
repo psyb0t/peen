@@ -4,6 +4,7 @@ package realtest
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,6 +25,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
+	dabluveees "github.com/psyb0t/aichteeteapee/serbewr/dabluvee-es"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/stretchr/testify/assert"
@@ -44,6 +47,7 @@ const (
 	realHarnessLoopback           = "127.0.0.1:0"
 	realHarnessAPIPath            = "/v1"
 	realHarnessMessagesPath       = realHarnessAPIPath + "/messages"
+	realHarnessWebSocketPath      = realHarnessAPIPath + "/ws"
 	realHarnessSessionPath        = realHarnessAPIPath + "/session"
 	realHarnessEventsPath         = realHarnessSessionPath + "/events"
 	realHarnessAgentRunsPath      = realHarnessSessionPath + "/agents"
@@ -54,6 +58,12 @@ const (
 	realHarnessContentType        = "Content-Type"
 	realHarnessBearerPrefix       = "Bearer "
 	realHarnessJSONMediaType      = "application/json"
+	realHarnessWebSocketSessionID = "sessionId"
+	realHarnessWebSocketProtocol  = "peen.v1"
+	realHarnessWebSocketBearer    = "peen.bearer."
+	realHarnessMessageSendEvent   = "message.send"
+	realHarnessMessageCompleted   = "message.completed"
+	realHarnessMessageFailed      = "message.failed"
 	realHarnessRootAgent          = "default"
 	realHarnessSkill              = "fixture-service"
 	realHarnessReviewer           = "fixture-reviewer"
@@ -65,6 +75,7 @@ const (
 	realHarnessHookHelperEnv      = "PEEN_REAL_HOOK_HELPER"
 	realHarnessHookHelperEnabled  = "enabled"
 	realHarnessReadMarker         = "read-observed"
+	realHarnessTaskMessage        = `This is an execution task with mandatory tool-call acceptance criteria, not a request for advice. Do not return a final answer until all criteria below have completed successfully. In this exact order: (1) call use_skill with fixture-service; (2) call launch_agent with fixture-reviewer, asking it to inspect internal/status/status.go and internal/status/status_test.go without changes; (3) after the child returns, call read_file yourself for each of those two paths; (4) call apply_patch, and only apply_patch, to make Label return "ready" and make the test expect "ready"; (5) call run_command with exactly "go test ./..." from this workspace. Do not alter any other path.`
 
 	realHarnessConfigRuleMarker    = "REAL_HARNESS_CONFIG_RULE_MARKER"
 	realHarnessWorkspaceRuleMarker = "REAL_HARNESS_WORKSPACE_RULE_MARKER"
@@ -122,6 +133,15 @@ func (b *synchronizedBuffer) String() string {
 type realHarnessPromptRecord struct {
 	markers map[string]bool
 	roles   map[string]int
+}
+
+type realHarnessWebSocketMessage struct {
+	Message   string `json:"message"`
+	Workspace string `json:"workspace"`
+}
+
+type realHarnessWebSocketMessageResult struct {
+	Queued bool `json:"queued"`
 }
 
 type realHarnessProviderProxy struct {
@@ -634,42 +654,91 @@ func sendRealHarnessMessage(
 ) uuid.UUID {
 	t.Helper()
 
-	payload, err := json.Marshal(api.MessageRequest{
-		Message:   `This is an execution task with mandatory tool-call acceptance criteria, not a request for advice. Do not return a final answer until all criteria below have completed successfully. In this exact order: (1) call use_skill with fixture-service; (2) call launch_agent with fixture-reviewer, asking it to inspect internal/status/status.go and internal/status/status_test.go without changes; (3) after the child returns, call read_file yourself for each of those two paths; (4) call apply_patch, and only apply_patch, to make Label return "ready" and make the test expect "ready"; (5) call run_command with exactly "go test ./..." from this workspace. Do not alter any other path.`,
-		Workspace: &workspace,
-	})
-	require.NoError(t, err)
-
-	request, err := http.NewRequest(
-		http.MethodPost,
-		process.baseURL+realHarnessMessagesPath,
-		bytes.NewReader(payload),
-	)
-	require.NoError(t, err)
-	request.Header.Set(realHarnessContentType, realHarnessJSONMediaType)
-	request.Header.Set(
-		realHarnessAuthorization,
-		realHarnessBearerPrefix+process.apiToken,
-	)
-
-	response, err := http.DefaultClient.Do(request)
-	require.NoError(t, err)
-	defer func() { require.NoError(t, response.Body.Close()) }()
-	responseBody, err := io.ReadAll(response.Body)
-	require.NoError(t, err)
-	require.Equalf(
-		t,
-		http.StatusOK,
-		response.StatusCode,
-		"message response: %s\nPeen output:\n%s",
-		string(responseBody),
-		process.output.String(),
-	)
-
-	sessionID, err := uuid.Parse(response.Header.Get(realHarnessSessionIDHeader))
-	require.NoError(t, err)
+	sessionID := uuid.New()
+	connection := dialRealHarnessWebSocket(t, process, sessionID)
+	t.Cleanup(func() { require.NoError(t, connection.Close()) })
+	require.NoError(t, connection.WriteJSON(dabluveees.NewEvent(
+		realHarnessMessageSendEvent,
+		realHarnessWebSocketMessage{
+			Message:   realHarnessTaskMessage,
+			Workspace: workspace,
+		},
+	)))
+	awaitRealHarnessWebSocketCompletion(t, process, connection)
 
 	return sessionID
+}
+
+func dialRealHarnessWebSocket(
+	t *testing.T,
+	process *runningRealHarnessPeen,
+	sessionID uuid.UUID,
+) *websocket.Conn {
+	t.Helper()
+
+	endpoint, err := url.Parse(process.baseURL)
+	require.NoError(t, err)
+	endpoint.Scheme = "ws"
+	endpoint.Path = realHarnessWebSocketPath
+	query := endpoint.Query()
+	query.Set(realHarnessWebSocketSessionID, sessionID.String())
+	endpoint.RawQuery = query.Encode()
+
+	dialer := websocket.Dialer{
+		HandshakeTimeout: realHarnessStartupTimeout,
+		Subprotocols: []string{
+			realHarnessWebSocketProtocol,
+			realHarnessWebSocketBearer + base64.RawURLEncoding.EncodeToString(
+				[]byte(process.apiToken),
+			),
+		},
+	}
+	connection, response, err := dialer.Dial(endpoint.String(), nil)
+	if response != nil {
+		t.Cleanup(func() { require.NoError(t, response.Body.Close()) })
+	}
+	require.NoErrorf(t, err, "Peen output:\n%s", process.output.String())
+	require.Equal(t, realHarnessWebSocketProtocol, connection.Subprotocol())
+
+	return connection
+}
+
+func awaitRealHarnessWebSocketCompletion(
+	t *testing.T,
+	process *runningRealHarnessPeen,
+	connection *websocket.Conn,
+) {
+	t.Helper()
+
+	require.NoError(t, connection.SetReadDeadline(
+		time.Now().Add(realHarnessTestTimeout),
+	))
+	for {
+		event := dabluveees.Event{}
+		require.NoErrorf(
+			t,
+			connection.ReadJSON(&event),
+			"Peen output:\n%s",
+			process.output.String(),
+		)
+
+		switch event.Type {
+		case realHarnessMessageCompleted:
+			result := realHarnessWebSocketMessageResult{}
+			require.NoError(t, json.Unmarshal(event.Data, &result))
+			require.False(t, result.Queued)
+
+			return
+		case realHarnessMessageFailed:
+			require.Failf(
+				t,
+				"WebSocket message failed",
+				"event=%s Peen output:\n%s",
+				event.Data,
+				process.output.String(),
+			)
+		}
+	}
 }
 
 func assertRealHarnessFiles(t *testing.T, fixture realHarnessFixture) {

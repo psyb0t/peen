@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Peen API
   version: 1.0.0
-  description: Stateful agent sessions over JSON or Server-Sent Events.
+  description: Stateful agent sessions with durable JSON reads and WebSocket turns.
 servers:
   - url: /v1
 security:
@@ -10,55 +10,6 @@ security:
   - {}
 paths:
   /messages:
-    post:
-      operationId: sendMessage
-      summary: Run one agent turn or queue an active session message
-      parameters:
-        - $ref: '#/components/parameters/SessionIDOptional'
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/MessageRequest'
-      responses:
-        '200':
-          description: Completed turn or live turn event stream
-          headers:
-            X-Session-ID:
-              $ref: '#/components/headers/SessionID'
-            X-Request-ID:
-              $ref: '#/components/headers/RequestID'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MessageResponse'
-            text/event-stream:
-              schema:
-                type: string
-        '202':
-          description: Message accepted for the current active turn
-          headers:
-            X-Session-ID:
-              $ref: '#/components/headers/SessionID'
-            X-Request-ID:
-              $ref: '#/components/headers/RequestID'
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MessageQueuedResponse'
-        '400':
-          $ref: '#/components/responses/ErrorBadRequest'
-        '401':
-          $ref: '#/components/responses/ErrorUnauthorized'
-        '404':
-          $ref: '#/components/responses/ErrorNotFound'
-        '406':
-          $ref: '#/components/responses/ErrorNotAcceptable'
-        '409':
-          $ref: '#/components/responses/ErrorConflict'
-        '500':
-          $ref: '#/components/responses/ErrorInternal'
     get:
       operationId: listMessages
       summary: List stored conversation messages
@@ -521,12 +472,6 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
-    ErrorNotAcceptable:
-      description: Unsupported response representation
-      content:
-        application/json:
-          schema:
-            $ref: '#/components/schemas/Error'
     ErrorConflict:
       description: Turn cannot run in its current state
       content:
@@ -540,47 +485,6 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
   schemas:
-    MessageRequest:
-      type: object
-      additionalProperties: false
-      required: [message]
-      properties:
-        message:
-          type: string
-          minLength: 1
-        workspace:
-          type: string
-          minLength: 1
-        model:
-          type: string
-          minLength: 1
-        systemPrompt:
-          $ref: '#/components/schemas/SystemPrompt'
-    SystemPrompt:
-      type: object
-      additionalProperties: false
-      required: [mode, content]
-      properties:
-        mode:
-          type: string
-          enum: [append, replace]
-        content:
-          type: string
-          minLength: 1
-    MessageResponse:
-      type: object
-      additionalProperties: false
-      required: [message]
-      properties:
-        message:
-          type: string
-    MessageQueuedResponse:
-      type: object
-      additionalProperties: false
-      required: [queued]
-      properties:
-        queued:
-          type: boolean
     Message:
       type: object
       additionalProperties: false

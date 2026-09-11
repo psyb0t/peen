@@ -58,8 +58,8 @@ type Config struct {
 	// running turn. They are delivered at an eligible provider round boundary.
 	MaxQueuedUserMessages int `default:"16" env:"PEEN_MAX_QUEUED_USER_MESSAGES"` //nolint:lll // Immutable env tag.
 
-	// MaxMessageBytes bounds a caller-supplied POST /v1/messages "message"
-	// field. MaxSystemPromptBytes bounds its optional
+	// MaxMessageBytes bounds the caller-supplied "message" field in a
+	// message.send event. MaxSystemPromptBytes bounds its optional
 	// "systemPrompt.content" field. MaxStoredMessageBytes bounds any single
 	// message row, of any role, before it is written to the durable
 	// transcript, since a stored assistant or tool message is not otherwise

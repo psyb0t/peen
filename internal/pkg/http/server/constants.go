@@ -33,15 +33,15 @@ const (
 	webSocketSessionIDParameter = "sessionId"
 	webSocketClientIDParameter  = "clientID"
 	webSocketSubprotocol        = "peen.v1"
+	webSocketMetadataSessionID  = "sessionId"
+	webSocketMetadataRequestID  = "requestId"
 	//nolint:gosec // Public protocol label, not a credential.
 	webSocketBearerSubprotocolPrefix   = "peen.bearer."
 	webSocketMessageSendEventType      = "message.send"
-	webSocketAgentEventType            = "agent.event"
 	webSocketMessageCompletedEventType = "message.completed"
 	webSocketMessageFailedEventType    = "message.failed"
 
 	mediaTypeJSON = aichteeteapee.ContentTypeJSON
-	mediaTypeSSE  = aichteeteapee.ContentTypeTextEventStream
 	mediaTypeAny  = "*/*"
 
 	internalServerErrorMessage      = "internal server error"
@@ -67,7 +67,3 @@ const (
 
 	maximumRequestBodyBytes int64 = 1 << 20
 )
-
-type contextKey string
-
-const streamContextKey contextKey = "stream"

@@ -6,21 +6,17 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"slices"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/aichteeteapee"
-	"github.com/psyb0t/essessey"
-	essesseysse "github.com/psyb0t/essessey/sse"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	server "github.com/psyb0t/peen/internal/pkg/http/server"
 	"github.com/psyb0t/peen/tests/testinfra"
@@ -34,13 +30,10 @@ const (
 	sessionPath           = apiBasePath + "/session"
 	sessionCancelPath     = sessionPath + "/cancel"
 	headerAuthorization   = "Authorization"
-	headerAccept          = "Accept"
 	headerContentType     = "Content-Type"
-	headerRequestID       = "X-Request-ID"
 	headerSessionID       = "X-Session-ID"
 	bearerPrefix          = "Bearer "
 	jsonMediaType         = "application/json"
-	eventStreamMediaType  = "text/event-stream"
 	integrationTimeout    = 5 * time.Minute
 	requestTimeout        = 30 * time.Second
 	apiTestRestartTimeout = 30 * time.Second
@@ -55,11 +48,6 @@ const (
 	apiTestQueuedMessage        = "queue this message for the active turn"
 	apiTestQueuedPageLimit      = 4
 	apiTestQueuedPageOffset     = 2
-
-	// apiTestChatStatusEvent is the advisory progress frame. It is not one of
-	// essessey's seven content-block types because it describes the stream
-	// rather than the message.
-	apiTestChatStatusEvent = "chat_status"
 )
 
 var integrationInfra *testinfra.Infra
@@ -102,44 +90,18 @@ func TestAPIMessageSessionAndPagination(t *testing.T) {
 		"second request",
 		"third request",
 	}
-	expectedContents := make([]string, 0, len(requestMessages)*2)
-	sessionID := uuid.Nil
-	providedRequestID := uuid.New()
+	sessionID := uuid.New()
 
+	for _, message := range requestMessages {
+		result := sendAPIWebSocketMessage(t, sessionID, message)
+		assert.False(t, result.result.Queued)
+	}
+	allMessages := listMessages(t, sessionID, 10, 0, "asc")
+	expectedContents := apiMessageContents(allMessages.Items)
+	require.Len(t, expectedContents, len(requestMessages)*2)
 	for index, message := range requestMessages {
-		headers := authenticatedHeaders()
-		if index == 0 {
-			headers[headerRequestID] = providedRequestID.String()
-		} else {
-			headers[headerSessionID] = sessionID.String()
-		}
-
-		response := apiRequest(
-			t,
-			http.MethodPost,
-			messagesPath,
-			messageJSON(t, message),
-			headers,
-		)
-		requireAPIStatus(t, response, http.StatusOK)
-		if index == 0 {
-			assert.Equal(
-				t,
-				providedRequestID.String(),
-				response.Header.Get(headerRequestID),
-			)
-		}
-
-		responseSessionID := responseSessionID(t, response)
-		if index == 0 {
-			sessionID = responseSessionID
-		} else {
-			assert.Equal(t, sessionID, responseSessionID)
-		}
-
-		result := decodeResponse[api.MessageResponse](t, response)
-		assert.NotEmpty(t, result.Message)
-		expectedContents = append(expectedContents, message, result.Message)
+		assert.Equal(t, message, expectedContents[index*2])
+		assert.NotEmpty(t, expectedContents[index*2+1])
 	}
 
 	session := getSession(t, sessionID)
@@ -207,67 +169,31 @@ func TestAPIMessageSessionAndPagination(t *testing.T) {
 	assert.False(t, descending.HasMore)
 }
 
-func TestAPIStreamsAndPersistsTurn(t *testing.T) {
-	response := apiRequest(
+func TestAPIWebSocketStreamsAndPersistsTurn(t *testing.T) {
+	sessionID := uuid.New()
+	observation := sendAPIWebSocketMessage(t, sessionID, "stream this request")
+	assert.Contains(
 		t,
-		http.MethodPost,
-		messagesPath,
-		messageJSON(t, "stream this request"),
-		withHeader(authenticatedHeaders(), headerAccept, eventStreamMediaType),
+		observation.agentEventTypes,
+		apiTestWebSocketTurnStarted,
 	)
-	requireAPIStatus(t, response, http.StatusOK)
-	assert.True(
+	assert.Contains(
 		t,
-		strings.HasPrefix(response.Header.Get(headerContentType), eventStreamMediaType),
+		observation.agentEventTypes,
+		apiTestWebSocketContentBlockDelta,
 	)
-	sessionID := responseSessionID(t, response)
-
-	source := essesseysse.NewSource(response.Body)
-	events := readSSEEvents(t, source)
-	require.NoError(t, response.Body.Close())
-	assert.Equal(
+	assert.Contains(
 		t,
-		[]essessey.EventType{
-			// Advisory chat_status frames bracket the message. They carry
-			// Chatz's own event names, and a client that only understands the
-			// seven content-block types ignores them.
-			apiTestChatStatusEvent,
-			essessey.EventTypeMessageStart,
-			essessey.EventTypePing,
-			apiTestChatStatusEvent,
-			apiTestChatStatusEvent,
-			essessey.EventTypeContentBlockStart,
-			essessey.EventTypeContentBlockDelta,
-			essessey.EventTypeContentBlockStop,
-			essessey.EventTypeContentBlockStart,
-			essessey.EventTypeContentBlockDelta,
-			essessey.EventTypeContentBlockStop,
-			essessey.EventTypeMessageDelta,
-			essessey.EventTypeMessageStop,
-		},
-		streamEventTypes(events),
+		observation.agentEventTypes,
+		apiTestWebSocketTurnCompleted,
 	)
-
-	parsed := essessey.Reassemble(
-		t.Context(),
-		essessey.NewSliceSource(events),
-	)
-	require.Empty(t, parsed.Error)
-	assert.Equal(t, testinfra.DefaultProviderReasoning, parsed.Thinking)
-	require.Len(t, parsed.Timeline, 2)
-	assert.Equal(t, essessey.TimelineKindThinking, parsed.Timeline[0].Kind)
-	assert.Equal(t, testinfra.DefaultProviderReasoning, parsed.Timeline[0].Text)
-	assert.Equal(t, essessey.TimelineKindText, parsed.Timeline[1].Kind)
 
 	page := listMessages(t, sessionID, 10, 0, "asc")
 	require.Len(t, page.Items, 2)
 	assert.Equal(t, "stream this request", page.Items[0].Content)
-	assert.True(
-		t,
-		strings.HasPrefix(page.Items[1].Content, "integration completion "),
-	)
-	assert.Equal(t, page.Items[1].Content, parsed.Text)
-	assert.Equal(t, page.Items[1].Content, parsed.Timeline[1].Text)
+	assert.NotEmpty(t, page.Items[1].Content)
+	require.NotNil(t, page.Items[1].Thinking)
+	assert.Equal(t, testinfra.DefaultProviderReasoning, *page.Items[1].Thinking)
 }
 
 func TestMetricsAreOnlyAvailableOnThePrivateListener(t *testing.T) {
@@ -299,16 +225,8 @@ func TestProductionImageRestartsWithDurableStateAndFreshHarness(t *testing.T) {
 		[]byte(apiTestInitialRules),
 	))
 
-	initialResponse := apiRequest(
-		t,
-		http.MethodPost,
-		messagesPath,
-		messageJSON(t, apiTestRestartMessage),
-		authenticatedHeaders(),
-	)
-	requireAPIStatus(t, initialResponse, http.StatusOK)
-	sessionID := responseSessionID(t, initialResponse)
-	_ = decodeResponse[api.MessageResponse](t, initialResponse)
+	sessionID := uuid.New()
+	_ = sendAPIWebSocketMessage(t, sessionID, apiTestRestartMessage)
 
 	restartContext, cancelRestart := context.WithTimeout(
 		t.Context(),
@@ -326,39 +244,23 @@ func TestProductionImageRestartsWithDurableStateAndFreshHarness(t *testing.T) {
 		apiTestWorkspaceRulesFile,
 		[]byte(apiTestUpdatedRules),
 	))
-	reloadedResponse := apiRequest(
-		t,
-		http.MethodPost,
-		messagesPath,
-		messageJSON(t, apiTestReloadMessage),
-		withHeader(authenticatedHeaders(), headerSessionID, sessionID.String()),
-	)
-	requireAPIStatus(t, reloadedResponse, http.StatusOK)
-	_ = decodeResponse[api.MessageResponse](t, reloadedResponse)
+	_ = sendAPIWebSocketMessage(t, sessionID, apiTestReloadMessage)
 	assert.Contains(t, integrationInfra.LastSystemPrompt(), apiTestUpdatedRules)
 }
 
 func TestAPICancelsActiveTurn(t *testing.T) {
-	initialResponse := apiRequest(
-		t,
-		http.MethodPost,
-		messagesPath,
-		messageJSON(t, "create cancellable session"),
-		authenticatedHeaders(),
-	)
-	requireAPIStatus(t, initialResponse, http.StatusOK)
-	_ = decodeResponse[api.MessageResponse](t, initialResponse)
-	sessionID := responseSessionID(t, initialResponse)
+	sessionID := createAPIWebSocketSession(t, "create cancellable session")
 
 	hold, err := integrationInfra.HoldNextCompletion()
 	require.NoError(t, err)
 	t.Cleanup(hold.Release)
 
-	blockedRequest := messageJSON(t, "block this request")
-	responseDone := make(chan apiCallResult, 1)
-	go func() {
-		responseDone <- sendMessageRequest(sessionID, blockedRequest)
-	}()
+	connection := dialAPIWebSocket(t, sessionID)
+	t.Cleanup(func() { require.NoError(t, connection.Close()) })
+	require.NoError(t, writeAPIWebSocketMessage(
+		connection,
+		"block this request",
+	))
 
 	select {
 	case <-hold.Observed:
@@ -381,15 +283,8 @@ func TestAPICancelsActiveTurn(t *testing.T) {
 	cancelResult := decodeResponse[api.CancelResponse](t, cancelResponse)
 	assert.True(t, cancelResult.CancelRequested)
 
-	select {
-	case result := <-responseDone:
-		require.NoError(t, result.err)
-		require.NotNil(t, result.response)
-		requireAPIStatus(t, result.response, http.StatusConflict)
-		assertErrorCode(t, result.response, server.ErrorCodeTurnCancelled)
-	case <-time.After(requestTimeout):
-		t.Fatal("cancelled message request did not finish")
-	}
+	failure := awaitAPIWebSocketFailure(t, connection)
+	assert.Equal(t, string(server.ErrorCodeTurnCancelled), failure.Code)
 
 	require.Eventually(t, func() bool {
 		return !getSession(t, sessionID).ActiveTurn
@@ -397,26 +292,18 @@ func TestAPICancelsActiveTurn(t *testing.T) {
 }
 
 func TestAPIQueuesMessageForActiveTurn(t *testing.T) {
-	initialResponse := apiRequest(
-		t,
-		http.MethodPost,
-		messagesPath,
-		messageJSON(t, apiTestQueuedSessionMessage),
-		authenticatedHeaders(),
-	)
-	requireAPIStatus(t, initialResponse, http.StatusOK)
-	_ = decodeResponse[api.MessageResponse](t, initialResponse)
-	sessionID := responseSessionID(t, initialResponse)
+	sessionID := createAPIWebSocketSession(t, apiTestQueuedSessionMessage)
 
 	hold, err := integrationInfra.HoldNextCompletion()
 	require.NoError(t, err)
 	t.Cleanup(hold.Release)
 
-	activeRequest := messageJSON(t, apiTestActiveTurnMessage)
-	responseDone := make(chan apiCallResult, 1)
-	go func() {
-		responseDone <- sendMessageRequest(sessionID, activeRequest)
-	}()
+	connection := dialAPIWebSocket(t, sessionID)
+	t.Cleanup(func() { require.NoError(t, connection.Close()) })
+	require.NoError(t, writeAPIWebSocketMessage(
+		connection,
+		apiTestActiveTurnMessage,
+	))
 
 	select {
 	case <-hold.Observed:
@@ -428,43 +315,24 @@ func TestAPIQueuesMessageForActiveTurn(t *testing.T) {
 		return getSession(t, sessionID).ActiveTurn
 	}, requestTimeout, 10*time.Millisecond)
 
-	queuedResponse := apiRequest(
-		t,
-		http.MethodPost,
-		messagesPath,
-		messageJSON(t, apiTestQueuedMessage),
-		withHeader(
-			withHeader(
-				authenticatedHeaders(),
-				headerSessionID,
-				sessionID.String(),
-			),
-			headerAccept,
-			eventStreamMediaType,
-		),
-	)
-	requireAPIStatus(t, queuedResponse, http.StatusAccepted)
-	assert.True(
-		t,
-		strings.HasPrefix(
-			queuedResponse.Header.Get(headerContentType),
-			jsonMediaType,
-		),
-	)
-	queued := decodeResponse[api.MessageQueuedResponse](t, queuedResponse)
-	assert.True(t, queued.Queued)
+	queuedConnection := dialAPIWebSocket(t, sessionID)
+	t.Cleanup(func() { require.NoError(t, queuedConnection.Close()) })
+	require.NoError(t, writeAPIWebSocketMessage(
+		queuedConnection,
+		apiTestQueuedMessage,
+	))
+
+	activeQueued := awaitAPIWebSocketCompletion(t, connection, true)
+	queued := awaitAPIWebSocketCompletion(t, queuedConnection, true)
+	assert.Equal(t, activeQueued.result, queued.result)
+	assert.True(t, queued.result.Queued)
 
 	hold.Release()
 
-	select {
-	case result := <-responseDone:
-		require.NoError(t, result.err)
-		require.NotNil(t, result.response)
-		requireAPIStatus(t, result.response, http.StatusOK)
-		_ = decodeResponse[api.MessageResponse](t, result.response)
-	case <-time.After(requestTimeout):
-		t.Fatal("active turn did not finish after queued message delivery")
-	}
+	activeCompleted := awaitAPIWebSocketCompletion(t, connection, false)
+	queuedCompleted := awaitAPIWebSocketCompletion(t, queuedConnection, false)
+	assert.Equal(t, activeCompleted.result, queuedCompleted.result)
+	assert.False(t, activeCompleted.result.Queued)
 
 	page := listMessages(
 		t,
@@ -480,52 +348,47 @@ func TestAPIQueuesMessageForActiveTurn(t *testing.T) {
 	assert.Equal(t, api.MessageRoleAssistant, page.Items[3].Role)
 }
 
+func TestAPIDoesNotSubmitMessagesOverHTTP(t *testing.T) {
+	response := apiRequest(
+		t,
+		http.MethodPost,
+		messagesPath,
+		nil,
+		authenticatedHeaders(),
+	)
+	require.Equal(t, http.StatusMethodNotAllowed, response.StatusCode)
+	require.NoError(t, response.Body.Close())
+}
+
 func TestAPIReturnsDocumentedErrorEnvelopes(t *testing.T) {
 	unknownSessionID := uuid.New()
 	testCases := []struct {
 		name       string
 		method     string
 		path       string
-		body       []byte
 		headers    map[string]string
 		wantStatus int
 		wantCode   aichteeteapee.ErrorCode
 	}{
 		{
 			name:       "missing bearer token",
-			method:     http.MethodPost,
+			method:     http.MethodGet,
 			path:       messagesPath,
-			body:       messageJSON(t, "authenticate this"),
-			headers:    map[string]string{headerContentType: jsonMediaType},
+			headers:    map[string]string{headerSessionID: unknownSessionID.String()},
 			wantStatus: http.StatusUnauthorized,
 			wantCode:   aichteeteapee.ErrorCodeUnauthorized,
 		},
 		{
-			name:       "wrong bearer token",
-			method:     http.MethodPost,
-			path:       messagesPath,
-			body:       messageJSON(t, "authenticate this"),
-			headers:    withHeader(authenticatedHeaders(), headerAuthorization, bearerPrefix+"wrong"),
+			name:   "wrong bearer token",
+			method: http.MethodGet,
+			path:   messagesPath,
+			headers: withHeader(
+				withHeader(authenticatedHeaders(), headerAuthorization, bearerPrefix+"wrong"),
+				headerSessionID,
+				unknownSessionID.String(),
+			),
 			wantStatus: http.StatusUnauthorized,
 			wantCode:   aichteeteapee.ErrorCodeUnauthorized,
-		},
-		{
-			name:       "empty message",
-			method:     http.MethodPost,
-			path:       messagesPath,
-			body:       []byte(`{"message":""}`),
-			headers:    authenticatedHeaders(),
-			wantStatus: http.StatusBadRequest,
-			wantCode:   aichteeteapee.ErrorCodeValidationFailed,
-		},
-		{
-			name:       "unsupported response representation",
-			method:     http.MethodPost,
-			path:       messagesPath,
-			body:       messageJSON(t, "plain text is unsupported"),
-			headers:    withHeader(authenticatedHeaders(), headerAccept, "text/plain"),
-			wantStatus: http.StatusNotAcceptable,
-			wantCode:   aichteeteapee.ErrorCodeBadRequest,
 		},
 		{
 			name:       "unknown session",
@@ -555,46 +418,12 @@ func TestAPIReturnsDocumentedErrorEnvelopes(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			response := apiRequest(t, tc.method, tc.path, tc.body, tc.headers)
+			response := apiRequest(t, tc.method, tc.path, nil, tc.headers)
 
 			assert.Equal(t, tc.wantStatus, response.StatusCode)
 			assertErrorCode(t, response, tc.wantCode)
 		})
 	}
-}
-
-type apiCallResult struct {
-	response *http.Response
-	err      error
-}
-
-func sendMessageRequest(sessionID uuid.UUID, body []byte) apiCallResult {
-	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
-	defer cancel()
-
-	request, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodPost,
-		integrationInfra.APIURL(messagesPath),
-		bytes.NewReader(body),
-	)
-	if err != nil {
-		return apiCallResult{err: err}
-	}
-	for header, value := range withHeader(
-		authenticatedHeaders(),
-		headerSessionID,
-		sessionID.String(),
-	) {
-		request.Header.Set(header, value)
-	}
-
-	response, err := integrationInfra.HTTPClient().Do(request)
-	if err != nil {
-		return apiCallResult{err: err}
-	}
-
-	return apiCallResult{response: response}
 }
 
 func getSession(t *testing.T, sessionID uuid.UUID) api.Session {
@@ -655,6 +484,10 @@ func apiRequest(
 	)
 	require.NoError(t, err)
 	for header, value := range headers {
+		if body == nil && header == headerContentType {
+			continue
+		}
+
 		request.Header.Set(header, value)
 	}
 
@@ -662,16 +495,6 @@ func apiRequest(
 	require.NoError(t, err)
 
 	return response
-}
-
-func responseSessionID(t *testing.T, response *http.Response) uuid.UUID {
-	t.Helper()
-
-	sessionID, err := uuid.Parse(response.Header.Get(headerSessionID))
-	require.NoError(t, err)
-	require.NotEqual(t, uuid.Nil, sessionID)
-
-	return sessionID
 }
 
 func decodeResponse[T any](t *testing.T, response *http.Response) T {
@@ -763,15 +586,6 @@ func mapsClone(headers map[string]string) map[string]string {
 	return updated
 }
 
-func messageJSON(t *testing.T, message string) []byte {
-	t.Helper()
-
-	encoded, err := json.Marshal(api.MessageRequest{Message: message})
-	require.NoError(t, err)
-
-	return encoded
-}
-
 func apiMessageContents(messages []api.Message) []string {
 	contents := make([]string, 0, len(messages))
 	for _, message := range messages {
@@ -779,28 +593,4 @@ func apiMessageContents(messages []api.Message) []string {
 	}
 
 	return contents
-}
-
-func readSSEEvents(t *testing.T, source essessey.Source) []essessey.Event {
-	t.Helper()
-
-	events := make([]essessey.Event, 0)
-	for {
-		event, err := source.Next(context.Background())
-		if errors.Is(err, essessey.ErrNoMoreEvents) {
-			return events
-		}
-
-		require.NoError(t, err)
-		events = append(events, event)
-	}
-}
-
-func streamEventTypes(events []essessey.Event) []essessey.EventType {
-	types := make([]essessey.EventType, 0, len(events))
-	for _, event := range events {
-		types = append(types, event.Event)
-	}
-
-	return types
 }

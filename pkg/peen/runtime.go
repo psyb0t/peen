@@ -29,8 +29,8 @@ const (
 // Runtime is Peen's embedding surface over the internal agent runtime.
 //
 // The public package sketch calls for a type alias to the internal runtime,
-// but agent.Runtime's exported method set includes SendMessage, StreamMessage,
-// ListSessionJobs, CancelSessionAgentRun, ShutdownJobs, and more: aliasing it
+// but agent.Runtime's exported method set includes RunMessage, ListSessionJobs,
+// CancelSessionAgentRun, ShutdownJobs, and more: aliasing it
 // would expose all of that, the opposite of the deliberately small surface
 // this package promises. Wrapping the internal runtime behind an unexported
 // field is how that narrow surface is actually delivered.

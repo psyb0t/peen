@@ -8,9 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/aichteeteapee"
-	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
-	"github.com/psyb0t/elelem"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 )
 
@@ -95,45 +93,6 @@ func isInvalidSessionIDError(err error) bool {
 	}
 
 	return false
-}
-
-//nolint:ireturn // Generated strict handler response interface.
-func mapSendMessageError(err error) (api.SendMessageResponseObject, bool) {
-	switch {
-	case errors.Is(err, commerr.ErrNotFound):
-		return api.SendMessage404JSONResponse{
-			ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-				sessionNotFoundError(),
-			),
-		}, true
-	case errors.Is(err, commerr.ErrValidationFailed),
-		errors.Is(err, commerr.ErrRequiredFieldNotSet):
-		return api.SendMessage400JSONResponse{
-			ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(
-				validationError(clientMessage(err)),
-			),
-		}, true
-	case errors.Is(err, commerr.ErrCancelled):
-		return api.SendMessage409JSONResponse{
-			ErrorConflictJSONResponse: api.ErrorConflictJSONResponse(
-				turnCancelledError(),
-			),
-		}, true
-	case errors.Is(err, elelem.ErrUserMessageQueueFull):
-		return api.SendMessage409JSONResponse{
-			ErrorConflictJSONResponse: api.ErrorConflictJSONResponse(
-				userMessageQueueFullError(),
-			),
-		}, true
-	case errors.Is(err, commerr.ErrConflict):
-		return api.SendMessage409JSONResponse{
-			ErrorConflictJSONResponse: api.ErrorConflictJSONResponse(
-				sessionBusyError("session already has an active turn"),
-			),
-		}, true
-	default:
-		return nil, false
-	}
 }
 
 func validationError(message string) api.Error {

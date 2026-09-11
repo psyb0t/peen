@@ -1,7 +1,6 @@
 package dabluveees
 
 import (
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -30,14 +29,6 @@ func NewUpgradeHandlerConfig() UpgradeHandlerConfig {
 		Subprotocols: []string{},
 		CheckOrigin:  aichteeteapee.GetDefaultWebSocketCheckOrigin,
 	}
-
-	slog.Debug(
-		"created websocket handler config with defaults",
-		aichteeteapee.FieldReadBufferSize, config.ReadBufferSize,
-		aichteeteapee.FieldWriteBufferSize, config.WriteBufferSize,
-		aichteeteapee.FieldHandshakeTimeout, config.HandshakeTimeout,
-		aichteeteapee.FieldEnableCompression, config.EnableCompression,
-	)
 
 	return config
 }

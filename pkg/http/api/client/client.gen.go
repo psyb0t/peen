@@ -255,24 +255,6 @@ func (e SessionEventRequestDelivery) Valid() bool {
 	}
 }
 
-// Defines values for SystemPromptMode.
-const (
-	SystemPromptModeAppend  SystemPromptMode = "append"
-	SystemPromptModeReplace SystemPromptMode = "replace"
-)
-
-// Valid indicates whether the value is a known member of the SystemPromptMode enum.
-func (e SystemPromptMode) Valid() bool {
-	switch e {
-	case SystemPromptModeAppend:
-		return true
-	case SystemPromptModeReplace:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for Order.
 const (
 	OrderAsc  Order = "asc"
@@ -562,24 +544,6 @@ type MessagePage struct {
 	Offset  int32     `json:"offset"`
 }
 
-// MessageQueuedResponse defines model for MessageQueuedResponse.
-type MessageQueuedResponse struct {
-	Queued bool `json:"queued"`
-}
-
-// MessageRequest defines model for MessageRequest.
-type MessageRequest struct {
-	Message      string        `json:"message"`
-	Model        *string       `json:"model,omitempty"`
-	SystemPrompt *SystemPrompt `json:"systemPrompt,omitempty"`
-	Workspace    *string       `json:"workspace,omitempty"`
-}
-
-// MessageResponse defines model for MessageResponse.
-type MessageResponse struct {
-	Message string `json:"message"`
-}
-
 // MessageToolCall defines model for MessageToolCall.
 type MessageToolCall struct {
 	Arguments map[string]interface{} `json:"arguments"`
@@ -639,15 +603,6 @@ type SessionEventRequest struct {
 // SessionEventRequestDelivery queue waits for the next turn. wake starts a turn when the session is idle and .agents/events declares a handler for this type.
 type SessionEventRequestDelivery string
 
-// SystemPrompt defines model for SystemPrompt.
-type SystemPrompt struct {
-	Content string           `json:"content"`
-	Mode    SystemPromptMode `json:"mode"`
-}
-
-// SystemPromptMode defines model for SystemPrompt.Mode.
-type SystemPromptMode string
-
 // AgentRunID defines model for AgentRunID.
 type AgentRunID = openapi_types.UUID
 
@@ -663,23 +618,14 @@ type Offset = int32
 // Order defines model for Order.
 type Order string
 
-// SessionIDOptional defines model for SessionIDOptional.
-type SessionIDOptional = openapi_types.UUID
-
 // SessionIDRequired defines model for SessionIDRequired.
 type SessionIDRequired = openapi_types.UUID
 
 // ErrorBadRequest defines model for ErrorBadRequest.
 type ErrorBadRequest = Error
 
-// ErrorConflict defines model for ErrorConflict.
-type ErrorConflict = Error
-
 // ErrorInternal defines model for ErrorInternal.
 type ErrorInternal = Error
-
-// ErrorNotAcceptable defines model for ErrorNotAcceptable.
-type ErrorNotAcceptable = Error
 
 // ErrorNotFound defines model for ErrorNotFound.
 type ErrorNotFound = Error
@@ -697,11 +643,6 @@ type ListMessagesParams struct {
 
 // ListMessagesParamsOrder defines parameters for ListMessages.
 type ListMessagesParamsOrder string
-
-// SendMessageParams defines parameters for SendMessage.
-type SendMessageParams struct {
-	XSessionID *SessionIDOptional `json:"X-Session-ID,omitempty"`
-}
 
 // GetSessionParams defines parameters for GetSession.
 type GetSessionParams struct {
@@ -773,9 +714,6 @@ type ReadSessionJobOutputParamsStream string
 type SignalSessionJobParams struct {
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
-
-// SendMessageJSONRequestBody defines body for SendMessage for application/json ContentType.
-type SendMessageJSONRequestBody = MessageRequest
 
 // PublishSessionEventJSONRequestBody defines body for PublishSessionEvent for application/json ContentType.
 type PublishSessionEventJSONRequestBody = SessionEventRequest
@@ -862,20 +800,6 @@ type ClientInterface interface {
 	// Corresponds with GET /messages (the `ListMessages` operationId).
 	ListMessages(ctx context.Context, params *ListMessagesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// SendMessageWithBody Run one agent turn or queue an active session message
-	//
-	// Takes any type of body and a specified content type.
-	//
-	// Corresponds with POST /messages (the `SendMessage` operationId).
-	SendMessageWithBody(ctx context.Context, params *SendMessageParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// SendMessage Run one agent turn or queue an active session message
-	//
-	// Takes a body of the `application/json` content type.
-	//
-	// Corresponds with POST /messages (the `SendMessage` operationId).
-	SendMessage(ctx context.Context, params *SendMessageParams, body SendMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// GetSession Read session details
 	//
 	// Corresponds with GET /session (the `GetSession` operationId).
@@ -950,40 +874,6 @@ type ClientInterface interface {
 // Corresponds with GET /messages (the `ListMessages` operationId).
 func (c *Client) ListMessages(ctx context.Context, params *ListMessagesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListMessagesRequest(c.Server, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// SendMessageWithBody Run one agent turn or queue an active session message
-//
-// Takes any type of body and a specified content type.
-//
-// Corresponds with POST /messages (the `SendMessage` operationId).
-func (c *Client) SendMessageWithBody(ctx context.Context, params *SendMessageParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewSendMessageRequestWithBody(c.Server, params, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// SendMessage Run one agent turn or queue an active session message
-//
-// Takes a body of the `application/json` content type.
-//
-// Corresponds with POST /messages (the `SendMessage` operationId).
-func (c *Client) SendMessage(ctx context.Context, params *SendMessageParams, body SendMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewSendMessageRequest(c.Server, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1267,61 +1157,6 @@ func NewListMessagesRequest(server string, params *ListMessagesParams) (*http.Re
 		}
 
 		req.Header.Set("X-Session-ID", headerParam0)
-
-	}
-
-	return req, nil
-}
-
-// NewSendMessageRequest calls the generic SendMessage builder with application/json body
-func NewSendMessageRequest(server string, params *SendMessageParams, body SendMessageJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewSendMessageRequestWithBody(server, params, "application/json", bodyReader)
-}
-
-// NewSendMessageRequestWithBody constructs an http.Request for the SendMessage method, with any body, and a specified content type
-func NewSendMessageRequestWithBody(server string, params *SendMessageParams, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/messages")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	if params != nil {
-
-		if params.XSessionID != nil {
-			var headerParam0 string
-
-			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", *params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
-			if err != nil {
-				return nil, err
-			}
-
-			req.Header.Set("X-Session-ID", headerParam0)
-		}
 
 	}
 
@@ -2037,20 +1872,6 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /messages (the `ListMessages` operationId).
 	ListMessagesWithResponse(ctx context.Context, params *ListMessagesParams, reqEditors ...RequestEditorFn) (*ListMessagesResponse, error)
 
-	// SendMessageWithBodyWithResponse Run one agent turn or queue an active session message
-	//
-	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
-	//
-	// Corresponds with POST /messages (the `SendMessage` operationId).
-	SendMessageWithBodyWithResponse(ctx context.Context, params *SendMessageParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SendMessageResponse, error)
-
-	// SendMessageWithResponse Run one agent turn or queue an active session message
-	//
-	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
-	//
-	// Corresponds with POST /messages (the `SendMessage` operationId).
-	SendMessageWithResponse(ctx context.Context, params *SendMessageParams, body SendMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*SendMessageResponse, error)
-
 	// GetSessionWithResponse Read session details
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -2207,112 +2028,6 @@ func (r ListMessagesResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListMessagesResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-// SendMessageResponse200Headers the declared response headers of an HTTP 200 response for SendMessage
-type SendMessageResponse200Headers struct {
-	XRequestID openapi_types.UUID
-	XSessionID openapi_types.UUID
-}
-
-// SendMessageResponse202Headers the declared response headers of an HTTP 202 response for SendMessage
-type SendMessageResponse202Headers struct {
-	XRequestID openapi_types.UUID
-	XSessionID openapi_types.UUID
-}
-
-type SendMessageResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *MessageResponse
-	// JSON202 the response for an HTTP 202 `application/json` response
-	JSON202 *MessageQueuedResponse
-	// JSON400 the response for an HTTP 400 `application/json` response
-	JSON400 *ErrorBadRequest
-	// JSON401 the response for an HTTP 401 `application/json` response
-	JSON401 *ErrorUnauthorized
-	// JSON404 the response for an HTTP 404 `application/json` response
-	JSON404 *ErrorNotFound
-	// JSON406 the response for an HTTP 406 `application/json` response
-	JSON406 *ErrorNotAcceptable
-	// JSON409 the response for an HTTP 409 `application/json` response
-	JSON409 *ErrorConflict
-	// JSON500 the response for an HTTP 500 `application/json` response
-	JSON500 *ErrorInternal
-	// Headers200 the parsed response headers for an HTTP 200 response
-	Headers200 *SendMessageResponse200Headers
-	// Headers202 the parsed response headers for an HTTP 202 response
-	Headers202 *SendMessageResponse202Headers
-}
-
-// GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r SendMessageResponse) GetJSON200() *MessageResponse {
-	return r.JSON200
-}
-
-// GetJSON202 returns the response for an HTTP 202 `application/json` response
-func (r SendMessageResponse) GetJSON202() *MessageQueuedResponse {
-	return r.JSON202
-}
-
-// GetJSON400 returns the response for an HTTP 400 `application/json` response
-func (r SendMessageResponse) GetJSON400() *ErrorBadRequest {
-	return r.JSON400
-}
-
-// GetJSON401 returns the response for an HTTP 401 `application/json` response
-func (r SendMessageResponse) GetJSON401() *ErrorUnauthorized {
-	return r.JSON401
-}
-
-// GetJSON404 returns the response for an HTTP 404 `application/json` response
-func (r SendMessageResponse) GetJSON404() *ErrorNotFound {
-	return r.JSON404
-}
-
-// GetJSON406 returns the response for an HTTP 406 `application/json` response
-func (r SendMessageResponse) GetJSON406() *ErrorNotAcceptable {
-	return r.JSON406
-}
-
-// GetJSON409 returns the response for an HTTP 409 `application/json` response
-func (r SendMessageResponse) GetJSON409() *ErrorConflict {
-	return r.JSON409
-}
-
-// GetJSON500 returns the response for an HTTP 500 `application/json` response
-func (r SendMessageResponse) GetJSON500() *ErrorInternal {
-	return r.JSON500
-}
-
-// GetBody returns the raw response body bytes
-func (r SendMessageResponse) GetBody() []byte {
-	return r.Body
-}
-
-// Status returns HTTPResponse.Status
-func (r SendMessageResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r SendMessageResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r SendMessageResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -3102,32 +2817,6 @@ func (c *ClientWithResponses) ListMessagesWithResponse(ctx context.Context, para
 	return ParseListMessagesResponse(rsp)
 }
 
-// SendMessageWithBodyWithResponse Run one agent turn or queue an active session message
-//
-// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
-//
-// Corresponds with POST /messages (the `SendMessage` operationId).
-func (c *ClientWithResponses) SendMessageWithBodyWithResponse(ctx context.Context, params *SendMessageParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SendMessageResponse, error) {
-	rsp, err := c.SendMessageWithBody(ctx, params, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseSendMessageResponse(rsp)
-}
-
-// SendMessageWithResponse Run one agent turn or queue an active session message
-//
-// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
-//
-// Corresponds with POST /messages (the `SendMessage` operationId).
-func (c *ClientWithResponses) SendMessageWithResponse(ctx context.Context, params *SendMessageParams, body SendMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*SendMessageResponse, error) {
-	rsp, err := c.SendMessage(ctx, params, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseSendMessageResponse(rsp)
-}
-
 // GetSessionWithResponse Read session details
 //
 // Returns a wrapper object for the known response body format(s).
@@ -3353,121 +3042,6 @@ func ParseListMessagesResponse(rsp *http.Response) (*ListMessagesResponse, error
 			headers.XSessionID = value
 		}
 		response.Headers200 = &headers
-	}
-
-	return response, nil
-}
-
-// ParseSendMessageResponse parses an HTTP response from a SendMessageWithResponse call
-func ParseSendMessageResponse(rsp *http.Response) (*SendMessageResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &SendMessageResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest MessageResponse
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
-		var dest MessageQueuedResponse
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON202 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest ErrorBadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest ErrorUnauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest ErrorNotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 406:
-		var dest ErrorNotAcceptable
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON406 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
-		var dest ErrorConflict
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON409 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
-		var dest ErrorInternal
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON500 = &dest
-
-	case rsp.StatusCode == 200:
-		// Content-type (text/event-stream) unsupported
-
-	}
-
-	switch {
-	case rsp.StatusCode == 200:
-		var headers SendMessageResponse200Headers
-		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
-			var value openapi_types.UUID
-			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
-				return nil, err
-			}
-			headers.XRequestID = value
-		}
-		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
-			var value openapi_types.UUID
-			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
-				return nil, err
-			}
-			headers.XSessionID = value
-		}
-		response.Headers200 = &headers
-	case rsp.StatusCode == 202:
-		var headers SendMessageResponse202Headers
-		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
-			var value openapi_types.UUID
-			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
-				return nil, err
-			}
-			headers.XRequestID = value
-		}
-		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
-			var value openapi_types.UUID
-			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
-				return nil, err
-			}
-			headers.XSessionID = value
-		}
-		response.Headers202 = &headers
 	}
 
 	return response, nil

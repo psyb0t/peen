@@ -2,6 +2,29 @@
 
 All notable changes per release. Versions follow [semver](https://semver.org).
 
+## v1.14.0, 2026-09-10
+
+- Added `klhayyent`, a concurrent-safe HTTP client with common method helpers,
+  JSON and raw body handling, bounded responses, request options, request ID
+  propagation, same-origin redirects, status sentinels, error envelopes, and a
+  public-suffix-aware cookie jar.
+- Stopped proxy logs and transport errors from exposing upstream URLs or custom
+  cache keys. Proxy caching now skips unsafe methods, authenticated requests,
+  request and response cache-bypass directives, configured cookie jars,
+  private responses, varying responses, and responses that set cookies. Cache
+  and response-close failures are checked without dropping the upstream
+  response.
+- Hardened timeout response writes, added a separate 100MB default total upload
+  limit without changing the multipart memory spill threshold, preserved
+  wrapped error chains in upload and timeout paths, and moved validation logs
+  onto request context.
+- Added Docker-backed Go and shell formatting, shell linting, hash-locked
+  security tooling, current-tree and history secret scanning, and hardened
+  development-container privileges. Race-enabled test coverage now has a 90%
+  minimum. The CI and mirror workflows use the current shared workflow layout,
+  stale pipeline comments are gone, and the PR gate now declares its minimum
+  permissions.
+
 ## v1.13.1 — 2026-08-22
 
 CI change. No change to the library's public API.

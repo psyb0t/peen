@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/psyb0t/peen/pkg/http/api/client"
 	"github.com/psyb0t/peen/tests/testinfra"
 	"github.com/stretchr/testify/assert"
@@ -26,18 +25,7 @@ func TestPublicClientDrivesTheRealAPI(t *testing.T) {
 
 	generated := newPublicClient(t)
 
-	sent, err := generated.SendMessageWithResponse(
-		ctx,
-		&client.SendMessageParams{},
-		client.SendMessageJSONRequestBody{Message: clientTestMessage},
-	)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, sent.StatusCode())
-	require.NotNil(t, sent.JSON200)
-	assert.NotEmpty(t, sent.JSON200.Message)
-
-	sessionID, err := uuid.Parse(sent.HTTPResponse.Header.Get(headerSessionID))
-	require.NoError(t, err)
+	sessionID := createAPIWebSocketSession(t, clientTestMessage)
 
 	// The same client must be able to read back what it just wrote, which
 	// exercises a header parameter and a query-parameter operation too.
@@ -75,10 +63,10 @@ func TestPublicClientWithoutATokenIsRefused(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	sent, err := generated.SendMessageWithResponse(
+	sessionID := createAPIWebSocketSession(t, clientTestMessage)
+	sent, err := generated.ListMessagesWithResponse(
 		ctx,
-		&client.SendMessageParams{},
-		client.SendMessageJSONRequestBody{Message: clientTestMessage},
+		&client.ListMessagesParams{XSessionID: sessionID},
 	)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusUnauthorized, sent.StatusCode())

@@ -6,138 +6,77 @@ validated against it before it reaches a handler.
 
 Every operation is mounted under `/v1`. `Authorization: Bearer <token>` is
 required only when `PEEN_API_TOKEN` is set; see the root
-[README](../../README.md#bearer-authentication). Every success response
-carries `X-Session-ID` and `X-Request-ID` headers. Errors use one envelope:
+[README](../../README.md#bearer-authentication). Every REST success response
+carries `X-Session-ID` and `X-Request-ID` headers. REST errors use one envelope:
 
 ```json
 {"code": "...", "message": "...", "details": {}}
 ```
 
-## POST /v1/messages
+## WebSocket turns
 
-Runs one agent turn. `X-Session-ID` is optional: omit it to start a new
-session, or send an existing one to resume it.
+Agent messages are submitted only over a WebSocket upgrade at
+`GET /v1/ws?sessionId={uuid}`. The endpoint is outside the OpenAPI document
+because its contract is WebSocket frames, not HTTP request and response bodies.
+`sessionId` is required and is an identifier, not an authentication credential.
+Request logging excludes query strings.
 
-Request body:
-
-```json
-{
-  "message": "required, non-empty",
-  "workspace": "optional per-message working-directory override",
-  "model": "optional provider/model override for this call only",
-  "systemPrompt": {"mode": "append", "content": "optional instructions"}
-}
-```
-
-`systemPrompt.mode` is `append` (default prompt plus this text, for this
-turn only) or `replace` (this text instead of the default prompt, for this
-turn only). Neither field is sticky.
-
-When `X-Session-ID` names a turn currently running in this Peen process and
-the request contains only `message`, Peen accepts it into that turn's FIFO
-user-message queue instead of opening another turn. It returns JSON `202`:
-
-```json
-{"queued": true}
-```
-
-This applies even when the request's `Accept` header asks for SSE. The active
-request remains the only live stream. A queued request cannot set `workspace`,
-`model`, or `systemPrompt`, because those settings belong to the already
-running turn. Peen writes a durable acceptance audit record before queueing,
-then writes the ordinary user transcript row at the provider round where
-Elelem actually delivers it. This preserves tool-result ordering.
-
-The live queue is bounded by `PEEN_MAX_QUEUED_USER_MESSAGES`, defaults to 16,
-and does not interrupt an in-flight provider request. A full queue returns
-`409` with code `USER_MESSAGE_QUEUE_FULL`. Queued delivery state is
-process-local until delivery. After a restart, cancellation, or a round limit
-that ends the turn before delivery, the acceptance audit does not cause Peen
-to replay the message automatically. Clients that need delivery across those
-boundaries must retry and tolerate duplicates.
-
-Response framing is chosen by `Accept`:
-
-- Missing or `application/json`: waits for the turn and returns
-  `{"message": "..."}`, the agent's final text.
-- `text/event-stream`: a live Server-Sent Events stream using Chatz's event
-  names and framing (`message_start`, `content_block_start`,
-  `content_block_delta`, `content_block_stop`, `message_delta`,
-  `message_stop`, `ping`, `chat_status`, `error`).
-
-The seven content-block events describe the assistant message and are produced
-by `essessey/elelemstream`, so their shapes are that library's. Two more events
-describe the stream itself rather than the message, and their shapes are copied
-from Chatz so a Chatz stream parser needs no translation.
-
-`chat_status` is advisory progress. Treat it as ephemeral: it is never stored
-and never part of the assistant's content.
-
-```text
-event: chat_status
-data: {"type":"chat_status","status":"streaming"}
-```
-
-`status` is one of `connecting`, `waiting_first_token`, `streaming`,
-`running_tool`, or `retrying`. A repeated status is not resent.
-
-`error` is terminal. It appears only after the response headers are committed,
-which is the point where the JSON error envelope is no longer reachable.
-Cancelling a turn is a normal end to a stream and emits no `error` event.
-
-```text
-event: error
-data: {"type":"error","error":{"type":"request_failed","message":"The model request failed. Try again."}}
-```
-
-`error.type` is one of `upstream_timeout`, `rate_limited`,
-`model_unavailable`, `context_limit`, or `request_failed`, each with a fixed
-user-facing `message`. The classification is deliberately the only detail that
-crosses the wire: a raw failure carries file paths, provider response bodies,
-and whatever a tool printed, and that stays in the transcript and the
-operator's logs.
-
-`409` means the session already has a turn running, this turn was cancelled
-after it started running, or the active user-message queue is full.
-
-## GET /v1/ws?sessionId={uuid}
-
-Opens a WebSocket connection for one existing session. This endpoint is outside
-the OpenAPI document because WebSocket frames are not HTTP request and response
-bodies. `sessionId` is required and must name an existing session. The endpoint
-never creates a session. Its query value is an identifier, not an authentication
-credential, and request logging excludes query strings.
-
-Peen maps the validated session ID to WShub's logical client ID. Several socket
-connections for that session therefore share one client and each receives the
-same outgoing event. The server retains WShub's default origin policy: an
+A client generates the session UUID. A connection for an existing UUID joins
+that session. A connection for a new UUID remains pending until its first
+`message.send`; that send atomically creates the session with the supplied UUID.
+No REST endpoint creates a session or accepts a user message. Peen maps the
+session ID to WShub's logical client ID, so all sockets for one session receive
+the same server events. The server retains WShub's default origin policy: an
 `Origin` header must match the request host outside explicitly enabled local
 development mode.
 
-The only accepted client event is `message.send`. Its `data` is the same object
-accepted by `POST /v1/messages`:
+The accepted client event is `message.send`. Its `data` is strict JSON:
 
 ```json
-{"type": "message.send", "data": {"message": "inspect this project"}}
+{
+  "type": "message.send",
+  "data": {
+    "message": "required, non-empty",
+    "workspace": "optional per-message working-directory override",
+    "model": "optional provider/model override for this call only",
+    "systemPrompt": {"mode": "append", "content": "optional instructions"}
+  }
+}
 ```
 
-`workspace`, `model`, and `systemPrompt` retain their normal per-message
-meaning. The runtime either starts the turn or queues a plain message behind the
-active turn. An unrecognized event type has no effect.
+`systemPrompt.mode` is `append` for the default prompt plus the supplied text,
+or `replace` for the supplied text alone. Neither setting is sticky.
 
-Every server frame is a Dabluvee event with `id`, `type`, `data`, and
-`timestamp`. Peen emits:
+When the session already has a running turn, a `message.send` with only a
+`message` joins that turn's FIFO user-message queue. A queued message cannot set
+`workspace`, `model`, or `systemPrompt`, because those settings belong to the
+running turn. The live queue is bounded by `PEEN_MAX_QUEUED_USER_MESSAGES`,
+defaults to 16, and does not interrupt an in-flight provider request. Queued
+delivery is process-local until the next provider round. Clients retry after a
+restart, cancellation, or an unfinished queue.
+
+Every server frame is a Dabluvee event with `id`, `type`, `data`, `timestamp`,
+`metadata`, and `triggeredBy`. Agent events use their native type directly. For
+example, a content delta has type `content_block_delta`, not a wrapper type.
+All server events carry `metadata.sessionId`, `metadata.requestId`, and the
+inbound event ID in `triggeredBy`:
 
 ```json
-{"type":"agent.event","data":{"sessionId":"uuid","requestId":"uuid","event":{"type":"message.delta","payload":{}}}}
-{"type":"message.completed","data":{"sessionId":"uuid","requestId":"uuid","queued":false}}
-{"type":"message.failed","data":{"sessionId":"uuid","requestId":"uuid","code":"INTERNAL_SERVER_ERROR","message":"websocket message failed"}}
+{
+  "id": "uuid",
+  "type": "content_block_delta",
+  "data": {},
+  "timestamp": 0,
+  "metadata": {"sessionId": "uuid", "requestId": "uuid"},
+  "triggeredBy": "uuid"
+}
 ```
 
-`agent.event` forwards the transport-neutral events generated while the turn
-runs. `message.completed` closes one submission, not the socket; `queued` says
-whether the message joined an active turn's FIFO queue. `message.failed` uses a
-fixed message and never exposes provider errors, file paths, or tool output.
+The terminal event for one submission is `message.completed`. Its data is
+`{"queued": false}` when the turn finished or `{"queued": true}` when the
+message joined an active turn's queue. It closes the submission, not the
+socket. `message.failed` has a safe `{code, message}` payload. It never exposes
+provider errors, file paths, or tool output.
 
 When `PEEN_API_TOKEN` is set, non-browser clients may use the normal
 `Authorization: Bearer <token>` handshake header. Browser clients send two

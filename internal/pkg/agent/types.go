@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"sync"
 	"time"
 
@@ -15,7 +14,6 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/config"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/harness"
-	"github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/tools"
@@ -112,6 +110,22 @@ const (
 	PromptModeReplace PromptMode = "replace"
 )
 
+// MessageRequest is the WebSocket message.send payload accepted by Peen.
+// It stays transport-neutral so embedding callers and the live socket share
+// one validation and turn-conversion path.
+type MessageRequest struct {
+	Message      string               `json:"message"`
+	Model        *string              `json:"model,omitempty"`
+	SystemPrompt *MessageSystemPrompt `json:"systemPrompt,omitempty"`
+	Workspace    *string              `json:"workspace,omitempty"`
+}
+
+// MessageSystemPrompt is one non-persistent prompt override for a turn.
+type MessageSystemPrompt struct {
+	Content string     `json:"content"`
+	Mode    PromptMode `json:"mode"`
+}
+
 // Event is one transport-neutral visible agent event.
 type Event struct {
 	Type    string
@@ -168,18 +182,11 @@ type TurnResult struct {
 	OutputTokens int64
 }
 
-// MessageRunResult carries a generated JSON response and durable header data.
+// MessageRunResult carries the durable session identity and completed output.
 type MessageRunResult struct {
-	Response  api.MessageResponse
 	SessionID uuid.UUID
 	Queued    bool
-}
-
-// StreamMessageResult carries a generated SSE body and durable header data.
-type StreamMessageResult struct {
-	Body      io.ReadCloser
-	SessionID uuid.UUID
-	Queued    bool
+	Text      string
 }
 
 // RuntimeOptions supplies Peen's transport-independent turn dependencies.
@@ -339,10 +346,6 @@ type runtimeTurn struct {
 	// across them, so a checkpoint never blocks the live stream.
 	checkpointMutex sync.Mutex
 
-	// statusReporter advertises stream progress. Only the SSE path sets one;
-	// a JSON turn has nobody to advertise to.
-	statusReporter statusReporter
-
 	// sinkMutex preserves event and sink ordering without holding mutex while
 	// executing caller code. A sink may synchronously queue another user
 	// message, which checkpoints this turn and therefore needs mutex itself.
@@ -357,12 +360,6 @@ type runtimeTurn struct {
 	// of inserting everything a second time.
 	checkpointedEvents   int
 	checkpointedMessages int
-}
-
-// statusReporter advertises what a turn is doing to whoever is watching it
-// live. An event that implies no progress change reports nothing.
-type statusReporter interface {
-	report(eventType string) error
 }
 
 // transcriptSink records every protocol event the publisher fans out.

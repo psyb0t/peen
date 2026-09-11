@@ -3,12 +3,14 @@ package httpserver
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +18,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
+	dabluveees "github.com/psyb0t/aichteeteapee/serbewr/dabluvee-es"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/elelem/elelemtest"
@@ -38,7 +42,6 @@ const (
 	serviceTestAPIToken       = "test-api-token"
 	serviceTestMessage        = "inspect the workspace"
 	serviceTestResponse       = "inspection complete"
-	serviceTestRequestBody    = `{"message":"inspect the workspace"}`
 	serviceTestConfigRules    = "Follow the configured rules."
 	serviceTestWorkspaceRules = "Follow the workspace rules."
 	serviceTestAgentDocument  = `---
@@ -46,18 +49,27 @@ name: default
 description: scripted test agent
 ---
 Follow the test agent rules.`
-	serviceTestUpstreamsJSON  = `[{"name":"scripted","provider":"openai"}]`
-	serviceTestAuthorization  = "Authorization"
-	serviceTestContentType    = "Content-Type"
-	serviceTestSessionID      = "X-Session-ID"
-	serviceTestBearerPrefix   = "Bearer "
-	serviceTestJSONMediaType  = "application/json"
-	serviceTestMetricsPath    = "/metrics"
-	serviceTestRequestTimeout = 5 * time.Second
+	serviceTestUpstreamsJSON      = `[{"name":"scripted","provider":"openai"}]`
+	serviceTestAuthorization      = "Authorization"
+	serviceTestContentType        = "Content-Type"
+	serviceTestSessionID          = "X-Session-ID"
+	serviceTestBearerPrefix       = "Bearer "
+	serviceTestJSONMediaType      = "application/json"
+	serviceTestMetricsPath        = "/metrics"
+	serviceTestReadyPath          = "/ready"
+	serviceTestRequestTimeout     = 30 * time.Second
+	serviceTestWebSocketPath      = "/v1/ws"
+	serviceTestWebSocketSessionID = "sessionId"
+	serviceTestWebSocketProtocol  = "peen.v1"
+	//nolint:gosec // This is the non-secret WebSocket subprotocol namespace.
+	serviceTestWebSocketBearerPrefix = "peen.bearer."
+	serviceTestWebSocketMessageSend  = "message.send"
+	serviceTestWebSocketCompleted    = "message.completed"
+	serviceTestWebSocketFailed       = "message.failed"
 	// Startup opens SQLite, runs migrations and an integrity check, and
-	// discovers provider models. The listener-ready channel and the polling
-	// interval end every wait as soon as the service is actually up, so this
-	// value is only the backstop for a loaded machine running the whole
+	// discovers provider models. The readiness probe and polling interval end
+	// every wait as soon as the service is actually up. The timeout is only the
+	// backstop for a loaded machine running the whole
 	// race-enabled suite at once.
 	serviceTestStartupTimeout  = 60 * time.Second
 	serviceTestStartupInterval = 10 * time.Millisecond
@@ -88,33 +100,18 @@ func TestHTTPServiceRunsRealSQLiteAndAPI(t *testing.T) {
 	go func() {
 		serviceDone <- fixture.service.Run(serviceContext)
 	}()
-	serviceExited, err := awaitServiceStart(
-		fixture.listenerReady,
-		serviceDone,
-	)
+	serviceExited, err := awaitServiceStart(t, fixture, serviceDone)
 	serviceStopped = serviceExited
 	require.NoError(t, err)
 
-	response := awaitHTTPResponse(
+	sessionID := sendWebSocketTurn(
 		t,
-		fixture.client,
-		http.MethodPost,
-		fixture.url("/v1/messages"),
-		serviceTestRequestBody,
-		"",
+		fixture,
+		uuid.Nil,
+		serviceTestMessage,
 	)
-	require.Equal(t, http.StatusOK, response.StatusCode)
 
-	message := api.MessageResponse{}
-	require.NoError(t, json.NewDecoder(response.Body).Decode(&message))
-	require.NoError(t, response.Body.Close())
-	assert.Equal(t, serviceTestResponse, message.Message)
-
-	sessionID, err := uuid.Parse(response.Header.Get(serviceTestSessionID))
-	require.NoError(t, err)
-	assert.NotEqual(t, uuid.Nil, sessionID)
-
-	pageResponse := awaitHTTPResponse(
+	pageResponse := sendHTTPResponse(
 		t,
 		fixture.client,
 		http.MethodGet,
@@ -131,7 +128,7 @@ func TestHTTPServiceRunsRealSQLiteAndAPI(t *testing.T) {
 	assert.False(t, page.HasMore)
 	assert.Len(t, fixture.driver.Requests(), 1)
 
-	publicMetrics := awaitHTTPResponse(
+	publicMetrics := sendHTTPResponse(
 		t,
 		fixture.client,
 		http.MethodGet,
@@ -198,16 +195,12 @@ func TestHTTPServiceRecoversInterruptedTurnsBeforeServing(t *testing.T) {
 
 	// The recovered session must accept a new turn. Before recovery the
 	// orphaned row stayed running and nothing in memory knew about it.
-	response := awaitHTTPResponse(
+	_ = sendWebSocketTurn(
 		t,
-		fixture.client,
-		http.MethodPost,
-		fixture.url("/v1/messages"),
-		serviceTestRequestBody,
-		sessionID.String(),
+		fixture,
+		sessionID,
+		serviceTestMessage,
 	)
-	require.Equal(t, http.StatusOK, response.StatusCode)
-	require.NoError(t, response.Body.Close())
 }
 
 // runServiceUntilReady starts the service and stops it during cleanup.
@@ -226,7 +219,7 @@ func runServiceUntilReady(t *testing.T, fixture httpServiceFixture) {
 		require.NoError(t, awaitServiceStop(t, serviceDone))
 	})
 
-	_, err := awaitServiceStart(fixture.listenerReady, serviceDone)
+	_, err := awaitServiceStart(t, fixture, serviceDone)
 	require.NoError(t, err)
 }
 
@@ -314,7 +307,7 @@ func TestHTTPServiceRejectsUnavailableModelBeforeOpeningListener(t *testing.T) {
 		) (net.Listener, error) {
 			listenerOpened = true
 
-			return fixture.listener, nil
+			return nil, ctxerrors.New("unexpected listener creation")
 		},
 	})
 
@@ -363,7 +356,7 @@ func TestLogValidatedConfigRedactsSecrets(t *testing.T) {
 	assert.Contains(t, output, `"`+serviceTestLogUpstreamName+`"`)
 }
 
-func awaitHTTPResponse(
+func sendHTTPResponse(
 	t *testing.T,
 	client *http.Client,
 	method string,
@@ -373,41 +366,92 @@ func awaitHTTPResponse(
 ) *http.Response {
 	t.Helper()
 
-	var response *http.Response
-	require.Eventually(t, func() bool {
-		request, err := http.NewRequestWithContext(
-			t.Context(),
-			method,
-			url,
-			strings.NewReader(body),
-		)
-		require.NoError(t, err)
-		request.Header.Set(
-			serviceTestAuthorization,
-			serviceTestBearerPrefix+serviceTestAPIToken,
-		)
-		request.Header.Set(serviceTestContentType, serviceTestJSONMediaType)
-		if sessionID != "" {
-			request.Header.Set(serviceTestSessionID, sessionID)
-		}
+	request, err := http.NewRequestWithContext(
+		t.Context(),
+		method,
+		url,
+		strings.NewReader(body),
+	)
+	require.NoError(t, err)
+	request.Header.Set(
+		serviceTestAuthorization,
+		serviceTestBearerPrefix+serviceTestAPIToken,
+	)
+	request.Header.Set(serviceTestContentType, serviceTestJSONMediaType)
+	if sessionID != "" {
+		request.Header.Set(serviceTestSessionID, sessionID)
+	}
 
-		attemptResponse, doErr := client.Do(request)
-		if doErr != nil {
-			// A redirect failure can still return a non-nil response;
-			// close it since this attempt is discarded either way.
-			if attemptResponse != nil {
-				require.NoError(t, attemptResponse.Body.Close())
-			}
-
-			return false
-		}
-
-		response = attemptResponse
-
-		return true
-	}, serviceTestStartupTimeout, serviceTestStartupInterval)
+	response, err := client.Do(request)
+	require.NoError(t, err)
 
 	return response
+}
+
+func sendWebSocketTurn(
+	t *testing.T,
+	fixture httpServiceFixture,
+	sessionID uuid.UUID,
+	message string,
+) uuid.UUID {
+	t.Helper()
+	if sessionID == uuid.Nil {
+		sessionID = uuid.New()
+	}
+
+	endpoint, err := url.Parse(fixture.url(serviceTestWebSocketPath))
+	require.NoError(t, err)
+	endpoint.Scheme = "ws"
+	query := endpoint.Query()
+	query.Set(serviceTestWebSocketSessionID, sessionID.String())
+	endpoint.RawQuery = query.Encode()
+
+	dialer := websocket.Dialer{
+		HandshakeTimeout: serviceTestRequestTimeout,
+		Subprotocols: []string{
+			serviceTestWebSocketProtocol,
+			serviceTestWebSocketBearerPrefix + base64.RawURLEncoding.EncodeToString(
+				[]byte(serviceTestAPIToken),
+			),
+		},
+	}
+	connection, response, err := dialer.Dial(endpoint.String(), nil)
+	if response != nil {
+		t.Cleanup(func() { require.NoError(t, response.Body.Close()) })
+	}
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, connection.Close()) })
+
+	require.NoError(t, connection.WriteJSON(dabluveees.NewEvent(
+		serviceTestWebSocketMessageSend,
+		map[string]string{"message": message},
+	)))
+	deadline := time.Now().Add(serviceTestRequestTimeout)
+	for {
+		require.NoError(t, connection.SetReadDeadline(deadline))
+		event := dabluveees.Event{}
+		require.NoError(t, connection.ReadJSON(&event))
+		switch event.Type {
+		case serviceTestWebSocketCompleted:
+			result := struct {
+				Queued bool `json:"queued"`
+			}{}
+			require.NoError(t, json.Unmarshal(event.Data, &result))
+			require.False(t, result.Queued)
+
+			return sessionID
+		case serviceTestWebSocketFailed:
+			t.Fatalf("WebSocket message failed: %s", event.Data)
+		case dabluveees.EventTypeSystemLog,
+			dabluveees.EventTypeShellExec,
+			dabluveees.EventTypeEchoRequest,
+			dabluveees.EventTypeEchoReply,
+			dabluveees.EventTypeError:
+			continue
+		default:
+			continue
+		}
+	}
 }
 
 func awaitServiceStop(t *testing.T, serviceDone <-chan error) error {
@@ -427,42 +471,70 @@ func awaitServiceStop(t *testing.T, serviceDone <-chan error) error {
 }
 
 func awaitServiceStart(
-	listenerReady <-chan struct{},
+	t *testing.T,
+	fixture httpServiceFixture,
 	serviceDone <-chan error,
 ) (bool, error) {
-	select {
-	case <-listenerReady:
-		return false, nil
-	case runErr := <-serviceDone:
-		if runErr == nil {
-			return true, ctxerrors.New(
-				"HTTP service stopped before opening its listener",
+	t.Helper()
+
+	timeout := time.NewTimer(serviceTestStartupTimeout)
+	defer timeout.Stop()
+
+	for {
+		request, requestErr := http.NewRequestWithContext(
+			t.Context(),
+			http.MethodGet,
+			fixture.url(serviceTestReadyPath),
+			nil,
+		)
+		if requestErr != nil {
+			return false, ctxerrors.Wrap(
+				requestErr,
+				"create HTTP service readiness request",
 			)
 		}
 
-		return true, ctxerrors.Wrap(
-			runErr,
-			"HTTP service stopped before opening its listener",
-		)
-	case <-time.After(serviceTestStartupTimeout):
-		return false, ctxerrors.New(
-			"HTTP service did not open its listener before the timeout",
-		)
+		response, requestErr := fixture.client.Do(request)
+		if requestErr == nil {
+			statusCode := response.StatusCode
+			closeErr := response.Body.Close()
+			if statusCode == http.StatusOK && closeErr == nil {
+				return false, nil
+			}
+		}
+
+		select {
+		case runErr := <-serviceDone:
+			if runErr == nil {
+				return true, ctxerrors.New(
+					"HTTP service stopped before opening its listener",
+				)
+			}
+
+			return true, ctxerrors.Wrap(
+				runErr,
+				"HTTP service stopped before opening its listener",
+			)
+		case <-timeout.C:
+			return false, ctxerrors.New(
+				"HTTP service did not open its listener before the timeout",
+			)
+		case <-time.After(serviceTestStartupInterval):
+		}
 	}
 }
 
 type httpServiceFixture struct {
 	service         *HTTPServer
-	listener        net.Listener
 	metricsListener net.Listener
-	listenerReady   chan struct{}
+	httpAddress     string
 	driver          *elelemtest.ScriptedDriver
 	client          *http.Client
 	config          peenconfig.Config
 }
 
 func (f httpServiceFixture) url(path string) string {
-	return "http://" + f.listener.Addr().String() + path
+	return "http://" + f.httpAddress + path
 }
 
 func (f httpServiceFixture) metricsURL(path string) string {
@@ -502,14 +574,8 @@ func newHTTPServiceFixture(t *testing.T) httpServiceFixture {
 	listener, listenErr := (&net.ListenConfig{}).
 		Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, listenErr)
-	t.Cleanup(func() {
-		if closeErr := listener.Close(); closeErr != nil && !errors.Is(
-			closeErr,
-			net.ErrClosed,
-		) {
-			require.NoError(t, closeErr)
-		}
-	})
+	httpAddress := listener.Addr().String()
+	require.NoError(t, listener.Close())
 	metricsListener, metricsListenErr := (&net.ListenConfig{}).
 		Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, metricsListenErr)
@@ -533,7 +599,7 @@ func newHTTPServiceFixture(t *testing.T) httpServiceFixture {
 		CompactionOutputTokens: 1024,
 		CompactionTimeout:      time.Minute,
 		TurnTimeout:            time.Minute,
-		HTTPListenAddress:      listener.Addr().String(),
+		HTTPListenAddress:      httpAddress,
 		MetricsListenAddress:   metricsListener.Addr().String(),
 		APIToken:               serviceTestAPIToken,
 	}
@@ -542,7 +608,6 @@ func newHTTPServiceFixture(t *testing.T) httpServiceFixture {
 	driver := elelemtest.NewScriptedDriver(
 		elelemtest.Text(serviceTestResponse),
 	).WithModels(serviceTestModelID)
-	listenerReady := make(chan struct{}, 1)
 	service := newHTTPServer(serviceDependencies{
 		parseConfig: func() (peenconfig.Config, error) {
 			return config, nil
@@ -555,21 +620,18 @@ func newHTTPServiceFixture(t *testing.T) httpServiceFixture {
 			_ string,
 			address string,
 		) (net.Listener, error) {
-			if address == config.MetricsListenAddress {
-				return metricsListener, nil
+			if address != config.MetricsListenAddress {
+				return nil, ctxerrors.New("unexpected listener address")
 			}
 
-			listenerReady <- struct{}{}
-
-			return listener, nil
+			return metricsListener, nil
 		},
 	})
 
 	return httpServiceFixture{
 		service:         service,
-		listener:        listener,
 		metricsListener: metricsListener,
-		listenerReady:   listenerReady,
+		httpAddress:     httpAddress,
 		driver:          driver,
 		client:          &http.Client{Timeout: serviceTestRequestTimeout},
 		config:          config,

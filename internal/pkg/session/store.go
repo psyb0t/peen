@@ -3,6 +3,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -58,7 +59,7 @@ func NewStore(handle *db.Handle, options Options) (*Store, error) {
 	}, nil
 }
 
-// CreateOrResume creates a generated-ID session or returns a requested one.
+// CreateOrResume creates a session or resumes its requested durable ID.
 func (s *Store) CreateOrResume(
 	ctx context.Context,
 	requestedSessionID *uuid.UUID,
@@ -66,23 +67,37 @@ func (s *Store) CreateOrResume(
 ) (*OpenSessionResult, error) {
 	if requestedSessionID != nil {
 		session, err := s.findSession(ctx, *requestedSessionID)
-		if err != nil {
-			return nil, ctxerrors.Wrap(err, "resume session")
+		if err == nil {
+			return &OpenSessionResult{Session: session}, nil
 		}
 
-		return &OpenSessionResult{Session: session}, nil
+		if !errors.Is(err, commerr.ErrNotFound) {
+			return nil, ctxerrors.Wrap(err, "resume session")
+		}
+	}
+
+	sessionID := s.newID()
+	if requestedSessionID != nil {
+		sessionID = *requestedSessionID
 	}
 
 	now := s.now()
 
 	session := &models.Session{
-		ID:        s.newID(),
+		ID:        sessionID,
 		CreatedAt: now,
 		UpdatedAt: now,
 		RootAgent: options.RootAgent,
 		ModelID:   options.ModelID,
 	}
 	if err := s.query.Session.WithContext(ctx).Create(session); err != nil {
+		if requestedSessionID != nil {
+			existing, resumeErr := s.findSession(ctx, *requestedSessionID)
+			if resumeErr == nil {
+				return &OpenSessionResult{Session: existing}, nil
+			}
+		}
+
 		return nil, ctxerrors.Wrap(err, "create session")
 	}
 

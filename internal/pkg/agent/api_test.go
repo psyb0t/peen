@@ -1,20 +1,13 @@
 package agent
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
-	"io"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem/elelemtest"
-	"github.com/psyb0t/essessey"
-	essesseysse "github.com/psyb0t/essessey/sse"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
-	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -25,13 +18,13 @@ func TestMessageRequestToTurnRequest(t *testing.T) {
 
 	testCases := []struct {
 		name    string
-		request api.MessageRequest
+		request MessageRequest
 		want    TurnRequest
 		wantErr error
 	}{
 		{
 			name:    "minimal request",
-			request: api.MessageRequest{Message: "inspect"},
+			request: MessageRequest{Message: "inspect"},
 			want: TurnRequest{
 				Message:   "inspect",
 				RequestID: requestID,
@@ -40,12 +33,12 @@ func TestMessageRequestToTurnRequest(t *testing.T) {
 		},
 		{
 			name: "request with explicit settings",
-			request: api.MessageRequest{
+			request: MessageRequest{
 				Message:   "inspect",
 				Workspace: new("/workspace"),
 				Model:     new("provider/model"),
-				SystemPrompt: &api.SystemPrompt{
-					Mode:    api.SystemPromptModeAppend,
+				SystemPrompt: &MessageSystemPrompt{
+					Mode:    PromptModeAppend,
 					Content: "extra rules",
 				},
 			},
@@ -61,12 +54,12 @@ func TestMessageRequestToTurnRequest(t *testing.T) {
 		},
 		{
 			name:    "blank message",
-			request: api.MessageRequest{Message: " \t"},
+			request: MessageRequest{Message: " \t"},
 			wantErr: commerr.ErrValidationFailed,
 		},
 		{
 			name: "blank explicit workspace",
-			request: api.MessageRequest{
+			request: MessageRequest{
 				Message:   "inspect",
 				Workspace: new(" \n"),
 			},
@@ -74,7 +67,7 @@ func TestMessageRequestToTurnRequest(t *testing.T) {
 		},
 		{
 			name: "blank explicit model",
-			request: api.MessageRequest{
+			request: MessageRequest{
 				Message: "inspect",
 				Model:   new(""),
 			},
@@ -82,10 +75,10 @@ func TestMessageRequestToTurnRequest(t *testing.T) {
 		},
 		{
 			name: "blank system prompt content",
-			request: api.MessageRequest{
+			request: MessageRequest{
 				Message: "inspect",
-				SystemPrompt: &api.SystemPrompt{
-					Mode:    api.SystemPromptModeReplace,
+				SystemPrompt: &MessageSystemPrompt{
+					Mode:    PromptModeReplace,
 					Content: "  ",
 				},
 			},
@@ -93,10 +86,10 @@ func TestMessageRequestToTurnRequest(t *testing.T) {
 		},
 		{
 			name: "unknown system prompt mode",
-			request: api.MessageRequest{
+			request: MessageRequest{
 				Message: "inspect",
-				SystemPrompt: &api.SystemPrompt{
-					Mode:    api.SystemPromptMode("unknown"),
+				SystemPrompt: &MessageSystemPrompt{
+					Mode:    PromptMode("unknown"),
 					Content: "rules",
 				},
 			},
@@ -123,31 +116,33 @@ func TestMessageRequestToTurnRequest(t *testing.T) {
 	}
 }
 
-func TestRuntimeAPISendsAndListsMessages(t *testing.T) {
+func TestRuntimeRunsAndListsMessages(t *testing.T) {
 	driver := elelemtest.NewScriptedDriver(
 		elelemtest.Text("first response"),
 		elelemtest.Text("second response"),
 	)
 	fixture := newRuntimeFixture(t, driver)
 
-	first, err := fixture.runtime.SendMessage(
+	first, err := fixture.runtime.RunMessage(
 		context.Background(),
-		api.MessageRequest{Message: "first request"},
+		MessageRequest{Message: "first request"},
 		nil,
 		uuid.New(),
+		nil,
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "first response", first.Response.Message)
+	assert.Equal(t, "first response", first.Text)
 
-	second, err := fixture.runtime.SendMessage(
+	second, err := fixture.runtime.RunMessage(
 		context.Background(),
-		api.MessageRequest{Message: "second request"},
+		MessageRequest{Message: "second request"},
 		&first.SessionID,
 		uuid.New(),
+		nil,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, first.SessionID, second.SessionID)
-	assert.Equal(t, "second response", second.Response.Message)
+	assert.Equal(t, "second response", second.Text)
 
 	limit := int32(10)
 	page, err := fixture.runtime.ListMessages(
@@ -172,70 +167,6 @@ func TestRuntimeAPISendsAndListsMessages(t *testing.T) {
 	assert.Equal(t, int32(10), page.Limit)
 }
 
-func TestRuntimeAPIStreamsChatzCompatibleEvents(t *testing.T) {
-	fixture := newRuntimeFixture(t, elelemtest.NewScriptedDriver(
-		elelemtest.Thinking("inspect", "response"),
-	))
-
-	stream, err := fixture.runtime.StreamMessage(
-		context.Background(),
-		api.MessageRequest{Message: "stream request"},
-		nil,
-		uuid.New(),
-	)
-	require.NoError(t, err)
-
-	body, err := io.ReadAll(stream.Body)
-	require.NoError(t, err)
-	require.NoError(t, stream.Body.Close())
-
-	source := essesseysse.NewSource(bytes.NewReader(body))
-	events := readSSEEvents(t, source)
-	assert.Equal(
-		t,
-		[]essessey.EventType{
-			// Advisory progress frames bracket the message. They are Chatz's
-			// own event names, not Peen-specific wrappers, and a client that
-			// only understands the seven content-block types ignores them.
-			streamEventChatStatus,
-			essessey.EventTypeMessageStart,
-			essessey.EventTypePing,
-			streamEventChatStatus,
-			streamEventChatStatus,
-			essessey.EventTypeContentBlockStart,
-			essessey.EventTypeContentBlockDelta,
-			essessey.EventTypeContentBlockStop,
-			essessey.EventTypeContentBlockStart,
-			essessey.EventTypeContentBlockDelta,
-			essessey.EventTypeContentBlockStop,
-			essessey.EventTypeMessageDelta,
-			essessey.EventTypeMessageStop,
-		},
-		streamEventTypes(events),
-	)
-	assert.Equal(
-		t,
-		[]string{
-			streamStatusConnecting,
-			streamStatusWaitingFirstToken,
-			streamStatusStreaming,
-		},
-		chatStatuses(t, events),
-	)
-
-	messages, err := fixture.store.ListMessages(
-		context.Background(),
-		stream.SessionID,
-		session.ListMessagesOptions{Order: session.PageOrderAscending},
-	)
-	require.NoError(t, err)
-	assert.Equal(
-		t,
-		[]string{"stream request", "response"},
-		messageContents(messages.Items),
-	)
-}
-
 func apiMessageContents(messages []api.Message) []string {
 	contents := make([]string, 0, len(messages))
 	for _, message := range messages {
@@ -243,47 +174,4 @@ func apiMessageContents(messages []api.Message) []string {
 	}
 
 	return contents
-}
-
-func readSSEEvents(t *testing.T, source essessey.Source) []essessey.Event {
-	t.Helper()
-
-	events := make([]essessey.Event, 0)
-	for {
-		event, err := source.Next(context.Background())
-		if errors.Is(err, essessey.ErrNoMoreEvents) {
-			return events
-		}
-
-		require.NoError(t, err)
-		events = append(events, event)
-	}
-}
-
-func streamEventTypes(events []essessey.Event) []essessey.EventType {
-	types := make([]essessey.EventType, 0, len(events))
-	for _, event := range events {
-		types = append(types, event.Event)
-	}
-
-	return types
-}
-
-// chatStatuses returns the advisory progress values in wire order.
-func chatStatuses(t *testing.T, events []essessey.Event) []string {
-	t.Helper()
-
-	statuses := make([]string, 0, len(events))
-
-	for _, event := range events {
-		if event.Event != streamEventChatStatus {
-			continue
-		}
-
-		payload := chatStatusPayload{}
-		require.NoError(t, json.Unmarshal(event.Data, &payload))
-		statuses = append(statuses, payload.Status)
-	}
-
-	return statuses
 }

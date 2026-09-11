@@ -4,10 +4,12 @@ package executionforms
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +18,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
+	dabluveees "github.com/psyb0t/aichteeteapee/serbewr/dabluvee-es"
 	"github.com/psyb0t/peen/tests/testinfra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,17 +27,14 @@ import (
 
 const (
 	executionFormsAPIMessagesPath = "/v1/messages"
+	executionFormsWebSocketPath   = "/v1/ws"
 	executionFormsReadyPath       = "/ready"
 	executionFormsMetricsPath     = "/metrics"
 
 	executionFormsHeaderAuthorization = "Authorization"
 	executionFormsHeaderSessionID     = "X-Session-ID"
-	executionFormsHeaderAccept        = "Accept"
-	executionFormsHeaderContentType   = "Content-Type"
 
 	executionFormsBearerPrefix    = "Bearer "
-	executionFormsJSONMediaType   = "application/json"
-	executionFormsSSEMediaType    = "text/event-stream"
 	executionFormsAgentName       = "default"
 	executionFormsAPIToken        = "EXAMPLE-DO-NOT-USE"
 	executionFormsDirectoryMode   = 0o700
@@ -46,23 +47,23 @@ const (
 	executionFormsInitialRules  = "Initial workspace rule."
 	executionFormsUpdatedRules  = "Updated workspace rule."
 
-	executionFormsJSONFixtureFile = "json-edit.txt"
-	executionFormsSSEFixtureFile  = "sse-patch.txt"
-	executionFormsJSONCommandFile = "json-command.txt"
-	executionFormsSSECommandFile  = "sse-command.txt"
+	executionFormsJSONFixtureFile  = "json-edit.txt"
+	executionFormsPatchFixtureFile = "patch-edit.txt"
+	executionFormsJSONCommandFile  = "json-command.txt"
+	executionFormsPatchCommandFile = "patch-command.txt"
 
-	executionFormsJSONBefore = "before\n"
-	executionFormsJSONAfter  = "after\n"
-	executionFormsSSEBefore  = "alpha\n"
-	executionFormsSSEAfter   = "bravo\n"
+	executionFormsJSONBefore  = "before\n"
+	executionFormsJSONAfter   = "after\n"
+	executionFormsPatchBefore = "alpha\n"
+	executionFormsPatchAfter  = "bravo\n"
 
-	executionFormsJSONCommand = "printf 'json command\\n' > json-command.txt"
-	executionFormsSSECommand  = "printf 'sse command\\n' > sse-command.txt"
-	executionFormsJSONOutput  = "json command\n"
-	executionFormsSSEOutput   = "sse command\n"
+	executionFormsJSONCommand  = "printf 'json command\\n' > json-command.txt"
+	executionFormsPatchCommand = "printf 'patch command\\n' > patch-command.txt"
+	executionFormsJSONOutput   = "json command\n"
+	executionFormsPatchOutput  = "patch command\n"
 
-	executionFormsJSONAnswer = "json tool turn complete"
-	executionFormsSSEAnswer  = "sse tool turn complete"
+	executionFormsJSONAnswer  = "json tool turn complete"
+	executionFormsPatchAnswer = "patch tool turn complete"
 
 	executionFormsSourceBinaryName    = "peen-source"
 	executionFormsInstalledBinaryName = "cmd"
@@ -84,28 +85,33 @@ const (
 	executionFormsReloadMessage  = "confirm updated rules"
 	executionFormsUnauthMessage  = "no token required"
 
-	executionFormsUpstreamName     = "integration"
-	executionFormsUpstreamProvider = "openai"
-	executionFormsUpstreamNameKey  = "name"
-	executionFormsUpstreamTypeKey  = "provider"
-	executionFormsUpstreamURLKey   = "baseUrl"
-	executionFormsMessageKey       = "message"
-	executionFormsMetricFamily     = "peen_http_requests_total"
-	executionFormsNetworkTCP       = "tcp"
-	executionFormsLoopbackAddress  = "127.0.0.1:0"
-	executionFormsMissingToken     = "missing token"
-	executionFormsJSONToolMessage  = "run the JSON tool turn"
-	executionFormsSSEToolMessage   = "run the SSE tool turn"
-	executionFormsPatchText        = "*** Begin Patch\n*** Update File: sse-patch.txt\n@@\n-alpha\n+bravo\n*** End Patch"
-	executionFormsToolPathKey      = "path"
-	executionFormsToolEditsKey     = "edits"
-	executionFormsToolOldTextKey   = "old"
-	executionFormsToolNewTextKey   = "new"
-	executionFormsToolPatchKey     = "patch"
-	executionFormsToolCommandKey   = "command"
-	executionFormsToolPurposeKey   = "purpose"
-	executionFormsJSONPurpose      = "write the JSON command marker"
-	executionFormsSSEPurpose       = "write the SSE command marker"
+	executionFormsUpstreamName                = "integration"
+	executionFormsUpstreamProvider            = "openai"
+	executionFormsUpstreamNameKey             = "name"
+	executionFormsUpstreamTypeKey             = "provider"
+	executionFormsUpstreamURLKey              = "baseUrl"
+	executionFormsMessageKey                  = "message"
+	executionFormsWebSocketSessionIDParameter = "sessionId"
+	executionFormsWebSocketProtocol           = "peen.v1"
+	executionFormsWebSocketBearerPrefix       = "peen.bearer."
+	executionFormsWebSocketMessageSend        = "message.send"
+	executionFormsWebSocketCompleted          = "message.completed"
+	executionFormsWebSocketFailed             = "message.failed"
+	executionFormsMetricFamily                = "peen_http_requests_total"
+	executionFormsNetworkTCP                  = "tcp"
+	executionFormsLoopbackAddress             = "127.0.0.1:0"
+	executionFormsJSONToolMessage             = "run the JSON tool turn"
+	executionFormsPatchToolMessage            = "run the patch tool turn"
+	executionFormsPatchText                   = "*** Begin Patch\n*** Update File: patch-edit.txt\n@@\n-alpha\n+bravo\n*** End Patch"
+	executionFormsToolPathKey                 = "path"
+	executionFormsToolEditsKey                = "edits"
+	executionFormsToolOldTextKey              = "old"
+	executionFormsToolNewTextKey              = "new"
+	executionFormsToolPatchKey                = "patch"
+	executionFormsToolCommandKey              = "command"
+	executionFormsToolPurposeKey              = "purpose"
+	executionFormsJSONPurpose                 = "write the JSON command marker"
+	executionFormsPatchPurpose                = "write the patch command marker"
 )
 
 type executionForm struct {
@@ -199,7 +205,7 @@ func runAuthenticatedFormScenario(t *testing.T, binary string) {
 	assertUnauthorized(t, process.baseURL)
 
 	provider.EnableScriptedToolTurn(jsonToolTurn())
-	jsonSessionID := sendJSONTurn(
+	jsonSessionID := sendWebSocketTurn(
 		t,
 		process.baseURL,
 		executionFormsAPIToken,
@@ -210,16 +216,17 @@ func runAuthenticatedFormScenario(t *testing.T, binary string) {
 	assertWorkspaceFile(t, state.workspace, executionFormsJSONFixtureFile, executionFormsJSONAfter)
 	assertWorkspaceFile(t, state.workspace, executionFormsJSONCommandFile, executionFormsJSONOutput)
 
-	provider.EnableScriptedToolTurn(sseToolTurn())
-	sendSSETurn(
+	provider.EnableScriptedToolTurn(patchToolTurn())
+	sendWebSocketTurn(
 		t,
 		process.baseURL,
 		executionFormsAPIToken,
-		executionFormsSSEToolMessage,
+		uuid.Nil,
+		executionFormsPatchToolMessage,
 	)
 	provider.DisableScriptedToolTurn()
-	assertWorkspaceFile(t, state.workspace, executionFormsSSEFixtureFile, executionFormsSSEAfter)
-	assertWorkspaceFile(t, state.workspace, executionFormsSSECommandFile, executionFormsSSEOutput)
+	assertWorkspaceFile(t, state.workspace, executionFormsPatchFixtureFile, executionFormsPatchAfter)
+	assertWorkspaceFile(t, state.workspace, executionFormsPatchCommandFile, executionFormsPatchOutput)
 
 	process.stop(t)
 	process = startPeen(t, processConfig{
@@ -238,7 +245,7 @@ func runAuthenticatedFormScenario(t *testing.T, binary string) {
 		filepath.Join(state.workspace, executionFormsRulesFile),
 		executionFormsUpdatedRules,
 	)
-	sendJSONTurn(
+	sendWebSocketTurn(
 		t,
 		process.baseURL,
 		executionFormsAPIToken,
@@ -266,7 +273,7 @@ func runUnauthenticatedFormScenario(t *testing.T, binary string) {
 	})
 	t.Cleanup(func() { process.stop(t) })
 
-	sendJSONTurn(
+	sendWebSocketTurn(
 		t,
 		process.baseURL,
 		"",
@@ -295,19 +302,19 @@ func jsonToolTurn() testinfra.ScriptedToolTurn {
 	}
 }
 
-func sseToolTurn() testinfra.ScriptedToolTurn {
+func patchToolTurn() testinfra.ScriptedToolTurn {
 	return testinfra.ScriptedToolTurn{
 		ReadFileArguments: map[string]any{
-			executionFormsToolPathKey: executionFormsSSEFixtureFile,
+			executionFormsToolPathKey: executionFormsPatchFixtureFile,
 		},
 		ApplyPatchArguments: map[string]any{
 			executionFormsToolPatchKey: executionFormsPatchText,
 		},
 		RunCommandArguments: map[string]any{
-			executionFormsToolCommandKey: executionFormsSSECommand,
-			executionFormsToolPurposeKey: executionFormsSSEPurpose,
+			executionFormsToolCommandKey: executionFormsPatchCommand,
+			executionFormsToolPurposeKey: executionFormsPatchPurpose,
 		},
-		FinalAnswer: executionFormsSSEAnswer,
+		FinalAnswer: executionFormsPatchAnswer,
 	}
 }
 
@@ -339,8 +346,8 @@ func newProcessState(t *testing.T) processState {
 	)
 	writeFile(
 		t,
-		filepath.Join(workspace, executionFormsSSEFixtureFile),
-		executionFormsSSEBefore,
+		filepath.Join(workspace, executionFormsPatchFixtureFile),
+		executionFormsPatchBefore,
 	)
 
 	return processState{
@@ -452,19 +459,19 @@ func awaitReady(t *testing.T, process *runningPeen) {
 func assertUnauthorized(t *testing.T, baseURL string) {
 	t.Helper()
 
-	response := postMessage(
-		t,
-		baseURL,
-		"",
-		uuid.Nil,
-		executionFormsMissingToken,
-		"",
-	)
+	endpoint := executionFormsWebSocketURL(t, baseURL, uuid.New())
+	dialer := websocket.Dialer{
+		Subprotocols: []string{executionFormsWebSocketProtocol},
+	}
+	connection, response, err := dialer.Dial(endpoint, nil)
+	require.Error(t, err)
+	require.Nil(t, connection)
+	require.NotNil(t, response)
 	require.Equal(t, http.StatusUnauthorized, response.StatusCode)
 	require.NoError(t, response.Body.Close())
 }
 
-func sendJSONTurn(
+func sendWebSocketTurn(
 	t *testing.T,
 	baseURL string,
 	token string,
@@ -473,88 +480,62 @@ func sendJSONTurn(
 ) uuid.UUID {
 	t.Helper()
 
-	response := postMessage(t, baseURL, token, sessionID, message, "")
-	require.Equal(t, http.StatusOK, response.StatusCode)
-	responseBody, readErr := io.ReadAll(response.Body)
-	closeErr := response.Body.Close()
-	require.NoError(t, readErr)
-	require.NoError(t, closeErr)
-	assert.Contains(t, string(responseBody), "message")
-
-	return responseSessionID(t, response)
-}
-
-func sendSSETurn(
-	t *testing.T,
-	baseURL string,
-	token string,
-	message string,
-) {
-	t.Helper()
-
-	response := postMessage(
-		t,
-		baseURL,
-		token,
-		uuid.Nil,
-		message,
-		executionFormsSSEMediaType,
+	if sessionID == uuid.Nil {
+		sessionID = uuid.New()
+	}
+	dialer := websocket.Dialer{
+		HandshakeTimeout: executionFormsStartupTimeout,
+		Subprotocols: []string{
+			executionFormsWebSocketProtocol,
+			executionFormsWebSocketBearerPrefix + base64.RawURLEncoding.EncodeToString(
+				[]byte(token),
+			),
+		},
+	}
+	connection, response, err := dialer.Dial(
+		executionFormsWebSocketURL(t, baseURL, sessionID),
+		nil,
 	)
-	require.Equal(t, http.StatusOK, response.StatusCode)
-	body, readErr := io.ReadAll(response.Body)
-	closeErr := response.Body.Close()
-	require.NoError(t, readErr)
-	require.NoError(t, closeErr)
-	assert.Contains(t, string(body), "message_stop")
+	if response != nil {
+		t.Cleanup(func() { require.NoError(t, response.Body.Close()) })
+	}
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, connection.Close()) })
+	require.NoError(t, connection.WriteJSON(dabluveees.NewEvent(
+		executionFormsWebSocketMessageSend,
+		map[string]string{executionFormsMessageKey: message},
+	)))
+
+	deadline := time.Now().Add(executionFormsStartupTimeout)
+	for {
+		require.NoError(t, connection.SetReadDeadline(deadline))
+		event := dabluveees.Event{}
+		require.NoError(t, connection.ReadJSON(&event))
+		switch event.Type {
+		case executionFormsWebSocketCompleted:
+			return sessionID
+		case executionFormsWebSocketFailed:
+			t.Fatalf("WebSocket message failed: %s", event.Data)
+		}
+	}
+
 }
 
-func postMessage(
+func executionFormsWebSocketURL(
 	t *testing.T,
 	baseURL string,
-	token string,
 	sessionID uuid.UUID,
-	message string,
-	accept string,
-) *http.Response {
+) string {
 	t.Helper()
 
-	payload, err := json.Marshal(map[string]string{
-		executionFormsMessageKey: message,
-	})
+	endpoint, err := url.Parse(baseURL + executionFormsWebSocketPath)
 	require.NoError(t, err)
-	request, err := http.NewRequest(
-		http.MethodPost,
-		baseURL+executionFormsAPIMessagesPath,
-		bytes.NewReader(payload),
-	)
-	require.NoError(t, err)
-	request.Header.Set(executionFormsHeaderContentType, executionFormsJSONMediaType)
-	if token != "" {
-		request.Header.Set(
-			executionFormsHeaderAuthorization,
-			executionFormsBearerPrefix+token,
-		)
-	}
-	if sessionID != uuid.Nil {
-		request.Header.Set(executionFormsHeaderSessionID, sessionID.String())
-	}
-	if accept != "" {
-		request.Header.Set(executionFormsHeaderAccept, accept)
-	}
+	endpoint.Scheme = "ws"
+	query := endpoint.Query()
+	query.Set(executionFormsWebSocketSessionIDParameter, sessionID.String())
+	endpoint.RawQuery = query.Encode()
 
-	response, err := http.DefaultClient.Do(request)
-	require.NoError(t, err)
-
-	return response
-}
-
-func responseSessionID(t *testing.T, response *http.Response) uuid.UUID {
-	t.Helper()
-
-	sessionID, err := uuid.Parse(response.Header.Get(executionFormsHeaderSessionID))
-	require.NoError(t, err)
-
-	return sessionID
+	return endpoint.String()
 }
 
 func assertSessionHistory(

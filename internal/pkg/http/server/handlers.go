@@ -4,95 +4,11 @@ import (
 	"context"
 	"errors"
 
-	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 )
-
-// SendMessage runs one durable agent turn as JSON or an SSE stream.
-//
-//nolint:ireturn // Generated strict handler response interface.
-func (s *Server) SendMessage(
-	ctx context.Context,
-	request api.SendMessageRequestObject,
-) (api.SendMessageResponseObject, error) {
-	// A nil Body means oapi-codegen bound no JSON object at all. The
-	// whitespace-only message rule is NOT re-checked here: it lives in
-	// agent.validateMessageRequest so an embedding Go caller through the
-	// future pkg/peen facade gets the same rejection this HTTP edge does.
-	if request.Body == nil {
-		return sendMessageBadRequest("message is required"), nil
-	}
-
-	if wantsStream(ctx) {
-		stream, err := s.deps.Runtime.StreamMessage(
-			ctx,
-			*request.Body,
-			request.Params.XSessionID,
-			requestID(ctx),
-		)
-		if err != nil {
-			if response, mapped := mapSendMessageError(err); mapped {
-				return response, nil
-			}
-
-			return nil, ctxerrors.Wrap(err, "stream agent message")
-		}
-
-		if stream.Queued {
-			return queuedMessageResponse(stream.SessionID, requestID(ctx)), nil
-		}
-
-		return api.SendMessage200TexteventStreamResponse{
-			Body: stream.Body,
-			Headers: api.SendMessage200ResponseHeaders{
-				XRequestID: requestID(ctx),
-				XSessionID: stream.SessionID,
-			},
-		}, nil
-	}
-
-	result, err := s.deps.Runtime.SendMessage(
-		ctx,
-		*request.Body,
-		request.Params.XSessionID,
-		requestID(ctx),
-	)
-	if err != nil {
-		if response, mapped := mapSendMessageError(err); mapped {
-			return response, nil
-		}
-
-		return nil, ctxerrors.Wrap(err, "send agent message")
-	}
-
-	if result.Queued {
-		return queuedMessageResponse(result.SessionID, requestID(ctx)), nil
-	}
-
-	return api.SendMessage200JSONResponse{
-		Body: result.Response,
-		Headers: api.SendMessage200ResponseHeaders{
-			XRequestID: requestID(ctx),
-			XSessionID: result.SessionID,
-		},
-	}, nil
-}
-
-func queuedMessageResponse(
-	sessionID uuid.UUID,
-	requestID uuid.UUID,
-) api.SendMessage202JSONResponse {
-	return api.SendMessage202JSONResponse{
-		Body: api.MessageQueuedResponse{Queued: true},
-		Headers: api.SendMessage202ResponseHeaders{
-			XRequestID: requestID,
-			XSessionID: sessionID,
-		},
-	}
-}
 
 // ListMessages returns one stable bounded durable transcript page.
 //
@@ -263,20 +179,6 @@ func publishSessionEventBadRequest(
 	message string,
 ) api.PublishSessionEvent400JSONResponse {
 	return api.PublishSessionEvent400JSONResponse{
-		ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(
-			validationError(message),
-		),
-	}
-}
-
-func wantsStream(ctx context.Context) bool {
-	stream, _ := ctx.Value(streamContextKey).(bool)
-
-	return stream
-}
-
-func sendMessageBadRequest(message string) api.SendMessage400JSONResponse {
-	return api.SendMessage400JSONResponse{
 		ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(
 			validationError(message),
 		),

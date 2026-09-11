@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"errors"
-	"io"
 	"strings"
 
 	"github.com/google/uuid"
@@ -29,25 +28,13 @@ type API interface {
 
 // MessageAPI runs turns and reads the durable transcript.
 type MessageAPI interface {
-	SendMessage(
-		ctx context.Context,
-		request api.MessageRequest,
-		sessionID *uuid.UUID,
-		requestID uuid.UUID,
-	) (*MessageRunResult, error)
 	RunMessage(
 		ctx context.Context,
-		request api.MessageRequest,
+		request MessageRequest,
 		sessionID *uuid.UUID,
 		requestID uuid.UUID,
 		sink EventSink,
 	) (*MessageRunResult, error)
-	StreamMessage(
-		ctx context.Context,
-		request api.MessageRequest,
-		sessionID *uuid.UUID,
-		requestID uuid.UUID,
-	) (*StreamMessageResult, error)
 	ListMessages(
 		ctx context.Context,
 		params api.ListMessagesParams,
@@ -117,22 +104,12 @@ type RunAPI interface {
 	) (*api.AgentRunCancelResponse, error)
 }
 
-// SendMessage runs one completed API turn and returns the generated response
-// body plus the session metadata required by the transport headers.
-func (r *Runtime) SendMessage(
-	ctx context.Context,
-	request api.MessageRequest,
-	sessionID *uuid.UUID,
-	requestID uuid.UUID,
-) (*MessageRunResult, error) {
-	return r.RunMessage(ctx, request, sessionID, requestID, nil)
-}
-
-// RunMessage runs one completed API turn while forwarding each visible event
-// to sink. A nil sink retains the regular completed-response behavior.
+// RunMessage runs one completed agent turn while forwarding each visible event
+// to sink. A nil sink is useful to an embedding that needs durable results but
+// no live event transport.
 func (r *Runtime) RunMessage(
 	ctx context.Context,
-	request api.MessageRequest,
+	request MessageRequest,
 	sessionID *uuid.UUID,
 	requestID uuid.UUID,
 	sink EventSink,
@@ -150,51 +127,9 @@ func (r *Runtime) RunMessage(
 	}
 
 	return &MessageRunResult{
-		Response:  api.MessageResponse{Message: result.Text},
 		SessionID: result.SessionID,
 		Queued:    result.Queued,
-	}, nil
-}
-
-// StreamMessage prepares one durable turn, then returns a ready SSE reader.
-// The agent runtime owns the bridge because it owns the event stream.
-func (r *Runtime) StreamMessage(
-	ctx context.Context,
-	request api.MessageRequest,
-	sessionID *uuid.UUID,
-	requestID uuid.UUID,
-) (*StreamMessageResult, error) {
-	input, err := messageRequestToTurnRequest(request, sessionID, requestID)
-	if err != nil {
-		return nil, ctxerrors.Wrap(err, "convert message request")
-	}
-
-	if err := r.validateTurnInput(input); err != nil {
-		return nil, translateOperationError(err)
-	}
-
-	if result, handled, err := r.queueActiveUserMessage(ctx, input); handled {
-		if err != nil {
-			return nil, translateOperationError(err)
-		}
-
-		return &StreamMessageResult{
-			SessionID: result.SessionID,
-			Queued:    true,
-		}, nil
-	}
-
-	prepared, err := r.prepareTurn(ctx, input)
-	if err != nil {
-		return nil, translateOperationError(err)
-	}
-
-	reader, writer := io.Pipe()
-	go r.writeStream(ctx, writer, prepared)
-
-	return &StreamMessageResult{
-		Body:      reader,
-		SessionID: prepared.opened.Session.ID,
+		Text:      result.Text,
 	}, nil
 }
 
@@ -250,7 +185,7 @@ func (r *Runtime) CancelSession(
 }
 
 func messageRequestToTurnRequest(
-	request api.MessageRequest,
+	request MessageRequest,
 	sessionID *uuid.UUID,
 	requestID uuid.UUID,
 ) (TurnRequest, error) {
@@ -266,7 +201,7 @@ func messageRequestToTurnRequest(
 		Workspace: optionalString(request.Workspace),
 	}
 	if request.SystemPrompt != nil {
-		mode, err := promptModeFromAPI(request.SystemPrompt)
+		mode, err := promptModeFromMessageRequest(request.SystemPrompt)
 		if err != nil {
 			return TurnRequest{}, err
 		}
@@ -285,7 +220,7 @@ func messageRequestToTurnRequest(
 // runtime is also reachable directly by an embedding Go caller through the
 // future pkg/peen facade, and that caller must see the same rejection the
 // HTTP edge does.
-func validateMessageRequest(request api.MessageRequest) error {
+func validateMessageRequest(request MessageRequest) error {
 	if strings.TrimSpace(request.Message) == "" {
 		return ctxerrors.Wrap(commerr.ErrValidationFailed, "message")
 	}
@@ -312,7 +247,9 @@ func validateOptionalRequestValue(value *string, field string) error {
 	return ctxerrors.Wrap(commerr.ErrValidationFailed, field)
 }
 
-func promptModeFromAPI(prompt *api.SystemPrompt) (PromptMode, error) {
+func promptModeFromMessageRequest(
+	prompt *MessageSystemPrompt,
+) (PromptMode, error) {
 	if strings.TrimSpace(prompt.Content) == "" {
 		return "", ctxerrors.Wrap(
 			commerr.ErrValidationFailed,
@@ -321,9 +258,9 @@ func promptModeFromAPI(prompt *api.SystemPrompt) (PromptMode, error) {
 	}
 
 	switch prompt.Mode {
-	case api.SystemPromptModeAppend:
+	case PromptModeAppend:
 		return PromptModeAppend, nil
-	case api.SystemPromptModeReplace:
+	case PromptModeReplace:
 		return PromptModeReplace, nil
 	default:
 		return "", ctxerrors.Wrap(

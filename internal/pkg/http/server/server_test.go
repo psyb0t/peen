@@ -3,18 +3,14 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"io"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/aichteeteapee"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
-	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/agent"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/stretchr/testify/assert"
@@ -30,155 +26,28 @@ func TestServerBuildsItsSerbewrListener(t *testing.T) {
 	assert.NotNil(t, instance.httpServer)
 }
 
-func TestServerRequestMiddleware(t *testing.T) {
+func TestServerDoesNotServeHTTPMessageSubmission(t *testing.T) {
 	sessionID := uuid.New()
-	providedRequestID := uuid.New()
-
-	testCases := []struct {
-		name          string
-		apiToken      string
-		body          string
-		headers       map[string]string
-		wantStatus    int
-		wantSendCalls int
-		check         func(*testing.T, *httptest.ResponseRecorder)
-	}{
-		{
-			name:     "authorized JSON request preserves request ID",
-			apiToken: testAPIToken,
-			body:     `{"message":"hello"}`,
-			headers: map[string]string{
-				headerAccept:        mediaTypeJSON,
-				headerAuthorization: bearerScheme + " " + testAPIToken,
-				headerRequestID:     providedRequestID.String(),
-			},
-			wantStatus:    http.StatusOK,
-			wantSendCalls: 1,
-			check: func(t *testing.T, recorder *httptest.ResponseRecorder) {
-				t.Helper()
-				assert.Equal(
-					t,
-					providedRequestID.String(),
-					recorder.Header().Get(headerRequestID),
-				)
-				assert.Equal(
-					t,
-					sessionID.String(),
-					recorder.Header().Get(headerSessionID),
-				)
-				response := api.MessageResponse{}
-				require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
-				assert.Equal(t, "response", response.Message)
-			},
-		},
-		{
-			name: "optional authentication leaves route open",
-			body: `{"message":"hello"}`,
-			headers: map[string]string{
-				headerAccept: mediaTypeJSON,
-			},
-			wantStatus:    http.StatusOK,
-			wantSendCalls: 1,
-			check:         assertGeneratedRequestID,
-		},
-		{
-			name:     "rejects malformed bearer authentication",
-			apiToken: testAPIToken,
-			body:     `{"message":"hello"}`,
-			headers: map[string]string{
-				headerAuthorization: "Basic " + testAPIToken,
-			},
-			wantStatus:    http.StatusUnauthorized,
-			wantSendCalls: 0,
-			check:         assertUnauthorizedEnvelope,
-		},
-		{
-			name:     "rejects unknown nested JSON field",
-			apiToken: testAPIToken,
-			body: `{
-				"message":"hello",
-				"systemPrompt":{"mode":"append","content":"rules","unknown":true}
-			}`,
-			headers: map[string]string{
-				headerAuthorization: bearerScheme + " " + testAPIToken,
-			},
-			wantStatus:    http.StatusBadRequest,
-			wantSendCalls: 0,
-			check:         assertValidationEnvelope,
-		},
-		{
-			name:     "rejects multiple JSON values",
-			apiToken: testAPIToken,
-			body:     `{"message":"hello"} {"message":"again"}`,
-			headers: map[string]string{
-				headerAuthorization: bearerScheme + " " + testAPIToken,
-			},
-			wantStatus:    http.StatusBadRequest,
-			wantSendCalls: 0,
-			check:         assertValidationEnvelope,
-		},
-		{
-			name:     "rejects unsupported response representation",
-			apiToken: testAPIToken,
-			body:     `{"message":"hello"}`,
-			headers: map[string]string{
-				headerAccept:        "text/plain",
-				headerAuthorization: bearerScheme + " " + testAPIToken,
-			},
-			wantStatus:    http.StatusNotAcceptable,
-			wantSendCalls: 0,
-			check:         assertBadRequestEnvelope,
-		},
-		{
-			name:     "replaces malformed request ID",
-			apiToken: testAPIToken,
-			body:     `{"message":"hello"}`,
-			headers: map[string]string{
-				headerAuthorization: bearerScheme + " " + testAPIToken,
-				headerRequestID:     "not-a-uuid",
-			},
-			wantStatus:    http.StatusOK,
-			wantSendCalls: 1,
-			check:         assertGeneratedRequestID,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			runtime := newTestRuntime(sessionID)
-			instance, err := New(Dependencies{
-				Runtime:  runtime,
-				APIToken: tc.apiToken,
-			})
-			require.NoError(t, err)
-
-			request := httptest.NewRequestWithContext(
-				t.Context(),
-				http.MethodPost,
-				apiBaseURL+"/messages",
-				strings.NewReader(tc.body),
-			)
-			request.Header.Set(headerContentType, mediaTypeJSON)
-			for header, value := range tc.headers {
-				request.Header.Set(header, value)
-			}
-			recorder := httptest.NewRecorder()
-
-			instance.testHandler.ServeHTTP(recorder, request)
-
-			assert.Equal(t, tc.wantStatus, recorder.Code)
-			assert.Equal(t, tc.wantSendCalls, runtime.sendCalls)
-			tc.check(t, recorder)
-		})
-	}
-}
-
-func assertGeneratedRequestID(t *testing.T, recorder *httptest.ResponseRecorder) {
-	t.Helper()
-
-	requestID, err := uuid.Parse(recorder.Header().Get(headerRequestID))
+	runtime := newTestRuntime(sessionID)
+	instance, err := New(Dependencies{
+		Runtime:  runtime,
+		APIToken: testAPIToken,
+	})
 	require.NoError(t, err)
-	assert.NotEqual(t, uuid.Nil, requestID)
+
+	request := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		apiBaseURL+"/messages",
+		nil,
+	)
+	request.Header.Set(headerAuthorization, bearerScheme+" "+testAPIToken)
+	recorder := httptest.NewRecorder()
+
+	instance.testHandler.ServeHTTP(recorder, request)
+
+	assert.Equal(t, http.StatusMethodNotAllowed, recorder.Code)
+	assert.Zero(t, runtime.runCalls)
 }
 
 func assertUnauthorizedEnvelope(t *testing.T, recorder *httptest.ResponseRecorder) {
@@ -187,276 +56,6 @@ func assertUnauthorizedEnvelope(t *testing.T, recorder *httptest.ResponseRecorde
 	response := api.Error{}
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
 	assert.Equal(t, aichteeteapee.ErrorCodeUnauthorized, response.Code)
-}
-
-func assertValidationEnvelope(t *testing.T, recorder *httptest.ResponseRecorder) {
-	t.Helper()
-
-	response := api.Error{}
-	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
-	assert.Equal(t, aichteeteapee.ErrorCodeValidationFailed, response.Code)
-}
-
-func assertBadRequestEnvelope(t *testing.T, recorder *httptest.ResponseRecorder) {
-	t.Helper()
-
-	response := api.Error{}
-	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
-	assert.Equal(t, aichteeteapee.ErrorCodeBadRequest, response.Code)
-}
-
-func TestServerHandlersMapKnownOperationErrors(t *testing.T) {
-	sessionID := uuid.New()
-	testCases := []struct {
-		name       string
-		runtime    *testRuntime
-		wantStatus int
-		wantCode   aichteeteapee.ErrorCode
-		write      func(*Server, *httptest.ResponseRecorder) error
-	}{
-		{
-			name: "send maps missing session",
-			runtime: &testRuntime{
-				sessionID: sessionID,
-				sendErr:   commerr.ErrNotFound,
-			},
-			wantStatus: http.StatusNotFound,
-			wantCode:   ErrorCodeSessionNotFound,
-			write: func(instance *Server, recorder *httptest.ResponseRecorder) error {
-				response, err := instance.SendMessage(
-					context.Background(),
-					api.SendMessageRequestObject{
-						Body: &api.MessageRequest{Message: "inspect"},
-					},
-				)
-				if err != nil {
-					return err
-				}
-
-				return response.VisitSendMessageResponse(recorder)
-			},
-		},
-		{
-			name: "send maps invalid body",
-			runtime: &testRuntime{
-				sessionID: sessionID,
-				sendErr:   commerr.ErrValidationFailed,
-			},
-			wantStatus: http.StatusBadRequest,
-			wantCode:   aichteeteapee.ErrorCodeValidationFailed,
-			write: func(instance *Server, recorder *httptest.ResponseRecorder) error {
-				response, err := instance.SendMessage(
-					context.Background(),
-					api.SendMessageRequestObject{
-						Body: &api.MessageRequest{Message: "inspect"},
-					},
-				)
-				if err != nil {
-					return err
-				}
-
-				return response.VisitSendMessageResponse(recorder)
-			},
-		},
-		{
-			name: "send maps a full active user message queue",
-			runtime: &testRuntime{
-				sessionID: sessionID,
-				sendErr: errors.Join(
-					commerr.ErrConflict,
-					elelem.ErrUserMessageQueueFull,
-				),
-			},
-			wantStatus: http.StatusConflict,
-			wantCode:   ErrorCodeUserMessageQueueFull,
-			write: func(instance *Server, recorder *httptest.ResponseRecorder) error {
-				response, err := instance.SendMessage(
-					context.Background(),
-					api.SendMessageRequestObject{
-						Body: &api.MessageRequest{Message: "inspect"},
-					},
-				)
-				if err != nil {
-					return err
-				}
-
-				return response.VisitSendMessageResponse(recorder)
-			},
-		},
-		{
-			name: "send maps busy session",
-			runtime: &testRuntime{
-				sessionID: sessionID,
-				sendErr:   commerr.ErrConflict,
-			},
-			wantStatus: http.StatusConflict,
-			wantCode:   ErrorCodeSessionBusy,
-			write: func(instance *Server, recorder *httptest.ResponseRecorder) error {
-				response, err := instance.SendMessage(
-					context.Background(),
-					api.SendMessageRequestObject{
-						Body: &api.MessageRequest{Message: "inspect"},
-					},
-				)
-				if err != nil {
-					return err
-				}
-
-				return response.VisitSendMessageResponse(recorder)
-			},
-		},
-		{
-			name: "send maps cancelled turn",
-			runtime: &testRuntime{
-				sessionID: sessionID,
-				sendErr:   commerr.ErrCancelled,
-			},
-			wantStatus: http.StatusConflict,
-			wantCode:   ErrorCodeTurnCancelled,
-			write: func(instance *Server, recorder *httptest.ResponseRecorder) error {
-				response, err := instance.SendMessage(
-					context.Background(),
-					api.SendMessageRequestObject{
-						Body: &api.MessageRequest{Message: "inspect"},
-					},
-				)
-				if err != nil {
-					return err
-				}
-
-				return response.VisitSendMessageResponse(recorder)
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			instance, err := New(Dependencies{Runtime: tc.runtime})
-			require.NoError(t, err)
-			recorder := httptest.NewRecorder()
-
-			require.NoError(t, tc.write(instance, recorder))
-			assert.Equal(t, tc.wantStatus, recorder.Code)
-			assertErrorCode(t, recorder, tc.wantCode)
-		})
-	}
-}
-
-func TestServerQueuedMessageReturnsAccepted(t *testing.T) {
-	t.Parallel()
-
-	sessionID := uuid.New()
-	testCases := []struct {
-		name    string
-		stream  bool
-		runtime *testRuntime
-	}{
-		{
-			name: "JSON",
-			runtime: &testRuntime{
-				sessionID:  sessionID,
-				sendQueued: true,
-			},
-		},
-		{
-			name:   "SSE request",
-			stream: true,
-			runtime: &testRuntime{
-				sessionID:    sessionID,
-				streamQueued: true,
-			},
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			instance, err := New(Dependencies{Runtime: tc.runtime})
-			require.NoError(t, err)
-			recorder := httptest.NewRecorder()
-			requestContext := t.Context()
-			if tc.stream {
-				requestContext = context.WithValue(
-					requestContext,
-					streamContextKey,
-					true,
-				)
-			}
-
-			response, err := instance.SendMessage(
-				requestContext,
-				api.SendMessageRequestObject{
-					Body: &api.MessageRequest{Message: "queue this"},
-				},
-			)
-			require.NoError(t, err)
-			require.NoError(t, response.VisitSendMessageResponse(recorder))
-
-			require.Equal(t, http.StatusAccepted, recorder.Code)
-			assert.Equal(t, sessionID.String(), recorder.Header().Get(headerSessionID))
-
-			body := api.MessageQueuedResponse{}
-			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
-			assert.True(t, body.Queued)
-		})
-	}
-}
-
-// Before SSE headers are committed, StreamMessage failures must still use
-// the normal JSON error envelope rather than leaving a half-open stream.
-func TestServerStreamMessagePreHeaderFailureUsesJSONEnvelope(t *testing.T) {
-	sessionID := uuid.New()
-
-	testCases := []struct {
-		name       string
-		streamErr  error
-		wantStatus int
-		wantCode   aichteeteapee.ErrorCode
-	}{
-		{
-			name:       "missing session maps to not found",
-			streamErr:  commerr.ErrNotFound,
-			wantStatus: http.StatusNotFound,
-			wantCode:   ErrorCodeSessionNotFound,
-		},
-		{
-			name:       "invalid body maps to validation failed",
-			streamErr:  commerr.ErrValidationFailed,
-			wantStatus: http.StatusBadRequest,
-			wantCode:   aichteeteapee.ErrorCodeValidationFailed,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			runtime := newTestRuntime(sessionID)
-			runtime.streamErr = tc.streamErr
-
-			instance, err := New(Dependencies{Runtime: runtime})
-			require.NoError(t, err)
-
-			request := httptest.NewRequestWithContext(
-				t.Context(),
-				http.MethodPost,
-				apiBaseURL+"/messages",
-				strings.NewReader(`{"message":"hello"}`),
-			)
-			request.Header.Set(headerContentType, mediaTypeJSON)
-			request.Header.Set(headerAccept, mediaTypeSSE)
-
-			recorder := httptest.NewRecorder()
-			instance.testHandler.ServeHTTP(recorder, request)
-
-			assert.Equal(t, tc.wantStatus, recorder.Code)
-			assert.NotContains(
-				t,
-				recorder.Header().Get(headerContentType),
-				mediaTypeSSE,
-			)
-			assertErrorCode(t, recorder, tc.wantCode)
-		})
-	}
 }
 
 func TestServerSessionEndpoints(t *testing.T) {
@@ -591,18 +190,16 @@ func assertErrorCode(
 }
 
 type testRuntime struct {
-	sessionID    uuid.UUID
-	sendCalls    int
-	sendErr      error
-	sendQueued   bool
-	runEvent     agent.Event
-	streamErr    error
-	streamQueued bool
-	sessionErr   error
-	listErr      error
-	cancelErr    error
-	eventsErr    error
-	jobsErr      error
+	sessionID  uuid.UUID
+	runCalls   int
+	runErr     error
+	runQueued  bool
+	runEvent   agent.Event
+	sessionErr error
+	listErr    error
+	cancelErr  error
+	eventsErr  error
+	jobsErr    error
 
 	agentRunsErr error
 }
@@ -611,54 +208,28 @@ func newTestRuntime(sessionID uuid.UUID) *testRuntime {
 	return &testRuntime{sessionID: sessionID}
 }
 
-func (r *testRuntime) SendMessage(
+func (r *testRuntime) RunMessage(
 	_ context.Context,
-	_ api.MessageRequest,
+	_ agent.MessageRequest,
 	_ *uuid.UUID,
 	_ uuid.UUID,
-) (*agent.MessageRunResult, error) {
-	r.sendCalls++
-	if r.sendErr != nil {
-		return nil, r.sendErr
-	}
-
-	return &agent.MessageRunResult{
-		Response:  api.MessageResponse{Message: "response"},
-		SessionID: r.sessionID,
-		Queued:    r.sendQueued,
-	}, nil
-}
-
-func (r *testRuntime) RunMessage(
-	ctx context.Context,
-	request api.MessageRequest,
-	sessionID *uuid.UUID,
-	requestID uuid.UUID,
 	sink agent.EventSink,
 ) (*agent.MessageRunResult, error) {
+	r.runCalls++
+	if r.runErr != nil {
+		return nil, r.runErr
+	}
+
 	if sink != nil && r.runEvent.Type != "" {
 		if err := sink(r.runEvent); err != nil {
 			return nil, ctxerrors.Wrap(err, "send test agent event")
 		}
 	}
 
-	return r.SendMessage(ctx, request, sessionID, requestID)
-}
-
-func (r *testRuntime) StreamMessage(
-	_ context.Context,
-	_ api.MessageRequest,
-	_ *uuid.UUID,
-	_ uuid.UUID,
-) (*agent.StreamMessageResult, error) {
-	if r.streamErr != nil {
-		return nil, r.streamErr
-	}
-
-	return &agent.StreamMessageResult{
-		Body:      io.NopCloser(strings.NewReader("")),
+	return &agent.MessageRunResult{
 		SessionID: r.sessionID,
-		Queued:    r.streamQueued,
+		Queued:    r.runQueued,
+		Text:      "response",
 	}, nil
 }
 

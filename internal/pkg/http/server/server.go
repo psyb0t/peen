@@ -3,6 +3,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"github.com/psyb0t/aichteeteapee"
@@ -129,6 +130,10 @@ func (s *Server) Serve(ctx context.Context) error {
 	defer s.webSocketHub.Close()
 
 	if err := s.httpServer.Start(ctx, s.router); err != nil {
+		if errors.Is(err, context.Canceled) && ctx.Err() != nil {
+			return nil
+		}
+
 		return ctxerrors.Wrap(err, "serve HTTP requests")
 	}
 
