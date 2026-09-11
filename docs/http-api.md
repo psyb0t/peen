@@ -28,10 +28,10 @@ A client generates the session UUID. A connection for an existing UUID joins
 that session. A connection for a new UUID remains pending until its first
 `message.send`; that send atomically creates the session with the supplied UUID.
 No REST endpoint creates a session or accepts a user message. Peen maps the
-session ID to WShub's logical client ID, so all sockets for one session receive
-the same server events. The server retains WShub's default origin policy: an
-`Origin` header must match the request host outside explicitly enabled local
-development mode.
+session ID to [Aichteeteapee's WShub](https://github.com/psyb0t/aichteeteapee)
+logical client ID, so all sockets for one session receive the same server
+events. The server retains WShub's default origin policy: an `Origin` header
+must match the request host outside explicitly enabled local development mode.
 
 The accepted client event is `message.send`. Its `data` is strict JSON:
 

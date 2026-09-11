@@ -1,12 +1,22 @@
 name: pipeline
 
-on: [push]
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions: {}
 
 jobs:
   code:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     permissions:
+      actions: read
       contents: read
-      security-events: write
+      security-events: write # for the sec SARIF upload
     uses: psyb0t/reusable-github-workflows/.github/workflows/code-workflow.yml@master
     with:
       lint_command: "make lint"
@@ -16,6 +26,24 @@ jobs:
       coverage_file: "coverage-percent.txt"
       sarif_file: "sec.sarif"
       sarif_category: "go"
+
+  docker:
+    needs: [code]
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    permissions:
+      contents: write
+      security-events: write
+    uses: psyb0t/reusable-github-workflows/.github/workflows/docker-image-workflow.yml@master
+    with:
+      repository_name: psyb0t/peen
+      target_platforms: "linux/amd64,linux/arm64"
+      scan_severity: "high"
+      scan_fail_build: false
+      dockerhub_private: false
+      sync_description: true
+    secrets:
+      dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+      dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
 
   badges:
     needs: [code]
@@ -34,9 +62,9 @@ jobs:
     uses: psyb0t/reusable-github-workflows/.github/workflows/release-workflow.yml@master
 
   # Publish the skill (.agents/skills/) to ClawHub. Tag pushes ONLY, after the
-  # checks pass.
+  # image build so the advertised skill always has a published image behind it.
   publish-to-clawhub:
-    needs: [code]
+    needs: [docker]
     if: startsWith(github.ref, 'refs/tags/')
     uses: psyb0t/reusable-github-workflows/.github/workflows/clawhub-publish.yml@master
     secrets:

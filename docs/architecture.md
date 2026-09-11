@@ -29,6 +29,11 @@ REST sits beside the WebSocket. It reads durable session state, lists messages,
 events, jobs, and child-agent runs, or cancels work. It never accepts a user
 task or starts a turn. [The API reference](http-api.md) has the contract.
 
+[Aichteeteapee](https://github.com/psyb0t/aichteeteapee) supplies Peen's HTTP
+server, REST error envelope, and WShub WebSocket fan-out. The server maps every
+socket in a session to one WShub client identity, so each connected client sees
+the same live events.
+
 ## One turn
 
 The runtime resolves the workspace and its harness layers first. It builds the
@@ -56,15 +61,34 @@ therefore more specific. [Configuration](configuration.md#harness-layering) and
 
 ## Durable state and visibility
 
-SQLite is the source of truth for sessions, turns, messages, events, prompt
-snapshots, and compactions. The agent runtime also keeps child-agent JSONL
-mirrors for tailing. Structured logs go to stdout and daily audit files. The
-audit log records safe identifiers and digests. The transcript holds the
-verbatim data, so keep its storage and every connected client as protected as
-the workspace itself.
+[SQLite](https://sqlite.org/) is the source of truth for sessions, turns,
+messages, events, prompt snapshots, and compactions. The agent runtime also
+keeps child-agent JSONL mirrors for tailing. Structured logs go to stdout and
+daily audit files. The audit log records safe identifiers and digests. The
+transcript holds the verbatim data, so keep its storage and every connected
+client as protected as the workspace itself.
 
 ## Process lifecycle
 
 Peen uses [Servicepack](https://github.com/psyb0t/servicepack) for process and
 service lifecycle plumbing. Peen owns the agent behavior, public API, storage,
 and harness. Servicepack's framework details live in its own repository.
+
+## External building blocks
+
+- [Elelem](https://github.com/psyb0t/elelem) handles provider calls and tool
+  rounds. [Essessey](https://github.com/psyb0t/essessey) turns its streamed
+  content, tool calls, and thinking back into stable conversation blocks.
+- [Aichteeteapee](https://github.com/psyb0t/aichteeteapee) runs the HTTP and
+  WebSocket edge.
+- [Servicepack](https://github.com/psyb0t/servicepack) owns process lifecycle.
+- [Gonfiguration](https://github.com/psyb0t/gonfiguration),
+  [ctxerrors](https://github.com/psyb0t/ctxerrors),
+  [ctxscope](https://github.com/psyb0t/ctxscope),
+  [slogging](https://github.com/psyb0t/slogging), and
+  [goenv](https://github.com/psyb0t/goenv) cover configuration, errors,
+  request scope, logging, and runtime environment detection.
+- [GORM](https://github.com/go-gorm/gorm) persists the
+  [SQLite](https://sqlite.org/) state, while
+  [Prometheus' Go client](https://github.com/prometheus/client_golang) exposes
+  application metrics.

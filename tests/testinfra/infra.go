@@ -29,13 +29,12 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 const (
-	appReadyLog                = "Starting HTTP server on"
 	appDockerfile              = "Dockerfile"
 	appBootTimeout             = 5 * time.Minute
+	appCleanupTimeout          = 30 * time.Second
 	appConfigDirectory         = "/tmp/peen"
 	appWorkingDirectory        = "/tmp"
 	appAgentName               = "default"
@@ -185,6 +184,9 @@ func startApp(
 	listenAddress string,
 	metricsListenAddress string,
 ) (*Infra, error) {
+	startupCtx, cancelStartup := context.WithTimeout(ctx, appBootTimeout)
+	defer cancelStartup()
+
 	environment, err := appEnvironment(
 		provider.server.URL,
 		listenAddress,
@@ -199,23 +201,32 @@ func startApp(
 		return setupFailure(provider, err)
 	}
 
-	container, err := testcontainers.GenericContainer(ctx,
+	container, err := testcontainers.GenericContainer(startupCtx,
 		testcontainers.GenericContainerRequest{
 			ContainerRequest: appContainerRequest(root, environment, coverage),
-			Started:          true,
+			Started:          false,
 		},
 	)
 	if err != nil {
-		return failedContainerSetup(ctx, container, provider, err)
+		return failedContainerSetup(startupCtx, container, provider, err)
 	}
 
-	return &Infra{
+	if err := container.Start(startupCtx); err != nil {
+		return failedContainerSetup(startupCtx, container, provider, err)
+	}
+
+	infra := &Infra{
 		App:        container,
 		baseURL:    appURLPrefix + listenAddress,
 		metricsURL: appURLPrefix + metricsListenAddress,
 		client:     &http.Client{Timeout: appRequestTimeout},
 		provider:   provider,
-	}, nil
+	}
+	if err := infra.waitForReady(startupCtx); err != nil {
+		return failedContainerSetup(startupCtx, container, provider, err)
+	}
+
+	return infra, nil
 }
 
 func appContainerRequest(
@@ -244,8 +255,6 @@ func appContainerRequest(
 			},
 		},
 		NetworkMode: container.NetworkMode(appHostNetwork),
-		WaitingFor: wait.ForLog(appReadyLog).
-			WithStartupTimeout(appBootTimeout),
 	}
 	if coverage.hostDirectory == "" {
 		return request
@@ -328,7 +337,15 @@ func failedContainerSetup(
 	var cleanupErr error
 
 	if container != nil {
-		if terminateErr := container.Terminate(ctx); terminateErr != nil {
+		cleanupCtx, cancelCleanup := context.WithTimeout(
+			context.WithoutCancel(ctx),
+			appCleanupTimeout,
+		)
+		defer cancelCleanup()
+
+		if terminateErr := container.Terminate(
+			cleanupCtx,
+		); terminateErr != nil {
 			cleanupErr = ctxerrors.Wrap(
 				terminateErr,
 				"terminate failed app container",

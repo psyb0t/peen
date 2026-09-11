@@ -39,23 +39,26 @@ the directory defaults to `PEEN_CONFIG_DIR/logs`; set a path to override it.
 `PEEN_LOG_RETENTION_DAYS=14` keeps at most 14 daily files. The directory and
 files are created as `0700` and `0600` respectively.
 
-`ctxscope` carries request, session, turn, child-agent, model, tool-call, and
-service fields through the log chain. Audit records name the resolved harness
-manifest, skill activation, hook actions, child-agent lifecycle, provider and
-tool outcomes, plus content byte counts and SHA-256 digests. Raw user prompts,
-model thinking, tool arguments, tool results, environment values, and
-credentials are not copied into logs. Hook records may include bounded
-operational counters such as the active-context token estimate. The durable
-session transcript and per-agent JSONL mirror retain the sensitive, verbatim
-trace for authorized debugging. ORM SQL statement previews are deliberately
-disabled because expanded statements can contain persisted sensitive content.
+[ctxscope](https://github.com/psyb0t/ctxscope) carries request, session, turn,
+child-agent, model, tool-call, and service fields through the log chain. Audit
+records name the resolved harness manifest, skill activation, hook actions,
+child-agent lifecycle, provider and tool outcomes, plus content byte counts and
+SHA-256 digests. Raw user prompts, model thinking, tool arguments, tool results,
+environment values, and credentials are not copied into logs. Hook records may
+include bounded operational counters such as the active-context token estimate.
+The durable session transcript and per-agent JSONL mirror retain the sensitive,
+verbatim trace for authorized debugging. ORM SQL statement previews are
+deliberately disabled because expanded statements can contain persisted
+sensitive content.
 
 ## Model selection
 
 `PEEN_UPSTREAMS` accepts `openai`, `anthropic`, and `zai-coding` provider
-types. The `.env.example` shows an OpenAI-compatible AIGate entry and Z.ai's
-Coding endpoint. `zai-coding` preserves Z.ai thinking state through tool rounds
-and applies its model-specific thinking controls.
+types. The `.env.example` shows an OpenAI-compatible
+[AIGate](https://github.com/psyb0t/aigate) entry and Z.ai's Coding endpoint.
+`zai-coding` preserves Z.ai thinking state through tool rounds and applies its
+model-specific thinking controls through
+[Elelem](https://github.com/psyb0t/elelem).
 
 Set `PEEN_DEFAULT_MODEL=zai/glm-5.3` for the default coding model and
 `PEEN_COMPACTION_MODEL=zai/glm-5.3-flash` for lightweight background work.
@@ -68,7 +71,8 @@ thinking without numeric or disabling controls.
 
 ## Metrics
 
-`GET /metrics` exposes Peen's application-owned Prometheus registry on
+`GET /metrics` exposes Peen's application-owned
+[Prometheus](https://github.com/prometheus/client_golang) registry on
 `PEEN_METRICS_LISTEN_ADDRESS`. It never appears on the public API listener,
 is not part of `/v1`, and is not governed by `PEEN_API_TOKEN` because the
 listener itself is the access boundary.
@@ -83,13 +87,13 @@ the host.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PEEN_MAX_CONTEXT_TOKENS` | `32768` | Elelem's request budget. Also the context size for a model whose driver publishes none; rejected at startup if larger than a published window. |
+| `PEEN_MAX_CONTEXT_TOKENS` | `32768` | [Elelem](https://github.com/psyb0t/elelem)'s request budget. Also the context size for a model whose driver publishes none; rejected at startup if larger than a published window. |
 | `PEEN_COMPACTION_MODE` | `drop-oldest` | `drop-oldest` or `summarize`. See [conversation limits](../README.md#things-worth-knowing). |
 | `PEEN_COMPACTION_MAX_OUTPUT_TOKENS` | `2048` | Reserved space for a generated summary. Must be smaller than `PEEN_MAX_CONTEXT_TOKENS`, validated even when `drop-oldest` is active. |
 | `PEEN_COMPACTION_TIMEOUT` | `2m` | Bound on the separate summarization call. |
 | `PEEN_TURN_TIMEOUT` | `10m` | Bound on one turn. |
 | `PEEN_MAX_CONCURRENT_TURNS` | `16` | Global cap on turns running at once, across every session in the process. |
-| `PEEN_MAX_QUEUED_USER_MESSAGES` | `16` | Per active-turn cap for caller messages waiting for Elelem's next provider round boundary. |
+| `PEEN_MAX_QUEUED_USER_MESSAGES` | `16` | Per active-turn cap for caller messages waiting for [Elelem](https://github.com/psyb0t/elelem)'s next provider round boundary. |
 
 ## Message size bounds
 

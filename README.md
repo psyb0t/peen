@@ -1,5 +1,11 @@
 # peen
 
+[![CI](https://github.com/psyb0t/peen/actions/workflows/pipeline.yml/badge.svg?branch=main)](https://github.com/psyb0t/peen/actions/workflows/pipeline.yml)
+[![coverage](https://raw.githubusercontent.com/psyb0t/peen/badges/coverage.svg)](https://github.com/psyb0t/peen/actions/workflows/pipeline.yml)
+[![version](https://raw.githubusercontent.com/psyb0t/peen/badges/version.svg)](https://github.com/psyb0t/peen/releases)
+[![license](https://raw.githubusercontent.com/psyb0t/peen/badges/license.svg)](LICENSE)
+[![Docker Pulls](https://img.shields.io/docker/pulls/psyb0t/peen?style=flat-square)](https://hub.docker.com/r/psyb0t/peen)
+
 Peen puts a coding agent in a real working directory and keeps the whole job
 alive after the first response. Connect a client over WebSocket, give it a
 task, and it can read code, edit files, run commands, use skills, launch child
@@ -22,6 +28,7 @@ browser client, terminal client, bot, or your own application.
 - [Things worth knowing](#things-worth-knowing)
 - [Security](#security)
 - [Documentation](#documentation)
+- [What Peen is built with](#what-peen-is-built-with)
 
 ## Run it
 
@@ -34,9 +41,11 @@ You need Docker and a provider API key. Copy the example configuration:
 cp .env.example .env
 ```
 
-The example has AIGate and Z.ai entries. Keep the provider you use, set its
-model ID, and put its key in the named environment variable. For an
-OpenAI-compatible AIGate setup, the important lines look like this:
+The example has [AIGate](https://github.com/psyb0t/aigate) and Z.ai entries.
+Keep the provider you use, set its model ID, and put its key in the named
+environment variable. For an OpenAI-compatible
+[AIGate](https://github.com/psyb0t/aigate) setup, the important lines look like
+this:
 
 ```dotenv
 PEEN_UPSTREAMS=[{"name":"aigate","provider":"openai","baseUrl":"https://aigate.example/v1","apiKeyEnv":"AIGATE_TOKEN"}]
@@ -218,5 +227,26 @@ hardening, read [Deployment](docs/deployment.md).
 | Add hard checks or model instructions around actions | [Hook configuration](docs/hooks.md) |
 | Run it outside a local Docker command | [Deployment](docs/deployment.md) |
 
-Peen is built on [Servicepack](https://github.com/psyb0t/servicepack). Its
-framework docs live in that repository. This repository documents Peen.
+## What Peen is built with
+
+- [Elelem](https://github.com/psyb0t/elelem) talks to model providers, and
+  [Essessey](https://github.com/psyb0t/essessey) rebuilds streamed content,
+  tool calls, and thinking into durable conversation state.
+- [Aichteeteapee](https://github.com/psyb0t/aichteeteapee) provides the HTTP
+  server, REST error envelope, and WebSocket hub.
+- [Servicepack](https://github.com/psyb0t/servicepack) owns process and service
+  lifecycle plumbing. Its framework docs live in that repository. This
+  repository documents Peen.
+- [Gonfiguration](https://github.com/psyb0t/gonfiguration),
+  [ctxerrors](https://github.com/psyb0t/ctxerrors),
+  [ctxscope](https://github.com/psyb0t/ctxscope),
+  [slogging](https://github.com/psyb0t/slogging), and
+  [goenv](https://github.com/psyb0t/goenv) handle configuration, errors,
+  scoped logs, log setup, and runtime environment detection.
+- [GORM](https://github.com/go-gorm/gorm) and
+  [SQLite](https://sqlite.org/) hold durable state.
+- [Prometheus' Go client](https://github.com/prometheus/client_golang),
+  [Cobra](https://github.com/spf13/cobra),
+  [kin-openapi](https://github.com/getkin/kin-openapi), and
+  [oapi-codegen](https://github.com/oapi-codegen/oapi-codegen) provide metrics,
+  the command line, OpenAPI validation, and generated API clients.

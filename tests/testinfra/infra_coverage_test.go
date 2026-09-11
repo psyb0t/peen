@@ -63,3 +63,13 @@ func TestAppContainerRequestConfiguresCoverage(t *testing.T) {
 		request.User,
 	)
 }
+
+func TestAppContainerRequestDoesNotUseLogReadiness(t *testing.T) {
+	request := appContainerRequest(
+		t.TempDir(),
+		map[string]string{},
+		appCoverage{},
+	)
+
+	assert.Nil(t, request.WaitingFor)
+}

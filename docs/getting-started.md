@@ -27,7 +27,7 @@ cp .env.example .env
 `PEEN_UPSTREAMS` gives each provider a local name. Models use that name, such
 as `zai/glm-5.3` or `aigate/your-model-id`. Set the provider endpoint, the
 named key variable, and the two model variables. The default example includes
-both AIGate and Z.ai.
+both [AIGate](https://github.com/psyb0t/aigate) and Z.ai.
 
 `.env` is Docker `--env-file` input. Its provider value is raw JSON, so do not
 source this file from Bash. Keep it out of version control.

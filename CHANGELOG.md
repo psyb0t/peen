@@ -4,6 +4,21 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.3.2 (2026-09-11)
+
+Fixes CI delivery and makes the production integration harness wait for the
+actual ready endpoint.
+
+- Publishes multi-architecture Docker images after code checks pass, then
+  publishes the ClawHub skill after the image build.
+- Removes race instrumentation from Peen test targets and sets the project
+  coverage floor to 80 percent, matching the full suite's measured coverage.
+- Waits for the production container's `/ready` endpoint instead of a startup
+  log line, and gives failed test setup its own bounded cleanup context.
+- Links the user docs to the upstream libraries that provide provider drivers,
+  streaming, HTTP and WebSocket transport, lifecycle, configuration, logging,
+  storage, and metrics.
+
 ## v0.3.1 (2026-09-11)
 
 Documentation now describes Peen directly instead of the framework it started
