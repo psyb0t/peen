@@ -1,19 +1,22 @@
-# HTTP API reference
+# API: live work and durable state
 
-Full contract in [api/api.yml](../../api/api.yml) (OpenAPI 3.1). This page is
-a readable summary; the spec is the source of truth and every request is
-validated against it before it reaches a handler.
+Use WebSocket to send messages and watch a turn as it happens. Use REST to read
+what Peen stored or to control a run. REST never starts a turn. A client can
+open several WebSockets for one session and every one sees the same events.
+
+The full REST contract is [api/api.yml](../api/api.yml) (OpenAPI 3.1). This
+page explains the parts a client needs to get right.
 
 Every operation is mounted under `/v1`. `Authorization: Bearer <token>` is
 required only when `PEEN_API_TOKEN` is set; see the root
-[README](../../README.md#bearer-authentication). Every REST success response
+[README](../README.md#things-worth-knowing). Every REST success response
 carries `X-Session-ID` and `X-Request-ID` headers. REST errors use one envelope:
 
 ```json
 {"code": "...", "message": "...", "details": {}}
 ```
 
-## WebSocket turns
+## Send and watch turns over WebSocket
 
 Agent messages are submitted only over a WebSocket upgrade at
 `GET /v1/ws?sessionId={uuid}`. The endpoint is outside the OpenAPI document

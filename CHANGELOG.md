@@ -4,6 +4,18 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.3.1 (2026-09-11)
+
+Documentation now describes Peen directly instead of the framework it started
+from.
+
+- Moves the user guides to `docs/` and removes the redundant `docs/peen/`
+  directory.
+- Replaces the old Servicepack onboarding, architecture, lifecycle, and update
+  material with Peen setup, architecture, and development guidance.
+- Keeps Servicepack as a short upstream reference for its process lifecycle
+  plumbing.
+
 ## v0.3.0 (2026-09-11)
 
 WebSocket is now Peen's only agent-turn transport. REST remains for durable

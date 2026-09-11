@@ -1,154 +1,131 @@
 # Getting started
 
-Servicepack is the starting point for a Go application with multiple
-long-running things to run: an API, workers, feeds, schedulers, migration
-commands, whatever. Clone it, make the clone yours, and put your services in
-`internal/pkg/services/`.
+Peen is a coding-agent backend that works in a real directory. It keeps the
+conversation, tool calls, events, and child-agent work after a client
+disconnects. You bring the workspace and the client. Peen runs the agent.
 
-It is not intended to be imported wholesale into an existing project with
-`go get`.
+This gets an agent working in one folder without handing it the rest of your
+machine. Peen has no bundled browser chat, so the first client below is a
+browser console. Replace it with your own app when you are ready.
 
-## 1. Make a fresh clone yours
+## What you need
 
-```bash
-git clone https://github.com/psyb0t/peen.git my-service
-cd my-service
-make own MODNAME=github.com/yourname/my-service
-```
+- Docker.
+- A provider API key.
+- An existing project directory you are comfortable letting an agent inspect
+  and change.
+- A browser or WebSocket client.
 
-Run that once, only in a disposable fresh clone. `make own`:
+## 1. Configure Peen
 
-1. removes shipped `example-*` services but leaves `hello-world`;
-2. removes the clone's `.git`, module manifests, and `vendor/` directory;
-3. recreates the module using the supplied `MODNAME` while retaining the
-   framework's pinned dependency and tool declarations;
-4. rewrites framework imports to your module path;
-5. replaces this README with a project stub;
-6. records the framework revision in `servicepack.version` if it does not
-   already exist;
-7. runs dependency and service-registration targets; and
-8. initializes a new Git repository on `main` and creates an initial commit.
-
-It needs Git identity configured well enough for that initial commit. Its
-normal dependency and generation targets run in the Docker development image;
-it does not reject an older host Go toolchain.
-
-Your binary name is the final segment of `MODNAME`: for
-`github.com/yourname/my-service`, it is `my-service`.
-
-## 2. Add a service
+Copy the example and edit the provider section:
 
 ```bash
-make service NAME=price-worker
+cp .env.example .env
 ```
 
-That creates `internal/pkg/services/price-worker/priceworker.go` and then
-regenerates `internal/pkg/services/services.gen.go`. The generated file finds
-the service factories at runtime; do not hand-edit it.
+`PEEN_UPSTREAMS` gives each provider a local name. Models use that name, such
+as `zai/glm-5.3` or `aigate/your-model-id`. Set the provider endpoint, the
+named key variable, and the two model variables. The default example includes
+both AIGate and Z.ai.
 
-The scaffold is intentionally boring:
+`.env` is Docker `--env-file` input. Its provider value is raw JSON, so do not
+source this file from Bash. Keep it out of version control.
 
-```go
-func (s *PriceWorker) Run(ctx context.Context) error {
-	ctx = ctxscope.Set(ctx, ctxscope.Attr("service", ServiceName))
-	logger := ctxscope.GetLogger(ctx)
-	logger.Info("starting service")
+## 2. Start it with one workspace
 
-	<-ctx.Done()
-	logger.Info("service context cancelled")
-
-	return nil
-}
-```
-
-Replace the wait with the real work, but keep cancellation part of the
-contract. `Run` returning a non-nil error normally starts application
-shutdown; see [services and lifecycle](services-and-lifecycle.md) for the
-exceptions and retry rules.
-
-When you add, remove, rename, or materially change a service implementation,
-regenerate registration:
+Build the image, create the durable state and workspace directories, then run
+the server:
 
 ```bash
-make service-registration
+make docker-build
+mkdir -p ./data/peen ./workspace
+sudo chown 10001:10001 ./data/peen ./workspace
+
+docker run --rm \
+  --env-file .env \
+  -p 8080:8080 \
+  -v "$(pwd)/data/peen:/data/peen" \
+  -v "$(pwd)/workspace:/workspace" \
+  peen run
 ```
 
-## 3. Configure and run it
+Put the project you want the agent to work on in `./workspace`, or mount that
+project there instead. `./data/peen` holds the SQLite database, logs, hooks,
+and other durable harness state. Do not mount your home directory because the
+agent has normal file and command access inside its container.
 
-Generated services load their own typed config with `gonfiguration`:
+## 3. Send a message
 
-```go
-type Config struct {
-	Endpoint string        `env:"PRICEWORKER_ENDPOINT"`
-	Interval time.Duration `env:"PRICEWORKER_INTERVAL" default:"15s"`
-}
+With the default empty `PEEN_API_TOKEN`, paste this into a browser console:
+
+```js
+const sessionId = crypto.randomUUID();
+const socket = new WebSocket(
+  `ws://localhost:8080/v1/ws?sessionId=${sessionId}`,
+);
+
+socket.addEventListener("message", ({ data }) => console.log(JSON.parse(data)));
+socket.addEventListener("open", () => {
+  socket.send(JSON.stringify({
+    type: "message.send",
+    data: { message: "Read the project, then tell me what you would fix first." },
+  }));
+});
 ```
 
-Parse configuration in `New`, fail with context, and do not reach straight for
-`os.Getenv`:
+Keep the `sessionId`. It is the conversation ID. Leave the socket open to see
+streaming model, tool, and agent events. A `message.completed` event means the
+submitted task is finished. Connect another client with the same ID when you
+want both clients to watch or contribute to the same conversation.
 
-```go
-func New() (*PriceWorker, error) {
-	cfg := Config{}
+## 4. Put project rules beside the project
 
-	if err := gonfiguration.Parse(&cfg); err != nil {
-		return nil, ctxerrors.Wrap(err, "parse price-worker config")
-	}
+Start with an `AGENTS.md` at the workspace root. Write the things an agent
+needs to know every time: how to build, where tests live, what it must not
+touch, and local conventions. Add the optional `.agents` directory as the work
+gets more specific:
 
-	return &PriceWorker{config: cfg}, nil
-}
+```text
+workspace/
+  AGENTS.md
+  .agents/
+    skills/<skill-name>/SKILL.md
+    agents/<agent-name>.md
+    events/<event-type>.md
+    hooks.yaml
 ```
 
-Build and run:
+Rules and definitions nearer to a file are more specific than ones above it.
+Skills give the agent named procedures. Named agents let it split off a bounded
+job. Hooks are for mechanical checks and hard stops that an ordinary prompt
+should not be trusted to enforce. Read [the harness configuration guide](configuration.md#harness-layering)
+and [hook configuration](hooks.md) before adding hooks.
+
+## 5. Inspect or stop a run
+
+WebSocket starts work. REST reads durable state and controls an active session.
+It never creates a turn.
 
 ```bash
-make build
-./build/my-service run
+curl "http://localhost:8080/v1/messages?limit=50&order=asc" \
+  -H "X-Session-ID: <session-id>"
+
+curl -X POST "http://localhost:8080/v1/session/cancel" \
+  -H "X-Session-ID: <session-id>"
 ```
 
-For the everyday development loop, `make run-dev` builds the development image
-and runs the application with the race detector. It is useful for the shipped
-examples; a made-own project usually needs its own config and services first.
+The API also exposes queued events, process jobs, child-agent runs, and session
+status. [The API reference](http-api.md) has the exact frame and response
+shapes.
 
-## Framework configuration
+## Before you expose it
 
-These names belong to the framework itself. Your services own their own
-configuration names.
+Set `PEEN_API_TOKEN` before putting Peen on a network you do not fully trust.
+Use `wss://` outside local development. Mount only the directories the agent
+needs, run as a non-root user, and treat the transcript as sensitive. Tool
+output and files an agent reads can end up in it.
 
-| Variable | Meaning | Default |
-| --- | --- | --- |
-| `LOG_LEVEL` | `debug`, `info`, `warn`, or `error` logging threshold. | Handler default |
-| `LOG_FORMAT` | `json` or `text` output. | Handler default |
-| `LOG_ADD_SOURCE` | Include source location in log records. | Handler default |
-| `ENV` | Environment selected by `goenv`. | `prod` |
-| `RUNNER_SHUTDOWNTIMEOUT` | Whole-application graceful shutdown deadline. | `10s` |
-| `SERVICES_ENABLED` | Comma-separated in-process service allowlist. Empty/unset means all registered services. | all |
-
-Example:
-
-```bash
-SERVICES_ENABLED=price-worker,api LOG_LEVEL=debug ./build/my-service run
-```
-
-## Where your changes go
-
-| You are changing | Put it here |
-| --- | --- |
-| A business service | `internal/pkg/services/<name>/` |
-| Service-specific config | That service's `Config` struct and project env documentation |
-| Startup/shutdown extensions | `cmd/init.go` hooks |
-| Standalone application commands | `cmd/commands.go` |
-| Project build behavior | `Makefile` or `scripts/make/` overrides |
-| Project Docker behavior | `Dockerfile`, `Dockerfile.dev` |
-
-The framework-owned directories are deliberately replaceable by
-`make servicepack-update`: `internal/app/`,
-`internal/pkg/service-manager/`, `pkg/runner/`, `cmd/main.go`,
-`Makefile.servicepack`, `scripts/make/servicepack/`, and
-`Dockerfile.servicepack*`. Do not put application-specific changes there.
-
-Your `docs/` and `tests/` trees are the opposite. The framework ships them as a
-scaffold, they become yours, and an update never overwrites them.
-
-Next: learn the [service lifecycle](services-and-lifecycle.md), then the
-[Docker-first development workflow](development.md).
+[Deployment](deployment.md) covers source builds, mounts, networking, and
+the container boundary. [Configuration](configuration.md) lists every
+setting. The root [README](../README.md) is the short version.

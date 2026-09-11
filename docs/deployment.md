@@ -1,11 +1,14 @@
 # Deployment
 
-Three equivalent ways to run Peen: a source build, `go install`, or the
-production Docker image. All three read the same `PEEN_` environment
-variables and the same `PEEN_CONFIG_DIR` state, so pick whichever fits your
-environment.
+Run the Docker image unless you have a reason to own the process yourself.
+It gives the agent a real shell and command-line tools while keeping its access
+inside the mounts you choose. Source builds and `go install` run the same
+server, but you then own the operating-system boundary around it.
 
-## Source build
+All launch methods use the same `PEEN_` configuration and durable
+`PEEN_CONFIG_DIR` state.
+
+## Build from source
 
 ```bash
 make build
@@ -13,10 +16,21 @@ make build
 
 This runs a pinned `golang:1.26.6-alpine` Docker image to produce a static,
 `CGO_ENABLED=0` Linux binary at `./build/peen`. No local Go toolchain is
-required. Run it directly:
+required.
+
+Do not source `.env` before a bare run. It is Docker `--env-file` syntax and
+the raw JSON in `PEEN_UPSTREAMS` is not Bash syntax. Set the values through
+your shell or process manager instead:
 
 ```bash
-set -a && source .env && set +a
+mkdir -p ./data/peen ./workspace
+export PEEN_CONFIG_DIR="$PWD/data/peen"
+export PEEN_WORKING_DIR="$PWD/workspace"
+export PEEN_UPSTREAMS='[{"name":"aigate","provider":"openai","baseUrl":"https://aigate.example/v1","apiKeyEnv":"AIGATE_TOKEN"}]'
+export PEEN_DEFAULT_MODEL="aigate/your-model-id"
+export PEEN_COMPACTION_MODEL="aigate/your-model-id"
+export AIGATE_TOKEN="your-token-here"
+
 ./build/peen run
 ```
 
@@ -28,9 +42,8 @@ CGO_ENABLED=0 go build -ldflags "-X main.appName=peen" -o ./build/peen ./cmd
 ./build/peen run
 ```
 
-The `-ldflags` value matters: without it the binary reports its own name as
-`servicepack`, the framework's name, in its own `--help` output and process
-scope, instead of `peen`.
+The `-ldflags` value makes the binary identify itself as `peen` in its own
+`--help` output and process scope.
 
 ## go install
 
@@ -47,9 +60,7 @@ mv "$(go env GOPATH)/bin/cmd" "$(go env GOPATH)/bin/peen"
 ```
 
 Either name runs the same binary; `run` is still the subcommand that starts
-the service. The `-ldflags` value only affects what the binary calls itself
-in its own `--help` output; omit it and the process still runs identically
-under the name `servicepack`.
+the service. The `-ldflags` value affects only the binary's own displayed name.
 
 ## Docker
 
@@ -112,7 +123,7 @@ startup failure rather than a silent misconfiguration:
 Publish whatever `PEEN_HTTP_LISTEN_ADDRESS` binds to (`-p 8080:8080` for the
 default `:8080`). If you expose the container beyond a trusted network, set
 `PEEN_API_TOKEN` to a real value; it is empty, and therefore unauthenticated,
-by default. See [Bearer authentication](../../README.md#bearer-authentication).
+by default. See [authentication](../README.md#things-worth-knowing).
 
 Metrics bind only to `PEEN_METRICS_LISTEN_ADDRESS`, which defaults to the
 container's loopback interface at `127.0.0.1:9090`. Do not publish it with
@@ -126,7 +137,7 @@ The Ubuntu base and the fixed non-root user are the only isolation Peen
 ships with by default. `run_command` and the file tools still have whatever
 access UID `10001` has inside the container: everything under the mounted
 `PEEN_CONFIG_DIR` and `PEEN_WORKING_DIR`, plus network access unless you
-restrict it. Read the root README's [Security](../../README.md#security)
+restrict it. Read the root README's [Security](../README.md#security)
 section, and add `--network`, `--cap-drop`, `--read-only` (with explicit
 writable mounts for the two directories above), or a seccomp/AppArmor
 profile as your deployment needs.

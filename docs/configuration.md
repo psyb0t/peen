@@ -1,22 +1,29 @@
-# Configuration reference
+# Configuration
 
-Peen reads typed `PEEN_`-prefixed environment variables, validated once at
-startup; a bad value fails before the listener opens. `.env.example` is the
-canonical, commented list. This page groups the same settings by purpose and
-adds the harness, event, job, and agent-run behavior they control.
+Copy `.env.example` to `.env`, then set the provider and workspace values that
+fit your machine. Peen validates every `PEEN_` value before opening its
+listener, so a bad setting fails at startup instead of halfway through a task.
 
-Framework-level logging (`LOG_LEVEL`, `LOG_FORMAT`, `LOG_ADD_SOURCE`) is
-handled by the underlying Servicepack logging setup. Peen adds a JSON audit
-sink configured by `PEEN_LOG_DIRECTORY` and `PEEN_LOG_RETENTION_DAYS`.
+For Docker, `.env` is input for `docker run --env-file`. Do not source it from
+Bash because `PEEN_UPSTREAMS` is raw JSON. For a bare binary, set the same
+values through your shell, service manager, or secret manager. This page is
+the full reference; the example file is the commented starting point.
 
-## Core
+`LOG_LEVEL`, `LOG_FORMAT`, and `LOG_ADD_SOURCE` control application logging.
+Peen adds a JSON audit sink configured by `PEEN_LOG_DIRECTORY` and
+`PEEN_LOG_RETENTION_DAYS`.
+
+## Start here
+
+These values decide where Peen keeps its state, which directory the agent sees,
+and which model handles a task.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PEEN_CONFIG_DIR` | required, absolute | Harness base layer and durable state root. See [the root README](../../README.md#the-configuration-directory). |
+| `PEEN_CONFIG_DIR` | required, absolute | Harness base layer and durable state root. See [project rules](../README.md#make-it-understand-your-project). |
 | `PEEN_WORKING_DIR` | process cwd at startup | Default message workspace. Peen changes into this directory at startup. |
 | `PEEN_AGENT` | `default` | Root agent name. `default` is embedded and may be replaced by `.agents/agents/default.md`. |
-| `PEEN_UPSTREAMS` | required, JSON | Named provider list. See [provider configuration](../../README.md#provider-configuration). |
+| `PEEN_UPSTREAMS` | required, JSON | Named provider list. See [provider configuration](../README.md#provider-configuration). |
 | `PEEN_DEFAULT_MODEL` | required | Qualified `provider/model` for the root agent and, unless overridden, compaction. |
 | `PEEN_COMPACTION_MODEL` | `PEEN_DEFAULT_MODEL` | Qualified `provider/model` used only for the summarization call. |
 | `PEEN_HTTP_LISTEN_ADDRESS` | `:8080` | Listener address. |
@@ -77,7 +84,7 @@ the host.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `PEEN_MAX_CONTEXT_TOKENS` | `32768` | Elelem's request budget. Also the context size for a model whose driver publishes none; rejected at startup if larger than a published window. |
-| `PEEN_COMPACTION_MODE` | `drop-oldest` | `drop-oldest` or `summarize`. See [compaction modes](../../README.md#compaction-modes). |
+| `PEEN_COMPACTION_MODE` | `drop-oldest` | `drop-oldest` or `summarize`. See [conversation limits](../README.md#things-worth-knowing). |
 | `PEEN_COMPACTION_MAX_OUTPUT_TOKENS` | `2048` | Reserved space for a generated summary. Must be smaller than `PEEN_MAX_CONTEXT_TOKENS`, validated even when `drop-oldest` is active. |
 | `PEEN_COMPACTION_TIMEOUT` | `2m` | Bound on the separate summarization call. |
 | `PEEN_TURN_TIMEOUT` | `10m` | Bound on one turn. |

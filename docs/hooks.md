@@ -1,15 +1,20 @@
 # Hook configuration
 
-`hooks.yaml` adds ordered lifecycle actions to a Peen harness layer. Put the
-base file at `PEEN_CONFIG_DIR/.agents/hooks.yaml`. Peen then finds another
-`.agents/hooks.yaml` in each ancestor from the filesystem root through the
-message workspace. It keeps every group in that order. A later layer adds
-actions. It never replaces an earlier layer.
+Use a hook when a rule must happen mechanically. `AGENTS.md` tells the model
+what to do. A hook runs around an event and can inject context, deny the action,
+run a direct command, or publish a session event. Start with project rules and
+add hooks for checks you do not want a model to be able to skip.
 
-The config-directory layer is trusted deployment configuration and always
-runs. Workspace hook files are still parsed, validated, and recorded in the
-context snapshot, but their actions run only when
-`PEEN_ENABLE_WORKSPACE_HOOKS=true`.
+`hooks.yaml` adds ordered lifecycle actions to a Peen harness layer. Put the
+trusted base file at `PEEN_CONFIG_DIR/.agents/hooks.yaml`. Peen then finds
+another `.agents/hooks.yaml` in every ancestor from the filesystem root through
+the message workspace. It keeps groups in that order. A later layer adds
+actions. It does not replace an earlier layer.
+
+The configuration-directory layer always runs. Workspace hook files are parsed,
+validated, and recorded in the context snapshot, but their actions run only
+when `PEEN_ENABLE_WORKSPACE_HOOKS=true`. Turn that on only for workspaces you
+trust because hook commands run with Peen's process access.
 
 ## File format
 

@@ -1,123 +1,70 @@
 # Architecture
 
-Servicepack is a clone-and-own application skeleton. It gives a project a
-well-defined process lifecycle and a place for multiple services; it does not
-require every future deployment to stay inside one binary.
+Peen is a durable coding-agent service. A client opens a WebSocket for a
+session, sends a task, and watches the model, tools, hooks, and child agents
+work. The same session can have several connected clients. Peen saves the work
+as it happens, so reconnecting after a client or process restart does not throw
+the conversation away.
 
-## Runtime shape
-
-```
-cmd/main.go
-  ├─ set global log scope: binary, commit
-  ├─ services.Init()                         generated factory registration
-  └─ Cobra "run"
-       └─ pkg/runner
-            ├─ signal / parent-context handling
-            └─ internal/app.App
-                 ├─ pre-run hooks
-                 ├─ internal/pkg/service-manager
-                 │    └─ service factories → services running concurrently
-                 └─ post-stop hooks
-```
-
-`cmd/main.go` is intentionally small: establish process identity, register
-generated service factories, expose `run` and command namespaces, then pass
-control to the runner. The [runner README](../pkg/runner/README.md) explains
-the signal and deadline rules.
-
-`internal/app` owns application-level hooks and delegates service execution to
-the [service manager](../internal/pkg/service-manager/README.md). `App` is the
-place for whole-process behavior; individual services should not reach across
-into siblings to create their own lifecycle graph.
-
-## Local composition and deployment choices
-
-During local development, keeping related services in one process makes
-debugging concrete: one binary, one cancellation path, one structured log
-stream, and direct visibility into failures. This is the default development
-shape:
-
-```
-my-service process
-  ├─ api service
-  ├─ worker service
-  ├─ scheduler service
-  └─ migration command namespace
+```text
+WebSocket client
+      |
+      v
+HTTP server and session hub
+      |
+      v
+agent runtime <--> model provider
+      |                  |
+      |                  v
+      |              model events
+      v
+harness, tools, hooks, child agents
+      |
+      +--> workspace files and commands
+      +--> SQLite sessions, messages, events, and snapshots
+      +--> WebSocket clients
 ```
 
-Production has two valid shapes:
+REST sits beside the WebSocket. It reads durable session state, lists messages,
+events, jobs, and child-agent runs, or cancels work. It never accepts a user
+task or starts a turn. [The API reference](http-api.md) has the contract.
 
-```
-one release unit                      independently deployed units
-----------------                      ----------------------------
-my-service binary                     api binary ──────┐
-  ├─ api                               worker binary ───┼─ explicit HTTP/gRPC/queue contracts
-  ├─ worker                            scheduler binary ┘
-  └─ scheduler
-```
+## One turn
 
-Choose one binary when the services have the same release cadence and
-operational boundary. Split when they need separate scaling, ownership,
-security boundaries, or failure isolation. Splitting is an architecture change:
-replace in-process calls and service-manager dependency declarations with
-explicit APIs, messages, authentication, retries, observability, and deploy
-configuration.
+The runtime resolves the workspace and its harness layers first. It builds the
+model context from the conversation, project rules, available skill and agent
+metadata, and current runtime facts. The provider may then ask to use tools.
+Peen runs those tools, applies matching hooks, records the result, and returns
+it to the provider until the turn completes or fails.
 
-`SERVICES_ENABLED` is useful for a partial local run within one binary; it is
-not a microservice deployment system.
+File mutations have a deliberate safety rule. A turn must read an existing file
+before it can change that file. Peen checks the observed hash again immediately
+before the mutation. New destinations must not already exist. These checks stop
+stale or blind writes from silently replacing a file.
 
-## Source ownership
+## The harness
 
-| Path | Role | Ownership after `make own` |
-| --- | --- | --- |
-| `cmd/main.go` | Process entry point and root CLI. | Framework |
-| `cmd/init.go` | Extra handlers and application hooks. | Project |
-| `cmd/commands.go` | App-level CLI commands. | Project |
-| `internal/app/` | App lifecycle wrapper. | Framework |
-| `internal/pkg/service-manager/` | Concurrency, dependency, retry, and stop semantics. | Framework |
-| `internal/pkg/services/` | Business services and `services.gen.go`. | Project; generated registration is not hand-edited. |
-| `pkg/runner/` | Signal-aware runner. | Framework |
-| `scripts/make/servicepack/` | Updateable Make implementations. | Framework |
-| `scripts/make/` | Project-specific target overrides. | Project |
-| `Makefile.servicepack` | Framework Make target definitions. | Framework |
-| `Makefile` | Project targets and overrides. | Project |
+`AGENTS.md` carries project rules. `.agents/skills` advertises named procedures
+that the model can load when needed. `.agents/agents` defines bounded child
+agents. `.agents/events` tells Peen how to wake a session for an external event.
+`.agents/hooks.yaml` adds mechanical actions around lifecycle and tool events.
 
-Framework-owned means an update may replace it. Project-owned means the
-update's normal exclusion policy preserves it. See
-[framework updates](framework-updates.md) before changing that boundary.
+Peen applies the configuration directory first, then filesystem layers from the
+root down to the active workspace. Rules closer to the file being worked on are
+therefore more specific. [Configuration](configuration.md#harness-layering) and
+[hooks](hooks.md) describe the exact rules.
 
-## Registration and lazy construction
+## Durable state and visibility
 
-`make service-registration` runs the generator that discovers `Service`
-implementations and writes `internal/pkg/services/services.gen.go`. The
-generated code registers factories rather than fully constructed services.
+SQLite is the source of truth for sessions, turns, messages, events, prompt
+snapshots, and compactions. The agent runtime also keeps child-agent JSONL
+mirrors for tailing. Structured logs go to stdout and daily audit files. The
+audit log records safe identifiers and digests. The transcript holds the
+verbatim data, so keep its storage and every connected client as protected as
+the workspace itself.
 
-That distinction matters:
+## Process lifecycle
 
-- `run` instantiates all enabled factories;
-- a per-service Cobra command instantiates only that one service;
-- connections and config parsing happen in a service's `New`, not at package
-  import time.
-
-This keeps command execution from accidentally opening every database/client
-in the project. Details are in the
-[service-manager README](../internal/pkg/service-manager/README.md).
-
-## Observability and configuration
-
-Logging starts with the `slogging` handler setup and flows through `ctxscope`.
-The binary and build commit are global scope; the service manager adds a
-`service` field while it runs or stops a service. Preserve and extend the
-context passed into `Run`; it carries cancellation and those fields together.
-
-Configuration is typed and parsed at each service boundary with
-`gonfiguration`. Framework settings are documented in
-[getting started](getting-started.md); application settings belong in the
-project's own docs and config examples.
-
-## Build and test topology
-
-The Makefile runs tooling in Docker. Test targets additionally receive Docker
-access for Testcontainers. The development model, coverage boundary, and
-override mechanism are documented in [development](development.md), with the
-exact script behavior in the [Make-script README](../scripts/make/servicepack/README.md).
+Peen uses [Servicepack](https://github.com/psyb0t/servicepack) for process and
+service lifecycle plumbing. Peen owns the agent behavior, public API, storage,
+and harness. Servicepack's framework details live in its own repository.
