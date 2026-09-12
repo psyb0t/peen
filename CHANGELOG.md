@@ -4,6 +4,17 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.4.1 (2026-09-12)
+
+Fixes the release pipeline, which failed before any job ran. The pipeline now
+starts, so a tag push builds and publishes the Docker image, creates the GitHub
+release, and publishes the skill to ClawHub.
+
+- Grants the `publish-to-clawhub` job `contents: read`. Under the top-level
+  `permissions: {}`, that job inherited no permissions, so the ClawHub reusable
+  workflow could not be granted the `contents: read` its jobs need and GitHub
+  rejected the whole workflow file at parse time.
+
 ## v0.4.0 (2026-09-12)
 
 Peen now records the complete session trace in SQLite and exposes it through
