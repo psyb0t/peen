@@ -9,6 +9,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+	commonsqlite "github.com/psyb0t/common-go/db/sqlite"
+	"github.com/psyb0t/common-go/utils/ptrutil"
+	"github.com/psyb0t/peen/internal/pkg/db/migrations"
+	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/db/repositories"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -91,4 +97,119 @@ func TestOpenRestrictsExistingFilesystemModes(t *testing.T) {
 	databaseInfo, err := os.Stat(databasePath)
 	require.NoError(t, err)
 	assert.Equal(t, sqliteFileMode, databaseInfo.Mode().Perm())
+}
+
+func TestOpenRebuildsDirectCompactionLinksAfterUpgrade(t *testing.T) {
+	ctx := context.Background()
+	stateDirectory := filepath.Join(t.TempDir(), "state")
+	handle, err := Open(ctx, Config{Directory: stateDirectory})
+	require.NoError(t, err)
+
+	query := repositories.Use(handle.GormDB)
+	now := time.Now().UTC()
+	sessionID := uuid.New()
+	turnID := uuid.New()
+	firstMessageID := uuid.New()
+	secondMessageID := uuid.New()
+	thirdMessageID := uuid.New()
+	firstCompactionID := uuid.New()
+	secondCompactionID := uuid.New()
+
+	require.NoError(t, query.Session.WithContext(ctx).Create(&models.Session{
+		ID:           sessionID,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+		RootAgent:    "peen",
+		ModelID:      "provider/model",
+		MessageCount: 3,
+	}))
+	require.NoError(t, query.Turn.WithContext(ctx).Create(&models.Turn{
+		ID:          turnID,
+		SessionID:   sessionID,
+		RequestID:   uuid.New(),
+		Workspace:   "/workspace",
+		State:       models.TurnStateCompleted,
+		StartedAt:   now,
+		CompletedAt: ptrutil.Of(now),
+	}))
+
+	for sequence, messageID := range []uuid.UUID{
+		firstMessageID,
+		secondMessageID,
+		thirdMessageID,
+	} {
+		require.NoError(t, query.Message.WithContext(ctx).Create(&models.Message{
+			ID:            messageID,
+			SessionID:     sessionID,
+			TurnID:        turnID,
+			Sequence:      int64(sequence + 1),
+			Workspace:     "/workspace",
+			Role:          models.MessageRoleUser,
+			Content:       "message",
+			ToolCallsJSON: "[]",
+			CreatedAt:     now,
+		}))
+	}
+
+	require.NoError(t, query.Compaction.WithContext(ctx).Create(&models.Compaction{
+		ID:                 firstCompactionID,
+		SessionID:          sessionID,
+		FromMessageID:      firstMessageID,
+		ToMessageID:        firstMessageID,
+		FromSequence:       1,
+		ToSequence:         1,
+		Summary:            "first summary",
+		SourceMessageCount: 1,
+		ModelID:            "provider/model",
+		PromptHash:         "prompt-one",
+		CreatedAt:          now,
+	}))
+	require.NoError(t, query.Compaction.WithContext(ctx).Create(&models.Compaction{
+		ID:                     secondCompactionID,
+		SessionID:              sessionID,
+		FromMessageID:          firstMessageID,
+		ToMessageID:            secondMessageID,
+		FromSequence:           1,
+		ToSequence:             2,
+		Summary:                "second summary",
+		SourceMessageCount:     2,
+		ModelID:                "provider/model",
+		PromptHash:             "prompt-two",
+		CreatedAt:              now,
+		SupersedesCompactionID: ptrutil.Of(firstCompactionID),
+	}))
+
+	for messageID, compactionID := range map[uuid.UUID]uuid.UUID{
+		firstMessageID:  firstCompactionID,
+		secondMessageID: secondCompactionID,
+	} {
+		_, updateErr := query.Message.WithContext(ctx).
+			Where(query.Message.ID.Eq(messageID)).
+			UpdateSimple(query.Message.CompactionID.Value(compactionID))
+		require.NoError(t, updateErr)
+	}
+
+	require.NoError(t, commonsqlite.MigrateDown(
+		handle.SQLDB(),
+		sqliteMigrationsPath,
+		1,
+		&migrations.SQLiteFS,
+	))
+	require.NoError(t, handle.Close())
+
+	reopened, reopenErr := Open(ctx, Config{Directory: stateDirectory})
+	require.NoError(t, reopenErr)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+	reopenedQuery := repositories.Use(reopened.GormDB)
+	messages, listErr := reopenedQuery.Message.WithContext(ctx).
+		Where(reopenedQuery.Message.SessionID.Eq(sessionID)).
+		Order(reopenedQuery.Message.Sequence.Asc()).
+		Find()
+	require.NoError(t, listErr)
+	require.Len(t, messages, 3)
+	require.NotNil(t, messages[0].CompactionID)
+	require.NotNil(t, messages[1].CompactionID)
+	assert.Equal(t, firstCompactionID, *messages[0].CompactionID)
+	assert.Equal(t, secondCompactionID, *messages[1].CompactionID)
+	assert.Nil(t, messages[2].CompactionID)
 }

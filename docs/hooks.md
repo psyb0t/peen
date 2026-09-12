@@ -119,7 +119,7 @@ boundary and is not delivered.
 `deny` has a required `reason` and stops the current operation. It never
 degrades into a warning.
 
-`emit_event` publishes a normal session event. It requires `event_type` and
+`emit_event` publishes a session notice. It requires `event_type` and
 `delivery` (`queue` or `wake`), and accepts `summary` and `data`. A new
 session has no ID during `pre_user_message`, so an event action belongs in
 `post_user_message` or a later event when it needs delivery.
@@ -161,7 +161,7 @@ non-JSON output is allowed and means no extra effect.
 
 A failed action rejects a pre-event by default. A failed post or failure event
 continues by default, records a warning, and publishes a bounded
-`hook.action_failed` session event when a session exists. Set
+`hook.action_failed` session notice when a session exists. Set
 `on_failure: deny` or `on_failure: continue` on an action to override that
 default. The `deny` action always denies.
 
@@ -178,7 +178,7 @@ deployment code. Enable workspace hooks only for workspaces you trust.
 At debug level Peen records start and finish entries for every hook lifecycle
 event, including events with no matching group. A matching group and each
 executed action also record start and finish entries with their resolved
-`hook_name` and `hook_action_name`. Command and emitted-session-event actions
-have their own start and finish entries. These records include outcome,
+`hook_name` and `hook_action_name`. Command and emitted-notice actions have
+their own start and finish entries. These records include outcome,
 duration, bounded counts, and safe identifiers. They do not include hook stdin,
 tool content, command output, declared environment values, or credentials.

@@ -20,14 +20,14 @@ import (
 
 // Defines values for AgentRunDefinition.
 const (
-	AgentRunDefinitionAdhoc  AgentRunDefinition = "adhoc"
+	AgentRunDefinitionAdHoc  AgentRunDefinition = "ad-hoc"
 	AgentRunDefinitionStored AgentRunDefinition = "stored"
 )
 
 // Valid indicates whether the value is a known member of the AgentRunDefinition enum.
 func (e AgentRunDefinition) Valid() bool {
 	switch e {
-	case AgentRunDefinitionAdhoc:
+	case AgentRunDefinitionAdHoc:
 		return true
 	case AgentRunDefinitionStored:
 		return true
@@ -38,10 +38,11 @@ func (e AgentRunDefinition) Valid() bool {
 
 // Defines values for AgentRunState.
 const (
-	AgentRunStateCancelled AgentRunState = "cancelled"
-	AgentRunStateCompleted AgentRunState = "completed"
-	AgentRunStateFailed    AgentRunState = "failed"
-	AgentRunStateRunning   AgentRunState = "running"
+	AgentRunStateCancelled   AgentRunState = "cancelled"
+	AgentRunStateCompleted   AgentRunState = "completed"
+	AgentRunStateFailed      AgentRunState = "failed"
+	AgentRunStateInterrupted AgentRunState = "interrupted"
+	AgentRunStateRunning     AgentRunState = "running"
 )
 
 // Valid indicates whether the value is a known member of the AgentRunState enum.
@@ -53,6 +54,8 @@ func (e AgentRunState) Valid() bool {
 		return true
 	case AgentRunStateFailed:
 		return true
+	case AgentRunStateInterrupted:
+		return true
 	case AgentRunStateRunning:
 		return true
 	default:
@@ -62,10 +65,11 @@ func (e AgentRunState) Valid() bool {
 
 // Defines values for AgentRunCancelResponseState.
 const (
-	AgentRunCancelResponseStateCancelled AgentRunCancelResponseState = "cancelled"
-	AgentRunCancelResponseStateCompleted AgentRunCancelResponseState = "completed"
-	AgentRunCancelResponseStateFailed    AgentRunCancelResponseState = "failed"
-	AgentRunCancelResponseStateRunning   AgentRunCancelResponseState = "running"
+	AgentRunCancelResponseStateCancelled   AgentRunCancelResponseState = "cancelled"
+	AgentRunCancelResponseStateCompleted   AgentRunCancelResponseState = "completed"
+	AgentRunCancelResponseStateFailed      AgentRunCancelResponseState = "failed"
+	AgentRunCancelResponseStateInterrupted AgentRunCancelResponseState = "interrupted"
+	AgentRunCancelResponseStateRunning     AgentRunCancelResponseState = "running"
 )
 
 // Valid indicates whether the value is a known member of the AgentRunCancelResponseState enum.
@@ -77,6 +81,8 @@ func (e AgentRunCancelResponseState) Valid() bool {
 		return true
 	case AgentRunCancelResponseStateFailed:
 		return true
+	case AgentRunCancelResponseStateInterrupted:
+		return true
 	case AgentRunCancelResponseStateRunning:
 		return true
 	default:
@@ -86,10 +92,11 @@ func (e AgentRunCancelResponseState) Valid() bool {
 
 // Defines values for AgentRunEventPageState.
 const (
-	AgentRunEventPageStateCancelled AgentRunEventPageState = "cancelled"
-	AgentRunEventPageStateCompleted AgentRunEventPageState = "completed"
-	AgentRunEventPageStateFailed    AgentRunEventPageState = "failed"
-	AgentRunEventPageStateRunning   AgentRunEventPageState = "running"
+	AgentRunEventPageStateCancelled   AgentRunEventPageState = "cancelled"
+	AgentRunEventPageStateCompleted   AgentRunEventPageState = "completed"
+	AgentRunEventPageStateFailed      AgentRunEventPageState = "failed"
+	AgentRunEventPageStateInterrupted AgentRunEventPageState = "interrupted"
+	AgentRunEventPageStateRunning     AgentRunEventPageState = "running"
 )
 
 // Valid indicates whether the value is a known member of the AgentRunEventPageState enum.
@@ -101,6 +108,8 @@ func (e AgentRunEventPageState) Valid() bool {
 		return true
 	case AgentRunEventPageStateFailed:
 		return true
+	case AgentRunEventPageStateInterrupted:
+		return true
 	case AgentRunEventPageStateRunning:
 		return true
 	default:
@@ -110,10 +119,11 @@ func (e AgentRunEventPageState) Valid() bool {
 
 // Defines values for JobState.
 const (
-	JobStateExited    JobState = "exited"
-	JobStateFailed    JobState = "failed"
-	JobStateRunning   JobState = "running"
-	JobStateSignalled JobState = "signalled"
+	JobStateExited      JobState = "exited"
+	JobStateFailed      JobState = "failed"
+	JobStateInterrupted JobState = "interrupted"
+	JobStateRunning     JobState = "running"
+	JobStateSignalled   JobState = "signalled"
 )
 
 // Valid indicates whether the value is a known member of the JobState enum.
@@ -122,6 +132,8 @@ func (e JobState) Valid() bool {
 	case JobStateExited:
 		return true
 	case JobStateFailed:
+		return true
+	case JobStateInterrupted:
 		return true
 	case JobStateRunning:
 		return true
@@ -134,10 +146,11 @@ func (e JobState) Valid() bool {
 
 // Defines values for JobOutputState.
 const (
-	JobOutputStateExited    JobOutputState = "exited"
-	JobOutputStateFailed    JobOutputState = "failed"
-	JobOutputStateRunning   JobOutputState = "running"
-	JobOutputStateSignalled JobOutputState = "signalled"
+	JobOutputStateExited      JobOutputState = "exited"
+	JobOutputStateFailed      JobOutputState = "failed"
+	JobOutputStateInterrupted JobOutputState = "interrupted"
+	JobOutputStateRunning     JobOutputState = "running"
+	JobOutputStateSignalled   JobOutputState = "signalled"
 )
 
 // Valid indicates whether the value is a known member of the JobOutputState enum.
@@ -147,9 +160,74 @@ func (e JobOutputState) Valid() bool {
 		return true
 	case JobOutputStateFailed:
 		return true
+	case JobOutputStateInterrupted:
+		return true
 	case JobOutputStateRunning:
 		return true
 	case JobOutputStateSignalled:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for JobOutputLineStream.
+const (
+	JobOutputLineStreamStderr JobOutputLineStream = "stderr"
+	JobOutputLineStreamStdout JobOutputLineStream = "stdout"
+)
+
+// Valid indicates whether the value is a known member of the JobOutputLineStream enum.
+func (e JobOutputLineStream) Valid() bool {
+	switch e {
+	case JobOutputLineStreamStderr:
+		return true
+	case JobOutputLineStreamStdout:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for JobSignalRecordSignal.
+const (
+	JobSignalRecordSignalKill JobSignalRecordSignal = "kill"
+	JobSignalRecordSignalStop JobSignalRecordSignal = "stop"
+)
+
+// Valid indicates whether the value is a known member of the JobSignalRecordSignal enum.
+func (e JobSignalRecordSignal) Valid() bool {
+	switch e {
+	case JobSignalRecordSignalKill:
+		return true
+	case JobSignalRecordSignalStop:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for JobSignalRecordStateAtRequest.
+const (
+	JobSignalRecordStateAtRequestExited      JobSignalRecordStateAtRequest = "exited"
+	JobSignalRecordStateAtRequestFailed      JobSignalRecordStateAtRequest = "failed"
+	JobSignalRecordStateAtRequestInterrupted JobSignalRecordStateAtRequest = "interrupted"
+	JobSignalRecordStateAtRequestRunning     JobSignalRecordStateAtRequest = "running"
+	JobSignalRecordStateAtRequestSignalled   JobSignalRecordStateAtRequest = "signalled"
+)
+
+// Valid indicates whether the value is a known member of the JobSignalRecordStateAtRequest enum.
+func (e JobSignalRecordStateAtRequest) Valid() bool {
+	switch e {
+	case JobSignalRecordStateAtRequestExited:
+		return true
+	case JobSignalRecordStateAtRequestFailed:
+		return true
+	case JobSignalRecordStateAtRequestInterrupted:
+		return true
+	case JobSignalRecordStateAtRequestRunning:
+		return true
+	case JobSignalRecordStateAtRequestSignalled:
 		return true
 	default:
 		return false
@@ -176,10 +254,11 @@ func (e JobSignalRequestSignal) Valid() bool {
 
 // Defines values for JobSignalResponseState.
 const (
-	JobSignalResponseStateExited    JobSignalResponseState = "exited"
-	JobSignalResponseStateFailed    JobSignalResponseState = "failed"
-	JobSignalResponseStateRunning   JobSignalResponseState = "running"
-	JobSignalResponseStateSignalled JobSignalResponseState = "signalled"
+	JobSignalResponseStateExited      JobSignalResponseState = "exited"
+	JobSignalResponseStateFailed      JobSignalResponseState = "failed"
+	JobSignalResponseStateInterrupted JobSignalResponseState = "interrupted"
+	JobSignalResponseStateRunning     JobSignalResponseState = "running"
+	JobSignalResponseStateSignalled   JobSignalResponseState = "signalled"
 )
 
 // Valid indicates whether the value is a known member of the JobSignalResponseState enum.
@@ -188,6 +267,8 @@ func (e JobSignalResponseState) Valid() bool {
 	case JobSignalResponseStateExited:
 		return true
 	case JobSignalResponseStateFailed:
+		return true
+	case JobSignalResponseStateInterrupted:
 		return true
 	case JobSignalResponseStateRunning:
 		return true
@@ -219,36 +300,138 @@ func (e MessageRole) Valid() bool {
 	}
 }
 
-// Defines values for SessionEventDelivery.
+// Defines values for ModelCallState.
 const (
-	SessionEventDeliveryQueue SessionEventDelivery = "queue"
-	SessionEventDeliveryWake  SessionEventDelivery = "wake"
+	ModelCallStateCancelled   ModelCallState = "cancelled"
+	ModelCallStateCompleted   ModelCallState = "completed"
+	ModelCallStateFailed      ModelCallState = "failed"
+	ModelCallStateInterrupted ModelCallState = "interrupted"
+	ModelCallStateRunning     ModelCallState = "running"
 )
 
-// Valid indicates whether the value is a known member of the SessionEventDelivery enum.
-func (e SessionEventDelivery) Valid() bool {
+// Valid indicates whether the value is a known member of the ModelCallState enum.
+func (e ModelCallState) Valid() bool {
 	switch e {
-	case SessionEventDeliveryQueue:
+	case ModelCallStateCancelled:
 		return true
-	case SessionEventDeliveryWake:
+	case ModelCallStateCompleted:
+		return true
+	case ModelCallStateFailed:
+		return true
+	case ModelCallStateInterrupted:
+		return true
+	case ModelCallStateRunning:
 		return true
 	default:
 		return false
 	}
 }
 
-// Defines values for SessionEventRequestDelivery.
+// Defines values for ModelRunStage.
 const (
-	SessionEventRequestDeliveryQueue SessionEventRequestDelivery = "queue"
-	SessionEventRequestDeliveryWake  SessionEventRequestDelivery = "wake"
+	ModelRunStageChild      ModelRunStage = "child"
+	ModelRunStageCompaction ModelRunStage = "compaction"
+	ModelRunStageTurn       ModelRunStage = "turn"
 )
 
-// Valid indicates whether the value is a known member of the SessionEventRequestDelivery enum.
-func (e SessionEventRequestDelivery) Valid() bool {
+// Valid indicates whether the value is a known member of the ModelRunStage enum.
+func (e ModelRunStage) Valid() bool {
 	switch e {
-	case SessionEventRequestDeliveryQueue:
+	case ModelRunStageChild:
 		return true
-	case SessionEventRequestDeliveryWake:
+	case ModelRunStageCompaction:
+		return true
+	case ModelRunStageTurn:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModelRunState.
+const (
+	ModelRunStateCancelled   ModelRunState = "cancelled"
+	ModelRunStateCompleted   ModelRunState = "completed"
+	ModelRunStateFailed      ModelRunState = "failed"
+	ModelRunStateInterrupted ModelRunState = "interrupted"
+	ModelRunStateRunning     ModelRunState = "running"
+)
+
+// Valid indicates whether the value is a known member of the ModelRunState enum.
+func (e ModelRunState) Valid() bool {
+	switch e {
+	case ModelRunStateCancelled:
+		return true
+	case ModelRunStateCompleted:
+		return true
+	case ModelRunStateFailed:
+		return true
+	case ModelRunStateInterrupted:
+		return true
+	case ModelRunStateRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SessionNoticeDelivery.
+const (
+	SessionNoticeDeliveryQueue SessionNoticeDelivery = "queue"
+	SessionNoticeDeliveryWake  SessionNoticeDelivery = "wake"
+)
+
+// Valid indicates whether the value is a known member of the SessionNoticeDelivery enum.
+func (e SessionNoticeDelivery) Valid() bool {
+	switch e {
+	case SessionNoticeDeliveryQueue:
+		return true
+	case SessionNoticeDeliveryWake:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SessionNoticeRequestDelivery.
+const (
+	SessionNoticeRequestDeliveryQueue SessionNoticeRequestDelivery = "queue"
+	SessionNoticeRequestDeliveryWake  SessionNoticeRequestDelivery = "wake"
+)
+
+// Valid indicates whether the value is a known member of the SessionNoticeRequestDelivery enum.
+func (e SessionNoticeRequestDelivery) Valid() bool {
+	switch e {
+	case SessionNoticeRequestDeliveryQueue:
+		return true
+	case SessionNoticeRequestDeliveryWake:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TurnState.
+const (
+	TurnStateCancelled   TurnState = "cancelled"
+	TurnStateCompleted   TurnState = "completed"
+	TurnStateFailed      TurnState = "failed"
+	TurnStateInterrupted TurnState = "interrupted"
+	TurnStateRunning     TurnState = "running"
+)
+
+// Valid indicates whether the value is a known member of the TurnState enum.
+func (e TurnState) Valid() bool {
+	switch e {
+	case TurnStateCancelled:
+		return true
+	case TurnStateCompleted:
+		return true
+	case TurnStateFailed:
+		return true
+	case TurnStateInterrupted:
+		return true
+	case TurnStateRunning:
 		return true
 	default:
 		return false
@@ -315,12 +498,31 @@ func (e ListSessionAgentRunsParamsState) Valid() bool {
 	}
 }
 
+// Defines values for ListSessionEventsParamsOrder.
+const (
+	ListSessionEventsParamsOrderAsc  ListSessionEventsParamsOrder = "asc"
+	ListSessionEventsParamsOrderDesc ListSessionEventsParamsOrder = "desc"
+)
+
+// Valid indicates whether the value is a known member of the ListSessionEventsParamsOrder enum.
+func (e ListSessionEventsParamsOrder) Valid() bool {
+	switch e {
+	case ListSessionEventsParamsOrderAsc:
+		return true
+	case ListSessionEventsParamsOrderDesc:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListSessionJobsParamsState.
 const (
-	ListSessionJobsParamsStateExited    ListSessionJobsParamsState = "exited"
-	ListSessionJobsParamsStateFailed    ListSessionJobsParamsState = "failed"
-	ListSessionJobsParamsStateRunning   ListSessionJobsParamsState = "running"
-	ListSessionJobsParamsStateSignalled ListSessionJobsParamsState = "signalled"
+	ListSessionJobsParamsStateExited      ListSessionJobsParamsState = "exited"
+	ListSessionJobsParamsStateFailed      ListSessionJobsParamsState = "failed"
+	ListSessionJobsParamsStateInterrupted ListSessionJobsParamsState = "interrupted"
+	ListSessionJobsParamsStateRunning     ListSessionJobsParamsState = "running"
+	ListSessionJobsParamsStateSignalled   ListSessionJobsParamsState = "signalled"
 )
 
 // Valid indicates whether the value is a known member of the ListSessionJobsParamsState enum.
@@ -329,6 +531,8 @@ func (e ListSessionJobsParamsState) Valid() bool {
 	case ListSessionJobsParamsStateExited:
 		return true
 	case ListSessionJobsParamsStateFailed:
+		return true
+	case ListSessionJobsParamsStateInterrupted:
 		return true
 	case ListSessionJobsParamsStateRunning:
 		return true
@@ -360,29 +564,88 @@ func (e ReadSessionJobOutputParamsStream) Valid() bool {
 	}
 }
 
-// AgentRun defines model for AgentRun.
-type AgentRun struct {
-	AgentRunId openapi_types.UUID `json:"agentRunId"`
+// Defines values for ListSessionModelRunsParamsStage.
+const (
+	ListSessionModelRunsParamsStageChild      ListSessionModelRunsParamsStage = "child"
+	ListSessionModelRunsParamsStageCompaction ListSessionModelRunsParamsStage = "compaction"
+	ListSessionModelRunsParamsStageTurn       ListSessionModelRunsParamsStage = "turn"
+)
 
-	// Definition Whether the agent came from a file or was defined inline.
-	Definition AgentRunDefinition `json:"definition"`
-
-	// Depth Nesting level. The root turn is 0.
-	Depth              int32      `json:"depth"`
-	EndedAt            *time.Time `json:"endedAt,omitempty"`
-	EventBufferedCount int32      `json:"eventBufferedCount"`
-
-	// EventDroppedCount Events evicted because the bounded buffer filled.
-	EventDroppedCount int32 `json:"eventDroppedCount"`
-
-	// Name The agent's name. Identification only for an ad-hoc run.
-	Name             string        `json:"name"`
-	ParentToolCallId *string       `json:"parentToolCallId,omitempty"`
-	StartedAt        time.Time     `json:"startedAt"`
-	State            AgentRunState `json:"state"`
+// Valid indicates whether the value is a known member of the ListSessionModelRunsParamsStage enum.
+func (e ListSessionModelRunsParamsStage) Valid() bool {
+	switch e {
+	case ListSessionModelRunsParamsStageChild:
+		return true
+	case ListSessionModelRunsParamsStageCompaction:
+		return true
+	case ListSessionModelRunsParamsStageTurn:
+		return true
+	default:
+		return false
+	}
 }
 
-// AgentRunDefinition Whether the agent came from a file or was defined inline.
+// Defines values for ListSessionModelRunsParamsState.
+const (
+	ListSessionModelRunsParamsStateCancelled   ListSessionModelRunsParamsState = "cancelled"
+	ListSessionModelRunsParamsStateCompleted   ListSessionModelRunsParamsState = "completed"
+	ListSessionModelRunsParamsStateFailed      ListSessionModelRunsParamsState = "failed"
+	ListSessionModelRunsParamsStateInterrupted ListSessionModelRunsParamsState = "interrupted"
+	ListSessionModelRunsParamsStateRunning     ListSessionModelRunsParamsState = "running"
+)
+
+// Valid indicates whether the value is a known member of the ListSessionModelRunsParamsState enum.
+func (e ListSessionModelRunsParamsState) Valid() bool {
+	switch e {
+	case ListSessionModelRunsParamsStateCancelled:
+		return true
+	case ListSessionModelRunsParamsStateCompleted:
+		return true
+	case ListSessionModelRunsParamsStateFailed:
+		return true
+	case ListSessionModelRunsParamsStateInterrupted:
+		return true
+	case ListSessionModelRunsParamsStateRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// AgentRun defines model for AgentRun.
+type AgentRun struct {
+	AgentRunId            openapi_types.UUID  `json:"agentRunId"`
+	AllowedTools          []interface{}       `json:"allowedTools"`
+	CancelRequested       bool                `json:"cancelRequested"`
+	CompletionTokenCount  int64               `json:"completionTokenCount"`
+	Definition            AgentRunDefinition  `json:"definition"`
+	Depth                 int64               `json:"depth"`
+	EndedAt               *time.Time          `json:"endedAt,omitempty"`
+	EventCount            int64               `json:"eventCount"`
+	FailureClassification string              `json:"failureClassification"`
+	FailureDetail         string              `json:"failureDetail"`
+	FinishReason          string              `json:"finishReason"`
+	Instructions          string              `json:"instructions"`
+	Model                 string              `json:"model"`
+	ModelReference        string              `json:"modelReference"`
+	Name                  string              `json:"name"`
+	ParentAgentRunId      *openapi_types.UUID `json:"parentAgentRunId,omitempty"`
+	ParentToolCallId      *string             `json:"parentToolCallId,omitempty"`
+	ParentTurnId          openapi_types.UUID  `json:"parentTurnId"`
+	PromptTokenCount      int64               `json:"promptTokenCount"`
+	RequestId             openapi_types.UUID  `json:"requestId"`
+	ResponseMessages      []interface{}       `json:"responseMessages"`
+	ResponseText          string              `json:"responseText"`
+	ResponseThinking      string              `json:"responseThinking"`
+	SessionId             openapi_types.UUID  `json:"sessionId"`
+	StartedAt             time.Time           `json:"startedAt"`
+	State                 AgentRunState       `json:"state"`
+	SystemPrompt          string              `json:"systemPrompt"`
+	Task                  string              `json:"task"`
+	Workspace             string              `json:"workspace"`
+}
+
+// AgentRunDefinition defines model for AgentRun.Definition.
 type AgentRunDefinition string
 
 // AgentRunState defines model for AgentRun.State.
@@ -404,20 +667,18 @@ type AgentRunCancelResponseState string
 type AgentRunEvent struct {
 	CreatedAt time.Time               `json:"createdAt"`
 	Payload   *map[string]interface{} `json:"payload,omitempty"`
-	Sequence  int32                   `json:"sequence"`
+	Sequence  int64                   `json:"sequence"`
 	Type      string                  `json:"type"`
 }
 
 // AgentRunEventPage defines model for AgentRunEventPage.
 type AgentRunEventPage struct {
 	AgentRunId openapi_types.UUID `json:"agentRunId"`
-
-	// Dropped Events dropped before this window.
-	Dropped int32           `json:"dropped"`
-	Events  []AgentRunEvent `json:"events"`
+	Events     []AgentRunEvent    `json:"events"`
+	HasMore    bool               `json:"hasMore"`
 
 	// NextCursor Pass back as cursor to continue from here.
-	NextCursor int32                  `json:"nextCursor"`
+	NextCursor int64                  `json:"nextCursor"`
 	State      AgentRunEventPageState `json:"state"`
 }
 
@@ -428,11 +689,47 @@ type AgentRunEventPageState string
 type AgentRunPage struct {
 	Agents  []AgentRun `json:"agents"`
 	HasMore bool       `json:"hasMore"`
+	Limit   int32      `json:"limit"`
+	Offset  int32      `json:"offset"`
 }
 
 // CancelResponse defines model for CancelResponse.
 type CancelResponse struct {
 	CancelRequested bool `json:"cancelRequested"`
+}
+
+// Compaction defines model for Compaction.
+type Compaction struct {
+	CreatedAt          time.Time           `json:"createdAt"`
+	FromMessageId      openapi_types.UUID  `json:"fromMessageId"`
+	FromSequence       int64               `json:"fromSequence"`
+	Id                 openapi_types.UUID  `json:"id"`
+	InputTokenCount    int64               `json:"inputTokenCount"`
+	Model              string              `json:"model"`
+	ParentCompactionId *openapi_types.UUID `json:"parentCompactionId,omitempty"`
+	PromptHash         string              `json:"promptHash"`
+	SessionId          openapi_types.UUID  `json:"sessionId"`
+	SourceMessageCount int64               `json:"sourceMessageCount"`
+	Summary            string              `json:"summary"`
+	SummaryTokenCount  int64               `json:"summaryTokenCount"`
+	ToMessageId        openapi_types.UUID  `json:"toMessageId"`
+	ToSequence         int64               `json:"toSequence"`
+}
+
+// CompactionPage defines model for CompactionPage.
+type CompactionPage struct {
+	Compactions []Compaction `json:"compactions"`
+	HasMore     bool         `json:"hasMore"`
+	Limit       int32        `json:"limit"`
+	Offset      int32        `json:"offset"`
+}
+
+// ContextSnapshot defines model for ContextSnapshot.
+type ContextSnapshot struct {
+	CreatedAt       time.Time              `json:"createdAt"`
+	Hash            string                 `json:"hash"`
+	Manifest        map[string]interface{} `json:"manifest"`
+	ResolvedContent string                 `json:"resolvedContent"`
 }
 
 // Error defines model for Error.
@@ -449,25 +746,26 @@ type Job struct {
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
 
 	// ExitCode Exit status once known, or -1 while it is not.
-	ExitCode int32              `json:"exitCode"`
-	JobId    openapi_types.UUID `json:"jobId"`
+	ExitCode int64 `json:"exitCode"`
+
+	// FailureDetail Empty unless Peen recorded a terminal failure detail.
+	FailureDetail string             `json:"failureDetail"`
+	JobId         openapi_types.UUID `json:"jobId"`
 
 	// Pid Operating-system process ID of the job's shell.
-	Pid int32 `json:"pid"`
+	Pid int64 `json:"pid"`
 
 	// Purpose Why the agent said it was running this command.
-	Purpose             string    `json:"purpose"`
-	StartedAt           time.Time `json:"startedAt"`
-	State               JobState  `json:"state"`
-	StderrBufferedLines int32     `json:"stderrBufferedLines"`
-	StderrDroppedLines  int32     `json:"stderrDroppedLines"`
-	StdoutBufferedLines int32     `json:"stdoutBufferedLines"`
-
-	// StdoutDroppedLines Lines evicted because the bounded buffer filled.
-	StdoutDroppedLines int32 `json:"stdoutDroppedLines"`
+	Purpose   string             `json:"purpose"`
+	SessionId openapi_types.UUID `json:"sessionId"`
+	StartedAt time.Time          `json:"startedAt"`
+	State     JobState           `json:"state"`
 
 	// ToolCallId The tool call that started this job.
 	ToolCallId *string `json:"toolCallId,omitempty"`
+
+	// TurnId The durable turn that launched this process.
+	TurnId openapi_types.UUID `json:"turnId"`
 }
 
 // JobState defines model for Job.State.
@@ -475,25 +773,66 @@ type JobState string
 
 // JobOutput defines model for JobOutput.
 type JobOutput struct {
-	JobId            openapi_types.UUID `json:"jobId"`
-	NextStderrCursor int32              `json:"nextStderrCursor"`
+	HasMore bool               `json:"hasMore"`
+	JobId   openapi_types.UUID `json:"jobId"`
 
-	// NextStdoutCursor Pass back as stdoutCursor to continue from here.
-	NextStdoutCursor   int32          `json:"nextStdoutCursor"`
-	State              JobOutputState `json:"state"`
-	Stderr             string         `json:"stderr"`
-	StderrDroppedLines int32          `json:"stderrDroppedLines"`
-	Stdout             string         `json:"stdout"`
-	StdoutDroppedLines int32          `json:"stdoutDroppedLines"`
+	// Lines Ordered immutable stdout and stderr records from SQLite.
+	Lines []JobOutputLine `json:"lines"`
+
+	// NextCursor Pass back as cursor to continue from this durable sequence.
+	NextCursor int64          `json:"nextCursor"`
+	State      JobOutputState `json:"state"`
 }
 
 // JobOutputState defines model for JobOutput.State.
 type JobOutputState string
 
+// JobOutputLine defines model for JobOutputLine.
+type JobOutputLine struct {
+	Content   string              `json:"content"`
+	CreatedAt time.Time           `json:"createdAt"`
+	Id        openapi_types.UUID  `json:"id"`
+	JobId     openapi_types.UUID  `json:"jobId"`
+	Sequence  int64               `json:"sequence"`
+	SessionId openapi_types.UUID  `json:"sessionId"`
+	Stream    JobOutputLineStream `json:"stream"`
+}
+
+// JobOutputLineStream defines model for JobOutputLine.Stream.
+type JobOutputLineStream string
+
 // JobPage defines model for JobPage.
 type JobPage struct {
-	Jobs      []Job `json:"jobs"`
-	Truncated bool  `json:"truncated"`
+	HasMore bool  `json:"hasMore"`
+	Jobs    []Job `json:"jobs"`
+	Limit   int32 `json:"limit"`
+	Offset  int32 `json:"offset"`
+}
+
+// JobSignalRecord defines model for JobSignalRecord.
+type JobSignalRecord struct {
+	Accepted       bool                          `json:"accepted"`
+	Id             openapi_types.UUID            `json:"id"`
+	JobId          openapi_types.UUID            `json:"jobId"`
+	RequestedAt    time.Time                     `json:"requestedAt"`
+	SessionId      openapi_types.UUID            `json:"sessionId"`
+	Signal         JobSignalRecordSignal         `json:"signal"`
+	StateAtRequest JobSignalRecordStateAtRequest `json:"stateAtRequest"`
+}
+
+// JobSignalRecordSignal defines model for JobSignalRecord.Signal.
+type JobSignalRecordSignal string
+
+// JobSignalRecordStateAtRequest defines model for JobSignalRecord.StateAtRequest.
+type JobSignalRecordStateAtRequest string
+
+// JobSignalRecordPage defines model for JobSignalRecordPage.
+type JobSignalRecordPage struct {
+	HasMore        bool              `json:"hasMore"`
+	Job            Job               `json:"job"`
+	Limit          int32             `json:"limit"`
+	Offset         int32             `json:"offset"`
+	SignalRequests []JobSignalRecord `json:"signalRequests"`
 }
 
 // JobSignalRequest defines model for JobSignalRequest.
@@ -519,18 +858,19 @@ type JobSignalResponseState string
 
 // Message defines model for Message.
 type Message struct {
-	Content    string             `json:"content"`
-	CreatedAt  time.Time          `json:"createdAt"`
-	Id         openapi_types.UUID `json:"id"`
-	Incomplete *bool              `json:"incomplete,omitempty"`
-	IsError    *bool              `json:"isError,omitempty"`
-	Model      *string            `json:"model,omitempty"`
-	Role       MessageRole        `json:"role"`
-	Sequence   int64              `json:"sequence"`
-	Thinking   *string            `json:"thinking,omitempty"`
-	ToolCallId *string            `json:"toolCallId,omitempty"`
-	ToolCalls  *[]MessageToolCall `json:"toolCalls,omitempty"`
-	Workspace  string             `json:"workspace"`
+	CompactionId *openapi_types.UUID `json:"compactionId,omitempty"`
+	Content      string              `json:"content"`
+	CreatedAt    time.Time           `json:"createdAt"`
+	Id           openapi_types.UUID  `json:"id"`
+	Incomplete   *bool               `json:"incomplete,omitempty"`
+	IsError      *bool               `json:"isError,omitempty"`
+	Model        *string             `json:"model,omitempty"`
+	Role         MessageRole         `json:"role"`
+	Sequence     int64               `json:"sequence"`
+	Thinking     *string             `json:"thinking,omitempty"`
+	ToolCallId   *string             `json:"toolCallId,omitempty"`
+	ToolCalls    *[]MessageToolCall  `json:"toolCalls,omitempty"`
+	Workspace    string              `json:"workspace"`
 }
 
 // MessageRole defines model for Message.Role.
@@ -551,6 +891,104 @@ type MessageToolCall struct {
 	Name      string                 `json:"name"`
 }
 
+// ModelCall defines model for ModelCall.
+type ModelCall struct {
+	BilledCostAmount        string                   `json:"billedCostAmount"`
+	CacheReadTokens         int64                    `json:"cacheReadTokens"`
+	CacheWriteLongTtlTokens int64                    `json:"cacheWriteLongTtlTokens"`
+	CacheWriteTokens        int64                    `json:"cacheWriteTokens"`
+	CompletedAt             *time.Time               `json:"completedAt,omitempty"`
+	CompletionTokens        int64                    `json:"completionTokens"`
+	CostKnown               bool                     `json:"costKnown"`
+	FailureClassification   string                   `json:"failureClassification"`
+	FailureDetail           string                   `json:"failureDetail"`
+	FinishReason            string                   `json:"finishReason"`
+	Id                      openapi_types.UUID       `json:"id"`
+	ModelRunId              openapi_types.UUID       `json:"modelRunId"`
+	PromptTokens            int64                    `json:"promptTokens"`
+	ReasoningTokens         int64                    `json:"reasoningTokens"`
+	RequestMessages         []interface{}            `json:"requestMessages"`
+	RequestTools            []interface{}            `json:"requestTools"`
+	ResponseCostAmount      string                   `json:"responseCostAmount"`
+	ResponseMessage         *map[string]interface{}  `json:"responseMessage"`
+	ResponseModelId         string                   `json:"responseModelId"`
+	ResponseUsage           map[string]interface{}   `json:"responseUsage"`
+	RetryAttemptCount       int64                    `json:"retryAttemptCount"`
+	RetryAttempts           []map[string]interface{} `json:"retryAttempts"`
+	RetryCostAmount         string                   `json:"retryCostAmount"`
+	Round                   int64                    `json:"round"`
+	SessionId               openapi_types.UUID       `json:"sessionId"`
+	StartedAt               time.Time                `json:"startedAt"`
+	State                   ModelCallState           `json:"state"`
+	TotalAttempts           int64                    `json:"totalAttempts"`
+	TotalTokens             int64                    `json:"totalTokens"`
+	WastedCompletionTokens  int64                    `json:"wastedCompletionTokens"`
+	WastedPromptTokens      int64                    `json:"wastedPromptTokens"`
+	WastedTotalTokens       int64                    `json:"wastedTotalTokens"`
+}
+
+// ModelCallState defines model for ModelCall.State.
+type ModelCallState string
+
+// ModelCallPage defines model for ModelCallPage.
+type ModelCallPage struct {
+	Calls    []ModelCall `json:"calls"`
+	HasMore  bool        `json:"hasMore"`
+	Limit    int32       `json:"limit"`
+	ModelRun ModelRun    `json:"modelRun"`
+	Offset   int32       `json:"offset"`
+}
+
+// ModelRun defines model for ModelRun.
+type ModelRun struct {
+	AgentRunId            *openapi_types.UUID    `json:"agentRunId,omitempty"`
+	BilledCostAmount      string                 `json:"billedCostAmount"`
+	CompletedAt           *time.Time             `json:"completedAt,omitempty"`
+	ConnectionName        string                 `json:"connectionName"`
+	CostKnown             bool                   `json:"costKnown"`
+	FailureClassification string                 `json:"failureClassification"`
+	FailureDetail         string                 `json:"failureDetail"`
+	FinishReason          string                 `json:"finishReason"`
+	Id                    openapi_types.UUID     `json:"id"`
+	ModelReference        string                 `json:"modelReference"`
+	RequestSettings       map[string]interface{} `json:"requestSettings"`
+	RequestedModelId      string                 `json:"requestedModelId"`
+	ResponseCostAmount    string                 `json:"responseCostAmount"`
+	ResponseInjections    []interface{}          `json:"responseInjections"`
+	ResponseMessages      []interface{}          `json:"responseMessages"`
+	ResponseModelId       string                 `json:"responseModelId"`
+	ResponseText          string                 `json:"responseText"`
+	ResponseThinking      string                 `json:"responseThinking"`
+	ResponseUsage         map[string]interface{} `json:"responseUsage"`
+	RetryCostAmount       string                 `json:"retryCostAmount"`
+	SessionId             openapi_types.UUID     `json:"sessionId"`
+	Stage                 ModelRunStage          `json:"stage"`
+	StartedAt             time.Time              `json:"startedAt"`
+	State                 ModelRunState          `json:"state"`
+	TurnId                openapi_types.UUID     `json:"turnId"`
+}
+
+// ModelRunStage defines model for ModelRun.Stage.
+type ModelRunStage string
+
+// ModelRunState defines model for ModelRun.State.
+type ModelRunState string
+
+// ModelRunPage defines model for ModelRunPage.
+type ModelRunPage struct {
+	HasMore   bool       `json:"hasMore"`
+	Limit     int32      `json:"limit"`
+	ModelRuns []ModelRun `json:"modelRuns"`
+	Offset    int32      `json:"offset"`
+}
+
+// PromptSnapshot defines model for PromptSnapshot.
+type PromptSnapshot struct {
+	CreatedAt       time.Time `json:"createdAt"`
+	EffectivePrompt string    `json:"effectivePrompt"`
+	Hash            string    `json:"hash"`
+}
+
 // Session defines model for Session.
 type Session struct {
 	ActiveTurn         bool               `json:"activeTurn"`
@@ -564,34 +1002,35 @@ type Session struct {
 	UpdatedAt          time.Time          `json:"updatedAt"`
 }
 
-// SessionEvent defines model for SessionEvent.
-type SessionEvent struct {
+// SessionNotice defines model for SessionNotice.
+type SessionNotice struct {
 	CreatedAt time.Time               `json:"createdAt"`
 	Data      *map[string]interface{} `json:"data,omitempty"`
-	Delivery  SessionEventDelivery    `json:"delivery"`
+	Delivery  SessionNoticeDelivery   `json:"delivery"`
 	Id        openapi_types.UUID      `json:"id"`
 	Source    string                  `json:"source"`
 	Summary   string                  `json:"summary"`
 	Type      string                  `json:"type"`
 }
 
-// SessionEventDelivery defines model for SessionEvent.Delivery.
-type SessionEventDelivery string
+// SessionNoticeDelivery defines model for SessionNotice.Delivery.
+type SessionNoticeDelivery string
 
-// SessionEventPage defines model for SessionEventPage.
-type SessionEventPage struct {
-	// Dropped Events dropped before these because the queue was full.
-	Dropped int32          `json:"dropped"`
-	Events  []SessionEvent `json:"events"`
+// SessionNoticePage defines model for SessionNoticePage.
+type SessionNoticePage struct {
+	HasMore bool            `json:"hasMore"`
+	Limit   int32           `json:"limit"`
+	Notices []SessionNotice `json:"notices"`
+	Offset  int32           `json:"offset"`
 }
 
-// SessionEventRequest defines model for SessionEventRequest.
-type SessionEventRequest struct {
+// SessionNoticeRequest defines model for SessionNoticeRequest.
+type SessionNoticeRequest struct {
 	// Data Structured payload for programmatic consumers.
 	Data *map[string]interface{} `json:"data,omitempty"`
 
 	// Delivery queue waits for the next turn. wake starts a turn when the session is idle and .agents/events declares a handler for this type.
-	Delivery *SessionEventRequestDelivery `json:"delivery,omitempty"`
+	Delivery *SessionNoticeRequestDelivery `json:"delivery,omitempty"`
 
 	// Summary The one line describing what happened.
 	Summary string `json:"summary"`
@@ -600,11 +1039,64 @@ type SessionEventRequest struct {
 	Type string `json:"type"`
 }
 
-// SessionEventRequestDelivery queue waits for the next turn. wake starts a turn when the session is idle and .agents/events declares a handler for this type.
-type SessionEventRequestDelivery string
+// SessionNoticeRequestDelivery queue waits for the next turn. wake starts a turn when the session is idle and .agents/events declares a handler for this type.
+type SessionNoticeRequestDelivery string
+
+// TranscriptEvent defines model for TranscriptEvent.
+type TranscriptEvent struct {
+	CreatedAt        time.Time              `json:"createdAt"`
+	Id               openapi_types.UUID     `json:"id"`
+	ParentToolCallId *string                `json:"parentToolCallId,omitempty"`
+	Payload          map[string]interface{} `json:"payload"`
+	RequestId        openapi_types.UUID     `json:"requestId"`
+	Sequence         int64                  `json:"sequence"`
+	SessionId        openapi_types.UUID     `json:"sessionId"`
+	TurnId           openapi_types.UUID     `json:"turnId"`
+	Type             string                 `json:"type"`
+}
+
+// TranscriptEventPage defines model for TranscriptEventPage.
+type TranscriptEventPage struct {
+	Events  []TranscriptEvent `json:"events"`
+	HasMore bool              `json:"hasMore"`
+	Limit   int32             `json:"limit"`
+	Offset  int32             `json:"offset"`
+}
+
+// Turn defines model for Turn.
+type Turn struct {
+	CancelRequested       bool               `json:"cancelRequested"`
+	CompletedAt           *time.Time         `json:"completedAt,omitempty"`
+	ContextSnapshotHash   *string            `json:"contextSnapshotHash,omitempty"`
+	FailureClassification string             `json:"failureClassification"`
+	Id                    openapi_types.UUID `json:"id"`
+	PromptSnapshotHash    *string            `json:"promptSnapshotHash,omitempty"`
+	RequestId             openapi_types.UUID `json:"requestId"`
+	SessionId             openapi_types.UUID `json:"sessionId"`
+	StartedAt             time.Time          `json:"startedAt"`
+	State                 TurnState          `json:"state"`
+	Workspace             string             `json:"workspace"`
+}
+
+// TurnState defines model for Turn.State.
+type TurnState string
+
+// TurnPage defines model for TurnPage.
+type TurnPage struct {
+	HasMore bool   `json:"hasMore"`
+	Limit   int32  `json:"limit"`
+	Offset  int32  `json:"offset"`
+	Turns   []Turn `json:"turns"`
+}
 
 // AgentRunID defines model for AgentRunID.
 type AgentRunID = openapi_types.UUID
+
+// CompactionID defines model for CompactionID.
+type CompactionID = openapi_types.UUID
+
+// ContextHash defines model for ContextHash.
+type ContextHash = string
 
 // JobID defines model for JobID.
 type JobID = openapi_types.UUID
@@ -612,11 +1104,17 @@ type JobID = openapi_types.UUID
 // Limit defines model for Limit.
 type Limit = int32
 
+// ModelRunID defines model for ModelRunID.
+type ModelRunID = openapi_types.UUID
+
 // Offset defines model for Offset.
 type Offset = int32
 
 // Order defines model for Order.
 type Order string
+
+// PromptHash defines model for PromptHash.
+type PromptHash = string
 
 // SessionIDRequired defines model for SessionIDRequired.
 type SessionIDRequired = openapi_types.UUID
@@ -660,6 +1158,11 @@ type ListSessionAgentRunsParams struct {
 // ListSessionAgentRunsParamsState defines parameters for ListSessionAgentRuns.
 type ListSessionAgentRunsParamsState string
 
+// GetSessionAgentRunParams defines parameters for GetSessionAgentRun.
+type GetSessionAgentRunParams struct {
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
 // CancelSessionAgentRunParams defines parameters for CancelSessionAgentRun.
 type CancelSessionAgentRunParams struct {
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
@@ -667,7 +1170,7 @@ type CancelSessionAgentRunParams struct {
 
 // ListSessionAgentRunEventsParams defines parameters for ListSessionAgentRunEvents.
 type ListSessionAgentRunEventsParams struct {
-	Cursor     *int32            `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Cursor     *int64            `form:"cursor,omitempty" json:"cursor,omitempty"`
 	Limit      *int32            `form:"limit,omitempty" json:"limit,omitempty"`
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
@@ -677,15 +1180,33 @@ type CancelSessionParams struct {
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
-// ListSessionEventsParams defines parameters for ListSessionEvents.
-type ListSessionEventsParams struct {
+// ListSessionCompactionsParams defines parameters for ListSessionCompactions.
+type ListSessionCompactionsParams struct {
+	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
-// PublishSessionEventParams defines parameters for PublishSessionEvent.
-type PublishSessionEventParams struct {
+// GetSessionCompactionParams defines parameters for GetSessionCompaction.
+type GetSessionCompactionParams struct {
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
+
+// GetSessionContextSnapshotParams defines parameters for GetSessionContextSnapshot.
+type GetSessionContextSnapshotParams struct {
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// ListSessionEventsParams defines parameters for ListSessionEvents.
+type ListSessionEventsParams struct {
+	Limit      *Limit                        `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *Offset                       `form:"offset,omitempty" json:"offset,omitempty"`
+	Order      *ListSessionEventsParamsOrder `form:"order,omitempty" json:"order,omitempty"`
+	XSessionID SessionIDRequired             `json:"X-Session-ID"`
+}
+
+// ListSessionEventsParamsOrder defines parameters for ListSessionEvents.
+type ListSessionEventsParamsOrder string
 
 // ListSessionJobsParams defines parameters for ListSessionJobs.
 type ListSessionJobsParams struct {
@@ -700,11 +1221,10 @@ type ListSessionJobsParamsState string
 
 // ReadSessionJobOutputParams defines parameters for ReadSessionJobOutput.
 type ReadSessionJobOutputParams struct {
-	Stream       *ReadSessionJobOutputParamsStream `form:"stream,omitempty" json:"stream,omitempty"`
-	StdoutCursor *int32                            `form:"stdoutCursor,omitempty" json:"stdoutCursor,omitempty"`
-	StderrCursor *int32                            `form:"stderrCursor,omitempty" json:"stderrCursor,omitempty"`
-	MaxLines     *int32                            `form:"maxLines,omitempty" json:"maxLines,omitempty"`
-	XSessionID   SessionIDRequired                 `json:"X-Session-ID"`
+	Stream     *ReadSessionJobOutputParamsStream `form:"stream,omitempty" json:"stream,omitempty"`
+	Cursor     *int64                            `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit      *int32                            `form:"limit,omitempty" json:"limit,omitempty"`
+	XSessionID SessionIDRequired                 `json:"X-Session-ID"`
 }
 
 // ReadSessionJobOutputParamsStream defines parameters for ReadSessionJobOutput.
@@ -715,11 +1235,64 @@ type SignalSessionJobParams struct {
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
-// PublishSessionEventJSONRequestBody defines body for PublishSessionEvent for application/json ContentType.
-type PublishSessionEventJSONRequestBody = SessionEventRequest
+// ListSessionJobSignalRequestsParams defines parameters for ListSessionJobSignalRequests.
+type ListSessionJobSignalRequestsParams struct {
+	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// ListSessionModelRunsParams defines parameters for ListSessionModelRuns.
+type ListSessionModelRunsParams struct {
+	Limit      *Limit                           `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *Offset                          `form:"offset,omitempty" json:"offset,omitempty"`
+	Stage      *ListSessionModelRunsParamsStage `form:"stage,omitempty" json:"stage,omitempty"`
+	State      *ListSessionModelRunsParamsState `form:"state,omitempty" json:"state,omitempty"`
+	XSessionID SessionIDRequired                `json:"X-Session-ID"`
+}
+
+// ListSessionModelRunsParamsStage defines parameters for ListSessionModelRuns.
+type ListSessionModelRunsParamsStage string
+
+// ListSessionModelRunsParamsState defines parameters for ListSessionModelRuns.
+type ListSessionModelRunsParamsState string
+
+// ListSessionModelRunCallsParams defines parameters for ListSessionModelRunCalls.
+type ListSessionModelRunCallsParams struct {
+	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// ListSessionNoticesParams defines parameters for ListSessionNotices.
+type ListSessionNoticesParams struct {
+	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// PublishSessionNoticeParams defines parameters for PublishSessionNotice.
+type PublishSessionNoticeParams struct {
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// GetSessionPromptSnapshotParams defines parameters for GetSessionPromptSnapshot.
+type GetSessionPromptSnapshotParams struct {
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// ListSessionTurnsParams defines parameters for ListSessionTurns.
+type ListSessionTurnsParams struct {
+	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
 
 // SignalSessionJobJSONRequestBody defines body for SignalSessionJob for application/json ContentType.
 type SignalSessionJobJSONRequestBody = JobSignalRequest
+
+// PublishSessionNoticeJSONRequestBody defines body for PublishSessionNotice for application/json ContentType.
+type PublishSessionNoticeJSONRequestBody = SessionNoticeRequest
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -810,6 +1383,11 @@ type ClientInterface interface {
 	// Corresponds with GET /session/agents (the `ListSessionAgentRuns` operationId).
 	ListSessionAgentRuns(ctx context.Context, params *ListSessionAgentRunsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetSessionAgentRun Read one durable child agent run
+	//
+	// Corresponds with GET /session/agents/{agentRunId} (the `GetSessionAgentRun` operationId).
+	GetSessionAgentRun(ctx context.Context, agentRunId AgentRunID, params *GetSessionAgentRunParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// CancelSessionAgentRun Cancel one child agent run without ending its parent turn
 	//
 	// Corresponds with POST /session/agents/{agentRunId}/cancel (the `CancelSessionAgentRun` operationId).
@@ -817,7 +1395,7 @@ type ClientInterface interface {
 
 	// ListSessionAgentRunEvents Follow what one child agent run is doing
 	//
-	// Corresponds with GET /session/agents/{agentRunId}/messages (the `ListSessionAgentRunEvents` operationId).
+	// Corresponds with GET /session/agents/{agentRunId}/events (the `ListSessionAgentRunEvents` operationId).
 	ListSessionAgentRunEvents(ctx context.Context, agentRunId AgentRunID, params *ListSessionAgentRunEventsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// CancelSession Request cancellation for the active turn
@@ -825,24 +1403,25 @@ type ClientInterface interface {
 	// Corresponds with POST /session/cancel (the `CancelSession` operationId).
 	CancelSession(ctx context.Context, params *CancelSessionParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ListSessionEvents List the session's pending events
+	// ListSessionCompactions List durable compaction records
+	//
+	// Corresponds with GET /session/compactions (the `ListSessionCompactions` operationId).
+	ListSessionCompactions(ctx context.Context, params *ListSessionCompactionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSessionCompaction Read one durable compaction record
+	//
+	// Corresponds with GET /session/compactions/{compactionId} (the `GetSessionCompaction` operationId).
+	GetSessionCompaction(ctx context.Context, compactionId CompactionID, params *GetSessionCompactionParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSessionContextSnapshot Read a context snapshot referenced by this session
+	//
+	// Corresponds with GET /session/context-snapshots/{contextHash} (the `GetSessionContextSnapshot` operationId).
+	GetSessionContextSnapshot(ctx context.Context, contextHash ContextHash, params *GetSessionContextSnapshotParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListSessionEvents List durable protocol events
 	//
 	// Corresponds with GET /session/events (the `ListSessionEvents` operationId).
 	ListSessionEvents(ctx context.Context, params *ListSessionEventsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// PublishSessionEventWithBody Report an event to the session from outside
-	//
-	// Takes any type of body and a specified content type.
-	//
-	// Corresponds with POST /session/events (the `PublishSessionEvent` operationId).
-	PublishSessionEventWithBody(ctx context.Context, params *PublishSessionEventParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// PublishSessionEvent Report an event to the session from outside
-	//
-	// Takes a body of the `application/json` content type.
-	//
-	// Corresponds with POST /session/events (the `PublishSessionEvent` operationId).
-	PublishSessionEvent(ctx context.Context, params *PublishSessionEventParams, body PublishSessionEventJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListSessionJobs List the commands this session has started
 	//
@@ -867,6 +1446,50 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /session/jobs/{jobId}/signal (the `SignalSessionJob` operationId).
 	SignalSessionJob(ctx context.Context, jobId JobID, params *SignalSessionJobParams, body SignalSessionJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListSessionJobSignalRequests List the durable signal-request history for one job
+	//
+	// Corresponds with GET /session/jobs/{jobId}/signals (the `ListSessionJobSignalRequests` operationId).
+	ListSessionJobSignalRequests(ctx context.Context, jobId JobID, params *ListSessionJobSignalRequestsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListSessionModelRuns List complete durable model invocations
+	//
+	// Corresponds with GET /session/model-runs (the `ListSessionModelRuns` operationId).
+	ListSessionModelRuns(ctx context.Context, params *ListSessionModelRunsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListSessionModelRunCalls Read every provider round for one model invocation
+	//
+	// Corresponds with GET /session/model-runs/{modelRunId}/calls (the `ListSessionModelRunCalls` operationId).
+	ListSessionModelRunCalls(ctx context.Context, modelRunId ModelRunID, params *ListSessionModelRunCallsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListSessionNotices List durable outside and worker notices
+	//
+	// Corresponds with GET /session/notices (the `ListSessionNotices` operationId).
+	ListSessionNotices(ctx context.Context, params *ListSessionNoticesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PublishSessionNoticeWithBody Report a durable notice to the session
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /session/notices (the `PublishSessionNotice` operationId).
+	PublishSessionNoticeWithBody(ctx context.Context, params *PublishSessionNoticeParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PublishSessionNotice Report a durable notice to the session
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /session/notices (the `PublishSessionNotice` operationId).
+	PublishSessionNotice(ctx context.Context, params *PublishSessionNoticeParams, body PublishSessionNoticeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSessionPromptSnapshot Read a prompt snapshot referenced by this session
+	//
+	// Corresponds with GET /session/prompt-snapshots/{promptHash} (the `GetSessionPromptSnapshot` operationId).
+	GetSessionPromptSnapshot(ctx context.Context, promptHash PromptHash, params *GetSessionPromptSnapshotParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListSessionTurns List durable turns
+	//
+	// Corresponds with GET /session/turns (the `ListSessionTurns` operationId).
+	ListSessionTurns(ctx context.Context, params *ListSessionTurnsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 // ListMessages List stored conversation messages
@@ -914,6 +1537,21 @@ func (c *Client) ListSessionAgentRuns(ctx context.Context, params *ListSessionAg
 	return c.Client.Do(req)
 }
 
+// GetSessionAgentRun Read one durable child agent run
+//
+// Corresponds with GET /session/agents/{agentRunId} (the `GetSessionAgentRun` operationId).
+func (c *Client) GetSessionAgentRun(ctx context.Context, agentRunId AgentRunID, params *GetSessionAgentRunParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSessionAgentRunRequest(c.Server, agentRunId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // CancelSessionAgentRun Cancel one child agent run without ending its parent turn
 //
 // Corresponds with POST /session/agents/{agentRunId}/cancel (the `CancelSessionAgentRun` operationId).
@@ -931,7 +1569,7 @@ func (c *Client) CancelSessionAgentRun(ctx context.Context, agentRunId AgentRunI
 
 // ListSessionAgentRunEvents Follow what one child agent run is doing
 //
-// Corresponds with GET /session/agents/{agentRunId}/messages (the `ListSessionAgentRunEvents` operationId).
+// Corresponds with GET /session/agents/{agentRunId}/events (the `ListSessionAgentRunEvents` operationId).
 func (c *Client) ListSessionAgentRunEvents(ctx context.Context, agentRunId AgentRunID, params *ListSessionAgentRunEventsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListSessionAgentRunEventsRequest(c.Server, agentRunId, params)
 	if err != nil {
@@ -959,45 +1597,56 @@ func (c *Client) CancelSession(ctx context.Context, params *CancelSessionParams,
 	return c.Client.Do(req)
 }
 
-// ListSessionEvents List the session's pending events
+// ListSessionCompactions List durable compaction records
+//
+// Corresponds with GET /session/compactions (the `ListSessionCompactions` operationId).
+func (c *Client) ListSessionCompactions(ctx context.Context, params *ListSessionCompactionsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSessionCompactionsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetSessionCompaction Read one durable compaction record
+//
+// Corresponds with GET /session/compactions/{compactionId} (the `GetSessionCompaction` operationId).
+func (c *Client) GetSessionCompaction(ctx context.Context, compactionId CompactionID, params *GetSessionCompactionParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSessionCompactionRequest(c.Server, compactionId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetSessionContextSnapshot Read a context snapshot referenced by this session
+//
+// Corresponds with GET /session/context-snapshots/{contextHash} (the `GetSessionContextSnapshot` operationId).
+func (c *Client) GetSessionContextSnapshot(ctx context.Context, contextHash ContextHash, params *GetSessionContextSnapshotParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSessionContextSnapshotRequest(c.Server, contextHash, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListSessionEvents List durable protocol events
 //
 // Corresponds with GET /session/events (the `ListSessionEvents` operationId).
 func (c *Client) ListSessionEvents(ctx context.Context, params *ListSessionEventsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListSessionEventsRequest(c.Server, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// PublishSessionEventWithBody Report an event to the session from outside
-//
-// Takes any type of body and a specified content type.
-//
-// Corresponds with POST /session/events (the `PublishSessionEvent` operationId).
-func (c *Client) PublishSessionEventWithBody(ctx context.Context, params *PublishSessionEventParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPublishSessionEventRequestWithBody(c.Server, params, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// PublishSessionEvent Report an event to the session from outside
-//
-// Takes a body of the `application/json` content type.
-//
-// Corresponds with POST /session/events (the `PublishSessionEvent` operationId).
-func (c *Client) PublishSessionEvent(ctx context.Context, params *PublishSessionEventParams, body PublishSessionEventJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPublishSessionEventRequest(c.Server, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1062,6 +1711,130 @@ func (c *Client) SignalSessionJobWithBody(ctx context.Context, jobId JobID, para
 // Corresponds with POST /session/jobs/{jobId}/signal (the `SignalSessionJob` operationId).
 func (c *Client) SignalSessionJob(ctx context.Context, jobId JobID, params *SignalSessionJobParams, body SignalSessionJobJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSignalSessionJobRequest(c.Server, jobId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListSessionJobSignalRequests List the durable signal-request history for one job
+//
+// Corresponds with GET /session/jobs/{jobId}/signals (the `ListSessionJobSignalRequests` operationId).
+func (c *Client) ListSessionJobSignalRequests(ctx context.Context, jobId JobID, params *ListSessionJobSignalRequestsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSessionJobSignalRequestsRequest(c.Server, jobId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListSessionModelRuns List complete durable model invocations
+//
+// Corresponds with GET /session/model-runs (the `ListSessionModelRuns` operationId).
+func (c *Client) ListSessionModelRuns(ctx context.Context, params *ListSessionModelRunsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSessionModelRunsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListSessionModelRunCalls Read every provider round for one model invocation
+//
+// Corresponds with GET /session/model-runs/{modelRunId}/calls (the `ListSessionModelRunCalls` operationId).
+func (c *Client) ListSessionModelRunCalls(ctx context.Context, modelRunId ModelRunID, params *ListSessionModelRunCallsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSessionModelRunCallsRequest(c.Server, modelRunId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListSessionNotices List durable outside and worker notices
+//
+// Corresponds with GET /session/notices (the `ListSessionNotices` operationId).
+func (c *Client) ListSessionNotices(ctx context.Context, params *ListSessionNoticesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSessionNoticesRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PublishSessionNoticeWithBody Report a durable notice to the session
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /session/notices (the `PublishSessionNotice` operationId).
+func (c *Client) PublishSessionNoticeWithBody(ctx context.Context, params *PublishSessionNoticeParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPublishSessionNoticeRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PublishSessionNotice Report a durable notice to the session
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /session/notices (the `PublishSessionNotice` operationId).
+func (c *Client) PublishSessionNotice(ctx context.Context, params *PublishSessionNoticeParams, body PublishSessionNoticeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPublishSessionNoticeRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetSessionPromptSnapshot Read a prompt snapshot referenced by this session
+//
+// Corresponds with GET /session/prompt-snapshots/{promptHash} (the `GetSessionPromptSnapshot` operationId).
+func (c *Client) GetSessionPromptSnapshot(ctx context.Context, promptHash PromptHash, params *GetSessionPromptSnapshotParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSessionPromptSnapshotRequest(c.Server, promptHash, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListSessionTurns List durable turns
+//
+// Corresponds with GET /session/turns (the `ListSessionTurns` operationId).
+func (c *Client) ListSessionTurns(ctx context.Context, params *ListSessionTurnsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSessionTurnsRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1294,6 +2067,53 @@ func NewListSessionAgentRunsRequest(server string, params *ListSessionAgentRunsP
 	return req, nil
 }
 
+// NewGetSessionAgentRunRequest constructs an http.Request for the GetSessionAgentRun method
+func NewGetSessionAgentRunRequest(server string, agentRunId AgentRunID, params *GetSessionAgentRunParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "agentRunId", agentRunId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/agents/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Session-ID", headerParam0)
+
+	}
+
+	return req, nil
+}
+
 // NewCancelSessionAgentRunRequest constructs an http.Request for the CancelSessionAgentRun method
 func NewCancelSessionAgentRunRequest(server string, agentRunId AgentRunID, params *CancelSessionAgentRunParams) (*http.Request, error) {
 	var err error
@@ -1357,7 +2177,7 @@ func NewListSessionAgentRunEventsRequest(server string, agentRunId AgentRunID, p
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/session/agents/%s/messages", pathParam0)
+	operationPath := fmt.Sprintf("/session/agents/%s/events", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -1378,7 +2198,7 @@ func NewListSessionAgentRunEventsRequest(server string, agentRunId AgentRunID, p
 
 		if params.Cursor != nil {
 
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "cursor", *params.Cursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "cursor", *params.Cursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int64"}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {
@@ -1467,8 +2287,8 @@ func NewCancelSessionRequest(server string, params *CancelSessionParams) (*http.
 	return req, nil
 }
 
-// NewListSessionEventsRequest constructs an http.Request for the ListSessionEvents method
-func NewListSessionEventsRequest(server string, params *ListSessionEventsParams) (*http.Request, error) {
+// NewListSessionCompactionsRequest constructs an http.Request for the ListSessionCompactions method
+func NewListSessionCompactionsRequest(server string, params *ListSessionCompactionsParams) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -1476,7 +2296,93 @@ func NewListSessionEventsRequest(server string, params *ListSessionEventsParams)
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/session/events")
+	operationPath := fmt.Sprintf("/session/compactions")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Session-ID", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewGetSessionCompactionRequest constructs an http.Request for the GetSessionCompaction method
+func NewGetSessionCompactionRequest(server string, compactionId CompactionID, params *GetSessionCompactionParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "compactionId", compactionId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/compactions/%s", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -1507,19 +2413,55 @@ func NewListSessionEventsRequest(server string, params *ListSessionEventsParams)
 	return req, nil
 }
 
-// NewPublishSessionEventRequest calls the generic PublishSessionEvent builder with application/json body
-func NewPublishSessionEventRequest(server string, params *PublishSessionEventParams, body PublishSessionEventJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
+// NewGetSessionContextSnapshotRequest constructs an http.Request for the GetSessionContextSnapshot method
+func NewGetSessionContextSnapshotRequest(server string, contextHash ContextHash, params *GetSessionContextSnapshotParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "contextHash", contextHash, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
-	bodyReader = bytes.NewReader(buf)
-	return NewPublishSessionEventRequestWithBody(server, params, "application/json", bodyReader)
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/context-snapshots/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Session-ID", headerParam0)
+
+	}
+
+	return req, nil
 }
 
-// NewPublishSessionEventRequestWithBody constructs an http.Request for the PublishSessionEvent method, with any body, and a specified content type
-func NewPublishSessionEventRequestWithBody(server string, params *PublishSessionEventParams, contentType string, body io.Reader) (*http.Request, error) {
+// NewListSessionEventsRequest constructs an http.Request for the ListSessionEvents method
+func NewListSessionEventsRequest(server string, params *ListSessionEventsParams) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -1537,12 +2479,61 @@ func NewPublishSessionEventRequestWithBody(server string, params *PublishSession
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Order != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "order", *params.Order, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
-
-	req.Header.Add("Content-Type", contentType)
 
 	if params != nil {
 
@@ -1698,9 +2689,9 @@ func NewReadSessionJobOutputRequest(server string, jobId JobID, params *ReadSess
 
 		}
 
-		if params.StdoutCursor != nil {
+		if params.Cursor != nil {
 
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "stdoutCursor", *params.StdoutCursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "cursor", *params.Cursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int64"}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {
@@ -1710,21 +2701,9 @@ func NewReadSessionJobOutputRequest(server string, jobId JobID, params *ReadSess
 
 		}
 
-		if params.StderrCursor != nil {
+		if params.Limit != nil {
 
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "stderrCursor", *params.StderrCursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
-		if params.MaxLines != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "maxLines", *params.MaxLines, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {
@@ -1821,6 +2800,539 @@ func NewSignalSessionJobRequestWithBody(server string, jobId JobID, params *Sign
 	return req, nil
 }
 
+// NewListSessionJobSignalRequestsRequest constructs an http.Request for the ListSessionJobSignalRequests method
+func NewListSessionJobSignalRequestsRequest(server string, jobId JobID, params *ListSessionJobSignalRequestsParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "jobId", jobId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/jobs/%s/signals", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Session-ID", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewListSessionModelRunsRequest constructs an http.Request for the ListSessionModelRuns method
+func NewListSessionModelRunsRequest(server string, params *ListSessionModelRunsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/model-runs")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Stage != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "stage", *params.Stage, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.State != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "state", *params.State, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Session-ID", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewListSessionModelRunCallsRequest constructs an http.Request for the ListSessionModelRunCalls method
+func NewListSessionModelRunCallsRequest(server string, modelRunId ModelRunID, params *ListSessionModelRunCallsParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "modelRunId", modelRunId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/model-runs/%s/calls", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Session-ID", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewListSessionNoticesRequest constructs an http.Request for the ListSessionNotices method
+func NewListSessionNoticesRequest(server string, params *ListSessionNoticesParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/notices")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Session-ID", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewPublishSessionNoticeRequest calls the generic PublishSessionNotice builder with application/json body
+func NewPublishSessionNoticeRequest(server string, params *PublishSessionNoticeParams, body PublishSessionNoticeJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPublishSessionNoticeRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewPublishSessionNoticeRequestWithBody constructs an http.Request for the PublishSessionNotice method, with any body, and a specified content type
+func NewPublishSessionNoticeRequestWithBody(server string, params *PublishSessionNoticeParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/notices")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Session-ID", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewGetSessionPromptSnapshotRequest constructs an http.Request for the GetSessionPromptSnapshot method
+func NewGetSessionPromptSnapshotRequest(server string, promptHash PromptHash, params *GetSessionPromptSnapshotParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "promptHash", promptHash, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/prompt-snapshots/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Session-ID", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewListSessionTurnsRequest constructs an http.Request for the ListSessionTurns method
+func NewListSessionTurnsRequest(server string, params *ListSessionTurnsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/turns")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Session-ID", headerParam0)
+
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -1886,6 +3398,13 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /session/agents (the `ListSessionAgentRuns` operationId).
 	ListSessionAgentRunsWithResponse(ctx context.Context, params *ListSessionAgentRunsParams, reqEditors ...RequestEditorFn) (*ListSessionAgentRunsResponse, error)
 
+	// GetSessionAgentRunWithResponse Read one durable child agent run
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /session/agents/{agentRunId} (the `GetSessionAgentRun` operationId).
+	GetSessionAgentRunWithResponse(ctx context.Context, agentRunId AgentRunID, params *GetSessionAgentRunParams, reqEditors ...RequestEditorFn) (*GetSessionAgentRunResponse, error)
+
 	// CancelSessionAgentRunWithResponse Cancel one child agent run without ending its parent turn
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -1897,7 +3416,7 @@ type ClientWithResponsesInterface interface {
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
-	// Corresponds with GET /session/agents/{agentRunId}/messages (the `ListSessionAgentRunEvents` operationId).
+	// Corresponds with GET /session/agents/{agentRunId}/events (the `ListSessionAgentRunEvents` operationId).
 	ListSessionAgentRunEventsWithResponse(ctx context.Context, agentRunId AgentRunID, params *ListSessionAgentRunEventsParams, reqEditors ...RequestEditorFn) (*ListSessionAgentRunEventsResponse, error)
 
 	// CancelSessionWithResponse Request cancellation for the active turn
@@ -1907,26 +3426,33 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /session/cancel (the `CancelSession` operationId).
 	CancelSessionWithResponse(ctx context.Context, params *CancelSessionParams, reqEditors ...RequestEditorFn) (*CancelSessionResponse, error)
 
-	// ListSessionEventsWithResponse List the session's pending events
+	// ListSessionCompactionsWithResponse List durable compaction records
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /session/compactions (the `ListSessionCompactions` operationId).
+	ListSessionCompactionsWithResponse(ctx context.Context, params *ListSessionCompactionsParams, reqEditors ...RequestEditorFn) (*ListSessionCompactionsResponse, error)
+
+	// GetSessionCompactionWithResponse Read one durable compaction record
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /session/compactions/{compactionId} (the `GetSessionCompaction` operationId).
+	GetSessionCompactionWithResponse(ctx context.Context, compactionId CompactionID, params *GetSessionCompactionParams, reqEditors ...RequestEditorFn) (*GetSessionCompactionResponse, error)
+
+	// GetSessionContextSnapshotWithResponse Read a context snapshot referenced by this session
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /session/context-snapshots/{contextHash} (the `GetSessionContextSnapshot` operationId).
+	GetSessionContextSnapshotWithResponse(ctx context.Context, contextHash ContextHash, params *GetSessionContextSnapshotParams, reqEditors ...RequestEditorFn) (*GetSessionContextSnapshotResponse, error)
+
+	// ListSessionEventsWithResponse List durable protocol events
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with GET /session/events (the `ListSessionEvents` operationId).
 	ListSessionEventsWithResponse(ctx context.Context, params *ListSessionEventsParams, reqEditors ...RequestEditorFn) (*ListSessionEventsResponse, error)
-
-	// PublishSessionEventWithBodyWithResponse Report an event to the session from outside
-	//
-	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
-	//
-	// Corresponds with POST /session/events (the `PublishSessionEvent` operationId).
-	PublishSessionEventWithBodyWithResponse(ctx context.Context, params *PublishSessionEventParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PublishSessionEventResponse, error)
-
-	// PublishSessionEventWithResponse Report an event to the session from outside
-	//
-	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
-	//
-	// Corresponds with POST /session/events (the `PublishSessionEvent` operationId).
-	PublishSessionEventWithResponse(ctx context.Context, params *PublishSessionEventParams, body PublishSessionEventJSONRequestBody, reqEditors ...RequestEditorFn) (*PublishSessionEventResponse, error)
 
 	// ListSessionJobsWithResponse List the commands this session has started
 	//
@@ -1955,6 +3481,62 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /session/jobs/{jobId}/signal (the `SignalSessionJob` operationId).
 	SignalSessionJobWithResponse(ctx context.Context, jobId JobID, params *SignalSessionJobParams, body SignalSessionJobJSONRequestBody, reqEditors ...RequestEditorFn) (*SignalSessionJobResponse, error)
+
+	// ListSessionJobSignalRequestsWithResponse List the durable signal-request history for one job
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /session/jobs/{jobId}/signals (the `ListSessionJobSignalRequests` operationId).
+	ListSessionJobSignalRequestsWithResponse(ctx context.Context, jobId JobID, params *ListSessionJobSignalRequestsParams, reqEditors ...RequestEditorFn) (*ListSessionJobSignalRequestsResponse, error)
+
+	// ListSessionModelRunsWithResponse List complete durable model invocations
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /session/model-runs (the `ListSessionModelRuns` operationId).
+	ListSessionModelRunsWithResponse(ctx context.Context, params *ListSessionModelRunsParams, reqEditors ...RequestEditorFn) (*ListSessionModelRunsResponse, error)
+
+	// ListSessionModelRunCallsWithResponse Read every provider round for one model invocation
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /session/model-runs/{modelRunId}/calls (the `ListSessionModelRunCalls` operationId).
+	ListSessionModelRunCallsWithResponse(ctx context.Context, modelRunId ModelRunID, params *ListSessionModelRunCallsParams, reqEditors ...RequestEditorFn) (*ListSessionModelRunCallsResponse, error)
+
+	// ListSessionNoticesWithResponse List durable outside and worker notices
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /session/notices (the `ListSessionNotices` operationId).
+	ListSessionNoticesWithResponse(ctx context.Context, params *ListSessionNoticesParams, reqEditors ...RequestEditorFn) (*ListSessionNoticesResponse, error)
+
+	// PublishSessionNoticeWithBodyWithResponse Report a durable notice to the session
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /session/notices (the `PublishSessionNotice` operationId).
+	PublishSessionNoticeWithBodyWithResponse(ctx context.Context, params *PublishSessionNoticeParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PublishSessionNoticeResponse, error)
+
+	// PublishSessionNoticeWithResponse Report a durable notice to the session
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /session/notices (the `PublishSessionNotice` operationId).
+	PublishSessionNoticeWithResponse(ctx context.Context, params *PublishSessionNoticeParams, body PublishSessionNoticeJSONRequestBody, reqEditors ...RequestEditorFn) (*PublishSessionNoticeResponse, error)
+
+	// GetSessionPromptSnapshotWithResponse Read a prompt snapshot referenced by this session
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /session/prompt-snapshots/{promptHash} (the `GetSessionPromptSnapshot` operationId).
+	GetSessionPromptSnapshotWithResponse(ctx context.Context, promptHash PromptHash, params *GetSessionPromptSnapshotParams, reqEditors ...RequestEditorFn) (*GetSessionPromptSnapshotResponse, error)
+
+	// ListSessionTurnsWithResponse List durable turns
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /session/turns (the `ListSessionTurns` operationId).
+	ListSessionTurnsWithResponse(ctx context.Context, params *ListSessionTurnsParams, reqEditors ...RequestEditorFn) (*ListSessionTurnsResponse, error)
 }
 
 // ListMessagesResponse200Headers the declared response headers of an HTTP 200 response for ListMessages
@@ -2182,6 +3764,83 @@ func (r ListSessionAgentRunsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListSessionAgentRunsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetSessionAgentRunResponse200Headers the declared response headers of an HTTP 200 response for GetSessionAgentRun
+type GetSessionAgentRunResponse200Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type GetSessionAgentRunResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *AgentRun
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetSessionAgentRunResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetSessionAgentRunResponse) GetJSON200() *AgentRun {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r GetSessionAgentRunResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetSessionAgentRunResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetSessionAgentRunResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r GetSessionAgentRunResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r GetSessionAgentRunResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSessionAgentRunResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSessionAgentRunResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSessionAgentRunResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -2419,6 +4078,237 @@ func (r CancelSessionResponse) ContentType() string {
 	return ""
 }
 
+// ListSessionCompactionsResponse200Headers the declared response headers of an HTTP 200 response for ListSessionCompactions
+type ListSessionCompactionsResponse200Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListSessionCompactionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *CompactionPage
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ListSessionCompactionsResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListSessionCompactionsResponse) GetJSON200() *CompactionPage {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ListSessionCompactionsResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListSessionCompactionsResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ListSessionCompactionsResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListSessionCompactionsResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListSessionCompactionsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListSessionCompactionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListSessionCompactionsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListSessionCompactionsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetSessionCompactionResponse200Headers the declared response headers of an HTTP 200 response for GetSessionCompaction
+type GetSessionCompactionResponse200Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type GetSessionCompactionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Compaction
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetSessionCompactionResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetSessionCompactionResponse) GetJSON200() *Compaction {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r GetSessionCompactionResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetSessionCompactionResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetSessionCompactionResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r GetSessionCompactionResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r GetSessionCompactionResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSessionCompactionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSessionCompactionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSessionCompactionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetSessionContextSnapshotResponse200Headers the declared response headers of an HTTP 200 response for GetSessionContextSnapshot
+type GetSessionContextSnapshotResponse200Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type GetSessionContextSnapshotResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ContextSnapshot
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetSessionContextSnapshotResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetSessionContextSnapshotResponse) GetJSON200() *ContextSnapshot {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r GetSessionContextSnapshotResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetSessionContextSnapshotResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetSessionContextSnapshotResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r GetSessionContextSnapshotResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r GetSessionContextSnapshotResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSessionContextSnapshotResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSessionContextSnapshotResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSessionContextSnapshotResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // ListSessionEventsResponse200Headers the declared response headers of an HTTP 200 response for ListSessionEvents
 type ListSessionEventsResponse200Headers struct {
 	XRequestID openapi_types.UUID
@@ -2429,7 +4319,7 @@ type ListSessionEventsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *SessionEventPage
+	JSON200 *TranscriptEventPage
 	// JSON400 the response for an HTTP 400 `application/json` response
 	JSON400 *ErrorBadRequest
 	// JSON401 the response for an HTTP 401 `application/json` response
@@ -2443,7 +4333,7 @@ type ListSessionEventsResponse struct {
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r ListSessionEventsResponse) GetJSON200() *SessionEventPage {
+func (r ListSessionEventsResponse) GetJSON200() *TranscriptEventPage {
 	return r.JSON200
 }
 
@@ -2490,83 +4380,6 @@ func (r ListSessionEventsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListSessionEventsResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-// PublishSessionEventResponse202Headers the declared response headers of an HTTP 202 response for PublishSessionEvent
-type PublishSessionEventResponse202Headers struct {
-	XRequestID openapi_types.UUID
-	XSessionID openapi_types.UUID
-}
-
-type PublishSessionEventResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	// JSON202 the response for an HTTP 202 `application/json` response
-	JSON202 *SessionEvent
-	// JSON400 the response for an HTTP 400 `application/json` response
-	JSON400 *ErrorBadRequest
-	// JSON401 the response for an HTTP 401 `application/json` response
-	JSON401 *ErrorUnauthorized
-	// JSON404 the response for an HTTP 404 `application/json` response
-	JSON404 *ErrorNotFound
-	// JSON500 the response for an HTTP 500 `application/json` response
-	JSON500 *ErrorInternal
-	// Headers202 the parsed response headers for an HTTP 202 response
-	Headers202 *PublishSessionEventResponse202Headers
-}
-
-// GetJSON202 returns the response for an HTTP 202 `application/json` response
-func (r PublishSessionEventResponse) GetJSON202() *SessionEvent {
-	return r.JSON202
-}
-
-// GetJSON400 returns the response for an HTTP 400 `application/json` response
-func (r PublishSessionEventResponse) GetJSON400() *ErrorBadRequest {
-	return r.JSON400
-}
-
-// GetJSON401 returns the response for an HTTP 401 `application/json` response
-func (r PublishSessionEventResponse) GetJSON401() *ErrorUnauthorized {
-	return r.JSON401
-}
-
-// GetJSON404 returns the response for an HTTP 404 `application/json` response
-func (r PublishSessionEventResponse) GetJSON404() *ErrorNotFound {
-	return r.JSON404
-}
-
-// GetJSON500 returns the response for an HTTP 500 `application/json` response
-func (r PublishSessionEventResponse) GetJSON500() *ErrorInternal {
-	return r.JSON500
-}
-
-// GetBody returns the raw response body bytes
-func (r PublishSessionEventResponse) GetBody() []byte {
-	return r.Body
-}
-
-// Status returns HTTPResponse.Status
-func (r PublishSessionEventResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r PublishSessionEventResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r PublishSessionEventResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -2804,6 +4617,545 @@ func (r SignalSessionJobResponse) ContentType() string {
 	return ""
 }
 
+// ListSessionJobSignalRequestsResponse200Headers the declared response headers of an HTTP 200 response for ListSessionJobSignalRequests
+type ListSessionJobSignalRequestsResponse200Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListSessionJobSignalRequestsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *JobSignalRecordPage
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ListSessionJobSignalRequestsResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListSessionJobSignalRequestsResponse) GetJSON200() *JobSignalRecordPage {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ListSessionJobSignalRequestsResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListSessionJobSignalRequestsResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ListSessionJobSignalRequestsResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListSessionJobSignalRequestsResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListSessionJobSignalRequestsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListSessionJobSignalRequestsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListSessionJobSignalRequestsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListSessionJobSignalRequestsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ListSessionModelRunsResponse200Headers the declared response headers of an HTTP 200 response for ListSessionModelRuns
+type ListSessionModelRunsResponse200Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListSessionModelRunsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ModelRunPage
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ListSessionModelRunsResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListSessionModelRunsResponse) GetJSON200() *ModelRunPage {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ListSessionModelRunsResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListSessionModelRunsResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ListSessionModelRunsResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListSessionModelRunsResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListSessionModelRunsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListSessionModelRunsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListSessionModelRunsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListSessionModelRunsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ListSessionModelRunCallsResponse200Headers the declared response headers of an HTTP 200 response for ListSessionModelRunCalls
+type ListSessionModelRunCallsResponse200Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListSessionModelRunCallsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ModelCallPage
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ListSessionModelRunCallsResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListSessionModelRunCallsResponse) GetJSON200() *ModelCallPage {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ListSessionModelRunCallsResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListSessionModelRunCallsResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ListSessionModelRunCallsResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListSessionModelRunCallsResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListSessionModelRunCallsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListSessionModelRunCallsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListSessionModelRunCallsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListSessionModelRunCallsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ListSessionNoticesResponse200Headers the declared response headers of an HTTP 200 response for ListSessionNotices
+type ListSessionNoticesResponse200Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListSessionNoticesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SessionNoticePage
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ListSessionNoticesResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListSessionNoticesResponse) GetJSON200() *SessionNoticePage {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ListSessionNoticesResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListSessionNoticesResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ListSessionNoticesResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListSessionNoticesResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListSessionNoticesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListSessionNoticesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListSessionNoticesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListSessionNoticesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// PublishSessionNoticeResponse202Headers the declared response headers of an HTTP 202 response for PublishSessionNotice
+type PublishSessionNoticeResponse202Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type PublishSessionNoticeResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON202 the response for an HTTP 202 `application/json` response
+	JSON202 *SessionNotice
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers202 the parsed response headers for an HTTP 202 response
+	Headers202 *PublishSessionNoticeResponse202Headers
+}
+
+// GetJSON202 returns the response for an HTTP 202 `application/json` response
+func (r PublishSessionNoticeResponse) GetJSON202() *SessionNotice {
+	return r.JSON202
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r PublishSessionNoticeResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r PublishSessionNoticeResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r PublishSessionNoticeResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r PublishSessionNoticeResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r PublishSessionNoticeResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PublishSessionNoticeResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PublishSessionNoticeResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PublishSessionNoticeResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetSessionPromptSnapshotResponse200Headers the declared response headers of an HTTP 200 response for GetSessionPromptSnapshot
+type GetSessionPromptSnapshotResponse200Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type GetSessionPromptSnapshotResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *PromptSnapshot
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetSessionPromptSnapshotResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetSessionPromptSnapshotResponse) GetJSON200() *PromptSnapshot {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r GetSessionPromptSnapshotResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetSessionPromptSnapshotResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetSessionPromptSnapshotResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r GetSessionPromptSnapshotResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r GetSessionPromptSnapshotResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSessionPromptSnapshotResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSessionPromptSnapshotResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSessionPromptSnapshotResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ListSessionTurnsResponse200Headers the declared response headers of an HTTP 200 response for ListSessionTurns
+type ListSessionTurnsResponse200Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListSessionTurnsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *TurnPage
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ListSessionTurnsResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListSessionTurnsResponse) GetJSON200() *TurnPage {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ListSessionTurnsResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListSessionTurnsResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ListSessionTurnsResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListSessionTurnsResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListSessionTurnsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListSessionTurnsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListSessionTurnsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListSessionTurnsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // ListMessagesWithResponse List stored conversation messages
 //
 // Returns a wrapper object for the known response body format(s).
@@ -2843,6 +5195,19 @@ func (c *ClientWithResponses) ListSessionAgentRunsWithResponse(ctx context.Conte
 	return ParseListSessionAgentRunsResponse(rsp)
 }
 
+// GetSessionAgentRunWithResponse Read one durable child agent run
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /session/agents/{agentRunId} (the `GetSessionAgentRun` operationId).
+func (c *ClientWithResponses) GetSessionAgentRunWithResponse(ctx context.Context, agentRunId AgentRunID, params *GetSessionAgentRunParams, reqEditors ...RequestEditorFn) (*GetSessionAgentRunResponse, error) {
+	rsp, err := c.GetSessionAgentRun(ctx, agentRunId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSessionAgentRunResponse(rsp)
+}
+
 // CancelSessionAgentRunWithResponse Cancel one child agent run without ending its parent turn
 //
 // Returns a wrapper object for the known response body format(s).
@@ -2860,7 +5225,7 @@ func (c *ClientWithResponses) CancelSessionAgentRunWithResponse(ctx context.Cont
 //
 // Returns a wrapper object for the known response body format(s).
 //
-// Corresponds with GET /session/agents/{agentRunId}/messages (the `ListSessionAgentRunEvents` operationId).
+// Corresponds with GET /session/agents/{agentRunId}/events (the `ListSessionAgentRunEvents` operationId).
 func (c *ClientWithResponses) ListSessionAgentRunEventsWithResponse(ctx context.Context, agentRunId AgentRunID, params *ListSessionAgentRunEventsParams, reqEditors ...RequestEditorFn) (*ListSessionAgentRunEventsResponse, error) {
 	rsp, err := c.ListSessionAgentRunEvents(ctx, agentRunId, params, reqEditors...)
 	if err != nil {
@@ -2882,7 +5247,46 @@ func (c *ClientWithResponses) CancelSessionWithResponse(ctx context.Context, par
 	return ParseCancelSessionResponse(rsp)
 }
 
-// ListSessionEventsWithResponse List the session's pending events
+// ListSessionCompactionsWithResponse List durable compaction records
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /session/compactions (the `ListSessionCompactions` operationId).
+func (c *ClientWithResponses) ListSessionCompactionsWithResponse(ctx context.Context, params *ListSessionCompactionsParams, reqEditors ...RequestEditorFn) (*ListSessionCompactionsResponse, error) {
+	rsp, err := c.ListSessionCompactions(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListSessionCompactionsResponse(rsp)
+}
+
+// GetSessionCompactionWithResponse Read one durable compaction record
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /session/compactions/{compactionId} (the `GetSessionCompaction` operationId).
+func (c *ClientWithResponses) GetSessionCompactionWithResponse(ctx context.Context, compactionId CompactionID, params *GetSessionCompactionParams, reqEditors ...RequestEditorFn) (*GetSessionCompactionResponse, error) {
+	rsp, err := c.GetSessionCompaction(ctx, compactionId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSessionCompactionResponse(rsp)
+}
+
+// GetSessionContextSnapshotWithResponse Read a context snapshot referenced by this session
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /session/context-snapshots/{contextHash} (the `GetSessionContextSnapshot` operationId).
+func (c *ClientWithResponses) GetSessionContextSnapshotWithResponse(ctx context.Context, contextHash ContextHash, params *GetSessionContextSnapshotParams, reqEditors ...RequestEditorFn) (*GetSessionContextSnapshotResponse, error) {
+	rsp, err := c.GetSessionContextSnapshot(ctx, contextHash, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSessionContextSnapshotResponse(rsp)
+}
+
+// ListSessionEventsWithResponse List durable protocol events
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -2893,32 +5297,6 @@ func (c *ClientWithResponses) ListSessionEventsWithResponse(ctx context.Context,
 		return nil, err
 	}
 	return ParseListSessionEventsResponse(rsp)
-}
-
-// PublishSessionEventWithBodyWithResponse Report an event to the session from outside
-//
-// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
-//
-// Corresponds with POST /session/events (the `PublishSessionEvent` operationId).
-func (c *ClientWithResponses) PublishSessionEventWithBodyWithResponse(ctx context.Context, params *PublishSessionEventParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PublishSessionEventResponse, error) {
-	rsp, err := c.PublishSessionEventWithBody(ctx, params, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePublishSessionEventResponse(rsp)
-}
-
-// PublishSessionEventWithResponse Report an event to the session from outside
-//
-// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
-//
-// Corresponds with POST /session/events (the `PublishSessionEvent` operationId).
-func (c *ClientWithResponses) PublishSessionEventWithResponse(ctx context.Context, params *PublishSessionEventParams, body PublishSessionEventJSONRequestBody, reqEditors ...RequestEditorFn) (*PublishSessionEventResponse, error) {
-	rsp, err := c.PublishSessionEvent(ctx, params, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParsePublishSessionEventResponse(rsp)
 }
 
 // ListSessionJobsWithResponse List the commands this session has started
@@ -2971,6 +5349,110 @@ func (c *ClientWithResponses) SignalSessionJobWithResponse(ctx context.Context, 
 		return nil, err
 	}
 	return ParseSignalSessionJobResponse(rsp)
+}
+
+// ListSessionJobSignalRequestsWithResponse List the durable signal-request history for one job
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /session/jobs/{jobId}/signals (the `ListSessionJobSignalRequests` operationId).
+func (c *ClientWithResponses) ListSessionJobSignalRequestsWithResponse(ctx context.Context, jobId JobID, params *ListSessionJobSignalRequestsParams, reqEditors ...RequestEditorFn) (*ListSessionJobSignalRequestsResponse, error) {
+	rsp, err := c.ListSessionJobSignalRequests(ctx, jobId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListSessionJobSignalRequestsResponse(rsp)
+}
+
+// ListSessionModelRunsWithResponse List complete durable model invocations
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /session/model-runs (the `ListSessionModelRuns` operationId).
+func (c *ClientWithResponses) ListSessionModelRunsWithResponse(ctx context.Context, params *ListSessionModelRunsParams, reqEditors ...RequestEditorFn) (*ListSessionModelRunsResponse, error) {
+	rsp, err := c.ListSessionModelRuns(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListSessionModelRunsResponse(rsp)
+}
+
+// ListSessionModelRunCallsWithResponse Read every provider round for one model invocation
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /session/model-runs/{modelRunId}/calls (the `ListSessionModelRunCalls` operationId).
+func (c *ClientWithResponses) ListSessionModelRunCallsWithResponse(ctx context.Context, modelRunId ModelRunID, params *ListSessionModelRunCallsParams, reqEditors ...RequestEditorFn) (*ListSessionModelRunCallsResponse, error) {
+	rsp, err := c.ListSessionModelRunCalls(ctx, modelRunId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListSessionModelRunCallsResponse(rsp)
+}
+
+// ListSessionNoticesWithResponse List durable outside and worker notices
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /session/notices (the `ListSessionNotices` operationId).
+func (c *ClientWithResponses) ListSessionNoticesWithResponse(ctx context.Context, params *ListSessionNoticesParams, reqEditors ...RequestEditorFn) (*ListSessionNoticesResponse, error) {
+	rsp, err := c.ListSessionNotices(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListSessionNoticesResponse(rsp)
+}
+
+// PublishSessionNoticeWithBodyWithResponse Report a durable notice to the session
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /session/notices (the `PublishSessionNotice` operationId).
+func (c *ClientWithResponses) PublishSessionNoticeWithBodyWithResponse(ctx context.Context, params *PublishSessionNoticeParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PublishSessionNoticeResponse, error) {
+	rsp, err := c.PublishSessionNoticeWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePublishSessionNoticeResponse(rsp)
+}
+
+// PublishSessionNoticeWithResponse Report a durable notice to the session
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /session/notices (the `PublishSessionNotice` operationId).
+func (c *ClientWithResponses) PublishSessionNoticeWithResponse(ctx context.Context, params *PublishSessionNoticeParams, body PublishSessionNoticeJSONRequestBody, reqEditors ...RequestEditorFn) (*PublishSessionNoticeResponse, error) {
+	rsp, err := c.PublishSessionNotice(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePublishSessionNoticeResponse(rsp)
+}
+
+// GetSessionPromptSnapshotWithResponse Read a prompt snapshot referenced by this session
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /session/prompt-snapshots/{promptHash} (the `GetSessionPromptSnapshot` operationId).
+func (c *ClientWithResponses) GetSessionPromptSnapshotWithResponse(ctx context.Context, promptHash PromptHash, params *GetSessionPromptSnapshotParams, reqEditors ...RequestEditorFn) (*GetSessionPromptSnapshotResponse, error) {
+	rsp, err := c.GetSessionPromptSnapshot(ctx, promptHash, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSessionPromptSnapshotResponse(rsp)
+}
+
+// ListSessionTurnsWithResponse List durable turns
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /session/turns (the `ListSessionTurns` operationId).
+func (c *ClientWithResponses) ListSessionTurnsWithResponse(ctx context.Context, params *ListSessionTurnsParams, reqEditors ...RequestEditorFn) (*ListSessionTurnsResponse, error) {
+	rsp, err := c.ListSessionTurns(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListSessionTurnsResponse(rsp)
 }
 
 // ParseListMessagesResponse parses an HTTP response from a ListMessagesWithResponse call
@@ -3175,6 +5657,80 @@ func ParseListSessionAgentRunsResponse(rsp *http.Response) (*ListSessionAgentRun
 	switch {
 	case rsp.StatusCode == 200:
 		var headers ListSessionAgentRunsResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGetSessionAgentRunResponse parses an HTTP response from a GetSessionAgentRunWithResponse call
+func ParseGetSessionAgentRunResponse(rsp *http.Response) (*GetSessionAgentRunResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSessionAgentRunResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AgentRun
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetSessionAgentRunResponse200Headers
 		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
 			var value openapi_types.UUID
 			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
@@ -3417,6 +5973,228 @@ func ParseCancelSessionResponse(rsp *http.Response) (*CancelSessionResponse, err
 	return response, nil
 }
 
+// ParseListSessionCompactionsResponse parses an HTTP response from a ListSessionCompactionsWithResponse call
+func ParseListSessionCompactionsResponse(rsp *http.Response) (*ListSessionCompactionsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListSessionCompactionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CompactionPage
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ListSessionCompactionsResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGetSessionCompactionResponse parses an HTTP response from a GetSessionCompactionWithResponse call
+func ParseGetSessionCompactionResponse(rsp *http.Response) (*GetSessionCompactionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSessionCompactionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Compaction
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetSessionCompactionResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGetSessionContextSnapshotResponse parses an HTTP response from a GetSessionContextSnapshotWithResponse call
+func ParseGetSessionContextSnapshotResponse(rsp *http.Response) (*GetSessionContextSnapshotResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSessionContextSnapshotResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ContextSnapshot
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetSessionContextSnapshotResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
 // ParseListSessionEventsResponse parses an HTTP response from a ListSessionEventsWithResponse call
 func ParseListSessionEventsResponse(rsp *http.Response) (*ListSessionEventsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -3432,7 +6210,7 @@ func ParseListSessionEventsResponse(rsp *http.Response) (*ListSessionEventsRespo
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest SessionEventPage
+		var dest TranscriptEventPage
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -3486,80 +6264,6 @@ func ParseListSessionEventsResponse(rsp *http.Response) (*ListSessionEventsRespo
 			headers.XSessionID = value
 		}
 		response.Headers200 = &headers
-	}
-
-	return response, nil
-}
-
-// ParsePublishSessionEventResponse parses an HTTP response from a PublishSessionEventWithResponse call
-func ParsePublishSessionEventResponse(rsp *http.Response) (*PublishSessionEventResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &PublishSessionEventResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
-		var dest SessionEvent
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON202 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest ErrorBadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest ErrorUnauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest ErrorNotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
-		var dest ErrorInternal
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON500 = &dest
-
-	}
-
-	switch {
-	case rsp.StatusCode == 202:
-		var headers PublishSessionEventResponse202Headers
-		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
-			var value openapi_types.UUID
-			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
-				return nil, err
-			}
-			headers.XRequestID = value
-		}
-		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
-			var value openapi_types.UUID
-			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
-				return nil, err
-			}
-			headers.XSessionID = value
-		}
-		response.Headers202 = &headers
 	}
 
 	return response, nil
@@ -3782,6 +6486,524 @@ func ParseSignalSessionJobResponse(rsp *http.Response) (*SignalSessionJobRespons
 			headers.XSessionID = value
 		}
 		response.Headers202 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListSessionJobSignalRequestsResponse parses an HTTP response from a ListSessionJobSignalRequestsWithResponse call
+func ParseListSessionJobSignalRequestsResponse(rsp *http.Response) (*ListSessionJobSignalRequestsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListSessionJobSignalRequestsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest JobSignalRecordPage
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ListSessionJobSignalRequestsResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListSessionModelRunsResponse parses an HTTP response from a ListSessionModelRunsWithResponse call
+func ParseListSessionModelRunsResponse(rsp *http.Response) (*ListSessionModelRunsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListSessionModelRunsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ModelRunPage
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ListSessionModelRunsResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListSessionModelRunCallsResponse parses an HTTP response from a ListSessionModelRunCallsWithResponse call
+func ParseListSessionModelRunCallsResponse(rsp *http.Response) (*ListSessionModelRunCallsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListSessionModelRunCallsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ModelCallPage
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ListSessionModelRunCallsResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListSessionNoticesResponse parses an HTTP response from a ListSessionNoticesWithResponse call
+func ParseListSessionNoticesResponse(rsp *http.Response) (*ListSessionNoticesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListSessionNoticesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SessionNoticePage
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ListSessionNoticesResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParsePublishSessionNoticeResponse parses an HTTP response from a PublishSessionNoticeWithResponse call
+func ParsePublishSessionNoticeResponse(rsp *http.Response) (*PublishSessionNoticeResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PublishSessionNoticeResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 202:
+		var dest SessionNotice
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON202 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 202:
+		var headers PublishSessionNoticeResponse202Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers202 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGetSessionPromptSnapshotResponse parses an HTTP response from a GetSessionPromptSnapshotWithResponse call
+func ParseGetSessionPromptSnapshotResponse(rsp *http.Response) (*GetSessionPromptSnapshotResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSessionPromptSnapshotResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest PromptSnapshot
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetSessionPromptSnapshotResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListSessionTurnsResponse parses an HTTP response from a ListSessionTurnsWithResponse call
+func ParseListSessionTurnsResponse(rsp *http.Response) (*ListSessionTurnsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListSessionTurnsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TurnPage
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ListSessionTurnsResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
 	}
 
 	return response, nil

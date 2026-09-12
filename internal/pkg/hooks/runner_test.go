@@ -26,7 +26,10 @@ type testPublisher struct {
 	err     error
 }
 
-func (p *testPublisher) Publish(notice events.Notice) (events.Notice, error) {
+func (p *testPublisher) PublishContext(
+	_ context.Context,
+	notice events.Notice,
+) (events.Notice, error) {
 	if p.err != nil {
 		return events.Notice{}, p.err
 	}

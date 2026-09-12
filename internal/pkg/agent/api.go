@@ -21,7 +21,8 @@ import (
 type API interface {
 	MessageAPI
 	SessionAPI
-	SessionEventAPI
+	SessionReplayAPI
+	SessionNoticeAPI
 	ProcessJobAPI
 	RunAPI
 }
@@ -50,17 +51,58 @@ type SessionAPI interface {
 	) (*api.CancelResponse, error)
 }
 
-// SessionEventAPI reads and publishes the notices a session accumulates.
-type SessionEventAPI interface {
+// SessionReplayAPI reads every SQLite-backed record needed to reconstruct a session.
+type SessionReplayAPI interface {
 	ListSessionEvents(
 		ctx context.Context,
-		sessionID uuid.UUID,
-	) (*api.SessionEventPage, error)
-	PublishSessionEvent(
+		params api.ListSessionEventsParams,
+	) (*api.TranscriptEventPage, error)
+	ListSessionTurns(
+		ctx context.Context,
+		params api.ListSessionTurnsParams,
+	) (*api.TurnPage, error)
+	ListSessionCompactions(
+		ctx context.Context,
+		params api.ListSessionCompactionsParams,
+	) (*api.CompactionPage, error)
+	GetSessionCompaction(
 		ctx context.Context,
 		sessionID uuid.UUID,
-		request api.SessionEventRequest,
-	) (*api.SessionEvent, error)
+		compactionID uuid.UUID,
+	) (*api.Compaction, error)
+	ListSessionModelRuns(
+		ctx context.Context,
+		params api.ListSessionModelRunsParams,
+	) (*api.ModelRunPage, error)
+	ListSessionModelRunCalls(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		modelRunID uuid.UUID,
+		params api.ListSessionModelRunCallsParams,
+	) (*api.ModelCallPage, error)
+	GetSessionContextSnapshot(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		hash string,
+	) (*api.ContextSnapshot, error)
+	GetSessionPromptSnapshot(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		hash string,
+	) (*api.PromptSnapshot, error)
+}
+
+// SessionNoticeAPI reads and publishes durable external and worker notices.
+type SessionNoticeAPI interface {
+	ListSessionNotices(
+		ctx context.Context,
+		params api.ListSessionNoticesParams,
+	) (*api.SessionNoticePage, error)
+	PublishSessionNotice(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		request api.SessionNoticeRequest,
+	) (*api.SessionNotice, error)
 }
 
 // ProcessJobAPI observes and stops the commands a session started.
@@ -76,6 +118,12 @@ type ProcessJobAPI interface {
 		jobID uuid.UUID,
 		params api.ReadSessionJobOutputParams,
 	) (*api.JobOutput, error)
+	ListSessionJobSignalRequests(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		jobID uuid.UUID,
+		params api.ListSessionJobSignalRequestsParams,
+	) (*api.JobSignalRecordPage, error)
 	SignalSessionJob(
 		ctx context.Context,
 		sessionID uuid.UUID,
@@ -97,6 +145,11 @@ type RunAPI interface {
 		agentRunID uuid.UUID,
 		params api.ListSessionAgentRunEventsParams,
 	) (*api.AgentRunEventPage, error)
+	GetSessionAgentRun(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		agentRunID uuid.UUID,
+	) (*api.AgentRun, error)
 	CancelSessionAgentRun(
 		ctx context.Context,
 		sessionID uuid.UUID,

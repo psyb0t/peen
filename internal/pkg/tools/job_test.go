@@ -31,7 +31,10 @@ type stubPublisher struct {
 	notices []events.Notice
 }
 
-func (p *stubPublisher) Publish(notice events.Notice) (events.Notice, error) {
+func (p *stubPublisher) PublishContext(
+	_ context.Context,
+	notice events.Notice,
+) (events.Notice, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 

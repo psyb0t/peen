@@ -21,13 +21,14 @@ agent runtime <--> model provider
 harness, tools, hooks, child agents
       |
       +--> workspace files and commands
-      +--> SQLite sessions, messages, events, and snapshots
+      +--> SQLite replay ledger
       +--> WebSocket clients
 ```
 
 REST sits beside the WebSocket. It reads durable session state, lists messages,
-events, jobs, and child-agent runs, or cancels work. It never accepts a user
-task or starts a turn. [The API reference](http-api.md) has the contract.
+protocol events, notices, compactions, model exchanges, jobs, and child-agent
+runs, or cancels work. It never accepts a user task or starts a turn. [The API
+reference](http-api.md) has the contract.
 
 [Aichteeteapee](https://github.com/psyb0t/aichteeteapee) supplies Peen's HTTP
 server, REST error envelope, and WShub WebSocket fan-out. The server maps every
@@ -61,12 +62,17 @@ therefore more specific. [Configuration](configuration.md#harness-layering) and
 
 ## Durable state and visibility
 
-[SQLite](https://sqlite.org/) is the source of truth for sessions, turns,
-messages, events, prompt snapshots, and compactions. The agent runtime also
-keeps child-agent JSONL mirrors for tailing. Structured logs go to stdout and
-daily audit files. The audit log records safe identifiers and digests. The
-transcript holds the verbatim data, so keep its storage and every connected
-client as protected as the workspace itself.
+[SQLite](https://sqlite.org/) is the sole source of truth for sessions, turns,
+messages, protocol events, context and prompt snapshots, compactions,
+child-agent runs and events, notices, process jobs and output, model runs, and
+individual provider rounds. Job signal requests are durable rows too. Each
+message has a direct immutable compaction
+link when a summary absorbs it. Later summaries link to their parent
+compaction and never rewrite that older message link, so a client can rebuild
+the summary tree at any time. Structured logs go to stdout and daily audit
+files. The audit log records safe identifiers and digests. The transcript holds
+the verbatim data, so keep its storage and every connected client as protected
+as the workspace itself.
 
 ## Process lifecycle
 

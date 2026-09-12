@@ -218,7 +218,10 @@ func (e *JobExecutor) SignalJob(
 		return SignalJobOutput{}, err
 	}
 
-	snapshot, ok := e.jobs.Signal(ctx, input.JobID, signal)
+	snapshot, ok, signalErr := e.jobs.SignalContext(ctx, input.JobID, signal)
+	if signalErr != nil {
+		return SignalJobOutput{}, ctxerrors.Wrap(signalErr, "persist job signal")
+	}
 	if !ok {
 		return SignalJobOutput{JobID: input.JobID, Signal: signal}, nil
 	}

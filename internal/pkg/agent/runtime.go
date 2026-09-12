@@ -581,6 +581,8 @@ func (r *Runtime) launchAgentDeps(prepared *preparedTurn) *launchAgentDeps {
 		modelReference: prepared.modelReference,
 		sessionID:      prepared.opened.Session.ID,
 		parentTurnID:   prepared.lease.TurnID,
+		requestID:      prepared.turn.requestID,
+		liveSink:       prepared.turn.sink,
 	}
 }
 
@@ -604,26 +606,19 @@ func (r *Runtime) sessionJobs(
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create session job registry")
 	}
+	registry.SetObserver(durableJobObserver{store: r.store})
 
 	r.jobs[sessionID] = registry
 
 	return registry, nil
 }
 
-// jobPublisher hands the job registry the event bus so completion reaches the
-// model through the one event path. A nil bus means jobs publish nothing.
+// jobPublisher hands jobs the same persistence-before-live publisher as every
+// other session producer. A nil bus means jobs publish nothing.
 //
-// It returns the interface rather than *events.Bus on purpose: a nil *Bus
-// stored in an interface is not a nil interface, so returning the concrete
-// type would hand the registry a non-nil publisher that panics on use.
-//
-//nolint:ireturn // See above: nil-ness must survive the return.
+//nolint:ireturn // An interface preserves nil when no event bus is configured.
 func (r *Runtime) jobPublisher() tools.EventPublisher {
-	if r.eventBus == nil {
-		return nil
-	}
-
-	return r.eventBus
+	return r.durableEventPublisher()
 }
 
 // ShutdownJobs stops every supervised process this runtime started. Jobs are
@@ -677,10 +672,15 @@ func (r *Runtime) openPromptWithEvents(
 		return turnOpening{}, ctxerrors.Wrap(err, "open prompt")
 	}
 
+	pendingBatch, err := r.drainPendingEvents(ctx, opened.Session.ID)
+	if err != nil {
+		return turnOpening{}, ctxerrors.Wrap(err, "drain pending session events")
+	}
+
 	opening := turnOpening{
 		opened:       opened,
 		assembly:     assembly,
-		pendingBatch: r.drainPendingEvents(opened.Session.ID),
+		pendingBatch: pendingBatch,
 	}
 
 	if len(opening.pendingBatch.Notices) == 0 {
@@ -732,12 +732,19 @@ func (r *Runtime) openTurn(
 
 // drainPendingEvents takes whatever the session accumulated while nothing was
 // running, so the turn can deliver it before its first model call.
-func (r *Runtime) drainPendingEvents(sessionID uuid.UUID) events.Batch {
-	if r.eventBus == nil {
-		return events.Batch{}
+func (r *Runtime) drainPendingEvents(
+	ctx context.Context,
+	sessionID uuid.UUID,
+) (events.Batch, error) {
+	notices, err := r.store.DrainSessionNotices(ctx, sessionID)
+	if err != nil {
+		return events.Batch{}, ctxerrors.Wrap(err, "drain durable session notices")
+	}
+	if r.eventBus != nil {
+		r.eventBus.Drain(sessionID)
 	}
 
-	return r.eventBus.Drain(sessionID)
+	return sessionNoticeBatch(notices), nil
 }
 
 func (r *Runtime) startTurn(
@@ -1066,6 +1073,34 @@ func (r *Runtime) runProvider(
 	}
 
 	bindToolHooks(toolSet, prepared.toolHooks)
+	requestSettingsJSON, err := newModelAuditSettings(
+		prepared.model.Model,
+		true,
+		true,
+		r.maxToolRounds,
+		r.maxContextTokens,
+		0,
+		r.maxConcurrentTools,
+		r.toolTimeout,
+		r.maxToolResultTokens,
+		r.turnTimeout,
+	)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "marshal root model request settings")
+	}
+	audit, err := newModelAuditRecorder(ctx, modelAuditOptions{
+		Store:               r.store,
+		SessionID:           prepared.opened.Session.ID,
+		TurnID:              prepared.lease.TurnID,
+		Stage:               models.ModelRunStageTurn,
+		ModelReference:      prepared.modelReference,
+		Model:               prepared.model.Model,
+		RequestSettingsJSON: requestSettingsJSON,
+		Now:                 r.now,
+	})
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "start root model audit")
+	}
 
 	startedAt := time.Now()
 
@@ -1086,9 +1121,28 @@ func (r *Runtime) runProvider(
 		WithMaxConcurrentTools(r.maxConcurrentTools).
 		WithToolTimeout(r.toolTimeout).
 		WithMaxToolResultTokens(r.maxToolResultTokens).
-		OnRoundStart(prepared.onRoundStart).
-		OnRetry(prepared.onRetry).
-		OnAssistantMessage(prepared.onAssistantMessage).
+		OnRoundStart(func(callbackCtx context.Context, event *elelem.RoundEvent) error {
+			if err := prepared.onRoundStart(callbackCtx, event); err != nil {
+				return ctxerrors.Wrap(err, "checkpoint root round start")
+			}
+
+			return audit.onRoundStart(callbackCtx, event)
+		}).
+		OnRoundEnd(audit.onRoundEnd).
+		OnRetry(func(callbackCtx context.Context, attempt elelem.RetryAttempt) error {
+			if err := prepared.onRetry(callbackCtx, attempt); err != nil {
+				return ctxerrors.Wrap(err, "emit root provider retry")
+			}
+
+			return audit.onRetry(callbackCtx, attempt)
+		}).
+		OnAssistantMessage(func(callbackCtx context.Context, message elelem.Message) error {
+			if err := prepared.onAssistantMessage(callbackCtx, message); err != nil {
+				return ctxerrors.Wrap(err, "checkpoint root assistant message")
+			}
+
+			return audit.onAssistantMessage(callbackCtx, message)
+		}).
 		OnToolCallStart(prepared.onToolCallStart).
 		OnToolResult(prepared.onToolResult).
 		OnMessageInjection(prepared.onMessageInjection).
@@ -1112,6 +1166,9 @@ func (r *Runtime) runProvider(
 	}
 
 	response, err := request.Run(ctx)
+	if auditErr := audit.finish(context.WithoutCancel(ctx), response, err); auditErr != nil {
+		err = errors.Join(err, auditErr)
+	}
 
 	observeModelRequest(
 		r.metrics,
@@ -1194,6 +1251,7 @@ func (r *Runtime) newTurnCompactor(
 	built, err := newCompactor(
 		options,
 		opening.opened.Session.ID,
+		prepared.lease.TurnID,
 		opening.assembly.plan,
 		opening.assembly.active,
 	)
@@ -1493,16 +1551,15 @@ func (p *preparedTurn) onAssistantMessage(
 	}
 
 	p.turn.appendMessage(input)
-	p.turn.checkpointOrLog(ctx)
 
-	return nil
+	return p.turn.checkpoint(ctx)
 }
 
 // onMessageInjection records an injected message durably. Elelem adds it to
 // the model's transcript, but a resumed session rebuilds context from Peen's
 // own messages, so without this the agent would forget it was ever told.
 func (p *preparedTurn) onMessageInjection(
-	_ context.Context,
+	ctx context.Context,
 	injection elelem.MessageInjection,
 ) error {
 	role, err := injectedMessageRole(injection.Type)
@@ -1516,7 +1573,7 @@ func (p *preparedTurn) onMessageInjection(
 		Workspace: p.workspace,
 	})
 
-	return nil
+	return p.turn.checkpoint(ctx)
 }
 
 func injectedMessageRole(role elelem.Role) (models.MessageRole, error) {
@@ -1592,7 +1649,9 @@ func (p *preparedTurn) onToolResult(
 	// Checkpoint before publishing, not after. A finished tool call closes a
 	// unit, and the client must never learn the unit closed before the rows
 	// backing it are durable.
-	p.turn.checkpointOrLog(ctx)
+	if err := p.turn.checkpoint(ctx); err != nil {
+		return ctxerrors.Wrap(err, "checkpoint tool result")
+	}
 
 	return p.turn.emit(EventTypeToolResult, toolResultPayload{
 		CallID:  call.CallID,
@@ -1799,6 +1858,10 @@ func (t *runtimeTurn) record(event Event) error {
 	t.events = append(t.events, event)
 	t.mutex.Unlock()
 
+	if err := t.checkpoint(context.Background()); err != nil {
+		return ctxerrors.Wrap(err, "persist runtime event")
+	}
+
 	if sink == nil {
 		return nil
 	}
@@ -1920,19 +1983,6 @@ func (t *runtimeTurn) checkpoint(ctx context.Context) error {
 	t.checkpointedEvents = pending.nextEvents
 
 	return nil
-}
-
-// checkpointOrLog makes progress durable on a callback path that must not fail
-// the turn for a checkpoint problem. Losing a checkpoint degrades crash
-// recovery; aborting the turn loses the work outright, which is worse.
-func (t *runtimeTurn) checkpointOrLog(ctx context.Context) {
-	if err := t.checkpoint(ctx); err != nil {
-		ctxscope.GetLogger(ctx).Error(
-			"turn checkpoint failed, continuing",
-			"reason", reasonCheckpointFailed,
-			"err", err,
-		)
-	}
 }
 
 func hash(value string) string {

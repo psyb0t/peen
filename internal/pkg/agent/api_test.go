@@ -8,6 +8,7 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem/elelemtest"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
+	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -165,6 +166,113 @@ func TestRuntimeRunsAndListsMessages(t *testing.T) {
 	)
 	assert.False(t, page.HasMore)
 	assert.Equal(t, int32(10), page.Limit)
+}
+
+func TestRuntimeReadsDirectCompactionLinksAndParents(t *testing.T) {
+	fixture := newRuntimeFixture(t, elelemtest.NewScriptedDriver(
+		elelemtest.Text("first response"),
+		elelemtest.Text("second response"),
+	))
+
+	first, err := fixture.runtime.RunMessage(
+		context.Background(),
+		MessageRequest{Message: "first request"},
+		nil,
+		uuid.New(),
+		nil,
+	)
+	require.NoError(t, err)
+	_, err = fixture.runtime.RunMessage(
+		context.Background(),
+		MessageRequest{Message: "second request"},
+		&first.SessionID,
+		uuid.New(),
+		nil,
+	)
+	require.NoError(t, err)
+
+	stored, err := fixture.store.ListMessages(
+		context.Background(),
+		first.SessionID,
+		session.ListMessagesOptions{Limit: 10, Order: session.PageOrderAscending},
+	)
+	require.NoError(t, err)
+	require.Len(t, stored.Items, 4)
+
+	firstCompaction, err := fixture.store.CreateCompaction(
+		context.Background(),
+		first.SessionID,
+		session.CompactionInput{
+			FromMessageID:      stored.Items[0].ID,
+			ToMessageID:        stored.Items[1].ID,
+			FromSequence:       stored.Items[0].Sequence,
+			ToSequence:         stored.Items[1].Sequence,
+			Summary:            "first compacted segment",
+			SourceMessageCount: 2,
+			ModelID:            "test-model",
+			PromptHash:         "first-prompt",
+		},
+	)
+	require.NoError(t, err)
+	secondCompaction, err := fixture.store.CreateCompaction(
+		context.Background(),
+		first.SessionID,
+		session.CompactionInput{
+			FromMessageID:          stored.Items[0].ID,
+			ToMessageID:            stored.Items[2].ID,
+			FromSequence:           stored.Items[0].Sequence,
+			ToSequence:             stored.Items[2].Sequence,
+			Summary:                "second compacted segment",
+			SourceMessageCount:     3,
+			ModelID:                "test-model",
+			PromptHash:             "second-prompt",
+			SupersedesCompactionID: &firstCompaction.ID,
+		},
+	)
+	require.NoError(t, err)
+
+	limit := int32(10)
+	page, err := fixture.runtime.ListMessages(context.Background(), api.ListMessagesParams{
+		Limit:      &limit,
+		XSessionID: first.SessionID,
+	})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 4)
+	require.NotNil(t, page.Items[0].CompactionId)
+	require.NotNil(t, page.Items[1].CompactionId)
+	require.NotNil(t, page.Items[2].CompactionId)
+	assert.Equal(t, firstCompaction.ID, *page.Items[0].CompactionId)
+	assert.Equal(t, firstCompaction.ID, *page.Items[1].CompactionId)
+	assert.Equal(t, secondCompaction.ID, *page.Items[2].CompactionId)
+	assert.Nil(t, page.Items[3].CompactionId)
+
+	compactions, err := fixture.runtime.ListSessionCompactions(
+		context.Background(),
+		api.ListSessionCompactionsParams{
+			Limit:      &limit,
+			XSessionID: first.SessionID,
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, compactions.Compactions, 2)
+	assert.Equal(t, secondCompaction.ID, compactions.Compactions[0].Id)
+	require.NotNil(t, compactions.Compactions[0].ParentCompactionId)
+	assert.Equal(
+		t,
+		firstCompaction.ID,
+		*compactions.Compactions[0].ParentCompactionId,
+	)
+	assert.Equal(t, firstCompaction.ID, compactions.Compactions[1].Id)
+
+	compaction, err := fixture.runtime.GetSessionCompaction(
+		context.Background(),
+		first.SessionID,
+		secondCompaction.ID,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, secondCompaction.ID, compaction.Id)
+	require.NotNil(t, compaction.ParentCompactionId)
+	assert.Equal(t, firstCompaction.ID, *compaction.ParentCompactionId)
 }
 
 func apiMessageContents(messages []api.Message) []string {

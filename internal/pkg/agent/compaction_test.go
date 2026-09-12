@@ -674,6 +674,18 @@ func TestCompactionRepeatedSupersedingPreservesHistoryAndPlacement(
 	require.NotNil(t, latest.SupersedesCompactionID)
 	assert.Equal(t, first.ID, *latest.SupersedesCompactionID)
 
+	for index := 0; index <= compactionFirstToIndex; index++ {
+		require.NotNil(t, messages[index].CompactionID)
+		assert.Equal(t, first.ID, *messages[index].CompactionID)
+	}
+	for index := compactionFirstToIndex + 1; index <= compactionSecondToIndex; index++ {
+		require.NotNil(t, messages[index].CompactionID)
+		assert.Equal(t, latest.ID, *messages[index].CompactionID)
+	}
+	for index := compactionSecondToIndex + 1; index < len(messages); index++ {
+		assert.Nil(t, messages[index].CompactionID)
+	}
+
 	request, ok := scenario.driver.LastRequest()
 	require.True(t, ok)
 	assertSummaryInUserMessageNotSystem(

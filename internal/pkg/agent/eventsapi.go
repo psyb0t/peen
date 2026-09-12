@@ -7,60 +7,62 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
+	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
 // externalEventSource labels events published through the HTTP API, so a
 // reader can tell caller-reported events from Peen's own producers.
 const externalEventSource = "api"
 
-// ListSessionEvents reports what is waiting for a session without consuming
-// it. Reading over HTTP must not steal events the agent has not seen yet, so
-// this peeks rather than drains.
-func (r *Runtime) ListSessionEvents(
+// ListSessionNotices returns durable notice history without consuming it.
+func (r *Runtime) ListSessionNotices(
 	ctx context.Context,
-	sessionID uuid.UUID,
-) (*api.SessionEventPage, error) {
-	if r.eventBus == nil {
-		return nil, ctxerrors.Wrap(
-			ErrEventsUnavailable,
-			"no event bus is configured",
-		)
+	params api.ListSessionNoticesParams,
+) (*api.SessionNoticePage, error) {
+	limit, offset, err := pagingOptionsFromAPI(params.Limit, params.Offset)
+	if err != nil {
+		return nil, err
 	}
 
-	if _, err := r.store.Get(ctx, sessionID); err != nil {
-		return nil, ctxerrors.Wrap(err, "resolve event session")
+	stored, err := r.store.ListSessionNotices(
+		ctx,
+		params.XSessionID,
+		session.ListSessionNoticesOptions{Limit: limit, Offset: offset},
+	)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "list durable session notices")
 	}
 
-	batch := r.eventBus.Peek(sessionID)
-
-	page := api.SessionEventPage{
-		Events:  make([]api.SessionEvent, 0, len(batch.Notices)),
-		Dropped: int32(batch.Dropped), //nolint:gosec // Bounded queue count.
+	page := api.SessionNoticePage{
+		HasMore: stored.HasMore,
+		Limit:   int32(stored.Limit), //nolint:gosec // API validates this bound.
+		Notices: make([]api.SessionNotice, 0, len(stored.Items)),
+		Offset:  int32(stored.Offset), //nolint:gosec // API validates this bound.
 	}
-
-	for _, notice := range batch.Notices {
-		converted, err := sessionEventToAPI(notice)
-		if err != nil {
-			return nil, err
+	for _, notice := range stored.Items {
+		converted, convertErr := sessionNoticeModelToAPI(notice)
+		if convertErr != nil {
+			return nil, convertErr
 		}
 
-		page.Events = append(page.Events, converted)
+		page.Notices = append(page.Notices, converted)
 	}
 
 	return &page, nil
 }
 
-// PublishSessionEvent records an outside report against a session. The
+// PublishSessionNotice records an outside report against a session. The
 // reserved-prefix rule is applied here rather than on the bus, because Peen's
 // own producers legitimately publish job and agent types and only an external
 // caller must be stopped from forging them.
-func (r *Runtime) PublishSessionEvent(
+func (r *Runtime) PublishSessionNotice(
 	ctx context.Context,
 	sessionID uuid.UUID,
-	request api.SessionEventRequest,
-) (*api.SessionEvent, error) {
+	request api.SessionNoticeRequest,
+) (*api.SessionNotice, error) {
 	if err := events.ValidateExternalType(request.Type); err != nil {
 		return nil, ctxerrors.Wrap(err, "validate published event type")
 	}
@@ -87,7 +89,7 @@ func (r *Runtime) PublishSessionEvent(
 		return nil, err
 	}
 
-	converted, err := sessionEventToAPI(published)
+	converted, err := sessionNoticeToAPI(published)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +98,7 @@ func (r *Runtime) PublishSessionEvent(
 }
 
 func publishedDelivery(
-	requested *api.SessionEventRequestDelivery,
+	requested *api.SessionNoticeRequestDelivery,
 ) (events.Delivery, error) {
 	value := events.DeliveryQueue
 	if requested != nil {
@@ -127,13 +129,13 @@ func publishedData(data *map[string]any) (json.RawMessage, error) {
 	return encoded, nil
 }
 
-func sessionEventToAPI(notice events.Notice) (api.SessionEvent, error) {
-	converted := api.SessionEvent{
+func sessionNoticeToAPI(notice events.Notice) (api.SessionNotice, error) {
+	converted := api.SessionNotice{
 		Id:        notice.ID,
 		Type:      notice.Type,
 		Source:    notice.Source,
 		Summary:   notice.Summary,
-		Delivery:  api.SessionEventDelivery(notice.Delivery),
+		Delivery:  api.SessionNoticeDelivery(notice.Delivery),
 		CreatedAt: notice.CreatedAt,
 	}
 
@@ -143,7 +145,7 @@ func sessionEventToAPI(notice events.Notice) (api.SessionEvent, error) {
 
 	data := map[string]any{}
 	if err := json.Unmarshal(notice.Data, &data); err != nil {
-		return api.SessionEvent{}, ctxerrors.Wrap(
+		return api.SessionNotice{}, ctxerrors.Wrap(
 			err,
 			"decode stored event data",
 		)
@@ -152,4 +154,19 @@ func sessionEventToAPI(notice events.Notice) (api.SessionEvent, error) {
 	converted.Data = &data
 
 	return converted, nil
+}
+
+func sessionNoticeModelToAPI(
+	notice *models.SessionNotice,
+) (api.SessionNotice, error) {
+	return sessionNoticeToAPI(events.Notice{
+		ID:        notice.ID,
+		SessionID: notice.SessionID,
+		Type:      notice.Type,
+		Source:    notice.Source,
+		Summary:   notice.Summary,
+		Data:      []byte(notice.DataJSON),
+		Delivery:  string(notice.Delivery),
+		CreatedAt: notice.CreatedAt,
+	})
 }

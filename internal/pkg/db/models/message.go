@@ -19,6 +19,7 @@ type Message struct {
 	Thinking      string
 	ToolCallsJSON string
 	ToolCallID    string
+	CompactionID  *uuid.UUID
 	IsError       bool
 	Incomplete    bool
 	CreatedAt     time.Time

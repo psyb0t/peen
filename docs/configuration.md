@@ -46,8 +46,9 @@ child-agent lifecycle, provider and tool outcomes, plus content byte counts and
 SHA-256 digests. Raw user prompts, model thinking, tool arguments, tool results,
 environment values, and credentials are not copied into logs. Hook records may
 include bounded operational counters such as the active-context token estimate.
-The durable session transcript and per-agent JSONL mirror retain the sensitive,
-verbatim trace for authorized debugging. ORM SQL statement previews are
+The durable SQLite transcript retains the sensitive, verbatim trace for
+authorized debugging, including model requests, responses, usage, costs, tool
+definitions, child-agent runs, and compactions. ORM SQL statement previews are
 deliberately disabled because expanded statements can contain persisted
 sensitive content.
 
@@ -136,13 +137,13 @@ the host.
 See [hook configuration](hooks.md) for the file format, matching rules, event
 order, and execution policy.
 
-## Session events
+## Session notices and delivery limits
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PEEN_MAX_PENDING_EVENTS` | `256` | Per-session queue depth. Oldest is dropped first, and the drop is counted. |
-| `PEEN_MAX_EVENT_SUMMARY_BYTES` | `4096` | Bounds `summary` on a posted event. |
-| `PEEN_MAX_EVENT_DATA_BYTES` | `65536` | Bounds `data` on a posted event. |
+| `PEEN_MAX_PENDING_EVENTS` | `256` | Per-session notice-queue depth. Oldest is dropped first, and the drop is counted. |
+| `PEEN_MAX_EVENT_SUMMARY_BYTES` | `4096` | Bounds `summary` on a posted notice. |
+| `PEEN_MAX_EVENT_DATA_BYTES` | `65536` | Bounds `data` on a posted notice. |
 | `PEEN_MAX_EVENT_WAKES_PER_HOUR` | `60` | Per-session cap on `wake`-started turns. Wakes over the bound coalesce into the next queued delivery instead of starting more turns. |
 
 ## Child agent limits
@@ -210,9 +211,9 @@ runtime as trusted runtime context. The embedded freshness guidance tells the
 model to inspect local project facts and verify external facts that may have
 changed.
 
-## Session events
+## Session notices
 
-`POST /v1/session/events` is how something outside Peen (a webhook, a CI
+`POST /v1/session/notices` is how something outside Peen (a webhook, a CI
 job, an operator) tells a running session something happened. `type` uses
 the `job.` and `agent.` prefixes reserved for Peen's own producers
 (`job.exited`, `job.signalled`, `job.failed`, `agent.finished`,
@@ -221,10 +222,11 @@ the `job.` and `agent.` prefixes reserved for Peen's own producers
 `delivery: queue` (default) waits for the next turn or tool boundary.
 `delivery: wake` starts a turn immediately if the session is idle and a
 matching `.agents/events/<type>.md` handler exists; a busy session degrades
-the wake to `queue`, and an unhandled type starts nothing. Event `summary`
+the wake to `queue`, and an unhandled type starts nothing. Notice `summary`
 and `data` always reach the model quoted as data under a header naming their
-source, never merged into the system prompt: event content is untrusted
-input.
+source, never merged into the system prompt: notice content is untrusted
+input. `GET /v1/session/events` is separate. It replays Peen's durable
+protocol transcript and never consumes or injects notices.
 
 ## Process jobs
 
@@ -238,21 +240,16 @@ immediately.
 
 Jobs are session-scoped, not turn-scoped: a command started in one turn stays
 listable, readable, and signalable from a later turn, and cancelling the turn
-that started it does not stop it. Output is captured into bounded ring
-buffers per stream, oldest lines dropped first. On shutdown, Peen stops every
-running job gracefully, waits a grace period, then kills its process group;
-no job silently outlives the process.
+that started it does not stop it. Peen writes every observed stdout and stderr
+line to SQLite before it enters a bounded live ring buffer. The buffer is only
+for the active tool call. REST output replay, job metadata, and signal history
+come from SQLite and survive reconnects and restarts. On shutdown, Peen stops
+every running job gracefully, waits a grace period, then kills its process
+group; no job silently outlives the process.
 
 ## Agent run observability
 
-Each `launch_agent` call is mirrored, one JSONL line per event, to:
-
-```text
-<PEEN_CONFIG_DIR>/transcripts/<session-id>/agents/<agent-name>/<run-id>.jsonl
-```
-
-SQLite remains the authority for durable state; this file is an append-only
-mirror for tailing and for reading back a finished run's events once its
-in-memory follow buffer has been evicted. There is currently no equivalent
-session-level transcript mirror alongside the main session's SQLite
-transcript, only this per-run one.
+Each `launch_agent` call creates an immutable SQLite run record and durable
+event records. Use the session agent-run REST endpoints to inspect or cancel a
+run and to read its events after its parent turn has finished. Peen has no
+JSONL transcript mirror. SQLite is the sole durable replay store.

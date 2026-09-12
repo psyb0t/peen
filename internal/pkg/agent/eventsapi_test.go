@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func apiEventRequest(eventType string) api.SessionEventRequest {
-	return api.SessionEventRequest{
+func apiNoticeRequest(eventType string) api.SessionNoticeRequest {
+	return api.SessionNoticeRequest{
 		Type:    eventType,
 		Summary: "checkout returned 500",
 	}
@@ -21,7 +21,7 @@ func apiEventRequest(eventType string) api.SessionEventRequest {
 
 // An outside caller must not be able to publish a job or agent event, because
 // those carry Peen's own guarantee that the thing actually happened.
-func TestPublishSessionEventRejectsReservedTypes(t *testing.T) {
+func TestPublishSessionNoticeRejectsReservedTypes(t *testing.T) {
 	fixture := newRuntimeFixture(t, elelemtest.NewScriptedDriver(
 		elelemtest.Text("session open"),
 	))
@@ -57,10 +57,10 @@ func TestPublishSessionEventRejectsReservedTypes(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			published, err := fixture.runtime.PublishSessionEvent(
+			published, err := fixture.runtime.PublishSessionNotice(
 				context.Background(),
 				sessionID,
-				apiEventRequest(tc.eventType),
+				apiNoticeRequest(tc.eventType),
 			)
 
 			if tc.wantErr != nil {
@@ -78,17 +78,17 @@ func TestPublishSessionEventRejectsReservedTypes(t *testing.T) {
 	}
 }
 
-func TestPublishSessionEventRoundTripsData(t *testing.T) {
+func TestPublishSessionNoticeRoundTripsData(t *testing.T) {
 	fixture := newRuntimeFixture(t, elelemtest.NewScriptedDriver(
 		elelemtest.Text("session open"),
 	))
 	sessionID := openWakeSession(t, fixture)
 
 	data := map[string]any{"status": float64(500), "path": "/checkout"}
-	request := apiEventRequest("app.error")
+	request := apiNoticeRequest("app.error")
 	request.Data = &data
 
-	published, err := fixture.runtime.PublishSessionEvent(
+	published, err := fixture.runtime.PublishSessionNotice(
 		context.Background(),
 		sessionID,
 		request,
@@ -98,17 +98,17 @@ func TestPublishSessionEventRoundTripsData(t *testing.T) {
 	assert.Equal(t, data, *published.Data)
 }
 
-func TestPublishSessionEventRejectsUnknownDelivery(t *testing.T) {
+func TestPublishSessionNoticeRejectsUnknownDelivery(t *testing.T) {
 	fixture := newRuntimeFixture(t, elelemtest.NewScriptedDriver(
 		elelemtest.Text("session open"),
 	))
 	sessionID := openWakeSession(t, fixture)
 
-	delivery := api.SessionEventRequestDelivery("explode")
-	request := apiEventRequest("app.error")
+	delivery := api.SessionNoticeRequestDelivery("explode")
+	request := apiNoticeRequest("app.error")
 	request.Delivery = &delivery
 
-	_, err := fixture.runtime.PublishSessionEvent(
+	_, err := fixture.runtime.PublishSessionNotice(
 		context.Background(),
 		sessionID,
 		request,
@@ -116,40 +116,39 @@ func TestPublishSessionEventRejectsUnknownDelivery(t *testing.T) {
 	require.ErrorIs(t, err, events.ErrInvalidDelivery)
 }
 
-// Listing must not consume. An operator reading the queue over HTTP would
-// otherwise steal events the agent has not been told about.
-func TestListSessionEventsPeeksWithoutConsuming(t *testing.T) {
+// Listing must not consume. An operator reading notice history must never
+// steal an event the agent has not been told about.
+func TestListSessionNoticesDoesNotConsume(t *testing.T) {
 	fixture := newRuntimeFixture(t, elelemtest.NewScriptedDriver(
 		elelemtest.Text("session open"),
 	))
 	sessionID := openWakeSession(t, fixture)
 
-	_, err := fixture.runtime.PublishSessionEvent(
+	_, err := fixture.runtime.PublishSessionNotice(
 		context.Background(),
 		sessionID,
-		apiEventRequest("app.error"),
+		apiNoticeRequest("app.error"),
 	)
 	require.NoError(t, err)
 
 	for range 3 {
-		page, listErr := fixture.runtime.ListSessionEvents(
+		page, listErr := fixture.runtime.ListSessionNotices(
 			context.Background(),
-			sessionID,
+			api.ListSessionNoticesParams{XSessionID: sessionID},
 		)
 		require.NoError(t, listErr)
-		require.Len(t, page.Events, 1, "listing repeatedly returns the same one")
-		assert.Equal(t, 0, int(page.Dropped))
+		require.Len(t, page.Notices, 1, "listing repeatedly returns the same one")
 	}
 
 	assert.Equal(t, 1, fixture.eventBus.Pending(sessionID))
 }
 
-func TestListSessionEventsRejectsUnknownSession(t *testing.T) {
+func TestListSessionNoticesRejectsUnknownSession(t *testing.T) {
 	fixture := newRuntimeFixture(t, elelemtest.NewScriptedDriver())
 
-	_, err := fixture.runtime.ListSessionEvents(
+	_, err := fixture.runtime.ListSessionNotices(
 		context.Background(),
-		uuid.New(),
+		api.ListSessionNoticesParams{XSessionID: uuid.New()},
 	)
 	require.Error(t, err)
 }

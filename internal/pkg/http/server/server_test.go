@@ -268,31 +268,124 @@ func (r *testRuntime) CancelSession(
 
 func (r *testRuntime) ListSessionEvents(
 	_ context.Context,
-	_ uuid.UUID,
-) (*api.SessionEventPage, error) {
+	_ api.ListSessionEventsParams,
+) (*api.TranscriptEventPage, error) {
 	if r.eventsErr != nil {
 		return nil, r.eventsErr
 	}
 
-	return &api.SessionEventPage{Events: []api.SessionEvent{}}, nil
+	return &api.TranscriptEventPage{Events: []api.TranscriptEvent{}}, nil
 }
 
-func (r *testRuntime) PublishSessionEvent(
+func (r *testRuntime) ListSessionNotices(
 	_ context.Context,
-	_ uuid.UUID,
-	request api.SessionEventRequest,
-) (*api.SessionEvent, error) {
+	_ api.ListSessionNoticesParams,
+) (*api.SessionNoticePage, error) {
 	if r.eventsErr != nil {
 		return nil, r.eventsErr
 	}
 
-	return &api.SessionEvent{
+	return &api.SessionNoticePage{Notices: []api.SessionNotice{}}, nil
+}
+
+func (r *testRuntime) PublishSessionNotice(
+	_ context.Context,
+	_ uuid.UUID,
+	request api.SessionNoticeRequest,
+) (*api.SessionNotice, error) {
+	if r.eventsErr != nil {
+		return nil, r.eventsErr
+	}
+
+	return &api.SessionNotice{
 		Id:       uuid.New(),
 		Type:     request.Type,
 		Source:   "api",
 		Summary:  request.Summary,
-		Delivery: api.SessionEventDeliveryQueue,
+		Delivery: api.SessionNoticeDeliveryQueue,
 	}, nil
+}
+
+func (r *testRuntime) ListSessionTurns(
+	_ context.Context,
+	_ api.ListSessionTurnsParams,
+) (*api.TurnPage, error) {
+	if r.listErr != nil {
+		return nil, r.listErr
+	}
+
+	return &api.TurnPage{Turns: []api.Turn{}}, nil
+}
+
+func (r *testRuntime) ListSessionCompactions(
+	_ context.Context,
+	_ api.ListSessionCompactionsParams,
+) (*api.CompactionPage, error) {
+	if r.listErr != nil {
+		return nil, r.listErr
+	}
+
+	return &api.CompactionPage{Compactions: []api.Compaction{}}, nil
+}
+
+func (r *testRuntime) GetSessionCompaction(
+	_ context.Context,
+	_ uuid.UUID,
+	compactionID uuid.UUID,
+) (*api.Compaction, error) {
+	if r.listErr != nil {
+		return nil, r.listErr
+	}
+
+	return &api.Compaction{Id: compactionID}, nil
+}
+
+func (r *testRuntime) ListSessionModelRuns(
+	_ context.Context,
+	_ api.ListSessionModelRunsParams,
+) (*api.ModelRunPage, error) {
+	if r.listErr != nil {
+		return nil, r.listErr
+	}
+
+	return &api.ModelRunPage{ModelRuns: []api.ModelRun{}}, nil
+}
+
+func (r *testRuntime) ListSessionModelRunCalls(
+	_ context.Context,
+	_ uuid.UUID,
+	modelRunID uuid.UUID,
+	_ api.ListSessionModelRunCallsParams,
+) (*api.ModelCallPage, error) {
+	if r.listErr != nil {
+		return nil, r.listErr
+	}
+
+	return &api.ModelCallPage{Calls: []api.ModelCall{}, ModelRun: api.ModelRun{Id: modelRunID}}, nil
+}
+
+func (r *testRuntime) GetSessionContextSnapshot(
+	_ context.Context,
+	_ uuid.UUID,
+	_ string,
+) (*api.ContextSnapshot, error) {
+	if r.listErr != nil {
+		return nil, r.listErr
+	}
+
+	return &api.ContextSnapshot{Manifest: map[string]any{}}, nil
+}
+
+func (r *testRuntime) GetSessionPromptSnapshot(
+	_ context.Context,
+	_ uuid.UUID,
+	_ string,
+) (*api.PromptSnapshot, error) {
+	if r.listErr != nil {
+		return nil, r.listErr
+	}
+
+	return &api.PromptSnapshot{}, nil
 }
 
 func (r *testRuntime) ListSessionJobs(
@@ -320,6 +413,22 @@ func (r *testRuntime) ReadSessionJobOutput(
 	return &api.JobOutput{
 		JobId: jobID,
 		State: api.JobOutputStateRunning,
+	}, nil
+}
+
+func (r *testRuntime) ListSessionJobSignalRequests(
+	_ context.Context,
+	_ uuid.UUID,
+	jobID uuid.UUID,
+	_ api.ListSessionJobSignalRequestsParams,
+) (*api.JobSignalRecordPage, error) {
+	if r.jobsErr != nil {
+		return nil, r.jobsErr
+	}
+
+	return &api.JobSignalRecordPage{
+		Job:            api.Job{JobId: jobID},
+		SignalRequests: []api.JobSignalRecord{},
 	}, nil
 }
 
@@ -367,6 +476,18 @@ func (r *testRuntime) ListSessionAgentRunEvents(
 		State:      api.AgentRunEventPageStateRunning,
 		Events:     []api.AgentRunEvent{},
 	}, nil
+}
+
+func (r *testRuntime) GetSessionAgentRun(
+	_ context.Context,
+	_ uuid.UUID,
+	agentRunID uuid.UUID,
+) (*api.AgentRun, error) {
+	if r.agentRunsErr != nil {
+		return nil, r.agentRunsErr
+	}
+
+	return &api.AgentRun{AgentRunId: agentRunID}, nil
 }
 
 func (r *testRuntime) CancelSessionAgentRun(

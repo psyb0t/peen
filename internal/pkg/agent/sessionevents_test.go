@@ -174,7 +174,7 @@ func TestRuntimeDeliversPendingEventsAtTurnStart(t *testing.T) {
 	notice.SessionID = firstResult.SessionID
 	notice.Data = json.RawMessage(`{"status":500}`)
 
-	_, err = fixture.eventBus.Publish(notice)
+	_, err = fixture.runtime.PublishEvent(context.Background(), notice)
 	require.NoError(t, err)
 	require.Equal(t, 1, fixture.eventBus.Pending(firstResult.SessionID))
 
@@ -302,7 +302,7 @@ func TestRuntimeDeliversEventsArrivingMidTurn(t *testing.T) {
 		published = true
 		notice := eventTestNotice(eventTestSummary)
 		notice.SessionID = parsed
-		_, err = fixture.eventBus.Publish(notice)
+		_, err = fixture.runtime.PublishEvent(context.Background(), notice)
 
 		return err
 	}

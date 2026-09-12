@@ -10,7 +10,12 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
-const reasonInterruptedTurnsRecovered = "interrupted_turns_recovered"
+const (
+	reasonInterruptedTurnsRecovered     = "interrupted_turns_recovered"
+	reasonInterruptedAgentRunsRecovered = "interrupted_agent_runs_recovered"
+	reasonInterruptedJobsRecovered      = "interrupted_jobs_recovered"
+	reasonInterruptedModelRunsRecovered = "interrupted_model_runs_recovered"
+)
 
 // Assembled is one wired runtime and the resources whose lifetime it shares.
 //
@@ -93,6 +98,15 @@ func assembleOver(
 	if err := recoverInterruptedTurns(ctx, store); err != nil {
 		return nil, err
 	}
+	if err := recoverInterruptedAgentRuns(ctx, store); err != nil {
+		return nil, err
+	}
+	if err := recoverInterruptedJobs(ctx, store); err != nil {
+		return nil, err
+	}
+	if err := recoverInterruptedModelRuns(ctx, store); err != nil {
+		return nil, err
+	}
 
 	runtimeOptions := options.Runtime
 	runtimeOptions.Store = store
@@ -130,6 +144,63 @@ func recoverInterruptedTurns(ctx context.Context, store *session.Store) error {
 		"marked turns left running by a previous process as interrupted",
 		"reason", reasonInterruptedTurnsRecovered,
 		"turn_count", recovered,
+	)
+
+	return nil
+}
+
+func recoverInterruptedAgentRuns(ctx context.Context, store *session.Store) error {
+	recovered, err := store.RecoverInterruptedAgentRuns(ctx)
+	if err != nil {
+		return ctxerrors.Wrap(err, "recover interrupted agent runs")
+	}
+
+	if recovered == 0 {
+		return nil
+	}
+
+	ctxscope.GetLogger(ctx).Warn(
+		"marked child agents left running by a previous process as interrupted",
+		"reason", reasonInterruptedAgentRunsRecovered,
+		"agent_run_count", recovered,
+	)
+
+	return nil
+}
+
+func recoverInterruptedJobs(ctx context.Context, store *session.Store) error {
+	recovered, err := store.RecoverInterruptedJobs(ctx)
+	if err != nil {
+		return ctxerrors.Wrap(err, "recover interrupted jobs")
+	}
+
+	if recovered == 0 {
+		return nil
+	}
+
+	ctxscope.GetLogger(ctx).Warn(
+		"marked jobs left running by a previous process as interrupted",
+		"reason", reasonInterruptedJobsRecovered,
+		"job_count", recovered,
+	)
+
+	return nil
+}
+
+func recoverInterruptedModelRuns(ctx context.Context, store *session.Store) error {
+	recovered, err := store.RecoverInterruptedModelRuns(ctx)
+	if err != nil {
+		return ctxerrors.Wrap(err, "recover interrupted model runs")
+	}
+
+	if recovered == 0 {
+		return nil
+	}
+
+	ctxscope.GetLogger(ctx).Warn(
+		"marked model work left running by a previous process as interrupted",
+		"reason", reasonInterruptedModelRunsRecovered,
+		"model_run_count", recovered,
 	)
 
 	return nil

@@ -48,12 +48,25 @@ const (
 	jobOutputStderr        = "stderr"
 )
 
-// EventPublisher is the minimal surface the job registry needs to announce
-// completion. It exists so this package never imports the event bus
-// concretely, only this shape. A nil EventPublisher means "do not publish";
-// callers and tests with no bus wired yet can still exercise job lifecycle.
-type EventPublisher interface {
-	Publish(events.Notice) (events.Notice, error)
+// EventPublisher publishes job completion notices without coupling jobs to a
+// concrete bus. A nil publisher means "do not publish".
+type EventPublisher = events.Publisher
+
+// JobOutputRecord is one captured line before it reaches an in-memory buffer.
+type JobOutputRecord struct {
+	Stream    JobStream
+	Content   string
+	CreatedAt time.Time
+}
+
+// JobObserver persists process lifecycle data before this registry exposes it
+// to live readers. A nil observer leaves the registry usable for standalone
+// callers that do not configure durable storage.
+type JobObserver interface {
+	JobStarted(context.Context, JobSnapshot) error
+	JobOutput(context.Context, JobSnapshot, JobOutputRecord) error
+	JobSignal(context.Context, JobSnapshot, JobSignal) error
+	JobFinished(context.Context, JobSnapshot) error
 }
 
 // jobEventData is the structured payload carried by every job.* notice.
@@ -84,11 +97,14 @@ type Job struct {
 	process    commander.Process
 	done       chan struct{}
 	streamDone sync.WaitGroup
+	outputMu   sync.Mutex
 
-	mu       sync.RWMutex
-	state    JobState
-	endedAt  time.Time
-	exitCode int
+	mu             sync.RWMutex
+	state          JobState
+	endedAt        time.Time
+	exitCode       int
+	failureDetail  string
+	persistenceErr error
 }
 
 // JobSnapshot is one point-in-time, race-free view of a job.
@@ -105,6 +121,7 @@ type JobSnapshot struct {
 	StartedAt           time.Time
 	EndedAt             time.Time
 	ExitCode            int
+	FailureDetail       string
 	StdoutBufferedLines int
 	StdoutDroppedLines  int
 	StderrBufferedLines int
@@ -117,6 +134,7 @@ type JobSnapshot struct {
 func (j *Job) Snapshot() JobSnapshot {
 	j.mu.RLock()
 	state, endedAt, exitCode := j.state, j.endedAt, j.exitCode
+	failureDetail := j.failureDetail
 	j.mu.RUnlock()
 
 	stdoutLines, stdoutDropped := j.stdout.Stats()
@@ -135,6 +153,7 @@ func (j *Job) Snapshot() JobSnapshot {
 		StartedAt:           j.StartedAt,
 		EndedAt:             endedAt,
 		ExitCode:            exitCode,
+		FailureDetail:       failureDetail,
 		StdoutBufferedLines: stdoutLines,
 		StdoutDroppedLines:  stdoutDropped,
 		StderrBufferedLines: stderrLines,
@@ -211,8 +230,20 @@ type JobRegistry struct {
 	cmdr      commander.Commander
 	metrics   *metrics.Metrics
 
+	observerMu sync.RWMutex
+	observer   JobObserver
+
 	mu   sync.RWMutex
 	jobs map[uuid.UUID]*Job
+}
+
+// SetObserver configures lifecycle persistence for jobs this registry starts.
+// Call it during session setup, before the registry becomes visible to tools.
+func (r *JobRegistry) SetObserver(observer JobObserver) {
+	r.observerMu.Lock()
+	defer r.observerMu.Unlock()
+
+	r.observer = observer
 }
 
 // NewJobRegistry builds a session-scoped job registry. publisher may be nil,
@@ -288,14 +319,27 @@ func (r *JobRegistry) Start(
 	}
 
 	job := r.newJob(process, input)
-	startJobStreams(ctx, job)
+	persistCtx := context.WithoutCancel(ctx)
+	if err := r.observeStarted(persistCtx, job.Snapshot()); err != nil {
+		job.requestKill(persistCtx)
+		if waitErr := job.process.Wait(); waitErr != nil {
+			ctxscope.GetLogger(persistCtx).Debug(
+				"wait for unpersisted job after kill",
+				"err", waitErr,
+				"job_id", job.ID,
+			)
+		}
+
+		return nil, ctxerrors.Wrap(err, "persist started job")
+	}
+	startJobStreams(persistCtx, r, job)
 
 	r.mu.Lock()
 	r.jobs[job.ID] = job
 	r.mu.Unlock()
 	r.metrics.JobStarted()
 
-	go r.monitor(ctx, job)
+	go r.monitor(persistCtx, job)
 
 	return job, nil
 }
@@ -336,7 +380,7 @@ func (r *JobRegistry) newJob(
 // another goroutine ever registers. This mirrors commander's own
 // documented usage. The two reader goroutines it spawns drain into job's
 // ring buffers and are tracked by job.streamDone.
-func startJobStreams(ctx context.Context, job *Job) {
+func startJobStreams(ctx context.Context, registry *JobRegistry, job *Job) {
 	stdoutCh := make(chan string, jobStreamChannelBuffer)
 	stderrCh := make(chan string, jobStreamChannelBuffer)
 	job.process.Stream(stdoutCh, stderrCh)
@@ -345,7 +389,11 @@ func startJobStreams(ctx context.Context, job *Job) {
 		defer recoverAndLog(ctx, "job stdout reader")
 
 		for line := range stdoutCh {
-			job.stdout.Append(line)
+			registry.recordOutput(ctx, job, JobOutputRecord{
+				Stream:    JobStreamStdout,
+				Content:   line,
+				CreatedAt: time.Now().UTC(),
+			})
 		}
 	})
 
@@ -353,9 +401,45 @@ func startJobStreams(ctx context.Context, job *Job) {
 		defer recoverAndLog(ctx, "job stderr reader")
 
 		for line := range stderrCh {
-			job.stderr.Append(line)
+			registry.recordOutput(ctx, job, JobOutputRecord{
+				Stream:    JobStreamStderr,
+				Content:   line,
+				CreatedAt: time.Now().UTC(),
+			})
 		}
 	})
+}
+
+func (r *JobRegistry) recordOutput(
+	ctx context.Context,
+	job *Job,
+	record JobOutputRecord,
+) {
+	job.outputMu.Lock()
+	defer job.outputMu.Unlock()
+
+	if job.persistenceFailure() != nil {
+		return
+	}
+	if err := r.observeOutput(ctx, job.Snapshot(), record); err != nil {
+		job.setPersistenceFailure(err)
+		ctxscope.GetLogger(ctx).Warn(
+			"persist job output",
+			"err", err,
+			"job_id", job.ID,
+		)
+		job.requestKill(ctx)
+
+		return
+	}
+
+	if record.Stream == JobStreamStdout {
+		job.stdout.Append(record.Content)
+
+		return
+	}
+
+	job.stderr.Append(record.Content)
 }
 
 // Get looks up one job by ID within this session's registry.
@@ -393,31 +477,46 @@ func (r *JobRegistry) Signal(
 	id uuid.UUID,
 	signal JobSignal,
 ) (JobSnapshot, bool) {
+	snapshot, found, _ := r.SignalContext(ctx, id, signal)
+
+	return snapshot, found
+}
+
+// SignalContext persists the request before it dispatches a process signal.
+func (r *JobRegistry) SignalContext(
+	ctx context.Context,
+	id uuid.UUID,
+	signal JobSignal,
+) (JobSnapshot, bool, error) {
 	job, ok := r.Get(id)
 	if !ok {
-		return JobSnapshot{}, false
+		return JobSnapshot{}, false, nil
 	}
 
 	snapshot := job.Snapshot()
+	persistCtx := context.WithoutCancel(ctx)
+	if err := r.observeSignal(persistCtx, snapshot, signal); err != nil {
+		return snapshot, true, ctxerrors.Wrap(err, "persist job signal")
+	}
 	if snapshot.State != JobStateRunning {
-		return snapshot, true
+		return snapshot, true, nil
 	}
 
 	grace := r.limits.JobStopGracePeriod
 
 	go func() {
-		defer recoverAndLog(ctx, "job signal dispatch")
+		defer recoverAndLog(persistCtx, "job signal dispatch")
 
 		if signal == JobSignalKill {
-			job.requestKill(ctx)
+			job.requestKill(persistCtx)
 
 			return
 		}
 
-		job.requestStop(ctx, grace)
+		job.requestStop(persistCtx, grace)
 	}()
 
-	return snapshot, true
+	return snapshot, true, nil
 }
 
 // Shutdown stops every running job through commander's graceful stop, waits
@@ -469,12 +568,30 @@ func (r *JobRegistry) monitor(ctx context.Context, job *Job) {
 func (r *JobRegistry) finalize(ctx context.Context, job *Job, waitErr error) {
 	state, exitCode := classifyJobResult(waitErr)
 	endedAt := time.Now().UTC()
+	failureDetail := ""
+	if persistenceErr := job.persistenceFailure(); persistenceErr != nil {
+		state = JobStateFailed
+		exitCode = unknownExitCode
+		failureDetail = persistenceErr.Error()
+	}
 
 	job.mu.Lock()
 	job.state = state
 	job.endedAt = endedAt
 	job.exitCode = exitCode
+	job.failureDetail = failureDetail
 	job.mu.Unlock()
+	snapshot := job.Snapshot()
+	if err := r.observeFinished(ctx, snapshot); err != nil {
+		ctxscope.GetLogger(ctx).Warn(
+			"persist finished job",
+			"err", err,
+			"job_id", job.ID,
+		)
+		close(job.done)
+
+		return
+	}
 
 	// Publish before closing done: a caller unblocked by Done must always
 	// find the completion event already published, never racing it.
@@ -482,6 +599,79 @@ func (r *JobRegistry) finalize(ctx context.Context, job *Job, waitErr error) {
 	r.recordJobMetrics(job, state, exitCode, endedAt)
 
 	close(job.done)
+}
+
+func (j *Job) persistenceFailure() error {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+
+	return j.persistenceErr
+}
+
+func (j *Job) setPersistenceFailure(err error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	if j.persistenceErr == nil {
+		j.persistenceErr = err
+	}
+}
+
+func (r *JobRegistry) observerValue() JobObserver {
+	r.observerMu.RLock()
+	defer r.observerMu.RUnlock()
+
+	return r.observer
+}
+
+func (r *JobRegistry) observeStarted(
+	ctx context.Context,
+	snapshot JobSnapshot,
+) error {
+	observer := r.observerValue()
+	if observer == nil {
+		return nil
+	}
+
+	return observer.JobStarted(ctx, snapshot)
+}
+
+func (r *JobRegistry) observeOutput(
+	ctx context.Context,
+	snapshot JobSnapshot,
+	record JobOutputRecord,
+) error {
+	observer := r.observerValue()
+	if observer == nil {
+		return nil
+	}
+
+	return observer.JobOutput(ctx, snapshot, record)
+}
+
+func (r *JobRegistry) observeSignal(
+	ctx context.Context,
+	snapshot JobSnapshot,
+	signal JobSignal,
+) error {
+	observer := r.observerValue()
+	if observer == nil {
+		return nil
+	}
+
+	return observer.JobSignal(ctx, snapshot, signal)
+}
+
+func (r *JobRegistry) observeFinished(
+	ctx context.Context,
+	snapshot JobSnapshot,
+) error {
+	observer := r.observerValue()
+	if observer == nil {
+		return nil
+	}
+
+	return observer.JobFinished(ctx, snapshot)
 }
 
 func (r *JobRegistry) recordJobMetrics(
@@ -550,7 +740,7 @@ func (r *JobRegistry) publish(
 		Data:      data,
 	}
 
-	if _, err := r.publisher.Publish(notice); err != nil {
+	if _, err := r.publisher.PublishContext(ctx, notice); err != nil {
 		ctxscope.GetLogger(ctx).Warn(
 			"publish job completion event",
 			"err", err,

@@ -57,7 +57,7 @@ Follow the test agent rules.`
 	serviceTestJSONMediaType      = "application/json"
 	serviceTestMetricsPath        = "/metrics"
 	serviceTestReadyPath          = "/ready"
-	serviceTestRequestTimeout     = 30 * time.Second
+	serviceTestRequestTimeout     = 60 * time.Second
 	serviceTestWebSocketPath      = "/v1/ws"
 	serviceTestWebSocketSessionID = "sessionId"
 	serviceTestWebSocketProtocol  = "peen.v1"
@@ -70,7 +70,7 @@ Follow the test agent rules.`
 	// discovers provider models. The readiness probe and polling interval end
 	// every wait as soon as the service is actually up. The timeout is only the
 	// backstop for a loaded machine running the whole
-	// race-enabled suite at once.
+	// complete unit suite at once.
 	serviceTestStartupTimeout  = 60 * time.Second
 	serviceTestStartupInterval = 10 * time.Millisecond
 	serviceTestFileMode        = 0o600

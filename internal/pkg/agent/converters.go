@@ -120,6 +120,9 @@ func messageToAPI(stored *models.Message) (api.Message, error) {
 	if stored.ToolCallID != "" {
 		message.ToolCallId = &stored.ToolCallID
 	}
+	if stored.CompactionID != nil {
+		message.CompactionId = stored.CompactionID
+	}
 
 	if len(toolCalls) > 0 {
 		message.ToolCalls = &toolCalls

@@ -45,6 +45,29 @@ const (
 	EventTypeTurnFailed = "turn.failed"
 	// EventTypeTurnCancelled marks a cancelled durable turn.
 	EventTypeTurnCancelled = "turn.cancelled"
+	// EventTypeAgentRunStarted marks a durable child-agent run before it asks
+	// a provider for work.
+	EventTypeAgentRunStarted = "agent.run.started"
+	// EventTypeAgentRunTextDelta carries one child-agent text fragment.
+	EventTypeAgentRunTextDelta = "agent.run.text.delta"
+	// EventTypeAgentRunThinkingDelta carries one child-agent reasoning fragment.
+	EventTypeAgentRunThinkingDelta = "agent.run.thinking.delta"
+	// EventTypeAgentRunToolUse carries one tool call made by a child agent.
+	EventTypeAgentRunToolUse = "agent.run.tool.use"
+	// EventTypeAgentRunToolResult carries one child-tool result.
+	EventTypeAgentRunToolResult = "agent.run.tool.result"
+	// EventTypeAgentRunAssistantMessage records an assembled child message.
+	EventTypeAgentRunAssistantMessage = "agent.run.assistant.message"
+	// EventTypeAgentRunMessageInjected records a child tool-injected message.
+	EventTypeAgentRunMessageInjected = "agent.run.message.injected"
+	// EventTypeAgentRunProviderRetry records a retry within a child request.
+	EventTypeAgentRunProviderRetry = "agent.run.provider.retry"
+	// EventTypeAgentRunCompleted marks a successfully completed child.
+	EventTypeAgentRunCompleted = "agent.run.completed"
+	// EventTypeAgentRunFailed marks a failed child run.
+	EventTypeAgentRunFailed = "agent.run.failed"
+	// EventTypeAgentRunCancelled marks a separately cancelled child run.
+	EventTypeAgentRunCancelled = "agent.run.cancelled"
 
 	eventTypeTurnStarted   = EventTypeTurnStarted
 	eventTypeTextDelta     = EventTypeTextDelta
@@ -54,8 +77,7 @@ const (
 	failureClassAgentRun  = "agent_run"
 	failureClassCancelled = "cancelled"
 
-	reasonCheckpointFailed = "turn_checkpoint_failed"
-	systemSectionGap       = "\n\n"
+	systemSectionGap = "\n\n"
 
 	runtimeContextHeader              = "Trusted runtime context:"
 	runtimeContextLocalTimeLead       = "Current local time: "
@@ -277,9 +299,8 @@ type RuntimeOptions struct {
 	// package defaults.
 	AgentLimits AgentRunLimits
 
-	// ConfigDirectory is PEEN_CONFIG_DIR, used only to place each agent run's
-	// JSONL transcript mirror alongside the session's own. Empty disables the
-	// mirror entirely rather than failing, matching a nil Events bus.
+	// ConfigDirectory is PEEN_CONFIG_DIR. The runtime uses it to resolve
+	// harness configuration; durable agent state always lives in SQLite.
 	ConfigDirectory string
 }
 
@@ -363,10 +384,7 @@ type runtimeTurn struct {
 }
 
 // transcriptSink records every protocol event the publisher fans out.
-//
-// It is what makes the stored event names the ones that actually went on the
-// wire, and it sits on the same MultiSink in both modes, so a JSON turn and an
-// SSE turn of the same request store identical protocol records.
+// Stored events use the same names that went on the wire.
 type transcriptSink struct {
 	turn *runtimeTurn
 }

@@ -42,6 +42,7 @@ func newMessage(db *gorm.DB, opts ...gen.DOOption) message {
 	_message.Thinking = field.NewString(tableName, "thinking")
 	_message.ToolCallsJSON = field.NewString(tableName, "tool_calls_json")
 	_message.ToolCallID = field.NewString(tableName, "tool_call_id")
+	_message.CompactionID = field.NewField(tableName, "compaction_id")
 	_message.IsError = field.NewBool(tableName, "is_error")
 	_message.Incomplete = field.NewBool(tableName, "incomplete")
 	_message.CreatedAt = field.NewTime(tableName, "created_at")
@@ -66,6 +67,7 @@ type message struct {
 	Thinking      field.String
 	ToolCallsJSON field.String
 	ToolCallID    field.String
+	CompactionID  field.Field
 	IsError       field.Bool
 	Incomplete    field.Bool
 	CreatedAt     field.Time
@@ -96,6 +98,7 @@ func (m *message) updateTableName(table string) *message {
 	m.Thinking = field.NewString(table, "thinking")
 	m.ToolCallsJSON = field.NewString(table, "tool_calls_json")
 	m.ToolCallID = field.NewString(table, "tool_call_id")
+	m.CompactionID = field.NewField(table, "compaction_id")
 	m.IsError = field.NewBool(table, "is_error")
 	m.Incomplete = field.NewBool(table, "incomplete")
 	m.CreatedAt = field.NewTime(table, "created_at")
@@ -115,7 +118,7 @@ func (m *message) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (m *message) fillFieldMap() {
-	m.fieldMap = make(map[string]field.Expr, 14)
+	m.fieldMap = make(map[string]field.Expr, 15)
 	m.fieldMap["id"] = m.ID
 	m.fieldMap["session_id"] = m.SessionID
 	m.fieldMap["turn_id"] = m.TurnID
@@ -127,6 +130,7 @@ func (m *message) fillFieldMap() {
 	m.fieldMap["thinking"] = m.Thinking
 	m.fieldMap["tool_calls_json"] = m.ToolCallsJSON
 	m.fieldMap["tool_call_id"] = m.ToolCallID
+	m.fieldMap["compaction_id"] = m.CompactionID
 	m.fieldMap["is_error"] = m.IsError
 	m.fieldMap["incomplete"] = m.Incomplete
 	m.fieldMap["created_at"] = m.CreatedAt

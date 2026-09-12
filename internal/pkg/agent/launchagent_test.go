@@ -12,6 +12,7 @@ import (
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/elelem/elelemtest"
 	"github.com/psyb0t/peen/internal/pkg/db"
+	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/session"
@@ -175,6 +176,10 @@ func TestLaunchAgentNamedAgentReturnsFinalResponse(t *testing.T) {
 		[]string{
 			EventTypeTurnStarted,
 			EventTypeToolUse,
+			EventTypeAgentRunStarted,
+			EventTypeAgentRunTextDelta,
+			EventTypeAgentRunAssistantMessage,
+			EventTypeAgentRunCompleted,
 			EventTypeSessionEvents,
 			EventTypeToolResult,
 			EventTypeTurnCompleted,
@@ -658,7 +663,7 @@ func TestLaunchAgentChildToolFailureStaysVisibleAndRunCompletes(t *testing.T) {
 	found := false
 
 	for _, event := range runEvents {
-		if event.Type != EventTypeToolResult {
+		if event.Type != EventTypeAgentRunToolResult {
 			continue
 		}
 
@@ -741,18 +746,12 @@ func TestFinishAgentRunDistinguishesSingleRunFromParentCancellation(t *testing.T
 	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{})
 
 	t.Run("single run cancellation leaves the parent turn alive", func(t *testing.T) {
-		registry, err := fixture.runtime.sessionAgentRuns(uuid.New())
-		require.NoError(t, err)
-
 		parentCtx := context.Background()
-		run, _, err := registry.Start(parentCtx, StartAgentRunInput{
-			Name: "child", Definition: AgentRunDefinitionStored, Depth: 1,
-		})
-		require.NoError(t, err)
+		registry, run, _, sink := startDurableAgentRun(t, fixture, parentCtx)
 
 		runErr := &wrappedCancelError{}
 		output, err := fixture.runtime.finishAgentRun(
-			parentCtx, registry, run, nil, runErr,
+			parentCtx, registry, sink, run, nil, runErr,
 		)
 		require.NoError(t, err)
 		assert.True(t, output.Cancelled)
@@ -760,29 +759,95 @@ func TestFinishAgentRunDistinguishesSingleRunFromParentCancellation(t *testing.T
 	})
 
 	t.Run("parent cancellation propagates and cancels the child tree", func(t *testing.T) {
-		registry, err := fixture.runtime.sessionAgentRuns(uuid.New())
-		require.NoError(t, err)
-
 		startCtx, cancel := context.WithCancel(context.Background())
-		run, runCtx, err := registry.Start(startCtx, StartAgentRunInput{
-			Name: "child", Definition: AgentRunDefinitionStored, Depth: 1,
-		})
-		require.NoError(t, err)
-
-		cancel()
-		assert.Error(
+		registry, run, runCtx, sink := startDurableAgentRun(
 			t,
-			runCtx.Err(),
-			"the child's own context must have been cancelled too",
+			fixture,
+			startCtx,
 		)
 
+		cancel()
+		assert.Error(t, runCtx.Err(), "parent cancellation must reach child work")
+
 		runErr := &wrappedCancelError{}
-		_, err = fixture.runtime.finishAgentRun(
-			startCtx, registry, run, nil, runErr,
+		_, err := fixture.runtime.finishAgentRun(
+			startCtx, registry, sink, run, nil, runErr,
 		)
 		require.Error(t, err)
 		assert.Equal(t, AgentRunStateCancelled, run.Snapshot().State)
 	})
+}
+
+func startDurableAgentRun(
+	t *testing.T,
+	fixture runtimeFixture,
+	parentCtx context.Context,
+) (*AgentRunRegistry, *AgentRun, context.Context, *agentRunSink) {
+	t.Helper()
+
+	sessionID := uuid.New()
+	_, err := fixture.store.CreateOrResume(
+		context.Background(),
+		&sessionID,
+		session.OpenSessionOptions{
+			RootAgent: runtimeTestAgentName,
+			ModelID:   runtimeTestModelReference,
+		},
+	)
+	require.NoError(t, err)
+
+	lease, err := fixture.store.AcquireTurn(
+		context.Background(),
+		sessionID,
+		session.StartTurnInput{
+			RequestID: uuid.New(),
+			Workspace: fixture.workspace,
+			Messages: []session.MessageInput{{
+				Role:    models.MessageRoleUser,
+				Content: "start child",
+			}},
+		},
+	)
+	require.NoError(t, err)
+
+	registry, err := fixture.runtime.sessionAgentRuns(sessionID)
+	require.NoError(t, err)
+
+	run, runCtx, err := registry.Start(parentCtx, StartAgentRunInput{
+		ID:           uuid.New(),
+		ParentTurnID: lease.TurnID,
+		RequestID:    uuid.New(),
+		Name:         "child",
+		Definition:   AgentRunDefinitionStored,
+		Depth:        1,
+	}, func(run *AgentRun) error {
+		_, createErr := fixture.store.CreateAgentRun(
+			context.Background(),
+			sessionID,
+			session.StartAgentRunInput{
+				ID:               run.ID,
+				ParentTurnID:     run.ParentTurnID,
+				ParentToolCallID: run.ParentToolCallID,
+				RequestID:        run.RequestID,
+				Name:             run.Name,
+				Definition:       models.AgentRunDefinitionStored,
+				Depth:            int64(run.Depth),
+				Workspace:        fixture.workspace,
+				ModelReference:   runtimeTestModelReference,
+				ModelID:          runtimeTestModelID,
+				Task:             "child task",
+				Instructions:     "child instructions",
+				AllowedToolsJSON: "[]",
+				SystemPrompt:     "child system prompt",
+				StartedAt:        run.StartedAt,
+			},
+		)
+
+		return createErr
+	})
+	require.NoError(t, err)
+
+	return registry, run, runCtx, newAgentRunSink(fixture.store, sessionID, run, nil)
 }
 
 // wrappedCancelError satisfies errors.Is(err, context.Canceled) without needing a

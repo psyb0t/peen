@@ -518,7 +518,6 @@ func sendWebSocketTurn(
 			t.Fatalf("WebSocket message failed: %s", event.Data)
 		}
 	}
-
 }
 
 func executionFormsWebSocketURL(

@@ -222,6 +222,20 @@ func (s *Store) CreateCompaction(
 	if input.ID == uuid.Nil {
 		input.ID = s.newID()
 	}
+	if input.DirectFromSequence == 0 {
+		input.DirectFromSequence = input.FromSequence
+	}
+	if input.DirectToSequence == 0 {
+		input.DirectToSequence = input.ToSequence
+	}
+	if input.DirectFromSequence < input.FromSequence ||
+		input.DirectToSequence < input.DirectFromSequence ||
+		input.DirectToSequence > input.ToSequence {
+		return nil, ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"invalid direct compaction sequence bounds",
+		)
+	}
 
 	compaction := &models.Compaction{
 		ID:                     input.ID,
@@ -239,9 +253,35 @@ func (s *Store) CreateCompaction(
 		CreatedAt:              s.now(),
 		SupersedesCompactionID: input.SupersedesCompactionID,
 	}
-	if err := s.query.Compaction.WithContext(ctx).
-		Create(compaction); err != nil {
-		return nil, ctxerrors.Wrap(err, "create compaction")
+	if err := s.query.Transaction(func(tx *repositories.Query) error {
+		if err := tx.Compaction.WithContext(ctx).Create(compaction); err != nil {
+			return ctxerrors.Wrap(err, "create compaction")
+		}
+
+		message := tx.Message
+		assigned, err := message.WithContext(ctx).
+			Where(
+				message.SessionID.Eq(sessionID),
+				message.Sequence.Between(
+					input.DirectFromSequence,
+					input.DirectToSequence,
+				),
+				message.CompactionID.IsNull(),
+			).
+			UpdateSimple(message.CompactionID.Value(compaction.ID))
+		if err != nil {
+			return ctxerrors.Wrap(err, "assign direct message compaction")
+		}
+		if assigned.RowsAffected == 0 {
+			return ctxerrors.Wrap(
+				commerr.ErrInvalidState,
+				"compaction has no unassigned direct messages",
+			)
+		}
+
+		return nil
+	}); err != nil {
+		return nil, ctxerrors.Wrap(err, "create compaction transaction")
 	}
 
 	return compaction, nil

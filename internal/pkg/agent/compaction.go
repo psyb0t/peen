@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -127,6 +128,7 @@ func (o compactionOptions) validate() error {
 type compactor struct {
 	options   compactionOptions
 	sessionID uuid.UUID
+	turnID    uuid.UUID
 	plan      reconstructionPlan
 	active    *models.Compaction
 }
@@ -134,6 +136,7 @@ type compactor struct {
 func newCompactor(
 	options compactionOptions,
 	sessionID uuid.UUID,
+	turnID uuid.UUID,
 	plan reconstructionPlan,
 	active *models.Compaction,
 ) (*compactor, error) {
@@ -141,16 +144,17 @@ func newCompactor(
 		return nil, ctxerrors.Wrap(err, "validate compaction options")
 	}
 
-	if sessionID == uuid.Nil {
+	if sessionID == uuid.Nil || turnID == uuid.Nil {
 		return nil, ctxerrors.Wrap(
 			ErrInvalidCompactionOptions,
-			"compaction session",
+			"compaction session or turn",
 		)
 	}
 
 	return &compactor{
 		options:   options,
 		sessionID: sessionID,
+		turnID:    turnID,
 		plan:      plan,
 		active:    active,
 	}, nil
@@ -405,6 +409,8 @@ func (c *compactor) persist(
 		ToMessageID:        last.ToMessageID,
 		FromSequence:       first.FromSequence,
 		ToSequence:         last.ToSequence,
+		DirectFromSequence: first.FromSequence,
+		DirectToSequence:   last.ToSequence,
 		Summary:            text,
 		SourceMessageCount: int64(c.plan.messageCount(units)),
 		InputTokenCount:    summary.InputTokens,
@@ -502,6 +508,37 @@ func (c *compactor) callModel(
 	prompt := elelem.NewPrompt().
 		WithSystem(c.options.Prompt).
 		UserText(transcript)
+	requestSettingsJSON, err := newModelAuditSettings(
+		model.Model,
+		false,
+		true,
+		0,
+		0,
+		c.options.MaxOutputTokens,
+		0,
+		0,
+		0,
+		c.options.Timeout,
+	)
+	if err != nil {
+		return compactionSummary{}, ctxerrors.Wrap(
+			err,
+			"marshal compaction model request settings",
+		)
+	}
+	audit, err := newModelAuditRecorder(ctx, modelAuditOptions{
+		Store:               c.options.Store,
+		SessionID:           c.sessionID,
+		TurnID:              c.turnID,
+		Stage:               models.ModelRunStageCompaction,
+		ModelReference:      c.options.ModelReference,
+		Model:               model.Model,
+		RequestSettingsJSON: requestSettingsJSON,
+		Now:                 time.Now,
+	})
+	if err != nil {
+		return compactionSummary{}, ctxerrors.Wrap(err, "start compaction model audit")
+	}
 
 	startedAt := time.Now()
 	response, err := elelem.NewRequest(model.Client).
@@ -509,8 +546,15 @@ func (c *compactor) callModel(
 		WithPrompt(prompt).
 		WithMaxOutputTokens(int64(c.options.MaxOutputTokens)).
 		WithTimeout(c.options.Timeout).
+		OnRoundStart(audit.onRoundStart).
+		OnRoundEnd(audit.onRoundEnd).
+		OnAssistantMessage(audit.onAssistantMessage).
+		OnRetry(audit.onRetry).
 		PreMaxTokensReached(rejectCompactionBudget).
 		Run(ctx)
+	if auditErr := audit.finish(context.WithoutCancel(ctx), response, err); auditErr != nil {
+		err = errors.Join(err, auditErr)
+	}
 
 	observeModelRequest(
 		c.options.Metrics,

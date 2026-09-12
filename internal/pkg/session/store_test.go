@@ -164,6 +164,31 @@ func TestStoreRestartPaginationIsolationAndCompaction(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	linkedMessages, err := store.ListMessages(
+		ctx,
+		sessionA.ID,
+		ListMessagesOptions{Limit: 10, Order: PageOrderAscending},
+	)
+	require.NoError(t, err)
+	require.Len(t, linkedMessages.Items, 3)
+	require.NotNil(t, linkedMessages.Items[0].CompactionID)
+	require.NotNil(t, linkedMessages.Items[1].CompactionID)
+	assert.Equal(t, firstCompaction.ID, *linkedMessages.Items[0].CompactionID)
+	assert.Equal(t, secondCompaction.ID, *linkedMessages.Items[1].CompactionID)
+	assert.Nil(t, linkedMessages.Items[2].CompactionID)
+
+	directCompaction, err := store.GetCompaction(
+		ctx,
+		sessionA.ID,
+		secondCompaction.ID,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, directCompaction.SupersedesCompactionID)
+	assert.Equal(t, firstCompaction.ID, *directCompaction.SupersedesCompactionID)
+
+	_, err = store.GetCompaction(ctx, sessionB.ID, secondCompaction.ID)
+	require.ErrorIs(t, err, commerr.ErrNotFound)
+
 	history, err := store.CompletedHistory(ctx, sessionA.ID)
 	require.NoError(t, err)
 	require.NotNil(t, history.Compaction)

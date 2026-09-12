@@ -85,9 +85,8 @@ reaped instead of becoming zombies. The default command is `--help`; pass
 ### Durable state and mounts
 
 Peen keeps everything that must survive a restart under `PEEN_CONFIG_DIR`
-(the SQLite database, `AGENTS.md` and friends, per-agent-run JSONL mirrors),
-and treats `PEEN_WORKING_DIR` as the default message workspace. Mount both
-from the host:
+(the SQLite database, logs, `AGENTS.md`, and harness files), and treats
+`PEEN_WORKING_DIR` as the default message workspace. Mount both from the host:
 
 ```bash
 mkdir -p ./data/peen ./workspace

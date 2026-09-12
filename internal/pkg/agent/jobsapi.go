@@ -2,145 +2,236 @@ package agent
 
 import (
 	"context"
-	"sort"
-	"strings"
 
 	"github.com/google/uuid"
+	"github.com/psyb0t/common-go/utils/ptrutil"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/peen/internal/pkg/db/models"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/tools"
 )
 
-const jobOutputLineSeparator = "\n"
-
-// ListSessionJobs reports the commands a session has started, newest first,
-// with the same bounded limit/offset paging as GET /v1/messages.
-// A session with no registry has simply never run a command, which is an empty
-// list rather than an error.
+// ListSessionJobs reads the canonical SQLite job history, newest first.
 func (r *Runtime) ListSessionJobs(
 	ctx context.Context,
 	sessionID uuid.UUID,
 	params api.ListSessionJobsParams,
 ) (*api.JobPage, error) {
-	registry, err := r.existingSessionJobs(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
-
-	page := api.JobPage{Jobs: []api.Job{}, Truncated: false}
-	if registry == nil {
-		return &page, nil
-	}
-
 	limit, offset, err := pagingOptionsFromAPI(params.Limit, params.Offset)
 	if err != nil {
 		return nil, err
 	}
 
-	wanted := ""
+	options := session.ListJobsOptions{Limit: limit, Offset: offset}
 	if params.State != nil {
-		wanted = string(*params.State)
+		options.State = ptrutil.Of(models.JobState(*params.State))
 	}
 
-	snapshots := jobSnapshots(registry)
-	filtered := make([]tools.JobSnapshot, 0, len(snapshots))
+	stored, err := r.store.ListJobs(ctx, sessionID, options)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "list durable session jobs")
+	}
 
-	for _, snapshot := range snapshots {
-		if wanted != "" && snapshot.State != wanted {
-			continue
+	pageLimit, err := messagePageValueToAPI(stored.Limit, "job page limit")
+	if err != nil {
+		return nil, err
+	}
+	pageOffset, err := messagePageValueToAPI(stored.Offset, "job page offset")
+	if err != nil {
+		return nil, err
+	}
+
+	page := api.JobPage{
+		HasMore: stored.HasMore,
+		Jobs:    make([]api.Job, 0, len(stored.Items)),
+		Limit:   pageLimit,
+		Offset:  pageOffset,
+	}
+	for _, item := range stored.Items {
+		converted, convertErr := jobModelToAPI(item)
+		if convertErr != nil {
+			return nil, convertErr
 		}
 
-		filtered = append(filtered, snapshot)
-	}
-
-	page.Truncated = offset+limit < len(filtered)
-
-	for _, snapshot := range pageWindow(filtered, offset, limit) {
-		page.Jobs = append(page.Jobs, jobToAPI(snapshot))
+		page.Jobs = append(page.Jobs, converted)
 	}
 
 	return &page, nil
 }
 
-// ReadSessionJobOutput returns a bounded window of one job's output without
-// waiting for it to finish.
+// ReadSessionJobOutput replays immutable SQLite output in observed order.
 func (r *Runtime) ReadSessionJobOutput(
 	ctx context.Context,
 	sessionID uuid.UUID,
 	jobID uuid.UUID,
 	params api.ReadSessionJobOutputParams,
 ) (*api.JobOutput, error) {
-	job, err := r.sessionJob(ctx, sessionID, jobID)
+	options, err := jobOutputOptionsFromAPI(params)
 	if err != nil {
 		return nil, err
 	}
 
-	snapshot := job.Snapshot()
-	stream := jobStreamOrBoth(params.Stream)
-	maxLines := int32OrZero(params.MaxLines)
+	stored, err := r.store.ListJobOutput(ctx, sessionID, jobID, options)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "list durable job output")
+	}
+
+	state, err := jobStateToAPI(stored.Job.State)
+	if err != nil {
+		return nil, err
+	}
 
 	output := api.JobOutput{
-		JobId: snapshot.ID,
-		State: api.JobOutputState(snapshot.State),
+		HasMore:    stored.HasMore,
+		JobId:      stored.Job.ID,
+		Lines:      make([]api.JobOutputLine, 0, len(stored.Items)),
+		NextCursor: stored.NextCursor,
+		State:      api.JobOutputState(state),
 	}
+	for _, item := range stored.Items {
+		converted, convertErr := jobOutputLineModelToAPI(item)
+		if convertErr != nil {
+			return nil, convertErr
+		}
 
-	if stream == tools.JobStreamStdout || stream == tools.JobStreamBoth {
-		lines, next, dropped := job.ReadStdout(
-			int32OrZero(params.StdoutCursor),
-			maxLines,
-		)
-		output.Stdout = strings.Join(lines, jobOutputLineSeparator)
-		output.NextStdoutCursor = int32(next)      //nolint:gosec // Bounded.
-		output.StdoutDroppedLines = int32(dropped) //nolint:gosec // Bounded.
-	}
-
-	if stream == tools.JobStreamStderr || stream == tools.JobStreamBoth {
-		lines, next, dropped := job.ReadStderr(
-			int32OrZero(params.StderrCursor),
-			maxLines,
-		)
-		output.Stderr = strings.Join(lines, jobOutputLineSeparator)
-		output.NextStderrCursor = int32(next)      //nolint:gosec // Bounded.
-		output.StderrDroppedLines = int32(dropped) //nolint:gosec // Bounded.
+		output.Lines = append(output.Lines, converted)
 	}
 
 	return &output, nil
 }
 
-// SignalSessionJob stops one job. Signalling an unknown, exited, or already
-// signalled job is idempotent and reports the current state rather than
-// failing, matching POST /v1/session/cancel.
+// ListSessionJobSignalRequests reads every accepted and no-op signal request
+// from SQLite. This makes an old session inspectable after its processes have
+// exited or Peen has restarted.
+func (r *Runtime) ListSessionJobSignalRequests(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	jobID uuid.UUID,
+	params api.ListSessionJobSignalRequestsParams,
+) (*api.JobSignalRecordPage, error) {
+	limit, offset, err := pagingOptionsFromAPI(params.Limit, params.Offset)
+	if err != nil {
+		return nil, err
+	}
+
+	stored, err := r.store.ListJobSignalRequests(
+		ctx,
+		sessionID,
+		jobID,
+		session.ListJobSignalRequestsOptions{Limit: limit, Offset: offset},
+	)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "list durable job signal requests")
+	}
+
+	job, err := jobModelToAPI(stored.Job)
+	if err != nil {
+		return nil, err
+	}
+	pageLimit, err := messagePageValueToAPI(stored.Limit, "job signal page limit")
+	if err != nil {
+		return nil, err
+	}
+	pageOffset, err := messagePageValueToAPI(stored.Offset, "job signal page offset")
+	if err != nil {
+		return nil, err
+	}
+
+	page := api.JobSignalRecordPage{
+		HasMore:        stored.HasMore,
+		Job:            job,
+		Limit:          pageLimit,
+		Offset:         pageOffset,
+		SignalRequests: make([]api.JobSignalRecord, 0, len(stored.Items)),
+	}
+	for _, item := range stored.Items {
+		converted, convertErr := jobSignalRecordModelToAPI(item)
+		if convertErr != nil {
+			return nil, convertErr
+		}
+
+		page.SignalRequests = append(page.SignalRequests, converted)
+	}
+
+	return &page, nil
+}
+
+// SignalSessionJob stops a live process while preserving a durable record of
+// every accepted or no-op request. A process that is no longer live cannot be
+// signalled again, but its row and the no-op request remain inspectable.
 func (r *Runtime) SignalSessionJob(
 	ctx context.Context,
 	sessionID uuid.UUID,
 	jobID uuid.UUID,
 	request api.JobSignalRequest,
 ) (*api.JobSignalResponse, error) {
-	registry, err := r.existingSessionJobs(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
-
-	if registry == nil {
-		return nil, ctxerrors.Wrap(commerr.ErrNotFound, "job")
-	}
-
 	signal, err := jobSignalFromAPI(request.Signal)
 	if err != nil {
 		return nil, err
 	}
 
-	snapshot, found := registry.Signal(ctx, jobID, signal)
+	stored, err := r.store.GetJob(ctx, sessionID, jobID)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "get durable job for signal")
+	}
+
+	registry, err := r.existingSessionJobs(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if registry == nil {
+		return r.recordUnavailableJobSignal(ctx, stored, signal)
+	}
+
+	snapshot, found, signalErr := registry.SignalContext(ctx, jobID, signal)
+	if signalErr != nil {
+		return nil, ctxerrors.Wrap(signalErr, "dispatch job signal")
+	}
 	if !found {
-		return nil, ctxerrors.Wrap(commerr.ErrNotFound, "job")
+		return r.recordUnavailableJobSignal(ctx, stored, signal)
+	}
+
+	state, err := jobStateToAPI(models.JobState(snapshot.State))
+	if err != nil {
+		return nil, err
 	}
 
 	return &api.JobSignalResponse{
 		JobId:     snapshot.ID,
 		Signalled: snapshot.State == tools.JobStateRunning,
-		State:     api.JobSignalResponseState(snapshot.State),
+		State:     api.JobSignalResponseState(state),
+	}, nil
+}
+
+func (r *Runtime) recordUnavailableJobSignal(
+	ctx context.Context,
+	stored *models.Job,
+	signal tools.JobSignal,
+) (*api.JobSignalResponse, error) {
+	modelSignal, err := jobSignalToModel(signal)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := r.store.RecordJobSignal(
+		ctx,
+		stored.SessionID,
+		stored.ID,
+		session.RecordJobSignalInput{Signal: modelSignal, Accepted: false},
+	); err != nil {
+		return nil, ctxerrors.Wrap(err, "record unavailable job signal")
+	}
+
+	state, err := jobStateToAPI(stored.State)
+	if err != nil {
+		return nil, err
+	}
+
+	return &api.JobSignalResponse{
+		JobId:     stored.ID,
+		Signalled: false,
+		State:     api.JobSignalResponseState(state),
 	}, nil
 }
 
@@ -160,83 +251,154 @@ func (r *Runtime) existingSessionJobs(
 	return r.jobs[sessionID], nil
 }
 
-func (r *Runtime) sessionJob(
-	ctx context.Context,
-	sessionID uuid.UUID,
-	jobID uuid.UUID,
-) (*tools.Job, error) {
-	registry, err := r.existingSessionJobs(ctx, sessionID)
+func jobOutputOptionsFromAPI(
+	params api.ReadSessionJobOutputParams,
+) (session.ListJobOutputOptions, error) {
+	stream, err := jobOutputStreamFromAPI(params.Stream)
 	if err != nil {
-		return nil, err
+		return session.ListJobOutputOptions{}, err
 	}
 
-	if registry == nil {
-		return nil, ctxerrors.Wrap(commerr.ErrNotFound, "job")
+	limit := session.DefaultPageLimit
+	if params.Limit != nil {
+		limit = int(*params.Limit)
 	}
 
-	job, ok := registry.Get(jobID)
-	if !ok {
-		return nil, ctxerrors.Wrap(commerr.ErrNotFound, "job")
-	}
-
-	return job, nil
+	return session.ListJobOutputOptions{
+		Cursor: int64OrZero(params.Cursor),
+		Limit:  limit,
+		Stream: stream,
+	}, nil
 }
 
-// jobSnapshots returns every job newest first, so a caller sees what it just
-// started at the top.
-func jobSnapshots(registry *tools.JobRegistry) []tools.JobSnapshot {
-	jobs := registry.List()
-	snapshots := make([]tools.JobSnapshot, 0, len(jobs))
-
-	for _, job := range jobs {
-		snapshots = append(snapshots, job.Snapshot())
+func jobOutputStreamFromAPI(
+	stream *api.ReadSessionJobOutputParamsStream,
+) (*models.JobOutputStream, error) {
+	if stream == nil || *stream == api.ReadSessionJobOutputParamsStreamBoth {
+		return nil, nil
 	}
 
-	sort.Slice(snapshots, func(i, j int) bool {
-		return snapshots[i].StartedAt.After(snapshots[j].StartedAt)
-	})
-
-	return snapshots
+	switch *stream {
+	case api.ReadSessionJobOutputParamsStreamStdout:
+		return ptrutil.Of(models.JobOutputStreamStdout), nil
+	case api.ReadSessionJobOutputParamsStreamStderr:
+		return ptrutil.Of(models.JobOutputStreamStderr), nil
+	default:
+		return nil, ctxerrors.Wrap(commerr.ErrValidationFailed, "job output stream")
+	}
 }
 
-// jobToAPI converts one snapshot. Every int32 narrowing here is of a bounded
-// counter or a PID, none of which can exceed int32 in practice.
-//
-//nolint:gosec // See above: bounded counters and a PID.
-func jobToAPI(snapshot tools.JobSnapshot) api.Job {
-	job := api.Job{
-		JobId:               snapshot.ID,
-		Pid:                 int32(snapshot.PID),
-		Purpose:             snapshot.Purpose,
-		Command:             snapshot.Command,
-		Directory:           snapshot.Directory,
-		State:               api.JobState(snapshot.State),
-		StartedAt:           snapshot.StartedAt,
-		ExitCode:            int32(snapshot.ExitCode),
-		StdoutBufferedLines: int32(snapshot.StdoutBufferedLines),
-		StdoutDroppedLines:  int32(snapshot.StdoutDroppedLines),
-		StderrBufferedLines: int32(snapshot.StderrBufferedLines),
-		StderrDroppedLines:  int32(snapshot.StderrDroppedLines),
+func jobModelToAPI(stored *models.Job) (api.Job, error) {
+	if stored == nil {
+		return api.Job{}, ctxerrors.Wrap(commerr.ErrInvalidState, "nil durable job")
 	}
 
-	if snapshot.ToolCallID != "" {
-		job.ToolCallId = &snapshot.ToolCallID
+	state, err := jobStateToAPI(stored.State)
+	if err != nil {
+		return api.Job{}, err
 	}
 
-	if !snapshot.EndedAt.IsZero() {
-		ended := snapshot.EndedAt
-		job.EndedAt = &ended
+	result := api.Job{
+		Command:       stored.Command,
+		Directory:     stored.Directory,
+		EndedAt:       stored.EndedAt,
+		ExitCode:      stored.ExitCode,
+		FailureDetail: stored.FailureDetail,
+		JobId:         stored.ID,
+		Pid:           stored.PID,
+		Purpose:       stored.Purpose,
+		SessionId:     stored.SessionID,
+		StartedAt:     stored.StartedAt,
+		State:         state,
+		TurnId:        stored.TurnID,
+	}
+	if stored.ToolCallID != "" {
+		result.ToolCallId = &stored.ToolCallID
 	}
 
-	return job
+	return result, nil
 }
 
-func jobStreamOrBoth(stream *api.ReadSessionJobOutputParamsStream) string {
-	if stream == nil {
-		return tools.JobStreamBoth
+func jobOutputLineModelToAPI(
+	stored *models.JobOutputLine,
+) (api.JobOutputLine, error) {
+	if stored == nil {
+		return api.JobOutputLine{}, ctxerrors.Wrap(
+			commerr.ErrInvalidState,
+			"nil durable job output line",
+		)
 	}
 
-	return string(*stream)
+	stream, err := jobOutputLineStreamToAPI(stored.Stream)
+	if err != nil {
+		return api.JobOutputLine{}, err
+	}
+
+	return api.JobOutputLine{
+		Content:   stored.Content,
+		CreatedAt: stored.CreatedAt,
+		Id:        stored.ID,
+		JobId:     stored.JobID,
+		Sequence:  stored.Sequence,
+		SessionId: stored.SessionID,
+		Stream:    stream,
+	}, nil
+}
+
+func jobSignalRecordModelToAPI(
+	stored *models.JobSignalRequest,
+) (api.JobSignalRecord, error) {
+	if stored == nil {
+		return api.JobSignalRecord{}, ctxerrors.Wrap(
+			commerr.ErrInvalidState,
+			"nil durable job signal request",
+		)
+	}
+
+	state, err := jobStateToAPI(stored.StateAtRequest)
+	if err != nil {
+		return api.JobSignalRecord{}, err
+	}
+
+	return api.JobSignalRecord{
+		Accepted:       stored.Accepted,
+		Id:             stored.ID,
+		JobId:          stored.JobID,
+		RequestedAt:    stored.RequestedAt,
+		SessionId:      stored.SessionID,
+		Signal:         api.JobSignalRecordSignal(stored.Signal),
+		StateAtRequest: api.JobSignalRecordStateAtRequest(state),
+	}, nil
+}
+
+func jobStateToAPI(state models.JobState) (api.JobState, error) {
+	switch state {
+	case models.JobStateRunning:
+		return api.JobStateRunning, nil
+	case models.JobStateExited:
+		return api.JobStateExited, nil
+	case models.JobStateSignalled:
+		return api.JobStateSignalled, nil
+	case models.JobStateFailed:
+		return api.JobStateFailed, nil
+	case models.JobStateInterrupted:
+		return api.JobStateInterrupted, nil
+	default:
+		return "", ctxerrors.Wrapf(commerr.ErrInvalidState, "job state %q", state)
+	}
+}
+
+func jobOutputLineStreamToAPI(
+	stream models.JobOutputStream,
+) (api.JobOutputLineStream, error) {
+	switch stream {
+	case models.JobOutputStreamStdout:
+		return api.JobOutputLineStreamStdout, nil
+	case models.JobOutputStreamStderr:
+		return api.JobOutputLineStreamStderr, nil
+	default:
+		return "", ctxerrors.Wrapf(commerr.ErrInvalidState, "job output stream %q", stream)
+	}
 }
 
 func int32OrZero(value *int32) int {
@@ -245,6 +407,14 @@ func int32OrZero(value *int32) int {
 	}
 
 	return int(*value)
+}
+
+func int64OrZero(value *int64) int64 {
+	if value == nil {
+		return 0
+	}
+
+	return *value
 }
 
 // pagingOptionsFromAPI resolves bounded limit/offset from optional query
@@ -270,27 +440,21 @@ func pagingOptionsFromAPI(limit, offset *int32) (int, int, error) {
 	return resolvedLimit, resolvedOffset, nil
 }
 
-// pageWindow returns the bounded slice of items starting at offset for at
-// most limit entries. An offset at or past the end returns an empty slice
-// rather than panicking.
 func pageWindow[T any](items []T, offset, limit int) []T {
 	if offset >= len(items) {
 		return nil
 	}
 
-	end := min(offset+limit, len(items))
-
-	return items[offset:end]
+	return items[offset:min(offset+limit, len(items))]
 }
 
-func jobSignalFromAPI(signal api.JobSignalRequestSignal) (string, error) {
-	switch string(signal) {
-	case tools.JobSignalStop, tools.JobSignalKill:
-		return string(signal), nil
+func jobSignalFromAPI(signal api.JobSignalRequestSignal) (tools.JobSignal, error) {
+	switch signal {
+	case api.JobSignalRequestSignalStop:
+		return tools.JobSignalStop, nil
+	case api.JobSignalRequestSignalKill:
+		return tools.JobSignalKill, nil
 	default:
-		return "", ctxerrors.Wrap(
-			commerr.ErrValidationFailed,
-			"unknown job signal",
-		)
+		return "", ctxerrors.Wrap(commerr.ErrValidationFailed, "job signal")
 	}
 }

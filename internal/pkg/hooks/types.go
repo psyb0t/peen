@@ -20,10 +20,9 @@ const (
 	hookFailureEventSource = "hooks"
 )
 
-// EventPublisher is the bounded session event dependency used by emit_event.
-type EventPublisher interface {
-	Publish(events.Notice) (events.Notice, error)
-}
+// EventPublisher publishes hook notices through the runtime's durable event
+// path when the host wires one.
+type EventPublisher = events.Publisher
 
 // CommandInput is the fully structured event a command action receives on
 // stdin. Arguments are passed directly without a shell.

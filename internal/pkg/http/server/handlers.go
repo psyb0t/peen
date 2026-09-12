@@ -89,22 +89,26 @@ func (s *Server) CancelSession(
 	}, nil
 }
 
-// ListSessionEvents reports what is waiting without consuming it.
+// ListSessionEvents returns durable protocol history without consuming it.
 //
 //nolint:ireturn // Generated strict handler response interface.
 func (s *Server) ListSessionEvents(
 	ctx context.Context,
 	request api.ListSessionEventsRequestObject,
 ) (api.ListSessionEventsResponseObject, error) {
-	page, err := s.deps.Runtime.ListSessionEvents(
-		ctx,
-		request.Params.XSessionID,
-	)
+	page, err := s.deps.Runtime.ListSessionEvents(ctx, request.Params)
 	if err != nil {
 		if errors.Is(err, commerr.ErrNotFound) {
 			return api.ListSessionEvents404JSONResponse{
 				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
 					notFoundError(),
+				),
+			}, nil
+		}
+		if errors.Is(err, commerr.ErrValidationFailed) {
+			return api.ListSessionEvents400JSONResponse{
+				ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(
+					validationError(clientMessage(err)),
 				),
 			}, nil
 		}
@@ -121,46 +125,82 @@ func (s *Server) ListSessionEvents(
 	}, nil
 }
 
-// PublishSessionEvent records an outside report against a session.
+// ListSessionNotices returns durable notice history without consuming it.
 //
 //nolint:ireturn // Generated strict handler response interface.
-func (s *Server) PublishSessionEvent(
+func (s *Server) ListSessionNotices(
 	ctx context.Context,
-	request api.PublishSessionEventRequestObject,
-) (api.PublishSessionEventResponseObject, error) {
-	if request.Body == nil {
-		return publishSessionEventBadRequest(invalidJSONBodyMessage), nil
-	}
-
-	published, err := s.deps.Runtime.PublishSessionEvent(
-		ctx,
-		request.Params.XSessionID,
-		*request.Body,
-	)
+	request api.ListSessionNoticesRequestObject,
+) (api.ListSessionNoticesResponseObject, error) {
+	page, err := s.deps.Runtime.ListSessionNotices(ctx, request.Params)
 	if err != nil {
-		return s.publishSessionEventFailure(err)
+		if errors.Is(err, commerr.ErrNotFound) {
+			return api.ListSessionNotices404JSONResponse{
+				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
+					notFoundError(),
+				),
+			}, nil
+		}
+		if errors.Is(err, commerr.ErrValidationFailed) {
+			return api.ListSessionNotices400JSONResponse{
+				ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(
+					validationError(clientMessage(err)),
+				),
+			}, nil
+		}
+
+		return nil, ctxerrors.Wrap(err, "list session notices")
 	}
 
-	return api.PublishSessionEvent202JSONResponse{
-		Body: *published,
-		Headers: api.PublishSessionEvent202ResponseHeaders{
+	return api.ListSessionNotices200JSONResponse{
+		Body: *page,
+		Headers: api.ListSessionNotices200ResponseHeaders{
 			XRequestID: requestID(ctx),
 			XSessionID: request.Params.XSessionID,
 		},
 	}, nil
 }
 
-// publishSessionEventFailure maps the runtime's typed failures onto the
+// PublishSessionNotice records an outside report against a session.
+//
+//nolint:ireturn // Generated strict handler response interface.
+func (s *Server) PublishSessionNotice(
+	ctx context.Context,
+	request api.PublishSessionNoticeRequestObject,
+) (api.PublishSessionNoticeResponseObject, error) {
+	if request.Body == nil {
+		return publishSessionNoticeBadRequest(invalidJSONBodyMessage), nil
+	}
+
+	published, err := s.deps.Runtime.PublishSessionNotice(
+		ctx,
+		request.Params.XSessionID,
+		*request.Body,
+	)
+	if err != nil {
+		return s.publishSessionNoticeFailure(err)
+	}
+
+	return api.PublishSessionNotice202JSONResponse{
+		Body: *published,
+		Headers: api.PublishSessionNotice202ResponseHeaders{
+			XRequestID: requestID(ctx),
+			XSessionID: request.Params.XSessionID,
+		},
+	}, nil
+}
+
+// publishSessionNoticeFailure maps the runtime's typed failures onto the
 // documented statuses. A malformed or reserved type is the caller's mistake,
 // not a server fault.
 //
 //nolint:ireturn // Generated strict handler response interface.
-func (s *Server) publishSessionEventFailure(
+func (s *Server) publishSessionNoticeFailure(
 	err error,
-) (api.PublishSessionEventResponseObject, error) {
+) (api.PublishSessionNoticeResponseObject, error) {
 	switch {
 	case errors.Is(err, commerr.ErrNotFound):
-		return api.PublishSessionEvent404JSONResponse{
+		return api.PublishSessionNotice404JSONResponse{
 			ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
 				notFoundError(),
 			),
@@ -169,16 +209,16 @@ func (s *Server) publishSessionEventFailure(
 		errors.Is(err, events.ErrReservedType),
 		errors.Is(err, events.ErrInvalidDelivery),
 		errors.Is(err, commerr.ErrValidationFailed):
-		return publishSessionEventBadRequest(clientMessage(err)), nil
+		return publishSessionNoticeBadRequest(clientMessage(err)), nil
 	default:
-		return nil, ctxerrors.Wrap(err, "publish session event")
+		return nil, ctxerrors.Wrap(err, "publish session notice")
 	}
 }
 
-func publishSessionEventBadRequest(
+func publishSessionNoticeBadRequest(
 	message string,
-) api.PublishSessionEvent400JSONResponse {
-	return api.PublishSessionEvent400JSONResponse{
+) api.PublishSessionNotice400JSONResponse {
+	return api.PublishSessionNotice400JSONResponse{
 		ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(
 			validationError(message),
 		),

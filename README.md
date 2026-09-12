@@ -11,9 +11,10 @@ alive after the first response. Connect a client over WebSocket, give it a
 task, and it can read code, edit files, run commands, use skills, launch child
 agents, and follow the rules sitting beside the project.
 
-Every conversation, tool call, and agent event lands in SQLite. Reconnect with
-the same session ID after a restart and the history is still there. Open two
-clients on that session and both see the same live event stream.
+Every conversation, tool call, agent event, context snapshot, compaction, and
+provider exchange lands in SQLite. Reconnect with the same session ID after a
+restart and the history is still there. Open two clients on that session and
+both see the same live event stream.
 
 Peen is the backend and harness. It does not ship a browser chat UI. Bring a
 browser client, terminal client, bot, or your own application.
@@ -162,8 +163,10 @@ curl -X POST "http://localhost:8080/v1/session/cancel" \
   -H "X-Session-ID: <session-id>"
 ```
 
-REST also lists session state, pending events, process output, and child-agent
-runs. [The API reference](docs/http-api.md) has every request and response.
+REST also lists session state, durable protocol events, outside notices,
+process output, child-agent runs, compaction history, and every model request
+and response. [The API reference](docs/http-api.md) has every request and
+response.
 
 ## Things worth knowing
 

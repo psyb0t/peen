@@ -1037,6 +1037,7 @@ github.com/psyb0t/commander
 github.com/psyb0t/common-go/db
 github.com/psyb0t/common-go/db/sqlite
 github.com/psyb0t/common-go/errors
+github.com/psyb0t/common-go/utils/ptrutil
 # github.com/psyb0t/ctxerrors v0.7.1
 ## explicit; go 1.26
 github.com/psyb0t/ctxerrors

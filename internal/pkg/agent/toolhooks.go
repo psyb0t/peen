@@ -111,7 +111,7 @@ func (r *Runtime) newToolHookRuntime(
 		r.enableWorkspaceHooks,
 		r.hookCommandTimeout,
 		r.maxHookCommandOutput,
-		r.eventBus,
+		r.durableEventPublisher(),
 		prepared.hookContextTokens,
 		modelTokenCounter(prepared.model),
 	)
@@ -135,7 +135,7 @@ func (r *Runtime) appendPreUserHookContext(
 		EnableWorkspaceHooks: r.enableWorkspaceHooks,
 		CommandTimeout:       r.hookCommandTimeout,
 		MaxCommandOutput:     r.maxHookCommandOutput,
-		Publisher:            r.eventBus,
+		Publisher:            r.durableEventPublisher(),
 	})
 	if err != nil {
 		return "", ctxerrors.Wrap(err, "create pre-user-message hook runner")

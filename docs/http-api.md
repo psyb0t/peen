@@ -109,6 +109,7 @@ Lists stored conversation messages for one existing session.
       "toolCallId": null,
       "isError": false,
       "incomplete": false,
+      "compactionId": null,
       "createdAt": "..."
     }
   ],
@@ -120,6 +121,67 @@ Lists stored conversation messages for one existing session.
 
 `role` is `user`, `assistant`, or `tool`. Internal harness records (context
 changes, resolved prompts) are not messages and never appear here.
+
+`compactionId` is present when that message is directly represented by a
+stored compaction. It is never rewritten when a later compaction includes the
+earlier summary.
+
+## GET /v1/session/turns
+
+Lists durable turn lifecycles, newest first. `X-Session-ID` is required.
+Query parameters are `limit` and `offset`. Each turn includes its request ID,
+workspace, state, cancellation flag, timestamps, failure classification, and
+the optional context and prompt snapshot hashes used for that turn.
+
+## GET /v1/session/context-snapshots/{contextHash}
+
+Reads the exact resolved context identified by a turn's `contextSnapshotHash`.
+`X-Session-ID` is required. The response includes the hash, creation time,
+resolved content, and manifest. A hash belonging to another session returns
+`404`.
+
+## GET /v1/session/prompt-snapshots/{promptHash}
+
+Reads the exact effective system prompt identified by a turn's
+`promptSnapshotHash`. `X-Session-ID` is required. A hash belonging to another
+session returns `404`.
+
+## GET /v1/session/compactions
+
+Lists immutable compaction records, newest first. `X-Session-ID` is required.
+Query parameters are `limit` and `offset`.
+
+Each record has the exact source message range, summary, model, prompt hash,
+token counts, and optional `parentCompactionId`. The parent link forms a tree:
+when a later summary includes an earlier summary plus new raw messages, the
+later record points at the earlier one. Existing messages keep their original
+`compactionId`. Follow parent IDs to rebuild the whole lineage.
+
+## GET /v1/session/compactions/{compactionId}
+
+Reads one immutable compaction record. `X-Session-ID` is required. The record
+includes its direct source range and optional `parentCompactionId`, so a client
+can retrieve any point in the lineage without inferring it from message order.
+
+## GET /v1/session/model-runs
+
+Lists each logical provider invocation recorded for the session. `X-Session-ID`
+is required. Query parameters are `limit`, `offset`, optional `stage`
+(`turn`, `child`, or `compaction`), and optional terminal or running `state`.
+
+A model run stores the requested and returned model identity, connection name,
+effective non-secret settings, text and thinking output, response messages and
+injections, provider usage, every cost amount, timing, and failure details.
+`agentRunId` identifies the child-agent run when a child made the call.
+
+## GET /v1/session/model-runs/{modelRunId}/calls
+
+Lists the exact provider rounds belonging to one model run. `X-Session-ID` is
+required. Query parameters are `limit` and `offset`. The response includes the
+owning model run and each round's request messages, provider-visible tool
+definitions, response message, usage, retry attempts, token categories, cost
+amounts, model identity, timing, and failure details. A model run ID from
+another session returns `404`.
 
 ## GET /v1/session
 
@@ -154,17 +216,26 @@ signalled it. The endpoint does not wait for the turn to unwind.
 
 ## GET /v1/session/events
 
-Lists the session's pending events without consuming them. `X-Session-ID` is
-required.
+Lists durable protocol events recorded while Peen handled the session.
+`X-Session-ID` is required. Query parameters are `limit`, `offset`, and
+`order` (`asc` or `desc`).
 
 ```json
-{"events": [{"id": "uuid", "type": "app.error", "source": "...", "summary": "...", "data": {}, "delivery": "queue", "createdAt": "..."}], "dropped": 0}
+{"events": [{"id": "uuid", "sessionId": "uuid", "turnId": "uuid", "sequence": 1, "requestId": "uuid", "type": "tool_call", "payload": {}, "parentToolCallId": null, "createdAt": "..."}], "limit": 50, "offset": 0, "hasMore": false}
 ```
 
-## POST /v1/session/events
+These are transcript protocol records, not a queue. Listing never consumes or
+alters them.
 
-Reports an event to the session from outside Peen (a webhook, a CI run, an
-operator). `X-Session-ID` is required.
+## GET /v1/session/notices
+
+Lists durable notices received from outside Peen or emitted by its workers.
+`X-Session-ID` is required. Query parameters are `limit` and `offset`.
+
+## POST /v1/session/notices
+
+Records a notice from outside Peen, such as a webhook, CI run, or operator.
+`X-Session-ID` is required.
 
 ```json
 {"type": "app.error", "summary": "one line", "data": {}, "delivery": "queue"}
@@ -172,31 +243,40 @@ operator). `X-Session-ID` is required.
 
 `type` is a lowercase dotted name up to 128 characters. The `job.` and
 `agent.` prefixes are reserved for Peen's own producers and are rejected here.
-`delivery` is `queue` (default: delivered at the next turn or tool boundary)
+`delivery` is `queue` (default, delivered at the next turn or tool boundary)
 or `wake` (starts a turn immediately if the session is idle and
-`.agents/events/<type>.md` declares a handler; otherwise degrades to `queue`).
-Event content is untrusted: it reaches the model quoted as data, never merged
-into the system prompt.
+`.agents/events/<type>.md` declares a handler; otherwise becomes `queue`).
+Notice content is untrusted. Peen quotes it as data for the model and never
+merges it into the system prompt.
 
 ## GET /v1/session/jobs
 
 Lists the session's process jobs, newest first. `X-Session-ID` is required.
 Query parameters: `limit`, `offset`, and an optional `state` filter
-(`running`, `exited`, `signalled`, `failed`).
+(`running`, `exited`, `signalled`, `failed`, `interrupted`).
 
-Each entry: `jobId`, `pid`, `purpose`, `command`, `directory`, `toolCallId`,
-`state`, `startedAt`, `endedAt`, `exitCode` (`-1` while unknown),
-`stdoutBufferedLines`, `stdoutDroppedLines`, `stderrBufferedLines`,
-`stderrDroppedLines`.
+Each entry is the full durable job row: `jobId`, `sessionId`, `turnId`, `pid`,
+`purpose`, `command`, `directory`, optional `toolCallId`, `state`,
+`startedAt`, optional `endedAt`, `exitCode` (`-1` while unknown), and
+`failureDetail`. The live ring buffers are not this API's source of truth.
 
 ## GET /v1/session/jobs/{jobId}/output
 
 Reads a bounded window of one job's output without waiting for it to finish.
 `X-Session-ID` is required. Query parameters: `stream` (`stdout`, `stderr`,
-or `both`, default `both`), `stdoutCursor`, `stderrCursor` (both default 0),
-`maxLines` (1-2000, default 500). The response reports `nextStdoutCursor` and
-`nextStderrCursor` to continue from, plus how many lines were dropped before
-this window because the job's ring buffer filled.
+or `both`, default `both`), `cursor` (default 0), and `limit` (1-200, default
+50). The response contains ordered immutable `lines`; each has its database
+row ID, `sessionId`, `jobId`, shared `sequence`, stream, content, and creation
+time. Use `nextCursor` to continue. With `stream=both`, sequence preserves the
+observed stdout and stderr ordering. Output comes from SQLite, so reconnecting
+clients see the same lines even after the live ring buffer is gone.
+
+## GET /v1/session/jobs/{jobId}/signals
+
+Lists every request to stop one job, oldest first. `X-Session-ID` is required.
+Query parameters are `limit` and `offset`. The response includes the full job
+row plus immutable signal records: their IDs, session and job IDs, requested
+signal, whether it reached a live process, state at the time, and timestamp.
 
 ## POST /v1/session/jobs/{jobId}/signal
 
@@ -207,9 +287,9 @@ Stops one job. `X-Session-ID` is required.
 ```
 
 `stop` sends `SIGTERM` to the job's process group, then escalates to
-`SIGKILL`; `kill` goes straight to `SIGKILL`. Idempotent: signalling an
-unknown, exited, or already-signalled job reports `signalled: false` with the
-current state rather than failing.
+`SIGKILL`; `kill` goes straight to `SIGKILL`. A request against an existing
+job that no longer has a live process is a durable no-op with
+`signalled: false`. An unknown job returns `404`.
 
 ## GET /v1/session/agents
 
@@ -217,17 +297,25 @@ Lists the session's child agent runs, newest first. `X-Session-ID` is
 required. Query parameters: `limit`, `offset`, and an optional `state` filter
 (`running`, `completed`, `failed`, `cancelled`).
 
-Each entry: `agentRunId`, `name`, `definition` (`stored` or `adhoc`),
-`parentToolCallId`, `depth`, `state`, `startedAt`, `endedAt`,
-`eventBufferedCount`, `eventDroppedCount`.
+Each entry is a full durable run record: root and parent IDs, task, effective
+instructions, allowed tools, system prompt, workspace and model identity,
+event count, state and cancellation flag, final text, thinking, response
+messages, token counts, failure details, and timestamps. `definition` is
+`stored` or `ad-hoc`.
 
-## GET /v1/session/agents/{agentRunId}/messages
+## GET /v1/session/agents/{agentRunId}
+
+Reads one durable child agent run. `X-Session-ID` is required. The record
+includes its parent tool call, depth, model response, token counts, failure
+details, and start and end times.
+
+## GET /v1/session/agents/{agentRunId}/events
 
 Follows one child agent run's events. `X-Session-ID` is required. Query
-parameters: `cursor` (default 0) and `limit` (1-500, default 100).
+parameters: `cursor` (default 0) and `limit` (1-200, default 100).
 
 ```json
-{"agentRunId": "uuid", "state": "running", "events": [{"sequence": 1, "type": "...", "payload": {}, "createdAt": "..."}], "nextCursor": 1, "dropped": 0}
+{"agentRunId": "uuid", "state": "running", "events": [{"sequence": 1, "type": "...", "payload": {}, "createdAt": "..."}], "nextCursor": 1, "hasMore": false}
 ```
 
 A run ID belonging to another session returns `404`, the same as an unknown

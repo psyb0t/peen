@@ -27,6 +27,10 @@ func jobSignalPath(jobID uuid.UUID) string {
 	return apiBaseURL + "/session/jobs/" + jobID.String() + "/signal"
 }
 
+func jobSignalsPath(jobID uuid.UUID) string {
+	return apiBaseURL + "/session/jobs/" + jobID.String() + "/signals"
+}
+
 func TestServerSessionJobEndpoints(t *testing.T) {
 	sessionID := uuid.New()
 	jobID := uuid.New()
@@ -103,7 +107,14 @@ func TestServerSessionJobEndpoints(t *testing.T) {
 		{
 			name:       "reads job output with a cursor",
 			method:     http.MethodGet,
-			path:       jobOutputPath(jobID) + "?stdoutCursor=12&stream=stdout",
+			path:       jobOutputPath(jobID) + "?cursor=12&stream=stdout",
+			runtime:    &testRuntime{sessionID: sessionID},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "reads durable job signal history",
+			method:     http.MethodGet,
+			path:       jobSignalsPath(jobID) + "?limit=10&offset=5",
 			runtime:    &testRuntime{sessionID: sessionID},
 			wantStatus: http.StatusOK,
 		},
@@ -125,6 +136,17 @@ func TestServerSessionJobEndpoints(t *testing.T) {
 			name:   "reads an unknown job",
 			method: http.MethodGet,
 			path:   jobOutputPath(jobID),
+			runtime: &testRuntime{
+				sessionID: sessionID,
+				jobsErr:   commerr.ErrNotFound,
+			},
+			wantStatus: http.StatusNotFound,
+			wantCode:   aichteeteapee.ErrorCodeNotFound,
+		},
+		{
+			name:   "reads signal history for an unknown job",
+			method: http.MethodGet,
+			path:   jobSignalsPath(jobID),
 			runtime: &testRuntime{
 				sessionID: sessionID,
 				jobsErr:   commerr.ErrNotFound,
@@ -230,6 +252,11 @@ func TestServerSessionJobEndpointsRequireTheBearerToken(t *testing.T) {
 			method: http.MethodPost,
 			path:   jobSignalPath(jobID),
 			body:   validSignalBody,
+		},
+		{
+			name:   "list signal history",
+			method: http.MethodGet,
+			path:   jobSignalsPath(jobID),
 		},
 	}
 

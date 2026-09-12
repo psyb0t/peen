@@ -4,6 +4,28 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.4.0 (2026-09-12)
+
+Peen now records the complete session trace in SQLite and exposes it through
+the REST API. A reconnecting client can inspect the same work, including what
+providers, hooks, tools, jobs, compactions, and child agents did.
+
+- Breaking: outside producers now post notices to
+  `POST /v1/session/notices`. `GET /v1/session/events` is the durable protocol
+  transcript. Clients that followed a child agent now use
+  `GET /v1/session/agents/{agentRunId}/events`.
+- Adds durable child-agent runs, events, final results, independent
+  cancellation, process jobs and output, notices, prompt snapshots, and
+  context snapshots.
+- Stores complete model-run and provider-round records, including model and
+  connection identity, non-secret settings, messages, thinking, tool
+  definitions, retries, token categories, usage, costs, timing, and failures.
+- Adds compaction replay. A message keeps its direct `compactionId` forever.
+  Later summaries point to the earlier compaction, preserving the full
+  lineage without overwriting older links.
+- Removes the JSONL agent transcript mirror. SQLite is the only durable replay
+  store.
+
 ## v0.3.2 (2026-09-11)
 
 Fixes CI delivery and makes the production integration harness wait for the

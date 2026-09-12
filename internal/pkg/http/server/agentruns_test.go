@@ -17,7 +17,7 @@ func agentRunsPath() string {
 }
 
 func agentRunEventsPath(runID uuid.UUID) string {
-	return agentRunsPath() + "/" + runID.String() + "/messages"
+	return agentRunsPath() + "/" + runID.String() + "/events"
 }
 
 func agentRunCancelPath(runID uuid.UUID) string {
@@ -107,7 +107,7 @@ func TestServerSessionAgentRunEndpoints(t *testing.T) {
 		{
 			name:       "rejects a malformed agent run id",
 			method:     http.MethodGet,
-			path:       agentRunsPath() + "/not-a-uuid/messages",
+			path:       agentRunsPath() + "/not-a-uuid/events",
 			runtime:    &testRuntime{sessionID: sessionID},
 			wantStatus: http.StatusBadRequest,
 		},

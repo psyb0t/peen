@@ -29,6 +29,13 @@ func (s *Server) ListSessionJobs(
 				),
 			}, nil
 		}
+		if errors.Is(err, commerr.ErrValidationFailed) {
+			return api.ListSessionJobs400JSONResponse{
+				ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(
+					validationError(clientMessage(err)),
+				),
+			}, nil
+		}
 
 		return nil, ctxerrors.Wrap(err, "list session jobs")
 	}
@@ -63,6 +70,13 @@ func (s *Server) ReadSessionJobOutput(
 				),
 			}, nil
 		}
+		if errors.Is(err, commerr.ErrValidationFailed) {
+			return api.ReadSessionJobOutput400JSONResponse{
+				ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(
+					validationError(clientMessage(err)),
+				),
+			}, nil
+		}
 
 		return nil, ctxerrors.Wrap(err, "read session job output")
 	}
@@ -70,6 +84,48 @@ func (s *Server) ReadSessionJobOutput(
 	return api.ReadSessionJobOutput200JSONResponse{
 		Body: *output,
 		Headers: api.ReadSessionJobOutput200ResponseHeaders{
+			XRequestID: requestID(ctx),
+			XSessionID: request.Params.XSessionID,
+		},
+	}, nil
+}
+
+// ListSessionJobSignalRequests returns the durable signal-request history for
+// one process job.
+//
+//nolint:ireturn // Generated strict handler response interface.
+func (s *Server) ListSessionJobSignalRequests(
+	ctx context.Context,
+	request api.ListSessionJobSignalRequestsRequestObject,
+) (api.ListSessionJobSignalRequestsResponseObject, error) {
+	page, err := s.deps.Runtime.ListSessionJobSignalRequests(
+		ctx,
+		request.Params.XSessionID,
+		request.JobId,
+		request.Params,
+	)
+	if err != nil {
+		if errors.Is(err, commerr.ErrNotFound) {
+			return api.ListSessionJobSignalRequests404JSONResponse{
+				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
+					notFoundError(),
+				),
+			}, nil
+		}
+		if errors.Is(err, commerr.ErrValidationFailed) {
+			return api.ListSessionJobSignalRequests400JSONResponse{
+				ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(
+					validationError(clientMessage(err)),
+				),
+			}, nil
+		}
+
+		return nil, ctxerrors.Wrap(err, "list session job signal requests")
+	}
+
+	return api.ListSessionJobSignalRequests200JSONResponse{
+		Body: *page,
+		Headers: api.ListSessionJobSignalRequests200ResponseHeaders{
 			XRequestID: requestID(ctx),
 			XSessionID: request.Params.XSessionID,
 		},

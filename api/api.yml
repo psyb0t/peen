@@ -2,7 +2,7 @@ openapi: 3.1.0
 info:
   title: Peen API
   version: 1.0.0
-  description: Stateful agent sessions with durable JSON reads and WebSocket turns.
+  description: Stateful agent sessions with durable SQLite reads and WebSocket turns.
 servers:
   - url: /v1
 security:
@@ -93,12 +93,15 @@ paths:
   /session/events:
     get:
       operationId: listSessionEvents
-      summary: List the session's pending events
+      summary: List durable protocol events
       parameters:
         - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+        - $ref: '#/components/parameters/Order'
       responses:
         '200':
-          description: Pending events
+          description: Durable protocol event page
           headers:
             X-Session-ID:
               $ref: '#/components/headers/SessionID'
@@ -107,7 +110,35 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SessionEventPage'
+                $ref: '#/components/schemas/TranscriptEventPage'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/notices:
+    get:
+      operationId: listSessionNotices
+      summary: List durable outside and worker notices
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Notice page
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionNoticePage'
         '400':
           $ref: '#/components/responses/ErrorBadRequest'
         '401':
@@ -117,8 +148,8 @@ paths:
         '500':
           $ref: '#/components/responses/ErrorInternal'
     post:
-      operationId: publishSessionEvent
-      summary: Report an event to the session from outside
+      operationId: publishSessionNotice
+      summary: Report a durable notice to the session
       parameters:
         - $ref: '#/components/parameters/SessionIDRequired'
       requestBody:
@@ -126,10 +157,10 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SessionEventRequest'
+              $ref: '#/components/schemas/SessionNoticeRequest'
       responses:
         '202':
-          description: Event accepted
+          description: Notice accepted
           headers:
             X-Session-ID:
               $ref: '#/components/headers/SessionID'
@@ -138,7 +169,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/SessionEvent'
+                $ref: '#/components/schemas/SessionNotice'
         '400':
           $ref: '#/components/responses/ErrorBadRequest'
         '401':
@@ -160,7 +191,7 @@ paths:
           required: false
           schema:
             type: string
-            enum: [running, exited, signalled, failed]
+            enum: [running, exited, signalled, failed, interrupted]
       responses:
         '200':
           description: Process jobs
@@ -195,23 +226,15 @@ paths:
             type: string
             enum: [stdout, stderr, both]
             default: both
-        - name: stdoutCursor
+        - name: cursor
           in: query
           required: false
           schema:
             type: integer
-            format: int32
+            format: int64
             minimum: 0
             default: 0
-        - name: stderrCursor
-          in: query
-          required: false
-          schema:
-            type: integer
-            format: int32
-            minimum: 0
-            default: 0
-        - name: maxLines
+        - name: limit
           in: query
           required: false
           schema:
@@ -232,6 +255,35 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JobOutput'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/jobs/{jobId}/signals:
+    get:
+      operationId: listSessionJobSignalRequests
+      summary: List the durable signal-request history for one job
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/JobID'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Job signal-request page
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobSignalRecordPage'
         '400':
           $ref: '#/components/responses/ErrorBadRequest'
         '401':
@@ -307,7 +359,240 @@ paths:
           $ref: '#/components/responses/ErrorNotFound'
         '500':
           $ref: '#/components/responses/ErrorInternal'
-  /session/agents/{agentRunId}/messages:
+  /session/turns:
+    get:
+      operationId: listSessionTurns
+      summary: List durable turns
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Turn page
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TurnPage'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/compactions:
+    get:
+      operationId: listSessionCompactions
+      summary: List durable compaction records
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Compaction page
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompactionPage'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/compactions/{compactionId}:
+    get:
+      operationId: getSessionCompaction
+      summary: Read one durable compaction record
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/CompactionID'
+      responses:
+        '200':
+          description: Compaction record
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Compaction'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/model-runs:
+    get:
+      operationId: listSessionModelRuns
+      summary: List complete durable model invocations
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+        - name: stage
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [turn, child, compaction]
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [running, completed, failed, cancelled, interrupted]
+      responses:
+        '200':
+          description: Model invocation page
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelRunPage'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/model-runs/{modelRunId}/calls:
+    get:
+      operationId: listSessionModelRunCalls
+      summary: Read every provider round for one model invocation
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/ModelRunID'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Provider round page
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelCallPage'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/context-snapshots/{contextHash}:
+    get:
+      operationId: getSessionContextSnapshot
+      summary: Read a context snapshot referenced by this session
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/ContextHash'
+      responses:
+        '200':
+          description: Context snapshot
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContextSnapshot'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/prompt-snapshots/{promptHash}:
+    get:
+      operationId: getSessionPromptSnapshot
+      summary: Read a prompt snapshot referenced by this session
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/PromptHash'
+      responses:
+        '200':
+          description: Prompt snapshot
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PromptSnapshot'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/agents/{agentRunId}:
+    get:
+      operationId: getSessionAgentRun
+      summary: Read one durable child agent run
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/AgentRunID'
+      responses:
+        '200':
+          description: Child agent run
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRun'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/agents/{agentRunId}/events:
     get:
       operationId: listSessionAgentRunEvents
       summary: Follow what one child agent run is doing
@@ -319,7 +604,7 @@ paths:
           required: false
           schema:
             type: integer
-            format: int32
+            format: int64
             minimum: 0
             default: 0
         - name: limit
@@ -329,7 +614,7 @@ paths:
             type: integer
             format: int32
             minimum: 1
-            maximum: 500
+            maximum: 200
             default: 100
       responses:
         '200':
@@ -419,6 +704,34 @@ components:
       schema:
         type: string
         format: uuid
+    CompactionID:
+      name: compactionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ModelRunID:
+      name: modelRunId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ContextHash:
+      name: contextHash
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+    PromptHash:
+      name: promptHash
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
     JobID:
       name: jobId
       in: path
@@ -518,6 +831,9 @@ components:
           type: boolean
         incomplete:
           type: boolean
+        compactionId:
+          type: [string, 'null']
+          format: uuid
         createdAt:
           type: string
           format: date-time
@@ -592,54 +908,526 @@ components:
       properties:
         cancelRequested:
           type: boolean
+    Turn:
+      type: object
+      additionalProperties: false
+      required:
+        [id, sessionId, requestId, workspace, state, cancelRequested, startedAt,
+         failureClassification]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        requestId:
+          type: string
+          format: uuid
+        workspace:
+          type: string
+        state:
+          type: string
+          enum: [running, completed, failed, cancelled, interrupted]
+        cancelRequested:
+          type: boolean
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: [string, 'null']
+          format: date-time
+        failureClassification:
+          type: string
+        contextSnapshotHash:
+          type: [string, 'null']
+        promptSnapshotHash:
+          type: [string, 'null']
+    TurnPage:
+      type: object
+      additionalProperties: false
+      required: [turns, limit, offset, hasMore]
+      properties:
+        turns:
+          type: array
+          items:
+            $ref: '#/components/schemas/Turn'
+        limit:
+          type: integer
+          format: int32
+        offset:
+          type: integer
+          format: int32
+        hasMore:
+          type: boolean
+    TranscriptEvent:
+      type: object
+      additionalProperties: false
+      required: [id, sessionId, turnId, sequence, requestId, type, payload, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        turnId:
+          type: string
+          format: uuid
+        sequence:
+          type: integer
+          format: int64
+        requestId:
+          type: string
+          format: uuid
+        type:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+        parentToolCallId:
+          type: [string, 'null']
+        createdAt:
+          type: string
+          format: date-time
+    TranscriptEventPage:
+      type: object
+      additionalProperties: false
+      required: [events, limit, offset, hasMore]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/TranscriptEvent'
+        limit:
+          type: integer
+          format: int32
+        offset:
+          type: integer
+          format: int32
+        hasMore:
+          type: boolean
+    Compaction:
+      type: object
+      additionalProperties: false
+      required:
+        [id, sessionId, fromMessageId, toMessageId, fromSequence, toSequence,
+         summary, sourceMessageCount, inputTokenCount, summaryTokenCount, model,
+         promptHash, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        fromMessageId:
+          type: string
+          format: uuid
+        toMessageId:
+          type: string
+          format: uuid
+        fromSequence:
+          type: integer
+          format: int64
+        toSequence:
+          type: integer
+          format: int64
+        summary:
+          type: string
+        sourceMessageCount:
+          type: integer
+          format: int64
+        inputTokenCount:
+          type: integer
+          format: int64
+        summaryTokenCount:
+          type: integer
+          format: int64
+        model:
+          type: string
+        promptHash:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        parentCompactionId:
+          type: [string, 'null']
+          format: uuid
+    CompactionPage:
+      type: object
+      additionalProperties: false
+      required: [compactions, limit, offset, hasMore]
+      properties:
+        compactions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Compaction'
+        limit:
+          type: integer
+          format: int32
+        offset:
+          type: integer
+          format: int32
+        hasMore:
+          type: boolean
+    ModelRun:
+      type: object
+      additionalProperties: false
+      required:
+        [id, sessionId, turnId, stage, modelReference, connectionName,
+         requestedModelId, responseModelId, requestSettings, state,
+         responseText, responseThinking, responseMessages, responseInjections,
+         responseUsage, responseCostAmount, retryCostAmount, billedCostAmount,
+         costKnown, finishReason, failureClassification, failureDetail,
+         startedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        turnId:
+          type: string
+          format: uuid
+        agentRunId:
+          type: [string, 'null']
+          format: uuid
+        stage:
+          type: string
+          enum: [turn, child, compaction]
+        modelReference:
+          type: string
+        connectionName:
+          type: string
+        requestedModelId:
+          type: string
+        responseModelId:
+          type: string
+        requestSettings:
+          type: object
+          additionalProperties: true
+        state:
+          type: string
+          enum: [running, completed, failed, cancelled, interrupted]
+        responseText:
+          type: string
+        responseThinking:
+          type: string
+        responseMessages:
+          type: array
+          items: {}
+        responseInjections:
+          type: array
+          items: {}
+        responseUsage:
+          type: object
+          additionalProperties: true
+        responseCostAmount:
+          type: string
+        retryCostAmount:
+          type: string
+        billedCostAmount:
+          type: string
+        costKnown:
+          type: boolean
+        finishReason:
+          type: string
+        failureClassification:
+          type: string
+        failureDetail:
+          type: string
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: [string, 'null']
+          format: date-time
+    ModelRunPage:
+      type: object
+      additionalProperties: false
+      required: [modelRuns, limit, offset, hasMore]
+      properties:
+        modelRuns:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModelRun'
+        limit:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 200
+        offset:
+          type: integer
+          format: int32
+          minimum: 0
+        hasMore:
+          type: boolean
+    ModelCall:
+      type: object
+      additionalProperties: false
+      required:
+        [id, sessionId, modelRunId, round, requestMessages, requestTools,
+         state, responseMessage, responseUsage, retryAttempts,
+         retryAttemptCount, promptTokens, completionTokens, totalTokens,
+         reasoningTokens, cacheReadTokens, cacheWriteTokens,
+         cacheWriteLongTtlTokens, wastedPromptTokens, wastedCompletionTokens,
+         wastedTotalTokens, totalAttempts, responseModelId, finishReason,
+         responseCostAmount, retryCostAmount, billedCostAmount, costKnown,
+         failureClassification, failureDetail, startedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        modelRunId:
+          type: string
+          format: uuid
+        round:
+          type: integer
+          format: int64
+          minimum: 0
+        requestMessages:
+          type: array
+          items: {}
+        requestTools:
+          type: array
+          items: {}
+        state:
+          type: string
+          enum: [running, completed, failed, cancelled, interrupted]
+        responseMessage:
+          type: [object, 'null']
+          additionalProperties: true
+        responseUsage:
+          type: object
+          additionalProperties: true
+        retryAttempts:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        retryAttemptCount:
+          type: integer
+          format: int64
+          minimum: 0
+        promptTokens:
+          type: integer
+          format: int64
+          minimum: 0
+        completionTokens:
+          type: integer
+          format: int64
+          minimum: 0
+        totalTokens:
+          type: integer
+          format: int64
+          minimum: 0
+        reasoningTokens:
+          type: integer
+          format: int64
+          minimum: 0
+        cacheReadTokens:
+          type: integer
+          format: int64
+          minimum: 0
+        cacheWriteTokens:
+          type: integer
+          format: int64
+          minimum: 0
+        cacheWriteLongTtlTokens:
+          type: integer
+          format: int64
+          minimum: 0
+        wastedPromptTokens:
+          type: integer
+          format: int64
+          minimum: 0
+        wastedCompletionTokens:
+          type: integer
+          format: int64
+          minimum: 0
+        wastedTotalTokens:
+          type: integer
+          format: int64
+          minimum: 0
+        totalAttempts:
+          type: integer
+          format: int64
+          minimum: 0
+        responseModelId:
+          type: string
+        finishReason:
+          type: string
+        responseCostAmount:
+          type: string
+        retryCostAmount:
+          type: string
+        billedCostAmount:
+          type: string
+        costKnown:
+          type: boolean
+        failureClassification:
+          type: string
+        failureDetail:
+          type: string
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: [string, 'null']
+          format: date-time
+    ModelCallPage:
+      type: object
+      additionalProperties: false
+      required: [modelRun, calls, limit, offset, hasMore]
+      properties:
+        modelRun:
+          $ref: '#/components/schemas/ModelRun'
+        calls:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModelCall'
+        limit:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 200
+        offset:
+          type: integer
+          format: int32
+          minimum: 0
+        hasMore:
+          type: boolean
+    ContextSnapshot:
+      type: object
+      additionalProperties: false
+      required: [hash, manifest, resolvedContent, createdAt]
+      properties:
+        hash:
+          type: string
+        manifest:
+          type: object
+          additionalProperties: true
+        resolvedContent:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    PromptSnapshot:
+      type: object
+      additionalProperties: false
+      required: [hash, effectivePrompt, createdAt]
+      properties:
+        hash:
+          type: string
+        effectivePrompt:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
     AgentRun:
       type: object
       additionalProperties: false
       required:
-        [agentRunId, name, definition, depth, state, startedAt,
-         eventBufferedCount, eventDroppedCount]
+        [agentRunId, sessionId, parentTurnId, requestId, name, definition,
+         depth, workspace, modelReference, model, task, instructions,
+         allowedTools, systemPrompt, eventCount, cancelRequested, state,
+         responseText, responseThinking, responseMessages, finishReason,
+         promptTokenCount, completionTokenCount, failureClassification,
+         failureDetail, startedAt]
       properties:
         agentRunId:
           type: string
           format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        parentTurnId:
+          type: string
+          format: uuid
+        parentAgentRunId:
+          type: [string, 'null']
+          format: uuid
         name:
-          description: The agent's name. Identification only for an ad-hoc run.
           type: string
         definition:
-          description: Whether the agent came from a file or was defined inline.
           type: string
-          enum: [stored, adhoc]
+          enum: [stored, ad-hoc]
         parentToolCallId:
+          type: [string, 'null']
+        requestId:
           type: string
+          format: uuid
         depth:
-          description: Nesting level. The root turn is 0.
           type: integer
-          format: int32
+          format: int64
+        workspace:
+          type: string
+        modelReference:
+          type: string
+        model:
+          type: string
+        task:
+          type: string
+        instructions:
+          type: string
+        allowedTools:
+          type: array
+          items: {}
+        systemPrompt:
+          type: string
+        eventCount:
+          type: integer
+          format: int64
+        cancelRequested:
+          type: boolean
         state:
           type: string
-          enum: [running, completed, failed, cancelled]
+          enum: [running, completed, failed, cancelled, interrupted]
+        responseText:
+          type: string
+        responseThinking:
+          type: string
+        responseMessages:
+          type: array
+          items: {}
+        finishReason:
+          type: string
+        promptTokenCount:
+          type: integer
+          format: int64
+        completionTokenCount:
+          type: integer
+          format: int64
+        failureClassification:
+          type: string
+        failureDetail:
+          type: string
         startedAt:
           type: string
           format: date-time
         endedAt:
-          type: string
+          type: [string, 'null']
           format: date-time
-        eventBufferedCount:
-          type: integer
-          format: int32
-        eventDroppedCount:
-          description: Events evicted because the bounded buffer filled.
-          type: integer
-          format: int32
     AgentRunPage:
       type: object
       additionalProperties: false
-      required: [agents, hasMore]
+      required: [agents, limit, offset, hasMore]
       properties:
         agents:
           type: array
           items:
             $ref: '#/components/schemas/AgentRun'
+        limit:
+          type: integer
+          format: int32
+        offset:
+          type: integer
+          format: int32
         hasMore:
           type: boolean
     AgentRunEvent:
@@ -649,7 +1437,7 @@ components:
       properties:
         sequence:
           type: integer
-          format: int32
+          format: int64
         type:
           type: string
         payload:
@@ -661,14 +1449,14 @@ components:
     AgentRunEventPage:
       type: object
       additionalProperties: false
-      required: [agentRunId, state, events, nextCursor, dropped]
+      required: [agentRunId, state, events, nextCursor, hasMore]
       properties:
         agentRunId:
           type: string
           format: uuid
         state:
           type: string
-          enum: [running, completed, failed, cancelled]
+          enum: [running, completed, failed, cancelled, interrupted]
         events:
           type: array
           items:
@@ -676,11 +1464,9 @@ components:
         nextCursor:
           description: Pass back as cursor to continue from here.
           type: integer
-          format: int32
-        dropped:
-          description: Events dropped before this window.
-          type: integer
-          format: int32
+          format: int64
+        hasMore:
+          type: boolean
     AgentRunCancelResponse:
       type: object
       additionalProperties: false
@@ -697,22 +1483,28 @@ components:
           type: boolean
         state:
           type: string
-          enum: [running, completed, failed, cancelled]
+          enum: [running, completed, failed, cancelled, interrupted]
     Job:
       type: object
       additionalProperties: false
       required:
-        [jobId, pid, purpose, command, directory, state, startedAt, exitCode,
-         stdoutBufferedLines, stdoutDroppedLines, stderrBufferedLines,
-         stderrDroppedLines]
+        [jobId, sessionId, turnId, pid, purpose, command, directory, state,
+         startedAt, exitCode, failureDetail]
       properties:
         jobId:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        turnId:
+          description: The durable turn that launched this process.
           type: string
           format: uuid
         pid:
           description: Operating-system process ID of the job's shell.
           type: integer
-          format: int32
+          format: int64
         purpose:
           description: Why the agent said it was running this command.
           type: string
@@ -725,7 +1517,7 @@ components:
           type: string
         state:
           type: string
-          enum: [running, exited, signalled, failed]
+          enum: [running, exited, signalled, failed, interrupted]
         startedAt:
           type: string
           format: date-time
@@ -735,61 +1527,74 @@ components:
         exitCode:
           description: Exit status once known, or -1 while it is not.
           type: integer
-          format: int32
-        stdoutBufferedLines:
-          type: integer
-          format: int32
-        stdoutDroppedLines:
-          description: Lines evicted because the bounded buffer filled.
-          type: integer
-          format: int32
-        stderrBufferedLines:
-          type: integer
-          format: int32
-        stderrDroppedLines:
-          type: integer
-          format: int32
+          format: int64
+        failureDetail:
+          description: Empty unless Peen recorded a terminal failure detail.
+          type: string
     JobPage:
       type: object
       additionalProperties: false
-      required: [jobs, truncated]
+      required: [jobs, limit, offset, hasMore]
       properties:
         jobs:
           type: array
           items:
             $ref: '#/components/schemas/Job'
-        truncated:
+        limit:
+          type: integer
+          format: int32
+        offset:
+          type: integer
+          format: int32
+        hasMore:
           type: boolean
+    JobOutputLine:
+      type: object
+      additionalProperties: false
+      required: [id, sessionId, jobId, sequence, stream, content, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        jobId:
+          type: string
+          format: uuid
+        sequence:
+          type: integer
+          format: int64
+        stream:
+          type: string
+          enum: [stdout, stderr]
+        content:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
     JobOutput:
       type: object
       additionalProperties: false
-      required:
-        [jobId, state, stdout, stderr, nextStdoutCursor, nextStderrCursor,
-         stdoutDroppedLines, stderrDroppedLines]
+      required: [jobId, state, lines, nextCursor, hasMore]
       properties:
         jobId:
           type: string
           format: uuid
         state:
           type: string
-          enum: [running, exited, signalled, failed]
-        stdout:
-          type: string
-        stderr:
-          type: string
-        nextStdoutCursor:
-          description: Pass back as stdoutCursor to continue from here.
+          enum: [running, exited, signalled, failed, interrupted]
+        lines:
+          description: Ordered immutable stdout and stderr records from SQLite.
+          type: array
+          items:
+            $ref: '#/components/schemas/JobOutputLine'
+        nextCursor:
+          description: Pass back as cursor to continue from this durable sequence.
           type: integer
-          format: int32
-        nextStderrCursor:
-          type: integer
-          format: int32
-        stdoutDroppedLines:
-          type: integer
-          format: int32
-        stderrDroppedLines:
-          type: integer
-          format: int32
+          format: int64
+        hasMore:
+          type: boolean
     JobSignalRequest:
       type: object
       additionalProperties: false
@@ -801,6 +1606,50 @@ components:
             kill goes straight to SIGKILL.
           type: string
           enum: [stop, kill]
+    JobSignalRecord:
+      type: object
+      additionalProperties: false
+      required: [id, sessionId, jobId, signal, accepted, stateAtRequest, requestedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        jobId:
+          type: string
+          format: uuid
+        signal:
+          type: string
+          enum: [stop, kill]
+        accepted:
+          type: boolean
+        stateAtRequest:
+          type: string
+          enum: [running, exited, signalled, failed, interrupted]
+        requestedAt:
+          type: string
+          format: date-time
+    JobSignalRecordPage:
+      type: object
+      additionalProperties: false
+      required: [job, signalRequests, limit, offset, hasMore]
+      properties:
+        job:
+          $ref: '#/components/schemas/Job'
+        signalRequests:
+          type: array
+          items:
+            $ref: '#/components/schemas/JobSignalRecord'
+        limit:
+          type: integer
+          format: int32
+        offset:
+          type: integer
+          format: int32
+        hasMore:
+          type: boolean
     JobSignalResponse:
       type: object
       additionalProperties: false
@@ -817,8 +1666,8 @@ components:
           type: boolean
         state:
           type: string
-          enum: [running, exited, signalled, failed]
-    SessionEventRequest:
+          enum: [running, exited, signalled, failed, interrupted]
+    SessionNoticeRequest:
       type: object
       additionalProperties: false
       required: [type, summary]
@@ -845,7 +1694,7 @@ components:
           type: string
           enum: [queue, wake]
           default: queue
-    SessionEvent:
+    SessionNotice:
       type: object
       additionalProperties: false
       required: [id, type, source, summary, delivery, createdAt]
@@ -868,19 +1717,23 @@ components:
         createdAt:
           type: string
           format: date-time
-    SessionEventPage:
+    SessionNoticePage:
       type: object
       additionalProperties: false
-      required: [events, dropped]
+      required: [notices, limit, offset, hasMore]
       properties:
-        events:
+        notices:
           type: array
           items:
-            $ref: '#/components/schemas/SessionEvent'
-        dropped:
-          description: Events dropped before these because the queue was full.
+            $ref: '#/components/schemas/SessionNotice'
+        limit:
           type: integer
           format: int32
+        offset:
+          type: integer
+          format: int32
+        hasMore:
+          type: boolean
     Error:
       type: object
       additionalProperties: false

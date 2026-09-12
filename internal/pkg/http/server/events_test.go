@@ -16,6 +16,7 @@ import (
 
 const (
 	eventsPath        = apiBaseURL + "/session/events"
+	noticesPath       = apiBaseURL + "/session/notices"
 	validEventBody    = `{"type":"app.error","summary":"checkout returned 500"}`
 	reservedEventBody = `{"type":"job.exited","summary":"forged"}`
 	testBearerToken   = "test-token"
@@ -27,20 +28,23 @@ func TestServerSessionEventEndpoints(t *testing.T) {
 	testCases := []struct {
 		name       string
 		method     string
+		path       string
 		body       string
 		runtime    *testRuntime
 		wantStatus int
 		wantCode   aichteeteapee.ErrorCode
 	}{
 		{
-			name:       "lists pending events",
+			name:       "lists durable protocol events",
 			method:     http.MethodGet,
+			path:       eventsPath,
 			runtime:    &testRuntime{sessionID: sessionID},
 			wantStatus: http.StatusOK,
 		},
 		{
 			name:   "lists an unknown session",
 			method: http.MethodGet,
+			path:   eventsPath,
 			runtime: &testRuntime{
 				sessionID: sessionID,
 				eventsErr: commerr.ErrNotFound,
@@ -49,8 +53,9 @@ func TestServerSessionEventEndpoints(t *testing.T) {
 			wantCode:   aichteeteapee.ErrorCodeNotFound,
 		},
 		{
-			name:       "publishes an event",
+			name:       "publishes a notice",
 			method:     http.MethodPost,
+			path:       noticesPath,
 			body:       validEventBody,
 			runtime:    &testRuntime{sessionID: sessionID},
 			wantStatus: http.StatusAccepted,
@@ -58,6 +63,7 @@ func TestServerSessionEventEndpoints(t *testing.T) {
 		{
 			name:       "rejects an empty body",
 			method:     http.MethodPost,
+			path:       noticesPath,
 			body:       "",
 			runtime:    &testRuntime{sessionID: sessionID},
 			wantStatus: http.StatusBadRequest,
@@ -66,6 +72,7 @@ func TestServerSessionEventEndpoints(t *testing.T) {
 		{
 			name:       "rejects an unknown field",
 			method:     http.MethodPost,
+			path:       noticesPath,
 			body:       `{"type":"app.error","summary":"x","nope":1}`,
 			runtime:    &testRuntime{sessionID: sessionID},
 			wantStatus: http.StatusBadRequest,
@@ -74,6 +81,7 @@ func TestServerSessionEventEndpoints(t *testing.T) {
 		{
 			name:   "maps a reserved type to a client error",
 			method: http.MethodPost,
+			path:   noticesPath,
 			body:   reservedEventBody,
 			runtime: &testRuntime{
 				sessionID: sessionID,
@@ -85,6 +93,7 @@ func TestServerSessionEventEndpoints(t *testing.T) {
 		{
 			name:   "maps a malformed type to a client error",
 			method: http.MethodPost,
+			path:   noticesPath,
 			body:   `{"type":"Nope","summary":"x"}`,
 			runtime: &testRuntime{
 				sessionID: sessionID,
@@ -94,8 +103,9 @@ func TestServerSessionEventEndpoints(t *testing.T) {
 			wantCode:   aichteeteapee.ErrorCodeValidationFailed,
 		},
 		{
-			name:   "publishes to an unknown session",
+			name:   "publishes a notice to an unknown session",
 			method: http.MethodPost,
+			path:   noticesPath,
 			body:   validEventBody,
 			runtime: &testRuntime{
 				sessionID: sessionID,
@@ -114,7 +124,7 @@ func TestServerSessionEventEndpoints(t *testing.T) {
 			request := httptest.NewRequestWithContext(
 				t.Context(),
 				tc.method,
-				eventsPath,
+				tc.path,
 				strings.NewReader(tc.body),
 			)
 			request.Header.Set(headerSessionID, sessionID.String())
@@ -141,10 +151,16 @@ func TestServerSessionEventEndpointsRequireTheBearerToken(t *testing.T) {
 	testCases := []struct {
 		name   string
 		method string
+		path   string
 		body   string
 	}{
-		{name: "list", method: http.MethodGet},
-		{name: "publish", method: http.MethodPost, body: validEventBody},
+		{name: "list events", method: http.MethodGet, path: eventsPath},
+		{
+			name:   "publish notice",
+			method: http.MethodPost,
+			path:   noticesPath,
+			body:   validEventBody,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -158,7 +174,7 @@ func TestServerSessionEventEndpointsRequireTheBearerToken(t *testing.T) {
 			request := httptest.NewRequestWithContext(
 				t.Context(),
 				tc.method,
-				eventsPath,
+				tc.path,
 				strings.NewReader(tc.body),
 			)
 			request.Header.Set(headerSessionID, sessionID.String())
@@ -180,7 +196,7 @@ func TestServerSessionEventEndpointsRejectAMissingSessionHeader(t *testing.T) {
 	request := httptest.NewRequestWithContext(
 		t.Context(),
 		http.MethodPost,
-		eventsPath,
+		noticesPath,
 		strings.NewReader(validEventBody),
 	)
 	request.Header.Set(headerContentType, mediaTypeJSON)

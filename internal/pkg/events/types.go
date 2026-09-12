@@ -4,6 +4,7 @@
 package events
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 
@@ -65,6 +66,12 @@ type Notice struct {
 	Data      json.RawMessage `json:"data,omitempty"`
 	Delivery  Delivery        `json:"delivery"`
 	CreatedAt time.Time       `json:"createdAt"`
+}
+
+// Publisher publishes one notice with the context that produced it. The
+// runtime implementation persists before it fans out to live subscribers.
+type Publisher interface {
+	PublishContext(context.Context, Notice) (Notice, error)
 }
 
 // Batch is what one drain returns: the events still pending plus how many were

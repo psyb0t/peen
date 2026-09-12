@@ -29,6 +29,7 @@ const (
 	messagesPath          = apiBasePath + "/messages"
 	sessionPath           = apiBasePath + "/session"
 	sessionCancelPath     = sessionPath + "/cancel"
+	modelRunsPath         = sessionPath + "/model-runs"
 	headerAuthorization   = "Authorization"
 	headerContentType     = "Content-Type"
 	headerSessionID       = "X-Session-ID"
@@ -194,6 +195,32 @@ func TestAPIWebSocketStreamsAndPersistsTurn(t *testing.T) {
 	assert.NotEmpty(t, page.Items[1].Content)
 	require.NotNil(t, page.Items[1].Thinking)
 	assert.Equal(t, testinfra.DefaultProviderReasoning, *page.Items[1].Thinking)
+}
+
+func TestAPIReplaysDurableModelAudit(t *testing.T) {
+	sessionID := uuid.New()
+	_ = sendAPIWebSocketMessage(t, sessionID, "record the provider exchange")
+
+	runs := listModelRuns(t, sessionID, 10, 0)
+	require.Len(t, runs.ModelRuns, 1)
+	run := runs.ModelRuns[0]
+	assert.Equal(t, sessionID, run.SessionId)
+	assert.Equal(t, api.ModelRunStageTurn, run.Stage)
+	assert.NotEmpty(t, run.ConnectionName)
+	assert.NotEmpty(t, run.ModelReference)
+	assert.NotEmpty(t, run.RequestedModelId)
+	assert.NotEmpty(t, run.RequestSettings)
+	assert.NotEmpty(t, run.ResponseMessages)
+	assert.NotEmpty(t, run.ResponseUsage)
+	assert.False(t, run.StartedAt.IsZero())
+
+	calls := listModelRunCalls(t, sessionID, run.Id, 10, 0)
+	require.Len(t, calls.Calls, 1)
+	assert.Equal(t, run.Id, calls.ModelRun.Id)
+	assert.Equal(t, int64(0), calls.Calls[0].Round)
+	assert.NotEmpty(t, calls.Calls[0].RequestMessages)
+	assert.NotEmpty(t, calls.Calls[0].ResponseUsage)
+	assert.False(t, calls.Calls[0].StartedAt.IsZero())
 }
 
 func TestMetricsAreOnlyAvailableOnThePrivateListener(t *testing.T) {
@@ -462,6 +489,51 @@ func listMessages(
 	requireAPIStatus(t, response, http.StatusOK)
 
 	return decodeResponse[api.MessagePage](t, response)
+}
+
+func listModelRuns(
+	t *testing.T,
+	sessionID uuid.UUID,
+	limit int,
+	offset int,
+) api.ModelRunPage {
+	t.Helper()
+
+	path := modelRunsPath + "?limit=" + strconv.Itoa(limit) +
+		"&offset=" + strconv.Itoa(offset)
+	response := apiRequest(
+		t,
+		http.MethodGet,
+		path,
+		nil,
+		withHeader(authenticatedHeaders(), headerSessionID, sessionID.String()),
+	)
+	requireAPIStatus(t, response, http.StatusOK)
+
+	return decodeResponse[api.ModelRunPage](t, response)
+}
+
+func listModelRunCalls(
+	t *testing.T,
+	sessionID uuid.UUID,
+	modelRunID uuid.UUID,
+	limit int,
+	offset int,
+) api.ModelCallPage {
+	t.Helper()
+
+	path := modelRunsPath + "/" + modelRunID.String() + "/calls?limit=" +
+		strconv.Itoa(limit) + "&offset=" + strconv.Itoa(offset)
+	response := apiRequest(
+		t,
+		http.MethodGet,
+		path,
+		nil,
+		withHeader(authenticatedHeaders(), headerSessionID, sessionID.String()),
+	)
+	requireAPIStatus(t, response, http.StatusOK)
+
+	return decodeResponse[api.ModelCallPage](t, response)
 }
 
 func apiRequest(

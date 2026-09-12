@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/psyb0t/common-go/utils/ptrutil"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/events"
@@ -231,6 +232,33 @@ func (b *agentRunEventBuffer) Append(
 	return event
 }
 
+// AppendStored retains a durable event in the live convenience buffer without
+// inventing another sequence or timestamp.
+func (b *agentRunEventBuffer) AppendStored(event AgentRunEvent) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if event.Sequence <= b.total {
+		return
+	}
+
+	b.total = event.Sequence
+	stored := AgentRunEvent{
+		Sequence:  event.Sequence,
+		Type:      event.Type,
+		Payload:   append(json.RawMessage(nil), event.Payload...),
+		CreatedAt: event.CreatedAt,
+	}
+	b.events = append(b.events, stored)
+	b.byteLen += len(stored.Type) + len(stored.Payload)
+
+	for len(b.events) > 1 && b.overBoundLocked() {
+		removed := b.events[0]
+		b.byteLen -= len(removed.Type) + len(removed.Payload)
+		b.events = b.events[1:]
+	}
+}
+
 func (b *agentRunEventBuffer) overBoundLocked() bool {
 	return len(b.events) > b.maxCount || b.byteLen > b.maxBytes
 }
@@ -287,7 +315,9 @@ type AgentRun struct {
 	ID               uuid.UUID
 	SessionID        uuid.UUID
 	ParentTurnID     uuid.UUID
+	ParentAgentRunID *uuid.UUID
 	ParentToolCallID string
+	RequestID        uuid.UUID
 	Name             string
 	Definition       AgentRunDefinition
 	Depth            int
@@ -309,7 +339,9 @@ type AgentRunSnapshot struct {
 	ID                 uuid.UUID
 	SessionID          uuid.UUID
 	ParentTurnID       uuid.UUID
+	ParentAgentRunID   *uuid.UUID
 	ParentToolCallID   string
+	RequestID          uuid.UUID
 	Name               string
 	Definition         AgentRunDefinition
 	Depth              int
@@ -333,7 +365,9 @@ func (a *AgentRun) Snapshot() AgentRunSnapshot {
 		ID:                 a.ID,
 		SessionID:          a.SessionID,
 		ParentTurnID:       a.ParentTurnID,
+		ParentAgentRunID:   cloneAgentRunID(a.ParentAgentRunID),
 		ParentToolCallID:   a.ParentToolCallID,
+		RequestID:          a.RequestID,
 		Name:               a.Name,
 		Definition:         a.Definition,
 		Depth:              a.Depth,
@@ -353,6 +387,12 @@ func (a *AgentRun) ReadEvents(
 	return a.events.Read(cursor, maxEvents)
 }
 
+// AppendStoredEvent refreshes the in-process convenience buffer from an event
+// that SQLite already committed. The database remains the replay source.
+func (a *AgentRun) AppendStoredEvent(event AgentRunEvent) {
+	a.events.AppendStored(event)
+}
+
 // Done reports the channel this package closes exactly once, the moment the
 // run leaves AgentRunStateRunning.
 func (a *AgentRun) Done() <-chan struct{} {
@@ -368,18 +408,18 @@ func (a *AgentRun) Done() <-chan struct{} {
 //nolint:revive // See the comment on AgentRunDefinition above.
 type AgentRunRegistry struct {
 	sessionID uuid.UUID
-	bus       *events.Bus
+	publisher events.Publisher
 	limits    AgentRunLimits
 
 	mu   sync.RWMutex
 	runs map[uuid.UUID]*AgentRun
 }
 
-// NewAgentRunRegistry builds a session-scoped agent run registry. bus may be
-// nil, meaning completion events are not published.
+// NewAgentRunRegistry builds a session-scoped agent run registry. publisher
+// may be nil, meaning completion events are not published.
 func NewAgentRunRegistry(
 	sessionID uuid.UUID,
-	bus *events.Bus,
+	publisher events.Publisher,
 	limits AgentRunLimits,
 ) (*AgentRunRegistry, error) {
 	if sessionID == uuid.Nil {
@@ -396,7 +436,7 @@ func NewAgentRunRegistry(
 
 	return &AgentRunRegistry{
 		sessionID: sessionID,
-		bus:       bus,
+		publisher: publisher,
 		limits:    resolved,
 		runs:      map[uuid.UUID]*AgentRun{},
 	}, nil
@@ -404,11 +444,15 @@ func NewAgentRunRegistry(
 
 // StartAgentRunInput describes one launch_agent invocation about to run.
 type StartAgentRunInput struct {
+	ID               uuid.UUID
 	ParentTurnID     uuid.UUID
+	ParentAgentRunID *uuid.UUID
 	ParentToolCallID string
+	RequestID        uuid.UUID
 	Name             string
 	Definition       AgentRunDefinition
 	Depth            int
+	StartedAt        time.Time
 }
 
 // Start registers one agent run in AgentRunStateRunning and returns it along
@@ -419,6 +463,7 @@ type StartAgentRunInput struct {
 func (r *AgentRunRegistry) Start(
 	ctx context.Context,
 	input StartAgentRunInput,
+	persist ...func(*AgentRun) error,
 ) (*AgentRun, context.Context, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -432,16 +477,28 @@ func (r *AgentRunRegistry) Start(
 	}
 
 	runCtx, cancel := context.WithCancel(ctx)
+	runID := input.ID
+	if runID == uuid.Nil {
+		runID = uuid.New()
+	}
+	startedAt := input.StartedAt
+	if startedAt.IsZero() {
+		startedAt = time.Now().UTC()
+	} else {
+		startedAt = startedAt.UTC()
+	}
 
 	run := &AgentRun{
-		ID:               uuid.New(),
+		ID:               runID,
 		SessionID:        r.sessionID,
 		ParentTurnID:     input.ParentTurnID,
+		ParentAgentRunID: cloneAgentRunID(input.ParentAgentRunID),
 		ParentToolCallID: input.ParentToolCallID,
+		RequestID:        input.RequestID,
 		Name:             input.Name,
 		Definition:       input.Definition,
 		Depth:            input.Depth,
-		StartedAt:        time.Now().UTC(),
+		StartedAt:        startedAt,
 		events: newAgentRunEventBuffer(
 			r.limits.MaxEventCount,
 			r.limits.MaxEventBytes,
@@ -450,10 +507,25 @@ func (r *AgentRunRegistry) Start(
 		done:   make(chan struct{}),
 		state:  AgentRunStateRunning,
 	}
+	if len(persist) > 0 && persist[0] != nil {
+		if err := persist[0](run); err != nil {
+			cancel()
+
+			return nil, nil, ctxerrors.Wrap(err, "persist agent run")
+		}
+	}
 
 	r.runs[run.ID] = run
 
 	return run, runCtx, nil
+}
+
+func cloneAgentRunID(value *uuid.UUID) *uuid.UUID {
+	if value == nil {
+		return nil
+	}
+
+	return ptrutil.Of(*value)
 }
 
 func (r *AgentRunRegistry) runningCountLocked() int {
@@ -541,7 +613,7 @@ func (r *AgentRunRegistry) publish(
 	state AgentRunState,
 	endedAt time.Time,
 ) {
-	if r.bus == nil {
+	if r.publisher == nil {
 		return
 	}
 
@@ -570,7 +642,7 @@ func (r *AgentRunRegistry) publish(
 		Data:      data,
 	}
 
-	if _, err := r.bus.Publish(notice); err != nil {
+	if _, err := r.publisher.PublishContext(ctx, notice); err != nil {
 		ctxscope.GetLogger(ctx).Warn(
 			"publish agent completion event",
 			"err", err,

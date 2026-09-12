@@ -3,12 +3,13 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"sort"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/peen/internal/pkg/db/models"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
+	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
 // ListSessionAgentRuns reports the child agents a session has launched, newest
@@ -19,88 +20,77 @@ func (r *Runtime) ListSessionAgentRuns(
 	sessionID uuid.UUID,
 	params api.ListSessionAgentRunsParams,
 ) (*api.AgentRunPage, error) {
-	registry, err := r.existingSessionAgentRuns(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
-
-	page := api.AgentRunPage{Agents: []api.AgentRun{}, HasMore: false}
-	if registry == nil {
-		return &page, nil
-	}
-
 	limit, offset, err := pagingOptionsFromAPI(params.Limit, params.Offset)
 	if err != nil {
 		return nil, err
 	}
 
-	wanted := ""
+	var state *models.AgentRunState
 	if params.State != nil {
-		wanted = string(*params.State)
+		parsed := models.AgentRunState(*params.State)
+		state = &parsed
 	}
 
-	snapshots := agentRunSnapshots(registry)
-	filtered := make([]AgentRunSnapshot, 0, len(snapshots))
+	stored, err := r.store.ListAgentRuns(ctx, sessionID, session.ListAgentRunsOptions{
+		Limit:  limit,
+		Offset: offset,
+		State:  state,
+	})
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "list durable agent runs")
+	}
 
-	for _, snapshot := range snapshots {
-		if wanted != "" && snapshot.State != wanted {
-			continue
+	page := api.AgentRunPage{
+		Agents:  make([]api.AgentRun, 0, len(stored.Items)),
+		HasMore: stored.HasMore,
+		Limit:   int32(stored.Limit),  //nolint:gosec // API validates this bound.
+		Offset:  int32(stored.Offset), //nolint:gosec // API validates this bound.
+	}
+	for _, run := range stored.Items {
+		converted, convertErr := agentRunModelToAPI(run)
+		if convertErr != nil {
+			return nil, convertErr
 		}
 
-		filtered = append(filtered, snapshot)
-	}
-
-	page.HasMore = offset+limit < len(filtered)
-
-	for _, snapshot := range pageWindow(filtered, offset, limit) {
-		page.Agents = append(page.Agents, agentRunToAPI(snapshot))
+		page.Agents = append(page.Agents, converted)
 	}
 
 	return &page, nil
 }
 
-// ListSessionAgentRunEvents follows one child agent. A running agent is
-// served from its bounded buffer, so the reported dropped count tells a
-// caller its view has a hole rather than leaving it to assume it saw
-// everything. A finished agent, or one no longer present in the in-memory
-// registry (most commonly a service restart), is served from its durable
-// JSONL transcript instead, sharing the same cursor semantics so a caller can
-// follow a run across that boundary without a special case.
+// ListSessionAgentRunEvents follows one child through its complete SQLite
+// replay log. The in-memory buffer never answers this read path.
 func (r *Runtime) ListSessionAgentRunEvents(
 	ctx context.Context,
 	sessionID uuid.UUID,
 	agentRunID uuid.UUID,
 	params api.ListSessionAgentRunEventsParams,
 ) (*api.AgentRunEventPage, error) {
-	registry, err := r.existingSessionAgentRuns(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
-
-	var run *AgentRun
-	if registry != nil {
-		run, _ = registry.Get(agentRunID)
-	}
-
-	cursor := int32OrZero(params.Cursor)
+	cursor := int64OrZero(params.Cursor)
 	limit := int32OrZero(params.Limit)
 
-	events, state, next, dropped, err := r.readAgentRunEvents(
-		ctx, sessionID, agentRunID, run, cursor, limit,
+	stored, err := r.store.ListAgentRunEvents(
+		ctx,
+		sessionID,
+		agentRunID,
+		session.ListAgentRunEventsOptions{
+			Cursor: cursor,
+			Limit:  limit,
+		},
 	)
 	if err != nil {
-		return nil, err
+		return nil, ctxerrors.Wrap(err, "list durable agent run events")
 	}
 
 	page := api.AgentRunEventPage{
 		AgentRunId: agentRunID,
-		State:      api.AgentRunEventPageState(state),
-		Events:     make([]api.AgentRunEvent, 0, len(events)),
-		NextCursor: int32(next),    //nolint:gosec // Bounded counter.
-		Dropped:    int32(dropped), //nolint:gosec // Bounded counter.
+		State:      api.AgentRunEventPageState(stored.Run.State),
+		Events:     make([]api.AgentRunEvent, 0, len(stored.Items)),
+		NextCursor: stored.NextCursor,
+		HasMore:    stored.HasMore,
 	}
 
-	for _, event := range events {
+	for _, event := range stored.Items {
 		converted, convertErr := agentRunEventToAPI(event)
 		if convertErr != nil {
 			return nil, convertErr
@@ -112,60 +102,23 @@ func (r *Runtime) ListSessionAgentRunEvents(
 	return &page, nil
 }
 
-// readAgentRunEvents dispatches to the live ring buffer for a still-running
-// run and to the durable JSONL mirror for a finished run or one absent from
-// the in-memory registry. run is nil when the registry has no entry for
-// agentRunID at all, in which case the agent's name is unknown and the
-// mirror is located by run ID alone; its terminal state can then only be
-// reported as AgentRunStateCompleted, since the file itself carries no
-// completion marker.
-func (r *Runtime) readAgentRunEvents(
+// GetSessionAgentRun reads every durable detail of one child run.
+func (r *Runtime) GetSessionAgentRun(
 	ctx context.Context,
 	sessionID uuid.UUID,
 	agentRunID uuid.UUID,
-	run *AgentRun,
-	cursor, limit int,
-) ([]AgentRunEvent, AgentRunState, int, int, error) {
-	if run == nil {
-		path, ok := findAgentRunTranscriptPath(
-			r.configDirectory, sessionID, agentRunID,
-		)
-		if !ok {
-			return nil, "", 0, 0, ctxerrors.Wrap(
-				commerr.ErrNotFound, "agent run",
-			)
-		}
-
-		events, next, err := readAgentRunTranscript(ctx, path, cursor, limit)
-		if err != nil {
-			return nil, "", 0, 0, err
-		}
-
-		return events, AgentRunStateCompleted, next, 0, nil
-	}
-
-	snapshot := run.Snapshot()
-	if snapshot.State == AgentRunStateRunning {
-		events, next, dropped := run.ReadEvents(cursor, limit)
-
-		return events, snapshot.State, next, dropped, nil
-	}
-
-	transcript := newAgentRunTranscript(
-		ctx, r.configDirectory, sessionID, snapshot.Name, agentRunID,
-	)
-	if transcript.path == "" {
-		return nil, "", 0, 0, ctxerrors.Wrap(commerr.ErrNotFound, "agent run")
-	}
-
-	events, next, err := readAgentRunTranscript(
-		ctx, transcript.path, cursor, limit,
-	)
+) (*api.AgentRun, error) {
+	stored, err := r.store.GetAgentRun(ctx, sessionID, agentRunID)
 	if err != nil {
-		return nil, "", 0, 0, err
+		return nil, ctxerrors.Wrap(err, "get durable agent run")
 	}
 
-	return events, snapshot.State, next, 0, nil
+	converted, err := agentRunModelToAPI(stored)
+	if err != nil {
+		return nil, err
+	}
+
+	return &converted, nil
 }
 
 // CancelSessionAgentRun cancels one child agent without ending its parent
@@ -176,101 +129,101 @@ func (r *Runtime) CancelSessionAgentRun(
 	sessionID uuid.UUID,
 	agentRunID uuid.UUID,
 ) (*api.AgentRunCancelResponse, error) {
-	registry, err := r.existingSessionAgentRuns(ctx, sessionID)
+	run, requested, err := r.store.RequestAgentRunCancellation(
+		ctx,
+		sessionID,
+		agentRunID,
+	)
 	if err != nil {
-		return nil, err
+		return nil, ctxerrors.Wrap(err, "request durable agent run cancellation")
 	}
 
-	if registry == nil {
-		return nil, ctxerrors.Wrap(commerr.ErrNotFound, "agent run")
-	}
-
-	snapshot, found := registry.Cancel(agentRunID)
-	if !found {
-		return nil, ctxerrors.Wrap(commerr.ErrNotFound, "agent run")
+	if requested {
+		r.agentRunsMutex.Lock()
+		registry := r.agentRuns[sessionID]
+		r.agentRunsMutex.Unlock()
+		if registry != nil {
+			registry.Cancel(agentRunID)
+		}
 	}
 
 	return &api.AgentRunCancelResponse{
-		AgentRunId:      snapshot.ID,
-		CancelRequested: snapshot.State == AgentRunStateRunning,
-		State:           api.AgentRunCancelResponseState(snapshot.State),
+		AgentRunId:      run.ID,
+		CancelRequested: requested,
+		State:           api.AgentRunCancelResponseState(run.State),
 	}, nil
 }
 
-// existingSessionAgentRuns returns the session's registry WITHOUT creating
-// one, so a read can never allocate state, and confirms the session exists.
-func (r *Runtime) existingSessionAgentRuns(
-	ctx context.Context,
-	sessionID uuid.UUID,
-) (*AgentRunRegistry, error) {
-	if _, err := r.store.Get(ctx, sessionID); err != nil {
-		return nil, ctxerrors.Wrap(err, "resolve agent run session")
+func agentRunModelToAPI(stored *models.AgentRun) (api.AgentRun, error) {
+	if stored == nil {
+		return api.AgentRun{}, ctxerrors.Wrap(commerr.ErrInvalidState, "nil agent run")
 	}
 
-	r.agentRunsMutex.Lock()
-	defer r.agentRunsMutex.Unlock()
-
-	return r.agentRuns[sessionID], nil
-}
-
-// agentRunSnapshots returns every run newest first, so a caller sees what it
-// just launched at the top.
-func agentRunSnapshots(registry *AgentRunRegistry) []AgentRunSnapshot {
-	runs := registry.List()
-	snapshots := make([]AgentRunSnapshot, 0, len(runs))
-
-	for _, run := range runs {
-		snapshots = append(snapshots, run.Snapshot())
+	allowedTools := []any{}
+	if err := json.Unmarshal([]byte(stored.AllowedToolsJSON), &allowedTools); err != nil {
+		return api.AgentRun{}, ctxerrors.Wrap(err, "decode agent allowed tools")
+	}
+	responseMessages := []any{}
+	if err := json.Unmarshal([]byte(stored.ResponseMessagesJSON), &responseMessages); err != nil {
+		return api.AgentRun{}, ctxerrors.Wrap(err, "decode agent response messages")
 	}
 
-	sort.Slice(snapshots, func(i, j int) bool {
-		return snapshots[i].StartedAt.After(snapshots[j].StartedAt)
-	})
-
-	return snapshots
-}
-
-// agentRunToAPI converts one snapshot. Every int32 narrowing is of a bounded
-// counter or a nesting depth, none of which can reach int32.
-//
-//nolint:gosec // See above: bounded counters and a depth.
-func agentRunToAPI(snapshot AgentRunSnapshot) api.AgentRun {
 	run := api.AgentRun{
-		AgentRunId:         snapshot.ID,
-		Name:               snapshot.Name,
-		Definition:         api.AgentRunDefinition(snapshot.Definition),
-		Depth:              int32(snapshot.Depth),
-		State:              api.AgentRunState(snapshot.State),
-		StartedAt:          snapshot.StartedAt,
-		EventBufferedCount: int32(snapshot.EventBufferedCount),
-		EventDroppedCount:  int32(snapshot.EventDroppedCount),
+		AgentRunId:            stored.ID,
+		AllowedTools:          allowedTools,
+		CancelRequested:       stored.CancelRequested,
+		CompletionTokenCount:  stored.CompletionTokenCount,
+		Definition:            api.AgentRunDefinition(stored.Definition),
+		Depth:                 stored.Depth,
+		EndedAt:               stored.EndedAt,
+		EventCount:            stored.EventCount,
+		FailureClassification: stored.FailureClassification,
+		FailureDetail:         stored.FailureDetail,
+		FinishReason:          stored.FinishReason,
+		Instructions:          stored.Instructions,
+		Model:                 stored.ModelID,
+		ModelReference:        stored.ModelReference,
+		Name:                  stored.Name,
+		ParentAgentRunId:      stored.ParentAgentRunID,
+		ParentTurnId:          stored.ParentTurnID,
+		PromptTokenCount:      stored.PromptTokenCount,
+		RequestId:             stored.RequestID,
+		ResponseMessages:      responseMessages,
+		ResponseText:          stored.ResponseText,
+		ResponseThinking:      stored.ResponseThinking,
+		SessionId:             stored.SessionID,
+		StartedAt:             stored.StartedAt,
+		State:                 api.AgentRunState(stored.State),
+		SystemPrompt:          stored.SystemPrompt,
+		Task:                  stored.Task,
+		Workspace:             stored.Workspace,
 	}
 
-	if snapshot.ParentToolCallID != "" {
-		run.ParentToolCallId = &snapshot.ParentToolCallID
+	if stored.ParentToolCallID != "" {
+		run.ParentToolCallId = &stored.ParentToolCallID
 	}
 
-	if !snapshot.EndedAt.IsZero() {
-		ended := snapshot.EndedAt
+	if stored.EndedAt != nil {
+		ended := *stored.EndedAt
 		run.EndedAt = &ended
 	}
 
-	return run
+	return run, nil
 }
 
-func agentRunEventToAPI(event AgentRunEvent) (api.AgentRunEvent, error) {
+func agentRunEventToAPI(event *models.AgentRunEvent) (api.AgentRunEvent, error) {
 	converted := api.AgentRunEvent{
-		Sequence:  int32(event.Sequence), //nolint:gosec // Bounded counter.
-		Type:      event.Type,
+		Sequence:  event.Sequence,
+		Type:      event.EventType,
 		CreatedAt: event.CreatedAt,
 	}
 
-	if len(event.Payload) == 0 {
+	if event.PayloadJSON == "" {
 		return converted, nil
 	}
 
 	payload := map[string]any{}
-	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+	if err := json.Unmarshal([]byte(event.PayloadJSON), &payload); err != nil {
 		return api.AgentRunEvent{}, ctxerrors.Wrap(
 			err,
 			"decode agent run event payload",

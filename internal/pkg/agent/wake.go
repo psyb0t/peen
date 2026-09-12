@@ -9,7 +9,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
+	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/session"
@@ -34,6 +36,29 @@ type wakeLimiter struct {
 
 	mutex sync.Mutex
 	seen  map[uuid.UUID][]time.Time
+}
+
+type runtimeEventPublisher struct {
+	runtime *Runtime
+}
+
+func (p runtimeEventPublisher) PublishContext(
+	ctx context.Context,
+	notice events.Notice,
+) (events.Notice, error) {
+	return p.runtime.PublishEvent(ctx, notice)
+}
+
+// durableEventPublisher makes every internal producer use the same
+// persistence-before-live path as externally published notices.
+//
+//nolint:ireturn // The interface must be nil when no bus is configured.
+func (r *Runtime) durableEventPublisher() events.Publisher {
+	if r.eventBus == nil {
+		return nil
+	}
+
+	return runtimeEventPublisher{runtime: r}
 }
 
 func newWakeLimiter(limit int) *wakeLimiter {
@@ -92,9 +117,37 @@ func (r *Runtime) PublishEvent(
 		return events.Notice{}, ctxerrors.Wrap(err, "resolve event session")
 	}
 
-	published, err := r.eventBus.Publish(notice)
+	prepared, err := r.eventBus.Prepare(notice)
+	if err != nil {
+		return events.Notice{}, ctxerrors.Wrap(err, "prepare session event")
+	}
+
+	stored, err := r.store.CreateSessionNotice(
+		ctx,
+		prepared.SessionID,
+		session.CreateSessionNoticeInput{
+			ID:        prepared.ID,
+			Type:      prepared.Type,
+			Source:    prepared.Source,
+			Summary:   prepared.Summary,
+			DataJSON:  string(prepared.Data),
+			Delivery:  models.NoticeDelivery(prepared.Delivery),
+			CreatedAt: prepared.CreatedAt,
+		},
+	)
+	if err != nil {
+		return events.Notice{}, ctxerrors.Wrap(err, "persist session event")
+	}
+
+	published, err := r.eventBus.Publish(prepared)
 	if err != nil {
 		return events.Notice{}, ctxerrors.Wrap(err, "publish session event")
+	}
+	if published.ID != stored.ID {
+		return events.Notice{}, ctxerrors.Wrap(
+			commerr.ErrInvalidState,
+			"published session event identity",
+		)
 	}
 
 	r.considerWake(ctx, published)

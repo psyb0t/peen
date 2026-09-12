@@ -563,7 +563,7 @@ func (r Runner) publishEvent(
 		return ctxerrors.Wrap(err, "validate hook event type")
 	}
 
-	_, err = r.publisher.Publish(events.Notice{
+	_, err = r.publisher.PublishContext(ctx, events.Notice{
 		SessionID: invocation.SessionID,
 		Type:      event.Type,
 		Source:    hookFailureEventSource,
@@ -612,7 +612,7 @@ func (r Runner) recordActionFailure(
 		return
 	}
 
-	_, err = r.publisher.Publish(events.Notice{
+	_, err = r.publisher.PublishContext(ctx, events.Notice{
 		SessionID: invocation.SessionID,
 		Type:      hookFailureEventType,
 		Source:    hookFailureEventSource,

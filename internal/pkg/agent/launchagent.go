@@ -9,11 +9,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/psyb0t/common-go/utils/ptrutil"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/elelem"
+	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/tools"
 )
 
@@ -58,6 +61,26 @@ func parentToolCallIDFromContext(ctx context.Context) string {
 	id, _ := ctx.Value(parentToolCallIDKey{}).(string)
 
 	return id
+}
+
+// parentAgentRunIDKey carries the direct child-run parent while a nested
+// launch_agent call executes. Root calls have no parent agent run.
+type parentAgentRunIDKey struct{}
+
+func contextWithParentAgentRunID(
+	ctx context.Context,
+	agentRunID uuid.UUID,
+) context.Context {
+	return context.WithValue(ctx, parentAgentRunIDKey{}, agentRunID)
+}
+
+func parentAgentRunIDFromContext(ctx context.Context) *uuid.UUID {
+	agentRunID, ok := ctx.Value(parentAgentRunIDKey{}).(uuid.UUID)
+	if !ok || agentRunID == uuid.Nil {
+		return nil
+	}
+
+	return &agentRunID
 }
 
 // launchAgentInput selects the child to run and its task. Exactly one of
@@ -108,6 +131,8 @@ type launchAgentDeps struct {
 	modelReference string
 	sessionID      uuid.UUID
 	parentTurnID   uuid.UUID
+	requestID      uuid.UUID
+	liveSink       EventSink
 }
 
 // handle is the tool Handler launch_agent registers.
@@ -168,23 +193,77 @@ func (r *Runtime) launchAgent(
 		)
 	}
 
+	systemPrompt, err := r.childSystemPrompt(
+		deps.snapshot,
+		definition.instructions,
+		deps.executor.Workspace(),
+	)
+	if err != nil {
+		return launchAgentOutput{}, ctxerrors.Wrap(
+			err,
+			"build child system prompt",
+		)
+	}
+
+	allowedToolsJSON, err := marshalAllowedTools(definition.allowedTools)
+	if err != nil {
+		return launchAgentOutput{}, err
+	}
+
 	registry, err := r.sessionAgentRuns(deps.sessionID)
 	if err != nil {
 		return launchAgentOutput{}, err
 	}
 
 	run, runCtx, err := registry.Start(ctx, StartAgentRunInput{
+		ID:               uuid.New(),
 		ParentTurnID:     deps.parentTurnID,
+		ParentAgentRunID: parentAgentRunIDFromContext(ctx),
 		ParentToolCallID: parentToolCallIDFromContext(ctx),
+		RequestID:        deps.requestID,
 		Name:             definition.name,
 		Definition:       definition.kind,
 		Depth:            depth,
+		StartedAt:        r.now().UTC(),
+	}, func(run *AgentRun) error {
+		_, createErr := r.store.CreateAgentRun(ctx, deps.sessionID, session.StartAgentRunInput{
+			ID:               run.ID,
+			ParentTurnID:     run.ParentTurnID,
+			ParentAgentRunID: run.ParentAgentRunID,
+			ParentToolCallID: run.ParentToolCallID,
+			RequestID:        run.RequestID,
+			Name:             run.Name,
+			Definition:       models.AgentRunDefinition(run.Definition),
+			Depth:            int64(run.Depth),
+			Workspace:        deps.executor.Workspace(),
+			ModelReference:   deps.modelReference,
+			ModelID:          deps.model.Model.ID,
+			Task:             input.Task,
+			Instructions:     definition.instructions,
+			AllowedToolsJSON: allowedToolsJSON,
+			SystemPrompt:     systemPrompt,
+			StartedAt:        run.StartedAt,
+		})
+		return createErr
 	})
 	if err != nil {
 		return launchAgentOutput{}, err
 	}
 
 	runCtx = childAgentContext(runCtx, run, definition, depth, input.Task)
+	sink := newAgentRunSink(r.store, deps.sessionID, run, deps.liveSink)
+	if err := sink.emit(runCtx, EventTypeAgentRunStarted, agentRunStartedPayload{
+		AgentRunID:       run.ID,
+		ParentTurnID:     run.ParentTurnID,
+		ParentAgentRunID: run.ParentAgentRunID,
+		Name:             run.Name,
+		Definition:       run.Definition,
+		Depth:            run.Depth,
+		Model:            deps.modelReference,
+		Workspace:        deps.executor.Workspace(),
+	}); err != nil {
+		return r.finishAgentRun(ctx, registry, sink, run, nil, err)
+	}
 
 	response, runErr := r.runChildAgent(
 		runCtx,
@@ -193,9 +272,24 @@ func (r *Runtime) launchAgent(
 		input.Task,
 		run,
 		depth,
+		systemPrompt,
+		sink,
 	)
 
-	return r.finishAgentRun(ctx, registry, run, response, runErr)
+	return r.finishAgentRun(ctx, registry, sink, run, response, runErr)
+}
+
+func marshalAllowedTools(allowedTools []string) (string, error) {
+	if allowedTools == nil {
+		allowedTools = []string{}
+	}
+
+	encoded, err := json.Marshal(allowedTools)
+	if err != nil {
+		return "", ctxerrors.Wrap(err, "marshal child allowed tools")
+	}
+
+	return string(encoded), nil
 }
 
 func childAgentContext(
@@ -211,6 +305,7 @@ func childAgentContext(
 		ctxscope.Attr("agent_name", run.Name),
 		ctxscope.Attr("agent_depth", depth),
 	)
+	childCtx = contextWithParentAgentRunID(childCtx, run.ID)
 	ctxscope.GetLogger(childCtx).Info(
 		"child agent started",
 		"agent_definition", definition.kind,
@@ -358,11 +453,8 @@ func (r *Runtime) childSystemPrompt(
 	return strings.Join(sections, systemSectionGap), nil
 }
 
-// runChildAgent builds and runs the child's own, independent conversation:
-// its own system prompt, its own tool set built over the SAME shared tool
-// registry and resolved rules, and its own event sink feeding this run's
-// ring buffer and JSONL mirror. The child gets no session-event injection;
-// per the plan, a child agent has no private notification path.
+// runChildAgent builds and runs one independent child conversation. Its event
+// sink persists every observable callback before publishing the live tail.
 //
 //nolint:funlen // Keep child request lifecycle together.
 func (r *Runtime) runChildAgent(
@@ -372,24 +464,9 @@ func (r *Runtime) runChildAgent(
 	task string,
 	run *AgentRun,
 	depth int,
+	systemPrompt string,
+	sink *agentRunSink,
 ) (*elelem.Response, error) {
-	transcript := newAgentRunTranscript(
-		runCtx,
-		r.configDirectory,
-		deps.sessionID,
-		definition.name,
-		run.ID,
-	)
-
-	systemPrompt, err := r.childSystemPrompt(
-		deps.snapshot,
-		definition.instructions,
-		deps.executor.Workspace(),
-	)
-	if err != nil {
-		return nil, ctxerrors.Wrap(err, "build child system prompt")
-	}
-
 	childToolSet, err := r.agentToolSet(
 		deps,
 		nil,
@@ -410,7 +487,7 @@ func (r *Runtime) runChildAgent(
 		r.enableWorkspaceHooks,
 		r.hookCommandTimeout,
 		r.maxHookCommandOutput,
-		r.eventBus,
+		r.durableEventPublisher(),
 		nil,
 		modelTokenCounter(deps.model),
 	)
@@ -419,8 +496,36 @@ func (r *Runtime) runChildAgent(
 	}
 
 	bindToolHooks(childToolSet, childHooks)
+	requestSettingsJSON, err := newModelAuditSettings(
+		deps.model.Model,
+		true,
+		true,
+		r.agentLimits.MaxChildTurns,
+		r.maxContextTokens,
+		0,
+		r.maxConcurrentTools,
+		r.toolTimeout,
+		r.maxToolResultTokens,
+		0,
+	)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "marshal child model request settings")
+	}
+	audit, err := newModelAuditRecorder(runCtx, modelAuditOptions{
+		Store:               r.store,
+		SessionID:           deps.sessionID,
+		TurnID:              deps.parentTurnID,
+		AgentRunID:          ptrutil.Of(run.ID),
+		Stage:               models.ModelRunStageChild,
+		ModelReference:      deps.modelReference,
+		Model:               deps.model.Model,
+		RequestSettingsJSON: requestSettingsJSON,
+		Now:                 r.now,
+	})
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "start child model audit")
+	}
 
-	sink := newAgentRunSink(run, transcript)
 	depthCtx := contextWithAgentDepth(runCtx, depth)
 	startedAt := time.Now()
 
@@ -441,14 +546,34 @@ func (r *Runtime) runChildAgent(
 		WithMaxContextTokens(r.maxContextTokens).
 		OnText(sink.onText).
 		OnReasoning(sink.onReasoning).
+		OnRoundStart(audit.onRoundStart).
+		OnRoundEnd(audit.onRoundEnd).
+		OnAssistantMessage(func(callbackCtx context.Context, message elelem.Message) error {
+			if err := sink.onAssistantMessage(callbackCtx, message); err != nil {
+				return ctxerrors.Wrap(err, "persist child assistant message")
+			}
+
+			return audit.onAssistantMessage(callbackCtx, message)
+		}).
 		OnToolCallStart(sink.onToolCallStart).
 		OnToolResult(sink.onToolResult).
+		OnMessageInjection(sink.onMessageInjection).
+		OnRetry(func(callbackCtx context.Context, attempt elelem.RetryAttempt) error {
+			if err := sink.onRetry(callbackCtx, attempt); err != nil {
+				return ctxerrors.Wrap(err, "persist child provider retry")
+			}
+
+			return audit.onRetry(callbackCtx, attempt)
+		}).
 		OnDelta(func(_ context.Context, _ elelem.Delta) error {
 			firstDeltaOnce.Do(func() { firstDeltaAt = time.Now() })
 
 			return nil
 		}).
 		Run(depthCtx)
+	if auditErr := audit.finish(context.WithoutCancel(depthCtx), response, err); auditErr != nil {
+		err = errors.Join(err, auditErr)
+	}
 
 	observeModelRequest(
 		r.metrics,
@@ -462,7 +587,7 @@ func (r *Runtime) runChildAgent(
 	)
 
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "run child agent request")
+		return response, ctxerrors.Wrap(err, "run child agent request")
 	}
 
 	return response, nil
@@ -501,15 +626,74 @@ func (r *Runtime) agentToolSet(
 func (r *Runtime) finishAgentRun(
 	parentCtx context.Context,
 	registry *AgentRunRegistry,
+	sink *agentRunSink,
 	run *AgentRun,
 	response *elelem.Response,
 	runErr error,
 ) (launchAgentOutput, error) {
-	if runErr != nil {
-		return r.finishFailedAgentRun(parentCtx, registry, run, runErr)
+	state, classification, eventType := agentRunOutcome(runErr)
+	if runErr == nil && response == nil {
+		runErr = ctxerrors.New("child provider returned no response")
+		state, classification, eventType = agentRunOutcome(runErr)
 	}
 
-	registry.Finish(parentCtx, run, AgentRunStateCompleted)
+	finalizeErr := r.finalizeAgentRun(
+		context.WithoutCancel(parentCtx),
+		run,
+		response,
+		state,
+		classification,
+		runErr,
+	)
+	if finalizeErr != nil {
+		registry.Finish(parentCtx, run, AgentRunStateFailed)
+
+		return launchAgentOutput{}, ctxerrors.Wrap(
+			finalizeErr,
+			"persist child agent outcome",
+		)
+	}
+
+	registry.Finish(parentCtx, run, state)
+	if err := sink.emit(context.WithoutCancel(parentCtx), eventType, agentRunTerminalPayload{
+		AgentRunID:            run.ID,
+		State:                 state,
+		FailureClassification: classification,
+		FailureDetail:         errorText(runErr),
+	}); err != nil {
+		return launchAgentOutput{}, ctxerrors.Wrap(
+			err,
+			"persist child agent terminal event",
+		)
+	}
+
+	if runErr != nil {
+		if state == AgentRunStateCancelled && parentCtx.Err() == nil {
+			ctxscope.GetLogger(parentCtx).Info(
+				"child agent cancelled",
+				"agent_run_id", run.ID.String(),
+				"agent_name", run.Name,
+			)
+
+			return launchAgentOutput{
+				AgentRunID: run.ID,
+				Name:       run.Name,
+				Definition: run.Definition,
+				Cancelled:  true,
+			}, nil
+		}
+
+		ctxscope.GetLogger(parentCtx).Warn(
+			"child agent failed",
+			"agent_run_id", run.ID.String(),
+			"agent_name", run.Name,
+			"state", state,
+			"err", runErr,
+		)
+
+		return launchAgentOutput{}, ctxerrors.Wrap(runErr, "run child agent")
+	}
+
 	ctxscope.GetLogger(parentCtx).Info(
 		"child agent completed",
 		"agent_run_id", run.ID.String(),
@@ -526,41 +710,59 @@ func (r *Runtime) finishAgentRun(
 	}, nil
 }
 
-func (r *Runtime) finishFailedAgentRun(
-	parentCtx context.Context,
-	registry *AgentRunRegistry,
+func (r *Runtime) finalizeAgentRun(
+	ctx context.Context,
 	run *AgentRun,
+	response *elelem.Response,
+	state AgentRunState,
+	classification string,
 	runErr error,
-) (launchAgentOutput, error) {
-	if !errors.Is(runErr, context.Canceled) {
-		registry.Finish(parentCtx, run, AgentRunStateFailed)
-		ctxscope.GetLogger(parentCtx).Warn(
-			"child agent failed",
-			"agent_run_id", run.ID.String(),
-			"agent_name", run.Name,
-			"err", runErr,
-		)
+) error {
+	input := session.FinalizeAgentRunInput{
+		State:                 models.AgentRunState(state),
+		FailureClassification: classification,
+		FailureDetail:         errorText(runErr),
+	}
+	if response != nil {
+		messages, err := json.Marshal(response.Messages)
+		if err != nil {
+			return ctxerrors.Wrap(err, "marshal child response messages")
+		}
 
-		return launchAgentOutput{}, ctxerrors.Wrap(runErr, "run child agent")
+		input.ResponseText = response.Text
+		input.ResponseThinking = response.Reasoning
+		input.ResponseMessagesJSON = string(messages)
+		input.FinishReason = string(response.FinishReason)
+		input.PromptTokenCount = response.Usage.Prompt
+		input.CompletionTokenCount = response.Usage.Completion
 	}
 
-	registry.Finish(parentCtx, run, AgentRunStateCancelled)
-	ctxscope.GetLogger(parentCtx).Info(
-		"child agent cancelled",
-		"agent_run_id", run.ID.String(),
-		"agent_name", run.Name,
-	)
-
-	if parentCtx.Err() != nil {
-		return launchAgentOutput{}, ctxerrors.Wrap(runErr, "run child agent")
+	if _, err := r.store.FinalizeAgentRun(ctx, run.SessionID, run.ID, input); err != nil {
+		return ctxerrors.Wrap(err, "finalize durable child agent")
 	}
 
-	return launchAgentOutput{
-		AgentRunID: run.ID,
-		Name:       run.Name,
-		Definition: run.Definition,
-		Cancelled:  true,
-	}, nil
+	return nil
+}
+
+func agentRunOutcome(runErr error) (AgentRunState, string, string) {
+	if runErr == nil {
+		return AgentRunStateCompleted, "", EventTypeAgentRunCompleted
+	}
+	if errors.Is(runErr, context.Canceled) {
+		return AgentRunStateCancelled,
+			failureClassCancelled,
+			EventTypeAgentRunCancelled
+	}
+
+	return AgentRunStateFailed, failureClassAgentRun, EventTypeAgentRunFailed
+}
+
+func errorText(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	return err.Error()
 }
 
 // sessionAgentRuns returns the session's agent run registry, creating it on
@@ -575,7 +777,11 @@ func (r *Runtime) sessionAgentRuns(
 		return registry, nil
 	}
 
-	registry, err := NewAgentRunRegistry(sessionID, r.eventBus, r.agentLimits)
+	registry, err := NewAgentRunRegistry(
+		sessionID,
+		r.durableEventPublisher(),
+		r.agentLimits,
+	)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create session agent run registry")
 	}
@@ -585,22 +791,28 @@ func (r *Runtime) sessionAgentRuns(
 	return registry, nil
 }
 
-// agentRunSink mirrors one child conversation's own event stream into its
-// run's bounded ring buffer and JSONL transcript, using the same event type
-// and payload shapes the top-level turn's own tool blocks use. It never
-// touches the parent turn's own transcript: a child agent has no private
-// notification path into the session, and its record lives entirely under
-// its own run.
+// agentRunSink persists a child stream, refreshes the local convenience
+// buffer, then emits the exact child event to every live session client.
 type agentRunSink struct {
-	run        *AgentRun
-	transcript *agentRunTranscript
+	store     *session.Store
+	sessionID uuid.UUID
+	run       *AgentRun
+	liveSink  EventSink
+	mu        sync.Mutex
 }
 
 func newAgentRunSink(
+	store *session.Store,
+	sessionID uuid.UUID,
 	run *AgentRun,
-	transcript *agentRunTranscript,
+	liveSink EventSink,
 ) *agentRunSink {
-	return &agentRunSink{run: run, transcript: transcript}
+	return &agentRunSink{
+		store:     store,
+		sessionID: sessionID,
+		run:       run,
+		liveSink:  liveSink,
+	}
 }
 
 func (s *agentRunSink) emit(
@@ -613,16 +825,49 @@ func (s *agentRunSink) emit(
 		return ctxerrors.Wrap(err, "marshal agent run event")
 	}
 
-	event := s.run.events.Append(eventType, encoded)
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
-	s.transcript.Append(ctx, transcriptLine{
-		Sequence:         event.Sequence,
-		RunID:            s.run.ID,
-		ParentToolCallID: s.run.ParentToolCallID,
-		Type:             eventType,
-		Payload:          encoded,
-		CreatedAt:        event.CreatedAt,
+	persisted, err := s.store.AppendAgentRunEvent(
+		context.WithoutCancel(ctx),
+		s.sessionID,
+		s.run.ID,
+		session.AgentRunEventInput{
+			EventType:   eventType,
+			PayloadJSON: string(encoded),
+		},
+	)
+	if err != nil {
+		return ctxerrors.Wrap(err, "persist agent run event")
+	}
+
+	s.run.AppendStoredEvent(AgentRunEvent{
+		Sequence:  int(persisted.Sequence),
+		Type:      persisted.EventType,
+		Payload:   json.RawMessage(persisted.PayloadJSON),
+		CreatedAt: persisted.CreatedAt,
 	})
+
+	if s.liveSink == nil {
+		return nil
+	}
+
+	livePayload, err := json.Marshal(agentRunLivePayload{
+		AgentRunID:       s.run.ID,
+		ParentTurnID:     s.run.ParentTurnID,
+		ParentAgentRunID: s.run.ParentAgentRunID,
+		Event:            json.RawMessage(persisted.PayloadJSON),
+	})
+	if err != nil {
+		return ctxerrors.Wrap(err, "marshal live agent run event")
+	}
+
+	if err := s.liveSink(Event{
+		Type:    eventType,
+		Payload: livePayload,
+	}); err != nil {
+		return ctxerrors.Wrap(err, "publish live agent run event")
+	}
 
 	return nil
 }
@@ -631,7 +876,11 @@ func (s *agentRunSink) onText(
 	ctx context.Context,
 	delta elelem.TextDelta,
 ) error {
-	return s.emit(ctx, EventTypeTextDelta, textDeltaPayload{Text: delta.Text})
+	return s.emit(
+		ctx,
+		EventTypeAgentRunTextDelta,
+		textDeltaPayload{Text: delta.Text},
+	)
 }
 
 func (s *agentRunSink) onReasoning(
@@ -640,7 +889,7 @@ func (s *agentRunSink) onReasoning(
 ) error {
 	return s.emit(
 		ctx,
-		EventTypeThinkingDelta,
+		EventTypeAgentRunThinkingDelta,
 		textDeltaPayload{Text: delta.Text},
 	)
 }
@@ -649,7 +898,7 @@ func (s *agentRunSink) onToolCallStart(
 	ctx context.Context,
 	call elelem.ToolCallEvent,
 ) error {
-	return s.emit(ctx, EventTypeToolUse, toolUsePayload{
+	return s.emit(ctx, EventTypeAgentRunToolUse, toolUsePayload{
 		CallID:    call.CallID,
 		Name:      call.Name,
 		Arguments: call.Arguments,
@@ -666,10 +915,61 @@ func (s *agentRunSink) onToolResult(
 		isError = call.Result.IsError
 	}
 
-	return s.emit(ctx, EventTypeToolResult, toolResultPayload{
+	return s.emit(ctx, EventTypeAgentRunToolResult, toolResultPayload{
 		CallID:  call.CallID,
 		Name:    call.Name,
 		Content: content,
 		IsError: isError,
 	})
+}
+
+func (s *agentRunSink) onAssistantMessage(
+	ctx context.Context,
+	message elelem.Message,
+) error {
+	return s.emit(ctx, EventTypeAgentRunAssistantMessage, message)
+}
+
+func (s *agentRunSink) onMessageInjection(
+	ctx context.Context,
+	injection elelem.MessageInjection,
+) error {
+	return s.emit(ctx, EventTypeAgentRunMessageInjected, injection)
+}
+
+func (s *agentRunSink) onRetry(
+	ctx context.Context,
+	attempt elelem.RetryAttempt,
+) error {
+	return s.emit(ctx, EventTypeAgentRunProviderRetry, providerRetryPayload{
+		Attempt: attempt.Attempt,
+		Reason:  attempt.Reason,
+		Status:  attempt.Status,
+		DelayMS: attempt.Delay.Milliseconds(),
+	})
+}
+
+type agentRunStartedPayload struct {
+	AgentRunID       uuid.UUID          `json:"agentRunId"`
+	ParentTurnID     uuid.UUID          `json:"parentTurnId"`
+	ParentAgentRunID *uuid.UUID         `json:"parentAgentRunId,omitempty"`
+	Name             string             `json:"name"`
+	Definition       AgentRunDefinition `json:"definition"`
+	Depth            int                `json:"depth"`
+	Model            string             `json:"model"`
+	Workspace        string             `json:"workspace"`
+}
+
+type agentRunTerminalPayload struct {
+	AgentRunID            uuid.UUID     `json:"agentRunId"`
+	State                 AgentRunState `json:"state"`
+	FailureClassification string        `json:"failureClassification,omitempty"`
+	FailureDetail         string        `json:"failureDetail,omitempty"`
+}
+
+type agentRunLivePayload struct {
+	AgentRunID       uuid.UUID       `json:"agentRunId"`
+	ParentTurnID     uuid.UUID       `json:"parentTurnId"`
+	ParentAgentRunID *uuid.UUID      `json:"parentAgentRunId,omitempty"`
+	Event            json.RawMessage `json:"event"`
 }

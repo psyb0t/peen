@@ -8,6 +8,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/elelem"
+	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/events"
 )
 
@@ -39,11 +40,20 @@ func (p *preparedTurn) injectSessionEvents(
 	ctx context.Context,
 	_ *elelem.ToolEvent,
 ) (*elelem.MessageInjection, error) {
-	if p.eventBus == nil {
-		return nil, nil //nolint:nilnil // No bus means nothing to inject.
+	if p.opened == nil || p.opened.Session == nil || p.turn == nil ||
+		p.turn.store == nil {
+		return nil, nil //nolint:nilnil // No durable session can have pending notices.
 	}
 
-	batch := p.eventBus.Drain(p.opened.Session.ID)
+	notices, err := p.turn.store.DrainSessionNotices(ctx, p.opened.Session.ID)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "drain durable session notices")
+	}
+	if p.eventBus != nil {
+		p.eventBus.Drain(p.opened.Session.ID)
+	}
+
+	batch := sessionNoticeBatch(notices)
 	if len(batch.Notices) == 0 {
 		return nil, nil //nolint:nilnil // Nothing pending injects nothing.
 	}
@@ -65,6 +75,24 @@ func (p *preparedTurn) injectSessionEvents(
 		Type:    elelem.RoleUser,
 		Content: renderSessionEvents(batch),
 	}, nil
+}
+
+func sessionNoticeBatch(notices []*models.SessionNotice) events.Batch {
+	batch := events.Batch{Notices: make([]events.Notice, 0, len(notices))}
+	for _, notice := range notices {
+		batch.Notices = append(batch.Notices, events.Notice{
+			ID:        notice.ID,
+			SessionID: notice.SessionID,
+			Type:      notice.Type,
+			Source:    notice.Source,
+			Summary:   notice.Summary,
+			Data:      []byte(notice.DataJSON),
+			Delivery:  string(notice.Delivery),
+			CreatedAt: notice.CreatedAt,
+		})
+	}
+
+	return batch
 }
 
 // renderSessionEvents builds the quoted data block the model receives. The

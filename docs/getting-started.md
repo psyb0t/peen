@@ -1,8 +1,9 @@
 # Getting started
 
 Peen is a coding-agent backend that works in a real directory. It keeps the
-conversation, tool calls, events, and child-agent work after a client
-disconnects. You bring the workspace and the client. Peen runs the agent.
+conversation, tool calls, protocol events, child-agent work, and provider
+exchanges after a client disconnects. You bring the workspace and the client.
+Peen runs the agent.
 
 This gets an agent working in one folder without handing it the rest of your
 machine. Peen has no bundled browser chat, so the first client below is a
@@ -115,9 +116,10 @@ curl -X POST "http://localhost:8080/v1/session/cancel" \
   -H "X-Session-ID: <session-id>"
 ```
 
-The API also exposes queued events, process jobs, child-agent runs, and session
-status. [The API reference](http-api.md) has the exact frame and response
-shapes.
+The API also exposes durable protocol events, outside notices, process jobs and
+their output and signal history, child-agent runs, turns, prompt and context
+snapshots, compaction lineage, provider runs and rounds, and session status.
+[The API reference](http-api.md) has the exact frame and response shapes.
 
 ## Before you expose it
 

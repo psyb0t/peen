@@ -27,12 +27,20 @@ func main() {
 	})
 
 	generator.ApplyBasic(
+		models.AgentRun{},
+		models.AgentRunEvent{},
 		models.Compaction{},
 		models.ContextSnapshot{},
 		models.Event{},
+		models.Job{},
+		models.JobOutputLine{},
+		models.JobSignalRequest{},
 		models.Message{},
+		models.ModelCall{},
+		models.ModelRun{},
 		models.PromptSnapshot{},
 		models.Session{},
+		models.SessionNotice{},
 		models.Turn{},
 	)
 	generator.ApplyInterface(func(CompactionQuerier) {}, models.Compaction{})

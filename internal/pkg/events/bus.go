@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -88,6 +89,29 @@ func NewBus(options Options) *Bus {
 // A full queue drops its oldest event and counts the drop. A subscriber that is
 // not reading is skipped rather than waited on.
 func (b *Bus) Publish(notice Notice) (Notice, error) {
+	notice, err := b.Prepare(notice)
+	if err != nil {
+		return Notice{}, err
+	}
+
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
+
+	b.enqueue(notice)
+	b.fanOut(notice)
+
+	return notice, nil
+}
+
+// PublishContext lets a Bus satisfy Publisher. A Bus has no durable state, so
+// callers that need replay use Runtime's publisher instead.
+func (b *Bus) PublishContext(_ context.Context, notice Notice) (Notice, error) {
+	return b.Publish(notice)
+}
+
+// Prepare validates and normalizes a notice without making it visible. Callers
+// that need persistence-before-publication use it before their durable write.
+func (b *Bus) Prepare(notice Notice) (Notice, error) {
 	if notice.SessionID == uuid.Nil {
 		return Notice{}, ctxerrors.Wrap(
 			commerr.ErrValidationFailed,
@@ -106,12 +130,6 @@ func (b *Bus) Publish(notice Notice) (Notice, error) {
 
 	notice.Delivery = delivery
 	b.applyDefaults(&notice)
-
-	b.mutex.Lock()
-	defer b.mutex.Unlock()
-
-	b.enqueue(notice)
-	b.fanOut(notice)
 
 	return notice, nil
 }

@@ -26,14 +26,14 @@ import (
 
 // Defines values for AgentRunDefinition.
 const (
-	AgentRunDefinitionAdhoc  AgentRunDefinition = "adhoc"
+	AgentRunDefinitionAdHoc  AgentRunDefinition = "ad-hoc"
 	AgentRunDefinitionStored AgentRunDefinition = "stored"
 )
 
 // Valid indicates whether the value is a known member of the AgentRunDefinition enum.
 func (e AgentRunDefinition) Valid() bool {
 	switch e {
-	case AgentRunDefinitionAdhoc:
+	case AgentRunDefinitionAdHoc:
 		return true
 	case AgentRunDefinitionStored:
 		return true
@@ -44,10 +44,11 @@ func (e AgentRunDefinition) Valid() bool {
 
 // Defines values for AgentRunState.
 const (
-	AgentRunStateCancelled AgentRunState = "cancelled"
-	AgentRunStateCompleted AgentRunState = "completed"
-	AgentRunStateFailed    AgentRunState = "failed"
-	AgentRunStateRunning   AgentRunState = "running"
+	AgentRunStateCancelled   AgentRunState = "cancelled"
+	AgentRunStateCompleted   AgentRunState = "completed"
+	AgentRunStateFailed      AgentRunState = "failed"
+	AgentRunStateInterrupted AgentRunState = "interrupted"
+	AgentRunStateRunning     AgentRunState = "running"
 )
 
 // Valid indicates whether the value is a known member of the AgentRunState enum.
@@ -59,6 +60,8 @@ func (e AgentRunState) Valid() bool {
 		return true
 	case AgentRunStateFailed:
 		return true
+	case AgentRunStateInterrupted:
+		return true
 	case AgentRunStateRunning:
 		return true
 	default:
@@ -68,10 +71,11 @@ func (e AgentRunState) Valid() bool {
 
 // Defines values for AgentRunCancelResponseState.
 const (
-	AgentRunCancelResponseStateCancelled AgentRunCancelResponseState = "cancelled"
-	AgentRunCancelResponseStateCompleted AgentRunCancelResponseState = "completed"
-	AgentRunCancelResponseStateFailed    AgentRunCancelResponseState = "failed"
-	AgentRunCancelResponseStateRunning   AgentRunCancelResponseState = "running"
+	AgentRunCancelResponseStateCancelled   AgentRunCancelResponseState = "cancelled"
+	AgentRunCancelResponseStateCompleted   AgentRunCancelResponseState = "completed"
+	AgentRunCancelResponseStateFailed      AgentRunCancelResponseState = "failed"
+	AgentRunCancelResponseStateInterrupted AgentRunCancelResponseState = "interrupted"
+	AgentRunCancelResponseStateRunning     AgentRunCancelResponseState = "running"
 )
 
 // Valid indicates whether the value is a known member of the AgentRunCancelResponseState enum.
@@ -83,6 +87,8 @@ func (e AgentRunCancelResponseState) Valid() bool {
 		return true
 	case AgentRunCancelResponseStateFailed:
 		return true
+	case AgentRunCancelResponseStateInterrupted:
+		return true
 	case AgentRunCancelResponseStateRunning:
 		return true
 	default:
@@ -92,10 +98,11 @@ func (e AgentRunCancelResponseState) Valid() bool {
 
 // Defines values for AgentRunEventPageState.
 const (
-	AgentRunEventPageStateCancelled AgentRunEventPageState = "cancelled"
-	AgentRunEventPageStateCompleted AgentRunEventPageState = "completed"
-	AgentRunEventPageStateFailed    AgentRunEventPageState = "failed"
-	AgentRunEventPageStateRunning   AgentRunEventPageState = "running"
+	AgentRunEventPageStateCancelled   AgentRunEventPageState = "cancelled"
+	AgentRunEventPageStateCompleted   AgentRunEventPageState = "completed"
+	AgentRunEventPageStateFailed      AgentRunEventPageState = "failed"
+	AgentRunEventPageStateInterrupted AgentRunEventPageState = "interrupted"
+	AgentRunEventPageStateRunning     AgentRunEventPageState = "running"
 )
 
 // Valid indicates whether the value is a known member of the AgentRunEventPageState enum.
@@ -107,6 +114,8 @@ func (e AgentRunEventPageState) Valid() bool {
 		return true
 	case AgentRunEventPageStateFailed:
 		return true
+	case AgentRunEventPageStateInterrupted:
+		return true
 	case AgentRunEventPageStateRunning:
 		return true
 	default:
@@ -116,10 +125,11 @@ func (e AgentRunEventPageState) Valid() bool {
 
 // Defines values for JobState.
 const (
-	JobStateExited    JobState = "exited"
-	JobStateFailed    JobState = "failed"
-	JobStateRunning   JobState = "running"
-	JobStateSignalled JobState = "signalled"
+	JobStateExited      JobState = "exited"
+	JobStateFailed      JobState = "failed"
+	JobStateInterrupted JobState = "interrupted"
+	JobStateRunning     JobState = "running"
+	JobStateSignalled   JobState = "signalled"
 )
 
 // Valid indicates whether the value is a known member of the JobState enum.
@@ -128,6 +138,8 @@ func (e JobState) Valid() bool {
 	case JobStateExited:
 		return true
 	case JobStateFailed:
+		return true
+	case JobStateInterrupted:
 		return true
 	case JobStateRunning:
 		return true
@@ -140,10 +152,11 @@ func (e JobState) Valid() bool {
 
 // Defines values for JobOutputState.
 const (
-	JobOutputStateExited    JobOutputState = "exited"
-	JobOutputStateFailed    JobOutputState = "failed"
-	JobOutputStateRunning   JobOutputState = "running"
-	JobOutputStateSignalled JobOutputState = "signalled"
+	JobOutputStateExited      JobOutputState = "exited"
+	JobOutputStateFailed      JobOutputState = "failed"
+	JobOutputStateInterrupted JobOutputState = "interrupted"
+	JobOutputStateRunning     JobOutputState = "running"
+	JobOutputStateSignalled   JobOutputState = "signalled"
 )
 
 // Valid indicates whether the value is a known member of the JobOutputState enum.
@@ -153,9 +166,74 @@ func (e JobOutputState) Valid() bool {
 		return true
 	case JobOutputStateFailed:
 		return true
+	case JobOutputStateInterrupted:
+		return true
 	case JobOutputStateRunning:
 		return true
 	case JobOutputStateSignalled:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for JobOutputLineStream.
+const (
+	JobOutputLineStreamStderr JobOutputLineStream = "stderr"
+	JobOutputLineStreamStdout JobOutputLineStream = "stdout"
+)
+
+// Valid indicates whether the value is a known member of the JobOutputLineStream enum.
+func (e JobOutputLineStream) Valid() bool {
+	switch e {
+	case JobOutputLineStreamStderr:
+		return true
+	case JobOutputLineStreamStdout:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for JobSignalRecordSignal.
+const (
+	JobSignalRecordSignalKill JobSignalRecordSignal = "kill"
+	JobSignalRecordSignalStop JobSignalRecordSignal = "stop"
+)
+
+// Valid indicates whether the value is a known member of the JobSignalRecordSignal enum.
+func (e JobSignalRecordSignal) Valid() bool {
+	switch e {
+	case JobSignalRecordSignalKill:
+		return true
+	case JobSignalRecordSignalStop:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for JobSignalRecordStateAtRequest.
+const (
+	JobSignalRecordStateAtRequestExited      JobSignalRecordStateAtRequest = "exited"
+	JobSignalRecordStateAtRequestFailed      JobSignalRecordStateAtRequest = "failed"
+	JobSignalRecordStateAtRequestInterrupted JobSignalRecordStateAtRequest = "interrupted"
+	JobSignalRecordStateAtRequestRunning     JobSignalRecordStateAtRequest = "running"
+	JobSignalRecordStateAtRequestSignalled   JobSignalRecordStateAtRequest = "signalled"
+)
+
+// Valid indicates whether the value is a known member of the JobSignalRecordStateAtRequest enum.
+func (e JobSignalRecordStateAtRequest) Valid() bool {
+	switch e {
+	case JobSignalRecordStateAtRequestExited:
+		return true
+	case JobSignalRecordStateAtRequestFailed:
+		return true
+	case JobSignalRecordStateAtRequestInterrupted:
+		return true
+	case JobSignalRecordStateAtRequestRunning:
+		return true
+	case JobSignalRecordStateAtRequestSignalled:
 		return true
 	default:
 		return false
@@ -182,10 +260,11 @@ func (e JobSignalRequestSignal) Valid() bool {
 
 // Defines values for JobSignalResponseState.
 const (
-	JobSignalResponseStateExited    JobSignalResponseState = "exited"
-	JobSignalResponseStateFailed    JobSignalResponseState = "failed"
-	JobSignalResponseStateRunning   JobSignalResponseState = "running"
-	JobSignalResponseStateSignalled JobSignalResponseState = "signalled"
+	JobSignalResponseStateExited      JobSignalResponseState = "exited"
+	JobSignalResponseStateFailed      JobSignalResponseState = "failed"
+	JobSignalResponseStateInterrupted JobSignalResponseState = "interrupted"
+	JobSignalResponseStateRunning     JobSignalResponseState = "running"
+	JobSignalResponseStateSignalled   JobSignalResponseState = "signalled"
 )
 
 // Valid indicates whether the value is a known member of the JobSignalResponseState enum.
@@ -194,6 +273,8 @@ func (e JobSignalResponseState) Valid() bool {
 	case JobSignalResponseStateExited:
 		return true
 	case JobSignalResponseStateFailed:
+		return true
+	case JobSignalResponseStateInterrupted:
 		return true
 	case JobSignalResponseStateRunning:
 		return true
@@ -225,36 +306,138 @@ func (e MessageRole) Valid() bool {
 	}
 }
 
-// Defines values for SessionEventDelivery.
+// Defines values for ModelCallState.
 const (
-	SessionEventDeliveryQueue SessionEventDelivery = "queue"
-	SessionEventDeliveryWake  SessionEventDelivery = "wake"
+	ModelCallStateCancelled   ModelCallState = "cancelled"
+	ModelCallStateCompleted   ModelCallState = "completed"
+	ModelCallStateFailed      ModelCallState = "failed"
+	ModelCallStateInterrupted ModelCallState = "interrupted"
+	ModelCallStateRunning     ModelCallState = "running"
 )
 
-// Valid indicates whether the value is a known member of the SessionEventDelivery enum.
-func (e SessionEventDelivery) Valid() bool {
+// Valid indicates whether the value is a known member of the ModelCallState enum.
+func (e ModelCallState) Valid() bool {
 	switch e {
-	case SessionEventDeliveryQueue:
+	case ModelCallStateCancelled:
 		return true
-	case SessionEventDeliveryWake:
+	case ModelCallStateCompleted:
+		return true
+	case ModelCallStateFailed:
+		return true
+	case ModelCallStateInterrupted:
+		return true
+	case ModelCallStateRunning:
 		return true
 	default:
 		return false
 	}
 }
 
-// Defines values for SessionEventRequestDelivery.
+// Defines values for ModelRunStage.
 const (
-	SessionEventRequestDeliveryQueue SessionEventRequestDelivery = "queue"
-	SessionEventRequestDeliveryWake  SessionEventRequestDelivery = "wake"
+	ModelRunStageChild      ModelRunStage = "child"
+	ModelRunStageCompaction ModelRunStage = "compaction"
+	ModelRunStageTurn       ModelRunStage = "turn"
 )
 
-// Valid indicates whether the value is a known member of the SessionEventRequestDelivery enum.
-func (e SessionEventRequestDelivery) Valid() bool {
+// Valid indicates whether the value is a known member of the ModelRunStage enum.
+func (e ModelRunStage) Valid() bool {
 	switch e {
-	case SessionEventRequestDeliveryQueue:
+	case ModelRunStageChild:
 		return true
-	case SessionEventRequestDeliveryWake:
+	case ModelRunStageCompaction:
+		return true
+	case ModelRunStageTurn:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModelRunState.
+const (
+	ModelRunStateCancelled   ModelRunState = "cancelled"
+	ModelRunStateCompleted   ModelRunState = "completed"
+	ModelRunStateFailed      ModelRunState = "failed"
+	ModelRunStateInterrupted ModelRunState = "interrupted"
+	ModelRunStateRunning     ModelRunState = "running"
+)
+
+// Valid indicates whether the value is a known member of the ModelRunState enum.
+func (e ModelRunState) Valid() bool {
+	switch e {
+	case ModelRunStateCancelled:
+		return true
+	case ModelRunStateCompleted:
+		return true
+	case ModelRunStateFailed:
+		return true
+	case ModelRunStateInterrupted:
+		return true
+	case ModelRunStateRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SessionNoticeDelivery.
+const (
+	SessionNoticeDeliveryQueue SessionNoticeDelivery = "queue"
+	SessionNoticeDeliveryWake  SessionNoticeDelivery = "wake"
+)
+
+// Valid indicates whether the value is a known member of the SessionNoticeDelivery enum.
+func (e SessionNoticeDelivery) Valid() bool {
+	switch e {
+	case SessionNoticeDeliveryQueue:
+		return true
+	case SessionNoticeDeliveryWake:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SessionNoticeRequestDelivery.
+const (
+	SessionNoticeRequestDeliveryQueue SessionNoticeRequestDelivery = "queue"
+	SessionNoticeRequestDeliveryWake  SessionNoticeRequestDelivery = "wake"
+)
+
+// Valid indicates whether the value is a known member of the SessionNoticeRequestDelivery enum.
+func (e SessionNoticeRequestDelivery) Valid() bool {
+	switch e {
+	case SessionNoticeRequestDeliveryQueue:
+		return true
+	case SessionNoticeRequestDeliveryWake:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TurnState.
+const (
+	TurnStateCancelled   TurnState = "cancelled"
+	TurnStateCompleted   TurnState = "completed"
+	TurnStateFailed      TurnState = "failed"
+	TurnStateInterrupted TurnState = "interrupted"
+	TurnStateRunning     TurnState = "running"
+)
+
+// Valid indicates whether the value is a known member of the TurnState enum.
+func (e TurnState) Valid() bool {
+	switch e {
+	case TurnStateCancelled:
+		return true
+	case TurnStateCompleted:
+		return true
+	case TurnStateFailed:
+		return true
+	case TurnStateInterrupted:
+		return true
+	case TurnStateRunning:
 		return true
 	default:
 		return false
@@ -321,12 +504,31 @@ func (e ListSessionAgentRunsParamsState) Valid() bool {
 	}
 }
 
+// Defines values for ListSessionEventsParamsOrder.
+const (
+	ListSessionEventsParamsOrderAsc  ListSessionEventsParamsOrder = "asc"
+	ListSessionEventsParamsOrderDesc ListSessionEventsParamsOrder = "desc"
+)
+
+// Valid indicates whether the value is a known member of the ListSessionEventsParamsOrder enum.
+func (e ListSessionEventsParamsOrder) Valid() bool {
+	switch e {
+	case ListSessionEventsParamsOrderAsc:
+		return true
+	case ListSessionEventsParamsOrderDesc:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListSessionJobsParamsState.
 const (
-	ListSessionJobsParamsStateExited    ListSessionJobsParamsState = "exited"
-	ListSessionJobsParamsStateFailed    ListSessionJobsParamsState = "failed"
-	ListSessionJobsParamsStateRunning   ListSessionJobsParamsState = "running"
-	ListSessionJobsParamsStateSignalled ListSessionJobsParamsState = "signalled"
+	ListSessionJobsParamsStateExited      ListSessionJobsParamsState = "exited"
+	ListSessionJobsParamsStateFailed      ListSessionJobsParamsState = "failed"
+	ListSessionJobsParamsStateInterrupted ListSessionJobsParamsState = "interrupted"
+	ListSessionJobsParamsStateRunning     ListSessionJobsParamsState = "running"
+	ListSessionJobsParamsStateSignalled   ListSessionJobsParamsState = "signalled"
 )
 
 // Valid indicates whether the value is a known member of the ListSessionJobsParamsState enum.
@@ -335,6 +537,8 @@ func (e ListSessionJobsParamsState) Valid() bool {
 	case ListSessionJobsParamsStateExited:
 		return true
 	case ListSessionJobsParamsStateFailed:
+		return true
+	case ListSessionJobsParamsStateInterrupted:
 		return true
 	case ListSessionJobsParamsStateRunning:
 		return true
@@ -366,29 +570,88 @@ func (e ReadSessionJobOutputParamsStream) Valid() bool {
 	}
 }
 
-// AgentRun defines model for AgentRun.
-type AgentRun struct {
-	AgentRunId openapi_types.UUID `json:"agentRunId"`
+// Defines values for ListSessionModelRunsParamsStage.
+const (
+	ListSessionModelRunsParamsStageChild      ListSessionModelRunsParamsStage = "child"
+	ListSessionModelRunsParamsStageCompaction ListSessionModelRunsParamsStage = "compaction"
+	ListSessionModelRunsParamsStageTurn       ListSessionModelRunsParamsStage = "turn"
+)
 
-	// Definition Whether the agent came from a file or was defined inline.
-	Definition AgentRunDefinition `json:"definition"`
-
-	// Depth Nesting level. The root turn is 0.
-	Depth              int32      `json:"depth"`
-	EndedAt            *time.Time `json:"endedAt,omitempty"`
-	EventBufferedCount int32      `json:"eventBufferedCount"`
-
-	// EventDroppedCount Events evicted because the bounded buffer filled.
-	EventDroppedCount int32 `json:"eventDroppedCount"`
-
-	// Name The agent's name. Identification only for an ad-hoc run.
-	Name             string        `json:"name"`
-	ParentToolCallId *string       `json:"parentToolCallId,omitempty"`
-	StartedAt        time.Time     `json:"startedAt"`
-	State            AgentRunState `json:"state"`
+// Valid indicates whether the value is a known member of the ListSessionModelRunsParamsStage enum.
+func (e ListSessionModelRunsParamsStage) Valid() bool {
+	switch e {
+	case ListSessionModelRunsParamsStageChild:
+		return true
+	case ListSessionModelRunsParamsStageCompaction:
+		return true
+	case ListSessionModelRunsParamsStageTurn:
+		return true
+	default:
+		return false
+	}
 }
 
-// AgentRunDefinition Whether the agent came from a file or was defined inline.
+// Defines values for ListSessionModelRunsParamsState.
+const (
+	ListSessionModelRunsParamsStateCancelled   ListSessionModelRunsParamsState = "cancelled"
+	ListSessionModelRunsParamsStateCompleted   ListSessionModelRunsParamsState = "completed"
+	ListSessionModelRunsParamsStateFailed      ListSessionModelRunsParamsState = "failed"
+	ListSessionModelRunsParamsStateInterrupted ListSessionModelRunsParamsState = "interrupted"
+	ListSessionModelRunsParamsStateRunning     ListSessionModelRunsParamsState = "running"
+)
+
+// Valid indicates whether the value is a known member of the ListSessionModelRunsParamsState enum.
+func (e ListSessionModelRunsParamsState) Valid() bool {
+	switch e {
+	case ListSessionModelRunsParamsStateCancelled:
+		return true
+	case ListSessionModelRunsParamsStateCompleted:
+		return true
+	case ListSessionModelRunsParamsStateFailed:
+		return true
+	case ListSessionModelRunsParamsStateInterrupted:
+		return true
+	case ListSessionModelRunsParamsStateRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// AgentRun defines model for AgentRun.
+type AgentRun struct {
+	AgentRunId            openapi_types.UUID  `json:"agentRunId"`
+	AllowedTools          []interface{}       `json:"allowedTools"`
+	CancelRequested       bool                `json:"cancelRequested"`
+	CompletionTokenCount  int64               `json:"completionTokenCount"`
+	Definition            AgentRunDefinition  `json:"definition"`
+	Depth                 int64               `json:"depth"`
+	EndedAt               *time.Time          `json:"endedAt,omitempty"`
+	EventCount            int64               `json:"eventCount"`
+	FailureClassification string              `json:"failureClassification"`
+	FailureDetail         string              `json:"failureDetail"`
+	FinishReason          string              `json:"finishReason"`
+	Instructions          string              `json:"instructions"`
+	Model                 string              `json:"model"`
+	ModelReference        string              `json:"modelReference"`
+	Name                  string              `json:"name"`
+	ParentAgentRunId      *openapi_types.UUID `json:"parentAgentRunId,omitempty"`
+	ParentToolCallId      *string             `json:"parentToolCallId,omitempty"`
+	ParentTurnId          openapi_types.UUID  `json:"parentTurnId"`
+	PromptTokenCount      int64               `json:"promptTokenCount"`
+	RequestId             openapi_types.UUID  `json:"requestId"`
+	ResponseMessages      []interface{}       `json:"responseMessages"`
+	ResponseText          string              `json:"responseText"`
+	ResponseThinking      string              `json:"responseThinking"`
+	SessionId             openapi_types.UUID  `json:"sessionId"`
+	StartedAt             time.Time           `json:"startedAt"`
+	State                 AgentRunState       `json:"state"`
+	SystemPrompt          string              `json:"systemPrompt"`
+	Task                  string              `json:"task"`
+	Workspace             string              `json:"workspace"`
+}
+
+// AgentRunDefinition defines model for AgentRun.Definition.
 type AgentRunDefinition string
 
 // AgentRunState defines model for AgentRun.State.
@@ -410,20 +673,18 @@ type AgentRunCancelResponseState string
 type AgentRunEvent struct {
 	CreatedAt time.Time               `json:"createdAt"`
 	Payload   *map[string]interface{} `json:"payload,omitempty"`
-	Sequence  int32                   `json:"sequence"`
+	Sequence  int64                   `json:"sequence"`
 	Type      string                  `json:"type"`
 }
 
 // AgentRunEventPage defines model for AgentRunEventPage.
 type AgentRunEventPage struct {
 	AgentRunId openapi_types.UUID `json:"agentRunId"`
-
-	// Dropped Events dropped before this window.
-	Dropped int32           `json:"dropped"`
-	Events  []AgentRunEvent `json:"events"`
+	Events     []AgentRunEvent    `json:"events"`
+	HasMore    bool               `json:"hasMore"`
 
 	// NextCursor Pass back as cursor to continue from here.
-	NextCursor int32                  `json:"nextCursor"`
+	NextCursor int64                  `json:"nextCursor"`
 	State      AgentRunEventPageState `json:"state"`
 }
 
@@ -434,11 +695,47 @@ type AgentRunEventPageState string
 type AgentRunPage struct {
 	Agents  []AgentRun `json:"agents"`
 	HasMore bool       `json:"hasMore"`
+	Limit   int32      `json:"limit"`
+	Offset  int32      `json:"offset"`
 }
 
 // CancelResponse defines model for CancelResponse.
 type CancelResponse struct {
 	CancelRequested bool `json:"cancelRequested"`
+}
+
+// Compaction defines model for Compaction.
+type Compaction struct {
+	CreatedAt          time.Time           `json:"createdAt"`
+	FromMessageId      openapi_types.UUID  `json:"fromMessageId"`
+	FromSequence       int64               `json:"fromSequence"`
+	Id                 openapi_types.UUID  `json:"id"`
+	InputTokenCount    int64               `json:"inputTokenCount"`
+	Model              string              `json:"model"`
+	ParentCompactionId *openapi_types.UUID `json:"parentCompactionId,omitempty"`
+	PromptHash         string              `json:"promptHash"`
+	SessionId          openapi_types.UUID  `json:"sessionId"`
+	SourceMessageCount int64               `json:"sourceMessageCount"`
+	Summary            string              `json:"summary"`
+	SummaryTokenCount  int64               `json:"summaryTokenCount"`
+	ToMessageId        openapi_types.UUID  `json:"toMessageId"`
+	ToSequence         int64               `json:"toSequence"`
+}
+
+// CompactionPage defines model for CompactionPage.
+type CompactionPage struct {
+	Compactions []Compaction `json:"compactions"`
+	HasMore     bool         `json:"hasMore"`
+	Limit       int32        `json:"limit"`
+	Offset      int32        `json:"offset"`
+}
+
+// ContextSnapshot defines model for ContextSnapshot.
+type ContextSnapshot struct {
+	CreatedAt       time.Time              `json:"createdAt"`
+	Hash            string                 `json:"hash"`
+	Manifest        map[string]interface{} `json:"manifest"`
+	ResolvedContent string                 `json:"resolvedContent"`
 }
 
 // Error defines model for Error.
@@ -455,25 +752,26 @@ type Job struct {
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
 
 	// ExitCode Exit status once known, or -1 while it is not.
-	ExitCode int32              `json:"exitCode"`
-	JobId    openapi_types.UUID `json:"jobId"`
+	ExitCode int64 `json:"exitCode"`
+
+	// FailureDetail Empty unless Peen recorded a terminal failure detail.
+	FailureDetail string             `json:"failureDetail"`
+	JobId         openapi_types.UUID `json:"jobId"`
 
 	// Pid Operating-system process ID of the job's shell.
-	Pid int32 `json:"pid"`
+	Pid int64 `json:"pid"`
 
 	// Purpose Why the agent said it was running this command.
-	Purpose             string    `json:"purpose"`
-	StartedAt           time.Time `json:"startedAt"`
-	State               JobState  `json:"state"`
-	StderrBufferedLines int32     `json:"stderrBufferedLines"`
-	StderrDroppedLines  int32     `json:"stderrDroppedLines"`
-	StdoutBufferedLines int32     `json:"stdoutBufferedLines"`
-
-	// StdoutDroppedLines Lines evicted because the bounded buffer filled.
-	StdoutDroppedLines int32 `json:"stdoutDroppedLines"`
+	Purpose   string             `json:"purpose"`
+	SessionId openapi_types.UUID `json:"sessionId"`
+	StartedAt time.Time          `json:"startedAt"`
+	State     JobState           `json:"state"`
 
 	// ToolCallId The tool call that started this job.
 	ToolCallId *string `json:"toolCallId,omitempty"`
+
+	// TurnId The durable turn that launched this process.
+	TurnId openapi_types.UUID `json:"turnId"`
 }
 
 // JobState defines model for Job.State.
@@ -481,25 +779,66 @@ type JobState string
 
 // JobOutput defines model for JobOutput.
 type JobOutput struct {
-	JobId            openapi_types.UUID `json:"jobId"`
-	NextStderrCursor int32              `json:"nextStderrCursor"`
+	HasMore bool               `json:"hasMore"`
+	JobId   openapi_types.UUID `json:"jobId"`
 
-	// NextStdoutCursor Pass back as stdoutCursor to continue from here.
-	NextStdoutCursor   int32          `json:"nextStdoutCursor"`
-	State              JobOutputState `json:"state"`
-	Stderr             string         `json:"stderr"`
-	StderrDroppedLines int32          `json:"stderrDroppedLines"`
-	Stdout             string         `json:"stdout"`
-	StdoutDroppedLines int32          `json:"stdoutDroppedLines"`
+	// Lines Ordered immutable stdout and stderr records from SQLite.
+	Lines []JobOutputLine `json:"lines"`
+
+	// NextCursor Pass back as cursor to continue from this durable sequence.
+	NextCursor int64          `json:"nextCursor"`
+	State      JobOutputState `json:"state"`
 }
 
 // JobOutputState defines model for JobOutput.State.
 type JobOutputState string
 
+// JobOutputLine defines model for JobOutputLine.
+type JobOutputLine struct {
+	Content   string              `json:"content"`
+	CreatedAt time.Time           `json:"createdAt"`
+	Id        openapi_types.UUID  `json:"id"`
+	JobId     openapi_types.UUID  `json:"jobId"`
+	Sequence  int64               `json:"sequence"`
+	SessionId openapi_types.UUID  `json:"sessionId"`
+	Stream    JobOutputLineStream `json:"stream"`
+}
+
+// JobOutputLineStream defines model for JobOutputLine.Stream.
+type JobOutputLineStream string
+
 // JobPage defines model for JobPage.
 type JobPage struct {
-	Jobs      []Job `json:"jobs"`
-	Truncated bool  `json:"truncated"`
+	HasMore bool  `json:"hasMore"`
+	Jobs    []Job `json:"jobs"`
+	Limit   int32 `json:"limit"`
+	Offset  int32 `json:"offset"`
+}
+
+// JobSignalRecord defines model for JobSignalRecord.
+type JobSignalRecord struct {
+	Accepted       bool                          `json:"accepted"`
+	Id             openapi_types.UUID            `json:"id"`
+	JobId          openapi_types.UUID            `json:"jobId"`
+	RequestedAt    time.Time                     `json:"requestedAt"`
+	SessionId      openapi_types.UUID            `json:"sessionId"`
+	Signal         JobSignalRecordSignal         `json:"signal"`
+	StateAtRequest JobSignalRecordStateAtRequest `json:"stateAtRequest"`
+}
+
+// JobSignalRecordSignal defines model for JobSignalRecord.Signal.
+type JobSignalRecordSignal string
+
+// JobSignalRecordStateAtRequest defines model for JobSignalRecord.StateAtRequest.
+type JobSignalRecordStateAtRequest string
+
+// JobSignalRecordPage defines model for JobSignalRecordPage.
+type JobSignalRecordPage struct {
+	HasMore        bool              `json:"hasMore"`
+	Job            Job               `json:"job"`
+	Limit          int32             `json:"limit"`
+	Offset         int32             `json:"offset"`
+	SignalRequests []JobSignalRecord `json:"signalRequests"`
 }
 
 // JobSignalRequest defines model for JobSignalRequest.
@@ -525,18 +864,19 @@ type JobSignalResponseState string
 
 // Message defines model for Message.
 type Message struct {
-	Content    string             `json:"content"`
-	CreatedAt  time.Time          `json:"createdAt"`
-	Id         openapi_types.UUID `json:"id"`
-	Incomplete *bool              `json:"incomplete,omitempty"`
-	IsError    *bool              `json:"isError,omitempty"`
-	Model      *string            `json:"model,omitempty"`
-	Role       MessageRole        `json:"role"`
-	Sequence   int64              `json:"sequence"`
-	Thinking   *string            `json:"thinking,omitempty"`
-	ToolCallId *string            `json:"toolCallId,omitempty"`
-	ToolCalls  *[]MessageToolCall `json:"toolCalls,omitempty"`
-	Workspace  string             `json:"workspace"`
+	CompactionId *openapi_types.UUID `json:"compactionId,omitempty"`
+	Content      string              `json:"content"`
+	CreatedAt    time.Time           `json:"createdAt"`
+	Id           openapi_types.UUID  `json:"id"`
+	Incomplete   *bool               `json:"incomplete,omitempty"`
+	IsError      *bool               `json:"isError,omitempty"`
+	Model        *string             `json:"model,omitempty"`
+	Role         MessageRole         `json:"role"`
+	Sequence     int64               `json:"sequence"`
+	Thinking     *string             `json:"thinking,omitempty"`
+	ToolCallId   *string             `json:"toolCallId,omitempty"`
+	ToolCalls    *[]MessageToolCall  `json:"toolCalls,omitempty"`
+	Workspace    string              `json:"workspace"`
 }
 
 // MessageRole defines model for Message.Role.
@@ -557,6 +897,104 @@ type MessageToolCall struct {
 	Name      string                 `json:"name"`
 }
 
+// ModelCall defines model for ModelCall.
+type ModelCall struct {
+	BilledCostAmount        string                   `json:"billedCostAmount"`
+	CacheReadTokens         int64                    `json:"cacheReadTokens"`
+	CacheWriteLongTtlTokens int64                    `json:"cacheWriteLongTtlTokens"`
+	CacheWriteTokens        int64                    `json:"cacheWriteTokens"`
+	CompletedAt             *time.Time               `json:"completedAt,omitempty"`
+	CompletionTokens        int64                    `json:"completionTokens"`
+	CostKnown               bool                     `json:"costKnown"`
+	FailureClassification   string                   `json:"failureClassification"`
+	FailureDetail           string                   `json:"failureDetail"`
+	FinishReason            string                   `json:"finishReason"`
+	Id                      openapi_types.UUID       `json:"id"`
+	ModelRunId              openapi_types.UUID       `json:"modelRunId"`
+	PromptTokens            int64                    `json:"promptTokens"`
+	ReasoningTokens         int64                    `json:"reasoningTokens"`
+	RequestMessages         []interface{}            `json:"requestMessages"`
+	RequestTools            []interface{}            `json:"requestTools"`
+	ResponseCostAmount      string                   `json:"responseCostAmount"`
+	ResponseMessage         *map[string]interface{}  `json:"responseMessage"`
+	ResponseModelId         string                   `json:"responseModelId"`
+	ResponseUsage           map[string]interface{}   `json:"responseUsage"`
+	RetryAttemptCount       int64                    `json:"retryAttemptCount"`
+	RetryAttempts           []map[string]interface{} `json:"retryAttempts"`
+	RetryCostAmount         string                   `json:"retryCostAmount"`
+	Round                   int64                    `json:"round"`
+	SessionId               openapi_types.UUID       `json:"sessionId"`
+	StartedAt               time.Time                `json:"startedAt"`
+	State                   ModelCallState           `json:"state"`
+	TotalAttempts           int64                    `json:"totalAttempts"`
+	TotalTokens             int64                    `json:"totalTokens"`
+	WastedCompletionTokens  int64                    `json:"wastedCompletionTokens"`
+	WastedPromptTokens      int64                    `json:"wastedPromptTokens"`
+	WastedTotalTokens       int64                    `json:"wastedTotalTokens"`
+}
+
+// ModelCallState defines model for ModelCall.State.
+type ModelCallState string
+
+// ModelCallPage defines model for ModelCallPage.
+type ModelCallPage struct {
+	Calls    []ModelCall `json:"calls"`
+	HasMore  bool        `json:"hasMore"`
+	Limit    int32       `json:"limit"`
+	ModelRun ModelRun    `json:"modelRun"`
+	Offset   int32       `json:"offset"`
+}
+
+// ModelRun defines model for ModelRun.
+type ModelRun struct {
+	AgentRunId            *openapi_types.UUID    `json:"agentRunId,omitempty"`
+	BilledCostAmount      string                 `json:"billedCostAmount"`
+	CompletedAt           *time.Time             `json:"completedAt,omitempty"`
+	ConnectionName        string                 `json:"connectionName"`
+	CostKnown             bool                   `json:"costKnown"`
+	FailureClassification string                 `json:"failureClassification"`
+	FailureDetail         string                 `json:"failureDetail"`
+	FinishReason          string                 `json:"finishReason"`
+	Id                    openapi_types.UUID     `json:"id"`
+	ModelReference        string                 `json:"modelReference"`
+	RequestSettings       map[string]interface{} `json:"requestSettings"`
+	RequestedModelId      string                 `json:"requestedModelId"`
+	ResponseCostAmount    string                 `json:"responseCostAmount"`
+	ResponseInjections    []interface{}          `json:"responseInjections"`
+	ResponseMessages      []interface{}          `json:"responseMessages"`
+	ResponseModelId       string                 `json:"responseModelId"`
+	ResponseText          string                 `json:"responseText"`
+	ResponseThinking      string                 `json:"responseThinking"`
+	ResponseUsage         map[string]interface{} `json:"responseUsage"`
+	RetryCostAmount       string                 `json:"retryCostAmount"`
+	SessionId             openapi_types.UUID     `json:"sessionId"`
+	Stage                 ModelRunStage          `json:"stage"`
+	StartedAt             time.Time              `json:"startedAt"`
+	State                 ModelRunState          `json:"state"`
+	TurnId                openapi_types.UUID     `json:"turnId"`
+}
+
+// ModelRunStage defines model for ModelRun.Stage.
+type ModelRunStage string
+
+// ModelRunState defines model for ModelRun.State.
+type ModelRunState string
+
+// ModelRunPage defines model for ModelRunPage.
+type ModelRunPage struct {
+	HasMore   bool       `json:"hasMore"`
+	Limit     int32      `json:"limit"`
+	ModelRuns []ModelRun `json:"modelRuns"`
+	Offset    int32      `json:"offset"`
+}
+
+// PromptSnapshot defines model for PromptSnapshot.
+type PromptSnapshot struct {
+	CreatedAt       time.Time `json:"createdAt"`
+	EffectivePrompt string    `json:"effectivePrompt"`
+	Hash            string    `json:"hash"`
+}
+
 // Session defines model for Session.
 type Session struct {
 	ActiveTurn         bool               `json:"activeTurn"`
@@ -570,34 +1008,35 @@ type Session struct {
 	UpdatedAt          time.Time          `json:"updatedAt"`
 }
 
-// SessionEvent defines model for SessionEvent.
-type SessionEvent struct {
+// SessionNotice defines model for SessionNotice.
+type SessionNotice struct {
 	CreatedAt time.Time               `json:"createdAt"`
 	Data      *map[string]interface{} `json:"data,omitempty"`
-	Delivery  SessionEventDelivery    `json:"delivery"`
+	Delivery  SessionNoticeDelivery   `json:"delivery"`
 	Id        openapi_types.UUID      `json:"id"`
 	Source    string                  `json:"source"`
 	Summary   string                  `json:"summary"`
 	Type      string                  `json:"type"`
 }
 
-// SessionEventDelivery defines model for SessionEvent.Delivery.
-type SessionEventDelivery string
+// SessionNoticeDelivery defines model for SessionNotice.Delivery.
+type SessionNoticeDelivery string
 
-// SessionEventPage defines model for SessionEventPage.
-type SessionEventPage struct {
-	// Dropped Events dropped before these because the queue was full.
-	Dropped int32          `json:"dropped"`
-	Events  []SessionEvent `json:"events"`
+// SessionNoticePage defines model for SessionNoticePage.
+type SessionNoticePage struct {
+	HasMore bool            `json:"hasMore"`
+	Limit   int32           `json:"limit"`
+	Notices []SessionNotice `json:"notices"`
+	Offset  int32           `json:"offset"`
 }
 
-// SessionEventRequest defines model for SessionEventRequest.
-type SessionEventRequest struct {
+// SessionNoticeRequest defines model for SessionNoticeRequest.
+type SessionNoticeRequest struct {
 	// Data Structured payload for programmatic consumers.
 	Data *map[string]interface{} `json:"data,omitempty"`
 
 	// Delivery queue waits for the next turn. wake starts a turn when the session is idle and .agents/events declares a handler for this type.
-	Delivery *SessionEventRequestDelivery `json:"delivery,omitempty"`
+	Delivery *SessionNoticeRequestDelivery `json:"delivery,omitempty"`
 
 	// Summary The one line describing what happened.
 	Summary string `json:"summary"`
@@ -606,11 +1045,64 @@ type SessionEventRequest struct {
 	Type string `json:"type"`
 }
 
-// SessionEventRequestDelivery queue waits for the next turn. wake starts a turn when the session is idle and .agents/events declares a handler for this type.
-type SessionEventRequestDelivery string
+// SessionNoticeRequestDelivery queue waits for the next turn. wake starts a turn when the session is idle and .agents/events declares a handler for this type.
+type SessionNoticeRequestDelivery string
+
+// TranscriptEvent defines model for TranscriptEvent.
+type TranscriptEvent struct {
+	CreatedAt        time.Time              `json:"createdAt"`
+	Id               openapi_types.UUID     `json:"id"`
+	ParentToolCallId *string                `json:"parentToolCallId,omitempty"`
+	Payload          map[string]interface{} `json:"payload"`
+	RequestId        openapi_types.UUID     `json:"requestId"`
+	Sequence         int64                  `json:"sequence"`
+	SessionId        openapi_types.UUID     `json:"sessionId"`
+	TurnId           openapi_types.UUID     `json:"turnId"`
+	Type             string                 `json:"type"`
+}
+
+// TranscriptEventPage defines model for TranscriptEventPage.
+type TranscriptEventPage struct {
+	Events  []TranscriptEvent `json:"events"`
+	HasMore bool              `json:"hasMore"`
+	Limit   int32             `json:"limit"`
+	Offset  int32             `json:"offset"`
+}
+
+// Turn defines model for Turn.
+type Turn struct {
+	CancelRequested       bool               `json:"cancelRequested"`
+	CompletedAt           *time.Time         `json:"completedAt,omitempty"`
+	ContextSnapshotHash   *string            `json:"contextSnapshotHash,omitempty"`
+	FailureClassification string             `json:"failureClassification"`
+	Id                    openapi_types.UUID `json:"id"`
+	PromptSnapshotHash    *string            `json:"promptSnapshotHash,omitempty"`
+	RequestId             openapi_types.UUID `json:"requestId"`
+	SessionId             openapi_types.UUID `json:"sessionId"`
+	StartedAt             time.Time          `json:"startedAt"`
+	State                 TurnState          `json:"state"`
+	Workspace             string             `json:"workspace"`
+}
+
+// TurnState defines model for Turn.State.
+type TurnState string
+
+// TurnPage defines model for TurnPage.
+type TurnPage struct {
+	HasMore bool   `json:"hasMore"`
+	Limit   int32  `json:"limit"`
+	Offset  int32  `json:"offset"`
+	Turns   []Turn `json:"turns"`
+}
 
 // AgentRunID defines model for AgentRunID.
 type AgentRunID = openapi_types.UUID
+
+// CompactionID defines model for CompactionID.
+type CompactionID = openapi_types.UUID
+
+// ContextHash defines model for ContextHash.
+type ContextHash = string
 
 // JobID defines model for JobID.
 type JobID = openapi_types.UUID
@@ -618,11 +1110,17 @@ type JobID = openapi_types.UUID
 // Limit defines model for Limit.
 type Limit = int32
 
+// ModelRunID defines model for ModelRunID.
+type ModelRunID = openapi_types.UUID
+
 // Offset defines model for Offset.
 type Offset = int32
 
 // Order defines model for Order.
 type Order string
+
+// PromptHash defines model for PromptHash.
+type PromptHash = string
 
 // SessionIDRequired defines model for SessionIDRequired.
 type SessionIDRequired = openapi_types.UUID
@@ -666,6 +1164,11 @@ type ListSessionAgentRunsParams struct {
 // ListSessionAgentRunsParamsState defines parameters for ListSessionAgentRuns.
 type ListSessionAgentRunsParamsState string
 
+// GetSessionAgentRunParams defines parameters for GetSessionAgentRun.
+type GetSessionAgentRunParams struct {
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
 // CancelSessionAgentRunParams defines parameters for CancelSessionAgentRun.
 type CancelSessionAgentRunParams struct {
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
@@ -673,7 +1176,7 @@ type CancelSessionAgentRunParams struct {
 
 // ListSessionAgentRunEventsParams defines parameters for ListSessionAgentRunEvents.
 type ListSessionAgentRunEventsParams struct {
-	Cursor     *int32            `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Cursor     *int64            `form:"cursor,omitempty" json:"cursor,omitempty"`
 	Limit      *int32            `form:"limit,omitempty" json:"limit,omitempty"`
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
@@ -683,15 +1186,33 @@ type CancelSessionParams struct {
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
-// ListSessionEventsParams defines parameters for ListSessionEvents.
-type ListSessionEventsParams struct {
+// ListSessionCompactionsParams defines parameters for ListSessionCompactions.
+type ListSessionCompactionsParams struct {
+	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
-// PublishSessionEventParams defines parameters for PublishSessionEvent.
-type PublishSessionEventParams struct {
+// GetSessionCompactionParams defines parameters for GetSessionCompaction.
+type GetSessionCompactionParams struct {
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
+
+// GetSessionContextSnapshotParams defines parameters for GetSessionContextSnapshot.
+type GetSessionContextSnapshotParams struct {
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// ListSessionEventsParams defines parameters for ListSessionEvents.
+type ListSessionEventsParams struct {
+	Limit      *Limit                        `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *Offset                       `form:"offset,omitempty" json:"offset,omitempty"`
+	Order      *ListSessionEventsParamsOrder `form:"order,omitempty" json:"order,omitempty"`
+	XSessionID SessionIDRequired             `json:"X-Session-ID"`
+}
+
+// ListSessionEventsParamsOrder defines parameters for ListSessionEvents.
+type ListSessionEventsParamsOrder string
 
 // ListSessionJobsParams defines parameters for ListSessionJobs.
 type ListSessionJobsParams struct {
@@ -706,11 +1227,10 @@ type ListSessionJobsParamsState string
 
 // ReadSessionJobOutputParams defines parameters for ReadSessionJobOutput.
 type ReadSessionJobOutputParams struct {
-	Stream       *ReadSessionJobOutputParamsStream `form:"stream,omitempty" json:"stream,omitempty"`
-	StdoutCursor *int32                            `form:"stdoutCursor,omitempty" json:"stdoutCursor,omitempty"`
-	StderrCursor *int32                            `form:"stderrCursor,omitempty" json:"stderrCursor,omitempty"`
-	MaxLines     *int32                            `form:"maxLines,omitempty" json:"maxLines,omitempty"`
-	XSessionID   SessionIDRequired                 `json:"X-Session-ID"`
+	Stream     *ReadSessionJobOutputParamsStream `form:"stream,omitempty" json:"stream,omitempty"`
+	Cursor     *int64                            `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit      *int32                            `form:"limit,omitempty" json:"limit,omitempty"`
+	XSessionID SessionIDRequired                 `json:"X-Session-ID"`
 }
 
 // ReadSessionJobOutputParamsStream defines parameters for ReadSessionJobOutput.
@@ -721,11 +1241,64 @@ type SignalSessionJobParams struct {
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
-// PublishSessionEventJSONRequestBody defines body for PublishSessionEvent for application/json ContentType.
-type PublishSessionEventJSONRequestBody = SessionEventRequest
+// ListSessionJobSignalRequestsParams defines parameters for ListSessionJobSignalRequests.
+type ListSessionJobSignalRequestsParams struct {
+	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// ListSessionModelRunsParams defines parameters for ListSessionModelRuns.
+type ListSessionModelRunsParams struct {
+	Limit      *Limit                           `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *Offset                          `form:"offset,omitempty" json:"offset,omitempty"`
+	Stage      *ListSessionModelRunsParamsStage `form:"stage,omitempty" json:"stage,omitempty"`
+	State      *ListSessionModelRunsParamsState `form:"state,omitempty" json:"state,omitempty"`
+	XSessionID SessionIDRequired                `json:"X-Session-ID"`
+}
+
+// ListSessionModelRunsParamsStage defines parameters for ListSessionModelRuns.
+type ListSessionModelRunsParamsStage string
+
+// ListSessionModelRunsParamsState defines parameters for ListSessionModelRuns.
+type ListSessionModelRunsParamsState string
+
+// ListSessionModelRunCallsParams defines parameters for ListSessionModelRunCalls.
+type ListSessionModelRunCallsParams struct {
+	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// ListSessionNoticesParams defines parameters for ListSessionNotices.
+type ListSessionNoticesParams struct {
+	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// PublishSessionNoticeParams defines parameters for PublishSessionNotice.
+type PublishSessionNoticeParams struct {
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// GetSessionPromptSnapshotParams defines parameters for GetSessionPromptSnapshot.
+type GetSessionPromptSnapshotParams struct {
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// ListSessionTurnsParams defines parameters for ListSessionTurns.
+type ListSessionTurnsParams struct {
+	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
 
 // SignalSessionJobJSONRequestBody defines body for SignalSessionJob for application/json ContentType.
 type SignalSessionJobJSONRequestBody = JobSignalRequest
+
+// PublishSessionNoticeJSONRequestBody defines body for PublishSessionNotice for application/json ContentType.
+type PublishSessionNoticeJSONRequestBody = SessionNoticeRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -738,21 +1311,30 @@ type ServerInterface interface {
 	// ListSessionAgentRuns List the child agent runs this session has started
 	// (GET /session/agents)
 	ListSessionAgentRuns(w http.ResponseWriter, r *http.Request, params ListSessionAgentRunsParams)
+	// GetSessionAgentRun Read one durable child agent run
+	// (GET /session/agents/{agentRunId})
+	GetSessionAgentRun(w http.ResponseWriter, r *http.Request, agentRunId AgentRunID, params GetSessionAgentRunParams)
 	// CancelSessionAgentRun Cancel one child agent run without ending its parent turn
 	// (POST /session/agents/{agentRunId}/cancel)
 	CancelSessionAgentRun(w http.ResponseWriter, r *http.Request, agentRunId AgentRunID, params CancelSessionAgentRunParams)
 	// ListSessionAgentRunEvents Follow what one child agent run is doing
-	// (GET /session/agents/{agentRunId}/messages)
+	// (GET /session/agents/{agentRunId}/events)
 	ListSessionAgentRunEvents(w http.ResponseWriter, r *http.Request, agentRunId AgentRunID, params ListSessionAgentRunEventsParams)
 	// CancelSession Request cancellation for the active turn
 	// (POST /session/cancel)
 	CancelSession(w http.ResponseWriter, r *http.Request, params CancelSessionParams)
-	// ListSessionEvents List the session's pending events
+	// ListSessionCompactions List durable compaction records
+	// (GET /session/compactions)
+	ListSessionCompactions(w http.ResponseWriter, r *http.Request, params ListSessionCompactionsParams)
+	// GetSessionCompaction Read one durable compaction record
+	// (GET /session/compactions/{compactionId})
+	GetSessionCompaction(w http.ResponseWriter, r *http.Request, compactionId CompactionID, params GetSessionCompactionParams)
+	// GetSessionContextSnapshot Read a context snapshot referenced by this session
+	// (GET /session/context-snapshots/{contextHash})
+	GetSessionContextSnapshot(w http.ResponseWriter, r *http.Request, contextHash ContextHash, params GetSessionContextSnapshotParams)
+	// ListSessionEvents List durable protocol events
 	// (GET /session/events)
 	ListSessionEvents(w http.ResponseWriter, r *http.Request, params ListSessionEventsParams)
-	// PublishSessionEvent Report an event to the session from outside
-	// (POST /session/events)
-	PublishSessionEvent(w http.ResponseWriter, r *http.Request, params PublishSessionEventParams)
 	// ListSessionJobs List the commands this session has started
 	// (GET /session/jobs)
 	ListSessionJobs(w http.ResponseWriter, r *http.Request, params ListSessionJobsParams)
@@ -762,6 +1344,27 @@ type ServerInterface interface {
 	// SignalSessionJob Stop one running job
 	// (POST /session/jobs/{jobId}/signal)
 	SignalSessionJob(w http.ResponseWriter, r *http.Request, jobId JobID, params SignalSessionJobParams)
+	// ListSessionJobSignalRequests List the durable signal-request history for one job
+	// (GET /session/jobs/{jobId}/signals)
+	ListSessionJobSignalRequests(w http.ResponseWriter, r *http.Request, jobId JobID, params ListSessionJobSignalRequestsParams)
+	// ListSessionModelRuns List complete durable model invocations
+	// (GET /session/model-runs)
+	ListSessionModelRuns(w http.ResponseWriter, r *http.Request, params ListSessionModelRunsParams)
+	// ListSessionModelRunCalls Read every provider round for one model invocation
+	// (GET /session/model-runs/{modelRunId}/calls)
+	ListSessionModelRunCalls(w http.ResponseWriter, r *http.Request, modelRunId ModelRunID, params ListSessionModelRunCallsParams)
+	// ListSessionNotices List durable outside and worker notices
+	// (GET /session/notices)
+	ListSessionNotices(w http.ResponseWriter, r *http.Request, params ListSessionNoticesParams)
+	// PublishSessionNotice Report a durable notice to the session
+	// (POST /session/notices)
+	PublishSessionNotice(w http.ResponseWriter, r *http.Request, params PublishSessionNoticeParams)
+	// GetSessionPromptSnapshot Read a prompt snapshot referenced by this session
+	// (GET /session/prompt-snapshots/{promptHash})
+	GetSessionPromptSnapshot(w http.ResponseWriter, r *http.Request, promptHash PromptHash, params GetSessionPromptSnapshotParams)
+	// ListSessionTurns List durable turns
+	// (GET /session/turns)
+	ListSessionTurns(w http.ResponseWriter, r *http.Request, params ListSessionTurnsParams)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -986,6 +1589,60 @@ func (siw *ServerInterfaceWrapper) ListSessionAgentRuns(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
+// GetSessionAgentRun operation middleware
+func (siw *ServerInterfaceWrapper) GetSessionAgentRun(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentRunId" -------------
+	var agentRunId AgentRunID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentRunId", r.PathValue("agentRunId"), &agentRunId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentRunId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetSessionAgentRunParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Session-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
+		var XSessionID SessionIDRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
+			return
+		}
+
+		params.XSessionID = XSessionID
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSessionAgentRun(w, r, agentRunId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // CancelSessionAgentRun operation middleware
 func (siw *ServerInterfaceWrapper) CancelSessionAgentRun(w http.ResponseWriter, r *http.Request) {
 
@@ -1060,7 +1717,7 @@ func (siw *ServerInterfaceWrapper) ListSessionAgentRunEvents(w http.ResponseWrit
 
 	// ------------- Optional query parameter "cursor" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
@@ -1165,6 +1822,185 @@ func (siw *ServerInterfaceWrapper) CancelSession(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// ListSessionCompactions operation middleware
+func (siw *ServerInterfaceWrapper) ListSessionCompactions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSessionCompactionsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Session-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
+		var XSessionID SessionIDRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
+			return
+		}
+
+		params.XSessionID = XSessionID
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSessionCompactions(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSessionCompaction operation middleware
+func (siw *ServerInterfaceWrapper) GetSessionCompaction(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "compactionId" -------------
+	var compactionId CompactionID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "compactionId", r.PathValue("compactionId"), &compactionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "compactionId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetSessionCompactionParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Session-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
+		var XSessionID SessionIDRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
+			return
+		}
+
+		params.XSessionID = XSessionID
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSessionCompaction(w, r, compactionId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSessionContextSnapshot operation middleware
+func (siw *ServerInterfaceWrapper) GetSessionContextSnapshot(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "contextHash" -------------
+	var contextHash ContextHash
+
+	err = runtime.BindStyledParameterWithOptions("simple", "contextHash", r.PathValue("contextHash"), &contextHash, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "contextHash", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetSessionContextSnapshotParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Session-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
+		var XSessionID SessionIDRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
+			return
+		}
+
+		params.XSessionID = XSessionID
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSessionContextSnapshot(w, r, contextHash, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListSessionEvents operation middleware
 func (siw *ServerInterfaceWrapper) ListSessionEvents(w http.ResponseWriter, r *http.Request) {
 
@@ -1173,6 +2009,45 @@ func (siw *ServerInterfaceWrapper) ListSessionEvents(w http.ResponseWriter, r *h
 
 	// Parameter object where we will unmarshal all parameters from the context
 	var params ListSessionEventsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "order" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "order", r.URL.Query(), &params.Order, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "order"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "order", Err: err})
+		}
+		return
+	}
 
 	headers := r.Header
 
@@ -1201,51 +2076,6 @@ func (siw *ServerInterfaceWrapper) ListSessionEvents(w http.ResponseWriter, r *h
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListSessionEvents(w, r, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// PublishSessionEvent operation middleware
-func (siw *ServerInterfaceWrapper) PublishSessionEvent(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params PublishSessionEventParams
-
-	headers := r.Header
-
-	// ------------- Required header parameter "X-Session-ID" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
-		var XSessionID SessionIDRequired
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
-		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
-			return
-		}
-
-		params.XSessionID = XSessionID
-
-	} else {
-		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
-		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.PublishSessionEvent(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1370,41 +2200,28 @@ func (siw *ServerInterfaceWrapper) ReadSessionJobOutput(w http.ResponseWriter, r
 		return
 	}
 
-	// ------------- Optional query parameter "stdoutCursor" -------------
+	// ------------- Optional query parameter "cursor" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "stdoutCursor", r.URL.Query(), &params.StdoutCursor, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "stdoutCursor"})
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
 		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "stdoutCursor", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
 		}
 		return
 	}
 
-	// ------------- Optional query parameter "stderrCursor" -------------
+	// ------------- Optional query parameter "limit" -------------
 
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "stderrCursor", r.URL.Query(), &params.StderrCursor, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
 	if err != nil {
 		var requiredError *runtime.RequiredParameterError
 		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "stderrCursor"})
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
 		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "stderrCursor", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "maxLines" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "maxLines", r.URL.Query(), &params.MaxLines, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "maxLines"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "maxLines", Err: err})
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
 		}
 		return
 	}
@@ -1490,6 +2307,504 @@ func (siw *ServerInterfaceWrapper) SignalSessionJob(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SignalSessionJob(w, r, jobId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListSessionJobSignalRequests operation middleware
+func (siw *ServerInterfaceWrapper) ListSessionJobSignalRequests(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "jobId" -------------
+	var jobId JobID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobId", r.PathValue("jobId"), &jobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSessionJobSignalRequestsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Session-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
+		var XSessionID SessionIDRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
+			return
+		}
+
+		params.XSessionID = XSessionID
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSessionJobSignalRequests(w, r, jobId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListSessionModelRuns operation middleware
+func (siw *ServerInterfaceWrapper) ListSessionModelRuns(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSessionModelRunsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "stage" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "stage", r.URL.Query(), &params.Stage, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "stage"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "stage", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "state", r.URL.Query(), &params.State, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Session-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
+		var XSessionID SessionIDRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
+			return
+		}
+
+		params.XSessionID = XSessionID
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSessionModelRuns(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListSessionModelRunCalls operation middleware
+func (siw *ServerInterfaceWrapper) ListSessionModelRunCalls(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "modelRunId" -------------
+	var modelRunId ModelRunID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "modelRunId", r.PathValue("modelRunId"), &modelRunId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "modelRunId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSessionModelRunCallsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Session-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
+		var XSessionID SessionIDRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
+			return
+		}
+
+		params.XSessionID = XSessionID
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSessionModelRunCalls(w, r, modelRunId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListSessionNotices operation middleware
+func (siw *ServerInterfaceWrapper) ListSessionNotices(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSessionNoticesParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Session-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
+		var XSessionID SessionIDRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
+			return
+		}
+
+		params.XSessionID = XSessionID
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSessionNotices(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PublishSessionNotice operation middleware
+func (siw *ServerInterfaceWrapper) PublishSessionNotice(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PublishSessionNoticeParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Session-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
+		var XSessionID SessionIDRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
+			return
+		}
+
+		params.XSessionID = XSessionID
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PublishSessionNotice(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSessionPromptSnapshot operation middleware
+func (siw *ServerInterfaceWrapper) GetSessionPromptSnapshot(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "promptHash" -------------
+	var promptHash PromptHash
+
+	err = runtime.BindStyledParameterWithOptions("simple", "promptHash", r.PathValue("promptHash"), &promptHash, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "promptHash", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetSessionPromptSnapshotParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Session-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
+		var XSessionID SessionIDRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
+			return
+		}
+
+		params.XSessionID = XSessionID
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSessionPromptSnapshot(w, r, promptHash, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListSessionTurns operation middleware
+func (siw *ServerInterfaceWrapper) ListSessionTurns(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSessionTurnsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Session-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
+		var XSessionID SessionIDRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
+			return
+		}
+
+		params.XSessionID = XSessionID
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSessionTurns(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1623,12 +2938,22 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session", wrapper.GetSession)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/session/cancel", wrapper.CancelSession)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/events", wrapper.ListSessionEvents)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/session/events", wrapper.PublishSessionEvent)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/notices", wrapper.ListSessionNotices)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/session/notices", wrapper.PublishSessionNotice)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/jobs", wrapper.ListSessionJobs)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/jobs/{jobId}/output", wrapper.ReadSessionJobOutput)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/jobs/{jobId}/signals", wrapper.ListSessionJobSignalRequests)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/session/jobs/{jobId}/signal", wrapper.SignalSessionJob)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/agents", wrapper.ListSessionAgentRuns)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/agents/{agentRunId}/messages", wrapper.ListSessionAgentRunEvents)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/turns", wrapper.ListSessionTurns)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/compactions", wrapper.ListSessionCompactions)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/compactions/{compactionId}", wrapper.GetSessionCompaction)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/model-runs", wrapper.ListSessionModelRuns)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/model-runs/{modelRunId}/calls", wrapper.ListSessionModelRunCalls)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/context-snapshots/{contextHash}", wrapper.GetSessionContextSnapshot)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/prompt-snapshots/{promptHash}", wrapper.GetSessionPromptSnapshot)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/agents/{agentRunId}", wrapper.GetSessionAgentRun)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/agents/{agentRunId}/events", wrapper.ListSessionAgentRunEvents)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/session/agents/{agentRunId}/cancel", wrapper.CancelSessionAgentRun)
 
 	return m
@@ -1906,6 +3231,95 @@ func (response ListSessionAgentRuns500JSONResponse) VisitListSessionAgentRunsRes
 	return err
 }
 
+type GetSessionAgentRunRequestObject struct {
+	AgentRunId AgentRunID `json:"agentRunId"`
+	Params     GetSessionAgentRunParams
+}
+
+type GetSessionAgentRunResponseObject interface {
+	VisitGetSessionAgentRunResponse(w http.ResponseWriter) error
+}
+
+type GetSessionAgentRun200ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type GetSessionAgentRun200JSONResponse struct {
+	Body    AgentRun
+	Headers GetSessionAgentRun200ResponseHeaders
+}
+
+func (response GetSessionAgentRun200JSONResponse) VisitGetSessionAgentRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionAgentRun400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response GetSessionAgentRun400JSONResponse) VisitGetSessionAgentRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionAgentRun401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response GetSessionAgentRun401JSONResponse) VisitGetSessionAgentRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionAgentRun404JSONResponse struct{ ErrorNotFoundJSONResponse }
+
+func (response GetSessionAgentRun404JSONResponse) VisitGetSessionAgentRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionAgentRun500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response GetSessionAgentRun500JSONResponse) VisitGetSessionAgentRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CancelSessionAgentRunRequestObject struct {
 	AgentRunId AgentRunID `json:"agentRunId"`
 	Params     CancelSessionAgentRunParams
@@ -2172,6 +3586,272 @@ func (response CancelSession500JSONResponse) VisitCancelSessionResponse(w http.R
 	return err
 }
 
+type ListSessionCompactionsRequestObject struct {
+	Params ListSessionCompactionsParams
+}
+
+type ListSessionCompactionsResponseObject interface {
+	VisitListSessionCompactionsResponse(w http.ResponseWriter) error
+}
+
+type ListSessionCompactions200ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListSessionCompactions200JSONResponse struct {
+	Body    CompactionPage
+	Headers ListSessionCompactions200ResponseHeaders
+}
+
+func (response ListSessionCompactions200JSONResponse) VisitListSessionCompactionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionCompactions400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response ListSessionCompactions400JSONResponse) VisitListSessionCompactionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionCompactions401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response ListSessionCompactions401JSONResponse) VisitListSessionCompactionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionCompactions404JSONResponse struct{ ErrorNotFoundJSONResponse }
+
+func (response ListSessionCompactions404JSONResponse) VisitListSessionCompactionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionCompactions500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response ListSessionCompactions500JSONResponse) VisitListSessionCompactionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionCompactionRequestObject struct {
+	CompactionId CompactionID `json:"compactionId"`
+	Params       GetSessionCompactionParams
+}
+
+type GetSessionCompactionResponseObject interface {
+	VisitGetSessionCompactionResponse(w http.ResponseWriter) error
+}
+
+type GetSessionCompaction200ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type GetSessionCompaction200JSONResponse struct {
+	Body    Compaction
+	Headers GetSessionCompaction200ResponseHeaders
+}
+
+func (response GetSessionCompaction200JSONResponse) VisitGetSessionCompactionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionCompaction400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response GetSessionCompaction400JSONResponse) VisitGetSessionCompactionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionCompaction401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response GetSessionCompaction401JSONResponse) VisitGetSessionCompactionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionCompaction404JSONResponse struct{ ErrorNotFoundJSONResponse }
+
+func (response GetSessionCompaction404JSONResponse) VisitGetSessionCompactionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionCompaction500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response GetSessionCompaction500JSONResponse) VisitGetSessionCompactionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionContextSnapshotRequestObject struct {
+	ContextHash ContextHash `json:"contextHash"`
+	Params      GetSessionContextSnapshotParams
+}
+
+type GetSessionContextSnapshotResponseObject interface {
+	VisitGetSessionContextSnapshotResponse(w http.ResponseWriter) error
+}
+
+type GetSessionContextSnapshot200ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type GetSessionContextSnapshot200JSONResponse struct {
+	Body    ContextSnapshot
+	Headers GetSessionContextSnapshot200ResponseHeaders
+}
+
+func (response GetSessionContextSnapshot200JSONResponse) VisitGetSessionContextSnapshotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionContextSnapshot400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response GetSessionContextSnapshot400JSONResponse) VisitGetSessionContextSnapshotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionContextSnapshot401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response GetSessionContextSnapshot401JSONResponse) VisitGetSessionContextSnapshotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionContextSnapshot404JSONResponse struct{ ErrorNotFoundJSONResponse }
+
+func (response GetSessionContextSnapshot404JSONResponse) VisitGetSessionContextSnapshotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionContextSnapshot500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response GetSessionContextSnapshot500JSONResponse) VisitGetSessionContextSnapshotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListSessionEventsRequestObject struct {
 	Params ListSessionEventsParams
 }
@@ -2186,7 +3866,7 @@ type ListSessionEvents200ResponseHeaders struct {
 }
 
 type ListSessionEvents200JSONResponse struct {
-	Body    SessionEventPage
+	Body    TranscriptEventPage
 	Headers ListSessionEvents200ResponseHeaders
 }
 
@@ -2249,95 +3929,6 @@ func (response ListSessionEvents404JSONResponse) VisitListSessionEventsResponse(
 type ListSessionEvents500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response ListSessionEvents500JSONResponse) VisitListSessionEventsResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(500)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PublishSessionEventRequestObject struct {
-	Params PublishSessionEventParams
-	Body   *PublishSessionEventJSONRequestBody
-}
-
-type PublishSessionEventResponseObject interface {
-	VisitPublishSessionEventResponse(w http.ResponseWriter) error
-}
-
-type PublishSessionEvent202ResponseHeaders struct {
-	XRequestID openapi_types.UUID
-	XSessionID openapi_types.UUID
-}
-
-type PublishSessionEvent202JSONResponse struct {
-	Body    SessionEvent
-	Headers PublishSessionEvent202ResponseHeaders
-}
-
-func (response PublishSessionEvent202JSONResponse) VisitPublishSessionEventResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
-	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
-	w.WriteHeader(202)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PublishSessionEvent400JSONResponse struct{ ErrorBadRequestJSONResponse }
-
-func (response PublishSessionEvent400JSONResponse) VisitPublishSessionEventResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(400)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PublishSessionEvent401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
-
-func (response PublishSessionEvent401JSONResponse) VisitPublishSessionEventResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PublishSessionEvent404JSONResponse struct{ ErrorNotFoundJSONResponse }
-
-func (response PublishSessionEvent404JSONResponse) VisitPublishSessionEventResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type PublishSessionEvent500JSONResponse struct{ ErrorInternalJSONResponse }
-
-func (response PublishSessionEvent500JSONResponse) VisitPublishSessionEventResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -2616,6 +4207,626 @@ func (response SignalSessionJob500JSONResponse) VisitSignalSessionJobResponse(w 
 	return err
 }
 
+type ListSessionJobSignalRequestsRequestObject struct {
+	JobId  JobID `json:"jobId"`
+	Params ListSessionJobSignalRequestsParams
+}
+
+type ListSessionJobSignalRequestsResponseObject interface {
+	VisitListSessionJobSignalRequestsResponse(w http.ResponseWriter) error
+}
+
+type ListSessionJobSignalRequests200ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListSessionJobSignalRequests200JSONResponse struct {
+	Body    JobSignalRecordPage
+	Headers ListSessionJobSignalRequests200ResponseHeaders
+}
+
+func (response ListSessionJobSignalRequests200JSONResponse) VisitListSessionJobSignalRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionJobSignalRequests400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response ListSessionJobSignalRequests400JSONResponse) VisitListSessionJobSignalRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionJobSignalRequests401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response ListSessionJobSignalRequests401JSONResponse) VisitListSessionJobSignalRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionJobSignalRequests404JSONResponse struct{ ErrorNotFoundJSONResponse }
+
+func (response ListSessionJobSignalRequests404JSONResponse) VisitListSessionJobSignalRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionJobSignalRequests500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response ListSessionJobSignalRequests500JSONResponse) VisitListSessionJobSignalRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionModelRunsRequestObject struct {
+	Params ListSessionModelRunsParams
+}
+
+type ListSessionModelRunsResponseObject interface {
+	VisitListSessionModelRunsResponse(w http.ResponseWriter) error
+}
+
+type ListSessionModelRuns200ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListSessionModelRuns200JSONResponse struct {
+	Body    ModelRunPage
+	Headers ListSessionModelRuns200ResponseHeaders
+}
+
+func (response ListSessionModelRuns200JSONResponse) VisitListSessionModelRunsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionModelRuns400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response ListSessionModelRuns400JSONResponse) VisitListSessionModelRunsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionModelRuns401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response ListSessionModelRuns401JSONResponse) VisitListSessionModelRunsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionModelRuns404JSONResponse struct{ ErrorNotFoundJSONResponse }
+
+func (response ListSessionModelRuns404JSONResponse) VisitListSessionModelRunsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionModelRuns500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response ListSessionModelRuns500JSONResponse) VisitListSessionModelRunsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionModelRunCallsRequestObject struct {
+	ModelRunId ModelRunID `json:"modelRunId"`
+	Params     ListSessionModelRunCallsParams
+}
+
+type ListSessionModelRunCallsResponseObject interface {
+	VisitListSessionModelRunCallsResponse(w http.ResponseWriter) error
+}
+
+type ListSessionModelRunCalls200ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListSessionModelRunCalls200JSONResponse struct {
+	Body    ModelCallPage
+	Headers ListSessionModelRunCalls200ResponseHeaders
+}
+
+func (response ListSessionModelRunCalls200JSONResponse) VisitListSessionModelRunCallsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionModelRunCalls400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response ListSessionModelRunCalls400JSONResponse) VisitListSessionModelRunCallsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionModelRunCalls401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response ListSessionModelRunCalls401JSONResponse) VisitListSessionModelRunCallsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionModelRunCalls404JSONResponse struct{ ErrorNotFoundJSONResponse }
+
+func (response ListSessionModelRunCalls404JSONResponse) VisitListSessionModelRunCallsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionModelRunCalls500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response ListSessionModelRunCalls500JSONResponse) VisitListSessionModelRunCallsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionNoticesRequestObject struct {
+	Params ListSessionNoticesParams
+}
+
+type ListSessionNoticesResponseObject interface {
+	VisitListSessionNoticesResponse(w http.ResponseWriter) error
+}
+
+type ListSessionNotices200ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListSessionNotices200JSONResponse struct {
+	Body    SessionNoticePage
+	Headers ListSessionNotices200ResponseHeaders
+}
+
+func (response ListSessionNotices200JSONResponse) VisitListSessionNoticesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionNotices400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response ListSessionNotices400JSONResponse) VisitListSessionNoticesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionNotices401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response ListSessionNotices401JSONResponse) VisitListSessionNoticesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionNotices404JSONResponse struct{ ErrorNotFoundJSONResponse }
+
+func (response ListSessionNotices404JSONResponse) VisitListSessionNoticesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionNotices500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response ListSessionNotices500JSONResponse) VisitListSessionNoticesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishSessionNoticeRequestObject struct {
+	Params PublishSessionNoticeParams
+	Body   *PublishSessionNoticeJSONRequestBody
+}
+
+type PublishSessionNoticeResponseObject interface {
+	VisitPublishSessionNoticeResponse(w http.ResponseWriter) error
+}
+
+type PublishSessionNotice202ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type PublishSessionNotice202JSONResponse struct {
+	Body    SessionNotice
+	Headers PublishSessionNotice202ResponseHeaders
+}
+
+func (response PublishSessionNotice202JSONResponse) VisitPublishSessionNoticeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(202)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishSessionNotice400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response PublishSessionNotice400JSONResponse) VisitPublishSessionNoticeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishSessionNotice401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response PublishSessionNotice401JSONResponse) VisitPublishSessionNoticeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishSessionNotice404JSONResponse struct{ ErrorNotFoundJSONResponse }
+
+func (response PublishSessionNotice404JSONResponse) VisitPublishSessionNoticeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PublishSessionNotice500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response PublishSessionNotice500JSONResponse) VisitPublishSessionNoticeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionPromptSnapshotRequestObject struct {
+	PromptHash PromptHash `json:"promptHash"`
+	Params     GetSessionPromptSnapshotParams
+}
+
+type GetSessionPromptSnapshotResponseObject interface {
+	VisitGetSessionPromptSnapshotResponse(w http.ResponseWriter) error
+}
+
+type GetSessionPromptSnapshot200ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type GetSessionPromptSnapshot200JSONResponse struct {
+	Body    PromptSnapshot
+	Headers GetSessionPromptSnapshot200ResponseHeaders
+}
+
+func (response GetSessionPromptSnapshot200JSONResponse) VisitGetSessionPromptSnapshotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionPromptSnapshot400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response GetSessionPromptSnapshot400JSONResponse) VisitGetSessionPromptSnapshotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionPromptSnapshot401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response GetSessionPromptSnapshot401JSONResponse) VisitGetSessionPromptSnapshotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionPromptSnapshot404JSONResponse struct{ ErrorNotFoundJSONResponse }
+
+func (response GetSessionPromptSnapshot404JSONResponse) VisitGetSessionPromptSnapshotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionPromptSnapshot500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response GetSessionPromptSnapshot500JSONResponse) VisitGetSessionPromptSnapshotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionTurnsRequestObject struct {
+	Params ListSessionTurnsParams
+}
+
+type ListSessionTurnsResponseObject interface {
+	VisitListSessionTurnsResponse(w http.ResponseWriter) error
+}
+
+type ListSessionTurns200ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListSessionTurns200JSONResponse struct {
+	Body    TurnPage
+	Headers ListSessionTurns200ResponseHeaders
+}
+
+func (response ListSessionTurns200JSONResponse) VisitListSessionTurnsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionTurns400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response ListSessionTurns400JSONResponse) VisitListSessionTurnsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionTurns401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response ListSessionTurns401JSONResponse) VisitListSessionTurnsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionTurns404JSONResponse struct{ ErrorNotFoundJSONResponse }
+
+func (response ListSessionTurns404JSONResponse) VisitListSessionTurnsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionTurns500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response ListSessionTurns500JSONResponse) VisitListSessionTurnsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
 	// ListMessages List stored conversation messages
@@ -2627,21 +4838,30 @@ type StrictServerInterface interface {
 	// ListSessionAgentRuns List the child agent runs this session has started
 	// (GET /session/agents)
 	ListSessionAgentRuns(ctx context.Context, request ListSessionAgentRunsRequestObject) (ListSessionAgentRunsResponseObject, error)
+	// GetSessionAgentRun Read one durable child agent run
+	// (GET /session/agents/{agentRunId})
+	GetSessionAgentRun(ctx context.Context, request GetSessionAgentRunRequestObject) (GetSessionAgentRunResponseObject, error)
 	// CancelSessionAgentRun Cancel one child agent run without ending its parent turn
 	// (POST /session/agents/{agentRunId}/cancel)
 	CancelSessionAgentRun(ctx context.Context, request CancelSessionAgentRunRequestObject) (CancelSessionAgentRunResponseObject, error)
 	// ListSessionAgentRunEvents Follow what one child agent run is doing
-	// (GET /session/agents/{agentRunId}/messages)
+	// (GET /session/agents/{agentRunId}/events)
 	ListSessionAgentRunEvents(ctx context.Context, request ListSessionAgentRunEventsRequestObject) (ListSessionAgentRunEventsResponseObject, error)
 	// CancelSession Request cancellation for the active turn
 	// (POST /session/cancel)
 	CancelSession(ctx context.Context, request CancelSessionRequestObject) (CancelSessionResponseObject, error)
-	// ListSessionEvents List the session's pending events
+	// ListSessionCompactions List durable compaction records
+	// (GET /session/compactions)
+	ListSessionCompactions(ctx context.Context, request ListSessionCompactionsRequestObject) (ListSessionCompactionsResponseObject, error)
+	// GetSessionCompaction Read one durable compaction record
+	// (GET /session/compactions/{compactionId})
+	GetSessionCompaction(ctx context.Context, request GetSessionCompactionRequestObject) (GetSessionCompactionResponseObject, error)
+	// GetSessionContextSnapshot Read a context snapshot referenced by this session
+	// (GET /session/context-snapshots/{contextHash})
+	GetSessionContextSnapshot(ctx context.Context, request GetSessionContextSnapshotRequestObject) (GetSessionContextSnapshotResponseObject, error)
+	// ListSessionEvents List durable protocol events
 	// (GET /session/events)
 	ListSessionEvents(ctx context.Context, request ListSessionEventsRequestObject) (ListSessionEventsResponseObject, error)
-	// PublishSessionEvent Report an event to the session from outside
-	// (POST /session/events)
-	PublishSessionEvent(ctx context.Context, request PublishSessionEventRequestObject) (PublishSessionEventResponseObject, error)
 	// ListSessionJobs List the commands this session has started
 	// (GET /session/jobs)
 	ListSessionJobs(ctx context.Context, request ListSessionJobsRequestObject) (ListSessionJobsResponseObject, error)
@@ -2651,6 +4871,27 @@ type StrictServerInterface interface {
 	// SignalSessionJob Stop one running job
 	// (POST /session/jobs/{jobId}/signal)
 	SignalSessionJob(ctx context.Context, request SignalSessionJobRequestObject) (SignalSessionJobResponseObject, error)
+	// ListSessionJobSignalRequests List the durable signal-request history for one job
+	// (GET /session/jobs/{jobId}/signals)
+	ListSessionJobSignalRequests(ctx context.Context, request ListSessionJobSignalRequestsRequestObject) (ListSessionJobSignalRequestsResponseObject, error)
+	// ListSessionModelRuns List complete durable model invocations
+	// (GET /session/model-runs)
+	ListSessionModelRuns(ctx context.Context, request ListSessionModelRunsRequestObject) (ListSessionModelRunsResponseObject, error)
+	// ListSessionModelRunCalls Read every provider round for one model invocation
+	// (GET /session/model-runs/{modelRunId}/calls)
+	ListSessionModelRunCalls(ctx context.Context, request ListSessionModelRunCallsRequestObject) (ListSessionModelRunCallsResponseObject, error)
+	// ListSessionNotices List durable outside and worker notices
+	// (GET /session/notices)
+	ListSessionNotices(ctx context.Context, request ListSessionNoticesRequestObject) (ListSessionNoticesResponseObject, error)
+	// PublishSessionNotice Report a durable notice to the session
+	// (POST /session/notices)
+	PublishSessionNotice(ctx context.Context, request PublishSessionNoticeRequestObject) (PublishSessionNoticeResponseObject, error)
+	// GetSessionPromptSnapshot Read a prompt snapshot referenced by this session
+	// (GET /session/prompt-snapshots/{promptHash})
+	GetSessionPromptSnapshot(ctx context.Context, request GetSessionPromptSnapshotRequestObject) (GetSessionPromptSnapshotResponseObject, error)
+	// ListSessionTurns List durable turns
+	// (GET /session/turns)
+	ListSessionTurns(ctx context.Context, request ListSessionTurnsRequestObject) (ListSessionTurnsResponseObject, error)
 }
 
 type StrictHandlerFunc func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error)
@@ -2770,6 +5011,33 @@ func (sh *strictHandler) ListSessionAgentRuns(w http.ResponseWriter, r *http.Req
 	}
 }
 
+// GetSessionAgentRun operation middleware
+func (sh *strictHandler) GetSessionAgentRun(w http.ResponseWriter, r *http.Request, agentRunId AgentRunID, params GetSessionAgentRunParams) {
+	var request GetSessionAgentRunRequestObject
+
+	request.AgentRunId = agentRunId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSessionAgentRun(ctx, request.(GetSessionAgentRunRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSessionAgentRun")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetSessionAgentRunResponseObject); ok {
+		if err := validResponse.VisitGetSessionAgentRunResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // CancelSessionAgentRun operation middleware
 func (sh *strictHandler) CancelSessionAgentRun(w http.ResponseWriter, r *http.Request, agentRunId AgentRunID, params CancelSessionAgentRunParams) {
 	var request CancelSessionAgentRunRequestObject
@@ -2850,6 +5118,86 @@ func (sh *strictHandler) CancelSession(w http.ResponseWriter, r *http.Request, p
 	}
 }
 
+// ListSessionCompactions operation middleware
+func (sh *strictHandler) ListSessionCompactions(w http.ResponseWriter, r *http.Request, params ListSessionCompactionsParams) {
+	var request ListSessionCompactionsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSessionCompactions(ctx, request.(ListSessionCompactionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSessionCompactions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSessionCompactionsResponseObject); ok {
+		if err := validResponse.VisitListSessionCompactionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetSessionCompaction operation middleware
+func (sh *strictHandler) GetSessionCompaction(w http.ResponseWriter, r *http.Request, compactionId CompactionID, params GetSessionCompactionParams) {
+	var request GetSessionCompactionRequestObject
+
+	request.CompactionId = compactionId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSessionCompaction(ctx, request.(GetSessionCompactionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSessionCompaction")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetSessionCompactionResponseObject); ok {
+		if err := validResponse.VisitGetSessionCompactionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetSessionContextSnapshot operation middleware
+func (sh *strictHandler) GetSessionContextSnapshot(w http.ResponseWriter, r *http.Request, contextHash ContextHash, params GetSessionContextSnapshotParams) {
+	var request GetSessionContextSnapshotRequestObject
+
+	request.ContextHash = contextHash
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSessionContextSnapshot(ctx, request.(GetSessionContextSnapshotRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSessionContextSnapshot")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetSessionContextSnapshotResponseObject); ok {
+		if err := validResponse.VisitGetSessionContextSnapshotResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListSessionEvents operation middleware
 func (sh *strictHandler) ListSessionEvents(w http.ResponseWriter, r *http.Request, params ListSessionEventsParams) {
 	var request ListSessionEventsRequestObject
@@ -2869,39 +5217,6 @@ func (sh *strictHandler) ListSessionEvents(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListSessionEventsResponseObject); ok {
 		if err := validResponse.VisitListSessionEventsResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// PublishSessionEvent operation middleware
-func (sh *strictHandler) PublishSessionEvent(w http.ResponseWriter, r *http.Request, params PublishSessionEventParams) {
-	var request PublishSessionEventRequestObject
-
-	request.Params = params
-
-	var body PublishSessionEventJSONRequestBody
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
-		return
-	}
-	request.Body = &body
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.PublishSessionEvent(ctx, request.(PublishSessionEventRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "PublishSessionEvent")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(PublishSessionEventResponseObject); ok {
-		if err := validResponse.VisitPublishSessionEventResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -2996,63 +5311,280 @@ func (sh *strictHandler) SignalSessionJob(w http.ResponseWriter, r *http.Request
 	}
 }
 
+// ListSessionJobSignalRequests operation middleware
+func (sh *strictHandler) ListSessionJobSignalRequests(w http.ResponseWriter, r *http.Request, jobId JobID, params ListSessionJobSignalRequestsParams) {
+	var request ListSessionJobSignalRequestsRequestObject
+
+	request.JobId = jobId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSessionJobSignalRequests(ctx, request.(ListSessionJobSignalRequestsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSessionJobSignalRequests")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSessionJobSignalRequestsResponseObject); ok {
+		if err := validResponse.VisitListSessionJobSignalRequestsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListSessionModelRuns operation middleware
+func (sh *strictHandler) ListSessionModelRuns(w http.ResponseWriter, r *http.Request, params ListSessionModelRunsParams) {
+	var request ListSessionModelRunsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSessionModelRuns(ctx, request.(ListSessionModelRunsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSessionModelRuns")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSessionModelRunsResponseObject); ok {
+		if err := validResponse.VisitListSessionModelRunsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListSessionModelRunCalls operation middleware
+func (sh *strictHandler) ListSessionModelRunCalls(w http.ResponseWriter, r *http.Request, modelRunId ModelRunID, params ListSessionModelRunCallsParams) {
+	var request ListSessionModelRunCallsRequestObject
+
+	request.ModelRunId = modelRunId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSessionModelRunCalls(ctx, request.(ListSessionModelRunCallsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSessionModelRunCalls")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSessionModelRunCallsResponseObject); ok {
+		if err := validResponse.VisitListSessionModelRunCallsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListSessionNotices operation middleware
+func (sh *strictHandler) ListSessionNotices(w http.ResponseWriter, r *http.Request, params ListSessionNoticesParams) {
+	var request ListSessionNoticesRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSessionNotices(ctx, request.(ListSessionNoticesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSessionNotices")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSessionNoticesResponseObject); ok {
+		if err := validResponse.VisitListSessionNoticesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PublishSessionNotice operation middleware
+func (sh *strictHandler) PublishSessionNotice(w http.ResponseWriter, r *http.Request, params PublishSessionNoticeParams) {
+	var request PublishSessionNoticeRequestObject
+
+	request.Params = params
+
+	var body PublishSessionNoticeJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PublishSessionNotice(ctx, request.(PublishSessionNoticeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PublishSessionNotice")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PublishSessionNoticeResponseObject); ok {
+		if err := validResponse.VisitPublishSessionNoticeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetSessionPromptSnapshot operation middleware
+func (sh *strictHandler) GetSessionPromptSnapshot(w http.ResponseWriter, r *http.Request, promptHash PromptHash, params GetSessionPromptSnapshotParams) {
+	var request GetSessionPromptSnapshotRequestObject
+
+	request.PromptHash = promptHash
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSessionPromptSnapshot(ctx, request.(GetSessionPromptSnapshotRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSessionPromptSnapshot")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetSessionPromptSnapshotResponseObject); ok {
+		if err := validResponse.VisitGetSessionPromptSnapshotResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListSessionTurns operation middleware
+func (sh *strictHandler) ListSessionTurns(w http.ResponseWriter, r *http.Request, params ListSessionTurnsParams) {
+	var request ListSessionTurnsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSessionTurns(ctx, request.(ListSessionTurnsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSessionTurns")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSessionTurnsResponseObject); ok {
+		if err := validResponse.VisitListSessionTurnsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // Base64 encoded, compressed with deflate, json marshaled OpenAPI spec.
 // Stored as a slice of fixed-width chunks rather than one concatenated
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
