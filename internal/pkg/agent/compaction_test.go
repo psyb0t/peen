@@ -1078,9 +1078,10 @@ func TestCompactionSurvivesRestartWithSecondStore(t *testing.T) {
 	assert.Equal(t, history1.Messages, history2.Messages)
 }
 
-// Compacting one session must never touch another session sharing the same
-// store and runtime.
-func TestCompactionIsolatedPerSession(t *testing.T) {
+// Every turn sent to one runtime joins its startup workspace session. A
+// compaction must therefore be visible on the continuous transcript rather
+// than being split by caller-supplied session metadata.
+func TestCompactionFollowsStartupWorkspaceSession(t *testing.T) {
 	total := compactionSessionIsolationRunsA + compactionSessionIsolationRunsB
 	driver := elelemtest.NewScriptedDriver(compactionScriptedTurns(total)...).
 		WithTokenCounter(compactionTokenCounter{
@@ -1091,32 +1092,26 @@ func TestCompactionIsolatedPerSession(t *testing.T) {
 	stub := newCompactionSummarizeStub(compactionScenarioSummaryText)
 	fixture.runtime.compactionOptions.Summarize = stub.summarize
 
-	sessionA, _ := runCompactionTurns(
+	sessionID, _ := runCompactionTurns(
 		t,
 		fixture,
 		nil,
 		1,
-		compactionSessionIsolationRunsA,
-	)
-	sessionB, _ := runCompactionTurns(
-		t,
-		fixture,
-		nil,
-		compactionSessionIsolationRunsA+1,
 		total,
 	)
 
 	ctx := context.Background()
-	compactionA, err := fixture.store.LatestCompaction(ctx, sessionA)
+	compaction, err := fixture.store.LatestCompaction(ctx, sessionID)
 	require.NoError(t, err)
-	assert.NotNil(t, compactionA)
+	assert.NotNil(t, compaction)
 
-	compactionB, err := fixture.store.LatestCompaction(ctx, sessionB)
+	history, err := fixture.store.CompletedHistory(ctx, sessionID)
 	require.NoError(t, err)
-	assert.Nil(t, compactionB)
-
-	historyB, err := fixture.store.CompletedHistory(ctx, sessionB)
-	require.NoError(t, err)
-	assert.Nil(t, historyB.Compaction)
-	assert.Equal(t, orderedMessages(t, fixture, sessionB), historyB.Messages)
+	assert.NotNil(t, history.Compaction)
+	assert.NotEmpty(t, history.Messages)
+	assert.Less(
+		t,
+		len(history.Messages),
+		len(orderedMessages(t, fixture, sessionID)),
+	)
 }

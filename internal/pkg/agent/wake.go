@@ -171,7 +171,7 @@ func (r *Runtime) considerWake(ctx context.Context, notice events.Notice) {
 		return
 	}
 
-	workspace, handler, found, err := r.wakeHandler(ctx, notice)
+	handler, found, err := r.wakeHandler(notice)
 	if err != nil {
 		logger.Warn(
 			"event wake handler lookup failed, event stays queued",
@@ -215,28 +215,20 @@ func (r *Runtime) considerWake(ctx context.Context, notice events.Notice) {
 		return
 	}
 
-	r.startWakeTurn(ctx, notice, workspace, handler)
+	r.startWakeTurn(ctx, notice, handler)
 }
 
-// wakeHandler resolves the session's workspace and the handler declared for
-// this event type. A session with no messages yet has no workspace to resolve
-// against, so it cannot be woken.
+// wakeHandler resolves the startup workspace's handler for this event type.
 func (r *Runtime) wakeHandler(
-	ctx context.Context,
 	notice events.Notice,
-) (string, harness.EventHandler, bool, error) {
-	workspace, err := r.lastWorkspace(ctx, notice.SessionID)
-	if err != nil {
-		return "", harness.EventHandler{}, false, err
+) (harness.EventHandler, bool, error) {
+	if notice.SessionID != r.sessionID {
+		return harness.EventHandler{}, false, nil
 	}
 
-	if workspace == "" {
-		return "", harness.EventHandler{}, false, nil
-	}
-
-	snapshot, err := r.resolver.Resolve(workspace)
+	snapshot, err := r.resolver.Resolve(r.defaultWorkspace)
 	if err != nil {
-		return "", harness.EventHandler{}, false, ctxerrors.Wrap(
+		return harness.EventHandler{}, false, ctxerrors.Wrap(
 			err,
 			"resolve harness for event wake",
 		)
@@ -246,35 +238,10 @@ func (r *Runtime) wakeHandler(
 	if err != nil {
 		// An unhandled type is the normal case, not a failure. The event
 		// stays queued and is delivered at the next turn instead.
-		return "", harness.EventHandler{}, false, nil //nolint:nilerr // Above.
+		return harness.EventHandler{}, false, nil //nolint:nilerr // Above.
 	}
 
-	return workspace, handler, true, nil
-}
-
-func (r *Runtime) lastWorkspace(
-	ctx context.Context,
-	sessionID uuid.UUID,
-) (string, error) {
-	page, err := r.store.ListMessages(
-		ctx,
-		sessionID,
-		session.ListMessagesOptions{
-			Order: session.PageOrderDescending,
-			Limit: 1,
-		},
-	)
-	if err != nil {
-		return "", ctxerrors.Wrap(err, "read session workspace")
-	}
-
-	for _, message := range page.Items {
-		if message.Workspace != "" {
-			return message.Workspace, nil
-		}
-	}
-
-	return r.defaultWorkspace, nil
+	return handler, true, nil
 }
 
 // startWakeTurn runs the handler's instruction as a turn of its own. The
@@ -283,10 +250,9 @@ func (r *Runtime) lastWorkspace(
 func (r *Runtime) startWakeTurn(
 	ctx context.Context,
 	notice events.Notice,
-	workspace string,
 	handler harness.EventHandler,
 ) {
-	sessionID := notice.SessionID
+	sessionID := r.sessionID
 	detached := context.WithoutCancel(ctx)
 
 	go func() {
@@ -308,9 +274,7 @@ func (r *Runtime) startWakeTurn(
 		)
 
 		if _, err := r.Run(detached, TurnRequest{
-			SessionID: &sessionID,
-			Message:   wakeMessage(handler),
-			Workspace: workspace,
+			Message: wakeMessage(handler),
 			Origin: &TurnOrigin{
 				EventID:   notice.ID,
 				EventType: notice.Type,

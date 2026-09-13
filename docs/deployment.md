@@ -23,15 +23,16 @@ the raw JSON in `PEEN_UPSTREAMS` is not Bash syntax. Set the values through
 your shell or process manager instead:
 
 ```bash
-mkdir -p ./data/peen ./workspace
-export PEEN_CONFIG_DIR="$PWD/data/peen"
-export PEEN_WORKING_DIR="$PWD/workspace"
+root="$PWD"
+mkdir -p "$root/data/peen" "$root/workspace"
+export PEEN_CONFIG_DIR="$root/data/peen"
 export PEEN_UPSTREAMS='[{"name":"aigate","provider":"openai","baseUrl":"https://aigate.example/v1","apiKeyEnv":"AIGATE_TOKEN"}]'
 export PEEN_DEFAULT_MODEL="aigate/your-model-id"
 export PEEN_COMPACTION_MODEL="aigate/your-model-id"
 export AIGATE_TOKEN="your-token-here"
 
-./build/peen run
+cd "$root/workspace"
+"$root/build/peen" run
 ```
 
 If you have a matching local Go toolchain and prefer to skip Docker for the
@@ -85,8 +86,9 @@ reaped instead of becoming zombies. The default command is `--help`; pass
 ### Durable state and mounts
 
 Peen keeps everything that must survive a restart under `PEEN_CONFIG_DIR`
-(the SQLite database, logs, `AGENTS.md`, and harness files), and treats
-`PEEN_WORKING_DIR` as the default message workspace. Mount both from the host:
+(the SQLite database, logs, `AGENTS.md`, and harness files). Its process
+working directory is the agent workspace and durable-session key. Mount both
+from the host:
 
 ```bash
 mkdir -p ./data/peen ./workspace
@@ -97,11 +99,13 @@ docker run --rm \
   -p 8080:8080 \
   -v "$(pwd)/data/peen:/data/peen" \
   -v "$(pwd)/workspace:/workspace" \
+  -w /workspace \
   peen run
 ```
 
-Set `PEEN_CONFIG_DIR=/data/peen` and `PEEN_WORKING_DIR=/workspace` in `.env`
-to match the mount targets above, or change both sides consistently.
+Set `PEEN_CONFIG_DIR=/data/peen` in `.env` to match the state mount. The
+`-w /workspace` launch option is what selects the workspace. Change the mount
+and `-w` together when your project lives elsewhere.
 
 Two ownership requirements matter here, and skipping either produces a
 startup failure rather than a silent misconfiguration:
@@ -113,9 +117,9 @@ startup failure rather than a silent misconfiguration:
   missing `host-path` as root, and a container process running as UID
   `10001` cannot then `chmod` a root-owned directory. Create and `chown` it
   on the host first, as above.
-- **`PEEN_WORKING_DIR`'s host directory must already exist.** Peen changes
-  into it during startup and does not create it; a missing directory is a
-  startup error, not an empty workspace.
+- **The host directory mounted at the container working directory must already
+  exist.** Docker otherwise creates an empty path, which is almost never the
+  project you meant to hand to an agent.
 
 ### Networking and the API token
 
@@ -135,7 +139,7 @@ local proxy that shares that namespace.
 The Ubuntu base and the fixed non-root user are the only isolation Peen
 ships with by default. `run_command` and the file tools still have whatever
 access UID `10001` has inside the container: everything under the mounted
-`PEEN_CONFIG_DIR` and `PEEN_WORKING_DIR`, plus network access unless you
+`PEEN_CONFIG_DIR` and workspace, plus network access unless you
 restrict it. Read the root README's [Security](../README.md#security)
 section, and add `--network`, `--cap-drop`, `--read-only` (with explicit
 writable mounts for the two directories above), or a seccomp/AppArmor

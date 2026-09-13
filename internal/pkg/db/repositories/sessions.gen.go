@@ -38,6 +38,7 @@ func newSession(db *gorm.DB, opts ...gen.DOOption) session {
 	_session.ActiveContextHash = field.NewString(tableName, "active_context_hash")
 	_session.RootAgent = field.NewString(tableName, "root_agent")
 	_session.ModelID = field.NewString(tableName, "model_id")
+	_session.Workspace = field.NewString(tableName, "workspace")
 
 	_session.fillFieldMap()
 
@@ -58,6 +59,7 @@ type session struct {
 	ActiveContextHash     field.String
 	RootAgent             field.String
 	ModelID               field.String
+	Workspace             field.String
 
 	fieldMap map[string]field.Expr
 }
@@ -84,6 +86,7 @@ func (s *session) updateTableName(table string) *session {
 	s.ActiveContextHash = field.NewString(table, "active_context_hash")
 	s.RootAgent = field.NewString(table, "root_agent")
 	s.ModelID = field.NewString(table, "model_id")
+	s.Workspace = field.NewString(table, "workspace")
 
 	s.fillFieldMap()
 
@@ -100,7 +103,7 @@ func (s *session) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (s *session) fillFieldMap() {
-	s.fieldMap = make(map[string]field.Expr, 10)
+	s.fieldMap = make(map[string]field.Expr, 11)
 	s.fieldMap["id"] = s.ID
 	s.fieldMap["created_at"] = s.CreatedAt
 	s.fieldMap["updated_at"] = s.UpdatedAt
@@ -111,6 +114,7 @@ func (s *session) fillFieldMap() {
 	s.fieldMap["active_context_hash"] = s.ActiveContextHash
 	s.fieldMap["root_agent"] = s.RootAgent
 	s.fieldMap["model_id"] = s.ModelID
+	s.fieldMap["workspace"] = s.Workspace
 }
 
 func (s session) clone(db *gorm.DB) session {

@@ -79,14 +79,14 @@ func TestNewRuntimeValidatesDependenciesAndOptions(t *testing.T) {
 			options := base
 			tc.mutate(&options)
 
-			runtime, err := NewRuntime(options)
+			runtime, err := NewRuntime(context.Background(), options)
 
 			assert.Nil(t, runtime)
 			require.ErrorIs(t, err, tc.want)
 		})
 	}
 
-	runtime, err := NewRuntime(base)
+	runtime, err := NewRuntime(context.Background(), base)
 	require.NoError(t, err)
 	assert.Equal(t, defaultSystemPrompt, runtime.baseSystemPrompt)
 }
@@ -108,7 +108,7 @@ func TestRuntimeResolveInput(t *testing.T) {
 			wantModel:     runtimeTestModelReference,
 		},
 		{
-			name: "accepts explicit settings",
+			name: "keeps the startup workspace with explicit settings",
 			input: TurnRequest{
 				Message:          "inspect",
 				Workspace:        fixture.otherWorkspace,
@@ -116,7 +116,7 @@ func TestRuntimeResolveInput(t *testing.T) {
 				SystemPrompt:     "extra",
 				SystemPromptMode: PromptModeAppend,
 			},
-			wantWorkspace: fixture.otherWorkspace,
+			wantWorkspace: fixture.workspace,
 			wantModel:     "other/model",
 		},
 		{

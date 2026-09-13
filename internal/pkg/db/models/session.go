@@ -18,6 +18,7 @@ type Session struct {
 	ActiveContextHash     string
 	RootAgent             string
 	ModelID               string
+	Workspace             string
 }
 
 // TableName pins the schema-owned sessions table name.

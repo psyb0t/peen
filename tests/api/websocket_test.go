@@ -57,7 +57,7 @@ type apiTestWebSocketObservation struct {
 
 func TestAPIWebSocketBroadcastsGlobalEventsAndQueues(t *testing.T) {
 	sessionID := createAPIWebSocketSession(t, apiTestWebSocketInitialMessage)
-	otherSessionID := createAPIWebSocketSession(t, "separate websocket session")
+	filteredOutSessionID := uuid.New()
 
 	first := dialAPIWebSocket(t, nil)
 	t.Cleanup(func() { require.NoError(t, first.Close()) })
@@ -65,7 +65,7 @@ func TestAPIWebSocketBroadcastsGlobalEventsAndQueues(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, second.Close()) })
 	observer := dialAPIWebSocket(t, nil)
 	t.Cleanup(func() { require.NoError(t, observer.Close()) })
-	filteredOther := dialAPIWebSocket(t, &otherSessionID)
+	filteredOther := dialAPIWebSocket(t, &filteredOutSessionID)
 	t.Cleanup(func() { require.NoError(t, filteredOther.Close()) })
 
 	hold, err := integrationInfra.HoldNextCompletion()
@@ -74,14 +74,12 @@ func TestAPIWebSocketBroadcastsGlobalEventsAndQueues(t *testing.T) {
 
 	require.NoError(t, writeAPIWebSocketMessage(
 		first,
-		sessionID,
 		apiTestWebSocketActiveMessage,
 	))
 	awaitAPIWebSocketProviderHold(t, hold)
 
 	require.NoError(t, writeAPIWebSocketMessage(
 		second,
-		sessionID,
 		apiTestWebSocketQueuedMessage,
 	))
 
@@ -105,15 +103,15 @@ func TestAPIWebSocketBroadcastsGlobalEventsAndQueues(t *testing.T) {
 
 	assertNoAPIWebSocketEvent(t, filteredOther)
 
-	messages := listMessages(t, sessionID, 10, 0, "asc")
-	contents := apiMessageContents(messages.Items)
+	messages := collectAllMessages(t, sessionID)
+	contents := apiMessageContents(messages)
 	assert.Contains(t, contents, apiTestWebSocketInitialMessage)
 	assert.Contains(t, contents, apiTestWebSocketActiveMessage)
 	assert.Contains(t, contents, apiTestWebSocketQueuedMessage)
 	assert.False(t, getSession(t, sessionID).ActiveTurn)
 }
 
-func TestAPIWebSocketRejectsUnauthenticatedAndCreatesPendingSessions(t *testing.T) {
+func TestAPIWebSocketRejectsUnauthenticatedAndReturnsStartupSession(t *testing.T) {
 	t.Run("unauthenticated", func(t *testing.T) {
 		dialer := websocket.Dialer{
 			HandshakeTimeout: requestTimeout,
@@ -129,55 +127,47 @@ func TestAPIWebSocketRejectsUnauthenticatedAndCreatesPendingSessions(t *testing.
 		require.NoError(t, response.Body.Close())
 	})
 
-	t.Run("pending session", func(t *testing.T) {
-		sessionID := uuid.New()
-		result := sendAPIWebSocketMessage(
-			t,
-			sessionID,
-			apiTestWebSocketInitialMessage,
-		)
+	t.Run("startup session", func(t *testing.T) {
+		result := sendAPIWebSocketMessage(t, apiTestWebSocketInitialMessage)
 
-		assert.Equal(t, sessionID, result.sessionID)
+		assert.NotEqual(t, uuid.Nil, result.sessionID)
 		assert.False(t, result.result.Queued)
-		assert.Equal(t, sessionID, getSession(t, sessionID).Id)
+		assert.Equal(t, result.sessionID, getSession(t, result.sessionID).Id)
 	})
 }
 
 func createAPIWebSocketSession(t *testing.T, message string) uuid.UUID {
 	t.Helper()
-	sessionID := uuid.New()
-	result := sendAPIWebSocketMessage(t, sessionID, message)
+	result := sendAPIWebSocketMessage(t, message)
 	assert.False(t, result.result.Queued)
 
-	return sessionID
+	return result.sessionID
 }
 
 func sendAPIWebSocketMessage(
 	t *testing.T,
-	sessionID uuid.UUID,
 	message string,
 ) apiTestWebSocketObservation {
 	t.Helper()
 
 	connection := dialAPIWebSocket(t, nil)
 	t.Cleanup(func() { require.NoError(t, connection.Close()) })
-	require.NoError(t, writeAPIWebSocketMessage(connection, sessionID, message))
+	require.NoError(t, writeAPIWebSocketMessage(connection, message))
 
 	result := awaitAPIWebSocketCompletion(t, connection, false)
-	assert.Equal(t, sessionID, result.sessionID)
+	assert.NotEqual(t, uuid.Nil, result.sessionID)
 
 	return result
 }
 
 func writeAPIWebSocketMessage(
 	connection *websocket.Conn,
-	sessionID uuid.UUID,
 	message string,
 ) error {
 	event := dabluveees.NewEvent(
 		apiTestWebSocketMessageSend,
 		map[string]string{"message": message},
-	).SetMetadata(apiTestWebSocketMetadataSessionID, sessionID.String())
+	)
 
 	return connection.WriteJSON(event)
 }

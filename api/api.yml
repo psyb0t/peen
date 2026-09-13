@@ -873,7 +873,7 @@ components:
       type: object
       additionalProperties: false
       required:
-        [id, createdAt, updatedAt, messageCount, completedTurnCount, activeTurn, agent, model]
+        [id, createdAt, updatedAt, messageCount, completedTurnCount, activeTurn, agent, model, workspace]
       properties:
         id:
           type: string
@@ -900,6 +900,8 @@ components:
         agent:
           type: string
         model:
+          type: string
+        workspace:
           type: string
     CancelResponse:
       type: object

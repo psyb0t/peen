@@ -4,6 +4,9 @@ package session
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +27,48 @@ type Store struct {
 
 	activeMu sync.Mutex
 	active   map[uuid.UUID]activeTurn
+}
+
+// OpenWorkspace returns the one durable session belonging to workspace.
+func (s *Store) OpenWorkspace(
+	ctx context.Context,
+	workspace string,
+	options OpenSessionOptions,
+) (*OpenSessionResult, error) {
+	canonicalWorkspace, err := canonicalWorkspace(workspace)
+	if err != nil {
+		return nil, err
+	}
+
+	session, err := s.findWorkspaceSession(ctx, canonicalWorkspace)
+	if err == nil {
+		return &OpenSessionResult{Session: session}, nil
+	}
+
+	if !errors.Is(err, commerr.ErrNotFound) {
+		return nil, ctxerrors.Wrap(err, "find workspace session")
+	}
+
+	now := s.now()
+
+	created := &models.Session{
+		ID:        s.newID(),
+		CreatedAt: now,
+		UpdatedAt: now,
+		RootAgent: options.RootAgent,
+		ModelID:   options.ModelID,
+		Workspace: canonicalWorkspace,
+	}
+	if err := s.query.Session.WithContext(ctx).Create(created); err != nil {
+		existing, lookupErr := s.findWorkspaceSession(ctx, canonicalWorkspace)
+		if lookupErr == nil {
+			return &OpenSessionResult{Session: existing}, nil
+		}
+
+		return nil, ctxerrors.Wrap(err, "create workspace session")
+	}
+
+	return &OpenSessionResult{Session: created, Created: true}, nil
 }
 
 // NewStore builds a store over an already-open migrated database handle.
@@ -253,6 +298,55 @@ func (s *Store) findSession(
 	}
 
 	return result, nil
+}
+
+func (s *Store) findWorkspaceSession(
+	ctx context.Context,
+	workspace string,
+) (*models.Session, error) {
+	session := s.query.Session
+
+	result, err := session.WithContext(ctx).
+		Where(session.Workspace.Eq(workspace)).
+		First()
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "query workspace session")
+	}
+
+	return result, nil
+}
+
+func canonicalWorkspace(workspace string) (string, error) {
+	if strings.TrimSpace(workspace) == "" {
+		return "", ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"workspace is required",
+		)
+	}
+
+	absolute, err := filepath.Abs(workspace)
+	if err != nil {
+		return "", ctxerrors.Wrap(err, "make workspace absolute")
+	}
+
+	canonical, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return "", ctxerrors.Wrap(err, "resolve workspace symlinks")
+	}
+
+	info, err := os.Stat(canonical)
+	if err != nil {
+		return "", ctxerrors.Wrap(err, "stat workspace")
+	}
+
+	if !info.IsDir() {
+		return "", ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"workspace is not a directory",
+		)
+	}
+
+	return canonical, nil
 }
 
 func (s *Store) reserveLease(lease Lease) error {

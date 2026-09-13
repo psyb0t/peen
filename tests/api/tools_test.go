@@ -94,6 +94,7 @@ type hostToolsScenario struct {
 type hostToolsResult struct {
 	finalText string
 	sessionID uuid.UUID
+	messages  []api.Message
 }
 
 func TestAPIHostToolsProductionWiring(t *testing.T) {
@@ -149,6 +150,7 @@ func runHostToolsScenario(
 	seedContainerFile(t, fixturePath, scenario.fixtureContent)
 
 	scriptedTurn := testinfra.ScriptedToolTurn{
+		UserMessage: hostToolsUserMessage,
 		ReadFileArguments: map[string]any{
 			"path": fixturePath,
 		},
@@ -196,7 +198,7 @@ func runHostToolsScenario(
 	)
 	assertHostToolsTranscript(
 		t,
-		result.sessionID,
+		result.messages,
 		scenario.editIsError,
 		scenario.useApplyPatch,
 		result.finalText,
@@ -208,21 +210,21 @@ func runHostToolsScenario(
 func runHostToolsTurn(t *testing.T) hostToolsResult {
 	t.Helper()
 
-	sessionID := uuid.New()
-	result := sendAPIWebSocketMessage(t, sessionID, hostToolsUserMessage)
+	result := sendAPIWebSocketMessage(t, hostToolsUserMessage)
 	require.False(t, result.result.Queued)
-	messages := collectAllMessages(t, sessionID)
-	require.NotEmpty(t, messages)
+	messages := collectAllMessages(t, result.sessionID)
+	require.GreaterOrEqual(t, len(messages), hostToolsMessageCount)
+	turnMessages := messages[len(messages)-hostToolsMessageCount:]
 
 	return hostToolsResult{
-		finalText: messages[len(messages)-1].Content,
-		sessionID: sessionID,
+		finalText: turnMessages[len(turnMessages)-1].Content,
+		sessionID: result.sessionID,
+		messages:  turnMessages,
 	}
 }
 
-// hostToolsContainerPath places a scenario fixture under the same directory
-// the app treats as its default tool workspace (PEEN_WORKING_DIR), so a
-// relative read_file/edit_file/run_command path would resolve here too.
+// hostToolsContainerPath places a scenario fixture under the app's immutable
+// tool workspace, so a relative tool path would resolve here too.
 func hostToolsContainerPath(name string) string {
 	return path.Join(testinfra.ContainerWorkingDirectory, name)
 }
@@ -287,14 +289,13 @@ func assertHostToolsFixture(t *testing.T, fileName, wantContent string) {
 // final assistant answer.
 func assertHostToolsTranscript(
 	t *testing.T,
-	sessionID uuid.UUID,
+	messages []api.Message,
 	editIsError bool,
 	useApplyPatch bool,
 	finalAnswer string,
 ) {
 	t.Helper()
 
-	messages := collectAllMessages(t, sessionID)
 	require.Len(t, messages, hostToolsMessageCount)
 
 	assert.Equal(t, api.MessageRoleUser, messages[0].Role)

@@ -1000,6 +1000,7 @@ type Session struct {
 	MessageCount       int64              `json:"messageCount"`
 	Model              string             `json:"model"`
 	UpdatedAt          time.Time          `json:"updatedAt"`
+	Workspace          string             `json:"workspace"`
 }
 
 // SessionNotice defines model for SessionNotice.

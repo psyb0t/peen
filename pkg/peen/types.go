@@ -40,10 +40,6 @@ type Options struct {
 	// ConfigDirectory must already exist. It holds the durable SQLite store
 	// plus the optional SYSTEM.md, APPEND_SYSTEM.md, and COMPACTION.md files.
 	ConfigDirectory string
-	// DefaultWorkspace is the directory relative tool paths resolve from when
-	// a message does not name one. Empty captures the caller's current
-	// working directory during New.
-	DefaultWorkspace string
 	// RootAgent names the base agent definition every session starts from.
 	RootAgent string
 
@@ -149,10 +145,6 @@ type SystemPrompt struct {
 type MessageRequest struct {
 	// Message is the user's text. It must not be empty or whitespace-only.
 	Message string
-	// SessionID resumes an existing session. Empty creates a new one.
-	SessionID string
-	// Workspace overrides the default workspace for only this message.
-	Workspace string
 	// SystemPrompt overrides or extends the base system prompt for only this
 	// message.
 	SystemPrompt *SystemPrompt
@@ -245,6 +237,7 @@ type SessionDetails struct {
 	ID                 string
 	Agent              string
 	Model              string
+	Workspace          string
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
 	LastMessageAt      *time.Time

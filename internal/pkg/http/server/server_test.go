@@ -208,10 +208,13 @@ func newTestRuntime(sessionID uuid.UUID) *testRuntime {
 	return &testRuntime{sessionID: sessionID}
 }
 
+func (r *testRuntime) SessionID() uuid.UUID {
+	return r.sessionID
+}
+
 func (r *testRuntime) RunMessage(
 	_ context.Context,
 	_ agent.MessageRequest,
-	_ *uuid.UUID,
 	_ uuid.UUID,
 	sink agent.EventSink,
 ) (*agent.MessageRunResult, error) {

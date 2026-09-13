@@ -25,6 +25,7 @@ func sessionToAPI(
 		MessageCount:       stored.MessageCount,
 		Model:              stored.ModelID,
 		UpdatedAt:          stored.UpdatedAt,
+		Workspace:          stored.Workspace,
 	}
 }
 

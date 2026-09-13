@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/elelem/elelemtest"
@@ -101,12 +100,10 @@ func TestRuntimeMessageRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "first reply", first.Message)
 
-	_, parseErr := uuid.Parse(first.SessionID)
-	require.NoError(t, parseErr)
+	require.NotEmpty(t, first.SessionID)
 
 	second, err := runtime.Message(context.Background(), peen.MessageRequest{
-		Message:   "and again",
-		SessionID: first.SessionID,
+		Message: "and again",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, first.SessionID, second.SessionID)
@@ -165,8 +162,7 @@ func TestRuntimeListMessages(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = runtime.Message(context.Background(), peen.MessageRequest{
-		Message:   "and again",
-		SessionID: first.SessionID,
+		Message: "and again",
 	})
 	require.NoError(t, err)
 
@@ -235,8 +231,7 @@ func TestRuntimeCancelHeldTurn(t *testing.T) {
 		result, err := runtime.Stream(
 			context.Background(),
 			peen.MessageRequest{
-				Message:   "please wait",
-				SessionID: first.SessionID,
+				Message: "please wait",
 			},
 			func(event peen.Event) error {
 				if event.Type == "turn.started" {
@@ -271,24 +266,10 @@ func TestRuntimeCancelHeldTurn(t *testing.T) {
 	}
 }
 
-func TestRuntimeMalformedSessionID(t *testing.T) {
-	driver := elelemtest.NewScriptedDriver(elelemtest.Text("ok"))
-	runtime := newTestRuntime(t, driver)
+func TestRuntimeRejectsMalformedReadSessionID(t *testing.T) {
+	runtime := newTestRuntime(t, elelemtest.NewScriptedDriver())
 
-	_, err := runtime.Message(context.Background(), peen.MessageRequest{
-		Message:   "hi",
-		SessionID: testMalformedID,
-	})
-	assert.ErrorIs(t, err, commerr.ErrValidationFailed)
-
-	_, err = runtime.Stream(
-		context.Background(),
-		peen.MessageRequest{Message: "hi", SessionID: testMalformedID},
-		func(peen.Event) error { return nil },
-	)
-	assert.ErrorIs(t, err, commerr.ErrValidationFailed)
-
-	_, err = runtime.ListMessages(context.Background(), peen.ListMessagesRequest{
+	_, err := runtime.ListMessages(context.Background(), peen.ListMessagesRequest{
 		SessionID: testMalformedID,
 	})
 	assert.ErrorIs(t, err, commerr.ErrValidationFailed)
@@ -358,12 +339,11 @@ func messageContents(messages []peen.Message) []string {
 func validOptions(t *testing.T) peen.Options {
 	t.Helper()
 
-	configDirectory, workspace := writeTestHarness(t)
+	configDirectory, _ := writeTestHarness(t)
 
 	return peen.Options{
-		ConfigDirectory:  configDirectory,
-		DefaultWorkspace: workspace,
-		RootAgent:        testRootAgent,
+		ConfigDirectory: configDirectory,
+		RootAgent:       testRootAgent,
 		Models: map[string]peen.ModelClient{
 			testModelReference: {
 				Client: elelem.New(elelemtest.NewScriptedDriver()),
@@ -382,11 +362,11 @@ func newTestRuntime(t *testing.T, driver elelem.Driver) *peen.Runtime {
 	t.Helper()
 
 	configDirectory, workspace := writeTestHarness(t)
+	t.Chdir(workspace)
 
 	runtime, err := peen.New(peen.Options{
-		ConfigDirectory:  configDirectory,
-		DefaultWorkspace: workspace,
-		RootAgent:        testRootAgent,
+		ConfigDirectory: configDirectory,
+		RootAgent:       testRootAgent,
 		Models: map[string]peen.ModelClient{
 			testModelReference: {
 				Client: elelem.New(driver),
@@ -404,9 +384,7 @@ func newTestRuntime(t *testing.T, driver elelem.Driver) *peen.Runtime {
 
 // writeTestHarness lays out the AGENTS.md and named agent definition the
 // harness resolver and the configured root agent both require, plus a
-// separate workspace so resolution never reaches outside the temp tree (an
-// unset DefaultWorkspace would otherwise default to the test binary's own
-// working directory).
+// separate workspace used as the runtime's startup directory.
 func writeTestHarness(t *testing.T) (string, string) {
 	t.Helper()
 

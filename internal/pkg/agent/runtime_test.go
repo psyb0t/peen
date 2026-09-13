@@ -131,7 +131,7 @@ func TestRuntimeRunPersistsTranscriptEventsAndSnapshots(t *testing.T) {
 	assert.Equal(t, eventTypes(events), persistedEventTypes(persistedEvents))
 }
 
-func TestRuntimeResumesSessionWithCurrentWorkspace(t *testing.T) {
+func TestRuntimeResumesStartupWorkspaceSession(t *testing.T) {
 	driver := elelemtest.NewScriptedDriver(elelemtest.Text("first reply"), elelemtest.Text("second reply"))
 	fixture := newRuntimeFixture(t, driver)
 	first, err := fixture.runtime.Run(context.Background(), TurnRequest{
@@ -140,8 +140,9 @@ func TestRuntimeResumesSessionWithCurrentWorkspace(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	selectedSessionID := uuid.New()
 	second, err := fixture.runtime.Run(context.Background(), TurnRequest{
-		SessionID: &first.SessionID,
+		SessionID: &selectedSessionID,
 		Message:   "second request",
 		Workspace: fixture.otherWorkspace,
 		RequestID: uuid.New(),
@@ -153,8 +154,8 @@ func TestRuntimeResumesSessionWithCurrentWorkspace(t *testing.T) {
 
 	requests := driver.Requests()
 	require.Len(t, requests, 2)
-	assert.Contains(t, requests[1].Messages[0].Text(), runtimeTestOtherRule)
-	assert.NotContains(t, requests[1].Messages[0].Text(), runtimeTestWorkspaceRule)
+	assert.Contains(t, requests[1].Messages[0].Text(), runtimeTestWorkspaceRule)
+	assert.NotContains(t, requests[1].Messages[0].Text(), runtimeTestOtherRule)
 	assert.Equal(
 		t,
 		[]string{"first request", "first reply", "second request"},
@@ -172,8 +173,8 @@ func TestRuntimeResumesSessionWithCurrentWorkspace(t *testing.T) {
 		[]string{
 			fixture.workspace,
 			fixture.workspace,
-			fixture.otherWorkspace,
-			fixture.otherWorkspace,
+			fixture.workspace,
+			fixture.workspace,
 		},
 		messageWorkspaces(messages.Items),
 	)
@@ -287,7 +288,7 @@ func newRuntimeFixtureWithOptions(
 		customize(&options)
 	}
 
-	runtime, err := NewRuntime(options)
+	runtime, err := NewRuntime(context.Background(), options)
 	require.NoError(t, err)
 
 	return runtimeFixture{

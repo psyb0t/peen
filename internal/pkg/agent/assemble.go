@@ -115,7 +115,7 @@ func assembleOver(
 	runtimeOptions.Store = store
 	runtimeOptions.Resolver = resolver
 
-	runtime, err := NewRuntime(runtimeOptions)
+	runtime, err := NewRuntime(ctx, runtimeOptions)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create agent runtime")
 	}

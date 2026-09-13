@@ -36,10 +36,14 @@ type Runtime struct {
 	rootAgent        string
 	defaultModel     string
 	defaultWorkspace string
+	sessionID        uuid.UUID
 	maxContextTokens int
 	turnTimeout      time.Duration
 	baseSystemPrompt string
 	now              func() time.Time
+
+	sessionStartMutex   sync.Mutex
+	sessionStartPending bool
 
 	maxSystemPromptBytes  int
 	maxMessageBytes       int
@@ -147,7 +151,7 @@ type preparedTurn struct {
 // NewRuntime validates the dependencies shared by every Peen turn.
 //
 //nolint:funlen // Option mapping stays together.
-func NewRuntime(options RuntimeOptions) (*Runtime, error) {
+func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 	if err := options.validate(); err != nil {
 		return nil, err
 	}
@@ -175,17 +179,32 @@ func NewRuntime(options RuntimeOptions) (*Runtime, error) {
 		return nil, err
 	}
 
+	opened, err := options.Store.OpenWorkspace(
+		ctx,
+		options.DefaultWorkspace,
+		session.OpenSessionOptions{
+			RootAgent: options.RootAgent,
+			ModelID:   options.DefaultModel,
+		},
+	)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "open workspace session")
+	}
+
 	return &Runtime{
 		store:            options.Store,
 		resolver:         options.Resolver,
 		models:           options.Models,
 		rootAgent:        options.RootAgent,
 		defaultModel:     options.DefaultModel,
-		defaultWorkspace: options.DefaultWorkspace,
+		defaultWorkspace: opened.Session.Workspace,
+		sessionID:        opened.Session.ID,
 		maxContextTokens: options.MaxContextTokens,
 		turnTimeout:      options.TurnTimeout,
 		baseSystemPrompt: options.BaseSystemPrompt,
 		now:              time.Now,
+
+		sessionStartPending: opened.Created,
 
 		maxSystemPromptBytes:  options.MaxSystemPromptBytes,
 		maxMessageBytes:       options.MaxMessageBytes,
@@ -339,7 +358,6 @@ func (r *Runtime) prepareTurn(
 	opening, err := r.openPromptWithEvents(
 		ctx,
 		input,
-		basis.modelReference,
 		basis.systemPrompt,
 	)
 	if err != nil {
@@ -400,6 +418,8 @@ func (r *Runtime) prepareTurn(
 		); err != nil {
 			return nil, r.finalizeFailedTurn(ctx, prepared, err)
 		}
+
+		r.completeSessionStart()
 	}
 
 	if err := prepared.runLifecycleHook(
@@ -504,19 +524,16 @@ func (r *Runtime) resolveContext(
 func (r *Runtime) openPrompt(
 	ctx context.Context,
 	input TurnRequest,
-	modelReference string,
 	systemPrompt string,
 ) (*session.OpenSessionResult, promptAssembly, error) {
-	opened, err := r.store.CreateOrResume(
-		ctx,
-		input.SessionID,
-		session.OpenSessionOptions{
-			RootAgent: r.rootAgent,
-			ModelID:   modelReference,
-		},
-	)
+	stored, err := r.store.Get(ctx, r.sessionID)
 	if err != nil {
 		return nil, promptAssembly{}, ctxerrors.Wrap(err, "open session")
+	}
+
+	opened := &session.OpenSessionResult{
+		Session: stored,
+		Created: r.sessionStartIsPending(),
 	}
 
 	history, err := r.store.CompletedHistory(ctx, opened.Session.ID)
@@ -660,13 +677,11 @@ func (r *Runtime) ShutdownJobs(ctx context.Context) error {
 func (r *Runtime) openPromptWithEvents(
 	ctx context.Context,
 	input TurnRequest,
-	modelReference string,
 	systemPrompt string,
 ) (turnOpening, error) {
 	opened, assembly, err := r.openPrompt(
 		ctx,
 		input,
-		modelReference,
 		systemPrompt,
 	)
 	if err != nil {
@@ -857,17 +872,26 @@ func (r *Runtime) resolveInput(input TurnRequest) (string, string, error) {
 		return "", "", err
 	}
 
-	workspace := input.Workspace
-	if workspace == "" {
-		workspace = r.defaultWorkspace
-	}
-
 	modelReference := input.Model
 	if modelReference == "" {
 		modelReference = r.defaultModel
 	}
 
-	return workspace, modelReference, nil
+	return r.defaultWorkspace, modelReference, nil
+}
+
+func (r *Runtime) sessionStartIsPending() bool {
+	r.sessionStartMutex.Lock()
+	defer r.sessionStartMutex.Unlock()
+
+	return r.sessionStartPending
+}
+
+func (r *Runtime) completeSessionStart() {
+	r.sessionStartMutex.Lock()
+	defer r.sessionStartMutex.Unlock()
+
+	r.sessionStartPending = false
 }
 
 // validateTurnInput rejects a request the runtime cannot run.

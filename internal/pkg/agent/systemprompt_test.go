@@ -266,7 +266,7 @@ func TestRuntimeUsesTheDeploymentSystemPromptFile(t *testing.T) {
 		systemPromptTestReplacement,
 	)
 
-	reloaded, err := NewRuntime(RuntimeOptions{
+	reloaded, err := NewRuntime(context.Background(), RuntimeOptions{
 		Store:            fixture.store,
 		Resolver:         fixture.runtime.resolver,
 		Models:           fixture.runtime.models,

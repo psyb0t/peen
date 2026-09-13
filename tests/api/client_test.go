@@ -37,7 +37,7 @@ func TestPublicClientDrivesTheRealAPI(t *testing.T) {
 	require.Equal(t, http.StatusOK, listed.StatusCode())
 	require.NotNil(t, listed.JSON200)
 	require.GreaterOrEqual(t, len(listed.JSON200.Items), 2)
-	assert.Equal(t, clientTestMessage, listed.JSON200.Items[0].Content)
+	assert.Contains(t, publicClientMessageContents(listed.JSON200.Items), clientTestMessage)
 
 	details, err := generated.GetSessionWithResponse(
 		ctx,
@@ -48,6 +48,15 @@ func TestPublicClientDrivesTheRealAPI(t *testing.T) {
 	require.NotNil(t, details.JSON200)
 	assert.Equal(t, sessionID, details.JSON200.Id)
 	assert.NotEmpty(t, details.JSON200.Model)
+}
+
+func publicClientMessageContents(items []client.Message) []string {
+	contents := make([]string, 0, len(items))
+	for _, item := range items {
+		contents = append(contents, item.Content)
+	}
+
+	return contents
 }
 
 // A generated client with no credentials must be refused exactly as a

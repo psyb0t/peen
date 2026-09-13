@@ -4,9 +4,13 @@
 the same durable agent runtime the HTTP service exposes, without starting
 Servicepack or an HTTP listener.
 
-When `Message` or `Stream` targets a session with a local active turn,
+`New` binds the process working directory to one durable session. Every
+`Message` and `Stream` call uses that session, including after a restart with
+the same state directory and working directory.
+
+When `Message` or `Stream` reaches a local active turn,
 `MessageResult.Queued` is true and `Message` is empty. The existing turn owns
-the eventual provider response. Queued input cannot override workspace or
+the eventual provider response. Queued input cannot override model or
 system-prompt settings, and it is not replayed automatically after a restart.
 
 ## Embedding example
@@ -25,7 +29,7 @@ import (
 )
 
 func main() {
-	driver, err := openai.NewDriver(openai.WithAPIKey("sk-..."))
+	driver, err := openai.NewDriver(openai.WithAPIKey("your-token-here"))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -59,11 +63,9 @@ func main() {
 
 	fmt.Println(result.Message)
 
-	// Resume the same session and stream the next turn's events as they
-	// happen.
+	// Stream the next turn from the same startup workspace session.
 	_, err = runtime.Stream(ctx, peen.MessageRequest{
-		Message:   "now summarize what you found",
-		SessionID: result.SessionID,
+		Message: "now summarize what you found",
 	}, func(event peen.Event) error {
 		fmt.Printf("%s: %s\n", event.Type, event.Payload)
 

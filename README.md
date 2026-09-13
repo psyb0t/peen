@@ -76,41 +76,47 @@ docker run --rm \
   -p 8080:8080 \
   -v "$(pwd)/data/peen:/data/peen" \
   -v "$(pwd)/workspace:/workspace" \
+  -w /workspace \
   peen run
 ```
 
 `./data/peen` holds the database, logs, and harness configuration.
-`./workspace` is the default directory the agent sees. Both survive a
-container restart.
+`./workspace` is the process working directory and the agent's immutable
+workspace. Peen opens one durable session for its canonical path, then resumes
+that session when it restarts with the same state directory and working
+directory. Both mounts survive a container restart.
 
 ## Send it a task
 
 With the default empty `PEEN_API_TOKEN`, open a browser console and paste this:
 
 ```js
-const sessionId = crypto.randomUUID();
 const socket = new WebSocket("ws://localhost:8080/v1/ws");
+let sessionId;
 
-socket.addEventListener("message", ({ data }) => console.log(JSON.parse(data)));
+socket.addEventListener("message", ({ data }) => {
+  const event = JSON.parse(data);
+  sessionId = event.metadata?.sessionId ?? sessionId;
+  console.log(event);
+});
 socket.addEventListener("open", () => {
   socket.send(JSON.stringify({
     id: crypto.randomUUID(),
     type: "message.send",
     data: { message: "Read the project, then tell me what you would fix first." },
     timestamp: Math.floor(Date.now() / 1000),
-    metadata: { sessionId },
     triggeredBy: null,
   }));
 });
 ```
 
-The generated `sessionId` is the conversation ID. Save it. Native agent events
-arrive while it works, then `message.completed` says that submission is done.
-The socket stays open for the next task.
+The first server frame identifies the process session in `metadata.sessionId`.
+Save it for REST reads and controls. Native agent events arrive while it works,
+then `message.completed` says that submission is done. The socket stays open
+for the next task, which implicitly continues the same workspace session.
 
-Use the same session ID in another `message.send` to continue that
-conversation. Use a new UUID when you want a clean one. A client renders a
-conversation tab by filtering received events on `metadata.sessionId`. Add
+Every connected client receives every session's live events. A client renders
+tabs by filtering received events on `metadata.sessionId`. Add
 `?sessionId=<uuid>` to its WebSocket URL only when it deliberately wants the
 server to send one session's events. The full protocol, including browser
 authentication, failed turns, queued messages, and event fields, lives in [the
@@ -216,7 +222,7 @@ can reach.
 
 `remove_path` has exactly one built-in restriction, and it is a guard against
 a catastrophic typo, not a permission system: it refuses to remove the
-filesystem root or the current message's workspace directory itself. Every
+filesystem root or the startup workspace directory itself. Every
 other path, including everything named above, is removable.
 
 Run Peen as a non-root user, in a container, with only the mounts, network

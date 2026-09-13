@@ -29,10 +29,10 @@ type API interface {
 
 // MessageAPI runs turns and reads the durable transcript.
 type MessageAPI interface {
+	SessionID() uuid.UUID
 	RunMessage(
 		ctx context.Context,
 		request MessageRequest,
-		sessionID *uuid.UUID,
 		requestID uuid.UUID,
 		sink EventSink,
 	) (*MessageRunResult, error)
@@ -164,11 +164,10 @@ type RunAPI interface {
 func (r *Runtime) RunMessage(
 	ctx context.Context,
 	request MessageRequest,
-	sessionID *uuid.UUID,
 	requestID uuid.UUID,
 	sink EventSink,
 ) (*MessageRunResult, error) {
-	input, err := messageRequestToTurnRequest(request, sessionID, requestID)
+	input, err := messageRequestToTurnRequest(request, requestID)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "convert message request")
 	}
@@ -185,6 +184,12 @@ func (r *Runtime) RunMessage(
 		Queued:    result.Queued,
 		Text:      result.Text,
 	}, nil
+}
+
+// SessionID returns the durable session assigned to this runtime's startup
+// workspace.
+func (r *Runtime) SessionID() uuid.UUID {
+	return r.sessionID
 }
 
 // Session reads one durable session and its current in-process turn state.
@@ -240,7 +245,6 @@ func (r *Runtime) CancelSession(
 
 func messageRequestToTurnRequest(
 	request MessageRequest,
-	sessionID *uuid.UUID,
 	requestID uuid.UUID,
 ) (TurnRequest, error) {
 	if err := validateMessageRequest(request); err != nil {
@@ -251,8 +255,6 @@ func messageRequestToTurnRequest(
 		Message:       request.Message,
 		Model:         optionalString(request.Model),
 		RequestID:     requestID,
-		SessionID:     sessionID,
-		Workspace:     optionalString(request.Workspace),
 		SourceEventID: request.SourceEventID,
 	}
 	if request.SystemPrompt != nil {
@@ -278,13 +280,6 @@ func messageRequestToTurnRequest(
 func validateMessageRequest(request MessageRequest) error {
 	if strings.TrimSpace(request.Message) == "" {
 		return ctxerrors.Wrap(commerr.ErrValidationFailed, "message")
-	}
-
-	if err := validateOptionalRequestValue(
-		request.Workspace,
-		"workspace",
-	); err != nil {
-		return err
 	}
 
 	if err := validateOptionalRequestValue(request.Model, "model"); err != nil {

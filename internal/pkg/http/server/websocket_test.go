@@ -51,7 +51,6 @@ func TestWebSocketBroadcastsSessionEventsToGlobalClients(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, second.Close()) })
 
 	inbound := newWebSocketMessage(
-		sessionID,
 		agent.MessageRequest{Message: testWebSocketAgentMessage},
 	)
 	require.NoError(t, first.WriteJSON(inbound))
@@ -83,7 +82,6 @@ func TestWebSocketFiltersOutboundEventsBySession(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, nonMatching.Close()) })
 
 	inbound := newWebSocketMessage(
-		sessionID,
 		agent.MessageRequest{Message: testWebSocketAgentMessage},
 	)
 	require.NoError(t, global.WriteJSON(inbound))
@@ -106,7 +104,6 @@ func TestWebSocketRejectsUnknownMessageFields(t *testing.T) {
 	connection := dialWebSocket(t, httpServer.URL, nil)
 	t.Cleanup(func() { require.NoError(t, connection.Close()) })
 	inbound := newWebSocketMessage(
-		sessionID,
 		json.RawMessage(`{"message":"hello","unexpected":true}`),
 	)
 	require.NoError(t, connection.WriteJSON(inbound))
@@ -122,8 +119,9 @@ func TestWebSocketRejectsUnknownMessageFields(t *testing.T) {
 	assert.Zero(t, runtime.runCalls)
 }
 
-func TestWebSocketRejectsMissingSessionIDPrivately(t *testing.T) {
-	instance, err := New(Dependencies{Runtime: newTestRuntime(uuid.New())})
+func TestWebSocketRejectsClientSessionSelectionPrivately(t *testing.T) {
+	sessionID := uuid.New()
+	instance, err := New(Dependencies{Runtime: newTestRuntime(sessionID)})
 	require.NoError(t, err)
 	t.Cleanup(instance.webSocketHub.Close)
 
@@ -137,12 +135,12 @@ func TestWebSocketRejectsMissingSessionIDPrivately(t *testing.T) {
 	inbound := dabluveees.NewEvent(
 		webSocketMessageSendEventType,
 		agent.MessageRequest{Message: testWebSocketAgentMessage},
-	)
+	).SetMetadata(webSocketMetadataSessionID, uuid.New().String())
 	require.NoError(t, sender.WriteJSON(inbound))
 
 	received := readWebSocketEvent(t, sender)
 	assert.Equal(t, webSocketMessageFailedEventType, string(received.Type))
-	assertWebSocketFailureMetadata(t, received, inbound.ID)
+	assertWebSocketMetadata(t, received, sessionID, inbound.ID)
 	assertNoWebSocketEvent(t, observer)
 }
 
@@ -240,13 +238,12 @@ func dialWebSocket(
 }
 
 func newWebSocketMessage(
-	sessionID uuid.UUID,
 	data any,
 ) dabluveees.Event {
-	return dabluveees.NewEvent(
+	return *dabluveees.NewEvent(
 		webSocketMessageSendEventType,
 		data,
-	).SetMetadata(webSocketMetadataSessionID, sessionID.String())
+	)
 }
 
 func assertWebSocketAgentEvent(
@@ -289,23 +286,6 @@ func assertWebSocketMetadata(
 	t.Helper()
 	require.NotNil(t, event.Metadata)
 	assert.Equal(t, sessionID.String(), webSocketMetadataString(t, event, webSocketMetadataSessionID))
-	requestID := webSocketMetadataString(t, event, webSocketMetadataRequestID)
-	parsedRequestID, err := uuid.Parse(requestID)
-	require.NoError(t, err)
-	assert.NotEqual(t, uuid.Nil, parsedRequestID)
-	require.NotNil(t, event.TriggeredBy)
-	assert.Equal(t, triggeringEventID, *event.TriggeredBy)
-}
-
-func assertWebSocketFailureMetadata(
-	t *testing.T,
-	event dabluveees.Event,
-	triggeringEventID uuid.UUID,
-) {
-	t.Helper()
-	require.NotNil(t, event.Metadata)
-	_, hasSessionID := event.Metadata.Get(webSocketMetadataSessionID)
-	assert.False(t, hasSessionID)
 	requestID := webSocketMetadataString(t, event, webSocketMetadataRequestID)
 	parsedRequestID, err := uuid.Parse(requestID)
 	require.NoError(t, err)

@@ -141,11 +141,6 @@ func (r *Runtime) appendPreUserHookContext(
 		return "", ctxerrors.Wrap(err, "create pre-user-message hook runner")
 	}
 
-	sessionID := uuid.Nil
-	if input.SessionID != nil {
-		sessionID = *input.SessionID
-	}
-
 	payload, err := json.Marshal(userMessageHookInput(input, workspace))
 	if err != nil {
 		return "", ctxerrors.Wrap(err, "encode pre-user-message hook input")
@@ -153,7 +148,7 @@ func (r *Runtime) appendPreUserHookContext(
 
 	outcome, err := runner.Run(ctx, hooks.Invocation{
 		Event:     harness.HookEventPreUserMessage,
-		SessionID: sessionID,
+		SessionID: r.sessionID,
 		RequestID: input.RequestID,
 		Workspace: workspace,
 		Input:     payload,

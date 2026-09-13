@@ -48,7 +48,6 @@ const (
 	apiTestActiveTurnMessage    = "hold this active turn"
 	apiTestQueuedMessage        = "queue this message for the active turn"
 	apiTestQueuedPageLimit      = 4
-	apiTestQueuedPageOffset     = 2
 )
 
 var integrationInfra *testinfra.Infra
@@ -91,15 +90,22 @@ func TestAPIMessageSessionAndPagination(t *testing.T) {
 		"second request",
 		"third request",
 	}
-	sessionID := uuid.New()
+	var sessionID uuid.UUID
 
 	for _, message := range requestMessages {
-		result := sendAPIWebSocketMessage(t, sessionID, message)
+		result := sendAPIWebSocketMessage(t, message)
 		assert.False(t, result.result.Queued)
+		if sessionID == uuid.Nil {
+			sessionID = result.sessionID
+			continue
+		}
+		assert.Equal(t, sessionID, result.sessionID)
 	}
-	allMessages := listMessages(t, sessionID, 10, 0, "asc")
-	expectedContents := apiMessageContents(allMessages.Items)
-	require.Len(t, expectedContents, len(requestMessages)*2)
+	allMessages := collectAllMessages(t, sessionID)
+	require.GreaterOrEqual(t, len(allMessages), len(requestMessages)*2)
+	startOffset := len(allMessages) - len(requestMessages)*2
+	newMessages := allMessages[startOffset:]
+	expectedContents := apiMessageContents(newMessages)
 	for index, message := range requestMessages {
 		assert.Equal(t, message, expectedContents[index*2])
 		assert.NotEmpty(t, expectedContents[index*2+1])
@@ -107,8 +113,8 @@ func TestAPIMessageSessionAndPagination(t *testing.T) {
 
 	session := getSession(t, sessionID)
 	assert.Equal(t, sessionID, session.Id)
-	assert.Equal(t, int64(len(expectedContents)), session.MessageCount)
-	assert.Equal(t, int64(len(requestMessages)), session.CompletedTurnCount)
+	assert.GreaterOrEqual(t, session.MessageCount, int64(len(expectedContents)))
+	assert.GreaterOrEqual(t, session.CompletedTurnCount, int64(len(requestMessages)))
 	assert.False(t, session.ActiveTurn)
 	assert.NotNil(t, session.LastMessageAt)
 	assert.False(t, session.CreatedAt.IsZero())
@@ -154,10 +160,10 @@ func TestAPIMessageSessionAndPagination(t *testing.T) {
 
 	for _, tc := range pageTestCases {
 		t.Run(tc.name, func(t *testing.T) {
-			page := listMessages(t, sessionID, 2, tc.offset, "asc")
+			page := listMessages(t, sessionID, 2, startOffset+tc.offset, "asc")
 
 			assert.Equal(t, int32(2), page.Limit)
-			assert.Equal(t, int32(tc.offset), page.Offset)
+			assert.Equal(t, int32(startOffset+tc.offset), page.Offset)
 			assert.Equal(t, tc.hasMore, page.HasMore)
 			assert.Equal(t, tc.want, apiMessageContents(page.Items))
 		})
@@ -171,8 +177,8 @@ func TestAPIMessageSessionAndPagination(t *testing.T) {
 }
 
 func TestAPIWebSocketStreamsAndPersistsTurn(t *testing.T) {
-	sessionID := uuid.New()
-	observation := sendAPIWebSocketMessage(t, sessionID, "stream this request")
+	observation := sendAPIWebSocketMessage(t, "stream this request")
+	sessionID := observation.sessionID
 	assert.Contains(
 		t,
 		observation.agentEventTypes,
@@ -189,20 +195,21 @@ func TestAPIWebSocketStreamsAndPersistsTurn(t *testing.T) {
 		apiTestWebSocketTurnCompleted,
 	)
 
-	page := listMessages(t, sessionID, 10, 0, "asc")
-	require.Len(t, page.Items, 2)
-	assert.Equal(t, "stream this request", page.Items[0].Content)
-	assert.NotEmpty(t, page.Items[1].Content)
-	require.NotNil(t, page.Items[1].Thinking)
-	assert.Equal(t, testinfra.DefaultProviderReasoning, *page.Items[1].Thinking)
+	messages := collectAllMessages(t, sessionID)
+	require.GreaterOrEqual(t, len(messages), 2)
+	lastTurn := messages[len(messages)-2:]
+	assert.Equal(t, "stream this request", lastTurn[0].Content)
+	assert.NotEmpty(t, lastTurn[1].Content)
+	require.NotNil(t, lastTurn[1].Thinking)
+	assert.Equal(t, testinfra.DefaultProviderReasoning, *lastTurn[1].Thinking)
 }
 
 func TestAPIReplaysDurableModelAudit(t *testing.T) {
-	sessionID := uuid.New()
-	_ = sendAPIWebSocketMessage(t, sessionID, "record the provider exchange")
+	observation := sendAPIWebSocketMessage(t, "record the provider exchange")
+	sessionID := observation.sessionID
 
 	runs := listModelRuns(t, sessionID, 10, 0)
-	require.Len(t, runs.ModelRuns, 1)
+	require.NotEmpty(t, runs.ModelRuns)
 	run := runs.ModelRuns[0]
 	assert.Equal(t, sessionID, run.SessionId)
 	assert.Equal(t, api.ModelRunStageTurn, run.Stage)
@@ -252,8 +259,8 @@ func TestProductionImageRestartsWithDurableStateAndFreshHarness(t *testing.T) {
 		[]byte(apiTestInitialRules),
 	))
 
-	sessionID := uuid.New()
-	_ = sendAPIWebSocketMessage(t, sessionID, apiTestRestartMessage)
+	observation := sendAPIWebSocketMessage(t, apiTestRestartMessage)
+	sessionID := observation.sessionID
 
 	restartContext, cancelRestart := context.WithTimeout(
 		t.Context(),
@@ -262,16 +269,15 @@ func TestProductionImageRestartsWithDurableStateAndFreshHarness(t *testing.T) {
 	t.Cleanup(cancelRestart)
 	require.NoError(t, integrationInfra.Restart(restartContext))
 
-	page := listMessages(t, sessionID, 10, 0, "asc")
-	require.Len(t, page.Items, 2)
-	assert.Equal(t, apiTestRestartMessage, page.Items[0].Content)
+	messages := collectAllMessages(t, sessionID)
+	assert.Contains(t, apiMessageContents(messages), apiTestRestartMessage)
 
 	require.NoError(t, integrationInfra.WriteWorkspaceFile(
 		t.Context(),
 		apiTestWorkspaceRulesFile,
 		[]byte(apiTestUpdatedRules),
 	))
-	_ = sendAPIWebSocketMessage(t, sessionID, apiTestReloadMessage)
+	_ = sendAPIWebSocketMessage(t, apiTestReloadMessage)
 	assert.Contains(t, integrationInfra.LastSystemPrompt(), apiTestUpdatedRules)
 }
 
@@ -286,7 +292,6 @@ func TestAPICancelsActiveTurn(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, connection.Close()) })
 	require.NoError(t, writeAPIWebSocketMessage(
 		connection,
-		sessionID,
 		"block this request",
 	))
 
@@ -330,7 +335,6 @@ func TestAPIQueuesMessageForActiveTurn(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, connection.Close()) })
 	require.NoError(t, writeAPIWebSocketMessage(
 		connection,
-		sessionID,
 		apiTestActiveTurnMessage,
 	))
 
@@ -348,7 +352,6 @@ func TestAPIQueuesMessageForActiveTurn(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, queuedConnection.Close()) })
 	require.NoError(t, writeAPIWebSocketMessage(
 		queuedConnection,
-		sessionID,
 		apiTestQueuedMessage,
 	))
 
@@ -364,18 +367,13 @@ func TestAPIQueuesMessageForActiveTurn(t *testing.T) {
 	assert.Equal(t, activeCompleted.result, queuedCompleted.result)
 	assert.False(t, activeCompleted.result.Queued)
 
-	page := listMessages(
-		t,
-		sessionID,
-		apiTestQueuedPageLimit,
-		apiTestQueuedPageOffset,
-		"asc",
-	)
-	require.Len(t, page.Items, apiTestQueuedPageLimit)
-	assert.Equal(t, apiTestActiveTurnMessage, page.Items[0].Content)
-	assert.Equal(t, apiTestQueuedMessage, page.Items[2].Content)
-	assert.Equal(t, api.MessageRoleAssistant, page.Items[1].Role)
-	assert.Equal(t, api.MessageRoleAssistant, page.Items[3].Role)
+	messages := collectAllMessages(t, sessionID)
+	require.GreaterOrEqual(t, len(messages), apiTestQueuedPageLimit)
+	lastTurn := messages[len(messages)-apiTestQueuedPageLimit:]
+	assert.Equal(t, apiTestActiveTurnMessage, lastTurn[0].Content)
+	assert.Equal(t, apiTestQueuedMessage, lastTurn[2].Content)
+	assert.Equal(t, api.MessageRoleAssistant, lastTurn[1].Role)
+	assert.Equal(t, api.MessageRoleAssistant, lastTurn[3].Role)
 }
 
 func TestAPIDoesNotSubmitMessagesOverHTTP(t *testing.T) {

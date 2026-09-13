@@ -209,7 +209,6 @@ func runAuthenticatedFormScenario(t *testing.T, binary string) {
 		t,
 		process.baseURL,
 		executionFormsAPIToken,
-		uuid.Nil,
 		executionFormsJSONToolMessage,
 	)
 	provider.DisableScriptedToolTurn()
@@ -221,7 +220,6 @@ func runAuthenticatedFormScenario(t *testing.T, binary string) {
 		t,
 		process.baseURL,
 		executionFormsAPIToken,
-		uuid.Nil,
 		executionFormsPatchToolMessage,
 	)
 	provider.DisableScriptedToolTurn()
@@ -249,7 +247,6 @@ func runAuthenticatedFormScenario(t *testing.T, binary string) {
 		t,
 		process.baseURL,
 		executionFormsAPIToken,
-		jsonSessionID,
 		executionFormsReloadMessage,
 	)
 	assert.Contains(t, provider.LastSystemPrompt(), executionFormsUpdatedRules)
@@ -277,13 +274,13 @@ func runUnauthenticatedFormScenario(t *testing.T, binary string) {
 		t,
 		process.baseURL,
 		"",
-		uuid.Nil,
 		executionFormsUnauthMessage,
 	)
 }
 
 func jsonToolTurn() testinfra.ScriptedToolTurn {
 	return testinfra.ScriptedToolTurn{
+		UserMessage: executionFormsJSONToolMessage,
 		ReadFileArguments: map[string]any{
 			executionFormsToolPathKey: executionFormsJSONFixtureFile,
 		},
@@ -304,6 +301,7 @@ func jsonToolTurn() testinfra.ScriptedToolTurn {
 
 func patchToolTurn() testinfra.ScriptedToolTurn {
 	return testinfra.ScriptedToolTurn{
+		UserMessage: executionFormsPatchToolMessage,
 		ReadFileArguments: map[string]any{
 			executionFormsToolPathKey: executionFormsPatchFixtureFile,
 		},
@@ -372,6 +370,7 @@ func startPeen(t *testing.T, config processConfig) *runningPeen {
 		done:       make(chan error, 1),
 	}
 	process.command = exec.Command(config.binary, executionFormsRunCommand)
+	process.command.Dir = config.workspace
 	process.command.Env = peenEnvironment(config, string(upstreams))
 	process.command.Stdout = &process.output
 	process.command.Stderr = &process.output
@@ -398,7 +397,6 @@ func peenEnvironment(config processConfig, upstreams string) []string {
 
 	environment = append(environment,
 		"PEEN_CONFIG_DIR="+config.configDirectory,
-		"PEEN_WORKING_DIR="+config.workspace,
 		"PEEN_AGENT="+executionFormsAgentName,
 		"PEEN_HTTP_LISTEN_ADDRESS="+config.apiAddress,
 		"PEEN_METRICS_LISTEN_ADDRESS="+config.metricsAddress,
@@ -475,14 +473,10 @@ func sendWebSocketTurn(
 	t *testing.T,
 	baseURL string,
 	token string,
-	sessionID uuid.UUID,
 	message string,
 ) uuid.UUID {
 	t.Helper()
 
-	if sessionID == uuid.Nil {
-		sessionID = uuid.New()
-	}
 	dialer := websocket.Dialer{
 		HandshakeTimeout: executionFormsStartupTimeout,
 		Subprotocols: []string{
@@ -504,7 +498,7 @@ func sendWebSocketTurn(
 	messageEvent := dabluveees.NewEvent(
 		executionFormsWebSocketMessageSend,
 		map[string]string{executionFormsMessageKey: message},
-	).SetMetadata(executionFormsWebSocketMetadataSessionID, sessionID.String())
+	)
 	require.NoError(t, connection.WriteJSON(messageEvent))
 
 	deadline := time.Now().Add(executionFormsStartupTimeout)
@@ -514,6 +508,16 @@ func sendWebSocketTurn(
 		require.NoError(t, connection.ReadJSON(&event))
 		switch event.Type {
 		case executionFormsWebSocketCompleted:
+			require.NotNil(t, event.Metadata)
+			sessionValue, found := event.Metadata.Get(
+				executionFormsWebSocketMetadataSessionID,
+			)
+			require.True(t, found)
+			sessionText, ok := sessionValue.(string)
+			require.True(t, ok)
+			sessionID, parseErr := uuid.Parse(sessionText)
+			require.NoError(t, parseErr)
+
 			return sessionID
 		case executionFormsWebSocketFailed:
 			t.Fatalf("WebSocket message failed: %s", event.Data)

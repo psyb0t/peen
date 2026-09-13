@@ -46,9 +46,9 @@ func New(options Options) (*Runtime, error) {
 
 	options = options.withDefaults()
 
-	workspace, err := resolveDefaultWorkspace(options.DefaultWorkspace)
+	workspace, err := resolveStartupWorkspace()
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "resolve default workspace")
+		return nil, ctxerrors.Wrap(err, "resolve startup workspace")
 	}
 
 	configDirectory, err := filepath.Abs(options.ConfigDirectory)
@@ -135,13 +135,9 @@ func runtimeOptions(
 	}
 }
 
-// resolveDefaultWorkspace captures the caller's current working directory
-// when none was supplied.
-func resolveDefaultWorkspace(workspace string) (string, error) {
-	if workspace != "" {
-		return workspace, nil
-	}
-
+// resolveStartupWorkspace captures the process working directory once while
+// the embedded runtime starts.
+func resolveStartupWorkspace() (string, error) {
 	current, err := os.Getwd()
 	if err != nil {
 		return "", ctxerrors.Wrap(err, "get current working directory")
@@ -155,10 +151,7 @@ func (r *Runtime) Message(
 	ctx context.Context,
 	request MessageRequest,
 ) (MessageResult, error) {
-	input, err := toTurnRequest(request)
-	if err != nil {
-		return MessageResult{}, ctxerrors.Wrap(err, "convert message request")
-	}
+	input := toTurnRequest(request)
 
 	result, err := r.internal.Run(ctx, input)
 	if err != nil {
@@ -180,10 +173,7 @@ func (r *Runtime) Stream(
 	request MessageRequest,
 	sink EventSink,
 ) (MessageResult, error) {
-	input, err := toTurnRequest(request)
-	if err != nil {
-		return MessageResult{}, ctxerrors.Wrap(err, "convert message request")
-	}
+	input := toTurnRequest(request)
 
 	if sink != nil {
 		input.OnEvent = func(event agent.Event) error {

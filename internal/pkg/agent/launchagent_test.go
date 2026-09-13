@@ -91,7 +91,7 @@ func newLaunchAgentFixture(
 
 	eventBus := events.NewBus(events.Options{})
 
-	runtime, err := NewRuntime(RuntimeOptions{
+	runtime, err := NewRuntime(context.Background(), RuntimeOptions{
 		Store:            store,
 		Resolver:         resolver,
 		Models:           registry,
@@ -683,9 +683,9 @@ func TestLaunchAgentChildToolFailureStaysVisibleAndRunCompletes(t *testing.T) {
 	)
 }
 
-// A run ID that belongs to a different session must be reported as not
-// found, never leaked across sessions.
-func TestLaunchAgentCrossSessionRunIDNotFound(t *testing.T) {
+// A caller cannot switch the startup workspace session by supplying a session
+// ID. Child runs remain available to every later turn in that workspace.
+func TestLaunchAgentRunRemainsInStartupWorkspaceSession(t *testing.T) {
 	driver := elelemtest.NewScriptedDriver(
 		elelemtest.ToolCall(
 			launchAgentCallID,
@@ -716,22 +716,25 @@ func TestLaunchAgentCrossSessionRunIDNotFound(t *testing.T) {
 	runs := registryA.List()
 	require.Len(t, runs, 1)
 
+	requestedSessionID := uuid.New()
 	second, err := fixture.runtime.Run(context.Background(), TurnRequest{
+		SessionID: &requestedSessionID,
 		Message:   "an unrelated session",
 		Workspace: fixture.workspace,
 	})
 	require.NoError(t, err)
-	require.NotEqual(t, first.SessionID, second.SessionID)
+	require.Equal(t, first.SessionID, second.SessionID)
 
 	registryB, err := fixture.runtime.sessionAgentRuns(second.SessionID)
 	require.NoError(t, err)
 
-	_, found := registryB.Get(runs[0].ID)
-	assert.False(
+	got, found := registryB.Get(runs[0].ID)
+	assert.True(
 		t,
 		found,
-		"a run id from another session must be reported as not found",
+		"a child run from the startup workspace must remain visible",
 	)
+	assert.Equal(t, runs[0].ID, got.ID)
 }
 
 // finishAgentRun's own decision logic, exercised directly: a single run's

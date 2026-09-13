@@ -15,7 +15,6 @@ import (
 
 func TestMessageRequestToTurnRequest(t *testing.T) {
 	requestID := uuid.New()
-	sessionID := uuid.New()
 
 	testCases := []struct {
 		name    string
@@ -29,15 +28,13 @@ func TestMessageRequestToTurnRequest(t *testing.T) {
 			want: TurnRequest{
 				Message:   "inspect",
 				RequestID: requestID,
-				SessionID: &sessionID,
 			},
 		},
 		{
 			name: "request with explicit settings",
 			request: MessageRequest{
-				Message:   "inspect",
-				Workspace: new("/workspace"),
-				Model:     new("provider/model"),
+				Message: "inspect",
+				Model:   new("provider/model"),
 				SystemPrompt: &MessageSystemPrompt{
 					Mode:    PromptModeAppend,
 					Content: "extra rules",
@@ -45,25 +42,15 @@ func TestMessageRequestToTurnRequest(t *testing.T) {
 			},
 			want: TurnRequest{
 				Message:          "inspect",
-				Workspace:        "/workspace",
 				Model:            "provider/model",
 				SystemPrompt:     "extra rules",
 				SystemPromptMode: PromptModeAppend,
 				RequestID:        requestID,
-				SessionID:        &sessionID,
 			},
 		},
 		{
 			name:    "blank message",
 			request: MessageRequest{Message: " \t"},
-			wantErr: commerr.ErrValidationFailed,
-		},
-		{
-			name: "blank explicit workspace",
-			request: MessageRequest{
-				Message:   "inspect",
-				Workspace: new(" \n"),
-			},
 			wantErr: commerr.ErrValidationFailed,
 		},
 		{
@@ -102,7 +89,6 @@ func TestMessageRequestToTurnRequest(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := messageRequestToTurnRequest(
 				tc.request,
-				&sessionID,
 				requestID,
 			)
 			if tc.wantErr != nil {
@@ -127,7 +113,6 @@ func TestRuntimeRunsAndListsMessages(t *testing.T) {
 	first, err := fixture.runtime.RunMessage(
 		context.Background(),
 		MessageRequest{Message: "first request"},
-		nil,
 		uuid.New(),
 		nil,
 	)
@@ -137,7 +122,6 @@ func TestRuntimeRunsAndListsMessages(t *testing.T) {
 	second, err := fixture.runtime.RunMessage(
 		context.Background(),
 		MessageRequest{Message: "second request"},
-		&first.SessionID,
 		uuid.New(),
 		nil,
 	)
@@ -177,7 +161,6 @@ func TestRuntimeReadsDirectCompactionLinksAndParents(t *testing.T) {
 	first, err := fixture.runtime.RunMessage(
 		context.Background(),
 		MessageRequest{Message: "first request"},
-		nil,
 		uuid.New(),
 		nil,
 	)
@@ -185,7 +168,6 @@ func TestRuntimeReadsDirectCompactionLinksAndParents(t *testing.T) {
 	_, err = fixture.runtime.RunMessage(
 		context.Background(),
 		MessageRequest{Message: "second request"},
-		&first.SessionID,
 		uuid.New(),
 		nil,
 	)

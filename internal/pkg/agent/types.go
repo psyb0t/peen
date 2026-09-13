@@ -93,7 +93,7 @@ const (
 
 	// workspaceMetadataLead introduces the JSON-encoded workspace path that
 	// every relative tool path resolves from.
-	workspaceMetadataLead = "Current message workspace, the directory " +
+	workspaceMetadataLead = "Current startup workspace, the directory " +
 		"relative tool paths resolve from: "
 
 	defaultMaxSystemPromptBytes  = 65536
@@ -141,7 +141,6 @@ type MessageRequest struct {
 	Message       string               `json:"message"`
 	Model         *string              `json:"model,omitempty"`
 	SystemPrompt  *MessageSystemPrompt `json:"systemPrompt,omitempty"`
-	Workspace     *string              `json:"workspace,omitempty"`
 	SourceEventID uuid.UUID            `json:"-"`
 }
 

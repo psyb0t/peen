@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -9,7 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const testQualifiedModel = "aigate/gateway-model"
+const (
+	testQualifiedModel = "aigate/gateway-model"
+	testDirectoryMode  = 0o700
+)
 
 func TestConfigValidate(t *testing.T) {
 	t.Setenv("PEEN_TEST_MISSING_KEY", "")
@@ -112,8 +116,11 @@ func TestConfigValidate(t *testing.T) {
 func TestParseUsesFixedEnvironmentBindings(t *testing.T) {
 	configDirectory := filepath.Join(t.TempDir(), "config")
 	workingDirectory := filepath.Join(t.TempDir(), "workspace")
+	ignoredWorkingDirectory := filepath.Join(t.TempDir(), "ignored-workspace")
+	require.NoError(t, os.Mkdir(workingDirectory, testDirectoryMode))
+	t.Chdir(workingDirectory)
 	t.Setenv("PEEN_CONFIG_DIR", configDirectory)
-	t.Setenv("PEEN_WORKING_DIR", workingDirectory)
+	t.Setenv("PEEN_WORKING_DIR", ignoredWorkingDirectory)
 	t.Setenv("PEEN_AGENT", "coding")
 	t.Setenv("PEEN_UPSTREAMS", `[{"name":"aigate","provider":"openai"}]`)
 	t.Setenv("PEEN_DEFAULT_MODEL", testQualifiedModel)
@@ -167,7 +174,6 @@ func TestParseDefaultsWorkingDirectoryToProcessDirectory(t *testing.T) {
 	workingDirectory := t.TempDir()
 	t.Chdir(workingDirectory)
 	t.Setenv("PEEN_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
-	t.Setenv("PEEN_WORKING_DIR", "")
 	t.Setenv("PEEN_UPSTREAMS", `[{"name":"aigate","provider":"openai"}]`)
 	t.Setenv("PEEN_DEFAULT_MODEL", testQualifiedModel)
 

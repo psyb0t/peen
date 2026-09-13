@@ -136,8 +136,7 @@ type realHarnessPromptRecord struct {
 }
 
 type realHarnessWebSocketMessage struct {
-	Message   string `json:"message"`
-	Workspace string `json:"workspace"`
+	Message string `json:"message"`
 }
 
 type realHarnessWebSocketMessageResult struct {
@@ -189,7 +188,7 @@ func TestRealHarnessExecutesTheFullCodingLifecycle(t *testing.T) {
 	process := startRealHarnessPeen(t, binary, fixture, string(encodedUpstreams), configured.DefaultModel)
 	t.Cleanup(func() { process.stop(t) })
 
-	sessionID := sendRealHarnessMessage(t, process, fixture.service)
+	sessionID := sendRealHarnessMessage(t, process)
 	messages := listRealHarnessMessages(t, process.baseURL, process.apiToken, sessionID)
 	t.Logf("real harness tool calls: %v", realHarnessToolCallNames(messages))
 	assertRealHarnessTranscriptMessages(t, messages)
@@ -521,6 +520,7 @@ func startRealHarnessPeen(
 		done:     make(chan error, 1),
 	}
 	process.command = exec.Command(binary, realHarnessRunCommand)
+	process.command.Dir = fixture.workspace
 	process.command.Env = realHarnessEnvironment(
 		fixture,
 		apiAddress,
@@ -556,7 +556,6 @@ func realHarnessEnvironment(
 
 	for name, value := range map[string]string{
 		"PEEN_CONFIG_DIR":             fixture.configDirectory,
-		"PEEN_WORKING_DIR":            fixture.workspace,
 		"PEEN_AGENT":                  realHarnessRootAgent,
 		"PEEN_HTTP_LISTEN_ADDRESS":    apiAddress,
 		"PEEN_METRICS_LISTEN_ADDRESS": metricsAddress,
@@ -650,29 +649,24 @@ func reserveRealHarnessAddress(t *testing.T) string {
 func sendRealHarnessMessage(
 	t *testing.T,
 	process *runningRealHarnessPeen,
-	workspace string,
 ) uuid.UUID {
 	t.Helper()
 
-	sessionID := uuid.New()
-	connection := dialRealHarnessWebSocket(t, process, sessionID)
+	connection := dialRealHarnessWebSocket(t, process)
 	t.Cleanup(func() { require.NoError(t, connection.Close()) })
 	require.NoError(t, connection.WriteJSON(dabluveees.NewEvent(
 		realHarnessMessageSendEvent,
 		realHarnessWebSocketMessage{
-			Message:   realHarnessTaskMessage,
-			Workspace: workspace,
+			Message: realHarnessTaskMessage,
 		},
 	)))
-	awaitRealHarnessWebSocketCompletion(t, process, connection)
 
-	return sessionID
+	return awaitRealHarnessWebSocketCompletion(t, process, connection)
 }
 
 func dialRealHarnessWebSocket(
 	t *testing.T,
 	process *runningRealHarnessPeen,
-	sessionID uuid.UUID,
 ) *websocket.Conn {
 	t.Helper()
 
@@ -680,9 +674,6 @@ func dialRealHarnessWebSocket(
 	require.NoError(t, err)
 	endpoint.Scheme = "ws"
 	endpoint.Path = realHarnessWebSocketPath
-	query := endpoint.Query()
-	query.Set(realHarnessWebSocketSessionID, sessionID.String())
-	endpoint.RawQuery = query.Encode()
 
 	dialer := websocket.Dialer{
 		HandshakeTimeout: realHarnessStartupTimeout,
@@ -707,7 +698,7 @@ func awaitRealHarnessWebSocketCompletion(
 	t *testing.T,
 	process *runningRealHarnessPeen,
 	connection *websocket.Conn,
-) {
+) uuid.UUID {
 	t.Helper()
 
 	require.NoError(t, connection.SetReadDeadline(
@@ -727,8 +718,15 @@ func awaitRealHarnessWebSocketCompletion(
 			result := realHarnessWebSocketMessageResult{}
 			require.NoError(t, json.Unmarshal(event.Data, &result))
 			require.False(t, result.Queued)
+			require.NotNil(t, event.Metadata)
+			sessionValue, found := event.Metadata.Get(realHarnessWebSocketSessionID)
+			require.True(t, found)
+			sessionText, ok := sessionValue.(string)
+			require.True(t, ok)
+			sessionID, parseErr := uuid.Parse(sessionText)
+			require.NoError(t, parseErr)
 
-			return
+			return sessionID
 		case realHarnessMessageFailed:
 			require.Failf(
 				t,

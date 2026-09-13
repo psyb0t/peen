@@ -4,6 +4,21 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.7.0 (2026-09-13)
+
+Peen now binds each running process to one durable session for its startup
+workspace. Restarting with the same SQLite state and working directory resumes
+that session.
+
+- Breaking: `PEEN_WORKING_DIR` is removed. Start Peen from the workspace you
+  want it to operate in. Docker runs must use `--workdir /workspace` with the
+  project mounted there.
+- Breaking: WebSocket `message.send` frames no longer accept a client-selected
+  session or workspace. The server reports its startup session ID in event
+  metadata. Use it with the REST read and control endpoints.
+- Sessions now record their canonical workspace path. The REST session payload
+  includes that path so clients can identify the workspace that owns a trace.
+
 ## v0.6.0 (2026-09-13)
 
 Peen now ships a dedicated agent package for configuring and operating Peen.

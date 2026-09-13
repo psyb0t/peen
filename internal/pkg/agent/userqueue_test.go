@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"testing"
 
 	"github.com/google/uuid"
@@ -39,10 +38,9 @@ func TestRuntimeQueuesUserMessageAtActiveTurnRoundBoundary(t *testing.T) {
 	)
 
 	var (
-		sessionID uuid.UUID
-		queued    *TurnResult
-		queueErr  error
-		events    []Event
+		queued   *TurnResult
+		queueErr error
+		events   []Event
 	)
 	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
 		Message:   queuedUserMessageInitial,
@@ -50,25 +48,11 @@ func TestRuntimeQueuesUserMessageAtActiveTurnRoundBoundary(t *testing.T) {
 		OnEvent: func(event Event) error {
 			events = append(events, event)
 
-			switch event.Type {
-			case EventTypeTurnStarted:
-				started := turnStartedPayload{}
-				if err := json.Unmarshal(event.Payload, &started); err != nil {
-					return err
-				}
-
-				parsed, err := uuid.Parse(started.SessionID)
-				if err != nil {
-					return err
-				}
-
-				sessionID = parsed
-			case EventTypeToolUse:
+			if event.Type == EventTypeToolUse {
 				queued, queueErr = fixture.runtime.Run(
 					context.Background(),
 					TurnRequest{
-						SessionID: &sessionID,
-						Message:   queuedUserMessageText,
+						Message: queuedUserMessageText,
 					},
 				)
 			}
@@ -152,32 +136,17 @@ func TestRuntimeRunMessageQueuesActiveTurn(t *testing.T) {
 	fixture := newRuntimeFixture(t, driver)
 
 	var (
-		sessionID uuid.UUID
-		queued    *MessageRunResult
-		queueErr  error
+		queued   *MessageRunResult
+		queueErr error
 	)
 	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
 		Message:   queuedUserMessageInitial,
 		Workspace: fixture.workspace,
 		OnEvent: func(event Event) error {
-			switch event.Type {
-			case EventTypeTurnStarted:
-				started := turnStartedPayload{}
-				if err := json.Unmarshal(event.Payload, &started); err != nil {
-					return err
-				}
-
-				parsed, err := uuid.Parse(started.SessionID)
-				if err != nil {
-					return err
-				}
-
-				sessionID = parsed
-			case EventTypeToolUse:
+			if event.Type == EventTypeToolUse {
 				queued, queueErr = fixture.runtime.RunMessage(
 					context.Background(),
 					MessageRequest{Message: queuedUserMessageText},
-					&sessionID,
 					uuid.New(),
 					nil,
 				)
@@ -214,7 +183,6 @@ func TestRuntimeRejectsFullActiveUserMessageQueue(t *testing.T) {
 	)
 
 	var (
-		sessionID uuid.UUID
 		first     *TurnResult
 		firstErr  error
 		secondErr error
@@ -223,27 +191,14 @@ func TestRuntimeRejectsFullActiveUserMessageQueue(t *testing.T) {
 		Message:   queuedUserMessageInitial,
 		Workspace: fixture.workspace,
 		OnEvent: func(event Event) error {
-			switch event.Type {
-			case EventTypeTurnStarted:
-				started := turnStartedPayload{}
-				if err := json.Unmarshal(event.Payload, &started); err != nil {
-					return err
-				}
-
-				parsed, err := uuid.Parse(started.SessionID)
-				if err != nil {
-					return err
-				}
-
-				sessionID = parsed
-			case EventTypeToolUse:
+			if event.Type == EventTypeToolUse {
 				first, firstErr = fixture.runtime.Run(
 					context.Background(),
-					TurnRequest{SessionID: &sessionID, Message: queuedUserMessageText},
+					TurnRequest{Message: queuedUserMessageText},
 				)
 				_, secondErr = fixture.runtime.Run(
 					context.Background(),
-					TurnRequest{SessionID: &sessionID, Message: "one message too many"},
+					TurnRequest{Message: "one message too many"},
 				)
 			}
 
@@ -264,7 +219,7 @@ func TestRuntimeRejectsFullActiveUserMessageQueue(t *testing.T) {
 	assert.Equal(t, queuedUserMessageText, requests[1].Messages[len(requests[1].Messages)-1].Text())
 }
 
-func TestRuntimeRejectsActiveTurnOverrides(t *testing.T) {
+func TestRuntimeIgnoresActiveTurnWorkspaceOverride(t *testing.T) {
 	fixture := newRuntimeFixture(t, elelemtest.NewScriptedDriver(
 		elelemtest.ToolCall(
 			runtimeToolCallID,
@@ -275,31 +230,17 @@ func TestRuntimeRejectsActiveTurnOverrides(t *testing.T) {
 	))
 
 	var (
-		sessionID uuid.UUID
-		queueErr  error
+		queued   *TurnResult
+		queueErr error
 	)
 	_, err := fixture.runtime.Run(context.Background(), TurnRequest{
 		Message:   queuedUserMessageInitial,
 		Workspace: fixture.workspace,
 		OnEvent: func(event Event) error {
-			switch event.Type {
-			case EventTypeTurnStarted:
-				started := turnStartedPayload{}
-				if err := json.Unmarshal(event.Payload, &started); err != nil {
-					return err
-				}
-
-				parsed, err := uuid.Parse(started.SessionID)
-				if err != nil {
-					return err
-				}
-
-				sessionID = parsed
-			case EventTypeToolUse:
-				_, queueErr = fixture.runtime.Run(
+			if event.Type == EventTypeToolUse {
+				queued, queueErr = fixture.runtime.Run(
 					context.Background(),
 					TurnRequest{
-						SessionID: &sessionID,
 						Message:   queuedUserMessageText,
 						Workspace: fixture.otherWorkspace,
 					},
@@ -310,7 +251,8 @@ func TestRuntimeRejectsActiveTurnOverrides(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.Error(t, queueErr)
-	assert.ErrorIs(t, queueErr, commerr.ErrConflict)
-	assert.False(t, errors.Is(queueErr, elelem.ErrUserMessageQueueFull))
+	require.NoError(t, queueErr)
+	require.NotNil(t, queued)
+	assert.True(t, queued.Queued)
+	assert.Equal(t, fixture.runtime.SessionID(), queued.SessionID)
 }

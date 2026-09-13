@@ -84,10 +84,12 @@ exec /app/app run`
 	// production container for API integration tests.
 	TestAPIToken = "EXAMPLE-DO-NOT-USE"
 
-	// providerRoleSystem, providerRoleAssistant, and providerRoleTool are the
-	// transcript roles the OpenAI wire format uses for fixture messages.
-	// A scripted turn counts tool results to select its current round.
+	// providerRoleSystem, providerRoleUser, providerRoleAssistant, and
+	// providerRoleTool are the transcript roles the OpenAI wire format uses
+	// for fixture messages. A scripted turn counts tool results to select its
+	// current round.
 	providerRoleSystem    = "system"
+	providerRoleUser      = "user"
 	providerRoleAssistant = "assistant"
 	providerRoleTool      = "tool"
 
@@ -120,9 +122,9 @@ exec /app/app run`
 	openAIFieldDelta            = "delta"
 	openAIFieldFinishReason     = "finish_reason"
 
-	// ContainerWorkingDirectory mirrors appWorkingDirectory (PEEN_WORKING_DIR)
-	// so a test can seed and read back fixture files under the container's
-	// default tool workspace without duplicating the path.
+	// ContainerWorkingDirectory is the process working directory used by the
+	// application container, so a test can seed and read back fixture files
+	// under the immutable tool workspace without duplicating the path.
 	ContainerWorkingDirectory = appWorkingDirectory
 
 	// DefaultProviderReasoning is the visible reasoning emitted by ordinary
@@ -242,6 +244,7 @@ func appContainerRequest(
 		},
 		Entrypoint: []string{"/bin/sh", "-ceu", appBootstrapCommand},
 		Env:        environment,
+		WorkingDir: appWorkingDirectory,
 		Files: []testcontainers.ContainerFile{
 			{
 				Reader:            strings.NewReader(appRootInstructions),
@@ -442,8 +445,11 @@ func (i *Infra) ModelDiscoveryObserved() bool {
 }
 
 // ScriptedToolTurn drives read_file, one mutation, run_command, and a final
-// answer. Set exactly one of EditFileArguments and ApplyPatchArguments.
+// answer. UserMessage anchors the sequence in a durable transcript so old
+// tool results from an earlier test turn cannot change its first round. Set
+// exactly one of EditFileArguments and ApplyPatchArguments.
 type ScriptedToolTurn struct {
+	UserMessage         string
 	ReadFileArguments   map[string]any
 	EditFileArguments   map[string]any
 	ApplyPatchArguments map[string]any
@@ -681,19 +687,40 @@ type providerCompletionMessage struct {
 	Content json.RawMessage `json:"content"`
 }
 
-// toolMessageCount reports how many transcript messages already carry a
-// tool role. A scripted turn treats that count as the round number, since
-// each round it drives produces exactly one tool message.
-func (r providerCompletionRequest) toolMessageCount() int {
+// scriptedToolMessageCount returns the number of tool results after the
+// scripted request. Empty userMessage preserves whole-transcript behavior
+// for callers that do not need an anchor.
+func (r providerCompletionRequest) scriptedToolMessageCount(
+	userMessage string,
+) (int, error) {
+	start := 0
+
+	if userMessage != "" {
+		for index, message := range r.Messages {
+			if message.Role != providerRoleUser {
+				continue
+			}
+
+			content := ""
+			if err := json.Unmarshal(message.Content, &content); err != nil {
+				return 0, ctxerrors.Wrap(err, "decode provider user message")
+			}
+
+			if content == userMessage {
+				start = index + 1
+			}
+		}
+	}
+
 	count := 0
 
-	for _, message := range r.Messages {
+	for _, message := range r.Messages[start:] {
 		if message.Role == providerRoleTool {
 			count++
 		}
 	}
 
-	return count
+	return count, nil
 }
 
 func (r providerCompletionRequest) systemPrompt() string {
@@ -799,11 +826,18 @@ func (m *openAIModelsMock) handleCompletion(
 		return
 	}
 
-	m.writeScriptedCompletion(
-		writer,
-		script,
-		completionRequest.toolMessageCount(),
-	)
+	round, err := completionRequest.scriptedToolMessageCount(script.UserMessage)
+	if err != nil {
+		http.Error(
+			writer,
+			"invalid scripted completion history",
+			http.StatusBadRequest,
+		)
+
+		return
+	}
+
+	m.writeScriptedCompletion(writer, script, round)
 }
 
 func (m *openAIModelsMock) recordSystemPrompt(prompt string) {
@@ -1133,7 +1167,6 @@ func appEnvironment(
 
 	return map[string]string{
 		"PEEN_CONFIG_DIR":             appConfigDirectory,
-		"PEEN_WORKING_DIR":            appWorkingDirectory,
 		"PEEN_AGENT":                  appAgentName,
 		"PEEN_HTTP_LISTEN_ADDRESS":    listenAddress,
 		"PEEN_METRICS_LISTEN_ADDRESS": metricsListenAddress,

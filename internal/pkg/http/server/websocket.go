@@ -115,16 +115,16 @@ func (s *Server) handleWebSocketMessage(
 	event *dabluveees.Event,
 ) error {
 	requestID := uuid.New()
+	sessionID := s.deps.Runtime.SessionID()
 
-	sessionID, err := webSocketEventSessionID(event)
-	if err != nil {
+	if webSocketEventSelectsSession(event) {
 		ctxscope.GetLogger(s.deps.ServiceContext()).Warn(
 			"websocket message rejected",
-			"err", ctxerrors.Wrap(err, "read websocket session id"),
+			"reason", "client_session_selection",
 		)
 		s.broadcastWebSocketFailureToClient(
 			client.ID(),
-			nil,
+			&sessionID,
 			requestID,
 			event.ID,
 			aichteeteapee.ErrorCodeValidationFailed,
@@ -168,31 +168,14 @@ func (s *Server) handleWebSocketMessage(
 	return nil
 }
 
-func webSocketEventSessionID(event *dabluveees.Event) (uuid.UUID, error) {
+func webSocketEventSelectsSession(event *dabluveees.Event) bool {
 	if event == nil || event.Metadata == nil {
-		return uuid.Nil, ctxerrors.Wrap(
-			commerr.ErrRequiredFieldNotSet,
-			"websocket event metadata session id",
-		)
+		return false
 	}
 
-	value, found := event.Metadata.Get(webSocketMetadataSessionID)
-	if !found {
-		return uuid.Nil, ctxerrors.Wrap(
-			commerr.ErrRequiredFieldNotSet,
-			"websocket event metadata session id",
-		)
-	}
+	_, found := event.Metadata.Get(webSocketMetadataSessionID)
 
-	sessionText, ok := value.(string)
-	if !ok {
-		return uuid.Nil, ctxerrors.Wrap(
-			commerr.ErrValidationFailed,
-			"websocket event metadata session id",
-		)
-	}
-
-	return parseWebSocketSessionID(sessionText)
+	return found
 }
 
 func parseWebSocketSessionID(value string) (uuid.UUID, error) {
@@ -227,7 +210,6 @@ func (s *Server) runWebSocketMessage(
 	result, err := s.deps.Runtime.RunMessage(
 		ctx,
 		request,
-		&sessionID,
 		requestID,
 		func(event agent.Event) error {
 			s.broadcastWebSocketAgentEvent(

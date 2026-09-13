@@ -1,8 +1,10 @@
 # Configuration
 
-Copy `.env.example` to `.env`, then set the provider and workspace values that
-fit your machine. Peen validates every `PEEN_` value before opening its
-listener, so a bad setting fails at startup instead of halfway through a task.
+Copy `.env.example` to `.env`, then set the provider values that fit your
+machine. Peen validates every `PEEN_` value before opening its listener, so a
+bad setting fails at startup instead of halfway through a task. Its process
+working directory is the immutable agent workspace and identifies the durable
+session it opens at startup.
 
 For Docker, `.env` is input for `docker run --env-file`. Do not source it from
 Bash because `PEEN_UPSTREAMS` is raw JSON. For a bare binary, set the same
@@ -15,13 +17,14 @@ Peen adds a JSON audit sink configured by `PEEN_LOG_DIRECTORY` and
 
 ## Start here
 
-These values decide where Peen keeps its state, which directory the agent sees,
-and which model handles a task.
+These values decide where Peen keeps its state and which model handles a task.
+Start Peen from the directory the agent should work in. Docker users set that
+directory with `docker run --workdir`; bare-process users change directory
+before launching Peen.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `PEEN_CONFIG_DIR` | required, absolute | Harness base layer and durable state root. See [project rules](../README.md#make-it-understand-your-project). |
-| `PEEN_WORKING_DIR` | process cwd at startup | Default message workspace. Peen changes into this directory at startup. |
 | `PEEN_AGENT` | `default` | Root agent name. `default` is embedded and may be replaced by `.agents/agents/default.md`. |
 | `PEEN_UPSTREAMS` | required, JSON | Named provider list. See [provider configuration](../README.md#provider-configuration). |
 | `PEEN_DEFAULT_MODEL` | required | Qualified `provider/model` for the root agent and, unless overridden, compaction. |
@@ -165,7 +168,7 @@ same order, every turn:
 1. Embedded operating rules, the `planning` and `freshness` skills, and the
    `default` root agent are the immutable base layer.
 2. `PEEN_CONFIG_DIR` extends the base layer.
-3. Every filesystem ancestor of the current message's workspace is then
+3. Every filesystem ancestor of the startup workspace is then
    applied, from `/` down to the workspace itself.
 4. At each filesystem layer, `AGENTS.md` and `.agents/` are read before moving to the
    next, more specific layer.

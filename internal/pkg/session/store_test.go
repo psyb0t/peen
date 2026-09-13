@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -16,7 +17,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const testWorkspace = "/workspace/project"
+const (
+	testWorkspace     = "/workspace/project"
+	testDirectoryMode = 0o700
+)
 
 func TestStoreGetMapsMissingSessionToCommonError(t *testing.T) {
 	t.Parallel()
@@ -79,6 +83,83 @@ func TestStoreCreateOrResumeCreatesRequestedSessionIDAtomically(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, createdCount)
+}
+
+func TestStoreOpenWorkspaceCreatesOneCanonicalDurableSession(t *testing.T) {
+	ctx := context.Background()
+	stateDirectory := filepath.Join(t.TempDir(), "state")
+	workspace := filepath.Join(t.TempDir(), "workspace")
+	workspaceLink := filepath.Join(t.TempDir(), "workspace-link")
+	require.NoError(t, os.Mkdir(workspace, testDirectoryMode))
+	require.NoError(t, os.Symlink(workspace, workspaceLink))
+
+	handle, err := db.Open(ctx, db.Config{Directory: stateDirectory})
+	require.NoError(t, err)
+	store := newTestStore(t, handle)
+
+	type result struct {
+		opened *OpenSessionResult
+		err    error
+	}
+
+	start := make(chan struct{})
+	results := make(chan result, 2)
+	var waitGroup sync.WaitGroup
+	for _, path := range []string{workspace, workspaceLink} {
+		waitGroup.Go(func() {
+			<-start
+			opened, openErr := store.OpenWorkspace(
+				ctx,
+				path,
+				OpenSessionOptions{
+					RootAgent: "peen",
+					ModelID:   "provider/model",
+				},
+			)
+			results <- result{opened: opened, err: openErr}
+		})
+	}
+
+	close(start)
+	waitGroup.Wait()
+	close(results)
+
+	createdCount := 0
+	var sessionID uuid.UUID
+	for item := range results {
+		require.NoError(t, item.err)
+		require.NotNil(t, item.opened)
+		assert.Equal(t, workspace, item.opened.Session.Workspace)
+		if item.opened.Created {
+			createdCount++
+		}
+		if sessionID == uuid.Nil {
+			sessionID = item.opened.Session.ID
+
+			continue
+		}
+		assert.Equal(t, sessionID, item.opened.Session.ID)
+	}
+	assert.Equal(t, 1, createdCount)
+
+	require.NoError(t, handle.Close())
+	reopenedHandle, err := db.Open(ctx, db.Config{Directory: stateDirectory})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopenedHandle.Close()) })
+	reopenedStore := newTestStore(t, reopenedHandle)
+
+	reopened, err := reopenedStore.OpenWorkspace(
+		ctx,
+		workspaceLink,
+		OpenSessionOptions{
+			RootAgent: "peen",
+			ModelID:   "provider/model",
+		},
+	)
+	require.NoError(t, err)
+	assert.False(t, reopened.Created)
+	assert.Equal(t, sessionID, reopened.Session.ID)
+	assert.Equal(t, workspace, reopened.Session.Workspace)
 }
 
 func TestStoreRestartPaginationIsolationAndCompaction(t *testing.T) {

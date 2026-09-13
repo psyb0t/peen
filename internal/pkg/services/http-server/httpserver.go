@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net"
-	"os"
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxscope"
@@ -80,10 +79,6 @@ func (s *HTTPServer) Run(ctx context.Context) (runErr error) {
 	}
 
 	logValidatedConfig(ctx, config, upstreams)
-
-	if err := enterWorkingDirectory(config.WorkingDirectory); err != nil {
-		return err
-	}
 
 	metricRegistry := metrics.New()
 
@@ -237,24 +232,6 @@ func logValidatedConfig(
 		"provider_count", len(upstreams),
 		"provider_names", upstreamNames,
 	)
-}
-
-// enterWorkingDirectory makes PEEN_WORKING_DIR the process directory before
-// anything resolves a path against it.
-//
-// Without this the setting is only a default workspace string, so a relative
-// path anywhere else, a tool's own relative resolution or a spawned command's
-// inherited directory, still lands wherever the process happened to start.
-func enterWorkingDirectory(workingDirectory string) error {
-	if workingDirectory == "" {
-		return nil
-	}
-
-	if err := os.Chdir(workingDirectory); err != nil {
-		return ctxerrors.Wrap(err, "enter configured working directory")
-	}
-
-	return nil
 }
 
 // closeState closes the durable store, reporting rather than hiding a failure

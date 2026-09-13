@@ -251,23 +251,23 @@ func (r *Runtime) queueActiveUserMessage(
 	ctx context.Context,
 	input TurnRequest,
 ) (*TurnResult, bool, error) {
-	if input.SessionID == nil || input.Origin != nil {
+	if input.Origin != nil {
 		return nil, false, nil
 	}
 
 	r.userMessageQueuesMutex.Lock()
-	queue := r.userMessageQueues[*input.SessionID]
+	queue := r.userMessageQueues[r.sessionID]
 	r.userMessageQueuesMutex.Unlock()
 
 	if queue == nil {
 		return nil, false, nil
 	}
 
-	if input.Workspace != "" || input.Model != "" ||
-		input.SystemPrompt != "" || input.SystemPromptMode != "" {
+	if input.Model != "" || input.SystemPrompt != "" ||
+		input.SystemPromptMode != "" {
 		return nil, true, ctxerrors.Wrap(
 			commerr.ErrConflict,
-			"active turn cannot change workspace, model, or system prompt",
+			"active turn cannot change model or system prompt",
 		)
 	}
 
@@ -276,7 +276,7 @@ func (r *Runtime) queueActiveUserMessage(
 	}
 
 	return &TurnResult{
-		SessionID: *input.SessionID,
+		SessionID: r.sessionID,
 		Queued:    true,
 	}, true, nil
 }

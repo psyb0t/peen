@@ -30,19 +30,9 @@ func staticRegistry(models map[string]ModelClient) (*agent.Registry, error) {
 
 // toTurnRequest converts one public message request into the internal
 // runtime's transport-neutral turn input.
-func toTurnRequest(request MessageRequest) (agent.TurnRequest, error) {
+func toTurnRequest(request MessageRequest) agent.TurnRequest {
 	input := agent.TurnRequest{
-		Message:   request.Message,
-		Workspace: request.Workspace,
-	}
-
-	if request.SessionID != "" {
-		sessionID, err := parseSessionID(request.SessionID)
-		if err != nil {
-			return agent.TurnRequest{}, err
-		}
-
-		input.SessionID = &sessionID
+		Message: request.Message,
 	}
 
 	if request.SystemPrompt != nil {
@@ -50,7 +40,7 @@ func toTurnRequest(request MessageRequest) (agent.TurnRequest, error) {
 		input.SystemPromptMode = agent.PromptMode(request.SystemPrompt.Mode)
 	}
 
-	return input, nil
+	return input
 }
 
 // toListMessagesParams converts one public page request into the internal
@@ -222,6 +212,7 @@ func toSessionDetails(stored api.Session) SessionDetails {
 		ID:                 stored.Id.String(),
 		Agent:              stored.Agent,
 		Model:              stored.Model,
+		Workspace:          stored.Workspace,
 		CreatedAt:          stored.CreatedAt,
 		UpdatedAt:          stored.UpdatedAt,
 		LastMessageAt:      stored.LastMessageAt,

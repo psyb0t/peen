@@ -107,7 +107,6 @@ func TestHTTPServiceRunsRealSQLiteAndAPI(t *testing.T) {
 	sessionID := sendWebSocketTurn(
 		t,
 		fixture,
-		uuid.Nil,
 		serviceTestMessage,
 	)
 
@@ -161,12 +160,9 @@ func TestHTTPServiceRunsRealSQLiteAndAPI(t *testing.T) {
 	serviceStopped = true
 }
 
-// PEEN_WORKING_DIR is documented as the directory the binary changes to before
-// constructing the runtime, not merely a default workspace string. Without the
-// chdir every relative path resolved anywhere else, including inside a command
-// the agent spawns, lands wherever the process happened to start.
-func TestHTTPServiceEntersTheConfiguredWorkingDirectory(t *testing.T) {
+func TestHTTPServiceUsesItsStartupWorkingDirectory(t *testing.T) {
 	fixture := newHTTPServiceFixture(t)
+	t.Chdir(fixture.config.WorkingDirectory)
 
 	want, err := filepath.EvalSymlinks(fixture.config.WorkingDirectory)
 	require.NoError(t, err)
@@ -198,7 +194,6 @@ func TestHTTPServiceRecoversInterruptedTurnsBeforeServing(t *testing.T) {
 	_ = sendWebSocketTurn(
 		t,
 		fixture,
-		sessionID,
 		serviceTestMessage,
 	)
 }
@@ -391,20 +386,13 @@ func sendHTTPResponse(
 func sendWebSocketTurn(
 	t *testing.T,
 	fixture httpServiceFixture,
-	sessionID uuid.UUID,
 	message string,
 ) uuid.UUID {
 	t.Helper()
-	if sessionID == uuid.Nil {
-		sessionID = uuid.New()
-	}
 
 	endpoint, err := url.Parse(fixture.url(serviceTestWebSocketPath))
 	require.NoError(t, err)
 	endpoint.Scheme = "ws"
-	query := endpoint.Query()
-	query.Set(serviceTestWebSocketSessionID, sessionID.String())
-	endpoint.RawQuery = query.Encode()
 
 	dialer := websocket.Dialer{
 		HandshakeTimeout: serviceTestRequestTimeout,
@@ -425,7 +413,7 @@ func sendWebSocketTurn(
 	inbound := dabluveees.NewEvent(
 		serviceTestWebSocketMessageSend,
 		map[string]string{"message": message},
-	).SetMetadata(serviceTestWebSocketSessionID, sessionID.String())
+	)
 	require.NoError(t, connection.WriteJSON(inbound))
 	deadline := time.Now().Add(serviceTestRequestTimeout)
 	for {
@@ -439,6 +427,13 @@ func sendWebSocketTurn(
 			}{}
 			require.NoError(t, json.Unmarshal(event.Data, &result))
 			require.False(t, result.Queued)
+			require.NotNil(t, event.Metadata)
+			sessionValue, found := event.Metadata.Get(serviceTestWebSocketSessionID)
+			require.True(t, found)
+			sessionText, ok := sessionValue.(string)
+			require.True(t, ok)
+			sessionID, parseErr := uuid.Parse(sessionText)
+			require.NoError(t, parseErr)
 
 			return sessionID
 		case serviceTestWebSocketFailed:

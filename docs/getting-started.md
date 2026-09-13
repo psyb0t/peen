@@ -48,42 +48,49 @@ docker run --rm \
   -p 8080:8080 \
   -v "$(pwd)/data/peen:/data/peen" \
   -v "$(pwd)/workspace:/workspace" \
+  -w /workspace \
   peen run
 ```
 
 Put the project you want the agent to work on in `./workspace`, or mount that
 project there instead. `./data/peen` holds the SQLite database, logs, hooks,
-and other durable harness state. Do not mount your home directory because the
-agent has normal file and command access inside its container.
+and other durable harness state. The container starts in `/workspace`, so Peen
+opens one durable session for that directory and resumes it on a later start
+with the same mounts. Do not mount your home directory because the agent has
+normal file and command access inside its container.
 
 ## 3. Send a message
 
 With the default empty `PEEN_API_TOKEN`, paste this into a browser console:
 
 ```js
-const sessionId = crypto.randomUUID();
 const socket = new WebSocket("ws://localhost:8080/v1/ws");
+let sessionId;
 
-socket.addEventListener("message", ({ data }) => console.log(JSON.parse(data)));
+socket.addEventListener("message", ({ data }) => {
+  const event = JSON.parse(data);
+  sessionId = event.metadata?.sessionId ?? sessionId;
+  console.log(event);
+});
 socket.addEventListener("open", () => {
   socket.send(JSON.stringify({
     id: crypto.randomUUID(),
     type: "message.send",
     data: { message: "Read the project, then tell me what you would fix first." },
     timestamp: Math.floor(Date.now() / 1000),
-    metadata: { sessionId },
     triggeredBy: null,
   }));
 });
 ```
 
-Keep the `sessionId`. It is the conversation ID. Leave the socket open to see
-streaming model, tool, and agent events. A `message.completed` event means the
-submitted task is finished. Every WebSocket receives every session's events.
-Your client makes conversation tabs by filtering `metadata.sessionId`, then
-uses the same ID in a later `message.send` to continue a tab. Add
-`?sessionId=<uuid>` to the WebSocket URL only when a client wants Peen to apply
-that outbound filter itself.
+Keep the server-issued `sessionId`. It identifies the workspace session for
+REST calls. Leave the socket open to see streaming model, tool, and agent
+events. A `message.completed` event means the submitted task is finished.
+Every WebSocket receives every session's events. Your client makes conversation
+tabs by filtering `metadata.sessionId`. Later `message.send` frames always use
+the server's startup workspace session. Add `?sessionId=<uuid>` to the
+WebSocket URL only when a client wants Peen to apply that outbound filter
+itself.
 
 ## 4. Put project rules beside the project
 

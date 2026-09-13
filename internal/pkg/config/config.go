@@ -37,7 +37,7 @@ const (
 //nolint:tagalign // Preserve the YAML-first tag convention.
 type Config struct {
 	ConfigDirectory  string `env:"PEEN_CONFIG_DIR,required"`
-	WorkingDirectory string `env:"PEEN_WORKING_DIR"`
+	WorkingDirectory string
 	Agent            string `default:"default"              env:"PEEN_AGENT"`
 
 	UpstreamsJSON   string `env:"PEEN_UPSTREAMS,required"`
@@ -123,17 +123,15 @@ func Parse() (Config, error) {
 		return Config{}, ctxerrors.Wrap(err, "parse Peen configuration")
 	}
 
-	if config.WorkingDirectory == "" {
-		workingDirectory, err := os.Getwd()
-		if err != nil {
-			return Config{}, ctxerrors.Wrap(
-				err,
-				"resolve default working directory",
-			)
-		}
-
-		config.WorkingDirectory = workingDirectory
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		return Config{}, ctxerrors.Wrap(
+			err,
+			"resolve process working directory",
+		)
 	}
+
+	config.WorkingDirectory = workingDirectory
 
 	if err := config.Validate(); err != nil {
 		return Config{}, ctxerrors.Wrap(err, "validate Peen configuration")
@@ -203,7 +201,7 @@ func (c Config) validateDirectories() error {
 	if c.WorkingDirectory != "" && !filepath.IsAbs(c.WorkingDirectory) {
 		return ctxerrors.Wrap(
 			ErrInvalidConfig,
-			"PEEN_WORKING_DIR must be absolute",
+			"process working directory must be absolute",
 		)
 	}
 
