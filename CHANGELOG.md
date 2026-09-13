@@ -4,6 +4,20 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.6.0 (2026-09-13)
+
+Peen now ships a dedicated agent package for configuring and operating Peen.
+
+- Replaces the inherited Servicepack agent metadata with the `peen` skill for
+  Claude, Codex, and OpenClaw. The skill covers provider configuration, Docker
+  deployment, WebSocket turns, durable session control, and workspace harness
+  layers.
+- Adds marketplace installation guidance to the README. The central marketplace
+  entry follows this release.
+- Includes the embedded base `AGENTS.md` in clean checkouts. Lint now rejects a
+  Go embedded asset that Git ignores, preventing a local build from masking a
+  CI compile failure.
+
 ## v0.5.1 (2026-09-13)
 
 Fixes the release checks after v0.5.0.

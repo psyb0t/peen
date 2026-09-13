@@ -1,11 +1,11 @@
 {
-  "name": "servicepack",
-  "version": "1.6.4",
-  "description": "Clone-and-own Go service framework: debug related services together locally, then ship one binary or split them into microservices with lifecycle, retry, readiness, and CLI scaffolding.",
+  "name": "peen",
+  "version": "0.6.0",
+  "description": "Durable coding-agent backend: configure providers and Docker workspaces, send work over WebSocket, add harness layers, and inspect or control SQLite-backed sessions.",
   "author": { "name": "psyb0t", "url": "https://github.com/psyb0t" },
-  "homepage": "https://github.com/psyb0t/servicepack",
-  "repository": "https://github.com/psyb0t/servicepack",
+  "homepage": "https://github.com/psyb0t/peen",
+  "repository": "https://github.com/psyb0t/peen",
   "license": "MIT",
-  "keywords": ["go", "service-framework", "concurrency", "dependency-graph", "retry", "graceful-shutdown", "cli-scaffolding"],
+  "keywords": ["coding-agent", "websocket", "agent-harness", "sqlite", "docker", "llm"],
   "skills": "./skills/"
 }

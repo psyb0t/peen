@@ -30,6 +30,7 @@ browser client, terminal client, bot, or your own application.
 - [See what happened](#see-what-happened)
 - [Things worth knowing](#things-worth-knowing)
 - [Security](#security)
+- [Agent integrations](#agent-integrations)
 - [Documentation](#documentation)
 - [What Peen is built with](#what-peen-is-built-with)
 
@@ -228,6 +229,25 @@ The local Docker command above is the normal way to run Peen. The image has a
 real shell and the tools a coding agent uses. It runs as UID and GID `10001`
 under `tini`. For source builds, production mounts, networking, and container
 hardening, read [Deployment](docs/deployment.md).
+
+## Agent integrations
+
+The `peen` agent skill teaches an agent how to configure and run Peen, send
+work over WebSocket, add workspace harness layers, and inspect durable state.
+It is documentation only. Installing it does not start a server, run a hook,
+or change a workspace.
+
+After the next Peen release and its matching `psyb0t/agents` marketplace entry:
+
+```bash
+claude plugin marketplace add psyb0t/agents
+claude plugin install peen@psyb0t
+
+codex plugin marketplace add psyb0t/agents
+codex plugin add peen@psyb0t
+
+openclaw skills install @psyb0t/peen
+```
 
 ## Documentation
 

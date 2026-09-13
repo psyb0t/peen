@@ -1,5 +1,7 @@
 # Codex / agent scratch, never commit
+# Project instruction files are local, except Peen's embedded harness baseline.
 AGENTS.md
+!internal/pkg/harness/builtin/AGENTS.md
 CODEX.local.md
 .research_files/
 .agent_notes/
