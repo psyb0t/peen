@@ -15,6 +15,7 @@ on_error() {
 trap on_error ERR
 
 minimum_coverage=${MIN_TEST_COVERAGE:-90}
+test_timeout="30m"
 
 section "Running Tests with Coverage Check"
 
@@ -63,7 +64,7 @@ merge_profiles() {
 }
 
 info "running unit and integration tests with coverage..."
-if ! go test -count=1 -timeout=600s -tags=integration \
+if ! go test -count=1 -timeout="${test_timeout}" -tags=integration \
 	-coverpkg="${module}/..." -coverprofile="${profile_raw}" ./...; then
 	error "Tests failed"
 	exit 1

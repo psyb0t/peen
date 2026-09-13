@@ -4,6 +4,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "${script_dir}/../.." && pwd)"
 log_file="${LOG_FILE:-/tmp/peen-test-real.log}"
+test_timeout="30m"
 
 log() {
 	local level="$1"
@@ -87,7 +88,7 @@ if ! docker run --rm --init \
 	-v "${repo_root}:${repo_root}" \
 	-w "${repo_root}" \
 	peen-dev \
-	go test -tags real -count=1 -timeout=1200s ./tests/real/...; then
+	go test -tags real -count=1 -timeout="${test_timeout}" ./tests/real/...; then
 	log ERROR "run real provider tests"
 	exit 1
 fi

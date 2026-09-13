@@ -4,6 +4,16 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.5.1 (2026-09-13)
+
+Fixes the release checks after v0.5.0.
+
+- Execution-form tests now put the session ID in `message.send` metadata,
+  matching the global WebSocket contract.
+- Peen's test targets and scripts allow thirty minutes per Go test package.
+  Production-image setup can use twenty-five minutes for a cold CI build.
+- Docker build contexts exclude local plan and coverage directories.
+
 ## v0.5.0 (2026-09-13)
 
 WebSocket delivery is now global by default. A client can build and switch

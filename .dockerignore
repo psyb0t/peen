@@ -54,3 +54,7 @@ __debug_*
 .research_files
 scripts/.post-update-temp
 __pycache__
+
+# agent scratch and QA output, never part of a build
+.plan/
+.cover/

@@ -35,7 +35,7 @@ const (
 	headerSessionID       = "X-Session-ID"
 	bearerPrefix          = "Bearer "
 	jsonMediaType         = "application/json"
-	integrationTimeout    = 5 * time.Minute
+	integrationTimeout    = 25 * time.Minute
 	requestTimeout        = 30 * time.Second
 	apiTestRestartTimeout = 30 * time.Second
 

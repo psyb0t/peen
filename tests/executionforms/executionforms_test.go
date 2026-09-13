@@ -85,33 +85,33 @@ const (
 	executionFormsReloadMessage  = "confirm updated rules"
 	executionFormsUnauthMessage  = "no token required"
 
-	executionFormsUpstreamName                = "integration"
-	executionFormsUpstreamProvider            = "openai"
-	executionFormsUpstreamNameKey             = "name"
-	executionFormsUpstreamTypeKey             = "provider"
-	executionFormsUpstreamURLKey              = "baseUrl"
-	executionFormsMessageKey                  = "message"
-	executionFormsWebSocketSessionIDParameter = "sessionId"
-	executionFormsWebSocketProtocol           = "peen.v1"
-	executionFormsWebSocketBearerPrefix       = "peen.bearer."
-	executionFormsWebSocketMessageSend        = "message.send"
-	executionFormsWebSocketCompleted          = "message.completed"
-	executionFormsWebSocketFailed             = "message.failed"
-	executionFormsMetricFamily                = "peen_http_requests_total"
-	executionFormsNetworkTCP                  = "tcp"
-	executionFormsLoopbackAddress             = "127.0.0.1:0"
-	executionFormsJSONToolMessage             = "run the JSON tool turn"
-	executionFormsPatchToolMessage            = "run the patch tool turn"
-	executionFormsPatchText                   = "*** Begin Patch\n*** Update File: patch-edit.txt\n@@\n-alpha\n+bravo\n*** End Patch"
-	executionFormsToolPathKey                 = "path"
-	executionFormsToolEditsKey                = "edits"
-	executionFormsToolOldTextKey              = "old"
-	executionFormsToolNewTextKey              = "new"
-	executionFormsToolPatchKey                = "patch"
-	executionFormsToolCommandKey              = "command"
-	executionFormsToolPurposeKey              = "purpose"
-	executionFormsJSONPurpose                 = "write the JSON command marker"
-	executionFormsPatchPurpose                = "write the patch command marker"
+	executionFormsUpstreamName               = "integration"
+	executionFormsUpstreamProvider           = "openai"
+	executionFormsUpstreamNameKey            = "name"
+	executionFormsUpstreamTypeKey            = "provider"
+	executionFormsUpstreamURLKey             = "baseUrl"
+	executionFormsMessageKey                 = "message"
+	executionFormsWebSocketMetadataSessionID = "sessionId"
+	executionFormsWebSocketProtocol          = "peen.v1"
+	executionFormsWebSocketBearerPrefix      = "peen.bearer."
+	executionFormsWebSocketMessageSend       = "message.send"
+	executionFormsWebSocketCompleted         = "message.completed"
+	executionFormsWebSocketFailed            = "message.failed"
+	executionFormsMetricFamily               = "peen_http_requests_total"
+	executionFormsNetworkTCP                 = "tcp"
+	executionFormsLoopbackAddress            = "127.0.0.1:0"
+	executionFormsJSONToolMessage            = "run the JSON tool turn"
+	executionFormsPatchToolMessage           = "run the patch tool turn"
+	executionFormsPatchText                  = "*** Begin Patch\n*** Update File: patch-edit.txt\n@@\n-alpha\n+bravo\n*** End Patch"
+	executionFormsToolPathKey                = "path"
+	executionFormsToolEditsKey               = "edits"
+	executionFormsToolOldTextKey             = "old"
+	executionFormsToolNewTextKey             = "new"
+	executionFormsToolPatchKey               = "patch"
+	executionFormsToolCommandKey             = "command"
+	executionFormsToolPurposeKey             = "purpose"
+	executionFormsJSONPurpose                = "write the JSON command marker"
+	executionFormsPatchPurpose               = "write the patch command marker"
 )
 
 type executionForm struct {
@@ -459,7 +459,7 @@ func awaitReady(t *testing.T, process *runningPeen) {
 func assertUnauthorized(t *testing.T, baseURL string) {
 	t.Helper()
 
-	endpoint := executionFormsWebSocketURL(t, baseURL, uuid.New())
+	endpoint := executionFormsWebSocketURL(t, baseURL)
 	dialer := websocket.Dialer{
 		Subprotocols: []string{executionFormsWebSocketProtocol},
 	}
@@ -493,7 +493,7 @@ func sendWebSocketTurn(
 		},
 	}
 	connection, response, err := dialer.Dial(
-		executionFormsWebSocketURL(t, baseURL, sessionID),
+		executionFormsWebSocketURL(t, baseURL),
 		nil,
 	)
 	if response != nil {
@@ -501,10 +501,11 @@ func sendWebSocketTurn(
 	}
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, connection.Close()) })
-	require.NoError(t, connection.WriteJSON(dabluveees.NewEvent(
+	messageEvent := dabluveees.NewEvent(
 		executionFormsWebSocketMessageSend,
 		map[string]string{executionFormsMessageKey: message},
-	)))
+	).SetMetadata(executionFormsWebSocketMetadataSessionID, sessionID.String())
+	require.NoError(t, connection.WriteJSON(messageEvent))
 
 	deadline := time.Now().Add(executionFormsStartupTimeout)
 	for {
@@ -523,16 +524,12 @@ func sendWebSocketTurn(
 func executionFormsWebSocketURL(
 	t *testing.T,
 	baseURL string,
-	sessionID uuid.UUID,
 ) string {
 	t.Helper()
 
 	endpoint, err := url.Parse(baseURL + executionFormsWebSocketPath)
 	require.NoError(t, err)
 	endpoint.Scheme = "ws"
-	query := endpoint.Query()
-	query.Set(executionFormsWebSocketSessionIDParameter, sessionID.String())
-	endpoint.RawQuery = query.Encode()
 
 	return endpoint.String()
 }

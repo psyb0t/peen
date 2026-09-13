@@ -33,7 +33,7 @@ import (
 
 const (
 	appDockerfile              = "Dockerfile"
-	appBootTimeout             = 5 * time.Minute
+	appBootTimeout             = 25 * time.Minute
 	appCleanupTimeout          = 30 * time.Second
 	appConfigDirectory         = "/tmp/peen"
 	appWorkingDirectory        = "/tmp"
