@@ -288,7 +288,14 @@ func TestPromptHistoryAndRuntimeHelpers(t *testing.T) {
 	assert.Equal(t, EventTypeTurnFailed, eventType)
 
 	turn := runtimeTurn{requestID: uuid.New()}
-	require.NoError(t, turn.emit(EventTypeTextDelta, textDeltaPayload{Text: "text"}))
+	require.NoError(
+		t,
+		turn.emit(
+			context.Background(),
+			EventTypeTextDelta,
+			textDeltaPayload{Text: "text"},
+		),
+	)
 
 	assert.Len(t, turn.pendingTranscript().events, 1)
 	assert.True(t, markIncomplete([]session.MessageInput{{Content: "partial"}})[0].Incomplete)
@@ -297,8 +304,15 @@ func TestPromptHistoryAndRuntimeHelpers(t *testing.T) {
 	turn.sink = func(Event) error { return sinkFailure }
 	require.ErrorIs(
 		t,
-		turn.emit(EventTypeTextDelta, textDeltaPayload{Text: "text"}),
+		turn.emit(
+			context.Background(),
+			EventTypeTextDelta,
+			textDeltaPayload{Text: "text"},
+		),
 		sinkFailure,
 	)
-	require.Error(t, turn.emit(EventTypeTextDelta, make(chan int)))
+	require.Error(
+		t,
+		turn.emit(context.Background(), EventTypeTextDelta, make(chan int)),
+	)
 }

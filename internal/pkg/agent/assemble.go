@@ -98,12 +98,15 @@ func assembleOver(
 	if err := recoverInterruptedTurns(ctx, store); err != nil {
 		return nil, err
 	}
+
 	if err := recoverInterruptedAgentRuns(ctx, store); err != nil {
 		return nil, err
 	}
+
 	if err := recoverInterruptedJobs(ctx, store); err != nil {
 		return nil, err
 	}
+
 	if err := recoverInterruptedModelRuns(ctx, store); err != nil {
 		return nil, err
 	}
@@ -149,7 +152,10 @@ func recoverInterruptedTurns(ctx context.Context, store *session.Store) error {
 	return nil
 }
 
-func recoverInterruptedAgentRuns(ctx context.Context, store *session.Store) error {
+func recoverInterruptedAgentRuns(
+	ctx context.Context,
+	store *session.Store,
+) error {
 	recovered, err := store.RecoverInterruptedAgentRuns(ctx)
 	if err != nil {
 		return ctxerrors.Wrap(err, "recover interrupted agent runs")
@@ -160,7 +166,8 @@ func recoverInterruptedAgentRuns(ctx context.Context, store *session.Store) erro
 	}
 
 	ctxscope.GetLogger(ctx).Warn(
-		"marked child agents left running by a previous process as interrupted",
+		"marked child agents left running by a previous process as "+
+			"interrupted",
 		"reason", reasonInterruptedAgentRunsRecovered,
 		"agent_run_count", recovered,
 	)
@@ -187,7 +194,10 @@ func recoverInterruptedJobs(ctx context.Context, store *session.Store) error {
 	return nil
 }
 
-func recoverInterruptedModelRuns(ctx context.Context, store *session.Store) error {
+func recoverInterruptedModelRuns(
+	ctx context.Context,
+	store *session.Store,
+) error {
 	recovered, err := store.RecoverInterruptedModelRuns(ctx)
 	if err != nil {
 		return ctxerrors.Wrap(err, "recover interrupted model runs")
@@ -198,7 +208,8 @@ func recoverInterruptedModelRuns(ctx context.Context, store *session.Store) erro
 	}
 
 	ctxscope.GetLogger(ctx).Warn(
-		"marked model work left running by a previous process as interrupted",
+		"marked model work left running by a previous process as "+
+			"interrupted",
 		"reason", reasonInterruptedModelRunsRecovered,
 		"model_run_count", recovered,
 	)

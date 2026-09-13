@@ -99,6 +99,16 @@ func messageToAPI(stored *models.Message) (api.Message, error) {
 		Sequence:  stored.Sequence,
 		Workspace: stored.Workspace,
 	}
+	applyMessageOptionalFields(&message, stored, toolCalls)
+
+	return message, nil
+}
+
+func applyMessageOptionalFields(
+	message *api.Message,
+	stored *models.Message,
+	toolCalls []api.MessageToolCall,
+) {
 	if stored.Incomplete {
 		incomplete := true
 		message.Incomplete = &incomplete
@@ -120,6 +130,7 @@ func messageToAPI(stored *models.Message) (api.Message, error) {
 	if stored.ToolCallID != "" {
 		message.ToolCallId = &stored.ToolCallID
 	}
+
 	if stored.CompactionID != nil {
 		message.CompactionId = stored.CompactionID
 	}
@@ -127,8 +138,6 @@ func messageToAPI(stored *models.Message) (api.Message, error) {
 	if len(toolCalls) > 0 {
 		message.ToolCalls = &toolCalls
 	}
-
-	return message, nil
 }
 
 func messageRoleToAPI(role models.MessageRole) (api.MessageRole, error) {

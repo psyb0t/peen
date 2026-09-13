@@ -42,13 +42,15 @@ func (p *preparedTurn) injectSessionEvents(
 ) (*elelem.MessageInjection, error) {
 	if p.opened == nil || p.opened.Session == nil || p.turn == nil ||
 		p.turn.store == nil {
-		return nil, nil //nolint:nilnil // No durable session can have pending notices.
+		// No durable session can have pending notices.
+		return nil, nil //nolint:nilnil
 	}
 
 	notices, err := p.turn.store.DrainSessionNotices(ctx, p.opened.Session.ID)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "drain durable session notices")
 	}
+
 	if p.eventBus != nil {
 		p.eventBus.Drain(p.opened.Session.ID)
 	}
@@ -58,7 +60,7 @@ func (p *preparedTurn) injectSessionEvents(
 		return nil, nil //nolint:nilnil // Nothing pending injects nothing.
 	}
 
-	if err := p.turn.emit(EventTypeSessionEvents, sessionEventsPayload{
+	if err := p.turn.emit(ctx, EventTypeSessionEvents, sessionEventsPayload{
 		Notices: batch.Notices,
 		Dropped: batch.Dropped,
 	}); err != nil {

@@ -319,9 +319,11 @@ func (r *JobRegistry) Start(
 	}
 
 	job := r.newJob(process, input)
+
 	persistCtx := context.WithoutCancel(ctx)
 	if err := r.observeStarted(persistCtx, job.Snapshot()); err != nil {
 		job.requestKill(persistCtx)
+
 		if waitErr := job.process.Wait(); waitErr != nil {
 			ctxscope.GetLogger(persistCtx).Debug(
 				"wait for unpersisted job after kill",
@@ -332,6 +334,7 @@ func (r *JobRegistry) Start(
 
 		return nil, ctxerrors.Wrap(err, "persist started job")
 	}
+
 	startJobStreams(persistCtx, r, job)
 
 	r.mu.Lock()
@@ -421,6 +424,7 @@ func (r *JobRegistry) recordOutput(
 	if job.persistenceFailure() != nil {
 		return
 	}
+
 	if err := r.observeOutput(ctx, job.Snapshot(), record); err != nil {
 		job.setPersistenceFailure(err)
 		ctxscope.GetLogger(ctx).Warn(
@@ -494,10 +498,12 @@ func (r *JobRegistry) SignalContext(
 	}
 
 	snapshot := job.Snapshot()
+
 	persistCtx := context.WithoutCancel(ctx)
 	if err := r.observeSignal(persistCtx, snapshot, signal); err != nil {
 		return snapshot, true, ctxerrors.Wrap(err, "persist job signal")
 	}
+
 	if snapshot.State != JobStateRunning {
 		return snapshot, true, nil
 	}
@@ -569,6 +575,7 @@ func (r *JobRegistry) finalize(ctx context.Context, job *Job, waitErr error) {
 	state, exitCode := classifyJobResult(waitErr)
 	endedAt := time.Now().UTC()
 	failureDetail := ""
+
 	if persistenceErr := job.persistenceFailure(); persistenceErr != nil {
 		state = JobStateFailed
 		exitCode = unknownExitCode
@@ -581,6 +588,7 @@ func (r *JobRegistry) finalize(ctx context.Context, job *Job, waitErr error) {
 	job.exitCode = exitCode
 	job.failureDetail = failureDetail
 	job.mu.Unlock()
+
 	snapshot := job.Snapshot()
 	if err := r.observeFinished(ctx, snapshot); err != nil {
 		ctxscope.GetLogger(ctx).Warn(
@@ -617,23 +625,23 @@ func (j *Job) setPersistenceFailure(err error) {
 	}
 }
 
-func (r *JobRegistry) observerValue() JobObserver {
-	r.observerMu.RLock()
-	defer r.observerMu.RUnlock()
-
-	return r.observer
-}
-
 func (r *JobRegistry) observeStarted(
 	ctx context.Context,
 	snapshot JobSnapshot,
 ) error {
-	observer := r.observerValue()
+	r.observerMu.RLock()
+	observer := r.observer
+	r.observerMu.RUnlock()
+
 	if observer == nil {
 		return nil
 	}
 
-	return observer.JobStarted(ctx, snapshot)
+	if err := observer.JobStarted(ctx, snapshot); err != nil {
+		return ctxerrors.Wrap(err, "notify job observer of start")
+	}
+
+	return nil
 }
 
 func (r *JobRegistry) observeOutput(
@@ -641,12 +649,19 @@ func (r *JobRegistry) observeOutput(
 	snapshot JobSnapshot,
 	record JobOutputRecord,
 ) error {
-	observer := r.observerValue()
+	r.observerMu.RLock()
+	observer := r.observer
+	r.observerMu.RUnlock()
+
 	if observer == nil {
 		return nil
 	}
 
-	return observer.JobOutput(ctx, snapshot, record)
+	if err := observer.JobOutput(ctx, snapshot, record); err != nil {
+		return ctxerrors.Wrap(err, "notify job observer of output")
+	}
+
+	return nil
 }
 
 func (r *JobRegistry) observeSignal(
@@ -654,24 +669,38 @@ func (r *JobRegistry) observeSignal(
 	snapshot JobSnapshot,
 	signal JobSignal,
 ) error {
-	observer := r.observerValue()
+	r.observerMu.RLock()
+	observer := r.observer
+	r.observerMu.RUnlock()
+
 	if observer == nil {
 		return nil
 	}
 
-	return observer.JobSignal(ctx, snapshot, signal)
+	if err := observer.JobSignal(ctx, snapshot, signal); err != nil {
+		return ctxerrors.Wrap(err, "notify job observer of signal")
+	}
+
+	return nil
 }
 
 func (r *JobRegistry) observeFinished(
 	ctx context.Context,
 	snapshot JobSnapshot,
 ) error {
-	observer := r.observerValue()
+	r.observerMu.RLock()
+	observer := r.observer
+	r.observerMu.RUnlock()
+
 	if observer == nil {
 		return nil
 	}
 
-	return observer.JobFinished(ctx, snapshot)
+	if err := observer.JobFinished(ctx, snapshot); err != nil {
+		return ctxerrors.Wrap(err, "notify job observer of completion")
+	}
+
+	return nil
 }
 
 func (r *JobRegistry) recordJobMetrics(

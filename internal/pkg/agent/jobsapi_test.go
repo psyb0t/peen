@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/psyb0t/common-go/utils/ptrutil"
 	"github.com/psyb0t/elelem/elelemtest"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
@@ -17,6 +16,9 @@ import (
 
 func TestRuntimeReplaysJobsFromSQLiteWithoutALiveRegistry(t *testing.T) {
 	ctx := context.Background()
+	pageLimit := int32(2)
+	streamPageLimit := int32(5)
+	stdoutStream := api.ReadSessionJobOutputParamsStreamStdout
 	fixture := newRuntimeFixture(t, elelemtest.NewScriptedDriver(elelemtest.Text("done")))
 	turnResult, err := fixture.runtime.Run(ctx, TurnRequest{
 		Message:   "open the session",
@@ -86,7 +88,7 @@ func TestRuntimeReplaysJobsFromSQLiteWithoutALiveRegistry(t *testing.T) {
 		ctx,
 		turnResult.SessionID,
 		job.ID,
-		api.ReadSessionJobOutputParams{Limit: ptrutil.Of(int32(2))},
+		api.ReadSessionJobOutputParams{Limit: &pageLimit},
 	)
 	require.NoError(t, err)
 	assert.Equal(t, api.JobOutputStateExited, output.State)
@@ -107,8 +109,8 @@ func TestRuntimeReplaysJobsFromSQLiteWithoutALiveRegistry(t *testing.T) {
 		turnResult.SessionID,
 		job.ID,
 		api.ReadSessionJobOutputParams{
-			Limit:  ptrutil.Of(int32(5)),
-			Stream: ptrutil.Of(api.ReadSessionJobOutputParamsStreamStdout),
+			Limit:  &streamPageLimit,
+			Stream: &stdoutStream,
 		},
 	)
 	require.NoError(t, err)

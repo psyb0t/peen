@@ -51,7 +51,8 @@ type SessionAPI interface {
 	) (*api.CancelResponse, error)
 }
 
-// SessionReplayAPI reads every SQLite-backed record needed to reconstruct a session.
+// SessionReplayAPI reads every SQLite-backed record needed to reconstruct a
+// session.
 type SessionReplayAPI interface {
 	ListSessionEvents(
 		ctx context.Context,
@@ -247,11 +248,12 @@ func messageRequestToTurnRequest(
 	}
 
 	input := TurnRequest{
-		Message:   request.Message,
-		Model:     optionalString(request.Model),
-		RequestID: requestID,
-		SessionID: sessionID,
-		Workspace: optionalString(request.Workspace),
+		Message:       request.Message,
+		Model:         optionalString(request.Model),
+		RequestID:     requestID,
+		SessionID:     sessionID,
+		Workspace:     optionalString(request.Workspace),
+		SourceEventID: request.SourceEventID,
 	}
 	if request.SystemPrompt != nil {
 		mode, err := promptModeFromMessageRequest(request.SystemPrompt)

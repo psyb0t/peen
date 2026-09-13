@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/psyb0t/common-go/utils/ptrutil"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/events"
@@ -477,10 +476,12 @@ func (r *AgentRunRegistry) Start(
 	}
 
 	runCtx, cancel := context.WithCancel(ctx)
+
 	runID := input.ID
 	if runID == uuid.Nil {
 		runID = uuid.New()
 	}
+
 	startedAt := input.StartedAt
 	if startedAt.IsZero() {
 		startedAt = time.Now().UTC()
@@ -525,7 +526,9 @@ func cloneAgentRunID(value *uuid.UUID) *uuid.UUID {
 		return nil
 	}
 
-	return ptrutil.Of(*value)
+	agentRunID := *value
+
+	return &agentRunID
 }
 
 func (r *AgentRunRegistry) runningCountLocked() int {

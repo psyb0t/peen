@@ -6,7 +6,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// SessionNotice is a durable report waiting for or already delivered to a session.
+// SessionNotice is a durable report waiting for or already delivered to a
+// session.
 type SessionNotice struct {
 	ID          uuid.UUID
 	SessionID   uuid.UUID

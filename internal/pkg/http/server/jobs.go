@@ -29,6 +29,7 @@ func (s *Server) ListSessionJobs(
 				),
 			}, nil
 		}
+
 		if errors.Is(err, commerr.ErrValidationFailed) {
 			return api.ListSessionJobs400JSONResponse{
 				ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(
@@ -70,6 +71,7 @@ func (s *Server) ReadSessionJobOutput(
 				),
 			}, nil
 		}
+
 		if errors.Is(err, commerr.ErrValidationFailed) {
 			return api.ReadSessionJobOutput400JSONResponse{
 				ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(
@@ -112,6 +114,7 @@ func (s *Server) ListSessionJobSignalRequests(
 				),
 			}, nil
 		}
+
 		if errors.Is(err, commerr.ErrValidationFailed) {
 			return api.ListSessionJobSignalRequests400JSONResponse{
 				ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(

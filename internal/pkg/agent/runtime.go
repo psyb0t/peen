@@ -606,6 +606,7 @@ func (r *Runtime) sessionJobs(
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create session job registry")
 	}
+
 	registry.SetObserver(durableJobObserver{store: r.store})
 
 	r.jobs[sessionID] = registry
@@ -674,7 +675,10 @@ func (r *Runtime) openPromptWithEvents(
 
 	pendingBatch, err := r.drainPendingEvents(ctx, opened.Session.ID)
 	if err != nil {
-		return turnOpening{}, ctxerrors.Wrap(err, "drain pending session events")
+		return turnOpening{}, ctxerrors.Wrap(
+			err,
+			"drain pending session events",
+		)
 	}
 
 	opening := turnOpening{
@@ -717,7 +721,7 @@ func (r *Runtime) openTurn(
 		return turn, lease, nil
 	}
 
-	if err := turn.emit(EventTypeSessionEvents, sessionEventsPayload{
+	if err := turn.emit(ctx, EventTypeSessionEvents, sessionEventsPayload{
 		Notices: opening.pendingBatch.Notices,
 		Dropped: opening.pendingBatch.Dropped,
 	}); err != nil {
@@ -738,8 +742,12 @@ func (r *Runtime) drainPendingEvents(
 ) (events.Batch, error) {
 	notices, err := r.store.DrainSessionNotices(ctx, sessionID)
 	if err != nil {
-		return events.Batch{}, ctxerrors.Wrap(err, "drain durable session notices")
+		return events.Batch{}, ctxerrors.Wrap(
+			err,
+			"drain durable session notices",
+		)
 	}
+
 	if r.eventBus != nil {
 		r.eventBus.Drain(sessionID)
 	}
@@ -759,7 +767,20 @@ func (r *Runtime) startTurn(
 		requestID = uuid.New()
 	}
 
-	turn := runtimeTurn{requestID: requestID, sink: input.OnEvent}
+	userMessageEvent, userMessageEventInput, err := newUserMessageEvent(
+		input.Message,
+		requestID,
+		input.SourceEventID,
+	)
+	if err != nil {
+		return nil, session.Lease{}, err
+	}
+
+	turn := runtimeTurn{
+		requestID:         requestID,
+		triggeringEventID: input.SourceEventID,
+		sink:              input.OnEvent,
+	}
 
 	messages := make([]session.MessageInput, 0, turnStartMessageCapacity)
 	if pendingEvents != "" {
@@ -782,6 +803,7 @@ func (r *Runtime) startTurn(
 			RequestID: requestID,
 			Workspace: workspace,
 			Messages:  messages,
+			Events:    []session.EventInput{userMessageEventInput},
 		},
 	)
 	if err != nil {
@@ -792,8 +814,42 @@ func (r *Runtime) startTurn(
 	// through turn.messages, so both checkpoint marks correctly start at zero.
 	turn.store = r.store
 	turn.lease = lease
+	turn.events = []Event{userMessageEvent}
+	turn.checkpointedEvents = len(turn.events)
 
 	return &turn, lease, nil
+}
+
+func newUserMessageEvent(
+	message string,
+	requestID uuid.UUID,
+	triggeringEventID uuid.UUID,
+) (Event, session.EventInput, error) {
+	payload := userMessagePayload{Message: message}
+	if triggeringEventID != uuid.Nil {
+		payload.SourceEventID = triggeringEventID.String()
+	}
+
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return Event{}, session.EventInput{}, ctxerrors.Wrap(
+			err,
+			"marshal accepted user message",
+		)
+	}
+
+	event := Event{
+		Type:              EventTypeUserMessageCreated,
+		Payload:           encoded,
+		RequestID:         requestID,
+		TriggeringEventID: triggeringEventID,
+	}
+
+	return event, session.EventInput{
+		RequestID:   requestID,
+		EventType:   event.Type,
+		PayloadJSON: string(encoded),
+	}, nil
 }
 
 func (r *Runtime) resolveInput(input TurnRequest) (string, string, error) {
@@ -1019,6 +1075,10 @@ func (r *Runtime) startLease(
 	ctx context.Context,
 	prepared *preparedTurn,
 ) error {
+	if err := prepared.turn.publishInitialEvents(); err != nil {
+		return ctxerrors.Wrap(err, "publish accepted user message")
+	}
+
 	if err := prepared.runLifecycleHook(
 		ctx,
 		r,
@@ -1038,7 +1098,11 @@ func (r *Runtime) startLease(
 		payload.OriginEventType = prepared.origin.EventType
 	}
 
-	if err := prepared.turn.emit(EventTypeTurnStarted, payload); err != nil {
+	if err := prepared.turn.emit(
+		ctx,
+		EventTypeTurnStarted,
+		payload,
+	); err != nil {
 		return ctxerrors.Wrap(err, "emit turn started")
 	}
 
@@ -1073,9 +1137,9 @@ func (r *Runtime) runProvider(
 	}
 
 	bindToolHooks(toolSet, prepared.toolHooks)
+
 	requestSettingsJSON, err := newModelAuditSettings(
 		prepared.model.Model,
-		true,
 		true,
 		r.maxToolRounds,
 		r.maxContextTokens,
@@ -1088,6 +1152,7 @@ func (r *Runtime) runProvider(
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "marshal root model request settings")
 	}
+
 	audit, err := newModelAuditRecorder(ctx, modelAuditOptions{
 		Store:               r.store,
 		SessionID:           prepared.opened.Session.ID,
@@ -1121,28 +1186,10 @@ func (r *Runtime) runProvider(
 		WithMaxConcurrentTools(r.maxConcurrentTools).
 		WithToolTimeout(r.toolTimeout).
 		WithMaxToolResultTokens(r.maxToolResultTokens).
-		OnRoundStart(func(callbackCtx context.Context, event *elelem.RoundEvent) error {
-			if err := prepared.onRoundStart(callbackCtx, event); err != nil {
-				return ctxerrors.Wrap(err, "checkpoint root round start")
-			}
-
-			return audit.onRoundStart(callbackCtx, event)
-		}).
+		OnRoundStart(prepared.rootRoundStartCallback(audit)).
 		OnRoundEnd(audit.onRoundEnd).
-		OnRetry(func(callbackCtx context.Context, attempt elelem.RetryAttempt) error {
-			if err := prepared.onRetry(callbackCtx, attempt); err != nil {
-				return ctxerrors.Wrap(err, "emit root provider retry")
-			}
-
-			return audit.onRetry(callbackCtx, attempt)
-		}).
-		OnAssistantMessage(func(callbackCtx context.Context, message elelem.Message) error {
-			if err := prepared.onAssistantMessage(callbackCtx, message); err != nil {
-				return ctxerrors.Wrap(err, "checkpoint root assistant message")
-			}
-
-			return audit.onAssistantMessage(callbackCtx, message)
-		}).
+		OnRetry(prepared.rootRetryCallback(audit)).
+		OnAssistantMessage(prepared.rootAssistantMessageCallback(audit)).
 		OnToolCallStart(prepared.onToolCallStart).
 		OnToolResult(prepared.onToolResult).
 		OnMessageInjection(prepared.onMessageInjection).
@@ -1166,7 +1213,9 @@ func (r *Runtime) runProvider(
 	}
 
 	response, err := request.Run(ctx)
-	if auditErr := audit.finish(context.WithoutCancel(ctx), response, err); auditErr != nil {
+
+	persistCtx := context.WithoutCancel(ctx)
+	if auditErr := audit.finish(persistCtx, response, err); auditErr != nil {
 		err = errors.Join(err, auditErr)
 	}
 
@@ -1186,6 +1235,42 @@ func (r *Runtime) runProvider(
 	}
 
 	return response, nil
+}
+
+func (p *preparedTurn) rootRoundStartCallback(
+	audit *modelAuditRecorder,
+) func(context.Context, *elelem.RoundEvent) error {
+	return func(ctx context.Context, event *elelem.RoundEvent) error {
+		if err := p.onRoundStart(ctx, event); err != nil {
+			return ctxerrors.Wrap(err, "checkpoint root round start")
+		}
+
+		return audit.onRoundStart(ctx, event)
+	}
+}
+
+func (p *preparedTurn) rootRetryCallback(
+	audit *modelAuditRecorder,
+) func(context.Context, elelem.RetryAttempt) error {
+	return func(ctx context.Context, attempt elelem.RetryAttempt) error {
+		if err := p.onRetry(ctx, attempt); err != nil {
+			return ctxerrors.Wrap(err, "emit root provider retry")
+		}
+
+		return audit.onRetry(ctx, attempt)
+	}
+}
+
+func (p *preparedTurn) rootAssistantMessageCallback(
+	audit *modelAuditRecorder,
+) func(context.Context, elelem.Message) error {
+	return func(ctx context.Context, message elelem.Message) error {
+		if err := p.onAssistantMessage(ctx, message); err != nil {
+			return ctxerrors.Wrap(err, "checkpoint root assistant message")
+		}
+
+		return audit.onAssistantMessage(ctx, message)
+	}
 }
 
 func observeModelRequest(
@@ -1395,29 +1480,19 @@ func (r *Runtime) completeLease(
 		return nil, ctxerrors.Wrap(err, "run turn-stop hooks")
 	}
 
-	if err := prepared.turn.emit(EventTypeTurnCompleted, turnCompletedPayload{
-		Model: prepared.modelReference,
-		Text:  response.Text,
-	}); err != nil {
+	if err := prepared.turn.emit(
+		ctx,
+		EventTypeTurnCompleted,
+		turnCompletedPayload{
+			Model: prepared.modelReference,
+			Text:  response.Text,
+		},
+	); err != nil {
 		return nil, ctxerrors.Wrap(err, "emit turn completed")
 	}
 
-	// Only the tail: everything before the last checkpoint is already durable,
-	// and writing it again would duplicate the whole turn.
-	pending := prepared.turn.pendingTranscript()
-
-	if err := r.store.FinalizeTurn(
-		context.WithoutCancel(ctx),
-		prepared.lease,
-		session.FinalizeTurnInput{
-			State:               models.TurnStateCompleted,
-			ContextSnapshotHash: &prepared.contextHash,
-			PromptSnapshotHash:  &prepared.promptHash,
-			Messages:            pending.messages,
-			Events:              pending.events,
-		},
-	); err != nil {
-		return nil, ctxerrors.Wrap(err, "finalize completed turn")
+	if err := r.finalizeCompletedLease(ctx, prepared); err != nil {
+		return nil, err
 	}
 
 	ctxscope.GetLogger(ctx).Info(
@@ -1443,6 +1518,30 @@ func (r *Runtime) completeLease(
 	}, nil
 }
 
+func (r *Runtime) finalizeCompletedLease(
+	ctx context.Context,
+	prepared *preparedTurn,
+) error {
+	// Only the tail: everything before the last checkpoint is already durable,
+	// and writing it again would duplicate the whole turn.
+	pending := prepared.turn.pendingTranscript()
+	if err := r.store.FinalizeTurn(
+		context.WithoutCancel(ctx),
+		prepared.lease,
+		session.FinalizeTurnInput{
+			State:               models.TurnStateCompleted,
+			ContextSnapshotHash: &prepared.contextHash,
+			PromptSnapshotHash:  &prepared.promptHash,
+			Messages:            pending.messages,
+			Events:              pending.events,
+		},
+	); err != nil {
+		return ctxerrors.Wrap(err, "finalize completed turn")
+	}
+
+	return nil
+}
+
 func (r *Runtime) finalizeFailedTurn(
 	ctx context.Context,
 	prepared *preparedTurn,
@@ -1465,6 +1564,7 @@ func (r *Runtime) finalizeFailedTurn(
 	}
 
 	eventErr := prepared.turn.emit(
+		context.WithoutCancel(ctx),
 		eventType,
 		turnFailedPayload{Reason: classification},
 	)
@@ -1516,10 +1616,10 @@ func (p *preparedTurn) scopedContext(ctx context.Context) context.Context {
 }
 
 func (p *preparedTurn) onRetry(
-	_ context.Context,
+	ctx context.Context,
 	attempt elelem.RetryAttempt,
 ) error {
-	return p.turn.emit(EventTypeProviderRetry, providerRetryPayload{
+	return p.turn.emit(ctx, EventTypeProviderRetry, providerRetryPayload{
 		Attempt: attempt.Attempt,
 		Reason:  attempt.Reason,
 		Status:  attempt.Status,
@@ -1607,7 +1707,7 @@ func (p *preparedTurn) onToolCallStart(
 		"argument_sha256", hash(string(call.Arguments)),
 	)
 
-	return p.turn.emit(EventTypeToolUse, toolUsePayload{
+	return p.turn.emit(ctx, EventTypeToolUse, toolUsePayload{
 		CallID:    call.CallID,
 		Name:      call.Name,
 		Arguments: call.Arguments,
@@ -1653,7 +1753,7 @@ func (p *preparedTurn) onToolResult(
 		return ctxerrors.Wrap(err, "checkpoint tool result")
 	}
 
-	return p.turn.emit(EventTypeToolResult, toolResultPayload{
+	return p.turn.emit(ctx, EventTypeToolResult, toolResultPayload{
 		CallID:  call.CallID,
 		Name:    call.Name,
 		Content: content,
@@ -1828,27 +1928,81 @@ func markIncomplete(messages []session.MessageInput) []session.MessageInput {
 	return marked
 }
 
-// emit records one event and forwards it to the caller's sink. Serialized so
-// concurrent tool hooks cannot interleave the durable event order or the sink
-// writes.
-func (t *runtimeTurn) emit(eventType string, payload any) error {
+// emit records one event and forwards it to the caller's sink. Durable
+// checkpoint order is serialized. The sink runs after that lock is released
+// because a sink may submit a queued user message for the active turn.
+func (t *runtimeTurn) emit(
+	ctx context.Context,
+	eventType string,
+	payload any,
+) error {
+	return t.emitForRequest(
+		ctx,
+		eventType,
+		payload,
+		t.requestID,
+		t.triggeringEventID,
+	)
+}
+
+func (t *runtimeTurn) emitForRequest(
+	ctx context.Context,
+	eventType string,
+	payload any,
+	requestID uuid.UUID,
+	triggeringEventID uuid.UUID,
+) error {
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return ctxerrors.Wrap(err, "marshal runtime event")
 	}
 
-	return t.record(Event{Type: eventType, Payload: encoded})
+	return t.record(ctx, Event{
+		Type:              eventType,
+		Payload:           encoded,
+		RequestID:         requestID,
+		TriggeringEventID: triggeringEventID,
+	})
 }
 
 // emitProtocol records one event exactly as it went on the wire, keeping the
 // essessey event name rather than translating it into a Peen name.
-func (t *runtimeTurn) emitProtocol(event essessey.Event) error {
-	return t.record(Event{Type: event.Event, Payload: event.Data})
+func (t *runtimeTurn) emitProtocol(
+	ctx context.Context,
+	event essessey.Event,
+) error {
+	return t.record(ctx, Event{
+		Type:              event.Event,
+		Payload:           event.Data,
+		RequestID:         t.requestID,
+		TriggeringEventID: t.triggeringEventID,
+	})
 }
 
-func (t *runtimeTurn) record(event Event) error {
+func (t *runtimeTurn) publishInitialEvents() error {
 	t.sinkMutex.Lock()
-	defer t.sinkMutex.Unlock()
+
+	t.mutex.Lock()
+	sink := t.sink
+	events := append([]Event(nil), t.events[:t.checkpointedEvents]...)
+	t.mutex.Unlock()
+	t.sinkMutex.Unlock()
+
+	if sink == nil {
+		return nil
+	}
+
+	for _, event := range events {
+		if err := sink(event); err != nil {
+			return ctxerrors.Wrap(err, "publish persisted runtime event")
+		}
+	}
+
+	return nil
+}
+
+func (t *runtimeTurn) record(ctx context.Context, event Event) error {
+	t.sinkMutex.Lock()
 
 	t.mutex.Lock()
 	sink := t.sink
@@ -1858,9 +2012,12 @@ func (t *runtimeTurn) record(event Event) error {
 	t.events = append(t.events, event)
 	t.mutex.Unlock()
 
-	if err := t.checkpoint(context.Background()); err != nil {
+	if err := t.checkpoint(context.WithoutCancel(ctx)); err != nil {
+		t.sinkMutex.Unlock()
+
 		return ctxerrors.Wrap(err, "persist runtime event")
 	}
+	t.sinkMutex.Unlock()
 
 	if sink == nil {
 		return nil
@@ -1917,8 +2074,13 @@ func (t *runtimeTurn) eventInputs(from int) []session.EventInput {
 
 	inputs := make([]session.EventInput, 0, len(pending))
 	for _, event := range pending {
+		requestID := event.RequestID
+		if requestID == uuid.Nil {
+			requestID = t.requestID
+		}
+
 		inputs = append(inputs, session.EventInput{
-			RequestID:   t.requestID,
+			RequestID:   requestID,
 			EventType:   event.Type,
 			PayloadJSON: string(event.Payload),
 		})

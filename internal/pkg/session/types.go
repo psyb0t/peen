@@ -259,8 +259,8 @@ type ListSessionNoticesOptions struct {
 	Offset int
 }
 
-// SessionNoticePage is one complete session-local notice page.
-type SessionNoticePage struct {
+// NoticePage is one complete session-local notice page.
+type NoticePage struct {
 	Items   []*models.SessionNotice
 	Limit   int
 	Offset  int

@@ -1,10 +1,11 @@
 # Architecture
 
-Peen is a durable coding-agent service. A client opens a WebSocket for a
-session, sends a task, and watches the model, tools, hooks, and child agents
-work. The same session can have several connected clients. Peen saves the work
-as it happens, so reconnecting after a client or process restart does not throw
-the conversation away.
+Peen is a durable coding-agent service. A client opens a WebSocket, sends a
+task for a named session, and watches the model, tools, hooks, and child agents
+work. The default socket is a global event feed. Clients build session tabs by
+filtering event metadata, or request one server-side session filter. Peen saves
+the work as it happens, so reconnecting after a client or process restart does
+not throw the conversation away.
 
 ```text
 WebSocket client
@@ -31,9 +32,9 @@ runs, or cancels work. It never accepts a user task or starts a turn. [The API
 reference](http-api.md) has the contract.
 
 [Aichteeteapee](https://github.com/psyb0t/aichteeteapee) supplies Peen's HTTP
-server, REST error envelope, and WShub WebSocket fan-out. The server maps every
-socket in a session to one WShub client identity, so each connected client sees
-the same live events.
+server, REST error envelope, and WShub WebSocket fan-out. Peen gives every
+socket its own server-controlled WShub identity. The server fans a session's
+events to global sockets and to sockets filtered for that session.
 
 ## One turn
 
@@ -65,14 +66,15 @@ therefore more specific. [Configuration](configuration.md#harness-layering) and
 [SQLite](https://sqlite.org/) is the sole source of truth for sessions, turns,
 messages, protocol events, context and prompt snapshots, compactions,
 child-agent runs and events, notices, process jobs and output, model runs, and
-individual provider rounds. Job signal requests are durable rows too. Each
-message has a direct immutable compaction
-link when a summary absorbs it. Later summaries link to their parent
-compaction and never rewrite that older message link, so a client can rebuild
-the summary tree at any time. Structured logs go to stdout and daily audit
-files. The audit log records safe identifiers and digests. The transcript holds
-the verbatim data, so keep its storage and every connected client as protected
-as the workspace itself.
+individual provider rounds. A model run stores the requested and returned model
+identity, connection name, non-secret settings, messages, text, thinking,
+usage, retries, cost, timing, and failure details. Job signal requests are
+durable rows too. Each message has a direct immutable compaction link when a
+summary absorbs it. Later summaries link to their parent compaction and never
+rewrite that older message link, so a client can rebuild the summary tree at any
+time. Structured logs go to stdout and daily audit files. The audit log records
+safe identifiers and digests. The transcript holds the verbatim data, so keep
+its storage and every connected client as protected as the workspace itself.
 
 ## Process lifecycle
 

@@ -24,6 +24,8 @@ const (
 
 	// EventTypeTurnStarted marks durable turn initialization.
 	EventTypeTurnStarted = "turn.started"
+	// EventTypeUserMessageCreated records a durably accepted user message.
+	EventTypeUserMessageCreated = "user_message.created"
 	// EventTypeUserMessageQueued records an accepted message waiting for an
 	// active turn's next eligible provider round.
 	EventTypeUserMessageQueued = "user_message.queued"
@@ -50,7 +52,7 @@ const (
 	EventTypeAgentRunStarted = "agent.run.started"
 	// EventTypeAgentRunTextDelta carries one child-agent text fragment.
 	EventTypeAgentRunTextDelta = "agent.run.text.delta"
-	// EventTypeAgentRunThinkingDelta carries one child-agent reasoning fragment.
+	// EventTypeAgentRunThinkingDelta carries a child-agent reasoning fragment.
 	EventTypeAgentRunThinkingDelta = "agent.run.thinking.delta"
 	// EventTypeAgentRunToolUse carries one tool call made by a child agent.
 	EventTypeAgentRunToolUse = "agent.run.tool.use"
@@ -136,10 +138,11 @@ const (
 // It stays transport-neutral so embedding callers and the live socket share
 // one validation and turn-conversion path.
 type MessageRequest struct {
-	Message      string               `json:"message"`
-	Model        *string              `json:"model,omitempty"`
-	SystemPrompt *MessageSystemPrompt `json:"systemPrompt,omitempty"`
-	Workspace    *string              `json:"workspace,omitempty"`
+	Message       string               `json:"message"`
+	Model         *string              `json:"model,omitempty"`
+	SystemPrompt  *MessageSystemPrompt `json:"systemPrompt,omitempty"`
+	Workspace     *string              `json:"workspace,omitempty"`
+	SourceEventID uuid.UUID            `json:"-"`
 }
 
 // MessageSystemPrompt is one non-persistent prompt override for a turn.
@@ -150,8 +153,10 @@ type MessageSystemPrompt struct {
 
 // Event is one transport-neutral visible agent event.
 type Event struct {
-	Type    string
-	Payload json.RawMessage
+	Type              string
+	Payload           json.RawMessage
+	RequestID         uuid.UUID
+	TriggeringEventID uuid.UUID
 }
 
 // EventSink observes events as Peen produces them. Returning an error aborts
@@ -176,6 +181,7 @@ type TurnRequest struct {
 	SystemPrompt     string
 	SystemPromptMode PromptMode
 	OnEvent          EventSink
+	SourceEventID    uuid.UUID
 
 	// Origin is set only for a turn an event started. A caller-sent message
 	// leaves it nil.
@@ -354,8 +360,9 @@ type HarnessResolver interface {
 // hooks for different calls run concurrently, so every mutation goes through
 // the mutex.
 type runtimeTurn struct {
-	requestID uuid.UUID
-	sink      EventSink
+	requestID         uuid.UUID
+	triggeringEventID uuid.UUID
+	sink              EventSink
 
 	// store and lease make the turn's own progress durable before it ends. A
 	// nil store disables checkpointing, which is what a unit test that never
@@ -389,8 +396,8 @@ type transcriptSink struct {
 	turn *runtimeTurn
 }
 
-func (s transcriptSink) Emit(_ context.Context, event essessey.Event) error {
-	if err := s.turn.emitProtocol(event); err != nil {
+func (s transcriptSink) Emit(ctx context.Context, event essessey.Event) error {
+	if err := s.turn.emitProtocol(ctx, event); err != nil {
 		return ctxerrors.Wrap(err, "record protocol event")
 	}
 

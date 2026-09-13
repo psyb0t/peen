@@ -2,15 +2,14 @@ package session
 
 import (
 	"context"
-	"errors"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
-	"gorm.io/gorm"
 )
 
 const interruptedJobFailureDetail = "process stopped before job completed"
@@ -30,6 +29,7 @@ func (s *Store) CreateJob(
 	if jobID == uuid.Nil {
 		jobID = s.newID()
 	}
+
 	startedAt := input.StartedAt
 	if startedAt.IsZero() {
 		startedAt = s.now()
@@ -50,6 +50,7 @@ func (s *Store) CreateJob(
 		ExitCode:   -1,
 		StartedAt:  startedAt,
 	}
+
 	if err := s.query.Transaction(func(tx *repositories.Query) error {
 		if _, err := s.findSessionWithQuery(ctx, tx, sessionID); err != nil {
 			return err
@@ -90,48 +91,38 @@ func (s *Store) AppendJobOutput(
 		return nil, err
 	}
 
-	lineID := input.ID
-	if lineID == uuid.Nil {
-		lineID = s.newID()
-	}
-	createdAt := input.CreatedAt
-	if createdAt.IsZero() {
-		createdAt = s.now()
-	} else {
-		createdAt = createdAt.UTC()
-	}
+	input = s.normalizeJobOutputInput(input)
 
 	var result *models.JobOutputLine
+
 	if err := s.query.Transaction(func(tx *repositories.Query) error {
 		job, err := s.findJobWithQuery(ctx, tx, sessionID, jobID)
 		if err != nil {
 			return err
 		}
+
 		if job.State != models.JobStateRunning {
-			return ctxerrors.Wrap(commerr.ErrInvalidState, "job output after terminal state")
+			return ctxerrors.Wrap(
+				commerr.ErrInvalidState,
+				"job output after terminal state",
+			)
 		}
 
 		line := tx.JobOutputLine
-		latest, err := line.WithContext(ctx).
-			Where(line.JobID.Eq(jobID)).
-			Order(line.Sequence.Desc(), line.ID.Desc()).
-			First()
 
-		sequence := int64(1)
-		if err == nil {
-			sequence = latest.Sequence + 1
-		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		sequence, err := nextJobOutputSequence(ctx, tx, jobID)
+		if err != nil {
 			return ctxerrors.Wrap(err, "find latest job output line")
 		}
 
 		result = &models.JobOutputLine{
-			ID:        lineID,
+			ID:        input.ID,
 			SessionID: sessionID,
 			JobID:     jobID,
 			Sequence:  sequence,
 			Stream:    input.Stream,
 			Content:   input.Content,
-			CreatedAt: createdAt,
+			CreatedAt: input.CreatedAt,
 		}
 		if err := line.WithContext(ctx).Create(result); err != nil {
 			return ctxerrors.Wrap(err, "create job output line")
@@ -145,6 +136,42 @@ func (s *Store) AppendJobOutput(
 	return result, nil
 }
 
+func nextJobOutputSequence(
+	ctx context.Context,
+	query *repositories.Query,
+	jobID uuid.UUID,
+) (int64, error) {
+	line := query.JobOutputLine
+
+	return nextSequence(func() (int64, error) {
+		latest, err := line.WithContext(ctx).
+			Where(line.JobID.Eq(jobID)).
+			Order(line.Sequence.Desc(), line.ID.Desc()).
+			First()
+		if err != nil {
+			return 0, ctxerrors.Wrap(err, "query latest job output line")
+		}
+
+		return latest.Sequence, nil
+	})
+}
+
+func (s *Store) normalizeJobOutputInput(
+	input AppendJobOutputInput,
+) AppendJobOutputInput {
+	if input.ID == uuid.Nil {
+		input.ID = s.newID()
+	}
+
+	if input.CreatedAt.IsZero() {
+		input.CreatedAt = s.now()
+	} else {
+		input.CreatedAt = input.CreatedAt.UTC()
+	}
+
+	return input
+}
+
 // FinalizeJob records a terminal process result exactly once.
 func (s *Store) FinalizeJob(
 	ctx context.Context,
@@ -153,52 +180,104 @@ func (s *Store) FinalizeJob(
 	input FinalizeJobInput,
 ) (*models.Job, error) {
 	if !isJobTerminalState(input.State) {
-		return nil, ctxerrors.Wrap(commerr.ErrValidationFailed, "job terminal state")
+		return nil, ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"job terminal state",
+		)
 	}
 
 	var result *models.Job
+
 	if err := s.query.Transaction(func(tx *repositories.Query) error {
-		job, err := s.findJobWithQuery(ctx, tx, sessionID, jobID)
-		if err != nil {
-			return err
-		}
-		if job.State != models.JobStateRunning {
-			return ctxerrors.Wrap(commerr.ErrInvalidState, "job is not running")
-		}
-
-		now := s.now()
-		repository := tx.Job
-		updated, err := repository.WithContext(ctx).
-			Where(
-				repository.ID.Eq(jobID),
-				repository.SessionID.Eq(sessionID),
-				repository.State.Eq(string(models.JobStateRunning)),
-			).
-			UpdateSimple(
-				repository.State.Value(string(input.State)),
-				repository.ExitCode.Value(input.ExitCode),
-				repository.FailureDetail.Value(input.FailureDetail),
-				repository.EndedAt.Value(now),
-			)
-		if err != nil {
-			return ctxerrors.Wrap(err, "finalize job")
-		}
-		if updated.RowsAffected != 1 {
-			return ctxerrors.Wrap(commerr.ErrInvalidState, "job terminal update")
+		finalized, finalizeErr := s.finalizeJobInTransaction(
+			ctx,
+			tx,
+			sessionID,
+			jobID,
+			input,
+		)
+		if finalizeErr == nil {
+			result = finalized
 		}
 
-		job.State = input.State
-		job.ExitCode = input.ExitCode
-		job.FailureDetail = input.FailureDetail
-		job.EndedAt = &now
-		result = job
-
-		return nil
+		return finalizeErr
 	}); err != nil {
 		return nil, ctxerrors.Wrap(err, "finalize durable job")
 	}
 
 	return result, nil
+}
+
+func (s *Store) finalizeJobInTransaction(
+	ctx context.Context,
+	query *repositories.Query,
+	sessionID uuid.UUID,
+	jobID uuid.UUID,
+	input FinalizeJobInput,
+) (*models.Job, error) {
+	job, err := s.findJobWithQuery(ctx, query, sessionID, jobID)
+	if err != nil {
+		return nil, err
+	}
+
+	if job.State != models.JobStateRunning {
+		return nil, ctxerrors.Wrap(
+			commerr.ErrInvalidState,
+			"job is not running",
+		)
+	}
+
+	now := s.now()
+	if err := updateJobFinalization(
+		ctx,
+		query,
+		sessionID,
+		jobID,
+		input,
+		now,
+	); err != nil {
+		return nil, err
+	}
+
+	job.State = input.State
+	job.ExitCode = input.ExitCode
+	job.FailureDetail = input.FailureDetail
+	job.EndedAt = &now
+
+	return job, nil
+}
+
+func updateJobFinalization(
+	ctx context.Context,
+	query *repositories.Query,
+	sessionID uuid.UUID,
+	jobID uuid.UUID,
+	input FinalizeJobInput,
+	endedAt time.Time,
+) error {
+	repository := query.Job
+
+	updated, err := repository.WithContext(ctx).
+		Where(
+			repository.ID.Eq(jobID),
+			repository.SessionID.Eq(sessionID),
+			repository.State.Eq(string(models.JobStateRunning)),
+		).
+		UpdateSimple(
+			repository.State.Value(string(input.State)),
+			repository.ExitCode.Value(input.ExitCode),
+			repository.FailureDetail.Value(input.FailureDetail),
+			repository.EndedAt.Value(endedAt),
+		)
+	if err != nil {
+		return ctxerrors.Wrap(err, "finalize job")
+	}
+
+	if updated.RowsAffected != 1 {
+		return ctxerrors.Wrap(commerr.ErrInvalidState, "job terminal update")
+	}
+
+	return nil
 }
 
 // RecordJobSignal stores every accepted and no-op signal request.
@@ -216,6 +295,7 @@ func (s *Store) RecordJobSignal(
 	if requestID == uuid.Nil {
 		requestID = s.newID()
 	}
+
 	requestedAt := input.RequestedAt
 	if requestedAt.IsZero() {
 		requestedAt = s.now()
@@ -224,11 +304,13 @@ func (s *Store) RecordJobSignal(
 	}
 
 	var result *models.JobSignalRequest
+
 	if err := s.query.Transaction(func(tx *repositories.Query) error {
 		job, err := s.findJobWithQuery(ctx, tx, sessionID, jobID)
 		if err != nil {
 			return err
 		}
+
 		result = &models.JobSignalRequest{
 			ID:             requestID,
 			SessionID:      sessionID,
@@ -238,7 +320,8 @@ func (s *Store) RecordJobSignal(
 			StateAtRequest: job.State,
 			RequestedAt:    requestedAt,
 		}
-		if err := tx.JobSignalRequest.WithContext(ctx).Create(result); err != nil {
+		if err := tx.JobSignalRequest.WithContext(ctx).
+			Create(result); err != nil {
 			return ctxerrors.Wrap(err, "create job signal request")
 		}
 
@@ -265,6 +348,8 @@ func (s *Store) GetJob(
 }
 
 // ListJobs returns a stable newest-first session-local process-job page.
+//
+//nolint:dupl // The generated Job query has a distinct typed builder.
 func (s *Store) ListJobs(
 	ctx context.Context,
 	sessionID uuid.UUID,
@@ -274,39 +359,41 @@ func (s *Store) ListJobs(
 	if err != nil {
 		return nil, err
 	}
+
 	if _, err := s.findSession(ctx, sessionID); err != nil {
 		return nil, ctxerrors.Wrap(err, "find session for job listing")
 	}
 
 	job := s.query.Job
+
 	query := job.WithContext(ctx).Where(job.SessionID.Eq(sessionID))
 	if options.State != nil {
 		query = query.Where(job.State.Eq(string(*options.State)))
 	}
 
-	items, err := query.
-		Order(job.StartedAt.Desc(), job.ID.Desc()).
-		Offset(options.Offset).
-		Limit(options.Limit).
-		Find()
-	if err != nil {
-		return nil, ctxerrors.Wrap(err, "list jobs")
-	}
+	page := readPage{limit: options.Limit, offset: options.Offset}
 
-	probe, err := query.
-		Order(job.StartedAt.Desc(), job.ID.Desc()).
-		Offset(options.Offset + options.Limit).
-		Limit(1).
-		Find()
+	items, hasMore, err := listReadPage(
+		page,
+		func(offset, limit int) ([]*models.Job, error) {
+			return query.
+				Order(job.StartedAt.Desc(), job.ID.Desc()).
+				Offset(offset).
+				Limit(limit).
+				Find()
+		},
+		"list jobs",
+		"probe job page continuation",
+	)
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "probe job page continuation")
+		return nil, err
 	}
 
 	return &JobPage{
 		Items:   items,
 		Limit:   options.Limit,
 		Offset:  options.Offset,
-		HasMore: len(probe) > 0,
+		HasMore: hasMore,
 	}, nil
 }
 
@@ -328,6 +415,7 @@ func (s *Store) ListJobOutput(
 	}
 
 	line := s.query.JobOutputLine
+
 	query := line.WithContext(ctx).
 		Where(
 			line.SessionID.Eq(sessionID),
@@ -363,6 +451,8 @@ func (s *Store) ListJobOutput(
 }
 
 // ListJobSignalRequests returns every durable request to signal one job.
+//
+//nolint:dupl // Generated signal request query has a distinct typed builder.
 func (s *Store) ListJobSignalRequests(
 	ctx context.Context,
 	sessionID uuid.UUID,
@@ -387,14 +477,16 @@ func (s *Store) ListJobSignalRequests(
 		).
 		Order(request.RequestedAt.Asc(), request.ID.Asc())
 
-	items, err := query.Offset(page.offset).Limit(page.limit).Find()
+	items, hasMore, err := listReadPage(
+		page,
+		func(offset, limit int) ([]*models.JobSignalRequest, error) {
+			return query.Offset(offset).Limit(limit).Find()
+		},
+		"list job signal requests",
+		"probe job signal request page",
+	)
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "list job signal requests")
-	}
-
-	probe, err := query.Offset(page.offset + page.limit).Limit(1).Find()
-	if err != nil {
-		return nil, ctxerrors.Wrap(err, "probe job signal request page")
+		return nil, err
 	}
 
 	return &JobSignalRequestPage{
@@ -402,7 +494,7 @@ func (s *Store) ListJobSignalRequests(
 		Items:   items,
 		Limit:   page.limit,
 		Offset:  page.offset,
-		HasMore: len(probe) > 0,
+		HasMore: hasMore,
 	}, nil
 }
 
@@ -410,8 +502,10 @@ func (s *Store) ListJobSignalRequests(
 // terminal. The original child process cannot be safely reattached.
 func (s *Store) RecoverInterruptedJobs(ctx context.Context) (int, error) {
 	var recovered int
+
 	if err := s.query.Transaction(func(tx *repositories.Query) error {
 		job := tx.Job
+
 		running, err := job.WithContext(ctx).
 			Where(job.State.Eq(string(models.JobStateRunning))).
 			Find()
@@ -433,6 +527,7 @@ func (s *Store) RecoverInterruptedJobs(ctx context.Context) (int, error) {
 			if updateErr != nil {
 				return ctxerrors.Wrap(updateErr, "mark job interrupted")
 			}
+
 			if updated.RowsAffected == 1 {
 				recovered++
 			}
@@ -465,6 +560,7 @@ func validateJobOutputInput(
 	if sessionID == uuid.Nil || jobID == uuid.Nil {
 		return ctxerrors.Wrap(commerr.ErrRequiredFieldNotSet, "job output")
 	}
+
 	if input.Stream != models.JobOutputStreamStdout &&
 		input.Stream != models.JobOutputStreamStderr {
 		return ctxerrors.Wrap(commerr.ErrValidationFailed, "job output stream")
@@ -481,9 +577,12 @@ func validateJobSignalInput(
 	if sessionID == uuid.Nil || jobID == uuid.Nil {
 		return ctxerrors.Wrap(commerr.ErrRequiredFieldNotSet, "job signal")
 	}
-	if input.Signal != models.JobSignalStop && input.Signal != models.JobSignalKill {
+
+	if input.Signal != models.JobSignalStop &&
+		input.Signal != models.JobSignalKill {
 		return ctxerrors.Wrap(commerr.ErrValidationFailed, "job signal")
 	}
+
 	return nil
 }
 
@@ -502,10 +601,12 @@ func normalizeJobListOptions(options ListJobsOptions) (ListJobsOptions, error) {
 	if options.Limit == 0 {
 		options.Limit = DefaultPageLimit
 	}
+
 	if options.Limit < 1 || options.Limit > MaximumPageLimit ||
 		options.Offset < 0 {
 		return ListJobsOptions{}, ctxerrors.Wrap(ErrInvalidPage, "job page")
 	}
+
 	if options.State != nil && !isJobState(*options.State) {
 		return ListJobsOptions{}, ctxerrors.Wrap(ErrInvalidPage, "job state")
 	}
@@ -519,12 +620,19 @@ func normalizeJobOutputOptions(
 	if options.Limit == 0 {
 		options.Limit = DefaultPageLimit
 	}
+
 	if options.Limit < 1 || options.Limit > MaximumPageLimit ||
 		options.Cursor < 0 {
-		return ListJobOutputOptions{}, ctxerrors.Wrap(ErrInvalidPage, "job output page")
+		return ListJobOutputOptions{}, ctxerrors.Wrap(
+			ErrInvalidPage,
+			"job output page",
+		)
 	}
-	if options.Stream != nil && *options.Stream != models.JobOutputStreamStdout &&
-		*options.Stream != models.JobOutputStreamStderr {
+
+	invalidStream := options.Stream != nil &&
+		*options.Stream != models.JobOutputStreamStdout &&
+		*options.Stream != models.JobOutputStreamStderr
+	if invalidStream {
 		return ListJobOutputOptions{}, ctxerrors.Wrap(
 			ErrInvalidPage,
 			"job output stream",

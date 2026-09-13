@@ -508,38 +508,37 @@ func (c *compactor) callModel(
 	prompt := elelem.NewPrompt().
 		WithSystem(c.options.Prompt).
 		UserText(transcript)
-	requestSettingsJSON, err := newModelAuditSettings(
-		model.Model,
-		false,
-		true,
-		0,
-		0,
-		c.options.MaxOutputTokens,
-		0,
-		0,
-		0,
-		c.options.Timeout,
-	)
+
+	audit, err := c.newCompactionAudit(ctx, model)
 	if err != nil {
 		return compactionSummary{}, ctxerrors.Wrap(
 			err,
-			"marshal compaction model request settings",
+			"start compaction model audit",
 		)
 	}
-	audit, err := newModelAuditRecorder(ctx, modelAuditOptions{
-		Store:               c.options.Store,
-		SessionID:           c.sessionID,
-		TurnID:              c.turnID,
-		Stage:               models.ModelRunStageCompaction,
-		ModelReference:      c.options.ModelReference,
-		Model:               model.Model,
-		RequestSettingsJSON: requestSettingsJSON,
-		Now:                 time.Now,
-	})
+
+	response, err := c.runCompactionRequest(ctx, model, prompt, audit)
 	if err != nil {
-		return compactionSummary{}, ctxerrors.Wrap(err, "start compaction model audit")
+		return compactionSummary{}, ctxerrors.Wrap(
+			err,
+			"run compaction request",
+		)
 	}
 
+	return compactionSummary{
+		Text:         response.Text,
+		ModelID:      response.Model,
+		InputTokens:  response.Usage.Prompt,
+		OutputTokens: response.Usage.Completion,
+	}, nil
+}
+
+func (c *compactor) runCompactionRequest(
+	ctx context.Context,
+	model ModelClient,
+	prompt elelem.Prompt,
+	audit *modelAuditRecorder,
+) (*elelem.Response, error) {
 	startedAt := time.Now()
 	response, err := elelem.NewRequest(model.Client).
 		WithModel(model.Model).
@@ -552,7 +551,9 @@ func (c *compactor) callModel(
 		OnRetry(audit.onRetry).
 		PreMaxTokensReached(rejectCompactionBudget).
 		Run(ctx)
-	if auditErr := audit.finish(context.WithoutCancel(ctx), response, err); auditErr != nil {
+
+	persistCtx := context.WithoutCancel(ctx)
+	if auditErr := audit.finish(persistCtx, response, err); auditErr != nil {
 		err = errors.Join(err, auditErr)
 	}
 
@@ -567,19 +568,46 @@ func (c *compactor) callModel(
 		err,
 	)
 
+	return response, err
+}
+
+func (c *compactor) newCompactionAudit(
+	ctx context.Context,
+	model ModelClient,
+) (*modelAuditRecorder, error) {
+	settings, err := newModelAuditSettings(
+		model.Model,
+		false,
+		0,
+		0,
+		c.options.MaxOutputTokens,
+		0,
+		0,
+		0,
+		c.options.Timeout,
+	)
 	if err != nil {
-		return compactionSummary{}, ctxerrors.Wrap(
+		return nil, ctxerrors.Wrap(
 			err,
-			"run compaction request",
+			"marshal compaction model request settings",
 		)
 	}
 
-	return compactionSummary{
-		Text:         response.Text,
-		ModelID:      response.Model,
-		InputTokens:  response.Usage.Prompt,
-		OutputTokens: response.Usage.Completion,
-	}, nil
+	audit, err := newModelAuditRecorder(ctx, modelAuditOptions{
+		Store:               c.options.Store,
+		SessionID:           c.sessionID,
+		TurnID:              c.turnID,
+		Stage:               models.ModelRunStageCompaction,
+		ModelReference:      c.options.ModelReference,
+		Model:               model.Model,
+		RequestSettingsJSON: settings,
+		Now:                 time.Now,
+	})
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "create compaction model audit")
+	}
+
+	return audit, nil
 }
 
 // rejectCompactionBudget refuses to compact the summarizer's own input.

@@ -144,7 +144,10 @@ func jobOutputStreamToModel(
 	case tools.JobStreamStderr:
 		return models.JobOutputStreamStderr, nil
 	default:
-		return "", ctxerrors.Wrap(commerr.ErrValidationFailed, "job output stream")
+		return "", ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"job output stream",
+		)
 	}
 }
 

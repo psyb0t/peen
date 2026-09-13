@@ -422,10 +422,11 @@ func sendWebSocketTurn(
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, connection.Close()) })
 
-	require.NoError(t, connection.WriteJSON(dabluveees.NewEvent(
+	inbound := dabluveees.NewEvent(
 		serviceTestWebSocketMessageSend,
 		map[string]string{"message": message},
-	)))
+	).SetMetadata(serviceTestWebSocketSessionID, sessionID.String())
+	require.NoError(t, connection.WriteJSON(inbound))
 	deadline := time.Now().Add(serviceTestRequestTimeout)
 	for {
 		require.NoError(t, connection.SetReadDeadline(deadline))

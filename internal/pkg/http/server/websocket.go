@@ -29,30 +29,10 @@ type webSocketMessageFailure struct {
 	Message string `json:"message"`
 }
 
+const webSocketSessionIDVersion uuid.Version = 4
+
 func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	sessionID, found := s.requireWebSocketSession(w, r)
-	if !found {
-		return
-	}
-
-	request := r.Clone(r.Context())
-	query := request.URL.Query()
-	query.Del(webSocketClientIDParameter)
-	request.URL.RawQuery = query.Encode()
-	request.Header.Set(aichteeteapee.HeaderNameXClientID, sessionID.String())
-
-	ctxscope.GetLogger(r.Context()).Debug(
-		"websocket connection accepted",
-		"session_id", sessionID.String(),
-	)
-	s.webSocketUpgradeHandler.ServeHTTP(w, request)
-}
-
-func (s *Server) requireWebSocketSession(
-	w http.ResponseWriter,
-	r *http.Request,
-) (uuid.UUID, bool) {
-	sessionID, err := webSocketSessionID(r)
+	filterSessionID, hasSessionFilter, err := webSocketSessionFilter(r)
 	if err != nil {
 		logHTTPRejection(
 			r.Context(),
@@ -67,44 +47,66 @@ func (s *Server) requireWebSocketSession(
 			invalidSessionIDMessage,
 		)
 
-		return uuid.Nil, false
+		return
 	}
 
-	if _, err := s.deps.Runtime.Session(r.Context(), sessionID); err != nil {
-		if errors.Is(err, commerr.ErrNotFound) {
-			ctxscope.GetLogger(r.Context()).Debug(
-				"websocket pending session accepted",
-				"session_id", sessionID.String(),
-			)
+	request := r.Clone(r.Context())
+	query := request.URL.Query()
+	query.Del(webSocketClientIDParameter)
+	query.Del(webSocketSessionIDParameter)
+	request.URL.RawQuery = query.Encode()
+	request.Header.Del(aichteeteapee.HeaderNameXClientID)
 
-			return sessionID, true
-		}
-
-		wrapped := ctxerrors.Wrap(err, "read websocket session")
-		ctxscope.GetLogger(r.Context()).Error(
-			"websocket session lookup failed",
-			"err", wrapped,
+	filteredClientID := uuid.Nil
+	if hasSessionFilter {
+		filteredClientID = uuid.New()
+		request.Header.Set(
+			aichteeteapee.HeaderNameXClientID,
+			filteredClientID.String(),
 		)
-		writeAPIError(
-			w,
-			http.StatusInternalServerError,
-			aichteeteapee.ErrorCodeInternalServerError,
-			internalServerErrorMessage,
-		)
-
-		return uuid.Nil, false
+		s.setWebSocketFilter(filteredClientID, filterSessionID)
 	}
 
-	return sessionID, true
+	logger := ctxscope.GetLogger(r.Context())
+	if !hasSessionFilter {
+		logger.Debug("websocket global connection accepted")
+	} else {
+		logger.Debug(
+			"websocket filtered connection accepted",
+			"session_id", filterSessionID.String(),
+		)
+	}
+
+	s.webSocketUpgradeHandler.ServeHTTP(w, request)
+
+	if hasSessionFilter &&
+		s.webSocketHub.GetClient(filteredClientID) == nil {
+		s.clearWebSocketFilter(filteredClientID)
+	}
 }
 
-func webSocketSessionID(r *http.Request) (uuid.UUID, error) {
-	sessionID, err := uuid.Parse(r.URL.Query().Get(webSocketSessionIDParameter))
-	if err != nil {
-		return uuid.Nil, ctxerrors.Wrap(err, "parse websocket session id")
+func webSocketSessionFilter(r *http.Request) (uuid.UUID, bool, error) {
+	values, found := r.URL.Query()[webSocketSessionIDParameter]
+	if !found {
+		return uuid.Nil, false, nil
 	}
 
-	return sessionID, nil
+	if len(values) != 1 {
+		return uuid.Nil, false, ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"websocket session filter",
+		)
+	}
+
+	sessionID, err := parseWebSocketSessionID(values[0])
+	if err != nil {
+		return uuid.Nil, false, ctxerrors.Wrap(
+			err,
+			"parse websocket session filter",
+		)
+	}
+
+	return sessionID, true, nil
 }
 
 func (s *Server) handleWebSocketMessage(
@@ -112,17 +114,17 @@ func (s *Server) handleWebSocketMessage(
 	client *wshub.Client,
 	event *dabluveees.Event,
 ) error {
-	sessionID := client.ID()
 	requestID := uuid.New()
-	ctx := webSocketContext(s.deps.ServiceContext(), sessionID, requestID)
-	logger := ctxscope.GetLogger(ctx)
 
-	request, err := decodeWebSocketMessage(event.Data)
+	sessionID, err := webSocketEventSessionID(event)
 	if err != nil {
-		wrapped := ctxerrors.Wrap(err, "decode websocket message")
-		logger.Warn("websocket message rejected", "err", wrapped)
-		s.broadcastWebSocketFailure(
-			sessionID,
+		ctxscope.GetLogger(s.deps.ServiceContext()).Warn(
+			"websocket message rejected",
+			"err", ctxerrors.Wrap(err, "read websocket session id"),
+		)
+		s.broadcastWebSocketFailureToClient(
+			client.ID(),
+			nil,
 			requestID,
 			event.ID,
 			aichteeteapee.ErrorCodeValidationFailed,
@@ -131,6 +133,29 @@ func (s *Server) handleWebSocketMessage(
 
 		return nil
 	}
+
+	ctx := webSocketContext(s.deps.ServiceContext(), sessionID, requestID)
+	logger := ctxscope.GetLogger(ctx)
+
+	request, err := decodeWebSocketMessage(event.Data)
+	if err != nil {
+		wrapped := ctxerrors.Wrap(err, "decode websocket message")
+		failedSessionID := sessionID
+
+		logger.Warn("websocket message rejected", "err", wrapped)
+		s.broadcastWebSocketFailureToClient(
+			client.ID(),
+			&failedSessionID,
+			requestID,
+			event.ID,
+			aichteeteapee.ErrorCodeValidationFailed,
+			webSocketMessageRejectedMessage,
+		)
+
+		return nil
+	}
+
+	request.SourceEventID = event.ID
 
 	logger.Debug(
 		"websocket agent message started",
@@ -141,6 +166,48 @@ func (s *Server) handleWebSocketMessage(
 	go s.runWebSocketMessage(ctx, request, sessionID, requestID, event.ID)
 
 	return nil
+}
+
+func webSocketEventSessionID(event *dabluveees.Event) (uuid.UUID, error) {
+	if event == nil || event.Metadata == nil {
+		return uuid.Nil, ctxerrors.Wrap(
+			commerr.ErrRequiredFieldNotSet,
+			"websocket event metadata session id",
+		)
+	}
+
+	value, found := event.Metadata.Get(webSocketMetadataSessionID)
+	if !found {
+		return uuid.Nil, ctxerrors.Wrap(
+			commerr.ErrRequiredFieldNotSet,
+			"websocket event metadata session id",
+		)
+	}
+
+	sessionText, ok := value.(string)
+	if !ok {
+		return uuid.Nil, ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"websocket event metadata session id",
+		)
+	}
+
+	return parseWebSocketSessionID(sessionText)
+}
+
+func parseWebSocketSessionID(value string) (uuid.UUID, error) {
+	sessionID, err := uuid.Parse(value)
+	if err != nil || sessionID == uuid.Nil ||
+		sessionID.Variant() != uuid.RFC4122 ||
+		sessionID.Version() != webSocketSessionIDVersion ||
+		sessionID.String() != value {
+		return uuid.Nil, ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"websocket session id",
+		)
+	}
+
+	return sessionID, nil
 }
 
 func (s *Server) runWebSocketMessage(
@@ -248,8 +315,8 @@ func (s *Server) broadcastWebSocketMessageCompletion(
 	triggeringEventID uuid.UUID,
 	queued bool,
 ) {
-	s.webSocketHub.BroadcastToClients(
-		[]uuid.UUID{sessionID},
+	s.broadcastWebSocketEvent(
+		sessionID,
 		newWebSocketEvent(
 			webSocketMessageCompletedEventType,
 			webSocketMessageResult{Queued: queued},
@@ -266,8 +333,16 @@ func (s *Server) broadcastWebSocketAgentEvent(
 	triggeringEventID uuid.UUID,
 	event agent.Event,
 ) {
-	s.webSocketHub.BroadcastToClients(
-		[]uuid.UUID{sessionID},
+	if event.RequestID != uuid.Nil {
+		requestID = event.RequestID
+	}
+
+	if event.TriggeringEventID != uuid.Nil {
+		triggeringEventID = event.TriggeringEventID
+	}
+
+	s.broadcastWebSocketEvent(
+		sessionID,
 		newWebSocketEvent(
 			dabluveees.EventType(event.Type),
 			event.Payload,
@@ -285,8 +360,8 @@ func (s *Server) broadcastWebSocketFailure(
 	code aichteeteapee.ErrorCode,
 	message string,
 ) {
-	s.webSocketHub.BroadcastToClients(
-		[]uuid.UUID{sessionID},
+	s.broadcastWebSocketEvent(
+		sessionID,
 		newWebSocketEvent(
 			webSocketMessageFailedEventType,
 			webSocketMessageFailure{
@@ -298,6 +373,83 @@ func (s *Server) broadcastWebSocketFailure(
 			triggeringEventID,
 		),
 	)
+}
+
+func (s *Server) broadcastWebSocketFailureToClient(
+	clientID uuid.UUID,
+	sessionID *uuid.UUID,
+	requestID uuid.UUID,
+	triggeringEventID uuid.UUID,
+	code aichteeteapee.ErrorCode,
+	message string,
+) {
+	event := dabluveees.NewEvent(
+		webSocketMessageFailedEventType,
+		webSocketMessageFailure{Code: code, Message: message},
+	).SetMetadata(webSocketMetadataRequestID, requestID.String()).
+		SetTriggeredBy(triggeringEventID)
+	if sessionID != nil {
+		event = event.SetMetadata(
+			webSocketMetadataSessionID,
+			sessionID.String(),
+		)
+	}
+
+	s.webSocketHub.BroadcastToClients([]uuid.UUID{clientID}, &event)
+}
+
+func (s *Server) broadcastWebSocketEvent(
+	sessionID uuid.UUID,
+	event *dabluveees.Event,
+) {
+	clientIDs := s.webSocketClientsFor(sessionID)
+	if len(clientIDs) == 0 {
+		return
+	}
+
+	s.webSocketHub.BroadcastToClients(clientIDs, event)
+}
+
+func (s *Server) setWebSocketFilter(
+	clientID uuid.UUID,
+	sessionID uuid.UUID,
+) {
+	s.webSocketFilterMutex.Lock()
+	defer s.webSocketFilterMutex.Unlock()
+
+	s.webSocketFilters[clientID] = sessionID
+}
+
+func (s *Server) clearWebSocketFilter(clientID uuid.UUID) {
+	s.webSocketFilterMutex.Lock()
+	defer s.webSocketFilterMutex.Unlock()
+
+	delete(s.webSocketFilters, clientID)
+}
+
+func (s *Server) webSocketClientsFor(sessionID uuid.UUID) []uuid.UUID {
+	clients := s.webSocketHub.GetAllClients()
+	clientIDs := make([]uuid.UUID, 0, len(clients))
+
+	s.webSocketFilterMutex.Lock()
+	defer s.webSocketFilterMutex.Unlock()
+
+	for clientID := range s.webSocketFilters {
+		if _, active := clients[clientID]; !active {
+			delete(s.webSocketFilters, clientID)
+		}
+	}
+
+	for clientID := range clients {
+		filterSessionID, filtered := s.webSocketFilters[clientID]
+		if filtered && filterSessionID != sessionID {
+			continue
+		}
+
+		clientIDs = append(clientIDs, clientID)
+	}
+
+	return clientIDs
 }
 
 func decodeWebSocketMessage(

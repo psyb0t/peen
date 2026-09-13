@@ -4,6 +4,24 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.5.0 (2026-09-13)
+
+WebSocket delivery is now global by default. A client can build and switch
+conversation tabs from live event metadata while one connection remains open.
+
+- Breaking: connect to `GET /v1/ws` and put the client-generated canonical
+  session UUID in `metadata.sessionId` on every `message.send`. The old
+  `?sessionId=` parameter no longer selects the session for a message. It is
+  now an optional outbound filter for one connection.
+- Global sockets receive accepted events for every session. Clients that want
+  only one conversation may use the optional `?sessionId=` filter or filter
+  events locally by `metadata.sessionId`.
+- Fixes durable sequence allocation after database error mapping, so a
+  session's first notice, job-output line, and child-agent event persist and
+  replay correctly.
+- Updates the README and guides with the complete WebSocket frame, global-feed
+  model, durable model-call records, and known-session REST reads.
+
 ## v0.4.1 (2026-09-12)
 
 Fixes the release pipeline, which failed before any job ran. The pipeline now

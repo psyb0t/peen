@@ -21,7 +21,8 @@ const (
 	defaultModelCallResponseUsageJSON     = "{}"
 	defaultModelCallRetryAttemptsJSON     = "[]"
 
-	interruptedModelRunFailureDetail = "process stopped before model run completed"
+	interruptedModelRunFailureDetail = "process stopped before model run " +
+		"completed"
 )
 
 // CreateModelRun records a logical model invocation before any provider work
@@ -39,6 +40,7 @@ func (s *Store) CreateModelRun(
 	if runID == uuid.Nil {
 		runID = s.newID()
 	}
+
 	startedAt := input.StartedAt
 	if startedAt.IsZero() {
 		startedAt = s.now()
@@ -64,26 +66,17 @@ func (s *Store) CreateModelRun(
 	}
 
 	if err := s.query.Transaction(func(tx *repositories.Query) error {
-		if _, err := s.findSessionWithQuery(ctx, tx, sessionID); err != nil {
+		if err := s.validateRunParents(
+			ctx,
+			tx,
+			sessionID,
+			input.TurnID,
+			input.AgentRunID,
+			"model run",
+		); err != nil {
 			return err
 		}
-		turn := tx.Turn
-		if _, err := turn.WithContext(ctx).
-			Where(turn.ID.Eq(input.TurnID), turn.SessionID.Eq(sessionID)).
-			First(); err != nil {
-			return ctxerrors.Wrap(err, "find parent turn for model run")
-		}
-		if input.AgentRunID != nil {
-			agentRun := tx.AgentRun
-			if _, err := agentRun.WithContext(ctx).
-				Where(
-					agentRun.ID.Eq(*input.AgentRunID),
-					agentRun.SessionID.Eq(sessionID),
-				).
-				First(); err != nil {
-				return ctxerrors.Wrap(err, "find parent agent run for model run")
-			}
-		}
+
 		if err := tx.ModelRun.WithContext(ctx).Create(result); err != nil {
 			return ctxerrors.Wrap(err, "create model run")
 		}
@@ -104,21 +97,59 @@ func (s *Store) CreateModelCall(
 	modelRunID uuid.UUID,
 	input CreateModelCallInput,
 ) (*models.ModelCall, error) {
-	if err := validateCreateModelCallInput(sessionID, modelRunID, input); err != nil {
+	if err := validateCreateModelCallInput(
+		sessionID,
+		modelRunID,
+		input,
+	); err != nil {
 		return nil, err
 	}
 
+	result := s.newModelCall(sessionID, modelRunID, input)
+
+	if err := s.query.Transaction(func(tx *repositories.Query) error {
+		run, err := s.findModelRunWithQuery(ctx, tx, sessionID, modelRunID)
+		if err != nil {
+			return err
+		}
+
+		if run.State != models.ModelRunStateRunning {
+			return ctxerrors.Wrap(
+				commerr.ErrInvalidState,
+				"model call parent is not running",
+			)
+		}
+
+		if err := tx.ModelCall.WithContext(ctx).Create(result); err != nil {
+			return ctxerrors.Wrap(err, "create model call")
+		}
+
+		return nil
+	}); err != nil {
+		return nil, ctxerrors.Wrap(err, "create durable model call")
+	}
+
+	return result, nil
+}
+
+func (s *Store) newModelCall(
+	sessionID uuid.UUID,
+	modelRunID uuid.UUID,
+	input CreateModelCallInput,
+) *models.ModelCall {
 	callID := input.ID
 	if callID == uuid.Nil {
 		callID = s.newID()
 	}
+
 	startedAt := input.StartedAt
 	if startedAt.IsZero() {
 		startedAt = s.now()
 	} else {
 		startedAt = startedAt.UTC()
 	}
-	result := &models.ModelCall{
+
+	return &models.ModelCall{
 		ID:                  callID,
 		SessionID:           sessionID,
 		ModelRunID:          modelRunID,
@@ -131,25 +162,6 @@ func (s *Store) CreateModelCall(
 		RetryAttemptsJSON:   defaultModelCallRetryAttemptsJSON,
 		StartedAt:           startedAt,
 	}
-
-	if err := s.query.Transaction(func(tx *repositories.Query) error {
-		run, err := s.findModelRunWithQuery(ctx, tx, sessionID, modelRunID)
-		if err != nil {
-			return err
-		}
-		if run.State != models.ModelRunStateRunning {
-			return ctxerrors.Wrap(commerr.ErrInvalidState, "model call parent is not running")
-		}
-		if err := tx.ModelCall.WithContext(ctx).Create(result); err != nil {
-			return ctxerrors.Wrap(err, "create model call")
-		}
-
-		return nil
-	}); err != nil {
-		return nil, ctxerrors.Wrap(err, "create durable model call")
-	}
-
-	return result, nil
 }
 
 // RecordModelCallRetries checkpoints failed attempts while the provider round
@@ -170,15 +182,26 @@ func (s *Store) RecordModelCallRetries(
 		return err
 	}
 
-	call, err := s.findModelCallWithQuery(ctx, s.query, sessionID, modelRunID, modelCallID)
+	call, err := s.findModelCallWithQuery(
+		ctx,
+		s.query,
+		sessionID,
+		modelRunID,
+		modelCallID,
+	)
 	if err != nil {
 		return ctxerrors.Wrap(err, "find model call for retry record")
 	}
+
 	if call.State != models.ModelCallStateRunning {
-		return ctxerrors.Wrap(commerr.ErrInvalidState, "model call retry after terminal state")
+		return ctxerrors.Wrap(
+			commerr.ErrInvalidState,
+			"model call retry after terminal state",
+		)
 	}
 
 	repository := s.query.ModelCall
+
 	updated, err := repository.WithContext(ctx).
 		Where(
 			repository.ID.Eq(modelCallID),
@@ -193,8 +216,12 @@ func (s *Store) RecordModelCallRetries(
 	if err != nil {
 		return ctxerrors.Wrap(err, "checkpoint model call retries")
 	}
+
 	if updated.RowsAffected != 1 {
-		return ctxerrors.Wrap(commerr.ErrInvalidState, "model call retry checkpoint")
+		return ctxerrors.Wrap(
+			commerr.ErrInvalidState,
+			"model call retry checkpoint",
+		)
 	}
 
 	return nil
@@ -209,72 +236,143 @@ func (s *Store) FinalizeModelCall(
 	modelCallID uuid.UUID,
 	input FinalizeModelCallInput,
 ) (*models.ModelCall, error) {
-	if err := validateFinalizeModelCallInput(sessionID, modelRunID, modelCallID, input); err != nil {
+	if err := validateFinalizeModelCallInput(
+		sessionID,
+		modelRunID,
+		modelCallID,
+		input,
+	); err != nil {
 		return nil, err
 	}
 
 	var result *models.ModelCall
+
 	if err := s.query.Transaction(func(tx *repositories.Query) error {
-		call, err := s.findModelCallWithQuery(ctx, tx, sessionID, modelRunID, modelCallID)
-		if err != nil {
-			return err
-		}
-		if call.State != models.ModelCallStateRunning {
-			return ctxerrors.Wrap(commerr.ErrInvalidState, "model call is not running")
-		}
-
-		now := s.now()
-		repository := tx.ModelCall
-		updated, err := repository.WithContext(ctx).
-			Where(
-				repository.ID.Eq(modelCallID),
-				repository.SessionID.Eq(sessionID),
-				repository.ModelRunID.Eq(modelRunID),
-				repository.State.Eq(string(models.ModelCallStateRunning)),
-			).
-			UpdateSimple(
-				repository.State.Value(string(input.State)),
-				repository.ResponseMessageJSON.Value(input.ResponseMessageJSON),
-				repository.ResponseUsageJSON.Value(input.ResponseUsageJSON),
-				repository.RetryAttemptsJSON.Value(input.RetryAttemptsJSON),
-				repository.RetryAttemptCount.Value(input.RetryAttemptCount),
-				repository.PromptTokens.Value(input.PromptTokens),
-				repository.CompletionTokens.Value(input.CompletionTokens),
-				repository.TotalTokens.Value(input.TotalTokens),
-				repository.ReasoningTokens.Value(input.ReasoningTokens),
-				repository.CacheReadTokens.Value(input.CacheReadTokens),
-				repository.CacheWriteTokens.Value(input.CacheWriteTokens),
-				repository.CacheWriteLongTTLTokens.Value(input.CacheWriteLongTTLTokens),
-				repository.WastedPromptTokens.Value(input.WastedPromptTokens),
-				repository.WastedCompletionTokens.Value(input.WastedCompletionTokens),
-				repository.WastedTotalTokens.Value(input.WastedTotalTokens),
-				repository.TotalAttempts.Value(input.TotalAttempts),
-				repository.ResponseModelID.Value(input.ResponseModelID),
-				repository.FinishReason.Value(input.FinishReason),
-				repository.ResponseCostAmount.Value(input.ResponseCostAmount),
-				repository.RetryCostAmount.Value(input.RetryCostAmount),
-				repository.BilledCostAmount.Value(input.BilledCostAmount),
-				repository.CostKnown.Value(input.CostKnown),
-				repository.FailureClassification.Value(input.FailureClassification),
-				repository.FailureDetail.Value(input.FailureDetail),
-				repository.CompletedAt.Value(now),
-			)
-		if err != nil {
-			return ctxerrors.Wrap(err, "finalize model call")
-		}
-		if updated.RowsAffected != 1 {
-			return ctxerrors.Wrap(commerr.ErrInvalidState, "model call terminal update")
+		finalized, finalizeErr := s.finalizeModelCallInTransaction(
+			ctx,
+			tx,
+			sessionID,
+			modelRunID,
+			modelCallID,
+			input,
+		)
+		if finalizeErr == nil {
+			result = finalized
 		}
 
-		applyModelCallFinalization(call, input, now)
-		result = call
-
-		return nil
+		return finalizeErr
 	}); err != nil {
 		return nil, ctxerrors.Wrap(err, "finalize durable model call")
 	}
 
 	return result, nil
+}
+
+func (s *Store) finalizeModelCallInTransaction(
+	ctx context.Context,
+	query *repositories.Query,
+	sessionID uuid.UUID,
+	modelRunID uuid.UUID,
+	modelCallID uuid.UUID,
+	input FinalizeModelCallInput,
+) (*models.ModelCall, error) {
+	call, err := s.findModelCallWithQuery(
+		ctx,
+		query,
+		sessionID,
+		modelRunID,
+		modelCallID,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if call.State != models.ModelCallStateRunning {
+		return nil, ctxerrors.Wrap(
+			commerr.ErrInvalidState,
+			"model call is not running",
+		)
+	}
+
+	now := s.now()
+	if err := updateModelCallFinalization(
+		ctx,
+		query,
+		sessionID,
+		modelRunID,
+		modelCallID,
+		input,
+		now,
+	); err != nil {
+		return nil, err
+	}
+
+	applyModelCallFinalization(call, input, now)
+
+	return call, nil
+}
+
+func updateModelCallFinalization(
+	ctx context.Context,
+	query *repositories.Query,
+	sessionID uuid.UUID,
+	modelRunID uuid.UUID,
+	modelCallID uuid.UUID,
+	input FinalizeModelCallInput,
+	completedAt time.Time,
+) error {
+	repository := query.ModelCall
+
+	updated, err := repository.WithContext(ctx).
+		Where(
+			repository.ID.Eq(modelCallID),
+			repository.SessionID.Eq(sessionID),
+			repository.ModelRunID.Eq(modelRunID),
+			repository.State.Eq(string(models.ModelCallStateRunning)),
+		).
+		UpdateSimple(
+			repository.State.Value(string(input.State)),
+			repository.ResponseMessageJSON.Value(input.ResponseMessageJSON),
+			repository.ResponseUsageJSON.Value(input.ResponseUsageJSON),
+			repository.RetryAttemptsJSON.Value(input.RetryAttemptsJSON),
+			repository.RetryAttemptCount.Value(input.RetryAttemptCount),
+			repository.PromptTokens.Value(input.PromptTokens),
+			repository.CompletionTokens.Value(input.CompletionTokens),
+			repository.TotalTokens.Value(input.TotalTokens),
+			repository.ReasoningTokens.Value(input.ReasoningTokens),
+			repository.CacheReadTokens.Value(input.CacheReadTokens),
+			repository.CacheWriteTokens.Value(input.CacheWriteTokens),
+			repository.CacheWriteLongTTLTokens.Value(
+				input.CacheWriteLongTTLTokens,
+			),
+			repository.WastedPromptTokens.Value(input.WastedPromptTokens),
+			repository.WastedCompletionTokens.Value(
+				input.WastedCompletionTokens,
+			),
+			repository.WastedTotalTokens.Value(input.WastedTotalTokens),
+			repository.TotalAttempts.Value(input.TotalAttempts),
+			repository.ResponseModelID.Value(input.ResponseModelID),
+			repository.FinishReason.Value(input.FinishReason),
+			repository.ResponseCostAmount.Value(input.ResponseCostAmount),
+			repository.RetryCostAmount.Value(input.RetryCostAmount),
+			repository.BilledCostAmount.Value(input.BilledCostAmount),
+			repository.CostKnown.Value(input.CostKnown),
+			repository.FailureClassification.Value(input.FailureClassification),
+			repository.FailureDetail.Value(input.FailureDetail),
+			repository.CompletedAt.Value(completedAt),
+		)
+	if err != nil {
+		return ctxerrors.Wrap(err, "finalize model call")
+	}
+
+	if updated.RowsAffected != 1 {
+		return ctxerrors.Wrap(
+			commerr.ErrInvalidState,
+			"model call terminal update",
+		)
+	}
+
+	return nil
 }
 
 // FinalizeModelRun writes the logical invocation outcome after every round has
@@ -285,61 +383,119 @@ func (s *Store) FinalizeModelRun(
 	modelRunID uuid.UUID,
 	input FinalizeModelRunInput,
 ) (*models.ModelRun, error) {
-	if err := validateFinalizeModelRunInput(sessionID, modelRunID, input); err != nil {
+	if err := validateFinalizeModelRunInput(
+		sessionID,
+		modelRunID,
+		input,
+	); err != nil {
 		return nil, err
 	}
 
 	var result *models.ModelRun
+
 	if err := s.query.Transaction(func(tx *repositories.Query) error {
-		run, err := s.findModelRunWithQuery(ctx, tx, sessionID, modelRunID)
-		if err != nil {
-			return err
-		}
-		if run.State != models.ModelRunStateRunning {
-			return ctxerrors.Wrap(commerr.ErrInvalidState, "model run is not running")
-		}
-
-		now := s.now()
-		repository := tx.ModelRun
-		updated, err := repository.WithContext(ctx).
-			Where(
-				repository.ID.Eq(modelRunID),
-				repository.SessionID.Eq(sessionID),
-				repository.State.Eq(string(models.ModelRunStateRunning)),
-			).
-			UpdateSimple(
-				repository.State.Value(string(input.State)),
-				repository.ResponseModelID.Value(input.ResponseModelID),
-				repository.ResponseText.Value(input.ResponseText),
-				repository.ResponseThinking.Value(input.ResponseThinking),
-				repository.ResponseMessagesJSON.Value(input.ResponseMessagesJSON),
-				repository.ResponseInjectionsJSON.Value(input.ResponseInjectionsJSON),
-				repository.ResponseUsageJSON.Value(input.ResponseUsageJSON),
-				repository.ResponseCostAmount.Value(input.ResponseCostAmount),
-				repository.RetryCostAmount.Value(input.RetryCostAmount),
-				repository.BilledCostAmount.Value(input.BilledCostAmount),
-				repository.CostKnown.Value(input.CostKnown),
-				repository.FinishReason.Value(input.FinishReason),
-				repository.FailureClassification.Value(input.FailureClassification),
-				repository.FailureDetail.Value(input.FailureDetail),
-				repository.CompletedAt.Value(now),
-			)
-		if err != nil {
-			return ctxerrors.Wrap(err, "finalize model run")
-		}
-		if updated.RowsAffected != 1 {
-			return ctxerrors.Wrap(commerr.ErrInvalidState, "model run terminal update")
+		finalized, finalizeErr := s.finalizeModelRunInTransaction(
+			ctx,
+			tx,
+			sessionID,
+			modelRunID,
+			input,
+		)
+		if finalizeErr == nil {
+			result = finalized
 		}
 
-		applyModelRunFinalization(run, input, now)
-		result = run
-
-		return nil
+		return finalizeErr
 	}); err != nil {
 		return nil, ctxerrors.Wrap(err, "finalize durable model run")
 	}
 
 	return result, nil
+}
+
+func (s *Store) finalizeModelRunInTransaction(
+	ctx context.Context,
+	query *repositories.Query,
+	sessionID uuid.UUID,
+	modelRunID uuid.UUID,
+	input FinalizeModelRunInput,
+) (*models.ModelRun, error) {
+	run, err := s.findModelRunWithQuery(ctx, query, sessionID, modelRunID)
+	if err != nil {
+		return nil, err
+	}
+
+	if run.State != models.ModelRunStateRunning {
+		return nil, ctxerrors.Wrap(
+			commerr.ErrInvalidState,
+			"model run is not running",
+		)
+	}
+
+	now := s.now()
+	if err := updateModelRunFinalization(
+		ctx,
+		query,
+		sessionID,
+		modelRunID,
+		input,
+		now,
+	); err != nil {
+		return nil, err
+	}
+
+	applyModelRunFinalization(run, input, now)
+
+	return run, nil
+}
+
+func updateModelRunFinalization(
+	ctx context.Context,
+	query *repositories.Query,
+	sessionID uuid.UUID,
+	modelRunID uuid.UUID,
+	input FinalizeModelRunInput,
+	completedAt time.Time,
+) error {
+	repository := query.ModelRun
+
+	updated, err := repository.WithContext(ctx).
+		Where(
+			repository.ID.Eq(modelRunID),
+			repository.SessionID.Eq(sessionID),
+			repository.State.Eq(string(models.ModelRunStateRunning)),
+		).
+		UpdateSimple(
+			repository.State.Value(string(input.State)),
+			repository.ResponseModelID.Value(input.ResponseModelID),
+			repository.ResponseText.Value(input.ResponseText),
+			repository.ResponseThinking.Value(input.ResponseThinking),
+			repository.ResponseMessagesJSON.Value(input.ResponseMessagesJSON),
+			repository.ResponseInjectionsJSON.Value(
+				input.ResponseInjectionsJSON,
+			),
+			repository.ResponseUsageJSON.Value(input.ResponseUsageJSON),
+			repository.ResponseCostAmount.Value(input.ResponseCostAmount),
+			repository.RetryCostAmount.Value(input.RetryCostAmount),
+			repository.BilledCostAmount.Value(input.BilledCostAmount),
+			repository.CostKnown.Value(input.CostKnown),
+			repository.FinishReason.Value(input.FinishReason),
+			repository.FailureClassification.Value(input.FailureClassification),
+			repository.FailureDetail.Value(input.FailureDetail),
+			repository.CompletedAt.Value(completedAt),
+		)
+	if err != nil {
+		return ctxerrors.Wrap(err, "finalize model run")
+	}
+
+	if updated.RowsAffected != 1 {
+		return ctxerrors.Wrap(
+			commerr.ErrInvalidState,
+			"model run terminal update",
+		)
+	}
+
+	return nil
 }
 
 // GetModelRun returns one session-scoped logical model invocation.
@@ -366,47 +522,52 @@ func (s *Store) ListModelRuns(
 	if err != nil {
 		return nil, err
 	}
+
 	if _, err := s.findSession(ctx, sessionID); err != nil {
 		return nil, ctxerrors.Wrap(err, "find session for model run listing")
 	}
 
 	run := s.query.ModelRun
+
 	query := run.WithContext(ctx).Where(run.SessionID.Eq(sessionID))
 	if options.Stage != nil {
 		query = query.Where(run.Stage.Eq(string(*options.Stage)))
 	}
+
 	if options.State != nil {
 		query = query.Where(run.State.Eq(string(*options.State)))
 	}
 
-	items, err := query.
-		Order(run.StartedAt.Desc(), run.ID.Desc()).
-		Offset(options.Offset).
-		Limit(options.Limit).
-		Find()
-	if err != nil {
-		return nil, ctxerrors.Wrap(err, "list model runs")
-	}
+	page := readPage{limit: options.Limit, offset: options.Offset}
 
-	probe, err := query.
-		Order(run.StartedAt.Desc(), run.ID.Desc()).
-		Offset(options.Offset + options.Limit).
-		Limit(1).
-		Find()
+	items, hasMore, err := listReadPage(
+		page,
+		func(offset, limit int) ([]*models.ModelRun, error) {
+			return query.
+				Order(run.StartedAt.Desc(), run.ID.Desc()).
+				Offset(offset).
+				Limit(limit).
+				Find()
+		},
+		"list model runs",
+		"probe model run page continuation",
+	)
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "probe model run page continuation")
+		return nil, err
 	}
 
 	return &ModelRunPage{
 		Items:   items,
 		Limit:   options.Limit,
 		Offset:  options.Offset,
-		HasMore: len(probe) > 0,
+		HasMore: hasMore,
 	}, nil
 }
 
 // ListModelCalls returns the ordered provider rounds for one durable model
 // invocation, including each exact request and retry trail.
+//
+//nolint:dupl // The generated ModelCall query has a distinct typed builder.
 func (s *Store) ListModelCalls(
 	ctx context.Context,
 	sessionID uuid.UUID,
@@ -417,6 +578,7 @@ func (s *Store) ListModelCalls(
 	if err != nil {
 		return nil, err
 	}
+
 	run, err := s.GetModelRun(ctx, sessionID, modelRunID)
 	if err != nil {
 		return nil, err
@@ -427,13 +589,16 @@ func (s *Store) ListModelCalls(
 		Where(call.SessionID.Eq(sessionID), call.ModelRunID.Eq(modelRunID)).
 		Order(call.Round.Asc(), call.ID.Asc())
 
-	items, err := query.Offset(page.offset).Limit(page.limit).Find()
+	items, hasMore, err := listReadPage(
+		page,
+		func(offset, limit int) ([]*models.ModelCall, error) {
+			return query.Offset(offset).Limit(limit).Find()
+		},
+		"list model calls",
+		"probe model call page continuation",
+	)
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "list model calls")
-	}
-	probe, err := query.Offset(page.offset + page.limit).Limit(1).Find()
-	if err != nil {
-		return nil, ctxerrors.Wrap(err, "probe model call page continuation")
+		return nil, err
 	}
 
 	return &ModelCallPage{
@@ -441,7 +606,7 @@ func (s *Store) ListModelCalls(
 		Items:   items,
 		Limit:   page.limit,
 		Offset:  page.offset,
-		HasMore: len(probe) > 0,
+		HasMore: hasMore,
 	}, nil
 }
 
@@ -449,8 +614,10 @@ func (s *Store) ListModelCalls(
 // process terminal. No provider connection can be safely resumed in place.
 func (s *Store) RecoverInterruptedModelRuns(ctx context.Context) (int, error) {
 	var recovered int
+
 	if err := s.query.Transaction(func(tx *repositories.Query) error {
 		run := tx.ModelRun
+
 		running, err := run.WithContext(ctx).
 			Where(run.State.Eq(string(models.ModelRunStateRunning))).
 			Find()
@@ -459,40 +626,18 @@ func (s *Store) RecoverInterruptedModelRuns(ctx context.Context) (int, error) {
 		}
 
 		for _, item := range running {
-			now := s.now()
-			updated, updateErr := run.WithContext(ctx).
-				Where(
-					run.ID.Eq(item.ID),
-					run.State.Eq(string(models.ModelRunStateRunning)),
-				).
-				UpdateSimple(
-					run.State.Value(string(models.ModelRunStateInterrupted)),
-					run.FailureClassification.Value(string(models.ModelRunStateInterrupted)),
-					run.FailureDetail.Value(interruptedModelRunFailureDetail),
-					run.CompletedAt.Value(now),
-				)
-			if updateErr != nil {
-				return ctxerrors.Wrap(updateErr, "mark model run interrupted")
-			}
-			if updated.RowsAffected != 1 {
-				continue
+			interrupted, recoverErr := s.recoverInterruptedModelRun(
+				ctx,
+				tx,
+				item,
+			)
+			if recoverErr != nil {
+				return recoverErr
 			}
 
-			call := tx.ModelCall
-			if _, err := call.WithContext(ctx).
-				Where(
-					call.ModelRunID.Eq(item.ID),
-					call.State.Eq(string(models.ModelCallStateRunning)),
-				).
-				UpdateSimple(
-					call.State.Value(string(models.ModelCallStateInterrupted)),
-					call.FailureClassification.Value(string(models.ModelCallStateInterrupted)),
-					call.FailureDetail.Value(interruptedModelRunFailureDetail),
-					call.CompletedAt.Value(now),
-				); err != nil {
-				return ctxerrors.Wrap(err, "mark model call interrupted")
+			if interrupted {
+				recovered++
 			}
-			recovered++
 		}
 
 		return nil
@@ -501,6 +646,55 @@ func (s *Store) RecoverInterruptedModelRuns(ctx context.Context) (int, error) {
 	}
 
 	return recovered, nil
+}
+
+func (s *Store) recoverInterruptedModelRun(
+	ctx context.Context,
+	query *repositories.Query,
+	run *models.ModelRun,
+) (bool, error) {
+	now := s.now()
+	repository := query.ModelRun
+
+	updated, err := repository.WithContext(ctx).
+		Where(
+			repository.ID.Eq(run.ID),
+			repository.State.Eq(string(models.ModelRunStateRunning)),
+		).
+		UpdateSimple(
+			repository.State.Value(string(models.ModelRunStateInterrupted)),
+			repository.FailureClassification.Value(
+				string(models.ModelRunStateInterrupted),
+			),
+			repository.FailureDetail.Value(interruptedModelRunFailureDetail),
+			repository.CompletedAt.Value(now),
+		)
+	if err != nil {
+		return false, ctxerrors.Wrap(err, "mark model run interrupted")
+	}
+
+	if updated.RowsAffected != 1 {
+		return false, nil
+	}
+
+	call := query.ModelCall
+	if _, err := call.WithContext(ctx).
+		Where(
+			call.ModelRunID.Eq(run.ID),
+			call.State.Eq(string(models.ModelCallStateRunning)),
+		).
+		UpdateSimple(
+			call.State.Value(string(models.ModelCallStateInterrupted)),
+			call.FailureClassification.Value(
+				string(models.ModelCallStateInterrupted),
+			),
+			call.FailureDetail.Value(interruptedModelRunFailureDetail),
+			call.CompletedAt.Value(now),
+		); err != nil {
+		return false, ctxerrors.Wrap(err, "mark model call interrupted")
+	}
+
+	return true, nil
 }
 
 func applyModelCallFinalization(
@@ -567,11 +761,16 @@ func validateCreateModelRunInput(
 		strings.TrimSpace(input.RequestedModelID) == "" {
 		return ctxerrors.Wrap(commerr.ErrRequiredFieldNotSet, "model run")
 	}
+
 	if !isModelRunStage(input.Stage) {
 		return ctxerrors.Wrap(commerr.ErrValidationFailed, "model run stage")
 	}
+
 	if !json.Valid([]byte(input.RequestSettingsJSON)) {
-		return ctxerrors.Wrap(commerr.ErrValidationFailed, "model run request settings JSON")
+		return ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"model run request settings JSON",
+		)
 	}
 
 	return nil
@@ -585,9 +784,13 @@ func validateCreateModelCallInput(
 	if sessionID == uuid.Nil || modelRunID == uuid.Nil || input.Round < 0 {
 		return ctxerrors.Wrap(commerr.ErrRequiredFieldNotSet, "model call")
 	}
+
 	if !json.Valid([]byte(input.RequestMessagesJSON)) ||
 		!json.Valid([]byte(input.RequestToolsJSON)) {
-		return ctxerrors.Wrap(commerr.ErrValidationFailed, "model call request JSON")
+		return ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"model call request JSON",
+		)
 	}
 
 	return nil
@@ -599,12 +802,19 @@ func validateRecordModelCallRetriesInput(
 	modelCallID uuid.UUID,
 	input RecordModelCallRetriesInput,
 ) error {
-	if sessionID == uuid.Nil || modelRunID == uuid.Nil || modelCallID == uuid.Nil ||
-		input.RetryAttemptCount < 0 {
-		return ctxerrors.Wrap(commerr.ErrRequiredFieldNotSet, "model call retry")
+	if sessionID == uuid.Nil || modelRunID == uuid.Nil ||
+		modelCallID == uuid.Nil || input.RetryAttemptCount < 0 {
+		return ctxerrors.Wrap(
+			commerr.ErrRequiredFieldNotSet,
+			"model call retry",
+		)
 	}
+
 	if !json.Valid([]byte(input.RetryAttemptsJSON)) {
-		return ctxerrors.Wrap(commerr.ErrValidationFailed, "model call retries JSON")
+		return ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"model call retries JSON",
+		)
 	}
 
 	return nil
@@ -616,27 +826,61 @@ func validateFinalizeModelCallInput(
 	modelCallID uuid.UUID,
 	input FinalizeModelCallInput,
 ) error {
-	if sessionID == uuid.Nil || modelRunID == uuid.Nil || modelCallID == uuid.Nil {
-		return ctxerrors.Wrap(commerr.ErrRequiredFieldNotSet, "model call finalization")
+	if sessionID == uuid.Nil || modelRunID == uuid.Nil ||
+		modelCallID == uuid.Nil {
+		return ctxerrors.Wrap(
+			commerr.ErrRequiredFieldNotSet,
+			"model call finalization",
+		)
 	}
+
 	if !isModelCallTerminalState(input.State) {
-		return ctxerrors.Wrap(commerr.ErrValidationFailed, "model call terminal state")
+		return ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"model call terminal state",
+		)
 	}
-	if input.RetryAttemptCount < 0 || input.PromptTokens < 0 ||
-		input.CompletionTokens < 0 || input.TotalTokens < 0 ||
-		input.ReasoningTokens < 0 || input.CacheReadTokens < 0 ||
-		input.CacheWriteTokens < 0 || input.CacheWriteLongTTLTokens < 0 ||
-		input.WastedPromptTokens < 0 || input.WastedCompletionTokens < 0 ||
-		input.WastedTotalTokens < 0 || input.TotalAttempts < 0 {
-		return ctxerrors.Wrap(commerr.ErrValidationFailed, "model call token accounting")
+
+	if hasNegative(
+		input.RetryAttemptCount,
+		input.PromptTokens,
+		input.CompletionTokens,
+		input.TotalTokens,
+		input.ReasoningTokens,
+		input.CacheReadTokens,
+		input.CacheWriteTokens,
+		input.CacheWriteLongTTLTokens,
+		input.WastedPromptTokens,
+		input.WastedCompletionTokens,
+		input.WastedTotalTokens,
+		input.TotalAttempts,
+	) {
+		return ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"model call token accounting",
+		)
 	}
+
 	if !json.Valid([]byte(input.ResponseMessageJSON)) ||
 		!json.Valid([]byte(input.ResponseUsageJSON)) ||
 		!json.Valid([]byte(input.RetryAttemptsJSON)) {
-		return ctxerrors.Wrap(commerr.ErrValidationFailed, "model call response JSON")
+		return ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"model call response JSON",
+		)
 	}
 
 	return nil
+}
+
+func hasNegative(values ...int64) bool {
+	for _, value := range values {
+		if value < 0 {
+			return true
+		}
+	}
+
+	return false
 }
 
 func validateFinalizeModelRunInput(
@@ -645,32 +889,54 @@ func validateFinalizeModelRunInput(
 	input FinalizeModelRunInput,
 ) error {
 	if sessionID == uuid.Nil || modelRunID == uuid.Nil {
-		return ctxerrors.Wrap(commerr.ErrRequiredFieldNotSet, "model run finalization")
+		return ctxerrors.Wrap(
+			commerr.ErrRequiredFieldNotSet,
+			"model run finalization",
+		)
 	}
+
 	if !isModelRunTerminalState(input.State) {
-		return ctxerrors.Wrap(commerr.ErrValidationFailed, "model run terminal state")
+		return ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"model run terminal state",
+		)
 	}
+
 	if !json.Valid([]byte(input.ResponseMessagesJSON)) ||
 		!json.Valid([]byte(input.ResponseInjectionsJSON)) ||
 		!json.Valid([]byte(input.ResponseUsageJSON)) {
-		return ctxerrors.Wrap(commerr.ErrValidationFailed, "model run response JSON")
+		return ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"model run response JSON",
+		)
 	}
 
 	return nil
 }
 
-func normalizeModelRunListOptions(options ListModelRunsOptions) (ListModelRunsOptions, error) {
+func normalizeModelRunListOptions(
+	options ListModelRunsOptions,
+) (ListModelRunsOptions, error) {
 	page, err := normalizeReadPage(options.Limit, options.Offset)
 	if err != nil {
 		return ListModelRunsOptions{}, err
 	}
+
 	options.Limit = page.limit
+
 	options.Offset = page.offset
 	if options.Stage != nil && !isModelRunStage(*options.Stage) {
-		return ListModelRunsOptions{}, ctxerrors.Wrap(ErrInvalidPage, "model run stage")
+		return ListModelRunsOptions{}, ctxerrors.Wrap(
+			ErrInvalidPage,
+			"model run stage",
+		)
 	}
+
 	if options.State != nil && !isModelRunState(*options.State) {
-		return ListModelRunsOptions{}, ctxerrors.Wrap(ErrInvalidPage, "model run state")
+		return ListModelRunsOptions{}, ctxerrors.Wrap(
+			ErrInvalidPage,
+			"model run state",
+		)
 	}
 
 	return options, nil
@@ -683,7 +949,8 @@ func isModelRunStage(stage models.ModelRunStage) bool {
 }
 
 func isModelRunState(state models.ModelRunState) bool {
-	return state == models.ModelRunStateRunning || isModelRunTerminalState(state)
+	return state == models.ModelRunStateRunning ||
+		isModelRunTerminalState(state)
 }
 
 func isModelRunTerminalState(state models.ModelRunState) bool {

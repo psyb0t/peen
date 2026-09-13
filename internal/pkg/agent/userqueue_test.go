@@ -42,11 +42,14 @@ func TestRuntimeQueuesUserMessageAtActiveTurnRoundBoundary(t *testing.T) {
 		sessionID uuid.UUID
 		queued    *TurnResult
 		queueErr  error
+		events    []Event
 	)
 	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
 		Message:   queuedUserMessageInitial,
 		Workspace: fixture.workspace,
 		OnEvent: func(event Event) error {
+			events = append(events, event)
+
 			switch event.Type {
 			case EventTypeTurnStarted:
 				started := turnStartedPayload{}
@@ -79,6 +82,19 @@ func TestRuntimeQueuesUserMessageAtActiveTurnRoundBoundary(t *testing.T) {
 	assert.True(t, queued.Queued)
 	assert.Equal(t, result.SessionID, queued.SessionID)
 	assert.Equal(t, queuedUserMessageFinal, result.Text)
+	assert.Equal(
+		t,
+		[]string{
+			EventTypeUserMessageCreated,
+			EventTypeTurnStarted,
+			EventTypeToolUse,
+			EventTypeUserMessageCreated,
+			EventTypeUserMessageQueued,
+			EventTypeToolResult,
+			EventTypeTurnCompleted,
+		},
+		harnessEventTypes(events),
+	)
 
 	requests := driver.Requests()
 	require.Len(t, requests, 2)
@@ -112,9 +128,16 @@ func TestRuntimeQueuesUserMessageAtActiveTurnRoundBoundary(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, auditEvents, 1)
 
-	payload := queuedUserMessagePayload{}
+	payload := userMessagePayload{}
 	require.NoError(t, json.Unmarshal([]byte(auditEvents[0].PayloadJSON), &payload))
 	assert.Equal(t, queuedUserMessageText, payload.Message)
+
+	createdEvents, err := query.Event.WithContext(context.Background()).
+		Where(query.Event.SessionID.Eq(result.SessionID)).
+		Where(query.Event.EventType.Eq(EventTypeUserMessageCreated)).
+		Find()
+	require.NoError(t, err)
+	require.Len(t, createdEvents, 2)
 }
 
 func TestRuntimeRunMessageQueuesActiveTurn(t *testing.T) {

@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/psyb0t/common-go/utils/ptrutil"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
@@ -111,13 +110,14 @@ func TestStoreJobReplaySurvivesRestartAndRecordsSignals(t *testing.T) {
 	assert.True(t, firstOutput.HasMore)
 	assert.Equal(t, models.JobStateExited, firstOutput.Job.State)
 
+	stdoutStream := models.JobOutputStreamStdout
 	stdoutOutput, err := store.ListJobOutput(
 		ctx,
 		session.ID,
 		jobs[0].ID,
 		ListJobOutputOptions{
 			Limit:  5,
-			Stream: ptrutil.Of(models.JobOutputStreamStdout),
+			Stream: &stdoutStream,
 		},
 	)
 	require.NoError(t, err)

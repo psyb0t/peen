@@ -12,9 +12,11 @@ task, and it can read code, edit files, run commands, use skills, launch child
 agents, and follow the rules sitting beside the project.
 
 Every conversation, tool call, agent event, context snapshot, compaction, and
-provider exchange lands in SQLite. Reconnect with the same session ID after a
-restart and the history is still there. Open two clients on that session and
-both see the same live event stream.
+provider exchange lands in SQLite. Model records keep the request and response,
+thinking, usage, retries, cost, model identity, and connection name, never the
+provider credential. Reconnect after a restart and the history is still there.
+Every connected client receives the live feed for every session, then renders
+the conversations it wants from each event's session ID.
 
 Peen is the backend and harness. It does not ship a browser chat UI. Bring a
 browser client, terminal client, bot, or your own application.
@@ -86,15 +88,17 @@ With the default empty `PEEN_API_TOKEN`, open a browser console and paste this:
 
 ```js
 const sessionId = crypto.randomUUID();
-const socket = new WebSocket(
-  `ws://localhost:8080/v1/ws?sessionId=${sessionId}`,
-);
+const socket = new WebSocket("ws://localhost:8080/v1/ws");
 
 socket.addEventListener("message", ({ data }) => console.log(JSON.parse(data)));
 socket.addEventListener("open", () => {
   socket.send(JSON.stringify({
+    id: crypto.randomUUID(),
     type: "message.send",
     data: { message: "Read the project, then tell me what you would fix first." },
+    timestamp: Math.floor(Date.now() / 1000),
+    metadata: { sessionId },
+    triggeredBy: null,
   }));
 });
 ```
@@ -103,10 +107,13 @@ The generated `sessionId` is the conversation ID. Save it. Native agent events
 arrive while it works, then `message.completed` says that submission is done.
 The socket stays open for the next task.
 
-Use the same session ID from several clients when you want them to see one
-conversation. Use a new UUID when you want a clean one. The full protocol,
-including browser authentication, failed turns, queued messages, and event
-fields, lives in [the WebSocket API guide](docs/http-api.md#send-and-watch-turns-over-websocket).
+Use the same session ID in another `message.send` to continue that
+conversation. Use a new UUID when you want a clean one. A client renders a
+conversation tab by filtering received events on `metadata.sessionId`. Add
+`?sessionId=<uuid>` to its WebSocket URL only when it deliberately wants the
+server to send one session's events. The full protocol, including browser
+authentication, failed turns, queued messages, and event fields, lives in [the
+WebSocket API guide](docs/http-api.md#send-and-watch-turns-over-websocket).
 
 ## Provider configuration
 
@@ -165,8 +172,9 @@ curl -X POST "http://localhost:8080/v1/session/cancel" \
 
 REST also lists session state, durable protocol events, outside notices,
 process output, child-agent runs, compaction history, and every model request
-and response. [The API reference](docs/http-api.md) has every request and
-response.
+and response. REST addresses a known session through `X-Session-ID`, so a
+client keeps the UUIDs for the conversations it owns. [The API
+reference](docs/http-api.md) has every request and response.
 
 ## Things worth knowing
 
@@ -197,12 +205,13 @@ container user, and the mounts you choose are the isolation boundary, not
 anything inside Peen itself.
 
 Tool calls and their results are recorded verbatim in the session transcript
-and sent live over the session's WebSocket connections, exactly like any other
-message. If the agent reads a file containing a secret, or a command prints one
-to stdout, that secret now exists in the SQLite transcript and in every client
-receiving the session event stream. Peen does not scan for or redact
-secret-shaped content in tool output. Treat the transcript and the event stream
-at the same sensitivity level as the files and commands the agent can reach.
+and sent live over the global WebSocket feed, exactly like any other message.
+If the agent reads a file containing a secret, or a command prints one to
+stdout, that secret now exists in the SQLite transcript and in every connected
+client unless it requested a server-side session filter. Peen does not scan for
+or redact secret-shaped content in tool output. Treat the transcript and the
+event stream at the same sensitivity level as the files and commands the agent
+can reach.
 
 `remove_path` has exactly one built-in restriction, and it is a guard against
 a catastrophic typo, not a permission system: it refuses to remove the
@@ -241,11 +250,14 @@ hardening, read [Deployment](docs/deployment.md).
   lifecycle plumbing. Its framework docs live in that repository. This
   repository documents Peen.
 - [Gonfiguration](https://github.com/psyb0t/gonfiguration),
+  [common-go](https://github.com/psyb0t/common-go),
+  [commander](https://github.com/psyb0t/commander),
   [ctxerrors](https://github.com/psyb0t/ctxerrors),
   [ctxscope](https://github.com/psyb0t/ctxscope),
   [slogging](https://github.com/psyb0t/slogging), and
   [goenv](https://github.com/psyb0t/goenv) handle configuration, errors,
-  scoped logs, log setup, and runtime environment detection.
+  common utilities, process jobs, scoped logs, log setup, and runtime
+  environment detection.
 - [GORM](https://github.com/go-gorm/gorm) and
   [SQLite](https://sqlite.org/) hold durable state.
 - [Prometheus' Go client](https://github.com/prometheus/client_golang),

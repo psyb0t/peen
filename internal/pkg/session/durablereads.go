@@ -9,6 +9,8 @@ import (
 )
 
 // ListTurns returns a stable newest-first page of durable session turns.
+//
+//nolint:dupl // The generated Turn query has a distinct typed builder.
 func (s *Store) ListTurns(
 	ctx context.Context,
 	sessionID uuid.UUID,
@@ -18,6 +20,7 @@ func (s *Store) ListTurns(
 	if err != nil {
 		return nil, err
 	}
+
 	if _, err := s.findSession(ctx, sessionID); err != nil {
 		return nil, ctxerrors.Wrap(err, "find session for turn listing")
 	}
@@ -27,21 +30,23 @@ func (s *Store) ListTurns(
 		Where(turn.SessionID.Eq(sessionID)).
 		Order(turn.StartedAt.Desc(), turn.ID.Desc())
 
-	items, err := query.Offset(page.offset).Limit(page.limit).Find()
+	items, hasMore, err := listReadPage(
+		page,
+		func(offset, limit int) ([]*models.Turn, error) {
+			return query.Offset(offset).Limit(limit).Find()
+		},
+		"list session turns",
+		"probe session turn page",
+	)
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "list session turns")
-	}
-
-	probe, err := query.Offset(page.offset + page.limit).Limit(1).Find()
-	if err != nil {
-		return nil, ctxerrors.Wrap(err, "probe session turn page")
+		return nil, err
 	}
 
 	return &TurnPage{
 		Items:   items,
 		Limit:   page.limit,
 		Offset:  page.offset,
-		HasMore: len(probe) > 0,
+		HasMore: hasMore,
 	}, nil
 }
 
@@ -55,9 +60,11 @@ func (s *Store) ListEvents(
 	if err != nil {
 		return nil, err
 	}
+
 	if options.Order == "" {
 		options.Order = PageOrderAscending
 	}
+
 	if _, err := normalizeListOptions(ListMessagesOptions{
 		Limit:  page.limit,
 		Offset: page.offset,
@@ -65,11 +72,13 @@ func (s *Store) ListEvents(
 	}); err != nil {
 		return nil, err
 	}
+
 	if _, err := s.findSession(ctx, sessionID); err != nil {
 		return nil, ctxerrors.Wrap(err, "find session for event listing")
 	}
 
 	event := s.query.Event
+
 	query := event.WithContext(ctx).Where(event.SessionID.Eq(sessionID))
 	if options.Order == PageOrderAscending {
 		query = query.Order(event.Sequence.Asc(), event.ID.Asc())
@@ -96,6 +105,8 @@ func (s *Store) ListEvents(
 }
 
 // ListCompactions returns a stable newest-first page of durable summaries.
+//
+//nolint:dupl // The generated Compaction query has a distinct typed builder.
 func (s *Store) ListCompactions(
 	ctx context.Context,
 	sessionID uuid.UUID,
@@ -105,6 +116,7 @@ func (s *Store) ListCompactions(
 	if err != nil {
 		return nil, err
 	}
+
 	if _, err := s.findSession(ctx, sessionID); err != nil {
 		return nil, ctxerrors.Wrap(err, "find session for compaction listing")
 	}
@@ -114,21 +126,23 @@ func (s *Store) ListCompactions(
 		Where(compaction.SessionID.Eq(sessionID)).
 		Order(compaction.CreatedAt.Desc(), compaction.ID.Desc())
 
-	items, err := query.Offset(page.offset).Limit(page.limit).Find()
+	items, hasMore, err := listReadPage(
+		page,
+		func(offset, limit int) ([]*models.Compaction, error) {
+			return query.Offset(offset).Limit(limit).Find()
+		},
+		"list session compactions",
+		"probe session compaction page",
+	)
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "list session compactions")
-	}
-
-	probe, err := query.Offset(page.offset + page.limit).Limit(1).Find()
-	if err != nil {
-		return nil, ctxerrors.Wrap(err, "probe session compaction page")
+		return nil, err
 	}
 
 	return &CompactionPage{
 		Items:   items,
 		Limit:   page.limit,
 		Offset:  page.offset,
-		HasMore: len(probe) > 0,
+		HasMore: hasMore,
 	}, nil
 }
 
@@ -143,6 +157,7 @@ func (s *Store) GetCompaction(
 	}
 
 	compaction := s.query.Compaction
+
 	stored, err := compaction.WithContext(ctx).
 		Where(
 			compaction.ID.Eq(compactionID),
@@ -165,7 +180,12 @@ func (s *Store) GetContextSnapshot(
 	if _, err := s.findSession(ctx, sessionID); err != nil {
 		return nil, ctxerrors.Wrap(err, "find session for context snapshot")
 	}
-	if err := s.assertContextSnapshotReference(ctx, sessionID, hash); err != nil {
+
+	if err := s.assertContextSnapshotReference(
+		ctx,
+		sessionID,
+		hash,
+	); err != nil {
 		return nil, err
 	}
 
@@ -188,7 +208,12 @@ func (s *Store) GetPromptSnapshot(
 	if _, err := s.findSession(ctx, sessionID); err != nil {
 		return nil, ctxerrors.Wrap(err, "find session for prompt snapshot")
 	}
-	if err := s.assertPromptSnapshotReference(ctx, sessionID, hash); err != nil {
+
+	if err := s.assertPromptSnapshotReference(
+		ctx,
+		sessionID,
+		hash,
+	); err != nil {
 		return nil, err
 	}
 
@@ -205,6 +230,25 @@ func (s *Store) GetPromptSnapshot(
 type readPage struct {
 	limit  int
 	offset int
+}
+
+func listReadPage[T any](
+	page readPage,
+	find func(offset, limit int) ([]*T, error),
+	listOperation string,
+	probeOperation string,
+) ([]*T, bool, error) {
+	items, err := find(page.offset, page.limit)
+	if err != nil {
+		return nil, false, ctxerrors.Wrap(err, listOperation)
+	}
+
+	probe, err := find(page.offset+page.limit, 1)
+	if err != nil {
+		return nil, false, ctxerrors.Wrap(err, probeOperation)
+	}
+
+	return items, len(probe) > 0, nil
 }
 
 func normalizeReadPage(limit, offset int) (readPage, error) {

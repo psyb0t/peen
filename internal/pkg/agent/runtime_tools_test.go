@@ -87,6 +87,7 @@ func TestRuntimeRunExecutesHostToolAndPairsCallID(t *testing.T) {
 	assert.Equal(
 		t,
 		[]string{
+			EventTypeUserMessageCreated,
 			EventTypeTurnStarted,
 			EventTypeToolUse,
 			EventTypeToolResult,

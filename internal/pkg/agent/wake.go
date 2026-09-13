@@ -143,6 +143,7 @@ func (r *Runtime) PublishEvent(
 	if err != nil {
 		return events.Notice{}, ctxerrors.Wrap(err, "publish session event")
 	}
+
 	if published.ID != stored.ID {
 		return events.Notice{}, ctxerrors.Wrap(
 			commerr.ErrInvalidState,

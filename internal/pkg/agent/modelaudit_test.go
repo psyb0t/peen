@@ -126,7 +126,6 @@ func TestModelAuditRecorderPersistsRetryTokenAndCostBreakdown(t *testing.T) {
 	settings, err := newModelAuditSettings(
 		model,
 		true,
-		true,
 		7,
 		4096,
 		1024,
@@ -279,8 +278,8 @@ func TestModelAuditJSONArrayNormalizesNilSlices(t *testing.T) {
 func TestModelAuditReplayNormalizesLegacyNullArrays(t *testing.T) {
 	run, err := modelRunToAPI(&models.ModelRun{
 		RequestSettingsJSON:    "{}",
-		ResponseMessagesJSON:   "null",
-		ResponseInjectionsJSON: "null",
+		ResponseMessagesJSON:   modelAuditNullJSON,
+		ResponseInjectionsJSON: modelAuditNullJSON,
 		ResponseUsageJSON:      "{}",
 	})
 	require.NoError(t, err)
@@ -288,11 +287,11 @@ func TestModelAuditReplayNormalizesLegacyNullArrays(t *testing.T) {
 	assert.Empty(t, run.ResponseInjections)
 
 	call, err := modelCallToAPI(&models.ModelCall{
-		RequestMessagesJSON: "null",
-		RequestToolsJSON:    "null",
-		ResponseMessageJSON: "null",
+		RequestMessagesJSON: modelAuditNullJSON,
+		RequestToolsJSON:    modelAuditNullJSON,
+		ResponseMessageJSON: modelAuditNullJSON,
 		ResponseUsageJSON:   "{}",
-		RetryAttemptsJSON:   "null",
+		RetryAttemptsJSON:   modelAuditNullJSON,
 	})
 	require.NoError(t, err)
 	assert.Empty(t, call.RequestMessages)

@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/psyb0t/common-go/utils/ptrutil"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
@@ -54,8 +53,10 @@ func TestStoreDurableReplayReadsEverySessionOwnedTable(t *testing.T) {
 
 		finalize := FinalizeTurnInput{State: models.TurnStateCompleted}
 		if index == 0 {
-			finalize.ContextSnapshotHash = ptrutil.Of(contextHash)
-			finalize.PromptSnapshotHash = ptrutil.Of(promptHash)
+			contextSnapshotHash := contextHash
+			promptSnapshotHash := promptHash
+			finalize.ContextSnapshotHash = &contextSnapshotHash
+			finalize.PromptSnapshotHash = &promptSnapshotHash
 		}
 		require.NoError(t, store.FinalizeTurn(ctx, lease, finalize))
 		store.ReleaseTurn(lease)

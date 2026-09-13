@@ -2,10 +2,10 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
@@ -31,8 +31,9 @@ type queuedUserMessage struct {
 	message string
 }
 
-type queuedUserMessagePayload struct {
-	Message string `json:"message"`
+type userMessagePayload struct {
+	Message       string `json:"message"`
+	SourceEventID string `json:"sourceEventId,omitempty"`
 }
 
 func newActiveUserMessageQueue(
@@ -71,22 +72,13 @@ func (q *activeUserMessageQueue) enqueue(
 		)
 	}
 
-	payload, err := json.Marshal(
-		queuedUserMessagePayload{Message: input.Message},
-	)
-	if err != nil {
-		return ctxerrors.Wrap(err, "marshal queued user message")
+	payload := userMessagePayload{Message: input.Message}
+	if input.SourceEventID != uuid.Nil {
+		payload.SourceEventID = input.SourceEventID.String()
 	}
 
-	if err := q.turn.checkpointQueuedUserMessageAcceptance(
-		ctx,
-		session.EventInput{
-			RequestID:   input.RequestID,
-			EventType:   EventTypeUserMessageQueued,
-			PayloadJSON: string(payload),
-		},
-	); err != nil {
-		return ctxerrors.Wrap(err, "checkpoint queued user message acceptance")
+	if err := q.emitAccepted(ctx, input, payload); err != nil {
+		return err
 	}
 
 	if err := q.queue.EnqueueText(input.Message); err != nil {
@@ -106,6 +98,34 @@ func (q *activeUserMessageQueue) enqueue(
 		"message_bytes", len(input.Message),
 		"queued_depth", q.queue.Len(),
 	)
+
+	return nil
+}
+
+func (q *activeUserMessageQueue) emitAccepted(
+	ctx context.Context,
+	input TurnRequest,
+	payload userMessagePayload,
+) error {
+	if err := q.turn.emitForRequest(
+		ctx,
+		EventTypeUserMessageCreated,
+		payload,
+		input.RequestID,
+		input.SourceEventID,
+	); err != nil {
+		return ctxerrors.Wrap(err, "emit accepted queued user message")
+	}
+
+	if err := q.turn.emitForRequest(
+		ctx,
+		EventTypeUserMessageQueued,
+		payload,
+		input.RequestID,
+		input.SourceEventID,
+	); err != nil {
+		return ctxerrors.Wrap(err, "emit queued user message")
+	}
 
 	return nil
 }
@@ -259,42 +279,6 @@ func (r *Runtime) queueActiveUserMessage(
 		SessionID: *input.SessionID,
 		Queued:    true,
 	}, true, nil
-}
-
-// checkpointQueuedUserMessageAcceptance makes a caller's accepted input
-// durable before it enters Elelem's in-memory queue. The later round-start
-// callback writes the user transcript row at its actual delivery position.
-func (t *runtimeTurn) checkpointQueuedUserMessageAcceptance(
-	ctx context.Context,
-	event session.EventInput,
-) error {
-	if t.store == nil {
-		return ctxerrors.Wrap(commerr.ErrInvalidState, "turn store")
-	}
-
-	t.checkpointMutex.Lock()
-	defer t.checkpointMutex.Unlock()
-
-	pending := t.pendingTranscript()
-	events := make([]session.EventInput, 0, len(pending.events)+1)
-	events = append(events, pending.events...)
-	events = append(events, event)
-
-	if err := t.store.AppendCheckpoint(
-		context.WithoutCancel(ctx),
-		t.lease,
-		pending.messages,
-		events,
-	); err != nil {
-		return ctxerrors.Wrap(err, "append queued user message checkpoint")
-	}
-
-	t.mutex.Lock()
-	t.checkpointedMessages = pending.nextMessages
-	t.checkpointedEvents = pending.nextEvents
-	t.mutex.Unlock()
-
-	return nil
 }
 
 func (t *runtimeTurn) appendQueuedUserMessages(

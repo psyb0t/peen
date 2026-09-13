@@ -62,23 +62,28 @@ With the default empty `PEEN_API_TOKEN`, paste this into a browser console:
 
 ```js
 const sessionId = crypto.randomUUID();
-const socket = new WebSocket(
-  `ws://localhost:8080/v1/ws?sessionId=${sessionId}`,
-);
+const socket = new WebSocket("ws://localhost:8080/v1/ws");
 
 socket.addEventListener("message", ({ data }) => console.log(JSON.parse(data)));
 socket.addEventListener("open", () => {
   socket.send(JSON.stringify({
+    id: crypto.randomUUID(),
     type: "message.send",
     data: { message: "Read the project, then tell me what you would fix first." },
+    timestamp: Math.floor(Date.now() / 1000),
+    metadata: { sessionId },
+    triggeredBy: null,
   }));
 });
 ```
 
 Keep the `sessionId`. It is the conversation ID. Leave the socket open to see
 streaming model, tool, and agent events. A `message.completed` event means the
-submitted task is finished. Connect another client with the same ID when you
-want both clients to watch or contribute to the same conversation.
+submitted task is finished. Every WebSocket receives every session's events.
+Your client makes conversation tabs by filtering `metadata.sessionId`, then
+uses the same ID in a later `message.send` to continue a tab. Add
+`?sessionId=<uuid>` to the WebSocket URL only when a client wants Peen to apply
+that outbound filter itself.
 
 ## 4. Put project rules beside the project
 

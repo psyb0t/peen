@@ -156,7 +156,7 @@ func TestStoreModelRunReplayPagesAccountingAndRecovery(t *testing.T) {
 	require.Len(t, interruptedCalls.Items, 1)
 	assert.Equal(t, runningCall.ID, interruptedCalls.Items[0].ID)
 	assert.Equal(t, models.ModelCallStateInterrupted, interruptedCalls.Items[0].State)
-	assert.Zero(t, mustRecoverModelRuns(t, reopened, ctx))
+	assert.Zero(t, mustRecoverModelRuns(ctx, t, reopened))
 }
 
 func createModelRunForTest(
@@ -229,7 +229,7 @@ func modelRunIDs(items []*models.ModelRun) []uuid.UUID {
 	return ids
 }
 
-func mustRecoverModelRuns(t *testing.T, store *Store, ctx context.Context) int {
+func mustRecoverModelRuns(ctx context.Context, t *testing.T, store *Store) int {
 	t.Helper()
 
 	recovered, err := store.RecoverInterruptedModelRuns(ctx)

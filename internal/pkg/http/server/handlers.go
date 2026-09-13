@@ -105,6 +105,7 @@ func (s *Server) ListSessionEvents(
 				),
 			}, nil
 		}
+
 		if errors.Is(err, commerr.ErrValidationFailed) {
 			return api.ListSessionEvents400JSONResponse{
 				ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(
@@ -141,6 +142,7 @@ func (s *Server) ListSessionNotices(
 				),
 			}, nil
 		}
+
 		if errors.Is(err, commerr.ErrValidationFailed) {
 			return api.ListSessionNotices400JSONResponse{
 				ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(

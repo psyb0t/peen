@@ -174,6 +174,7 @@ func TestLaunchAgentNamedAgentReturnsFinalResponse(t *testing.T) {
 	assert.Equal(
 		t,
 		[]string{
+			EventTypeUserMessageCreated,
 			EventTypeTurnStarted,
 			EventTypeToolUse,
 			EventTypeAgentRunStarted,
@@ -747,7 +748,7 @@ func TestFinishAgentRunDistinguishesSingleRunFromParentCancellation(t *testing.T
 
 	t.Run("single run cancellation leaves the parent turn alive", func(t *testing.T) {
 		parentCtx := context.Background()
-		registry, run, _, sink := startDurableAgentRun(t, fixture, parentCtx)
+		registry, run, _, sink := startDurableAgentRun(parentCtx, t, fixture)
 
 		runErr := &wrappedCancelError{}
 		output, err := fixture.runtime.finishAgentRun(
@@ -760,11 +761,7 @@ func TestFinishAgentRunDistinguishesSingleRunFromParentCancellation(t *testing.T
 
 	t.Run("parent cancellation propagates and cancels the child tree", func(t *testing.T) {
 		startCtx, cancel := context.WithCancel(context.Background())
-		registry, run, runCtx, sink := startDurableAgentRun(
-			t,
-			fixture,
-			startCtx,
-		)
+		registry, run, runCtx, sink := startDurableAgentRun(startCtx, t, fixture)
 
 		cancel()
 		assert.Error(t, runCtx.Err(), "parent cancellation must reach child work")
@@ -779,9 +776,9 @@ func TestFinishAgentRunDistinguishesSingleRunFromParentCancellation(t *testing.T
 }
 
 func startDurableAgentRun(
+	parentCtx context.Context,
 	t *testing.T,
 	fixture runtimeFixture,
-	parentCtx context.Context,
 ) (*AgentRunRegistry, *AgentRun, context.Context, *agentRunSink) {
 	t.Helper()
 

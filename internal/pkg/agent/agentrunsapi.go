@@ -26,25 +26,44 @@ func (r *Runtime) ListSessionAgentRuns(
 	}
 
 	var state *models.AgentRunState
+
 	if params.State != nil {
 		parsed := models.AgentRunState(*params.State)
 		state = &parsed
 	}
 
-	stored, err := r.store.ListAgentRuns(ctx, sessionID, session.ListAgentRunsOptions{
+	options := session.ListAgentRunsOptions{
 		Limit:  limit,
 		Offset: offset,
 		State:  state,
-	})
+	}
+
+	stored, err := r.store.ListAgentRuns(ctx, sessionID, options)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "list durable agent runs")
+	}
+
+	pageLimit, err := messagePageValueToAPI(
+		stored.Limit,
+		"agent run page limit",
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	pageOffset, err := messagePageValueToAPI(
+		stored.Offset,
+		"agent run page offset",
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	page := api.AgentRunPage{
 		Agents:  make([]api.AgentRun, 0, len(stored.Items)),
 		HasMore: stored.HasMore,
-		Limit:   int32(stored.Limit),  //nolint:gosec // API validates this bound.
-		Offset:  int32(stored.Offset), //nolint:gosec // API validates this bound.
+		Limit:   pageLimit,
+		Offset:  pageOffset,
 	}
 	for _, run := range stored.Items {
 		converted, convertErr := agentRunModelToAPI(run)
@@ -135,13 +154,17 @@ func (r *Runtime) CancelSessionAgentRun(
 		agentRunID,
 	)
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "request durable agent run cancellation")
+		return nil, ctxerrors.Wrap(
+			err,
+			"request durable agent run cancellation",
+		)
 	}
 
 	if requested {
 		r.agentRunsMutex.Lock()
 		registry := r.agentRuns[sessionID]
 		r.agentRunsMutex.Unlock()
+
 		if registry != nil {
 			registry.Cancel(agentRunID)
 		}
@@ -156,21 +179,20 @@ func (r *Runtime) CancelSessionAgentRun(
 
 func agentRunModelToAPI(stored *models.AgentRun) (api.AgentRun, error) {
 	if stored == nil {
-		return api.AgentRun{}, ctxerrors.Wrap(commerr.ErrInvalidState, "nil agent run")
+		return api.AgentRun{}, ctxerrors.Wrap(
+			commerr.ErrInvalidState,
+			"nil agent run",
+		)
 	}
 
-	allowedTools := []any{}
-	if err := json.Unmarshal([]byte(stored.AllowedToolsJSON), &allowedTools); err != nil {
-		return api.AgentRun{}, ctxerrors.Wrap(err, "decode agent allowed tools")
-	}
-	responseMessages := []any{}
-	if err := json.Unmarshal([]byte(stored.ResponseMessagesJSON), &responseMessages); err != nil {
-		return api.AgentRun{}, ctxerrors.Wrap(err, "decode agent response messages")
+	payloads, err := agentRunPayloadsFromModel(stored)
+	if err != nil {
+		return api.AgentRun{}, err
 	}
 
 	run := api.AgentRun{
 		AgentRunId:            stored.ID,
-		AllowedTools:          allowedTools,
+		AllowedTools:          payloads.allowedTools,
 		CancelRequested:       stored.CancelRequested,
 		CompletionTokenCount:  stored.CompletionTokenCount,
 		Definition:            api.AgentRunDefinition(stored.Definition),
@@ -188,7 +210,7 @@ func agentRunModelToAPI(stored *models.AgentRun) (api.AgentRun, error) {
 		ParentTurnId:          stored.ParentTurnID,
 		PromptTokenCount:      stored.PromptTokenCount,
 		RequestId:             stored.RequestID,
-		ResponseMessages:      responseMessages,
+		ResponseMessages:      payloads.responseMessages,
 		ResponseText:          stored.ResponseText,
 		ResponseThinking:      stored.ResponseThinking,
 		SessionId:             stored.SessionID,
@@ -211,7 +233,45 @@ func agentRunModelToAPI(stored *models.AgentRun) (api.AgentRun, error) {
 	return run, nil
 }
 
-func agentRunEventToAPI(event *models.AgentRunEvent) (api.AgentRunEvent, error) {
+type agentRunPayloads struct {
+	allowedTools     []any
+	responseMessages []any
+}
+
+func agentRunPayloadsFromModel(
+	stored *models.AgentRun,
+) (agentRunPayloads, error) {
+	allowedTools := []any{}
+	if err := json.Unmarshal(
+		[]byte(stored.AllowedToolsJSON),
+		&allowedTools,
+	); err != nil {
+		return agentRunPayloads{}, ctxerrors.Wrap(
+			err,
+			"decode agent allowed tools",
+		)
+	}
+
+	responseMessages := []any{}
+	if err := json.Unmarshal(
+		[]byte(stored.ResponseMessagesJSON),
+		&responseMessages,
+	); err != nil {
+		return agentRunPayloads{}, ctxerrors.Wrap(
+			err,
+			"decode agent response messages",
+		)
+	}
+
+	return agentRunPayloads{
+		allowedTools:     allowedTools,
+		responseMessages: responseMessages,
+	}, nil
+}
+
+func agentRunEventToAPI(
+	event *models.AgentRunEvent,
+) (api.AgentRunEvent, error) {
 	converted := api.AgentRunEvent{
 		Sequence:  event.Sequence,
 		Type:      event.EventType,

@@ -208,83 +208,106 @@ func (s *Store) CreateCompaction(
 	sessionID uuid.UUID,
 	input CompactionInput,
 ) (*models.Compaction, error) {
-	if input.FromSequence <= 0 || input.ToSequence < input.FromSequence {
-		return nil, ctxerrors.Wrap(
-			commerr.ErrValidationFailed,
-			"invalid compaction sequence bounds",
-		)
+	normalized, err := normalizeCompactionInput(input)
+	if err != nil {
+		return nil, err
 	}
 
 	if _, err := s.findSession(ctx, sessionID); err != nil {
 		return nil, ctxerrors.Wrap(err, "find session for compaction")
 	}
 
-	if input.ID == uuid.Nil {
-		input.ID = s.newID()
-	}
-	if input.DirectFromSequence == 0 {
-		input.DirectFromSequence = input.FromSequence
-	}
-	if input.DirectToSequence == 0 {
-		input.DirectToSequence = input.ToSequence
-	}
-	if input.DirectFromSequence < input.FromSequence ||
-		input.DirectToSequence < input.DirectFromSequence ||
-		input.DirectToSequence > input.ToSequence {
-		return nil, ctxerrors.Wrap(
-			commerr.ErrValidationFailed,
-			"invalid direct compaction sequence bounds",
-		)
+	if normalized.ID == uuid.Nil {
+		normalized.ID = s.newID()
 	}
 
 	compaction := &models.Compaction{
-		ID:                     input.ID,
+		ID:                     normalized.ID,
 		SessionID:              sessionID,
-		FromMessageID:          input.FromMessageID,
-		ToMessageID:            input.ToMessageID,
-		FromSequence:           input.FromSequence,
-		ToSequence:             input.ToSequence,
-		Summary:                input.Summary,
-		SourceMessageCount:     input.SourceMessageCount,
-		InputTokenCount:        input.InputTokenCount,
-		SummaryTokenCount:      input.SummaryTokenCount,
-		ModelID:                input.ModelID,
-		PromptHash:             input.PromptHash,
+		FromMessageID:          normalized.FromMessageID,
+		ToMessageID:            normalized.ToMessageID,
+		FromSequence:           normalized.FromSequence,
+		ToSequence:             normalized.ToSequence,
+		Summary:                normalized.Summary,
+		SourceMessageCount:     normalized.SourceMessageCount,
+		InputTokenCount:        normalized.InputTokenCount,
+		SummaryTokenCount:      normalized.SummaryTokenCount,
+		ModelID:                normalized.ModelID,
+		PromptHash:             normalized.PromptHash,
 		CreatedAt:              s.now(),
-		SupersedesCompactionID: input.SupersedesCompactionID,
+		SupersedesCompactionID: normalized.SupersedesCompactionID,
 	}
 	if err := s.query.Transaction(func(tx *repositories.Query) error {
-		if err := tx.Compaction.WithContext(ctx).Create(compaction); err != nil {
-			return ctxerrors.Wrap(err, "create compaction")
-		}
-
-		message := tx.Message
-		assigned, err := message.WithContext(ctx).
-			Where(
-				message.SessionID.Eq(sessionID),
-				message.Sequence.Between(
-					input.DirectFromSequence,
-					input.DirectToSequence,
-				),
-				message.CompactionID.IsNull(),
-			).
-			UpdateSimple(message.CompactionID.Value(compaction.ID))
-		if err != nil {
-			return ctxerrors.Wrap(err, "assign direct message compaction")
-		}
-		if assigned.RowsAffected == 0 {
-			return ctxerrors.Wrap(
-				commerr.ErrInvalidState,
-				"compaction has no unassigned direct messages",
-			)
-		}
-
-		return nil
+		return s.createCompaction(ctx, tx, compaction, normalized)
 	}); err != nil {
 		return nil, ctxerrors.Wrap(err, "create compaction transaction")
 	}
 
 	return compaction, nil
+}
+
+func normalizeCompactionInput(input CompactionInput) (CompactionInput, error) {
+	if input.FromSequence <= 0 || input.ToSequence < input.FromSequence {
+		return CompactionInput{}, ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"invalid compaction sequence bounds",
+		)
+	}
+
+	if input.DirectFromSequence == 0 {
+		input.DirectFromSequence = input.FromSequence
+	}
+
+	if input.DirectToSequence == 0 {
+		input.DirectToSequence = input.ToSequence
+	}
+
+	if input.DirectFromSequence < input.FromSequence ||
+		input.DirectToSequence < input.DirectFromSequence ||
+		input.DirectToSequence > input.ToSequence {
+		return CompactionInput{}, ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"invalid direct compaction sequence bounds",
+		)
+	}
+
+	return input, nil
+}
+
+func (s *Store) createCompaction(
+	ctx context.Context,
+	query *repositories.Query,
+	compaction *models.Compaction,
+	input CompactionInput,
+) error {
+	if err := query.Compaction.WithContext(ctx).Create(compaction); err != nil {
+		return ctxerrors.Wrap(err, "create compaction")
+	}
+
+	message := query.Message
+
+	assigned, err := message.WithContext(ctx).
+		Where(
+			message.SessionID.Eq(compaction.SessionID),
+			message.Sequence.Between(
+				input.DirectFromSequence,
+				input.DirectToSequence,
+			),
+			message.CompactionID.IsNull(),
+		).
+		UpdateSimple(message.CompactionID.Value(compaction.ID))
+	if err != nil {
+		return ctxerrors.Wrap(err, "assign direct message compaction")
+	}
+
+	if assigned.RowsAffected == 0 {
+		return ctxerrors.Wrap(
+			commerr.ErrInvalidState,
+			"compaction has no unassigned direct messages",
+		)
+	}
+
+	return nil
 }
 
 // LatestCompaction returns the current chain head, not a superseded row.

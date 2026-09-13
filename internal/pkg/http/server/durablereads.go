@@ -25,6 +25,7 @@ func (s *Server) ListSessionTurns(
 				),
 			}, nil
 		}
+
 		if errors.Is(err, commerr.ErrValidationFailed) {
 			return api.ListSessionTurns400JSONResponse{
 				ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(
@@ -61,6 +62,7 @@ func (s *Server) ListSessionCompactions(
 				),
 			}, nil
 		}
+
 		if errors.Is(err, commerr.ErrValidationFailed) {
 			return api.ListSessionCompactions400JSONResponse{
 				ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(
@@ -130,6 +132,7 @@ func (s *Server) ListSessionModelRuns(
 				),
 			}, nil
 		}
+
 		if errors.Is(err, commerr.ErrValidationFailed) {
 			return api.ListSessionModelRuns400JSONResponse{
 				ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(
@@ -171,6 +174,7 @@ func (s *Server) ListSessionModelRunCalls(
 				),
 			}, nil
 		}
+
 		if errors.Is(err, commerr.ErrValidationFailed) {
 			return api.ListSessionModelRunCalls400JSONResponse{
 				ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(

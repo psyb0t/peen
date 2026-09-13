@@ -36,11 +36,20 @@ func (r *Runtime) ListSessionNotices(
 		return nil, ctxerrors.Wrap(err, "list durable session notices")
 	}
 
+	pageLimit, pageOffset, err := durablePageValues(
+		stored.Limit,
+		stored.Offset,
+		"notice",
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	page := api.SessionNoticePage{
 		HasMore: stored.HasMore,
-		Limit:   int32(stored.Limit), //nolint:gosec // API validates this bound.
+		Limit:   pageLimit,
 		Notices: make([]api.SessionNotice, 0, len(stored.Items)),
-		Offset:  int32(stored.Offset), //nolint:gosec // API validates this bound.
+		Offset:  pageOffset,
 	}
 	for _, notice := range stored.Items {
 		converted, convertErr := sessionNoticeModelToAPI(notice)

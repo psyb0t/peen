@@ -134,7 +134,7 @@ func TestRuntimeStreamDeliversEventsIncrementally(t *testing.T) {
 	}()
 
 	first := receiveEvent(t, events)
-	assert.Equal(t, "turn.started", first.Type)
+	assert.Equal(t, "user_message.created", first.Type)
 
 	select {
 	case <-done:
@@ -146,6 +146,7 @@ func TestRuntimeStreamDeliversEventsIncrementally(t *testing.T) {
 	outcome := drainStream(t, events, done, &types)
 
 	require.NoError(t, outcome.err)
+	assert.Contains(t, types, "turn.started")
 	assert.Contains(t, types, "turn.completed")
 	assert.Greater(t, len(types), 1)
 	assert.Equal(t, "streamed reply", outcome.result.Message)

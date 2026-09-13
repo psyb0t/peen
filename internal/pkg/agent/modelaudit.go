@@ -21,6 +21,9 @@ import (
 const (
 	modelAuditFailureClass       = "model"
 	modelAuditRetryCostStartSize = 1
+	modelAuditNullJSON           = "null"
+	modelCostFactorTwo           = 2
+	modelCostFactorFive          = 5
 )
 
 // modelAuditOptions identifies one logical Elelem invocation. Settings are
@@ -111,20 +114,23 @@ type modelAuditRetryAttempt struct {
 
 type modelAuditUsage struct {
 	modelAuditTokenCounts
-	Model                  string                   `json:"model"`
-	FinishReason           string                   `json:"finishReason"`
-	TotalAttempts          int                      `json:"totalAttempts"`
-	FailedAttempts         []modelAuditRetryAttempt `json:"failedAttempts"`
-	WastedPromptTokens     int64                    `json:"wastedPromptTokens"`
-	WastedCompletionTokens int64                    `json:"wastedCompletionTokens"`
-	WastedTotalTokens      int64                    `json:"wastedTotalTokens"`
+	modelAuditRetryUsage
+	Model          string                   `json:"model"`
+	FinishReason   string                   `json:"finishReason"`
+	TotalAttempts  int                      `json:"totalAttempts"`
+	FailedAttempts []modelAuditRetryAttempt `json:"failedAttempts"`
+}
+
+type modelAuditRetryUsage struct {
+	WastedPromptTokens     int64 `json:"wastedPromptTokens"`
+	WastedCompletionTokens int64 `json:"wastedCompletionTokens"`
+	WastedTotalTokens      int64 `json:"wastedTotalTokens"`
 }
 
 // newModelAuditSettings serializes the effective public call configuration.
 func newModelAuditSettings(
 	model elelem.Model,
 	autoToolCalls bool,
-	streaming bool,
 	maxRounds int,
 	maxContextTokens int,
 	maxOutputTokens int,
@@ -136,7 +142,7 @@ func newModelAuditSettings(
 	encoded, err := json.Marshal(modelAuditRequestSettings{
 		Model:               model,
 		AutoToolCalls:       autoToolCalls,
-		Streaming:           streaming,
+		Streaming:           true,
 		MaxRounds:           maxRounds,
 		MaxContextTokens:    maxContextTokens,
 		MaxOutputTokens:     maxOutputTokens,
@@ -157,13 +163,14 @@ func newModelAuditRecorder(
 	ctx context.Context,
 	options modelAuditOptions,
 ) (*modelAuditRecorder, error) {
-	if options.Store == nil || options.SessionID == uuid.Nil ||
-		options.TurnID == uuid.Nil || strings.TrimSpace(options.ModelReference) == "" ||
-		strings.TrimSpace(options.Model.ID) == "" || options.Now == nil {
-		return nil, ctxerrors.Wrap(commerr.ErrRequiredFieldNotSet, "model audit recorder")
+	if err := validateModelAuditOptions(options); err != nil {
+		return nil, err
 	}
 
-	connectionName, requestedModelID, found := strings.Cut(options.ModelReference, "/")
+	connectionName, requestedModelID, found := strings.Cut(
+		options.ModelReference,
+		"/",
+	)
 	if !found || connectionName == "" || requestedModelID == "" {
 		return nil, ctxerrors.Wrapf(
 			commerr.ErrValidationFailed,
@@ -201,6 +208,32 @@ func newModelAuditRecorder(
 	}, nil
 }
 
+func validateModelAuditOptions(options modelAuditOptions) error {
+	if options.Store == nil || options.Now == nil {
+		return ctxerrors.Wrap(
+			commerr.ErrRequiredFieldNotSet,
+			"model audit recorder dependency",
+		)
+	}
+
+	if options.SessionID == uuid.Nil || options.TurnID == uuid.Nil {
+		return ctxerrors.Wrap(
+			commerr.ErrRequiredFieldNotSet,
+			"model audit recorder identity",
+		)
+	}
+
+	if strings.TrimSpace(options.ModelReference) == "" ||
+		strings.TrimSpace(options.Model.ID) == "" {
+		return ctxerrors.Wrap(
+			commerr.ErrRequiredFieldNotSet,
+			"model audit recorder model",
+		)
+	}
+
+	return nil
+}
+
 // onRoundStart saves the exact messages and provider-visible tool definitions
 // immediately before that round calls the model.
 func (r *modelAuditRecorder) onRoundStart(
@@ -208,7 +241,10 @@ func (r *modelAuditRecorder) onRoundStart(
 	event *elelem.RoundEvent,
 ) error {
 	if event == nil {
-		return ctxerrors.Wrap(commerr.ErrRequiredFieldNotSet, "model audit round event")
+		return ctxerrors.Wrap(
+			commerr.ErrRequiredFieldNotSet,
+			"model audit round event",
+		)
 	}
 
 	requestMessagesJSON, err := modelAuditJSONArray(
@@ -218,6 +254,7 @@ func (r *modelAuditRecorder) onRoundStart(
 	if err != nil {
 		return err
 	}
+
 	requestToolsJSON, err := modelAuditToolsJSON(event.Tools)
 	if err != nil {
 		return err
@@ -225,6 +262,7 @@ func (r *modelAuditRecorder) onRoundStart(
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	if _, exists := r.calls[int64(event.Round)]; exists {
 		return ctxerrors.Wrap(commerr.ErrAlreadyExists, "model audit round")
 	}
@@ -253,7 +291,7 @@ func (r *modelAuditRecorder) onRoundStart(
 // onAssistantMessage saves the complete assistant output for the active round
 // before Elelem advances to its round-end callback.
 func (r *modelAuditRecorder) onAssistantMessage(
-	ctx context.Context,
+	_ context.Context,
 	message elelem.Message,
 ) error {
 	encoded, err := modelAuditJSON(message, "round assistant message")
@@ -263,10 +301,12 @@ func (r *modelAuditRecorder) onAssistantMessage(
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	call, err := r.activeCall()
 	if err != nil {
 		return err
 	}
+
 	call.responseMessageJSON = encoded
 
 	return nil
@@ -280,12 +320,17 @@ func (r *modelAuditRecorder) onRetry(
 ) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	call, err := r.activeCall()
 	if err != nil {
 		return err
 	}
 
-	call.retries = append(call.retries, modelAuditRetryAttemptFromElelem(attempt))
+	call.retries = append(
+		call.retries,
+		modelAuditRetryAttemptFromElelem(attempt),
+	)
+
 	retriesJSON, err := modelAuditJSONArray(
 		call.retries,
 		"model retry attempts",
@@ -293,6 +338,7 @@ func (r *modelAuditRecorder) onRetry(
 	if err != nil {
 		return err
 	}
+
 	if err := r.store.RecordModelCallRetries(
 		context.WithoutCancel(ctx),
 		r.sessionID,
@@ -315,17 +361,25 @@ func (r *modelAuditRecorder) onRoundEnd(
 	event *elelem.RoundEvent,
 ) error {
 	if event == nil {
-		return ctxerrors.Wrap(commerr.ErrRequiredFieldNotSet, "model audit round result")
+		return ctxerrors.Wrap(
+			commerr.ErrRequiredFieldNotSet,
+			"model audit round result",
+		)
 	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
 	call, ok := r.calls[int64(event.Round)]
 	if !ok {
 		return ctxerrors.Wrap(commerr.ErrNotFound, "model audit round")
 	}
+
 	if call.finished {
-		return ctxerrors.Wrap(commerr.ErrInvalidState, "model audit round already finalized")
+		return ctxerrors.Wrap(
+			commerr.ErrInvalidState,
+			"model audit round already finalized",
+		)
 	}
 
 	input, err := r.modelCallFinalizeInput(
@@ -339,6 +393,7 @@ func (r *modelAuditRecorder) onRoundEnd(
 	if err != nil {
 		return err
 	}
+
 	if _, err := r.store.FinalizeModelCall(
 		context.WithoutCancel(ctx),
 		r.sessionID,
@@ -366,44 +421,27 @@ func (r *modelAuditRecorder) finish(
 	defer r.mu.Unlock()
 
 	runState, callState, classification := modelAuditOutcome(runErr)
-	if r.activeRound >= 0 {
-		call, err := r.activeCall()
-		if err != nil {
-			return err
-		}
-		if !call.finished {
-			usage := elelem.Usage{}
-			if response != nil {
-				usage = response.Usage
-			}
-			input, inputErr := r.modelCallFinalizeInput(
-				callState,
-				call.responseMessageJSON,
-				usage,
-				call.retries,
-				classification,
-				errorText(runErr),
-			)
-			if inputErr != nil {
-				return inputErr
-			}
-			if _, err := r.store.FinalizeModelCall(
-				context.WithoutCancel(ctx),
-				r.sessionID,
-				r.run.ID,
-				call.id,
-				input,
-			); err != nil {
-				return ctxerrors.Wrap(err, "finalize interrupted model audit round")
-			}
-			call.finished = true
-		}
+
+	if err := r.finalizeActiveRound(
+		ctx,
+		response,
+		runErr,
+		callState,
+		classification,
+	); err != nil {
+		return err
 	}
 
-	input, err := r.modelRunFinalizeInput(runState, response, classification, runErr)
+	input, err := r.modelRunFinalizeInput(
+		runState,
+		response,
+		classification,
+		runErr,
+	)
 	if err != nil {
 		return err
 	}
+
 	if _, err := r.store.FinalizeModelRun(
 		context.WithoutCancel(ctx),
 		r.sessionID,
@@ -416,13 +454,72 @@ func (r *modelAuditRecorder) finish(
 	return nil
 }
 
+func (r *modelAuditRecorder) finalizeActiveRound(
+	ctx context.Context,
+	response *elelem.Response,
+	runErr error,
+	state models.ModelCallState,
+	classification string,
+) error {
+	if r.activeRound < 0 {
+		return nil
+	}
+
+	call, err := r.activeCall()
+	if err != nil {
+		return err
+	}
+
+	if call.finished {
+		return nil
+	}
+
+	usage := elelem.Usage{}
+	if response != nil {
+		usage = response.Usage
+	}
+
+	input, err := r.modelCallFinalizeInput(
+		state,
+		call.responseMessageJSON,
+		usage,
+		call.retries,
+		classification,
+		errorText(runErr),
+	)
+	if err != nil {
+		return err
+	}
+
+	if _, err := r.store.FinalizeModelCall(
+		context.WithoutCancel(ctx),
+		r.sessionID,
+		r.run.ID,
+		call.id,
+		input,
+	); err != nil {
+		return ctxerrors.Wrap(err, "finalize interrupted model audit round")
+	}
+
+	call.finished = true
+
+	return nil
+}
+
 func (r *modelAuditRecorder) activeCall() (*modelAuditCall, error) {
 	if r.activeRound < 0 {
-		return nil, ctxerrors.Wrap(commerr.ErrInvalidState, "model audit has no active round")
+		return nil, ctxerrors.Wrap(
+			commerr.ErrInvalidState,
+			"model audit has no active round",
+		)
 	}
+
 	call, found := r.calls[r.activeRound]
 	if !found {
-		return nil, ctxerrors.Wrap(commerr.ErrNotFound, "active model audit round")
+		return nil, ctxerrors.Wrap(
+			commerr.ErrNotFound,
+			"active model audit round",
+		)
 	}
 
 	return call, nil
@@ -437,19 +534,26 @@ func (r *modelAuditRecorder) modelCallFinalizeInput(
 	failureDetail string,
 ) (session.FinalizeModelCallInput, error) {
 	if responseMessageJSON == "" {
-		responseMessageJSON = "null"
+		responseMessageJSON = modelAuditNullJSON
 	}
-	usageJSON, err := modelAuditJSON(modelAuditUsageFromElelem(usage), "model round usage")
+
+	usageJSON, err := modelAuditJSON(
+		modelAuditUsageFromElelem(usage),
+		"model round usage",
+	)
 	if err != nil {
 		return session.FinalizeModelCallInput{}, err
 	}
+
 	if len(retries) == 0 {
 		retries = modelAuditRetryAttemptsFromElelem(usage.Retry.FailedAttempts)
 	}
+
 	retriesJSON, err := modelAuditJSONArray(retries, "model round retries")
 	if err != nil {
 		return session.FinalizeModelCallInput{}, err
 	}
+
 	costs, err := modelAuditCosts(r.model, usage)
 	if err != nil {
 		return session.FinalizeModelCallInput{}, err
@@ -501,25 +605,7 @@ func (r *modelAuditRecorder) modelRunFinalizeInput(
 		return input, nil
 	}
 
-	messagesJSON, err := modelAuditJSONArray(
-		response.Messages,
-		"model run response messages",
-	)
-	if err != nil {
-		return session.FinalizeModelRunInput{}, err
-	}
-	injectionsJSON, err := modelAuditJSONArray(
-		response.Injections,
-		"model run response injections",
-	)
-	if err != nil {
-		return session.FinalizeModelRunInput{}, err
-	}
-	usageJSON, err := modelAuditJSON(modelAuditUsageFromElelem(response.Usage), "model run usage")
-	if err != nil {
-		return session.FinalizeModelRunInput{}, err
-	}
-	costs, err := modelAuditCosts(r.model, response.Usage)
+	payloads, err := r.modelRunResponsePayloads(response)
 	if err != nil {
 		return session.FinalizeModelRunInput{}, err
 	}
@@ -527,11 +613,12 @@ func (r *modelAuditRecorder) modelRunFinalizeInput(
 	input.ResponseModelID = response.Model
 	input.ResponseText = response.Text
 	input.ResponseThinking = response.Reasoning
-	input.ResponseMessagesJSON = messagesJSON
-	input.ResponseInjectionsJSON = injectionsJSON
-	input.ResponseUsageJSON = usageJSON
-	input.ResponseCostAmount = costs.response
-	input.RetryCostAmount = costs.retry
+	input.ResponseMessagesJSON = payloads.messagesJSON
+	input.ResponseInjectionsJSON = payloads.injectionsJSON
+	input.ResponseUsageJSON = payloads.usageJSON
+	input.ResponseCostAmount = payloads.costs.response
+	input.RetryCostAmount = payloads.costs.retry
+
 	input.BilledCostAmount, err = sumModelCostAmounts(
 		input.ResponseCostAmount,
 		input.RetryCostAmount,
@@ -539,10 +626,58 @@ func (r *modelAuditRecorder) modelRunFinalizeInput(
 	if err != nil {
 		return session.FinalizeModelRunInput{}, err
 	}
-	input.CostKnown = costs.known
+
+	input.CostKnown = payloads.costs.known
 	input.FinishReason = string(response.FinishReason)
 
 	return input, nil
+}
+
+type modelRunResponsePayloads struct {
+	messagesJSON   string
+	injectionsJSON string
+	usageJSON      string
+	costs          modelAuditCost
+}
+
+func (r *modelAuditRecorder) modelRunResponsePayloads(
+	response *elelem.Response,
+) (modelRunResponsePayloads, error) {
+	messagesJSON, err := modelAuditJSONArray(
+		response.Messages,
+		"model run response messages",
+	)
+	if err != nil {
+		return modelRunResponsePayloads{}, err
+	}
+
+	injectionsJSON, err := modelAuditJSONArray(
+		response.Injections,
+		"model run response injections",
+	)
+	if err != nil {
+		return modelRunResponsePayloads{}, err
+	}
+
+	usageJSON, err := modelAuditJSON(
+		modelAuditUsageFromElelem(response.Usage),
+		"model run usage",
+	)
+	if err != nil {
+		return modelRunResponsePayloads{}, err
+	}
+
+	costs, err := modelAuditCosts(r.model, response.Usage)
+	if err != nil {
+		return modelRunResponsePayloads{}, err
+	}
+
+	return modelRunResponsePayloads{
+		messagesJSON:   messagesJSON,
+		injectionsJSON: injectionsJSON,
+		usageJSON:      usageJSON,
+		costs:          costs,
+	}, nil
 }
 
 type modelAuditCost struct {
@@ -552,7 +687,18 @@ type modelAuditCost struct {
 	known    bool
 }
 
-func modelAuditCosts(model elelem.Model, usage elelem.Usage) (modelAuditCost, error) {
+type modelAuditRates struct {
+	input      float64
+	output     float64
+	cacheRead  float64
+	cacheWrite float64
+	longTTL    float64
+}
+
+func modelAuditCosts(
+	model elelem.Model,
+	usage elelem.Usage,
+) (modelAuditCost, error) {
 	known := modelPricingKnown(model.Pricing)
 	if !known {
 		return modelAuditCost{}, nil
@@ -560,26 +706,42 @@ func modelAuditCosts(model elelem.Model, usage elelem.Usage) (modelAuditCost, er
 
 	response, err := modelUsageCostAmount(model, usage)
 	if err != nil {
-		return modelAuditCost{}, ctxerrors.Wrap(err, "calculate model response cost")
+		return modelAuditCost{}, ctxerrors.Wrap(
+			err,
+			"calculate model response cost",
+		)
 	}
-	retryAmounts := make([]string, 0, len(usage.Retry.FailedAttempts)+modelAuditRetryCostStartSize)
+
+	retryCount := len(usage.Retry.FailedAttempts)
+	retryAmounts := make(
+		[]string,
+		0,
+		retryCount+modelAuditRetryCostStartSize,
+	)
+
 	for _, attempt := range usage.Retry.FailedAttempts {
 		amount, amountErr := modelUsageCostAmount(
 			model,
 			elelem.Usage{TokenCounts: attempt.Tokens},
 		)
 		if amountErr != nil {
-			return modelAuditCost{}, ctxerrors.Wrap(amountErr, "calculate model retry cost")
+			return modelAuditCost{}, ctxerrors.Wrap(
+				amountErr,
+				"calculate model retry cost",
+			)
 		}
+
 		retryAmounts = append(
 			retryAmounts,
 			amount,
 		)
 	}
+
 	retry, err := sumModelCostAmounts(retryAmounts...)
 	if err != nil {
 		return modelAuditCost{}, ctxerrors.Wrap(err, "sum model retry cost")
 	}
+
 	billed, err := sumModelCostAmounts(response, retry)
 	if err != nil {
 		return modelAuditCost{}, ctxerrors.Wrap(err, "sum model billed cost")
@@ -604,10 +766,12 @@ func modelPricingKnown(pricing elelem.ModelPricing) bool {
 func sumModelCostAmounts(amounts ...string) (string, error) {
 	total := new(big.Rat)
 	found := false
+
 	for _, amount := range amounts {
 		if amount == "" {
 			continue
 		}
+
 		value, ok := new(big.Rat).SetString(amount)
 		if !ok {
 			return "", ctxerrors.Wrapf(
@@ -616,9 +780,12 @@ func sumModelCostAmounts(amounts ...string) (string, error) {
 				amount,
 			)
 		}
+
 		total.Add(total, value)
+
 		found = true
 	}
+
 	if !found {
 		return "", nil
 	}
@@ -629,48 +796,33 @@ func sumModelCostAmounts(amounts ...string) (string, error) {
 // modelUsageCostAmount repeats Elelem's per-round pricing in decimal space.
 // Elelem exposes rates as float64, but accounting must not persist binary
 // floating-point noise such as 0.00007000000000000001.
-func modelUsageCostAmount(model elelem.Model, usage elelem.Usage) (string, error) {
-	inputRate, outputRate := model.Pricing.InputPerToken, model.Pricing.OutputPerToken
-	if model.Pricing.LongContextThreshold > 0 &&
-		usage.Prompt > int64(model.Pricing.LongContextThreshold) {
-		if model.Pricing.LongContextInputPerToken != 0 {
-			inputRate = model.Pricing.LongContextInputPerToken
-		}
-		if model.Pricing.LongContextOutputPerToken != 0 {
-			outputRate = model.Pricing.LongContextOutputPerToken
-		}
-	}
+func modelUsageCostAmount(
+	model elelem.Model,
+	usage elelem.Usage,
+) (string, error) {
+	rates := modelUsageRates(model.Pricing, usage)
 
-	cacheReadRate := model.Pricing.CacheReadPerToken
-	if cacheReadRate == 0 {
-		cacheReadRate = inputRate
-	}
-	cacheWriteRate := model.Pricing.CacheWritePerToken
-	if cacheWriteRate == 0 {
-		cacheWriteRate = inputRate
-	}
-	longTTLRate := model.Pricing.CacheWriteLongTTLPerToken
-	if longTTLRate == 0 {
-		longTTLRate = cacheWriteRate
-	}
-
-	input, err := modelCostRate(inputRate)
+	input, err := modelCostRate(rates.input)
 	if err != nil {
 		return "", ctxerrors.Wrap(err, "parse model input rate")
 	}
-	output, err := modelCostRate(outputRate)
+
+	output, err := modelCostRate(rates.output)
 	if err != nil {
 		return "", ctxerrors.Wrap(err, "parse model output rate")
 	}
-	cacheRead, err := modelCostRate(cacheReadRate)
+
+	cacheRead, err := modelCostRate(rates.cacheRead)
 	if err != nil {
 		return "", ctxerrors.Wrap(err, "parse model cache-read rate")
 	}
-	cacheWrite, err := modelCostRate(cacheWriteRate)
+
+	cacheWrite, err := modelCostRate(rates.cacheWrite)
 	if err != nil {
 		return "", ctxerrors.Wrap(err, "parse model cache-write rate")
 	}
-	longTTL, err := modelCostRate(longTTLRate)
+
+	longTTL, err := modelCostRate(rates.longTTL)
 	if err != nil {
 		return "", ctxerrors.Wrap(err, "parse model long-TTL cache-write rate")
 	}
@@ -688,8 +840,51 @@ func modelUsageCostAmount(model elelem.Model, usage elelem.Usage) (string, error
 	return modelCostRatString(total)
 }
 
+func modelUsageRates(
+	pricing elelem.ModelPricing,
+	usage elelem.Usage,
+) modelAuditRates {
+	inputRate := pricing.InputPerToken
+
+	outputRate := pricing.OutputPerToken
+	if pricing.LongContextThreshold > 0 &&
+		usage.Prompt > int64(pricing.LongContextThreshold) {
+		if pricing.LongContextInputPerToken != 0 {
+			inputRate = pricing.LongContextInputPerToken
+		}
+
+		if pricing.LongContextOutputPerToken != 0 {
+			outputRate = pricing.LongContextOutputPerToken
+		}
+	}
+
+	cacheReadRate := pricing.CacheReadPerToken
+	if cacheReadRate == 0 {
+		cacheReadRate = inputRate
+	}
+
+	cacheWriteRate := pricing.CacheWritePerToken
+	if cacheWriteRate == 0 {
+		cacheWriteRate = inputRate
+	}
+
+	longTTLRate := pricing.CacheWriteLongTTLPerToken
+	if longTTLRate == 0 {
+		longTTLRate = cacheWriteRate
+	}
+
+	return modelAuditRates{
+		input:      inputRate,
+		output:     outputRate,
+		cacheRead:  cacheReadRate,
+		cacheWrite: cacheWriteRate,
+		longTTL:    longTTLRate,
+	}
+}
+
 func modelCostRate(value float64) (*big.Rat, error) {
 	formatted := strconv.FormatFloat(value, 'f', -1, 64)
+
 	rate, ok := new(big.Rat).SetString(formatted)
 	if !ok {
 		return nil, ctxerrors.Wrapf(
@@ -712,12 +907,17 @@ func modelCostAdd(total *big.Rat, tokens int64, rate *big.Rat) {
 
 func modelCostRatString(value *big.Rat) (string, error) {
 	denominator := new(big.Int).Set(value.Denom())
-	for _, factor := range [...]int64{2, 5} {
+
+	for _, factor := range [...]int64{
+		modelCostFactorTwo,
+		modelCostFactorFive,
+	} {
 		factorInteger := big.NewInt(factor)
 		for new(big.Int).Mod(denominator, factorInteger).Sign() == 0 {
 			denominator.Quo(denominator, factorInteger)
 		}
 	}
+
 	if denominator.Cmp(big.NewInt(1)) != 0 {
 		return "", ctxerrors.Wrap(
 			commerr.ErrInvalidState,
@@ -726,9 +926,10 @@ func modelCostRatString(value *big.Rat) (string, error) {
 	}
 
 	precision := max(
-		modelCostFactorCount(value.Denom(), 2),
-		modelCostFactorCount(value.Denom(), 5),
+		modelCostFactorCount(value.Denom(), modelCostFactorTwo),
+		modelCostFactorCount(value.Denom(), modelCostFactorFive),
 	)
+
 	formatted := value.FloatString(precision)
 	if !strings.Contains(formatted, ".") {
 		return formatted, nil
@@ -741,8 +942,10 @@ func modelCostFactorCount(value *big.Int, factor int64) int {
 	remainder := new(big.Int).Set(value)
 	factorInteger := big.NewInt(factor)
 	count := 0
+
 	for new(big.Int).Mod(remainder, factorInteger).Sign() == 0 {
 		remainder.Quo(remainder, factorInteger)
+
 		count++
 	}
 
@@ -778,7 +981,8 @@ func modelAuditJSONArray(value any, label string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if encoded == "null" {
+
+	if encoded == modelAuditNullJSON {
 		return "[]", nil
 	}
 
@@ -786,6 +990,7 @@ func modelAuditJSONArray(value any, label string) (string, error) {
 	if err := json.Unmarshal([]byte(encoded), &decoded); err != nil {
 		return "", ctxerrors.Wrapf(err, "decode model audit %s array", label)
 	}
+
 	if decoded == nil {
 		return "", ctxerrors.Wrapf(
 			commerr.ErrInvalidState,
@@ -805,25 +1010,36 @@ func modelAuditOutcome(err error) (
 	if err == nil {
 		return models.ModelRunStateCompleted, models.ModelCallStateCompleted, ""
 	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+
+	cancelled := errors.Is(err, context.Canceled) ||
+		errors.Is(err, context.DeadlineExceeded)
+	if cancelled {
 		return models.ModelRunStateCancelled,
 			models.ModelCallStateCancelled,
 			failureClassCancelled
 	}
 
-	return models.ModelRunStateFailed, models.ModelCallStateFailed, modelAuditFailureClass
+	return models.ModelRunStateFailed,
+		models.ModelCallStateFailed,
+		modelAuditFailureClass
 }
 
 func modelAuditUsageFromElelem(usage elelem.Usage) modelAuditUsage {
 	return modelAuditUsage{
-		modelAuditTokenCounts:  modelAuditTokenCountsFromElelem(usage.TokenCounts),
-		Model:                  usage.Model,
-		FinishReason:           string(usage.FinishReason),
-		TotalAttempts:          usage.Retry.TotalAttempts,
-		FailedAttempts:         modelAuditRetryAttemptsFromElelem(usage.Retry.FailedAttempts),
-		WastedPromptTokens:     usage.Retry.WastedPromptTokens,
-		WastedCompletionTokens: usage.Retry.WastedCompletionTokens,
-		WastedTotalTokens:      usage.Retry.WastedTotalTokens,
+		modelAuditTokenCounts: modelAuditTokenCountsFromElelem(
+			usage.TokenCounts,
+		),
+		Model:         usage.Model,
+		FinishReason:  string(usage.FinishReason),
+		TotalAttempts: usage.Retry.TotalAttempts,
+		FailedAttempts: modelAuditRetryAttemptsFromElelem(
+			usage.Retry.FailedAttempts,
+		),
+		modelAuditRetryUsage: modelAuditRetryUsage{
+			WastedPromptTokens:     usage.Retry.WastedPromptTokens,
+			WastedCompletionTokens: usage.Retry.WastedCompletionTokens,
+			WastedTotalTokens:      usage.Retry.WastedTotalTokens,
+		},
 	}
 }
 

@@ -62,6 +62,7 @@ func TestRuntimeRunPersistsTranscriptEventsAndSnapshots(t *testing.T) {
 	assert.Equal(
 		t,
 		[]string{
+			EventTypeUserMessageCreated,
 			eventTypeTurnStarted,
 			eventTypeTurnCompleted,
 		},

@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	"github.com/psyb0t/common-go/utils/ptrutil"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
@@ -25,8 +24,10 @@ func (r *Runtime) ListSessionJobs(
 	}
 
 	options := session.ListJobsOptions{Limit: limit, Offset: offset}
+
 	if params.State != nil {
-		options.State = ptrutil.Of(models.JobState(*params.State))
+		state := models.JobState(*params.State)
+		options.State = &state
 	}
 
 	stored, err := r.store.ListJobs(ctx, sessionID, options)
@@ -38,6 +39,7 @@ func (r *Runtime) ListSessionJobs(
 	if err != nil {
 		return nil, err
 	}
+
 	pageOffset, err := messagePageValueToAPI(stored.Offset, "job page offset")
 	if err != nil {
 		return nil, err
@@ -130,11 +132,19 @@ func (r *Runtime) ListSessionJobSignalRequests(
 	if err != nil {
 		return nil, err
 	}
-	pageLimit, err := messagePageValueToAPI(stored.Limit, "job signal page limit")
+
+	pageLimit, err := messagePageValueToAPI(
+		stored.Limit,
+		"job signal page limit",
+	)
 	if err != nil {
 		return nil, err
 	}
-	pageOffset, err := messagePageValueToAPI(stored.Offset, "job signal page offset")
+
+	pageOffset, err := messagePageValueToAPI(
+		stored.Offset,
+		"job signal page offset",
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -181,6 +191,7 @@ func (r *Runtime) SignalSessionJob(
 	if err != nil {
 		return nil, err
 	}
+
 	if registry == nil {
 		return r.recordUnavailableJobSignal(ctx, stored, signal)
 	}
@@ -189,6 +200,7 @@ func (r *Runtime) SignalSessionJob(
 	if signalErr != nil {
 		return nil, ctxerrors.Wrap(signalErr, "dispatch job signal")
 	}
+
 	if !found {
 		return r.recordUnavailableJobSignal(ctx, stored, signal)
 	}
@@ -214,6 +226,7 @@ func (r *Runtime) recordUnavailableJobSignal(
 	if err != nil {
 		return nil, err
 	}
+
 	if _, err := r.store.RecordJobSignal(
 		ctx,
 		stored.SessionID,
@@ -254,7 +267,7 @@ func (r *Runtime) existingSessionJobs(
 func jobOutputOptionsFromAPI(
 	params api.ReadSessionJobOutputParams,
 ) (session.ListJobOutputOptions, error) {
-	stream, err := jobOutputStreamFromAPI(params.Stream)
+	stream, hasStream, err := jobOutputStreamFromAPI(params.Stream)
 	if err != nil {
 		return session.ListJobOutputOptions{}, err
 	}
@@ -264,33 +277,45 @@ func jobOutputOptionsFromAPI(
 		limit = int(*params.Limit)
 	}
 
-	return session.ListJobOutputOptions{
+	options := session.ListJobOutputOptions{
 		Cursor: int64OrZero(params.Cursor),
 		Limit:  limit,
-		Stream: stream,
-	}, nil
+	}
+	if hasStream {
+		options.Stream = &stream
+	}
+
+	return options, nil
 }
 
 func jobOutputStreamFromAPI(
 	stream *api.ReadSessionJobOutputParamsStream,
-) (*models.JobOutputStream, error) {
-	if stream == nil || *stream == api.ReadSessionJobOutputParamsStreamBoth {
-		return nil, nil
+) (models.JobOutputStream, bool, error) {
+	if stream == nil {
+		return "", false, nil
 	}
 
 	switch *stream {
+	case api.ReadSessionJobOutputParamsStreamBoth:
+		return "", false, nil
 	case api.ReadSessionJobOutputParamsStreamStdout:
-		return ptrutil.Of(models.JobOutputStreamStdout), nil
+		return models.JobOutputStreamStdout, true, nil
 	case api.ReadSessionJobOutputParamsStreamStderr:
-		return ptrutil.Of(models.JobOutputStreamStderr), nil
+		return models.JobOutputStreamStderr, true, nil
 	default:
-		return nil, ctxerrors.Wrap(commerr.ErrValidationFailed, "job output stream")
+		return "", false, ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"job output stream",
+		)
 	}
 }
 
 func jobModelToAPI(stored *models.Job) (api.Job, error) {
 	if stored == nil {
-		return api.Job{}, ctxerrors.Wrap(commerr.ErrInvalidState, "nil durable job")
+		return api.Job{}, ctxerrors.Wrap(
+			commerr.ErrInvalidState,
+			"nil durable job",
+		)
 	}
 
 	state, err := jobStateToAPI(stored.State)
@@ -384,7 +409,11 @@ func jobStateToAPI(state models.JobState) (api.JobState, error) {
 	case models.JobStateInterrupted:
 		return api.JobStateInterrupted, nil
 	default:
-		return "", ctxerrors.Wrapf(commerr.ErrInvalidState, "job state %q", state)
+		return "", ctxerrors.Wrapf(
+			commerr.ErrInvalidState,
+			"job state %q",
+			state,
+		)
 	}
 }
 
@@ -397,7 +426,11 @@ func jobOutputLineStreamToAPI(
 	case models.JobOutputStreamStderr:
 		return api.JobOutputLineStreamStderr, nil
 	default:
-		return "", ctxerrors.Wrapf(commerr.ErrInvalidState, "job output stream %q", stream)
+		return "", ctxerrors.Wrapf(
+			commerr.ErrInvalidState,
+			"job output stream %q",
+			stream,
+		)
 	}
 }
 
@@ -448,7 +481,9 @@ func pageWindow[T any](items []T, offset, limit int) []T {
 	return items[offset:min(offset+limit, len(items))]
 }
 
-func jobSignalFromAPI(signal api.JobSignalRequestSignal) (tools.JobSignal, error) {
+func jobSignalFromAPI(
+	signal api.JobSignalRequestSignal,
+) (tools.JobSignal, error) {
 	switch signal {
 	case api.JobSignalRequestSignalStop:
 		return tools.JobSignalStop, nil

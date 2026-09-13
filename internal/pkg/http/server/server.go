@@ -5,7 +5,9 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sync"
 
+	"github.com/google/uuid"
 	"github.com/psyb0t/aichteeteapee"
 	"github.com/psyb0t/aichteeteapee/serbewr"
 	"github.com/psyb0t/aichteeteapee/serbewr/dabluvee-es/wshub"
@@ -32,6 +34,8 @@ type Server struct {
 	testHandler             http.Handler
 	webSocketHub            wshub.Hub
 	webSocketUpgradeHandler http.Handler
+	webSocketFilterMutex    sync.Mutex
+	webSocketFilters        map[uuid.UUID]uuid.UUID
 }
 
 var _ api.StrictServerInterface = (*Server)(nil)
@@ -93,6 +97,7 @@ func New(deps Dependencies) (*Server, error) {
 
 func (s *Server) configureWebSocketHub() {
 	s.webSocketHub = wshub.NewHub(webSocketHubName)
+	s.webSocketFilters = make(map[uuid.UUID]uuid.UUID)
 	s.webSocketHub.RegisterEventHandler(
 		webSocketMessageSendEventType,
 		s.handleWebSocketMessage,

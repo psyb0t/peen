@@ -32,6 +32,7 @@ func (r *Runtime) ListSessionEvents(
 	if err != nil {
 		return nil, err
 	}
+
 	offset, err := messagePageValueToAPI(stored.Offset, "event page offset")
 	if err != nil {
 		return nil, err
@@ -65,22 +66,32 @@ func (r *Runtime) ListSessionTurns(
 		return nil, err
 	}
 
-	stored, err := r.store.ListTurns(ctx, params.XSessionID, session.ListTurnsOptions{
-		Limit:  limit,
-		Offset: offset,
-	})
+	stored, err := r.store.ListTurns(
+		ctx,
+		params.XSessionID,
+		session.ListTurnsOptions{
+			Limit:  limit,
+			Offset: offset,
+		},
+	)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "list durable session turns")
 	}
 
-	page := api.TurnPage{
-		Turns:   make([]api.Turn, 0, len(stored.Items)),
-		HasMore: stored.HasMore,
-		Limit:   int32(stored.Limit),  //nolint:gosec // API validates this bound.
-		Offset:  int32(stored.Offset), //nolint:gosec // API validates this bound.
+	pageLimit, pageOffset, err := durablePageValues(
+		stored.Limit,
+		stored.Offset,
+		"turn",
+	)
+	if err != nil {
+		return nil, err
 	}
-	for _, turn := range stored.Items {
-		page.Turns = append(page.Turns, turnToAPI(turn))
+
+	page := api.TurnPage{
+		Turns:   mapStoredItems(stored.Items, turnToAPI),
+		HasMore: stored.HasMore,
+		Limit:   pageLimit,
+		Offset:  pageOffset,
 	}
 
 	return &page, nil
@@ -105,14 +116,20 @@ func (r *Runtime) ListSessionCompactions(
 		return nil, ctxerrors.Wrap(err, "list durable session compactions")
 	}
 
-	page := api.CompactionPage{
-		Compactions: make([]api.Compaction, 0, len(stored.Items)),
-		HasMore:     stored.HasMore,
-		Limit:       int32(stored.Limit),  //nolint:gosec // API validates this bound.
-		Offset:      int32(stored.Offset), //nolint:gosec // API validates this bound.
+	pageLimit, pageOffset, err := durablePageValues(
+		stored.Limit,
+		stored.Offset,
+		"compaction",
+	)
+	if err != nil {
+		return nil, err
 	}
-	for _, compaction := range stored.Items {
-		page.Compactions = append(page.Compactions, compactionToAPI(compaction))
+
+	page := api.CompactionPage{
+		Compactions: mapStoredItems(stored.Items, compactionToAPI),
+		HasMore:     stored.HasMore,
+		Limit:       pageLimit,
+		Offset:      pageOffset,
 	}
 
 	return &page, nil
@@ -149,11 +166,20 @@ func (r *Runtime) ListSessionModelRuns(
 		return nil, ctxerrors.Wrap(err, "list durable model runs")
 	}
 
+	pageLimit, pageOffset, err := durablePageValues(
+		stored.Limit,
+		stored.Offset,
+		"model run",
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	page := api.ModelRunPage{
 		HasMore:   stored.HasMore,
-		Limit:     int32(stored.Limit), //nolint:gosec // Storage validates this bound.
+		Limit:     pageLimit,
 		ModelRuns: make([]api.ModelRun, 0, len(stored.Items)),
-		Offset:    int32(stored.Offset), //nolint:gosec // Storage validates this bound.
+		Offset:    pageOffset,
 	}
 	for _, item := range stored.Items {
 		converted, convertErr := modelRunToAPI(item)
@@ -195,12 +221,21 @@ func (r *Runtime) ListSessionModelRunCalls(
 		return nil, err
 	}
 
+	pageLimit, pageOffset, err := durablePageValues(
+		stored.Limit,
+		stored.Offset,
+		"model call",
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	page := api.ModelCallPage{
 		Calls:    make([]api.ModelCall, 0, len(stored.Items)),
 		HasMore:  stored.HasMore,
-		Limit:    int32(stored.Limit), //nolint:gosec // Storage validates this bound.
+		Limit:    pageLimit,
 		ModelRun: run,
-		Offset:   int32(stored.Offset), //nolint:gosec // Storage validates this bound.
+		Offset:   pageOffset,
 	}
 	for _, item := range stored.Items {
 		converted, convertErr := modelCallToAPI(item)
@@ -214,7 +249,8 @@ func (r *Runtime) ListSessionModelRunCalls(
 	return &page, nil
 }
 
-// GetSessionContextSnapshot reads the exact resolved context used by this session.
+// GetSessionContextSnapshot reads the exact resolved context used by this
+// session.
 func (r *Runtime) GetSessionContextSnapshot(
 	ctx context.Context,
 	sessionID uuid.UUID,
@@ -226,8 +262,14 @@ func (r *Runtime) GetSessionContextSnapshot(
 	}
 
 	manifest := map[string]any{}
-	if err := json.Unmarshal([]byte(stored.ManifestJSON), &manifest); err != nil {
-		return nil, ctxerrors.Wrap(err, "decode context snapshot manifest")
+	if err := json.Unmarshal(
+		[]byte(stored.ManifestJSON),
+		&manifest,
+	); err != nil {
+		return nil, ctxerrors.Wrap(
+			err,
+			"decode context snapshot manifest",
+		)
 	}
 
 	return &api.ContextSnapshot{
@@ -238,7 +280,8 @@ func (r *Runtime) GetSessionContextSnapshot(
 	}, nil
 }
 
-// GetSessionPromptSnapshot reads the exact effective prompt used by this session.
+// GetSessionPromptSnapshot reads the exact effective prompt used by this
+// session.
 func (r *Runtime) GetSessionPromptSnapshot(
 	ctx context.Context,
 	sessionID uuid.UUID,
@@ -265,6 +308,7 @@ func listEventsOptionsFromAPI(
 	}
 
 	order := session.PageOrderAscending
+
 	if params.Order != nil {
 		switch *params.Order {
 		case api.ListSessionEventsParamsOrderAsc:
@@ -279,7 +323,41 @@ func listEventsOptionsFromAPI(
 		}
 	}
 
-	return session.ListEventsOptions{Limit: limit, Offset: offset, Order: order}, nil
+	return session.ListEventsOptions{
+		Limit:  limit,
+		Offset: offset,
+		Order:  order,
+	}, nil
+}
+
+func durablePageValues(
+	limit int,
+	offset int,
+	resource string,
+) (int32, int32, error) {
+	pageLimit, err := messagePageValueToAPI(limit, resource+" page limit")
+	if err != nil {
+		return 0, 0, err
+	}
+
+	pageOffset, err := messagePageValueToAPI(offset, resource+" page offset")
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return pageLimit, pageOffset, nil
+}
+
+func mapStoredItems[T any, U any](
+	items []*T,
+	convert func(*T) U,
+) []U {
+	converted := make([]U, 0, len(items))
+	for _, item := range items {
+		converted = append(converted, convert(item))
+	}
+
+	return converted
 }
 
 func modelRunListOptionsFromAPI(
@@ -291,10 +369,12 @@ func modelRunListOptionsFromAPI(
 	}
 
 	options := session.ListModelRunsOptions{Limit: limit, Offset: offset}
+
 	if params.Stage != nil {
 		stage := models.ModelRunStage(*params.Stage)
 		options.Stage = &stage
 	}
+
 	if params.State != nil {
 		state := models.ModelRunState(*params.State)
 		options.State = &state
@@ -340,34 +420,13 @@ func compactionToAPI(stored *models.Compaction) api.Compaction {
 
 func modelRunToAPI(stored *models.ModelRun) (api.ModelRun, error) {
 	if stored == nil {
-		return api.ModelRun{}, ctxerrors.Wrap(commerr.ErrInvalidState, "nil model run")
+		return api.ModelRun{}, ctxerrors.Wrap(
+			commerr.ErrInvalidState,
+			"nil model run",
+		)
 	}
 
-	requestSettings, err := decodeJSONObject(
-		stored.RequestSettingsJSON,
-		"model run request settings",
-	)
-	if err != nil {
-		return api.ModelRun{}, err
-	}
-	responseMessages, err := decodeJSONArray(
-		stored.ResponseMessagesJSON,
-		"model run response messages",
-	)
-	if err != nil {
-		return api.ModelRun{}, err
-	}
-	responseInjections, err := decodeJSONArray(
-		stored.ResponseInjectionsJSON,
-		"model run response injections",
-	)
-	if err != nil {
-		return api.ModelRun{}, err
-	}
-	responseUsage, err := decodeJSONObject(
-		stored.ResponseUsageJSON,
-		"model run response usage",
-	)
+	payloads, err := decodeModelRunPayloads(stored)
 	if err != nil {
 		return api.ModelRun{}, err
 	}
@@ -383,15 +442,15 @@ func modelRunToAPI(stored *models.ModelRun) (api.ModelRun, error) {
 		FinishReason:          stored.FinishReason,
 		Id:                    stored.ID,
 		ModelReference:        stored.ModelReference,
-		RequestSettings:       requestSettings,
+		RequestSettings:       payloads.requestSettings,
 		RequestedModelId:      stored.RequestedModelID,
 		ResponseCostAmount:    stored.ResponseCostAmount,
-		ResponseInjections:    responseInjections,
-		ResponseMessages:      responseMessages,
+		ResponseInjections:    payloads.responseInjections,
+		ResponseMessages:      payloads.responseMessages,
 		ResponseModelId:       stored.ResponseModelID,
 		ResponseText:          stored.ResponseText,
 		ResponseThinking:      stored.ResponseThinking,
-		ResponseUsage:         responseUsage,
+		ResponseUsage:         payloads.responseUsage,
 		RetryCostAmount:       stored.RetryCostAmount,
 		SessionId:             stored.SessionID,
 		Stage:                 api.ModelRunStage(stored.Stage),
@@ -401,43 +460,63 @@ func modelRunToAPI(stored *models.ModelRun) (api.ModelRun, error) {
 	}, nil
 }
 
-func modelCallToAPI(stored *models.ModelCall) (api.ModelCall, error) {
-	if stored == nil {
-		return api.ModelCall{}, ctxerrors.Wrap(commerr.ErrInvalidState, "nil model call")
+type modelRunPayloads struct {
+	requestSettings    map[string]any
+	responseMessages   []any
+	responseInjections []any
+	responseUsage      map[string]any
+}
+
+func decodeModelRunPayloads(stored *models.ModelRun) (modelRunPayloads, error) {
+	requestSettings, err := decodeJSONObject(
+		stored.RequestSettingsJSON,
+		"model run request settings",
+	)
+	if err != nil {
+		return modelRunPayloads{}, err
 	}
 
-	requestMessages, err := decodeJSONArray(
-		stored.RequestMessagesJSON,
-		"model call request messages",
+	responseMessages, err := decodeJSONArray(
+		stored.ResponseMessagesJSON,
+		"model run response messages",
 	)
 	if err != nil {
-		return api.ModelCall{}, err
+		return modelRunPayloads{}, err
 	}
-	requestTools, err := decodeJSONArray(
-		stored.RequestToolsJSON,
-		"model call request tools",
+
+	responseInjections, err := decodeJSONArray(
+		stored.ResponseInjectionsJSON,
+		"model run response injections",
 	)
 	if err != nil {
-		return api.ModelCall{}, err
+		return modelRunPayloads{}, err
 	}
-	responseMessage, err := decodeNullableJSONObject(
-		stored.ResponseMessageJSON,
-		"model call response message",
-	)
-	if err != nil {
-		return api.ModelCall{}, err
-	}
+
 	responseUsage, err := decodeJSONObject(
 		stored.ResponseUsageJSON,
-		"model call response usage",
+		"model run response usage",
 	)
 	if err != nil {
-		return api.ModelCall{}, err
+		return modelRunPayloads{}, err
 	}
-	retryAttempts, err := decodeJSONObjectArray(
-		stored.RetryAttemptsJSON,
-		"model call retry attempts",
-	)
+
+	return modelRunPayloads{
+		requestSettings:    requestSettings,
+		responseMessages:   responseMessages,
+		responseInjections: responseInjections,
+		responseUsage:      responseUsage,
+	}, nil
+}
+
+func modelCallToAPI(stored *models.ModelCall) (api.ModelCall, error) {
+	if stored == nil {
+		return api.ModelCall{}, ctxerrors.Wrap(
+			commerr.ErrInvalidState,
+			"nil model call",
+		)
+	}
+
+	payloads, err := decodeModelCallPayloads(stored)
 	if err != nil {
 		return api.ModelCall{}, err
 	}
@@ -457,14 +536,14 @@ func modelCallToAPI(stored *models.ModelCall) (api.ModelCall, error) {
 		ModelRunId:              stored.ModelRunID,
 		PromptTokens:            stored.PromptTokens,
 		ReasoningTokens:         stored.ReasoningTokens,
-		RequestMessages:         requestMessages,
-		RequestTools:            requestTools,
+		RequestMessages:         payloads.requestMessages,
+		RequestTools:            payloads.requestTools,
 		ResponseCostAmount:      stored.ResponseCostAmount,
-		ResponseMessage:         responseMessage,
+		ResponseMessage:         payloads.responseMessage,
 		ResponseModelId:         stored.ResponseModelID,
-		ResponseUsage:           responseUsage,
+		ResponseUsage:           payloads.responseUsage,
 		RetryAttemptCount:       stored.RetryAttemptCount,
-		RetryAttempts:           retryAttempts,
+		RetryAttempts:           payloads.retryAttempts,
 		RetryCostAmount:         stored.RetryCostAmount,
 		Round:                   stored.Round,
 		SessionId:               stored.SessionID,
@@ -478,13 +557,83 @@ func modelCallToAPI(stored *models.ModelCall) (api.ModelCall, error) {
 	}, nil
 }
 
+type modelCallPayloads struct {
+	requestMessages []any
+	requestTools    []any
+	responseMessage *map[string]any
+	responseUsage   map[string]any
+	retryAttempts   []map[string]any
+}
+
+func decodeModelCallPayloads(
+	stored *models.ModelCall,
+) (modelCallPayloads, error) {
+	requestMessages, err := decodeJSONArray(
+		stored.RequestMessagesJSON,
+		"model call request messages",
+	)
+	if err != nil {
+		return modelCallPayloads{}, err
+	}
+
+	requestTools, err := decodeJSONArray(
+		stored.RequestToolsJSON,
+		"model call request tools",
+	)
+	if err != nil {
+		return modelCallPayloads{}, err
+	}
+
+	responseMessage, hasResponseMessage, err := decodeNullableJSONObject(
+		stored.ResponseMessageJSON,
+		"model call response message",
+	)
+	if err != nil {
+		return modelCallPayloads{}, err
+	}
+
+	var responseMessagePointer *map[string]any
+	if hasResponseMessage {
+		responseMessagePointer = &responseMessage
+	}
+
+	responseUsage, err := decodeJSONObject(
+		stored.ResponseUsageJSON,
+		"model call response usage",
+	)
+	if err != nil {
+		return modelCallPayloads{}, err
+	}
+
+	retryAttempts, err := decodeJSONObjectArray(
+		stored.RetryAttemptsJSON,
+		"model call retry attempts",
+	)
+	if err != nil {
+		return modelCallPayloads{}, err
+	}
+
+	return modelCallPayloads{
+		requestMessages: requestMessages,
+		requestTools:    requestTools,
+		responseMessage: responseMessagePointer,
+		responseUsage:   responseUsage,
+		retryAttempts:   retryAttempts,
+	}, nil
+}
+
 func decodeJSONObject(raw string, field string) (map[string]any, error) {
 	var decoded map[string]any
 	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
 		return nil, ctxerrors.Wrapf(err, "decode %s", field)
 	}
+
 	if decoded == nil {
-		return nil, ctxerrors.Wrapf(commerr.ErrInvalidState, "%s is null", field)
+		return nil, ctxerrors.Wrapf(
+			commerr.ErrInvalidState,
+			"%s is null",
+			field,
+		)
 	}
 
 	return decoded, nil
@@ -493,16 +642,17 @@ func decodeJSONObject(raw string, field string) (map[string]any, error) {
 func decodeNullableJSONObject(
 	raw string,
 	field string,
-) (*map[string]any, error) {
+) (map[string]any, bool, error) {
 	var decoded map[string]any
 	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
-		return nil, ctxerrors.Wrapf(err, "decode %s", field)
-	}
-	if decoded == nil {
-		return nil, nil
+		return nil, false, ctxerrors.Wrapf(err, "decode %s", field)
 	}
 
-	return &decoded, nil
+	if decoded == nil {
+		return nil, false, nil
+	}
+
+	return decoded, true, nil
 }
 
 func decodeJSONArray(raw string, field string) ([]any, error) {
@@ -510,6 +660,7 @@ func decodeJSONArray(raw string, field string) ([]any, error) {
 	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
 		return nil, ctxerrors.Wrapf(err, "decode %s", field)
 	}
+
 	if decoded == nil {
 		return []any{}, nil
 	}
@@ -522,6 +673,7 @@ func decodeJSONObjectArray(raw string, field string) ([]map[string]any, error) {
 	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
 		return nil, ctxerrors.Wrapf(err, "decode %s", field)
 	}
+
 	if decoded == nil {
 		return []map[string]any{}, nil
 	}
@@ -532,7 +684,10 @@ func decodeJSONObjectArray(raw string, field string) ([]map[string]any, error) {
 func transcriptEventToAPI(stored *models.Event) (api.TranscriptEvent, error) {
 	payload := map[string]any{}
 	if err := json.Unmarshal([]byte(stored.PayloadJSON), &payload); err != nil {
-		return api.TranscriptEvent{}, ctxerrors.Wrap(err, "decode durable event payload")
+		return api.TranscriptEvent{}, ctxerrors.Wrap(
+			err,
+			"decode durable event payload",
+		)
 	}
 
 	converted := api.TranscriptEvent{

@@ -11,7 +11,6 @@ import (
 
 	"github.com/google/uuid"
 	commonsqlite "github.com/psyb0t/common-go/db/sqlite"
-	"github.com/psyb0t/common-go/utils/ptrutil"
 	"github.com/psyb0t/peen/internal/pkg/db/migrations"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
@@ -123,6 +122,7 @@ func TestOpenRebuildsDirectCompactionLinksAfterUpgrade(t *testing.T) {
 		ModelID:      "provider/model",
 		MessageCount: 3,
 	}))
+	completedAt := now
 	require.NoError(t, query.Turn.WithContext(ctx).Create(&models.Turn{
 		ID:          turnID,
 		SessionID:   sessionID,
@@ -130,7 +130,7 @@ func TestOpenRebuildsDirectCompactionLinksAfterUpgrade(t *testing.T) {
 		Workspace:   "/workspace",
 		State:       models.TurnStateCompleted,
 		StartedAt:   now,
-		CompletedAt: ptrutil.Of(now),
+		CompletedAt: &completedAt,
 	}))
 
 	for sequence, messageID := range []uuid.UUID{
@@ -151,6 +151,7 @@ func TestOpenRebuildsDirectCompactionLinksAfterUpgrade(t *testing.T) {
 		}))
 	}
 
+	supersededCompactionID := firstCompactionID
 	require.NoError(t, query.Compaction.WithContext(ctx).Create(&models.Compaction{
 		ID:                 firstCompactionID,
 		SessionID:          sessionID,
@@ -176,7 +177,7 @@ func TestOpenRebuildsDirectCompactionLinksAfterUpgrade(t *testing.T) {
 		ModelID:                "provider/model",
 		PromptHash:             "prompt-two",
 		CreatedAt:              now,
-		SupersedesCompactionID: ptrutil.Of(firstCompactionID),
+		SupersedesCompactionID: &supersededCompactionID,
 	}))
 
 	for messageID, compactionID := range map[uuid.UUID]uuid.UUID{
