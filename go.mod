@@ -10,7 +10,7 @@ require (
 	github.com/moby/moby/api v1.55.0
 	github.com/oapi-codegen/runtime v1.7.0
 	github.com/prometheus/client_golang v1.12.1
-	github.com/prometheus/client_model v0.2.0
+	github.com/prometheus/client_model v0.6.3
 	github.com/prometheus/common v0.32.1
 	github.com/psyb0t/aichteeteapee v1.14.0
 	github.com/psyb0t/commander v0.5.8
@@ -307,7 +307,7 @@ require (
 	golang.org/x/tools v0.49.0 // indirect
 	golang.org/x/tools/gopls v0.21.1 // indirect
 	golang.org/x/vuln v1.6.0 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
+	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gorm.io/datatypes v1.2.4 // indirect
 	gorm.io/driver/mysql v1.5.7 // indirect
