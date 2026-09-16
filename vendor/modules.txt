@@ -1037,7 +1037,6 @@ github.com/psyb0t/commander
 github.com/psyb0t/common-go/db
 github.com/psyb0t/common-go/db/sqlite
 github.com/psyb0t/common-go/errors
-github.com/psyb0t/common-go/utils/ptrutil
 # github.com/psyb0t/ctxerrors v0.7.1
 ## explicit; go 1.26
 github.com/psyb0t/ctxerrors
@@ -1423,8 +1422,8 @@ golang.org/x/mod/sumdb/dirhash
 ## explicit; go 1.25.0
 golang.org/x/sync/errgroup
 golang.org/x/sync/semaphore
-# golang.org/x/sys v0.47.0
-## explicit; go 1.25.0
+# golang.org/x/sys v0.48.0
+## explicit; go 1.26.0
 golang.org/x/sys/cpu
 golang.org/x/sys/unix
 golang.org/x/sys/windows
