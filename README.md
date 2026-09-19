@@ -28,6 +28,7 @@ browser client, terminal client, bot, or your own application.
 
 ## Contents
 
+- [Install](#install)
 - [Run it](#run-it)
 - [Send it a task](#send-it-a-task)
 - [Provider configuration](#provider-configuration)
@@ -36,9 +37,39 @@ browser client, terminal client, bot, or your own application.
 - [Drive it from the command line](#drive-it-from-the-command-line)
 - [Things worth knowing](#things-worth-knowing)
 - [Security](#security)
+- [Docker deployment](#docker-deployment)
 - [Agent integrations](#agent-integrations)
 - [Documentation](#documentation)
 - [What Peen is built with](#what-peen-is-built-with)
+
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/psyb0t/peen/main/install.sh | bash
+```
+
+That clones Peen into a temporary directory, builds it, installs the binary to
+`~/bin`, and deletes the clone. Set `PREFIX` for somewhere else and `REF` for a
+tag or branch:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/psyb0t/peen/main/install.sh |
+  PREFIX=/usr/local/bin REF=v0.9.0 bash
+```
+
+Piping a script from the internet into a shell is worth a look first. Read it at
+[install.sh](install.sh), or do the same thing by hand:
+
+```bash
+git clone https://github.com/psyb0t/peen.git
+cd peen
+make install
+```
+
+Either way you need Docker. The build runs in a pinned Go image, so no local Go
+toolchain is involved. `make install` puts the binary in `~/bin` unless you pass
+`PREFIX`. [Deployment](docs/deployment.md) covers the other routes, including
+`go install` and building the image yourself.
 
 ## Run it
 

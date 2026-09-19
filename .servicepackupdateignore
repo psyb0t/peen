@@ -1,6 +1,6 @@
 # .servicepackupdateignore
 # Files and patterns to exclude when updating servicepack framework
-# Uses rsync exclude syntax - supports wildcards and paths
+# Uses rsync exclude syntax, so wildcards and paths both work
 
 # Example: Custom framework modifications
 # Makefile
@@ -16,7 +16,7 @@
 # .env*
 # config/local.yml
 
-# User files - never overwritten by framework updates
+# User files. Never overwritten by framework updates.
 cmd/init.go
 cmd/commands.go
 
@@ -25,7 +25,7 @@ cmd/commands.go
 # docs/ is prose you rewrite for your app, tests/ is the testcontainers harness
 # plus your own service tests. A framework update can never overwrite either.
 
-# Dependabot config - your own dependency policy (which deps, the cooldown
+# Dependabot config: your own dependency policy (which deps, the cooldown
 # window, the own-package excludes). Ignored by default so a framework update
 # never clobbers your tweaks. Delete this line if you'd rather the framework
 # keep pushing its common dependabot.yml to every servicepack-based project.
@@ -64,14 +64,14 @@ cmd/commands.go
 # agent reading it that it is looking at the framework rather than your app.
 .agents
 
-# Secret-scanning allowlist. Allowlists are per-repo by nature - they name the
-# untracked paths THIS tree has - so the framework's would silence the wrong
+# Secret-scanning allowlist. Allowlists are per-repo by nature, naming the
+# untracked paths THIS tree has, so the framework's would silence the wrong
 # things in yours, or drown you in findings from paths you don't have.
 .gitleaks.toml
 
 # Docker build context. Pairs with Dockerfile / Dockerfile.dev, which are
-# already yours - your context excludes whatever your app builds (a web tree,
+# already yours. Your context excludes whatever your app builds (a web tree,
 # fixtures) and the framework has no concept of those.
 .dockerignore
 
-# Note: internal/pkg/services/* is always excluded - your services are never touched
+# Note: internal/pkg/services/* is always excluded, so your services are never touched

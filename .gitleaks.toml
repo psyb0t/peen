@@ -5,7 +5,7 @@ useDefault = true
 
 # gitleaks `dir` mode scans the WORKING TREE and does NOT honour .gitignore, so
 # every gitignored path has to be named again here or the gate drowns in
-# findings from files that will never be committed — and a drowned gate is one
+# findings from files that will never be committed, and a drowned gate is one
 # people learn to skip.
 #
 # Every entry below was verified untracked with `git ls-files --error-unmatch`

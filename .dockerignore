@@ -25,7 +25,7 @@ docs/
 # Local tooling that must never enter an image
 git-update.sh
 
-# Agent skill / plugin manifests. Repo distribution material — published from
+# Agent skill / plugin manifests. Repo distribution material, published from
 # the repo itself, never built into or read by the binary.
 .agents
 

@@ -1,5 +1,5 @@
 # Project Makefile
-# Add your custom targets here - they will override servicepack defaults
+# Add your custom targets here. They override servicepack defaults.
 
 # Peen owns its coverage policy. The Servicepack default is intentionally
 # stricter for new projects, while Peen's full production suite currently
@@ -13,8 +13,17 @@ include Makefile.servicepack
 # Custom targets below this line
 # Note: Override warnings are expected and can be ignored
 
-.PHONY: test test-unit test-integration test-api test-execution-forms \
+.PHONY: install test test-unit test-integration test-api test-execution-forms \
 	test-docker-worker test-docker-worker-source test-real
+
+# PREFIX is where `make install` puts the binary. Override it for a system-wide
+# install: `sudo make install PREFIX=/usr/local/bin`.
+PREFIX ?= $(HOME)/bin
+
+# The binary is built in the dev image by `build`, so this target only places
+# the artifact. It needs no Go toolchain on the host.
+install: build ## Install the built binary to PREFIX (default ~/bin)
+	@PREFIX="$(PREFIX)" bash scripts/make/install.sh
 
 test: ## Run every Go test without the race detector
 	@$(MAKE) dev-image
@@ -79,7 +88,7 @@ test-real: ## Run opt-in real provider tests with the deployment .env
 # Example: override a framework command by uncommenting and editing this.
 #
 # Left COMMENTED on purpose. As a live target it shadowed the framework's real
-# `build`, so `make build` printed a line and produced no binary — which broke
+# `build`, so `make build` printed a line and produced no binary, which broke
 # the README's own Quick Start (`make own` → `make build` → ./build/<name> run)
 # for everyone who followed it.
 #

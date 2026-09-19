@@ -4,6 +4,30 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.9.0 (2026-09-19)
+
+Peen now installs in one command. Both routes build in a pinned Go image, so
+neither needs a local Go toolchain.
+
+- Adds `make install`, which places the built binary at `PREFIX`, defaulting to
+  `~/bin`. It builds first, so it needs Docker and no local Go toolchain, and it
+  warns when `PREFIX` is not on `PATH`. Pass `PREFIX` with `sudo` for a
+  system-wide destination.
+- Adds `install.sh` at the repository root for a one-shot install:
+  `curl -fsSL https://raw.githubusercontent.com/psyb0t/peen/main/install.sh | bash`.
+  It clones into a temporary directory, builds, installs, and removes the clone
+  on the way out whether or not the build succeeded. `PREFIX` selects the
+  destination and `REF` selects a tag or branch. It requires `git` and `docker`
+  and stops when either is missing. Cloning and running `make install` by hand
+  does the same thing.
+- The README gains an Install section covering both routes, and
+  [Deployment](docs/deployment.md) documents them alongside the existing source,
+  `go install`, and Docker routes.
+- The README contents list now includes the Docker deployment section the page
+  already carried.
+- Editorial pass over project comments and documentation prose. No behavior
+  change.
+
 ## v0.8.0 (2026-09-19)
 
 Peen is now a control service that starts with no sessions. A client names the

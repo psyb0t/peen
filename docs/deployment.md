@@ -8,6 +8,47 @@ server, but you then own the operating-system boundary around it.
 All launch methods use the same `PEEN_` configuration, trusted
 `PEEN_CONFIG_DIR` harness layer, and durable `PEEN_STATE_DIR` state.
 
+## Install script
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/psyb0t/peen/main/install.sh | bash
+```
+
+`install.sh` clones the repository into a temporary directory, runs `make
+build`, installs the binary through `make install`, and removes the clone on
+the way out whether or not the build succeeded. `PREFIX` picks the destination
+and `REF` picks a tag or branch:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/psyb0t/peen/main/install.sh |
+  PREFIX=/usr/local/bin REF=v0.9.0 bash
+```
+
+It needs `git` and `docker` and refuses to start without them. Doing the same
+thing by hand is two commands:
+
+```bash
+git clone https://github.com/psyb0t/peen.git
+cd peen
+make install
+```
+
+## Install a built binary
+
+```bash
+make install
+```
+
+This builds first, then copies `./build/peen` to `PREFIX`, which defaults to
+`~/bin`. Pass `PREFIX` for anywhere else, with `sudo` when the destination
+needs it:
+
+```bash
+sudo make install PREFIX=/usr/local/bin
+```
+
+The target warns when `PREFIX` is not on your `PATH`.
+
 ## Build from source
 
 ```bash
