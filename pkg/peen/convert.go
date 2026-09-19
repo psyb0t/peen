@@ -3,6 +3,7 @@ package peen
 import (
 	"math"
 
+	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/agent"
@@ -47,12 +48,8 @@ func toTurnRequest(request MessageRequest) agent.TurnRequest {
 // runtime's API parameters, which already enforce the page bounds.
 func toListMessagesParams(
 	request ListMessagesRequest,
+	sessionID uuid.UUID,
 ) (api.ListMessagesParams, error) {
-	sessionID, err := parseSessionID(request.SessionID)
-	if err != nil {
-		return api.ListMessagesParams{}, err
-	}
-
 	params := api.ListMessagesParams{XSessionID: sessionID}
 
 	if request.Limit > 0 {
@@ -209,7 +206,6 @@ func toMessageRole(role api.MessageRole) (MessageRole, error) {
 
 func toSessionDetails(stored api.Session) SessionDetails {
 	return SessionDetails{
-		ID:                 stored.Id.String(),
 		Agent:              stored.Agent,
 		Model:              stored.Model,
 		Workspace:          stored.Workspace,

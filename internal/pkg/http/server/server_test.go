@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -20,7 +21,7 @@ import (
 const testAPIToken = "test-api-token"
 
 func TestServerBuildsItsSerbewrListener(t *testing.T) {
-	instance, err := New(Dependencies{Runtime: newTestRuntime(uuid.New())})
+	instance, err := newTestServer(Dependencies{Runtime: newTestRuntime(uuid.New())})
 	require.NoError(t, err)
 
 	assert.NotNil(t, instance.httpServer)
@@ -29,7 +30,7 @@ func TestServerBuildsItsSerbewrListener(t *testing.T) {
 func TestServerDoesNotServeHTTPMessageSubmission(t *testing.T) {
 	sessionID := uuid.New()
 	runtime := newTestRuntime(sessionID)
-	instance, err := New(Dependencies{
+	instance, err := newTestServer(Dependencies{
 		Runtime:  runtime,
 		APIToken: testAPIToken,
 	})
@@ -137,7 +138,7 @@ func TestServerSessionEndpoints(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			instance, err := New(Dependencies{Runtime: tc.runtime})
+			instance, err := newTestServer(Dependencies{Runtime: tc.runtime})
 			require.NoError(t, err)
 			request := httptest.NewRequestWithContext(t.Context(), tc.method, tc.path, nil)
 			request.Header.Set(headerSessionID, sessionID.String())
@@ -153,11 +154,236 @@ func TestServerSessionEndpoints(t *testing.T) {
 	}
 }
 
+// TestServerCancelReachesTheSessionWorker proves the cancel endpoint reaches
+// the process that runs the model loop.
+//
+// The controller can mark a turn cancelled in SQLite without stopping
+// anything, because the turn runs in the session's worker. An endpoint that
+// only wrote the durable flag answered cancelRequested while the turn ran to
+// completion, which is the one control an operator has over a runaway turn.
+func TestServerCancelReachesTheSessionWorker(t *testing.T) {
+	t.Parallel()
+
+	sessionID := uuid.New()
+	runtime := newTestRuntime(sessionID)
+	router := &testTurnRouter{runtime: runtime, cancelRouted: true}
+
+	instance, err := newTestServer(Dependencies{
+		Runtime: runtime,
+		Turns:   router,
+	})
+	require.NoError(t, err)
+
+	request := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		apiBaseURL+"/session/cancel",
+		nil,
+	)
+	request.Header.Set(headerSessionID, sessionID.String())
+
+	recorder := httptest.NewRecorder()
+	instance.testHandler.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusAccepted, recorder.Code)
+	assert.Equal(t, []uuid.UUID{sessionID}, router.cancelledSessions)
+
+	response := api.CancelResponse{}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+
+	// The stub runtime reports no durable turn, so a true answer here can only
+	// come from the worker the request was routed to.
+	assert.True(t, response.CancelRequested)
+}
+
+// TestServerCancelReportsAnIdleSessionHonestly keeps the routed call from
+// inventing a cancellation when no worker had a turn to stop.
+func TestServerCancelReportsAnIdleSessionHonestly(t *testing.T) {
+	t.Parallel()
+
+	sessionID := uuid.New()
+	runtime := newTestRuntime(sessionID)
+	router := &testTurnRouter{runtime: runtime, cancelRouted: false}
+
+	instance, err := newTestServer(Dependencies{
+		Runtime: runtime,
+		Turns:   router,
+	})
+	require.NoError(t, err)
+
+	request := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		apiBaseURL+"/session/cancel",
+		nil,
+	)
+	request.Header.Set(headerSessionID, sessionID.String())
+
+	recorder := httptest.NewRecorder()
+	instance.testHandler.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusAccepted, recorder.Code)
+	assert.Equal(t, []uuid.UUID{sessionID}, router.cancelledSessions)
+
+	response := api.CancelResponse{}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.False(t, response.CancelRequested)
+}
+
+// TestServerCancelSurfacesAWorkerFailure keeps a broken worker route from
+// being reported to the operator as an accepted cancellation.
+func TestServerCancelSurfacesAWorkerFailure(t *testing.T) {
+	t.Parallel()
+
+	sessionID := uuid.New()
+	runtime := newTestRuntime(sessionID)
+	router := &testTurnRouter{
+		runtime:   runtime,
+		cancelErr: commerr.ErrFetchFailed,
+	}
+
+	instance, err := newTestServer(Dependencies{
+		Runtime: runtime,
+		Turns:   router,
+	})
+	require.NoError(t, err)
+
+	request := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		apiBaseURL+"/session/cancel",
+		nil,
+	)
+	request.Header.Set(headerSessionID, sessionID.String())
+
+	recorder := httptest.NewRecorder()
+	instance.testHandler.ServeHTTP(recorder, request)
+
+	assert.Equal(t, http.StatusInternalServerError, recorder.Code)
+}
+
+// TestServerJobSignalReachesTheSessionWorker proves the signal endpoint
+// reaches the process group it is meant to stop.
+//
+// A job runs in the session's worker, so the controller's own job registry is
+// empty. An endpoint that consulted only that registry recorded every signal
+// as unaccepted and reported it was not signalled, while the command kept
+// running with no way to stop it.
+func TestServerJobSignalReachesTheSessionWorker(t *testing.T) {
+	t.Parallel()
+
+	sessionID := uuid.New()
+	jobID := uuid.New()
+	runtime := newTestRuntime(sessionID)
+	router := &testTurnRouter{
+		runtime: runtime,
+		signalResponse: &api.JobSignalResponse{
+			Signalled: true,
+			State:     api.JobSignalResponseStateSignalled,
+		},
+	}
+
+	instance, err := newTestServer(Dependencies{
+		Runtime: runtime,
+		Turns:   router,
+	})
+	require.NoError(t, err)
+
+	recorder := signalTestJob(t, instance, sessionID, jobID)
+	require.Equal(t, http.StatusAccepted, recorder.Code)
+	assert.Equal(t, []uuid.UUID{jobID}, router.signalledJobs)
+	assert.Equal(t, string(api.JobSignalRequestSignalStop), router.signalSignal)
+
+	response := api.JobSignalResponse{}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.True(t, response.Signalled)
+	assert.Equal(t, jobID, response.JobId)
+}
+
+// TestServerJobSignalFallsBackWithoutALiveWorker keeps a session whose worker
+// has gone answering honestly instead of failing. The request is still
+// recorded against the durable row.
+func TestServerJobSignalFallsBackWithoutALiveWorker(t *testing.T) {
+	t.Parallel()
+
+	sessionID := uuid.New()
+	jobID := uuid.New()
+	runtime := newTestRuntime(sessionID)
+	router := &testTurnRouter{runtime: runtime}
+
+	instance, err := newTestServer(Dependencies{
+		Runtime: runtime,
+		Turns:   router,
+	})
+	require.NoError(t, err)
+
+	recorder := signalTestJob(t, instance, sessionID, jobID)
+	require.Equal(t, http.StatusAccepted, recorder.Code)
+	assert.Equal(t, []uuid.UUID{jobID}, router.signalledJobs)
+
+	response := api.JobSignalResponse{}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.Equal(t, jobID, response.JobId)
+
+	// The two paths report different states, so this is what says the durable
+	// fallback answered rather than a worker.
+	assert.Equal(t, api.JobSignalResponseStateRunning, response.State)
+}
+
+// TestServerJobSignalSurfacesAWorkerFailure keeps a broken worker route from
+// being reported to the operator as an accepted signal.
+func TestServerJobSignalSurfacesAWorkerFailure(t *testing.T) {
+	t.Parallel()
+
+	sessionID := uuid.New()
+	runtime := newTestRuntime(sessionID)
+	router := &testTurnRouter{
+		runtime:   runtime,
+		signalErr: commerr.ErrFetchFailed,
+	}
+
+	instance, err := newTestServer(Dependencies{
+		Runtime: runtime,
+		Turns:   router,
+	})
+	require.NoError(t, err)
+
+	recorder := signalTestJob(t, instance, sessionID, uuid.New())
+	assert.Equal(t, http.StatusInternalServerError, recorder.Code)
+}
+
+func signalTestJob(
+	t *testing.T,
+	instance *Server,
+	sessionID, jobID uuid.UUID,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
+	payload, err := json.Marshal(api.JobSignalRequest{
+		Signal: api.JobSignalRequestSignalStop,
+	})
+	require.NoError(t, err)
+
+	request := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		apiBaseURL+"/session/jobs/"+jobID.String()+"/signal",
+		bytes.NewReader(payload),
+	)
+	request.Header.Set(headerSessionID, sessionID.String())
+	request.Header.Set(headerContentType, string(mediaTypeJSON))
+
+	recorder := httptest.NewRecorder()
+	instance.testHandler.ServeHTTP(recorder, request)
+
+	return recorder
+}
+
 // A malformed X-Session-ID header fails oapi-codegen's own UUID parsing
 // before the request reaches a handler, distinct from a body shape
 // rejection, so it carries its own documented code.
 func TestServerRejectsMalformedSessionIDHeader(t *testing.T) {
-	instance, err := New(Dependencies{
+	instance, err := newTestServer(Dependencies{
 		Runtime: newTestRuntime(uuid.New()),
 	})
 	require.NoError(t, err)
@@ -202,6 +428,10 @@ type testRuntime struct {
 	jobsErr    error
 
 	agentRunsErr error
+
+	// lastRequest records what the transport handed the runtime, so a routing
+	// test can assert which session a message was sent to.
+	lastRequest agent.MessageRequest
 }
 
 func newTestRuntime(sessionID uuid.UUID) *testRuntime {
@@ -214,11 +444,12 @@ func (r *testRuntime) SessionID() uuid.UUID {
 
 func (r *testRuntime) RunMessage(
 	_ context.Context,
-	_ agent.MessageRequest,
+	request agent.MessageRequest,
 	_ uuid.UUID,
 	sink agent.EventSink,
 ) (*agent.MessageRunResult, error) {
 	r.runCalls++
+	r.lastRequest = request
 	if r.runErr != nil {
 		return nil, r.runErr
 	}
@@ -376,7 +607,7 @@ func (r *testRuntime) GetSessionContextSnapshot(
 		return nil, r.listErr
 	}
 
-	return &api.ContextSnapshot{Manifest: map[string]any{}}, nil
+	return &api.ContextSnapshot{Manifest: []api.ContextManifestEntry{}}, nil
 }
 
 func (r *testRuntime) GetSessionPromptSnapshot(

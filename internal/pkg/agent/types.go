@@ -138,10 +138,17 @@ const (
 // It stays transport-neutral so embedding callers and the live socket share
 // one validation and turn-conversion path.
 type MessageRequest struct {
-	Message       string               `json:"message"`
-	Model         *string              `json:"model,omitempty"`
-	SystemPrompt  *MessageSystemPrompt `json:"systemPrompt,omitempty"`
-	SourceEventID uuid.UUID            `json:"-"`
+	Message      string               `json:"message"`
+	Model        *string              `json:"model,omitempty"`
+	SystemPrompt *MessageSystemPrompt `json:"systemPrompt,omitempty"`
+
+	// SessionID routes the turn to one durable session. The transport sets it
+	// from the session the client named, never from the message body, so a
+	// message cannot redirect itself to another session. An unknown ID fails
+	// while the turn's session is resolved, before any turn record exists.
+	SessionID *uuid.UUID `json:"-"`
+
+	SourceEventID uuid.UUID `json:"-"`
 }
 
 // MessageSystemPrompt is one non-persistent prompt override for a turn.
@@ -218,12 +225,37 @@ type MessageRunResult struct {
 
 // RuntimeOptions supplies Peen's transport-independent turn dependencies.
 type RuntimeOptions struct {
-	Store            *session.Store
-	Resolver         HarnessResolver
-	Models           ModelResolver
-	RootAgent        string
-	DefaultModel     string
+	// Store is the durable surface this runtime writes through. The control
+	// plane passes its SQLite store; a worker passes the protocol-backed one,
+	// which forwards every record to the controller.
+	Store        session.Storage
+	Resolver     HarnessResolver
+	Models       ModelResolver
+	RootAgent    string
+	DefaultModel string
+
+	// WorkerGenerationID names the worker process this runtime runs inside, so
+	// every turn, event, job, and child run it records says which process
+	// produced it. The direct pkg/peen form leaves it zero.
+	WorkerGenerationID uuid.UUID
+
+	// DefaultWorkspace opens one session as the runtime is built and makes it
+	// the session a turn runs against when the caller names none. It is how an
+	// embedding Go program gets a one-workspace runtime from pkg/peen.
+	//
+	// The control surface leaves it empty. That runtime starts with no session
+	// rows, and every turn must name the session it belongs to, because a
+	// controller serves many workspaces and must not guess which one a client
+	// meant.
 	DefaultWorkspace string
+
+	// StartupSessionID attaches this runtime to a session that already exists.
+	// A worker gets it from the launch document, because its controller
+	// resolved the workspace and created the session before the worker
+	// started. Resolving a workspace is a control-plane operation, so a worker
+	// that tried to open one would be refused.
+	StartupSessionID uuid.UUID
+
 	MaxContextTokens int
 	TurnTimeout      time.Duration
 
@@ -319,8 +351,10 @@ func (o RuntimeOptions) validate() error {
 		)
 	}
 
+	// DefaultWorkspace is absent from this check on purpose. An empty value is
+	// the control surface asking for a runtime that starts with no session.
 	if o.RootAgent == "" || o.DefaultModel == "" ||
-		o.DefaultWorkspace == "" || o.MaxContextTokens <= 0 ||
+		o.MaxContextTokens <= 0 ||
 		o.TurnTimeout <= 0 || o.MaxQueuedUserMessages < 0 {
 		return ctxerrors.Wrap(commerr.ErrValidationFailed, "runtime options")
 	}
@@ -366,8 +400,9 @@ type runtimeTurn struct {
 	// store and lease make the turn's own progress durable before it ends. A
 	// nil store disables checkpointing, which is what a unit test that never
 	// opened a database gets.
-	store *session.Store
-	lease session.Lease
+	store              session.Storage
+	lease              session.Lease
+	workerGenerationID string
 
 	// checkpointMutex serializes the database writes without holding mutex
 	// across them, so a checkpoint never blocks the live stream.

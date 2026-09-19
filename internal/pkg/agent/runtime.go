@@ -30,9 +30,15 @@ import (
 
 // Runtime executes durable transport-neutral Peen turns.
 type Runtime struct {
-	store            *session.Store
-	resolver         HarnessResolver
-	models           ModelResolver
+	store    session.Storage
+	resolver HarnessResolver
+	models   ModelResolver
+
+	// workerGenerationID names the worker process this runtime runs inside. It
+	// is zero for the direct pkg/peen form, which has no control plane to
+	// attribute turns to.
+	workerGenerationID uuid.UUID
+
 	rootAgent        string
 	defaultModel     string
 	defaultWorkspace string
@@ -93,6 +99,10 @@ type Runtime struct {
 
 // turnBasis is what one turn resolves before its durable record exists.
 type turnBasis struct {
+	// storedSession is the durable session this turn belongs to, resolved
+	// before the turn is recorded so a turn never runs against a session the
+	// caller is not entitled to or that does not exist.
+	storedSession  *models.Session
 	workspace      string
 	modelReference string
 	model          ModelClient
@@ -136,16 +146,17 @@ type preparedTurn struct {
 	// The block arithmetic lives upstream so this package cannot get it wrong.
 	adapter *elelemstream.Adapter
 
-	workspace     string
-	contextHash   string
-	promptHash    string
-	turn          *runtimeTurn
-	executor      *tools.JobExecutor
-	eventBus      *events.Bus
-	pendingEvents string
-	snapshot      harness.Snapshot
-	toolHooks     *toolHookRuntime
-	userMessages  *activeUserMessageQueue
+	workspace          string
+	contextHash        string
+	promptHash         string
+	turn               *runtimeTurn
+	executor           *tools.JobExecutor
+	workerGenerationID string
+	eventBus           *events.Bus
+	pendingEvents      string
+	snapshot           harness.Snapshot
+	toolHooks          *toolHookRuntime
+	userMessages       *activeUserMessageQueue
 }
 
 // NewRuntime validates the dependencies shared by every Peen turn.
@@ -179,32 +190,27 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 		return nil, err
 	}
 
-	opened, err := options.Store.OpenWorkspace(
-		ctx,
-		options.DefaultWorkspace,
-		session.OpenSessionOptions{
-			RootAgent: options.RootAgent,
-			ModelID:   options.DefaultModel,
-		},
-	)
+	startup, err := openStartupSession(ctx, options)
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "open workspace session")
+		return nil, err
 	}
 
 	return &Runtime{
-		store:            options.Store,
-		resolver:         options.Resolver,
-		models:           options.Models,
+		store:              options.Store,
+		resolver:           options.Resolver,
+		models:             options.Models,
+		workerGenerationID: options.WorkerGenerationID,
+
 		rootAgent:        options.RootAgent,
 		defaultModel:     options.DefaultModel,
-		defaultWorkspace: opened.Session.Workspace,
-		sessionID:        opened.Session.ID,
+		defaultWorkspace: startup.workspace,
+		sessionID:        startup.id,
 		maxContextTokens: options.MaxContextTokens,
 		turnTimeout:      options.TurnTimeout,
 		baseSystemPrompt: options.BaseSystemPrompt,
 		now:              time.Now,
 
-		sessionStartPending: opened.Created,
+		sessionStartPending: startup.created,
 
 		maxSystemPromptBytes:  options.MaxSystemPromptBytes,
 		maxMessageBytes:       options.MaxMessageBytes,
@@ -229,6 +235,87 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 		agentLimits:          options.AgentLimits.withDefaults(),
 		configDirectory:      options.ConfigDirectory,
 		agentRuns:            map[uuid.UUID]*AgentRunRegistry{},
+	}, nil
+}
+
+// startupSession is the session a runtime begins life attached to. Its zero
+// value is a runtime with no session, which is how the control surface starts.
+type startupSession struct {
+	id        uuid.UUID
+	workspace string
+	created   bool
+}
+
+// openStartupSession attaches a runtime to the one session it serves.
+//
+// A worker names that session directly, because its controller already
+// resolved the workspace against the workspace policy and created the row. An
+// embedded runtime names only a workspace and opens it here. A runtime with
+// neither creates no session row, because the control surface must start empty
+// and wait to be told which workspace a client wants.
+func openStartupSession(
+	ctx context.Context,
+	options RuntimeOptions,
+) (startupSession, error) {
+	if options.StartupSessionID != uuid.Nil {
+		return resumeStartupSession(ctx, options)
+	}
+
+	if options.DefaultWorkspace == "" {
+		return startupSession{}, nil
+	}
+
+	opened, err := options.Store.OpenWorkspace(
+		ctx,
+		options.DefaultWorkspace,
+		session.OpenSessionOptions{
+			RootAgent: options.RootAgent,
+			ModelID:   options.DefaultModel,
+		},
+	)
+	if err != nil {
+		return startupSession{}, ctxerrors.Wrap(
+			err,
+			"open workspace session",
+		)
+	}
+
+	return startupSession{
+		id:        opened.Session.ID,
+		workspace: opened.Session.Workspace,
+		created:   opened.Created,
+	}, nil
+}
+
+// resumeStartupSession attaches to a session the caller already knows.
+func resumeStartupSession(
+	ctx context.Context,
+	options RuntimeOptions,
+) (startupSession, error) {
+	opened, err := options.Store.CreateOrResume(
+		ctx,
+		&options.StartupSessionID,
+		session.OpenSessionOptions{
+			RootAgent: options.RootAgent,
+			ModelID:   options.DefaultModel,
+		},
+	)
+	if err != nil {
+		return startupSession{}, ctxerrors.Wrap(
+			err,
+			"resume the startup session",
+		)
+	}
+
+	workspace := opened.Session.Workspace
+	if workspace == "" {
+		workspace = options.DefaultWorkspace
+	}
+
+	return startupSession{
+		id:        opened.Session.ID,
+		workspace: workspace,
+		created:   opened.Created,
 	}, nil
 }
 
@@ -359,21 +446,13 @@ func (r *Runtime) prepareTurn(
 		ctx,
 		input,
 		basis.systemPrompt,
+		basis.storedSession,
 	)
 	if err != nil {
 		return nil, err
 	}
 
 	turn, lease, err := r.openTurn(ctx, input, basis.workspace, opening)
-	if err != nil {
-		return nil, err
-	}
-
-	executor, err := r.hostExecutor(
-		basis.workspace,
-		opening.opened.Session.ID,
-		lease,
-	)
 	if err != nil {
 		return nil, err
 	}
@@ -389,11 +468,27 @@ func (r *Runtime) prepareTurn(
 		contextHash:    basis.contextHash,
 		promptHash:     basis.promptHash,
 		turn:           turn,
-		executor:       executor,
 		eventBus:       r.eventBus,
 		pendingEvents:  opening.pendingEvents,
 		snapshot:       basis.snapshot,
 	}
+
+	executor, generationID, err := r.openTurnExecutor(
+		ctx,
+		basis,
+		opening,
+		lease,
+	)
+	if err != nil {
+		return nil, r.finalizeFailedTurn(ctx, prepared, err)
+	}
+
+	prepared.executor = executor
+	// A runtime with no worker generation records an empty reference rather
+	// than the zero UUID, so a reader can tell "no control plane" from "some
+	// generation whose ID happens to be zero".
+	prepared.workerGenerationID = workerGenerationReference(generationID)
+	prepared.turn.workerGenerationID = prepared.workerGenerationID
 
 	toolHooks, err := r.newToolHookRuntime(prepared)
 	if err != nil {
@@ -440,10 +535,12 @@ func (r *Runtime) resolveTurnBasis(
 	ctx context.Context,
 	input TurnRequest,
 ) (turnBasis, error) {
-	workspace, modelReference, err := r.resolveInput(input)
+	storedSession, modelReference, err := r.resolveInput(ctx, input)
 	if err != nil {
 		return turnBasis{}, ctxerrors.Wrap(err, "resolve input")
 	}
+
+	workspace := storedSession.Workspace
 
 	model, err := r.models.ResolveModel(modelReference)
 	if err != nil {
@@ -460,6 +557,7 @@ func (r *Runtime) resolveTurnBasis(
 	}
 
 	return turnBasis{
+		storedSession:  storedSession,
 		workspace:      workspace,
 		modelReference: modelReference,
 		model:          model,
@@ -525,12 +623,8 @@ func (r *Runtime) openPrompt(
 	ctx context.Context,
 	input TurnRequest,
 	systemPrompt string,
+	stored *models.Session,
 ) (*session.OpenSessionResult, promptAssembly, error) {
-	stored, err := r.store.Get(ctx, r.sessionID)
-	if err != nil {
-		return nil, promptAssembly{}, ctxerrors.Wrap(err, "open session")
-	}
-
 	opened := &session.OpenSessionResult{
 		Session: stored,
 		Created: r.sessionStartIsPending(),
@@ -557,33 +651,74 @@ func (r *Runtime) openPrompt(
 	}, nil
 }
 
-// hostExecutor builds the turn's tool executor over a session-scoped job
-// registry. The registry outlives the turn on purpose: a background command
-// started here must still be found and killed from a later turn.
-func (r *Runtime) hostExecutor(
-	workspace string,
-	sessionID uuid.UUID,
+// workerGenerationReference renders a generation for a durable column. The
+// direct pkg/peen runtime has none, and an empty string is how that is stored.
+func workerGenerationReference(generationID uuid.UUID) string {
+	if generationID == uuid.Nil {
+		return ""
+	}
+
+	return generationID.String()
+}
+
+// openTurnExecutor builds this turn's tool surface and records the worker
+// generation running it, so a later reader can tell which process produced the
+// turn's tool calls and jobs.
+//
+// The runtime runs inside one worker, so the tools are simply local to that
+// worker: native in a child process, containerised in a Docker worker. The
+// isolation is the worker's own boundary rather than something the tool layer
+// reproduces, which is why read-before-write hashes, no-replace creation,
+// cancellation, and job signals behave identically in both.
+func (r *Runtime) openTurnExecutor(
+	ctx context.Context,
+	basis turnBasis,
+	opening turnOpening,
 	lease session.Lease,
-) (*tools.JobExecutor, error) {
+) (*tools.JobExecutor, uuid.UUID, error) {
+	registry, err := r.sessionJobs(opening.opened.Session.ID)
+	if err != nil {
+		return nil, uuid.Nil, err
+	}
+
 	executor, err := tools.NewExecutor(tools.Options{
-		Workspace: workspace,
+		Workspace: basis.workspace,
 		Limits:    r.toolLimits,
 	})
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "create host tool executor")
+		return nil, uuid.Nil, ctxerrors.Wrap(err, "create the tool executor")
 	}
 
-	registry, err := r.sessionJobs(sessionID)
+	jobExecutor, err := tools.NewJobExecutor(
+		executor,
+		registry,
+		lease.TurnID,
+	)
 	if err != nil {
-		return nil, err
+		return nil, uuid.Nil, ctxerrors.Wrap(
+			err,
+			"open the turn tool executor",
+		)
 	}
 
-	jobExecutor, err := tools.NewJobExecutor(executor, registry, lease.TurnID)
-	if err != nil {
-		return nil, ctxerrors.Wrap(err, "create host job executor")
+	// A runtime with no worker generation is the direct pkg/peen form, which
+	// has no control plane to attribute turns to.
+	if r.workerGenerationID == uuid.Nil {
+		return jobExecutor, uuid.Nil, nil
 	}
 
-	return jobExecutor, nil
+	if err := r.store.RecordTurnWorkerGeneration(
+		ctx,
+		lease,
+		r.workerGenerationID,
+	); err != nil {
+		return nil, uuid.Nil, ctxerrors.Wrap(
+			err,
+			"record the turn worker generation",
+		)
+	}
+
+	return jobExecutor, r.workerGenerationID, nil
 }
 
 // launchAgentDeps bundles what this turn's launch_agent tool needs to run a
@@ -591,15 +726,16 @@ func (r *Runtime) hostExecutor(
 // rules, tool registry, and model.
 func (r *Runtime) launchAgentDeps(prepared *preparedTurn) *launchAgentDeps {
 	return &launchAgentDeps{
-		runtime:        r,
-		executor:       prepared.executor,
-		snapshot:       prepared.snapshot,
-		model:          prepared.model,
-		modelReference: prepared.modelReference,
-		sessionID:      prepared.opened.Session.ID,
-		parentTurnID:   prepared.lease.TurnID,
-		requestID:      prepared.turn.requestID,
-		liveSink:       prepared.turn.sink,
+		runtime:            r,
+		executor:           prepared.executor,
+		snapshot:           prepared.snapshot,
+		model:              prepared.model,
+		modelReference:     prepared.modelReference,
+		workerGenerationID: prepared.workerGenerationID,
+		sessionID:          prepared.opened.Session.ID,
+		parentTurnID:       prepared.lease.TurnID,
+		requestID:          prepared.turn.requestID,
+		liveSink:           prepared.turn.sink,
 	}
 }
 
@@ -678,11 +814,13 @@ func (r *Runtime) openPromptWithEvents(
 	ctx context.Context,
 	input TurnRequest,
 	systemPrompt string,
+	stored *models.Session,
 ) (turnOpening, error) {
 	opened, assembly, err := r.openPrompt(
 		ctx,
 		input,
 		systemPrompt,
+		stored,
 	)
 	if err != nil {
 		return turnOpening{}, ctxerrors.Wrap(err, "open prompt")
@@ -867,9 +1005,17 @@ func newUserMessageEvent(
 	}, nil
 }
 
-func (r *Runtime) resolveInput(input TurnRequest) (string, string, error) {
+func (r *Runtime) resolveInput(
+	ctx context.Context,
+	input TurnRequest,
+) (*models.Session, string, error) {
 	if err := r.validateTurnInput(input); err != nil {
-		return "", "", err
+		return nil, "", err
+	}
+
+	stored, err := r.resolveTurnSession(ctx, input)
+	if err != nil {
+		return nil, "", err
 	}
 
 	modelReference := input.Model
@@ -877,7 +1023,47 @@ func (r *Runtime) resolveInput(input TurnRequest) (string, string, error) {
 		modelReference = r.defaultModel
 	}
 
-	return r.defaultWorkspace, modelReference, nil
+	return stored, modelReference, nil
+}
+
+// resolveTurnSession loads the durable session a turn runs against.
+//
+// A request that names a session wins, and the load is what authorizes it: an
+// unknown ID fails here, before any turn record exists, so a forged ID never
+// starts work. A request that names none falls back to the session the
+// configured workspace opened at startup, which is how an embedded
+// one-workspace runtime keeps working. A control-surface runtime has no such
+// session, so it refuses rather than guessing which workspace was meant.
+// turnSessionID names the session a request targets without loading it. The
+// request wins, and a runtime with a configured workspace supplies the
+// fallback. A control-surface runtime has none, so this returns uuid.Nil and
+// the caller decides whether that is an error or simply no queue to join.
+func (r *Runtime) turnSessionID(input TurnRequest) uuid.UUID {
+	if input.SessionID != nil {
+		return *input.SessionID
+	}
+
+	return r.sessionID
+}
+
+func (r *Runtime) resolveTurnSession(
+	ctx context.Context,
+	input TurnRequest,
+) (*models.Session, error) {
+	sessionID := r.turnSessionID(input)
+	if sessionID == uuid.Nil {
+		return nil, ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"session is required when the runtime has no default workspace",
+		)
+	}
+
+	stored, err := r.store.Get(ctx, sessionID)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "load turn session")
+	}
+
+	return stored, nil
 }
 
 func (r *Runtime) sessionStartIsPending() bool {
@@ -2104,9 +2290,10 @@ func (t *runtimeTurn) eventInputs(from int) []session.EventInput {
 		}
 
 		inputs = append(inputs, session.EventInput{
-			RequestID:   requestID,
-			EventType:   event.Type,
-			PayloadJSON: string(event.Payload),
+			RequestID:          requestID,
+			WorkerGenerationID: t.workerGenerationID,
+			EventType:          event.Type,
+			PayloadJSON:        string(event.Payload),
 		})
 	}
 

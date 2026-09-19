@@ -11,6 +11,7 @@ type AgentRun struct {
 	ID                    uuid.UUID
 	SessionID             uuid.UUID
 	ParentTurnID          uuid.UUID
+	WorkerGenerationID    string
 	ParentAgentRunID      *uuid.UUID
 	ParentToolCallID      string
 	RequestID             uuid.UUID

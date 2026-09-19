@@ -73,12 +73,14 @@ func TestAPIWebSocketBroadcastsGlobalEventsAndQueues(t *testing.T) {
 	t.Cleanup(hold.Release)
 
 	require.NoError(t, writeAPIWebSocketMessage(
+		t,
 		first,
 		apiTestWebSocketActiveMessage,
 	))
 	awaitAPIWebSocketProviderHold(t, hold)
 
 	require.NoError(t, writeAPIWebSocketMessage(
+		t,
 		second,
 		apiTestWebSocketQueuedMessage,
 	))
@@ -111,7 +113,9 @@ func TestAPIWebSocketBroadcastsGlobalEventsAndQueues(t *testing.T) {
 	assert.False(t, getSession(t, sessionID).ActiveTurn)
 }
 
-func TestAPIWebSocketRejectsUnauthenticatedAndReturnsStartupSession(t *testing.T) {
+func TestAPIWebSocketRejectsUnauthenticatedAndRoutesToTheOpenedSession(
+	t *testing.T,
+) {
 	t.Run("unauthenticated", func(t *testing.T) {
 		dialer := websocket.Dialer{
 			HandshakeTimeout: requestTimeout,
@@ -127,7 +131,7 @@ func TestAPIWebSocketRejectsUnauthenticatedAndReturnsStartupSession(t *testing.T
 		require.NoError(t, response.Body.Close())
 	})
 
-	t.Run("startup session", func(t *testing.T) {
+	t.Run("opened session", func(t *testing.T) {
 		result := sendAPIWebSocketMessage(t, apiTestWebSocketInitialMessage)
 
 		assert.NotEqual(t, uuid.Nil, result.sessionID)
@@ -152,7 +156,7 @@ func sendAPIWebSocketMessage(
 
 	connection := dialAPIWebSocket(t, nil)
 	t.Cleanup(func() { require.NoError(t, connection.Close()) })
-	require.NoError(t, writeAPIWebSocketMessage(connection, message))
+	require.NoError(t, writeAPIWebSocketMessage(t, connection, message))
 
 	result := awaitAPIWebSocketCompletion(t, connection, false)
 	assert.NotEqual(t, uuid.Nil, result.sessionID)
@@ -161,15 +165,63 @@ func sendAPIWebSocketMessage(
 }
 
 func writeAPIWebSocketMessage(
+	t *testing.T,
 	connection *websocket.Conn,
 	message string,
 ) error {
+	t.Helper()
+
 	event := dabluveees.NewEvent(
 		apiTestWebSocketMessageSend,
 		map[string]string{"message": message},
+	).SetMetadata(
+		apiTestWebSocketSessionIDParameter,
+		openAPIWorkspaceSession(t).String(),
 	)
 
 	return connection.WriteJSON(event)
+}
+
+// openAPIWorkspaceSession opens the container's workspace through the real
+// control endpoint. The service starts with no sessions, so every turn these
+// tests run begins here. Opening the same workspace again resumes it, so
+// calling this per message keeps returning the one session.
+func openAPIWorkspaceSession(t *testing.T) uuid.UUID {
+	t.Helper()
+
+	body, err := json.Marshal(map[string]string{
+		"workspace": testinfra.ContainerWorkingDirectory,
+	})
+	require.NoError(t, err)
+
+	response := apiRequest(
+		t,
+		http.MethodPost,
+		apiBasePath+"/sessions/open",
+		body,
+		map[string]string{
+			headerContentType:   jsonMediaType,
+			headerAuthorization: bearerPrefix + testinfra.TestAPIToken,
+		},
+	)
+	require.Equal(t, http.StatusOK, response.StatusCode)
+
+	opened := decodeResponse[apiTestOpenedSession](t, response)
+	require.Equal(
+		t,
+		testinfra.ContainerWorkingDirectory,
+		opened.Session.Workspace,
+	)
+
+	return opened.Session.ID
+}
+
+type apiTestOpenedSession struct {
+	Created bool `json:"created"`
+	Session struct {
+		ID        uuid.UUID `json:"id"`
+		Workspace string    `json:"workspace"`
+	} `json:"session"`
 }
 
 func dialAPIWebSocket(

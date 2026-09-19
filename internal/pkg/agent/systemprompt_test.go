@@ -266,7 +266,7 @@ func TestRuntimeUsesTheDeploymentSystemPromptFile(t *testing.T) {
 		systemPromptTestReplacement,
 	)
 
-	reloaded, err := NewRuntime(context.Background(), RuntimeOptions{
+	reloadOptions := RuntimeOptions{
 		Store:            fixture.store,
 		Resolver:         fixture.runtime.resolver,
 		Models:           fixture.runtime.models,
@@ -276,7 +276,9 @@ func TestRuntimeUsesTheDeploymentSystemPromptFile(t *testing.T) {
 		MaxContextTokens: runtimeTestMaxContextTokens,
 		TurnTimeout:      runtimeTestTurnTimeout,
 		ConfigDirectory:  fixture.configDirectory,
-	})
+	}
+
+	reloaded, err := NewRuntime(context.Background(), reloadOptions)
 	require.NoError(t, err)
 
 	snapshot, err := reloaded.resolver.Resolve(fixture.workspace)

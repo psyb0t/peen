@@ -3,6 +3,8 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/gonfiguration"
 )
 
@@ -36,13 +39,80 @@ const (
 //
 //nolint:tagalign // Preserve the YAML-first tag convention.
 type Config struct {
-	ConfigDirectory  string `env:"PEEN_CONFIG_DIR,required"`
+	// ConfigDirectory is the global configuration and harness directory. It is
+	// the one directory every worker receives, read-only, so it holds only what
+	// a worker is meant to read: AGENTS.md, .agents, SYSTEM.md,
+	// APPEND_SYSTEM.md, and COMPACTION.md. Controller runtime state never lives
+	// here, because mounting this directory into a worker hands that worker
+	// everything inside it.
+	ConfigDirectory string `env:"PEEN_CONFIG_DIR,required"`
+
+	// StateDirectory is the controller's own durable runtime state: SQLite,
+	// audit logs, worker socket roots, and controller-only credentials. No
+	// worker ever receives it. Keeping it out of ConfigDirectory is what stops
+	// a Docker worker from reading another session's transcript through its
+	// configuration mount.
+	//
+	// The tag carries no `required` because Parse and ParseWorker need
+	// different answers and gonfiguration decides that at parse time. A
+	// controller requires it through Validate. A worker owns no durable state,
+	// so ParseWorker leaves it empty and nothing reads it.
+	StateDirectory string `env:"PEEN_STATE_DIR"`
+
 	WorkingDirectory string
 	Agent            string `default:"default"              env:"PEEN_AGENT"`
 
 	UpstreamsJSON   string `env:"PEEN_UPSTREAMS,required"`
 	DefaultModel    string `env:"PEEN_DEFAULT_MODEL,required"`
 	CompactionModel string `env:"PEEN_COMPACTION_MODEL"`
+
+	// WorkspaceRootsJSON is the operator's allowlist of directories a client
+	// may open as a session workspace, given as a JSON array of absolute
+	// paths. It bounds which host directories the control surface will ever
+	// expose to a session, so it is deployment configuration and never comes
+	// from a client request. An empty value allows only the process working
+	// directory, which is the single-workspace behavior it generalizes.
+	WorkspaceRootsJSON string `env:"PEEN_WORKSPACE_ROOTS"`
+
+	// ExecutionProfilesJSON defines the execution profiles a client may name,
+	// as a JSON array. Every worker capability lives here: image, mounts,
+	// network, Docker socket, and privilege escalation. None of it ever comes
+	// from model output or a client request, which only names a profile.
+	//
+	// An empty value defines the single native profile, so a deployment that
+	// configures nothing runs on the host as it always has.
+	ExecutionProfilesJSON string `env:"PEEN_EXECUTION_PROFILES"`
+
+	// DefaultExecutionProfile is the profile a session opened without naming
+	// one runs under. Empty takes the native profile.
+	DefaultExecutionProfile string `env:"PEEN_DEFAULT_EXECUTION_PROFILE"`
+
+	// WorkerSocketDirectory is the root holding one private directory per
+	// session worker. Empty puts it under the state directory, because a
+	// socket root is controller runtime state and a worker receives only its
+	// own session's directory, never the root.
+	WorkerSocketDirectory string `env:"PEEN_WORKER_SOCKET_DIR"`
+
+	// DockerSocket is the controller's own Docker socket, used to create
+	// worker containers for a Docker profile. Empty resolves DOCKER_HOST and
+	// then the platform default. Without a reachable socket a Docker profile
+	// is refused rather than run natively.
+	DockerSocket string `env:"PEEN_DOCKER_SOCKET"`
+
+	// HostUsername and HostHome describe the host account when a controller
+	// itself runs in Docker as an arbitrary numeric UID and GID. In that case
+	// the controller container has no passwd entry for the host account, but a
+	// Docker worker still has to recreate the account before it can safely
+	// write workspace files with host ownership. They are both empty for a
+	// native controller, which resolves its account from the operating system.
+	HostUsername string `env:"PEEN_HOST_USERNAME"`
+	HostHome     string `env:"PEEN_HOST_HOME"`
+
+	// WorkerImage pins one psyb0t/peen image for every Docker profile. Empty
+	// makes each Docker profile name its own. Either way the value must be an
+	// immutable psyb0t/peen digest reference, because the worker container
+	// starts as root and only the Peen entrypoint drops back down.
+	WorkerImage string `env:"PEEN_WORKER_IMAGE"`
 
 	MaxContextTokens       int            `default:"32768"       env:"PEEN_MAX_CONTEXT_TOKENS"`           //nolint:lll // Immutable env tag.
 	CompactionMode         CompactionMode `default:"drop-oldest" env:"PEEN_COMPACTION_MODE"`              //nolint:lll // Immutable env tag.
@@ -116,8 +186,32 @@ type Upstream struct {
 	APIKeyEnv string       `json:"apiKeyEnv"`
 }
 
-// Parse reads and validates the fixed PEEN_ environment bindings.
+// Parse reads and validates the fixed PEEN_ environment bindings for a
+// controller. It requires PEEN_STATE_DIR and enforces its separation from
+// PEEN_CONFIG_DIR.
 func Parse() (Config, error) {
+	return parse(Config.Validate)
+}
+
+// ParseWorker reads the same bindings for a session worker.
+//
+// A worker owns no durable state, so PEEN_STATE_DIR is neither required nor
+// used. The controller keeps it out of a Docker worker's environment on
+// purpose, and a native worker that inherits it still opens no database.
+func ParseWorker() (Config, error) {
+	parsed, err := parse(Config.ValidateWorker)
+	if err != nil {
+		return Config{}, err
+	}
+
+	// Cleared rather than carried, so nothing downstream can read a controller
+	// path out of a worker's configuration.
+	parsed.StateDirectory = ""
+
+	return parsed, nil
+}
+
+func parse(validate func(Config) error) (Config, error) {
 	config := Config{}
 	if err := gonfiguration.Parse(&config); err != nil {
 		return Config{}, ctxerrors.Wrap(err, "parse Peen configuration")
@@ -133,17 +227,28 @@ func Parse() (Config, error) {
 
 	config.WorkingDirectory = workingDirectory
 
-	if err := config.Validate(); err != nil {
+	if err := validate(config); err != nil {
 		return Config{}, ctxerrors.Wrap(err, "validate Peen configuration")
 	}
 
 	return config, nil
 }
 
-// Validate checks values which need cross-field or filesystem-aware rules.
+// Validate checks values which need cross-field or filesystem-aware rules. It
+// is the controller's contract and requires a state directory.
 func (c Config) Validate() error {
+	return c.validate(true)
+}
+
+// ValidateWorker is Validate without the controller-only state directory rules.
+func (c Config) ValidateWorker() error {
+	return c.validate(false)
+}
+
+func (c Config) validate(requireStateDirectory bool) error {
 	validators := []func() error{
-		c.validateDirectories,
+		func() error { return c.validateDirectories(requireStateDirectory) },
+		c.validateDockerHostIdentity,
 		c.validateRuntime,
 		c.validateMetricsListener,
 		c.validateUpstreamConfiguration,
@@ -190,12 +295,25 @@ func (c Config) validateMetricsListener() error {
 	return nil
 }
 
-func (c Config) validateDirectories() error {
+func (c Config) validateDirectories(requireStateDirectory bool) error {
 	if !filepath.IsAbs(c.ConfigDirectory) || c.ConfigDirectory == "" {
 		return ctxerrors.Wrap(
 			ErrInvalidConfig,
 			"PEEN_CONFIG_DIR must be absolute",
 		)
+	}
+
+	if requireStateDirectory {
+		if !filepath.IsAbs(c.StateDirectory) || c.StateDirectory == "" {
+			return ctxerrors.Wrap(
+				ErrInvalidConfig,
+				"PEEN_STATE_DIR must be absolute",
+			)
+		}
+
+		if err := c.validateStateSeparation(); err != nil {
+			return err
+		}
 	}
 
 	if c.WorkingDirectory != "" && !filepath.IsAbs(c.WorkingDirectory) {
@@ -206,6 +324,150 @@ func (c Config) validateDirectories() error {
 	}
 
 	return nil
+}
+
+// validateDockerHostIdentity keeps the two explicit host-identity values
+// atomic. Supplying only one would make a Docker-controller deployment look
+// configured while its workers could not recreate the host account.
+func (c Config) validateDockerHostIdentity() error {
+	username := strings.TrimSpace(c.HostUsername)
+	home := strings.TrimSpace(c.HostHome)
+
+	if username == "" && home == "" {
+		return nil
+	}
+
+	if username == "" || home == "" {
+		return ctxerrors.Wrap(
+			ErrInvalidConfig,
+			"PEEN_HOST_USERNAME and PEEN_HOST_HOME must be set together",
+		)
+	}
+
+	if !filepath.IsAbs(home) {
+		return ctxerrors.Wrap(
+			ErrInvalidConfig,
+			"PEEN_HOST_HOME must be absolute",
+		)
+	}
+
+	return nil
+}
+
+// validateStateSeparation keeps controller runtime state out of the one
+// directory every worker receives.
+//
+// A Docker worker gets PEEN_CONFIG_DIR mounted read-only. If PEEN_STATE_DIR sat
+// inside it, or the two were the same path, that mount would carry SQLite and
+// the audit logs into the worker, and one session could read every other
+// session's transcript. The reverse nesting is refused for the same reason: a
+// configuration directory inside the state directory makes the state directory
+// the thing a worker would have to receive.
+func (c Config) validateStateSeparation() error {
+	// The literal paths are compared first, then the canonical ones. A string
+	// comparison alone is bypassable with a symlink, and canonicalization alone
+	// would accept a literal nesting whose components do not exist yet, so both
+	// run and either one refusing is a refusal.
+	if err := refuseOverlap(
+		filepath.Clean(c.ConfigDirectory),
+		filepath.Clean(c.StateDirectory),
+	); err != nil {
+		return err
+	}
+
+	config, err := canonicalDirectory(c.ConfigDirectory)
+	if err != nil {
+		return ctxerrors.Wrap(err, "resolve PEEN_CONFIG_DIR")
+	}
+
+	state, err := canonicalDirectory(c.StateDirectory)
+	if err != nil {
+		return ctxerrors.Wrap(err, "resolve PEEN_STATE_DIR")
+	}
+
+	return refuseOverlap(config, state)
+}
+
+func refuseOverlap(config, state string) error {
+	if config == state {
+		return ctxerrors.Wrap(
+			ErrInvalidConfig,
+			"PEEN_CONFIG_DIR and PEEN_STATE_DIR must be different directories",
+		)
+	}
+
+	if isAncestorPath(config, state) {
+		return ctxerrors.Wrap(
+			ErrInvalidConfig,
+			"PEEN_STATE_DIR must not be inside PEEN_CONFIG_DIR, which every "+
+				"worker receives read-only",
+		)
+	}
+
+	if isAncestorPath(state, config) {
+		return ctxerrors.Wrap(
+			ErrInvalidConfig,
+			"PEEN_CONFIG_DIR must not be inside PEEN_STATE_DIR",
+		)
+	}
+
+	return nil
+}
+
+// canonicalDirectory resolves a directory through its symlinks.
+//
+// A directory Peen has not created yet is normal on a first run, so the deepest
+// existing ancestor is resolved and the remaining literal components are
+// rejoined onto it. That still defeats a symlinked parent, which is the case a
+// plain string comparison misses: /srv/config/state can be a link into
+// /srv/config even though the two strings share no prefix.
+//
+// Any other resolution failure refuses rather than falling back to the literal
+// path, because an unreadable component is exactly where a link could hide.
+func canonicalDirectory(path string) (string, error) {
+	current := filepath.Clean(path)
+
+	var trailing []string
+
+	for {
+		resolved, err := filepath.EvalSymlinks(current)
+		if err == nil {
+			return filepath.Join(
+				append([]string{resolved}, trailing...)...,
+			), nil
+		}
+
+		if !errors.Is(err, fs.ErrNotExist) {
+			return "", ctxerrors.Wrapf(
+				commerr.ErrParseFailed,
+				"cannot resolve %q",
+				path,
+			)
+		}
+
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", ctxerrors.Wrapf(
+				commerr.ErrParseFailed,
+				"no existing ancestor of %q could be resolved",
+				path,
+			)
+		}
+
+		trailing = append([]string{filepath.Base(current)}, trailing...)
+		current = parent
+	}
+}
+
+// isAncestorPath reports whether descendant sits beneath ancestor. Both paths
+// are already cleaned and absolute. The separator guard is what keeps
+// /srv/peen-state from counting as a child of /srv/peen.
+func isAncestorPath(ancestor, descendant string) bool {
+	if ancestor == string(filepath.Separator) {
+		return descendant != ancestor
+	}
+
+	return strings.HasPrefix(descendant, ancestor+string(filepath.Separator))
 }
 
 func (c Config) validateRuntime() error {
@@ -403,6 +665,72 @@ func (c Config) Upstreams() ([]Upstream, error) {
 	}
 
 	return upstreams, nil
+}
+
+// WorkspaceRoots returns the canonical directories a client may open a session
+// under. An unset PEEN_WORKSPACE_ROOTS yields the process working directory, so
+// a deployment that never configures roots still confines sessions to the
+// directory it was started in.
+//
+// Every root is resolved through its symlinks, so a request naming an alias of
+// an allowed root compares equal to it rather than being refused.
+func (c Config) WorkspaceRoots() ([]string, error) {
+	configured, err := c.configuredWorkspaceRoots()
+	if err != nil {
+		return nil, err
+	}
+
+	canonical := make([]string, 0, len(configured))
+	seen := make(map[string]struct{}, len(configured))
+
+	for index, root := range configured {
+		if !filepath.IsAbs(root) {
+			return nil, ctxerrors.Wrapf(
+				ErrInvalidConfig,
+				"PEEN_WORKSPACE_ROOTS entry %d must be absolute",
+				index,
+			)
+		}
+
+		resolved, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			return nil, ctxerrors.Wrapf(
+				err,
+				"resolve PEEN_WORKSPACE_ROOTS entry %d",
+				index,
+			)
+		}
+
+		if _, exists := seen[resolved]; exists {
+			continue
+		}
+
+		seen[resolved] = struct{}{}
+
+		canonical = append(canonical, resolved)
+	}
+
+	if len(canonical) == 0 {
+		return nil, ctxerrors.Wrap(
+			ErrInvalidConfig,
+			"at least one workspace root is required",
+		)
+	}
+
+	return canonical, nil
+}
+
+func (c Config) configuredWorkspaceRoots() ([]string, error) {
+	if strings.TrimSpace(c.WorkspaceRootsJSON) == "" {
+		return []string{c.WorkingDirectory}, nil
+	}
+
+	var roots []string
+	if err := json.Unmarshal([]byte(c.WorkspaceRootsJSON), &roots); err != nil {
+		return nil, ctxerrors.Wrap(err, "parse PEEN_WORKSPACE_ROOTS JSON")
+	}
+
+	return roots, nil
 }
 
 // APIKey resolves only the environment variable selected by the operator.

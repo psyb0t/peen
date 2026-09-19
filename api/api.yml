@@ -38,6 +38,204 @@ paths:
           $ref: '#/components/responses/ErrorNotFound'
         '500':
           $ref: '#/components/responses/ErrorInternal'
+  /sessions:
+    get:
+      operationId: listSessions
+      summary: List durable workspace sessions
+      description: >
+        Lists every session this control surface holds. It takes no session
+        header because it is how a client discovers which sessions exist.
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Session page
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionPage'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /sessions/open:
+    post:
+      operationId: openSession
+      summary: Open or resume the session for a workspace
+      description: >
+        Resolves a workspace path to its one durable session, creating that
+        session the first time the directory is opened. This is the only
+        operation that creates a session, so a control surface starts with none
+        and a client must name the workspace it wants. Opening the same
+        directory again, by any of its names, resumes the existing session. A
+        path outside every configured workspace root is refused with 403 and no
+        session is created.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OpenSessionRequest'
+      responses:
+        '200':
+          description: Session opened or resumed
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpenedSession'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /execution-profiles:
+    get:
+      operationId: listExecutionProfiles
+      summary: List the execution profiles a client may name
+      description: >
+        Lists the operator-defined profiles a session may run under. A client
+        names a profile when it opens a workspace and never sends an image,
+        mount, network setting, or capability. A profile that grants
+        host-root-equivalent access carries a capability warning.
+      responses:
+        '200':
+          description: Execution profile list
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecutionProfileList'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/workers:
+    get:
+      operationId: listSessionWorkers
+      summary: List one session's worker generations
+      description: >
+        Returns the durable worker generations for one session, newest first. A
+        generation records the worker process that ran a set of turns, the
+        profile revision it started under, and for a Docker generation its
+        container and immutable image digest.
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Worker generation page
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkerGenerationPage'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/reconfigure:
+    post:
+      operationId: reconfigureSession
+      summary: Move an idle session to a different execution profile
+      description: >
+        Changes the operator-defined profile a session's tools run under and
+        records the decision with the caller's reason. The named profile must
+        be one the operator defined; an undefined name is refused with 403. A
+        session with a turn in flight is refused with 409, because changing the
+        environment under running work would attribute that turn's tool calls
+        to a profile that did not run them. On success the session's current
+        worker is stopped, so the next turn starts a new generation under the
+        new profile. The client names only a profile and never sends an image,
+        mount, network setting, or capability.
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReconfigureSessionRequest'
+      responses:
+        '200':
+          description: Execution profile changed
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionProfileDecision'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/profile-decisions:
+    get:
+      operationId: listSessionProfileDecisions
+      summary: List one session's execution profile decision history
+      description: >
+        Returns the durable record of every execution profile change made to
+        one session, newest first. Each entry names the profile the session
+        moved from, the profile it moved to, and the reason the caller gave.
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Execution profile decision page
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionProfileDecisionPage'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
   /session:
     get:
       operationId: getSession
@@ -779,6 +977,12 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+    ErrorForbidden:
+      description: The request names a resource the deployment does not allow
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
     ErrorNotFound:
       description: Session not found
       content:
@@ -903,6 +1107,233 @@ components:
           type: string
         workspace:
           type: string
+        executionProfile:
+          type: string
+          description: >
+            The operator-defined profile this session's tools run under. Empty
+            for a session recorded before profiles existed, which the
+            controller reads as the deployment default.
+    ExecutionProfile:
+      type: object
+      additionalProperties: false
+      required:
+        [name, kind, revision, allowDockerSocket, allowNetwork, allowPrivilegeEscalation, hostRootEquivalent]
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [native, docker]
+        revision:
+          type: integer
+          format: int64
+          minimum: 0
+        allowDockerSocket:
+          type: boolean
+        allowNetwork:
+          type: boolean
+        allowPrivilegeEscalation:
+          type: boolean
+        hostRootEquivalent:
+          type: boolean
+          description: >
+            True when this profile grants access that is effectively host root,
+            such as a writable Docker socket.
+        capabilityWarning:
+          type: string
+          description: >
+            Operator-facing warning for a host-root-equivalent profile. Empty
+            for a profile that grants no such access.
+    ExecutionProfileList:
+      type: object
+      additionalProperties: false
+      required: [items, default]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExecutionProfile'
+        default:
+          type: string
+          description: The profile a session opened without naming one uses.
+    WorkerGeneration:
+      type: object
+      additionalProperties: false
+      required: [id, sessionId, kind, profile, profileRevision, state, workspace, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [native, docker]
+        profile:
+          type: string
+        profileRevision:
+          type: integer
+          format: int64
+          minimum: 0
+        state:
+          type: string
+          enum: [requested, starting, ready, stopping, stopped, failed]
+        workspace:
+          type: string
+        containerId:
+          type: string
+          description: Set only for a Docker generation.
+        imageDigest:
+          type: string
+          description: >
+            Immutable image identity for a Docker generation, never a moving
+            tag.
+        failureDetail:
+          type: string
+          description: >
+            Why a generation failed or was replaced. Never carries credentials.
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: [string, 'null']
+          format: date-time
+        endedAt:
+          type: [string, 'null']
+          format: date-time
+    ReconfigureSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [profile, reason]
+      properties:
+        profile:
+          type: string
+          minLength: 1
+          description: >
+            The operator-defined profile to move this session to. An undefined
+            name is refused. This is the only environment choice a client makes.
+        reason:
+          type: string
+          minLength: 1
+          description: >
+            Why the profile changed, kept in the durable decision history.
+    SessionProfileDecision:
+      type: object
+      additionalProperties: false
+      required: [id, sessionId, toProfile, reason, decidedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        fromProfile:
+          type: string
+          description: >
+            The profile the session ran under before this decision. Absent when
+            the session had no recorded profile.
+        toProfile:
+          type: string
+        reason:
+          type: string
+        decidedAt:
+          type: string
+          format: date-time
+    SessionProfileDecisionPage:
+      type: object
+      additionalProperties: false
+      required: [items, limit, offset, hasMore]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SessionProfileDecision'
+        limit:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 200
+        offset:
+          type: integer
+          format: int32
+          minimum: 0
+        hasMore:
+          type: boolean
+    WorkerGenerationPage:
+      type: object
+      additionalProperties: false
+      required: [items, limit, offset, hasMore]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkerGeneration'
+        limit:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 200
+        offset:
+          type: integer
+          format: int32
+          minimum: 0
+        hasMore:
+          type: boolean
+    SessionPage:
+      type: object
+      additionalProperties: false
+      required: [items, limit, offset, hasMore]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Session'
+        limit:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 200
+        offset:
+          type: integer
+          format: int32
+          minimum: 0
+        hasMore:
+          type: boolean
+    OpenSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [workspace]
+      properties:
+        workspace:
+          type: string
+          minLength: 1
+          description: >
+            Absolute host path of the workspace directory. It is resolved
+            through its symlinks and must fall under a configured workspace
+            root.
+        profile:
+          type: string
+          description: >
+            Name of an operator-defined execution profile. Empty takes the
+            deployment default. A name the operator did not define is refused
+            with 403. This is the only environment choice a client makes: images,
+            mounts, network, and capabilities come from deployment
+            configuration alone. It applies only when this call creates the
+            session; opening an existing session never changes its profile.
+    OpenedSession:
+      type: object
+      additionalProperties: false
+      required: [session, created]
+      properties:
+        session:
+          $ref: '#/components/schemas/Session'
+        created:
+          type: boolean
+          description: >
+            True when this call created the session, false when it resumed an
+            existing one.
     CancelResponse:
       type: object
       additionalProperties: false
@@ -988,6 +1419,9 @@ components:
           type: object
           additionalProperties: true
         parentToolCallId:
+          type: [string, 'null']
+        workerGenerationId:
+          description: Worker generation that produced this event, if started.
           type: [string, 'null']
         createdAt:
           type: string
@@ -1312,13 +1746,35 @@ components:
         hash:
           type: string
         manifest:
-          type: object
-          additionalProperties: true
+          description: >
+            The layered sources this context was assembled from, in resolution
+            order. It is a list because the harness contributes one entry per
+            file from the filesystem root down to the workspace, and the same
+            name may appear at more than one layer.
+          type: array
+          items:
+            $ref: '#/components/schemas/ContextManifestEntry'
         resolvedContent:
           type: string
         createdAt:
           type: string
           format: date-time
+    ContextManifestEntry:
+      type: object
+      additionalProperties: false
+      required: [kind, name, source, priority, hash]
+      properties:
+        kind:
+          type: string
+        name:
+          type: string
+        source:
+          type: string
+        priority:
+          type: integer
+          format: int32
+        hash:
+          type: string
     PromptSnapshot:
       type: object
       additionalProperties: false
@@ -1354,6 +1810,9 @@ components:
         parentAgentRunId:
           type: [string, 'null']
           format: uuid
+        workerGenerationId:
+          description: Worker generation that ran this child agent.
+          type: [string, 'null']
         name:
           type: string
         definition:
@@ -1517,6 +1976,9 @@ components:
         toolCallId:
           description: The tool call that started this job.
           type: string
+        workerGenerationId:
+          description: Worker generation that launched this process.
+          type: [string, 'null']
         state:
           type: string
           enum: [running, exited, signalled, failed, interrupted]

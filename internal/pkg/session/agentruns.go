@@ -61,6 +61,7 @@ func (s *Store) newAgentRun(
 		ID:                   input.ID,
 		SessionID:            sessionID,
 		ParentTurnID:         input.ParentTurnID,
+		WorkerGenerationID:   input.WorkerGenerationID,
 		ParentAgentRunID:     input.ParentAgentRunID,
 		ParentToolCallID:     input.ParentToolCallID,
 		RequestID:            input.RequestID,

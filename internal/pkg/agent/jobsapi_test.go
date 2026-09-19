@@ -32,14 +32,16 @@ func TestRuntimeReplaysJobsFromSQLiteWithoutALiveRegistry(t *testing.T) {
 		First()
 	require.NoError(t, err)
 
+	workerGenerationID := uuid.New().String()
 	job, err := fixture.store.CreateJob(ctx, turnResult.SessionID, session.CreateJobInput{
-		ID:         uuid.New(),
-		TurnID:     turn.ID,
-		ToolCallID: "call-1",
-		PID:        321,
-		Purpose:    "inspect durable replay",
-		Command:    "printf durable",
-		Directory:  fixture.workspace,
+		ID:                 uuid.New(),
+		TurnID:             turn.ID,
+		WorkerGenerationID: workerGenerationID,
+		ToolCallID:         "call-1",
+		PID:                321,
+		Purpose:            "inspect durable replay",
+		Command:            "printf durable",
+		Directory:          fixture.workspace,
 	})
 	require.NoError(t, err)
 
@@ -83,6 +85,8 @@ func TestRuntimeReplaysJobsFromSQLiteWithoutALiveRegistry(t *testing.T) {
 	assert.Equal(t, api.JobStateExited, jobs.Jobs[0].State)
 	require.NotNil(t, jobs.Jobs[0].ToolCallId)
 	assert.Equal(t, "call-1", *jobs.Jobs[0].ToolCallId)
+	require.NotNil(t, jobs.Jobs[0].WorkerGenerationId)
+	assert.Equal(t, workerGenerationID, *jobs.Jobs[0].WorkerGenerationId)
 
 	output, err := fixture.runtime.ReadSessionJobOutput(
 		ctx,

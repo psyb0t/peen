@@ -65,7 +65,7 @@ type compactionHook func(
 
 // compactionOptions are the deployment settings one compactor needs.
 type compactionOptions struct {
-	Store           *session.Store
+	Store           session.Storage
 	Models          ModelResolver
 	Metrics         *metrics.Metrics
 	ModelReference  string

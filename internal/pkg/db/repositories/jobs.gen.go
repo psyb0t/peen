@@ -31,6 +31,7 @@ func newJob(db *gorm.DB, opts ...gen.DOOption) job {
 	_job.ID = field.NewField(tableName, "id")
 	_job.SessionID = field.NewField(tableName, "session_id")
 	_job.TurnID = field.NewField(tableName, "turn_id")
+	_job.WorkerGenerationID = field.NewString(tableName, "worker_generation_id")
 	_job.ToolCallID = field.NewString(tableName, "tool_call_id")
 	_job.PID = field.NewInt64(tableName, "pid")
 	_job.Purpose = field.NewString(tableName, "purpose")
@@ -50,20 +51,21 @@ func newJob(db *gorm.DB, opts ...gen.DOOption) job {
 type job struct {
 	jobDo
 
-	ALL           field.Asterisk
-	ID            field.Field
-	SessionID     field.Field
-	TurnID        field.Field
-	ToolCallID    field.String
-	PID           field.Int64
-	Purpose       field.String
-	Command       field.String
-	Directory     field.String
-	State         field.String
-	ExitCode      field.Int64
-	FailureDetail field.String
-	StartedAt     field.Time
-	EndedAt       field.Time
+	ALL                field.Asterisk
+	ID                 field.Field
+	SessionID          field.Field
+	TurnID             field.Field
+	WorkerGenerationID field.String
+	ToolCallID         field.String
+	PID                field.Int64
+	Purpose            field.String
+	Command            field.String
+	Directory          field.String
+	State              field.String
+	ExitCode           field.Int64
+	FailureDetail      field.String
+	StartedAt          field.Time
+	EndedAt            field.Time
 
 	fieldMap map[string]field.Expr
 }
@@ -83,6 +85,7 @@ func (j *job) updateTableName(table string) *job {
 	j.ID = field.NewField(table, "id")
 	j.SessionID = field.NewField(table, "session_id")
 	j.TurnID = field.NewField(table, "turn_id")
+	j.WorkerGenerationID = field.NewString(table, "worker_generation_id")
 	j.ToolCallID = field.NewString(table, "tool_call_id")
 	j.PID = field.NewInt64(table, "pid")
 	j.Purpose = field.NewString(table, "purpose")
@@ -109,10 +112,11 @@ func (j *job) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (j *job) fillFieldMap() {
-	j.fieldMap = make(map[string]field.Expr, 13)
+	j.fieldMap = make(map[string]field.Expr, 14)
 	j.fieldMap["id"] = j.ID
 	j.fieldMap["session_id"] = j.SessionID
 	j.fieldMap["turn_id"] = j.TurnID
+	j.fieldMap["worker_generation_id"] = j.WorkerGenerationID
 	j.fieldMap["tool_call_id"] = j.ToolCallID
 	j.fieldMap["pid"] = j.PID
 	j.fieldMap["purpose"] = j.Purpose

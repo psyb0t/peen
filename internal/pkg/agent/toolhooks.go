@@ -147,8 +147,10 @@ func (r *Runtime) appendPreUserHookContext(
 	}
 
 	outcome, err := runner.Run(ctx, hooks.Invocation{
-		Event:     harness.HookEventPreUserMessage,
-		SessionID: r.sessionID,
+		Event: harness.HookEventPreUserMessage,
+		// The hook belongs to the session this turn targets, which is not the
+		// runtime's own once a control surface serves many workspaces.
+		SessionID: r.turnSessionID(input),
 		RequestID: input.RequestID,
 		Workspace: workspace,
 		Input:     payload,

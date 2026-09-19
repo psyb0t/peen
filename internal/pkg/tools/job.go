@@ -81,15 +81,16 @@ type jobEventData struct {
 // change; state, EndedAt, and ExitCode are read and written through mu so a
 // concurrent reader never observes a torn update.
 type Job struct {
-	ID         uuid.UUID
-	PID        int
-	SessionID  uuid.UUID
-	TurnID     uuid.UUID
-	ToolCallID string
-	Purpose    string
-	Command    string
-	Directory  string
-	StartedAt  time.Time
+	ID                 uuid.UUID
+	PID                int
+	SessionID          uuid.UUID
+	TurnID             uuid.UUID
+	WorkerGenerationID string
+	ToolCallID         string
+	Purpose            string
+	Command            string
+	Directory          string
+	StartedAt          time.Time
 
 	stdout *jobBuffer
 	stderr *jobBuffer
@@ -113,6 +114,7 @@ type JobSnapshot struct {
 	PID                 int
 	SessionID           uuid.UUID
 	TurnID              uuid.UUID
+	WorkerGenerationID  string
 	ToolCallID          string
 	Purpose             string
 	Command             string
@@ -145,6 +147,7 @@ func (j *Job) Snapshot() JobSnapshot {
 		PID:                 j.PID,
 		SessionID:           j.SessionID,
 		TurnID:              j.TurnID,
+		WorkerGenerationID:  j.WorkerGenerationID,
 		ToolCallID:          j.ToolCallID,
 		Purpose:             j.Purpose,
 		Command:             j.Command,
@@ -283,12 +286,13 @@ func NewJobRegistry(
 
 // StartJobInput starts one supervised process.
 type StartJobInput struct {
-	Command    string
-	Directory  string
-	Env        []string
-	Purpose    string
-	TurnID     uuid.UUID
-	ToolCallID string
+	Command            string
+	Directory          string
+	Env                []string
+	Purpose            string
+	TurnID             uuid.UUID
+	WorkerGenerationID string
+	ToolCallID         string
 }
 
 // Start launches one process through commander and registers it. The
@@ -357,21 +361,22 @@ func (r *JobRegistry) newJob(
 	maxBytes := r.limits.MaxCommandOutputBytes
 
 	return &Job{
-		ID:         uuid.New(),
-		PID:        process.PID(),
-		SessionID:  r.sessionID,
-		TurnID:     input.TurnID,
-		ToolCallID: input.ToolCallID,
-		Purpose:    input.Purpose,
-		Command:    input.Command,
-		Directory:  input.Directory,
-		StartedAt:  time.Now().UTC(),
-		stdout:     newJobBuffer(maxLines, maxBytes),
-		stderr:     newJobBuffer(maxLines, maxBytes),
-		process:    process,
-		done:       make(chan struct{}),
-		state:      JobStateRunning,
-		exitCode:   unknownExitCode,
+		ID:                 uuid.New(),
+		PID:                process.PID(),
+		SessionID:          r.sessionID,
+		TurnID:             input.TurnID,
+		WorkerGenerationID: input.WorkerGenerationID,
+		ToolCallID:         input.ToolCallID,
+		Purpose:            input.Purpose,
+		Command:            input.Command,
+		Directory:          input.Directory,
+		StartedAt:          time.Now().UTC(),
+		stdout:             newJobBuffer(maxLines, maxBytes),
+		stderr:             newJobBuffer(maxLines, maxBytes),
+		process:            process,
+		done:               make(chan struct{}),
+		state:              JobStateRunning,
+		exitCode:           unknownExitCode,
 	}
 }
 
@@ -918,8 +923,9 @@ func toolCallIDFromContext(ctx context.Context) string {
 type JobExecutor struct {
 	*Executor
 
-	jobs   *JobRegistry
-	turnID uuid.UUID
+	jobs               *JobRegistry
+	turnID             uuid.UUID
+	workerGenerationID string
 }
 
 // NewJobExecutor attaches a session-scoped job registry and the current
@@ -930,6 +936,7 @@ func NewJobExecutor(
 	executor *Executor,
 	jobs *JobRegistry,
 	turnID uuid.UUID,
+	generationIDs ...uuid.UUID,
 ) (*JobExecutor, error) {
 	if executor == nil || jobs == nil {
 		return nil, ctxerrors.Wrap(
@@ -938,5 +945,14 @@ func NewJobExecutor(
 		)
 	}
 
-	return &JobExecutor{Executor: executor, jobs: jobs, turnID: turnID}, nil
+	jobExecutor := &JobExecutor{
+		Executor: executor,
+		jobs:     jobs,
+		turnID:   turnID,
+	}
+	if len(generationIDs) > 0 {
+		jobExecutor.workerGenerationID = generationIDs[0].String()
+	}
+
+	return jobExecutor, nil
 }

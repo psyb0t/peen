@@ -117,6 +117,24 @@ func (e AgentRunEventPageState) Valid() bool {
 	}
 }
 
+// Defines values for ExecutionProfileKind.
+const (
+	ExecutionProfileKindDocker ExecutionProfileKind = "docker"
+	ExecutionProfileKindNative ExecutionProfileKind = "native"
+)
+
+// Valid indicates whether the value is a known member of the ExecutionProfileKind enum.
+func (e ExecutionProfileKind) Valid() bool {
+	switch e {
+	case ExecutionProfileKindDocker:
+		return true
+	case ExecutionProfileKindNative:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for JobState.
 const (
 	JobStateExited      JobState = "exited"
@@ -438,6 +456,54 @@ func (e TurnState) Valid() bool {
 	}
 }
 
+// Defines values for WorkerGenerationKind.
+const (
+	WorkerGenerationKindDocker WorkerGenerationKind = "docker"
+	WorkerGenerationKindNative WorkerGenerationKind = "native"
+)
+
+// Valid indicates whether the value is a known member of the WorkerGenerationKind enum.
+func (e WorkerGenerationKind) Valid() bool {
+	switch e {
+	case WorkerGenerationKindDocker:
+		return true
+	case WorkerGenerationKindNative:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for WorkerGenerationState.
+const (
+	WorkerGenerationStateFailed    WorkerGenerationState = "failed"
+	WorkerGenerationStateReady     WorkerGenerationState = "ready"
+	WorkerGenerationStateRequested WorkerGenerationState = "requested"
+	WorkerGenerationStateStarting  WorkerGenerationState = "starting"
+	WorkerGenerationStateStopped   WorkerGenerationState = "stopped"
+	WorkerGenerationStateStopping  WorkerGenerationState = "stopping"
+)
+
+// Valid indicates whether the value is a known member of the WorkerGenerationState enum.
+func (e WorkerGenerationState) Valid() bool {
+	switch e {
+	case WorkerGenerationStateFailed:
+		return true
+	case WorkerGenerationStateReady:
+		return true
+	case WorkerGenerationStateRequested:
+		return true
+	case WorkerGenerationStateStarting:
+		return true
+	case WorkerGenerationStateStopped:
+		return true
+	case WorkerGenerationStateStopping:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Order.
 const (
 	OrderAsc  Order = "asc"
@@ -642,7 +708,10 @@ type AgentRun struct {
 	State                 AgentRunState       `json:"state"`
 	SystemPrompt          string              `json:"systemPrompt"`
 	Task                  string              `json:"task"`
-	Workspace             string              `json:"workspace"`
+
+	// WorkerGenerationId Worker generation that ran this child agent.
+	WorkerGenerationId *string `json:"workerGenerationId,omitempty"`
+	Workspace          string  `json:"workspace"`
 }
 
 // AgentRunDefinition defines model for AgentRun.Definition.
@@ -724,11 +793,22 @@ type CompactionPage struct {
 	Offset      int32        `json:"offset"`
 }
 
+// ContextManifestEntry defines model for ContextManifestEntry.
+type ContextManifestEntry struct {
+	Hash     string `json:"hash"`
+	Kind     string `json:"kind"`
+	Name     string `json:"name"`
+	Priority int32  `json:"priority"`
+	Source   string `json:"source"`
+}
+
 // ContextSnapshot defines model for ContextSnapshot.
 type ContextSnapshot struct {
-	CreatedAt       time.Time              `json:"createdAt"`
-	Hash            string                 `json:"hash"`
-	Manifest        map[string]interface{} `json:"manifest"`
+	CreatedAt time.Time `json:"createdAt"`
+	Hash      string    `json:"hash"`
+
+	// Manifest The layered sources this context was assembled from, in resolution order. It is a list because the harness contributes one entry per file from the filesystem root down to the workspace, and the same name may appear at more than one layer.
+	Manifest        []ContextManifestEntry `json:"manifest"`
 	ResolvedContent string                 `json:"resolvedContent"`
 }
 
@@ -737,6 +817,32 @@ type Error struct {
 	Code    string                  `json:"code"`
 	Details *map[string]interface{} `json:"details,omitempty"`
 	Message string                  `json:"message"`
+}
+
+// ExecutionProfile defines model for ExecutionProfile.
+type ExecutionProfile struct {
+	AllowDockerSocket        bool `json:"allowDockerSocket"`
+	AllowNetwork             bool `json:"allowNetwork"`
+	AllowPrivilegeEscalation bool `json:"allowPrivilegeEscalation"`
+
+	// CapabilityWarning Operator-facing warning for a host-root-equivalent profile. Empty for a profile that grants no such access.
+	CapabilityWarning *string `json:"capabilityWarning,omitempty"`
+
+	// HostRootEquivalent True when this profile grants access that is effectively host root, such as a writable Docker socket.
+	HostRootEquivalent bool                 `json:"hostRootEquivalent"`
+	Kind               ExecutionProfileKind `json:"kind"`
+	Name               string               `json:"name"`
+	Revision           int64                `json:"revision"`
+}
+
+// ExecutionProfileKind defines model for ExecutionProfile.Kind.
+type ExecutionProfileKind string
+
+// ExecutionProfileList defines model for ExecutionProfileList.
+type ExecutionProfileList struct {
+	// Default The profile a session opened without naming one uses.
+	Default string             `json:"default"`
+	Items   []ExecutionProfile `json:"items"`
 }
 
 // Job defines model for Job.
@@ -766,6 +872,9 @@ type Job struct {
 
 	// TurnId The durable turn that launched this process.
 	TurnId openapi_types.UUID `json:"turnId"`
+
+	// WorkerGenerationId Worker generation that launched this process.
+	WorkerGenerationId *string `json:"workerGenerationId,omitempty"`
 }
 
 // JobState defines model for Job.State.
@@ -982,6 +1091,22 @@ type ModelRunPage struct {
 	Offset    int32      `json:"offset"`
 }
 
+// OpenSessionRequest defines model for OpenSessionRequest.
+type OpenSessionRequest struct {
+	// Profile Name of an operator-defined execution profile. Empty takes the deployment default. A name the operator did not define is refused with 403. This is the only environment choice a client makes: images, mounts, network, and capabilities come from deployment configuration alone. It applies only when this call creates the session; opening an existing session never changes its profile.
+	Profile *string `json:"profile,omitempty"`
+
+	// Workspace Absolute host path of the workspace directory. It is resolved through its symlinks and must fall under a configured workspace root.
+	Workspace string `json:"workspace"`
+}
+
+// OpenedSession defines model for OpenedSession.
+type OpenedSession struct {
+	// Created True when this call created the session, false when it resumed an existing one.
+	Created bool    `json:"created"`
+	Session Session `json:"session"`
+}
+
 // PromptSnapshot defines model for PromptSnapshot.
 type PromptSnapshot struct {
 	CreatedAt       time.Time `json:"createdAt"`
@@ -989,18 +1114,30 @@ type PromptSnapshot struct {
 	Hash            string    `json:"hash"`
 }
 
+// ReconfigureSessionRequest defines model for ReconfigureSessionRequest.
+type ReconfigureSessionRequest struct {
+	// Profile The operator-defined profile to move this session to. An undefined name is refused. This is the only environment choice a client makes.
+	Profile string `json:"profile"`
+
+	// Reason Why the profile changed, kept in the durable decision history.
+	Reason string `json:"reason"`
+}
+
 // Session defines model for Session.
 type Session struct {
-	ActiveTurn         bool               `json:"activeTurn"`
-	Agent              string             `json:"agent"`
-	CompletedTurnCount int64              `json:"completedTurnCount"`
-	CreatedAt          time.Time          `json:"createdAt"`
-	Id                 openapi_types.UUID `json:"id"`
-	LastMessageAt      *time.Time         `json:"lastMessageAt,omitempty"`
-	MessageCount       int64              `json:"messageCount"`
-	Model              string             `json:"model"`
-	UpdatedAt          time.Time          `json:"updatedAt"`
-	Workspace          string             `json:"workspace"`
+	ActiveTurn         bool      `json:"activeTurn"`
+	Agent              string    `json:"agent"`
+	CompletedTurnCount int64     `json:"completedTurnCount"`
+	CreatedAt          time.Time `json:"createdAt"`
+
+	// ExecutionProfile The operator-defined profile this session's tools run under. Empty for a session recorded before profiles existed, which the controller reads as the deployment default.
+	ExecutionProfile *string            `json:"executionProfile,omitempty"`
+	Id               openapi_types.UUID `json:"id"`
+	LastMessageAt    *time.Time         `json:"lastMessageAt,omitempty"`
+	MessageCount     int64              `json:"messageCount"`
+	Model            string             `json:"model"`
+	UpdatedAt        time.Time          `json:"updatedAt"`
+	Workspace        string             `json:"workspace"`
 }
 
 // SessionNotice defines model for SessionNotice.
@@ -1043,6 +1180,34 @@ type SessionNoticeRequest struct {
 // SessionNoticeRequestDelivery queue waits for the next turn. wake starts a turn when the session is idle and .agents/events declares a handler for this type.
 type SessionNoticeRequestDelivery string
 
+// SessionPage defines model for SessionPage.
+type SessionPage struct {
+	HasMore bool      `json:"hasMore"`
+	Items   []Session `json:"items"`
+	Limit   int32     `json:"limit"`
+	Offset  int32     `json:"offset"`
+}
+
+// SessionProfileDecision defines model for SessionProfileDecision.
+type SessionProfileDecision struct {
+	DecidedAt time.Time `json:"decidedAt"`
+
+	// FromProfile The profile the session ran under before this decision. Absent when the session had no recorded profile.
+	FromProfile *string            `json:"fromProfile,omitempty"`
+	Id          openapi_types.UUID `json:"id"`
+	Reason      string             `json:"reason"`
+	SessionId   openapi_types.UUID `json:"sessionId"`
+	ToProfile   string             `json:"toProfile"`
+}
+
+// SessionProfileDecisionPage defines model for SessionProfileDecisionPage.
+type SessionProfileDecisionPage struct {
+	HasMore bool                     `json:"hasMore"`
+	Items   []SessionProfileDecision `json:"items"`
+	Limit   int32                    `json:"limit"`
+	Offset  int32                    `json:"offset"`
+}
+
 // TranscriptEvent defines model for TranscriptEvent.
 type TranscriptEvent struct {
 	CreatedAt        time.Time              `json:"createdAt"`
@@ -1054,6 +1219,9 @@ type TranscriptEvent struct {
 	SessionId        openapi_types.UUID     `json:"sessionId"`
 	TurnId           openapi_types.UUID     `json:"turnId"`
 	Type             string                 `json:"type"`
+
+	// WorkerGenerationId Worker generation that produced this event, if started.
+	WorkerGenerationId *string `json:"workerGenerationId,omitempty"`
 }
 
 // TranscriptEventPage defines model for TranscriptEventPage.
@@ -1090,6 +1258,42 @@ type TurnPage struct {
 	Turns   []Turn `json:"turns"`
 }
 
+// WorkerGeneration defines model for WorkerGeneration.
+type WorkerGeneration struct {
+	// ContainerId Set only for a Docker generation.
+	ContainerId *string    `json:"containerId,omitempty"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	EndedAt     *time.Time `json:"endedAt,omitempty"`
+
+	// FailureDetail Why a generation failed or was replaced. Never carries credentials.
+	FailureDetail *string            `json:"failureDetail,omitempty"`
+	Id            openapi_types.UUID `json:"id"`
+
+	// ImageDigest Immutable image identity for a Docker generation, never a moving tag.
+	ImageDigest     *string               `json:"imageDigest,omitempty"`
+	Kind            WorkerGenerationKind  `json:"kind"`
+	Profile         string                `json:"profile"`
+	ProfileRevision int64                 `json:"profileRevision"`
+	SessionId       openapi_types.UUID    `json:"sessionId"`
+	StartedAt       *time.Time            `json:"startedAt,omitempty"`
+	State           WorkerGenerationState `json:"state"`
+	Workspace       string                `json:"workspace"`
+}
+
+// WorkerGenerationKind defines model for WorkerGeneration.Kind.
+type WorkerGenerationKind string
+
+// WorkerGenerationState defines model for WorkerGeneration.State.
+type WorkerGenerationState string
+
+// WorkerGenerationPage defines model for WorkerGenerationPage.
+type WorkerGenerationPage struct {
+	HasMore bool               `json:"hasMore"`
+	Items   []WorkerGeneration `json:"items"`
+	Limit   int32              `json:"limit"`
+	Offset  int32              `json:"offset"`
+}
+
 // AgentRunID defines model for AgentRunID.
 type AgentRunID = openapi_types.UUID
 
@@ -1122,6 +1326,12 @@ type SessionIDRequired = openapi_types.UUID
 
 // ErrorBadRequest defines model for ErrorBadRequest.
 type ErrorBadRequest = Error
+
+// ErrorConflict defines model for ErrorConflict.
+type ErrorConflict = Error
+
+// ErrorForbidden defines model for ErrorForbidden.
+type ErrorForbidden = Error
 
 // ErrorInternal defines model for ErrorInternal.
 type ErrorInternal = Error
@@ -1277,8 +1487,20 @@ type PublishSessionNoticeParams struct {
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
+// ListSessionProfileDecisionsParams defines parameters for ListSessionProfileDecisions.
+type ListSessionProfileDecisionsParams struct {
+	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
 // GetSessionPromptSnapshotParams defines parameters for GetSessionPromptSnapshot.
 type GetSessionPromptSnapshotParams struct {
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// ReconfigureSessionParams defines parameters for ReconfigureSession.
+type ReconfigureSessionParams struct {
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
@@ -1289,11 +1511,30 @@ type ListSessionTurnsParams struct {
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
+// ListSessionWorkersParams defines parameters for ListSessionWorkers.
+type ListSessionWorkersParams struct {
+	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// ListSessionsParams defines parameters for ListSessions.
+type ListSessionsParams struct {
+	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
 // SignalSessionJobJSONRequestBody defines body for SignalSessionJob for application/json ContentType.
 type SignalSessionJobJSONRequestBody = JobSignalRequest
 
 // PublishSessionNoticeJSONRequestBody defines body for PublishSessionNotice for application/json ContentType.
 type PublishSessionNoticeJSONRequestBody = SessionNoticeRequest
+
+// ReconfigureSessionJSONRequestBody defines body for ReconfigureSession for application/json ContentType.
+type ReconfigureSessionJSONRequestBody = ReconfigureSessionRequest
+
+// OpenSessionJSONRequestBody defines body for OpenSession for application/json ContentType.
+type OpenSessionJSONRequestBody = OpenSessionRequest
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -1368,6 +1609,13 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 
 // The interface specification for the client above.
 type ClientInterface interface {
+
+	// ListExecutionProfiles List the execution profiles a client may name
+	//
+	// Lists the operator-defined profiles a session may run under. A client names a profile when it opens a workspace and never sends an image, mount, network setting, or capability. A profile that grants host-root-equivalent access carries a capability warning.
+	//
+	// Corresponds with GET /execution-profiles (the `ListExecutionProfiles` operationId).
+	ListExecutionProfiles(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListMessages List stored conversation messages
 	//
@@ -1482,15 +1730,89 @@ type ClientInterface interface {
 	// Corresponds with POST /session/notices (the `PublishSessionNotice` operationId).
 	PublishSessionNotice(ctx context.Context, params *PublishSessionNoticeParams, body PublishSessionNoticeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListSessionProfileDecisions List one session's execution profile decision history
+	//
+	// Returns the durable record of every execution profile change made to one session, newest first. Each entry names the profile the session moved from, the profile it moved to, and the reason the caller gave.
+	//
+	// Corresponds with GET /session/profile-decisions (the `ListSessionProfileDecisions` operationId).
+	ListSessionProfileDecisions(ctx context.Context, params *ListSessionProfileDecisionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetSessionPromptSnapshot Read a prompt snapshot referenced by this session
 	//
 	// Corresponds with GET /session/prompt-snapshots/{promptHash} (the `GetSessionPromptSnapshot` operationId).
 	GetSessionPromptSnapshot(ctx context.Context, promptHash PromptHash, params *GetSessionPromptSnapshotParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ReconfigureSessionWithBody Move an idle session to a different execution profile
+	//
+	// Changes the operator-defined profile a session's tools run under and records the decision with the caller's reason. The named profile must be one the operator defined; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to a profile that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation under the new profile. The client names only a profile and never sends an image, mount, network setting, or capability.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /session/reconfigure (the `ReconfigureSession` operationId).
+	ReconfigureSessionWithBody(ctx context.Context, params *ReconfigureSessionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReconfigureSession Move an idle session to a different execution profile
+	//
+	// Changes the operator-defined profile a session's tools run under and records the decision with the caller's reason. The named profile must be one the operator defined; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to a profile that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation under the new profile. The client names only a profile and never sends an image, mount, network setting, or capability.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /session/reconfigure (the `ReconfigureSession` operationId).
+	ReconfigureSession(ctx context.Context, params *ReconfigureSessionParams, body ReconfigureSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListSessionTurns List durable turns
 	//
 	// Corresponds with GET /session/turns (the `ListSessionTurns` operationId).
 	ListSessionTurns(ctx context.Context, params *ListSessionTurnsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListSessionWorkers List one session's worker generations
+	//
+	// Returns the durable worker generations for one session, newest first. A generation records the worker process that ran a set of turns, the profile revision it started under, and for a Docker generation its container and immutable image digest.
+	//
+	// Corresponds with GET /session/workers (the `ListSessionWorkers` operationId).
+	ListSessionWorkers(ctx context.Context, params *ListSessionWorkersParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListSessions List durable workspace sessions
+	//
+	// Lists every session this control surface holds. It takes no session header because it is how a client discovers which sessions exist.
+	//
+	// Corresponds with GET /sessions (the `ListSessions` operationId).
+	ListSessions(ctx context.Context, params *ListSessionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// OpenSessionWithBody Open or resume the session for a workspace
+	//
+	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /sessions/open (the `OpenSession` operationId).
+	OpenSessionWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// OpenSession Open or resume the session for a workspace
+	//
+	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /sessions/open (the `OpenSession` operationId).
+	OpenSession(ctx context.Context, body OpenSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+// ListExecutionProfiles List the execution profiles a client may name
+//
+// Lists the operator-defined profiles a session may run under. A client names a profile when it opens a workspace and never sends an image, mount, network setting, or capability. A profile that grants host-root-equivalent access carries a capability warning.
+//
+// Corresponds with GET /execution-profiles (the `ListExecutionProfiles` operationId).
+func (c *Client) ListExecutionProfiles(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListExecutionProfilesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 // ListMessages List stored conversation messages
@@ -1816,11 +2138,66 @@ func (c *Client) PublishSessionNotice(ctx context.Context, params *PublishSessio
 	return c.Client.Do(req)
 }
 
+// ListSessionProfileDecisions List one session's execution profile decision history
+//
+// Returns the durable record of every execution profile change made to one session, newest first. Each entry names the profile the session moved from, the profile it moved to, and the reason the caller gave.
+//
+// Corresponds with GET /session/profile-decisions (the `ListSessionProfileDecisions` operationId).
+func (c *Client) ListSessionProfileDecisions(ctx context.Context, params *ListSessionProfileDecisionsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSessionProfileDecisionsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // GetSessionPromptSnapshot Read a prompt snapshot referenced by this session
 //
 // Corresponds with GET /session/prompt-snapshots/{promptHash} (the `GetSessionPromptSnapshot` operationId).
 func (c *Client) GetSessionPromptSnapshot(ctx context.Context, promptHash PromptHash, params *GetSessionPromptSnapshotParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetSessionPromptSnapshotRequest(c.Server, promptHash, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReconfigureSessionWithBody Move an idle session to a different execution profile
+//
+// Changes the operator-defined profile a session's tools run under and records the decision with the caller's reason. The named profile must be one the operator defined; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to a profile that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation under the new profile. The client names only a profile and never sends an image, mount, network setting, or capability.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /session/reconfigure (the `ReconfigureSession` operationId).
+func (c *Client) ReconfigureSessionWithBody(ctx context.Context, params *ReconfigureSessionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReconfigureSessionRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReconfigureSession Move an idle session to a different execution profile
+//
+// Changes the operator-defined profile a session's tools run under and records the decision with the caller's reason. The named profile must be one the operator defined; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to a profile that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation under the new profile. The client names only a profile and never sends an image, mount, network setting, or capability.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /session/reconfigure (the `ReconfigureSession` operationId).
+func (c *Client) ReconfigureSession(ctx context.Context, params *ReconfigureSessionParams, body ReconfigureSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReconfigureSessionRequest(c.Server, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1844,6 +2221,105 @@ func (c *Client) ListSessionTurns(ctx context.Context, params *ListSessionTurnsP
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// ListSessionWorkers List one session's worker generations
+//
+// Returns the durable worker generations for one session, newest first. A generation records the worker process that ran a set of turns, the profile revision it started under, and for a Docker generation its container and immutable image digest.
+//
+// Corresponds with GET /session/workers (the `ListSessionWorkers` operationId).
+func (c *Client) ListSessionWorkers(ctx context.Context, params *ListSessionWorkersParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSessionWorkersRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListSessions List durable workspace sessions
+//
+// Lists every session this control surface holds. It takes no session header because it is how a client discovers which sessions exist.
+//
+// Corresponds with GET /sessions (the `ListSessions` operationId).
+func (c *Client) ListSessions(ctx context.Context, params *ListSessionsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSessionsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// OpenSessionWithBody Open or resume the session for a workspace
+//
+// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /sessions/open (the `OpenSession` operationId).
+func (c *Client) OpenSessionWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewOpenSessionRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// OpenSession Open or resume the session for a workspace
+//
+// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /sessions/open (the `OpenSession` operationId).
+func (c *Client) OpenSession(ctx context.Context, body OpenSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewOpenSessionRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// NewListExecutionProfilesRequest constructs an http.Request for the ListExecutionProfiles method
+func NewListExecutionProfilesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/execution-profiles")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
 }
 
 // NewListMessagesRequest constructs an http.Request for the ListMessages method
@@ -3208,6 +3684,85 @@ func NewPublishSessionNoticeRequestWithBody(server string, params *PublishSessio
 	return req, nil
 }
 
+// NewListSessionProfileDecisionsRequest constructs an http.Request for the ListSessionProfileDecisions method
+func NewListSessionProfileDecisionsRequest(server string, params *ListSessionProfileDecisionsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/profile-decisions")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Session-ID", headerParam0)
+
+	}
+
+	return req, nil
+}
+
 // NewGetSessionPromptSnapshotRequest constructs an http.Request for the GetSessionPromptSnapshot method
 func NewGetSessionPromptSnapshotRequest(server string, promptHash PromptHash, params *GetSessionPromptSnapshotParams) (*http.Request, error) {
 	var err error
@@ -3238,6 +3793,59 @@ func NewGetSessionPromptSnapshotRequest(server string, promptHash PromptHash, pa
 	if err != nil {
 		return nil, err
 	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Session-ID", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewReconfigureSessionRequest calls the generic ReconfigureSession builder with application/json body
+func NewReconfigureSessionRequest(server string, params *ReconfigureSessionParams, body ReconfigureSessionJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewReconfigureSessionRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewReconfigureSessionRequestWithBody constructs an http.Request for the ReconfigureSession method, with any body, and a specified content type
+func NewReconfigureSessionRequestWithBody(server string, params *ReconfigureSessionParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/reconfigure")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	if params != nil {
 
@@ -3334,6 +3942,191 @@ func NewListSessionTurnsRequest(server string, params *ListSessionTurnsParams) (
 	return req, nil
 }
 
+// NewListSessionWorkersRequest constructs an http.Request for the ListSessionWorkers method
+func NewListSessionWorkersRequest(server string, params *ListSessionWorkersParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/workers")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Session-ID", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewListSessionsRequest constructs an http.Request for the ListSessions method
+func NewListSessionsRequest(server string, params *ListSessionsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/sessions")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewOpenSessionRequest calls the generic OpenSession builder with application/json body
+func NewOpenSessionRequest(server string, body OpenSessionJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewOpenSessionRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewOpenSessionRequestWithBody constructs an http.Request for the OpenSession method, with any body, and a specified content type
+func NewOpenSessionRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/sessions/open")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -3377,6 +4170,15 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
+
+	// ListExecutionProfilesWithResponse List the execution profiles a client may name
+	//
+	// Lists the operator-defined profiles a session may run under. A client names a profile when it opens a workspace and never sends an image, mount, network setting, or capability. A profile that grants host-root-equivalent access carries a capability warning.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /execution-profiles (the `ListExecutionProfiles` operationId).
+	ListExecutionProfilesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListExecutionProfilesResponse, error)
 
 	// ListMessagesWithResponse List stored conversation messages
 	//
@@ -3525,6 +4327,15 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /session/notices (the `PublishSessionNotice` operationId).
 	PublishSessionNoticeWithResponse(ctx context.Context, params *PublishSessionNoticeParams, body PublishSessionNoticeJSONRequestBody, reqEditors ...RequestEditorFn) (*PublishSessionNoticeResponse, error)
 
+	// ListSessionProfileDecisionsWithResponse List one session's execution profile decision history
+	//
+	// Returns the durable record of every execution profile change made to one session, newest first. Each entry names the profile the session moved from, the profile it moved to, and the reason the caller gave.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /session/profile-decisions (the `ListSessionProfileDecisions` operationId).
+	ListSessionProfileDecisionsWithResponse(ctx context.Context, params *ListSessionProfileDecisionsParams, reqEditors ...RequestEditorFn) (*ListSessionProfileDecisionsResponse, error)
+
 	// GetSessionPromptSnapshotWithResponse Read a prompt snapshot referenced by this session
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -3532,12 +4343,128 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /session/prompt-snapshots/{promptHash} (the `GetSessionPromptSnapshot` operationId).
 	GetSessionPromptSnapshotWithResponse(ctx context.Context, promptHash PromptHash, params *GetSessionPromptSnapshotParams, reqEditors ...RequestEditorFn) (*GetSessionPromptSnapshotResponse, error)
 
+	// ReconfigureSessionWithBodyWithResponse Move an idle session to a different execution profile
+	//
+	// Changes the operator-defined profile a session's tools run under and records the decision with the caller's reason. The named profile must be one the operator defined; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to a profile that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation under the new profile. The client names only a profile and never sends an image, mount, network setting, or capability.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /session/reconfigure (the `ReconfigureSession` operationId).
+	ReconfigureSessionWithBodyWithResponse(ctx context.Context, params *ReconfigureSessionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReconfigureSessionResponse, error)
+
+	// ReconfigureSessionWithResponse Move an idle session to a different execution profile
+	//
+	// Changes the operator-defined profile a session's tools run under and records the decision with the caller's reason. The named profile must be one the operator defined; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to a profile that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation under the new profile. The client names only a profile and never sends an image, mount, network setting, or capability.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /session/reconfigure (the `ReconfigureSession` operationId).
+	ReconfigureSessionWithResponse(ctx context.Context, params *ReconfigureSessionParams, body ReconfigureSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*ReconfigureSessionResponse, error)
+
 	// ListSessionTurnsWithResponse List durable turns
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with GET /session/turns (the `ListSessionTurns` operationId).
 	ListSessionTurnsWithResponse(ctx context.Context, params *ListSessionTurnsParams, reqEditors ...RequestEditorFn) (*ListSessionTurnsResponse, error)
+
+	// ListSessionWorkersWithResponse List one session's worker generations
+	//
+	// Returns the durable worker generations for one session, newest first. A generation records the worker process that ran a set of turns, the profile revision it started under, and for a Docker generation its container and immutable image digest.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /session/workers (the `ListSessionWorkers` operationId).
+	ListSessionWorkersWithResponse(ctx context.Context, params *ListSessionWorkersParams, reqEditors ...RequestEditorFn) (*ListSessionWorkersResponse, error)
+
+	// ListSessionsWithResponse List durable workspace sessions
+	//
+	// Lists every session this control surface holds. It takes no session header because it is how a client discovers which sessions exist.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /sessions (the `ListSessions` operationId).
+	ListSessionsWithResponse(ctx context.Context, params *ListSessionsParams, reqEditors ...RequestEditorFn) (*ListSessionsResponse, error)
+
+	// OpenSessionWithBodyWithResponse Open or resume the session for a workspace
+	//
+	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /sessions/open (the `OpenSession` operationId).
+	OpenSessionWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*OpenSessionResponse, error)
+
+	// OpenSessionWithResponse Open or resume the session for a workspace
+	//
+	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /sessions/open (the `OpenSession` operationId).
+	OpenSessionWithResponse(ctx context.Context, body OpenSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*OpenSessionResponse, error)
+}
+
+// ListExecutionProfilesResponse200Headers the declared response headers of an HTTP 200 response for ListExecutionProfiles
+type ListExecutionProfilesResponse200Headers struct {
+	XRequestID openapi_types.UUID
+}
+
+type ListExecutionProfilesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ExecutionProfileList
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ListExecutionProfilesResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListExecutionProfilesResponse) GetJSON200() *ExecutionProfileList {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListExecutionProfilesResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListExecutionProfilesResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListExecutionProfilesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListExecutionProfilesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListExecutionProfilesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListExecutionProfilesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
 }
 
 // ListMessagesResponse200Headers the declared response headers of an HTTP 200 response for ListMessages
@@ -5003,6 +5930,83 @@ func (r PublishSessionNoticeResponse) ContentType() string {
 	return ""
 }
 
+// ListSessionProfileDecisionsResponse200Headers the declared response headers of an HTTP 200 response for ListSessionProfileDecisions
+type ListSessionProfileDecisionsResponse200Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListSessionProfileDecisionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SessionProfileDecisionPage
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ListSessionProfileDecisionsResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListSessionProfileDecisionsResponse) GetJSON200() *SessionProfileDecisionPage {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ListSessionProfileDecisionsResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListSessionProfileDecisionsResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ListSessionProfileDecisionsResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListSessionProfileDecisionsResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListSessionProfileDecisionsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListSessionProfileDecisionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListSessionProfileDecisionsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListSessionProfileDecisionsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // GetSessionPromptSnapshotResponse200Headers the declared response headers of an HTTP 200 response for GetSessionPromptSnapshot
 type GetSessionPromptSnapshotResponse200Headers struct {
 	XRequestID openapi_types.UUID
@@ -5074,6 +6078,97 @@ func (r GetSessionPromptSnapshotResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetSessionPromptSnapshotResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ReconfigureSessionResponse200Headers the declared response headers of an HTTP 200 response for ReconfigureSession
+type ReconfigureSessionResponse200Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ReconfigureSessionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SessionProfileDecision
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorForbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorConflict
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ReconfigureSessionResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ReconfigureSessionResponse) GetJSON200() *SessionProfileDecision {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ReconfigureSessionResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ReconfigureSessionResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ReconfigureSessionResponse) GetJSON403() *ErrorForbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ReconfigureSessionResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r ReconfigureSessionResponse) GetJSON409() *ErrorConflict {
+	return r.JSON409
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ReconfigureSessionResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ReconfigureSessionResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReconfigureSessionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReconfigureSessionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReconfigureSessionResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5155,6 +6250,244 @@ func (r ListSessionTurnsResponse) ContentType() string {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
 	return ""
+}
+
+// ListSessionWorkersResponse200Headers the declared response headers of an HTTP 200 response for ListSessionWorkers
+type ListSessionWorkersResponse200Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListSessionWorkersResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *WorkerGenerationPage
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ListSessionWorkersResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListSessionWorkersResponse) GetJSON200() *WorkerGenerationPage {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ListSessionWorkersResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListSessionWorkersResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ListSessionWorkersResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListSessionWorkersResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListSessionWorkersResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListSessionWorkersResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListSessionWorkersResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListSessionWorkersResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ListSessionsResponse200Headers the declared response headers of an HTTP 200 response for ListSessions
+type ListSessionsResponse200Headers struct {
+	XRequestID openapi_types.UUID
+}
+
+type ListSessionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SessionPage
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ListSessionsResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListSessionsResponse) GetJSON200() *SessionPage {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ListSessionsResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListSessionsResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListSessionsResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListSessionsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListSessionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListSessionsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListSessionsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// OpenSessionResponse200Headers the declared response headers of an HTTP 200 response for OpenSession
+type OpenSessionResponse200Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type OpenSessionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *OpenedSession
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorForbidden
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *OpenSessionResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r OpenSessionResponse) GetJSON200() *OpenedSession {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r OpenSessionResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r OpenSessionResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r OpenSessionResponse) GetJSON403() *ErrorForbidden {
+	return r.JSON403
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r OpenSessionResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r OpenSessionResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r OpenSessionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r OpenSessionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r OpenSessionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ListExecutionProfilesWithResponse List the execution profiles a client may name
+//
+// Lists the operator-defined profiles a session may run under. A client names a profile when it opens a workspace and never sends an image, mount, network setting, or capability. A profile that grants host-root-equivalent access carries a capability warning.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /execution-profiles (the `ListExecutionProfiles` operationId).
+func (c *ClientWithResponses) ListExecutionProfilesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListExecutionProfilesResponse, error) {
+	rsp, err := c.ListExecutionProfiles(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListExecutionProfilesResponse(rsp)
 }
 
 // ListMessagesWithResponse List stored conversation messages
@@ -5430,6 +6763,21 @@ func (c *ClientWithResponses) PublishSessionNoticeWithResponse(ctx context.Conte
 	return ParsePublishSessionNoticeResponse(rsp)
 }
 
+// ListSessionProfileDecisionsWithResponse List one session's execution profile decision history
+//
+// Returns the durable record of every execution profile change made to one session, newest first. Each entry names the profile the session moved from, the profile it moved to, and the reason the caller gave.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /session/profile-decisions (the `ListSessionProfileDecisions` operationId).
+func (c *ClientWithResponses) ListSessionProfileDecisionsWithResponse(ctx context.Context, params *ListSessionProfileDecisionsParams, reqEditors ...RequestEditorFn) (*ListSessionProfileDecisionsResponse, error) {
+	rsp, err := c.ListSessionProfileDecisions(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListSessionProfileDecisionsResponse(rsp)
+}
+
 // GetSessionPromptSnapshotWithResponse Read a prompt snapshot referenced by this session
 //
 // Returns a wrapper object for the known response body format(s).
@@ -5443,6 +6791,36 @@ func (c *ClientWithResponses) GetSessionPromptSnapshotWithResponse(ctx context.C
 	return ParseGetSessionPromptSnapshotResponse(rsp)
 }
 
+// ReconfigureSessionWithBodyWithResponse Move an idle session to a different execution profile
+//
+// Changes the operator-defined profile a session's tools run under and records the decision with the caller's reason. The named profile must be one the operator defined; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to a profile that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation under the new profile. The client names only a profile and never sends an image, mount, network setting, or capability.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /session/reconfigure (the `ReconfigureSession` operationId).
+func (c *ClientWithResponses) ReconfigureSessionWithBodyWithResponse(ctx context.Context, params *ReconfigureSessionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReconfigureSessionResponse, error) {
+	rsp, err := c.ReconfigureSessionWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReconfigureSessionResponse(rsp)
+}
+
+// ReconfigureSessionWithResponse Move an idle session to a different execution profile
+//
+// Changes the operator-defined profile a session's tools run under and records the decision with the caller's reason. The named profile must be one the operator defined; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to a profile that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation under the new profile. The client names only a profile and never sends an image, mount, network setting, or capability.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /session/reconfigure (the `ReconfigureSession` operationId).
+func (c *ClientWithResponses) ReconfigureSessionWithResponse(ctx context.Context, params *ReconfigureSessionParams, body ReconfigureSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*ReconfigureSessionResponse, error) {
+	rsp, err := c.ReconfigureSession(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReconfigureSessionResponse(rsp)
+}
+
 // ListSessionTurnsWithResponse List durable turns
 //
 // Returns a wrapper object for the known response body format(s).
@@ -5454,6 +6832,119 @@ func (c *ClientWithResponses) ListSessionTurnsWithResponse(ctx context.Context, 
 		return nil, err
 	}
 	return ParseListSessionTurnsResponse(rsp)
+}
+
+// ListSessionWorkersWithResponse List one session's worker generations
+//
+// Returns the durable worker generations for one session, newest first. A generation records the worker process that ran a set of turns, the profile revision it started under, and for a Docker generation its container and immutable image digest.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /session/workers (the `ListSessionWorkers` operationId).
+func (c *ClientWithResponses) ListSessionWorkersWithResponse(ctx context.Context, params *ListSessionWorkersParams, reqEditors ...RequestEditorFn) (*ListSessionWorkersResponse, error) {
+	rsp, err := c.ListSessionWorkers(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListSessionWorkersResponse(rsp)
+}
+
+// ListSessionsWithResponse List durable workspace sessions
+//
+// Lists every session this control surface holds. It takes no session header because it is how a client discovers which sessions exist.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /sessions (the `ListSessions` operationId).
+func (c *ClientWithResponses) ListSessionsWithResponse(ctx context.Context, params *ListSessionsParams, reqEditors ...RequestEditorFn) (*ListSessionsResponse, error) {
+	rsp, err := c.ListSessions(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListSessionsResponse(rsp)
+}
+
+// OpenSessionWithBodyWithResponse Open or resume the session for a workspace
+//
+// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /sessions/open (the `OpenSession` operationId).
+func (c *ClientWithResponses) OpenSessionWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*OpenSessionResponse, error) {
+	rsp, err := c.OpenSessionWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseOpenSessionResponse(rsp)
+}
+
+// OpenSessionWithResponse Open or resume the session for a workspace
+//
+// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /sessions/open (the `OpenSession` operationId).
+func (c *ClientWithResponses) OpenSessionWithResponse(ctx context.Context, body OpenSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*OpenSessionResponse, error) {
+	rsp, err := c.OpenSession(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseOpenSessionResponse(rsp)
+}
+
+// ParseListExecutionProfilesResponse parses an HTTP response from a ListExecutionProfilesWithResponse call
+func ParseListExecutionProfilesResponse(rsp *http.Response) (*ListExecutionProfilesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListExecutionProfilesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ExecutionProfileList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ListExecutionProfilesResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
 }
 
 // ParseListMessagesResponse parses an HTTP response from a ListMessagesWithResponse call
@@ -6862,6 +8353,80 @@ func ParsePublishSessionNoticeResponse(rsp *http.Response) (*PublishSessionNotic
 	return response, nil
 }
 
+// ParseListSessionProfileDecisionsResponse parses an HTTP response from a ListSessionProfileDecisionsWithResponse call
+func ParseListSessionProfileDecisionsResponse(rsp *http.Response) (*ListSessionProfileDecisionsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListSessionProfileDecisionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SessionProfileDecisionPage
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ListSessionProfileDecisionsResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
 // ParseGetSessionPromptSnapshotResponse parses an HTTP response from a GetSessionPromptSnapshotWithResponse call
 func ParseGetSessionPromptSnapshotResponse(rsp *http.Response) (*GetSessionPromptSnapshotResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -6936,6 +8501,94 @@ func ParseGetSessionPromptSnapshotResponse(rsp *http.Response) (*GetSessionPromp
 	return response, nil
 }
 
+// ParseReconfigureSessionResponse parses an HTTP response from a ReconfigureSessionWithResponse call
+func ParseReconfigureSessionResponse(rsp *http.Response) (*ReconfigureSessionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReconfigureSessionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SessionProfileDecision
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorForbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorConflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ReconfigureSessionResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
 // ParseListSessionTurnsResponse parses an HTTP response from a ListSessionTurnsWithResponse call
 func ParseListSessionTurnsResponse(rsp *http.Response) (*ListSessionTurnsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -6990,6 +8643,214 @@ func ParseListSessionTurnsResponse(rsp *http.Response) (*ListSessionTurnsRespons
 	switch {
 	case rsp.StatusCode == 200:
 		var headers ListSessionTurnsResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListSessionWorkersResponse parses an HTTP response from a ListSessionWorkersWithResponse call
+func ParseListSessionWorkersResponse(rsp *http.Response) (*ListSessionWorkersResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListSessionWorkersResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest WorkerGenerationPage
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ListSessionWorkersResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListSessionsResponse parses an HTTP response from a ListSessionsWithResponse call
+func ParseListSessionsResponse(rsp *http.Response) (*ListSessionsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListSessionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SessionPage
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ListSessionsResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseOpenSessionResponse parses an HTTP response from a OpenSessionWithResponse call
+func ParseOpenSessionResponse(rsp *http.Response) (*OpenSessionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &OpenSessionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest OpenedSession
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorForbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers OpenSessionResponse200Headers
 		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
 			var value openapi_types.UUID
 			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {

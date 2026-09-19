@@ -71,6 +71,9 @@ func (s *Server) CancelSession(
 	ctx context.Context,
 	request api.CancelSessionRequestObject,
 ) (api.CancelSessionResponseObject, error) {
+	// Recording the request comes first. It rejects an unknown session and
+	// leaves the turn row marked even if the interrupt below races the turn's
+	// own completion.
 	result, err := s.deps.Runtime.CancelSession(ctx, request.Params.XSessionID)
 	if err != nil {
 		if errors.Is(err, commerr.ErrNotFound) {
@@ -79,6 +82,19 @@ func (s *Server) CancelSession(
 
 		return nil, ctxerrors.Wrap(err, "cancel session")
 	}
+
+	// The model loop runs in the session's worker, so the controller's own
+	// cancellation never reaches it. Without this the endpoint answered
+	// cancelRequested and the turn ran to completion.
+	routed, err := s.deps.Turns.CancelSessionTurn(
+		ctx,
+		request.Params.XSessionID,
+	)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "cancel the session worker turn")
+	}
+
+	result.CancelRequested = result.CancelRequested || routed
 
 	return api.CancelSession202JSONResponse{
 		Body: *result,

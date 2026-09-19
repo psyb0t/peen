@@ -18,6 +18,11 @@ provider credential. Reconnect after a restart and the history is still there.
 Every connected client receives the live feed for every session, then renders
 the conversations it wants from each event's session ID.
 
+One host runs one control plane. It owns SQLite, the API, and the event feed,
+and it starts a separate worker process per session to run that session's turns.
+Which environment a worker gets, a child process or its own container, is an
+operator decision. See [Architecture](docs/architecture.md).
+
 Peen is the backend and harness. It does not ship a browser chat UI. Bring a
 browser client, terminal client, bot, or your own application.
 
@@ -28,6 +33,7 @@ browser client, terminal client, bot, or your own application.
 - [Provider configuration](#provider-configuration)
 - [Make it understand your project](#make-it-understand-your-project)
 - [See what happened](#see-what-happened)
+- [Drive it from the command line](#drive-it-from-the-command-line)
 - [Things worth knowing](#things-worth-knowing)
 - [Security](#security)
 - [Agent integrations](#agent-integrations)
@@ -52,6 +58,8 @@ environment variable. For an OpenAI-compatible
 this:
 
 ```dotenv
+PEEN_CONFIG_DIR=/absolute/path/to/peen/config
+PEEN_STATE_DIR=/absolute/path/to/peen/state
 PEEN_UPSTREAMS=[{"name":"aigate","provider":"openai","baseUrl":"https://aigate.example/v1","apiKeyEnv":"AIGATE_TOKEN"}]
 PEEN_DEFAULT_MODEL=aigate/your-model-id
 PEEN_COMPACTION_MODEL=aigate/your-model-id
@@ -59,61 +67,89 @@ AIGATE_TOKEN=your-token-here
 PEEN_API_TOKEN=
 ```
 
+`PEEN_CONFIG_DIR` and `PEEN_STATE_DIR` are separate on purpose. Workers get the
+first one read-only and never get the second. Peen refuses to start if one sits
+inside the other.
+
 `.env` is a Docker `--env-file`, so leave the JSON unquoted. For a server
 outside your own machine, set `PEEN_API_TOKEN` to a real secret before starting
 it.
 
-Build the image, create a private state directory, and mount the project the
-agent will work on:
+Build the image, create separate configuration, state, and workspace
+directories, then mount each at its literal host path. Literal paths matter
+when the controller starts Docker workers. Docker resolves worker mounts on the
+host, not inside the controller container.
 
 ```bash
 make docker-build
-mkdir -p ./data/peen ./workspace
-sudo chown 10001:10001 ./data/peen ./workspace
+root="$PWD"
+config="$root/data/peen/config"
+state="$root/data/peen/state"
+workspace="$root/workspace"
+mkdir -p "$config" "$state" "$workspace"
 
 docker run --rm \
+  --user "$(id -u):$(id -g)" \
   --env-file .env \
+  -e PEEN_CONFIG_DIR="$config" \
+  -e PEEN_STATE_DIR="$state" \
+  -e PEEN_HOST_USERNAME="$(id -un)" \
+  -e PEEN_HOST_HOME="$HOME" \
   -p 8080:8080 \
-  -v "$(pwd)/data/peen:/data/peen" \
-  -v "$(pwd)/workspace:/workspace" \
-  -w /workspace \
+  -v "$config:$config" \
+  -v "$state:$state" \
+  -v "$workspace:$workspace" \
+  -w "$workspace" \
   peen run
 ```
 
-`./data/peen` holds the database, logs, and harness configuration.
-`./workspace` is the process working directory and the agent's immutable
-workspace. Peen opens one durable session for its canonical path, then resumes
-that session when it restarts with the same state directory and working
-directory. Both mounts survive a container restart.
+The control process and workers run as your UID and GID, so files the agent
+creates stay yours. `PEEN_HOST_USERNAME` and `PEEN_HOST_HOME` let a Docker
+worker recreate that account inside its own image. `config` holds the trusted
+harness layer and workers receive it read-only. `state` holds the database,
+audit logs, and worker sockets and workers never receive it. `workspace` is the
+process working directory and agent workspace. Peen starts with no sessions and
+opens one when a client names that directory. It resumes the same session when
+it restarts with the same state directory and workspace. All three mounts
+survive a container restart.
 
 ## Send it a task
 
-With the default empty `PEEN_API_TOKEN`, open a browser console and paste this:
+Peen starts with no sessions, so open the workspace first, then route a message
+to the session it returns. With the default empty `PEEN_API_TOKEN`, open a
+browser console and paste this:
 
 ```js
-const socket = new WebSocket("ws://localhost:8080/v1/ws");
-let sessionId;
+const workspace = "/absolute/path/to/workspace";
 
-socket.addEventListener("message", ({ data }) => {
-  const event = JSON.parse(data);
-  sessionId = event.metadata?.sessionId ?? sessionId;
-  console.log(event);
-});
+const opened = await fetch("http://localhost:8080/v1/sessions/open", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ workspace }),
+}).then((response) => response.json());
+
+const sessionId = opened.session.id;
+
+const socket = new WebSocket("ws://localhost:8080/v1/ws");
+
+socket.addEventListener("message", ({ data }) => console.log(JSON.parse(data)));
 socket.addEventListener("open", () => {
   socket.send(JSON.stringify({
     id: crypto.randomUUID(),
     type: "message.send",
     data: { message: "Read the project, then tell me what you would fix first." },
+    metadata: { sessionId },
     timestamp: Math.floor(Date.now() / 1000),
     triggeredBy: null,
   }));
 });
 ```
 
-The first server frame identifies the process session in `metadata.sessionId`.
-Save it for REST reads and controls. Native agent events arrive while it works,
-then `message.completed` says that submission is done. The socket stays open
-for the next task, which implicitly continues the same workspace session.
+Opening the same directory again returns the same session, so this is also how
+you reattach after a restart. Save the `sessionId` for REST reads and controls.
+Native agent events arrive while it works, then `message.completed` says that
+submission is done. The socket stays open for the next task, which names the
+same session.
 
 Every connected client receives every session's live events. A client renders
 tabs by filtering received events on `metadata.sessionId`. Add
@@ -139,8 +175,9 @@ The full list of provider, context, tool, and event settings is in
 
 ## Make it understand your project
 
-`PEEN_CONFIG_DIR` holds durable state and an optional base harness. The
-workspace adds project-specific instructions:
+`PEEN_CONFIG_DIR` holds an optional trusted base harness. `PEEN_STATE_DIR`
+holds durable controller state and is never mounted into a worker. The workspace
+adds project-specific instructions:
 
 ```text
 workspace/
@@ -158,8 +195,7 @@ hooks when the harness itself must gate, annotate, or react to an action.
 
 Peen resolves layers from the filesystem root down to the active workspace, so
 a repository can put broad rules at the top and narrow rules beside one
-component. The configuration directory can add a trusted base layer and holds
-the SQLite database, logs, and hook state.
+component. The configuration directory can add a trusted base layer.
 
 Full layering, event, and hook details: [Configuration](docs/configuration.md#harness-layering)
 and [Hooks](docs/hooks.md).
@@ -183,6 +219,35 @@ and response. REST addresses a known session through `X-Session-ID`, so a
 client keeps the UUIDs for the conversations it owns. [The API
 reference](docs/http-api.md) has every request and response.
 
+## Drive it from the command line
+
+The same binary is also a local control client. Each command talks to a running
+controller over the control API. None of them opens the database or starts a
+second supervisor: when nothing is listening they start `peen run` and wait for
+it to answer.
+
+```bash
+peen control status
+peen session open /srv/work/project
+peen session list
+peen session attach <session-id>
+peen session stop <session-id>
+```
+
+`peen control status` reports reachability without starting anything, so it
+tells "not running" apart from "running". `peen session open` prints the
+session ID, its workspace, and whether the call created the session or resumed
+one. `peen session attach` streams that session's live events and starts no
+turn. `peen session stop` cancels the session's active turn and says when there
+was nothing running. The commands read the same `PEEN_` configuration the
+controller does, so a command and its controller cannot disagree about the
+endpoint.
+
+A native deployment currently reaches the controller over the configured
+loopback HTTP endpoint. Unix-domain-socket discovery is not implemented: the
+vendored HTTP server creates TCP listeners only and exposes no way to supply
+one, so it needs an upstream capability first.
+
 ## Things worth knowing
 
 Set `PEEN_API_TOKEN` and use `wss://` outside local development. Browser
@@ -191,7 +256,7 @@ WebSockets authenticate with subprotocols because browsers cannot attach an
 exact handshake.
 
 Peen writes structured logs to stdout and keeps daily audit files under
-`PEEN_CONFIG_DIR/logs` by default. The active workspace is a default, not a
+`PEEN_STATE_DIR/logs` by default. The active workspace is a default, not a
 containment boundary. An absolute tool path can still point outside it. Long
 conversations either drop old request context or replace it with a stored
 summary. [Configuration](docs/configuration.md) covers all of this.
@@ -201,15 +266,33 @@ summary. [Configuration](docs/configuration.md) covers all of this.
 Read this before you deploy Peen anywhere it can reach something you do not
 want touched.
 
-Peen's host tools, `run_command` most of all, run with exactly the access of
-the operating-system user running the process. There is no sandbox, no path
-allowlist, no secret-file denylist, and no approval or permission step before
-a tool runs. A file tool can read, write, or remove any path that user can
-touch, including `.git/`, `.env`, and SSH keys. `run_command` executes an
-arbitrary shell command immediately. This is a deliberate design choice, not
-a gap: the product is a coding agent with real access, and Docker, the
-container user, and the mounts you choose are the isolation boundary, not
-anything inside Peen itself.
+A session's tools run in a worker process under the execution profile the
+operator picked for that session. On the default `native` profile that worker is
+a child of the controller, so `run_command` and the file tools have exactly the
+access of the operating-system user running Peen. There is no path allowlist, no
+secret-file denylist, and no approval or permission step before a tool runs. A
+file tool can read, write, or remove any path that user can touch, including
+`.git/`, `.env`, and SSH keys. `run_command` executes an arbitrary shell command
+immediately. That is deliberate: the product is a coding agent with real access.
+
+A `docker` profile is the isolation boundary. It runs the worker in its own
+container with only the mounts, network, and capabilities the operator defined.
+A client picks a profile by name and never sends an image, mount, network
+setting, or capability, so the blast radius is an operator decision. If the
+controller cannot reach a Docker socket, a session on a Docker profile is
+refused rather than run on the host. See
+[Configuration](docs/configuration.md#execution-profiles).
+
+A worker container receives the workspace, `PEEN_CONFIG_DIR` read-only, its own
+session socket directory, and only the runtime configuration it needs, including
+the named provider credential for its model calls. It does not receive
+`PEEN_STATE_DIR`, the control API token, or the controller Docker socket. The
+provider credential is therefore available to the agent process. Treat it like
+any other secret exposed inside an agent workspace. Peen runs the image published
+alongside the running build unless `PEEN_WORKER_IMAGE` or the profile names
+another. The container starts as root and the Peen entrypoint drops it back to
+your host account, so an image without that entrypoint fails when the worker
+runs.
 
 Tool calls and their results are recorded verbatim in the session transcript
 and sent live over the global WebSocket feed, exactly like any other message.
@@ -222,7 +305,7 @@ can reach.
 
 `remove_path` has exactly one built-in restriction, and it is a guard against
 a catastrophic typo, not a permission system: it refuses to remove the
-filesystem root or the startup workspace directory itself. Every
+filesystem root or the session's own workspace directory. Every
 other path, including everything named above, is removable.
 
 Run Peen as a non-root user, in a container, with only the mounts, network
@@ -232,9 +315,11 @@ does exactly this by default; see below.
 ## Docker deployment
 
 The local Docker command above is the normal way to run Peen. The image has a
-real shell and the tools a coding agent uses. It runs as UID and GID `10001`
-under `tini`. For source builds, production mounts, networking, and container
-hardening, read [Deployment](docs/deployment.md).
+real shell and the tools a coding agent uses. Its image default is a non-root
+account, and the documented command deliberately overrides that with your UID
+and GID so controller and worker changes keep host ownership. For source builds,
+production mounts, networking, and container hardening, read
+[Deployment](docs/deployment.md).
 
 ## Agent integrations
 

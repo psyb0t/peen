@@ -40,6 +40,21 @@ func TestConfigValidate(t *testing.T) {
 			wantErr: ErrInvalidConfig,
 		},
 		{
+			name:    "relative state directory",
+			mutate:  func(config *Config) { config.StateDirectory = "relative" },
+			wantErr: ErrInvalidConfig,
+		},
+		{
+			name: "state directory inside the config directory",
+			mutate: func(config *Config) {
+				config.StateDirectory = filepath.Join(
+					config.ConfigDirectory,
+					"state",
+				)
+			},
+			wantErr: ErrInvalidConfig,
+		},
+		{
 			name:    "relative working directory",
 			mutate:  func(config *Config) { config.WorkingDirectory = "relative" },
 			wantErr: ErrInvalidConfig,
@@ -120,6 +135,7 @@ func TestParseUsesFixedEnvironmentBindings(t *testing.T) {
 	require.NoError(t, os.Mkdir(workingDirectory, testDirectoryMode))
 	t.Chdir(workingDirectory)
 	t.Setenv("PEEN_CONFIG_DIR", configDirectory)
+	t.Setenv("PEEN_STATE_DIR", filepath.Join(t.TempDir(), "state"))
 	t.Setenv("PEEN_WORKING_DIR", ignoredWorkingDirectory)
 	t.Setenv("PEEN_AGENT", "coding")
 	t.Setenv("PEEN_UPSTREAMS", `[{"name":"aigate","provider":"openai"}]`)
@@ -174,6 +190,7 @@ func TestParseDefaultsWorkingDirectoryToProcessDirectory(t *testing.T) {
 	workingDirectory := t.TempDir()
 	t.Chdir(workingDirectory)
 	t.Setenv("PEEN_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+	t.Setenv("PEEN_STATE_DIR", filepath.Join(t.TempDir(), "state"))
 	t.Setenv("PEEN_UPSTREAMS", `[{"name":"aigate","provider":"openai"}]`)
 	t.Setenv("PEEN_DEFAULT_MODEL", testQualifiedModel)
 
@@ -188,6 +205,7 @@ func testConfig(t *testing.T) Config {
 
 	return Config{
 		ConfigDirectory:        filepath.Join(t.TempDir(), "config"),
+		StateDirectory:         filepath.Join(t.TempDir(), "state"),
 		WorkingDirectory:       filepath.Join(t.TempDir(), "workspace"),
 		Agent:                  "default",
 		UpstreamsJSON:          `[{"name":"aigate","provider":"openai"}]`,

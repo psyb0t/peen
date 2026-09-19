@@ -11,7 +11,11 @@ not throw the conversation away.
 WebSocket client
       |
       v
-HTTP server and session hub
+control plane: HTTP server, session hub, SQLite, worker supervisor
+      |                                         ^
+      | run_turn over a private Unix socket     | durable writes, then events
+      v                                         |
+session worker process ------------------------ +
       |
       v
 agent runtime <--> model provider
@@ -22,8 +26,6 @@ agent runtime <--> model provider
 harness, tools, hooks, child agents
       |
       +--> workspace files and commands
-      +--> SQLite replay ledger
-      +--> WebSocket clients
 ```
 
 REST sits beside the WebSocket. It reads durable session state, lists messages,
@@ -35,6 +37,56 @@ reference](http-api.md) has the contract.
 server, REST error envelope, and WShub WebSocket fan-out. Peen gives every
 socket its own server-controlled WShub identity. The server fans a session's
 events to global sockets and to sockets filtered for that session.
+
+## Control plane and workers
+
+One host runs one control plane. It owns SQLite, the REST listener, the global
+WebSocket hub, session routing, and worker lifecycle. It does not run the model
+loop. There are no controller IDs and no second controller.
+
+Each session's turns run in a worker process the control plane starts on demand.
+A worker never opens the control SQLite file. It reaches durable state through
+the control plane over a private per-session Unix socket, which carries JSON
+frames for `run_turn`, `cancel`, and `shutdown`. The socket is created with only
+the controller's own access, and the worker authenticates with a credential
+generated per worker generation. The control plane stores only the SHA-256 hash
+of that credential, hands the raw value to the worker on stdin, and never writes
+it to a command line, an environment variable, a label, or a log.
+
+An operator defines the execution profiles a session may run under. The client
+names a profile and nothing else. Images, mounts, network, the Docker socket,
+and privilege escalation come from deployment configuration. A native profile
+starts the same installed Peen binary with its internal `worker` command. A
+Docker profile creates a container named `peen-worker-<session-uuid>` carrying
+exactly two labels, `peen.managed=true` and `peen.session=<session-uuid>`, and
+the supervisor acts on a stored container ID only when both labels still match.
+
+A Docker worker runs as the controller's own host UID, GID, and username. A
+native controller resolves that account from the operating system. A controller
+running in Docker with numeric `--user` IDs supplies `PEEN_HOST_USERNAME` and
+`PEEN_HOST_HOME` so a worker can recreate the same host account. A profile that
+sets `allowPrivilegeEscalation` starts its container as root just long enough
+for the image entrypoint to create that account, give it passwordless sudo, and
+drop to it. The agent is the host user either way. See [privilege
+escalation](configuration.md#privilege-escalation).
+
+The controller passes each Docker worker the runtime configuration it needs to
+execute a turn, including provider definitions and named provider credentials.
+It never passes controller SQLite state, the public API token, the controller
+Docker socket, or the entrypoint bootstrap variables. A profile can explicitly
+grant a separate Docker socket to a worker. That makes the worker
+host-root-equivalent and is visible in the profile's capability warning.
+
+Docker authority is decided at startup by whether the controller can reach a
+Docker socket. Without it, no Docker launcher is registered and a session on a
+Docker profile is refused. There is no fallback to a native worker, because
+silently downgrading a sandboxed profile would run the model's tools in the
+controller's own environment.
+
+Events reach clients only after they are durable. A worker's turn writes through
+the control plane, and the control plane publishes to the WebSocket hub after
+the write lands. A client therefore never sees an event that a reconnect and
+replay would not produce.
 
 ## One turn
 
@@ -81,6 +133,35 @@ its storage and every connected client as protected as the workspace itself.
 Peen uses [Servicepack](https://github.com/psyb0t/servicepack) for process and
 service lifecycle plumbing. Peen owns the agent behavior, public API, storage,
 and harness. Servicepack's framework details live in its own repository.
+
+`peen run` starts two project-owned services:
+
+```text
+control-core  ->  control-api
+```
+
+`control-core` opens validated configuration, SQLite, the provider registry,
+the workspace policy, the execution profiles, and the worker supervisor. It
+reports ready only after those exist, and it creates no workspace session, so a
+controller starts empty.
+
+`control-api` names control-core as its dependency, so Servicepack launches it
+second and waits for control-core's readiness first. It owns the REST listener,
+the global WebSocket hub, and the metrics listener, and it reports ready only
+once its configured endpoint answers a connection. A client that waits for
+readiness can send a request immediately instead of racing a listener that has
+not bound yet.
+
+Servicepack stops the two in reverse dependency order, so the API stops
+accepting work before control-core cancels active turns, stops supervised jobs,
+stops every session worker, and closes SQLite. Workers stop after jobs so a
+container is not torn down under a process still running in it, and each stop is
+recorded, so no generation row outlives its worker claiming to be ready.
+`pkg/runner` remains the only signal and whole-process timeout owner.
+
+The services share one `control.Core` through a handoff in
+`internal/pkg/control`. A Servicepack factory takes no arguments, so it cannot
+receive a shared dependency directly.
 
 ## External building blocks
 

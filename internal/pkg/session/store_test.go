@@ -349,12 +349,12 @@ func TestStoreSnapshotsRecoveryAndCancellationIdentity(t *testing.T) {
 
 	require.NoError(t, store.SaveContextSnapshot(ctx, &models.ContextSnapshot{
 		Hash:            contextHash,
-		ManifestJSON:    `{}`,
+		ManifestJSON:    `[]`,
 		ResolvedContent: "resolved",
 	}))
 	require.NoError(t, store.SaveContextSnapshot(ctx, &models.ContextSnapshot{
 		Hash:            contextHash,
-		ManifestJSON:    `{}`,
+		ManifestJSON:    `[]`,
 		ResolvedContent: "resolved",
 	}))
 	require.NoError(t, store.SavePromptSnapshot(ctx, &models.PromptSnapshot{

@@ -131,15 +131,16 @@ type preparedChildLaunch struct {
 // the context's depth value and the run's own identity change as
 // launch_agent calls itself for a grandchild.
 type launchAgentDeps struct {
-	runtime        *Runtime
-	executor       *tools.JobExecutor
-	snapshot       harness.Snapshot
-	model          ModelClient
-	modelReference string
-	sessionID      uuid.UUID
-	parentTurnID   uuid.UUID
-	requestID      uuid.UUID
-	liveSink       EventSink
+	runtime            *Runtime
+	executor           *tools.JobExecutor
+	snapshot           harness.Snapshot
+	model              ModelClient
+	modelReference     string
+	workerGenerationID string
+	sessionID          uuid.UUID
+	parentTurnID       uuid.UUID
+	requestID          uuid.UUID
+	liveSink           EventSink
 }
 
 // handle is the tool Handler launch_agent registers.
@@ -327,22 +328,23 @@ func (r *Runtime) createChildAgentRun(
 		ctx,
 		deps.sessionID,
 		session.StartAgentRunInput{
-			ID:               run.ID,
-			ParentTurnID:     run.ParentTurnID,
-			ParentAgentRunID: run.ParentAgentRunID,
-			ParentToolCallID: run.ParentToolCallID,
-			RequestID:        run.RequestID,
-			Name:             run.Name,
-			Definition:       models.AgentRunDefinition(run.Definition),
-			Depth:            int64(run.Depth),
-			Workspace:        deps.executor.Workspace(),
-			ModelReference:   deps.modelReference,
-			ModelID:          deps.model.Model.ID,
-			Task:             input.Task,
-			Instructions:     prepared.definition.instructions,
-			AllowedToolsJSON: prepared.allowedToolsJSON,
-			SystemPrompt:     prepared.systemPrompt,
-			StartedAt:        run.StartedAt,
+			ID:                 run.ID,
+			ParentTurnID:       run.ParentTurnID,
+			WorkerGenerationID: deps.workerGenerationID,
+			ParentAgentRunID:   run.ParentAgentRunID,
+			ParentToolCallID:   run.ParentToolCallID,
+			RequestID:          run.RequestID,
+			Name:               run.Name,
+			Definition:         models.AgentRunDefinition(run.Definition),
+			Depth:              int64(run.Depth),
+			Workspace:          deps.executor.Workspace(),
+			ModelReference:     deps.modelReference,
+			ModelID:            deps.model.Model.ID,
+			Task:               input.Task,
+			Instructions:       prepared.definition.instructions,
+			AllowedToolsJSON:   prepared.allowedToolsJSON,
+			SystemPrompt:       prepared.systemPrompt,
+			StartedAt:          run.StartedAt,
 		},
 	)
 
@@ -918,7 +920,7 @@ func (r *Runtime) sessionAgentRuns(
 // agentRunSink persists a child stream, refreshes the local convenience
 // buffer, then emits the exact child event to every live session client.
 type agentRunSink struct {
-	store     *session.Store
+	store     session.Storage
 	sessionID uuid.UUID
 	run       *AgentRun
 	liveSink  EventSink
@@ -926,7 +928,7 @@ type agentRunSink struct {
 }
 
 func newAgentRunSink(
-	store *session.Store,
+	store session.Storage,
 	sessionID uuid.UUID,
 	run *AgentRun,
 	liveSink EventSink,

@@ -19,6 +19,11 @@ type Session struct {
 	RootAgent             string
 	ModelID               string
 	Workspace             string
+
+	// ExecutionProfile is the operator-defined profile this session's tools
+	// run under. It is empty for a session recorded before profiles existed,
+	// which the supervisor reads as the deployment default.
+	ExecutionProfile string
 }
 
 // TableName pins the schema-owned sessions table name.

@@ -146,14 +146,34 @@ func (s *Server) SignalSessionJob(
 		return signalSessionJobBadRequest(jobSignalRequiredMessage), nil
 	}
 
-	result, err := s.deps.Runtime.SignalSessionJob(
+	// The job's process group is a child of the session's worker, so the
+	// signal has to travel there. Handling it in the controller reached an
+	// empty registry and recorded every signal as unaccepted while the command
+	// kept running.
+	routed, err := s.deps.Turns.SignalSessionJob(
 		ctx,
 		request.Params.XSessionID,
 		request.JobId,
-		*request.Body,
+		string(request.Body.Signal),
 	)
 	if err != nil {
 		return signalSessionJobFailure(err)
+	}
+
+	result := routed
+
+	if result == nil {
+		// No live worker holds this job, so the controller records the request
+		// against the durable row and reports it was not signalled.
+		result, err = s.deps.Runtime.SignalSessionJob(
+			ctx,
+			request.Params.XSessionID,
+			request.JobId,
+			*request.Body,
+		)
+		if err != nil {
+			return signalSessionJobFailure(err)
+		}
 	}
 
 	return api.SignalSessionJob202JSONResponse{

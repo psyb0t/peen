@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,14 +102,24 @@ func TestRuntimeMessageRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "first reply", first.Message)
 
-	require.NotEmpty(t, first.SessionID)
-
 	second, err := runtime.Message(context.Background(), peen.MessageRequest{
 		Message: "and again",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, first.SessionID, second.SessionID)
 	assert.Equal(t, "second reply", second.Message)
+
+	// Both turns ran against the same private session, which the caller never
+	// names. The continuous transcript is the observable proof.
+	page, err := runtime.ListMessages(
+		context.Background(),
+		peen.ListMessagesRequest{Order: peen.MessageOrderAsc},
+	)
+	require.NoError(t, err)
+	assert.Equal(
+		t,
+		[]string{"hello there", "first reply", "and again", "second reply"},
+		messageContents(page.Items),
+	)
 }
 
 func TestRuntimeStreamDeliversEventsIncrementally(t *testing.T) {
@@ -156,7 +168,7 @@ func TestRuntimeListMessages(t *testing.T) {
 	)
 	runtime := newTestRuntime(t, driver)
 
-	first, err := runtime.Message(context.Background(), peen.MessageRequest{
+	_, err := runtime.Message(context.Background(), peen.MessageRequest{
 		Message: "hello there",
 	})
 	require.NoError(t, err)
@@ -167,8 +179,7 @@ func TestRuntimeListMessages(t *testing.T) {
 	require.NoError(t, err)
 
 	page, err := runtime.ListMessages(context.Background(), peen.ListMessagesRequest{
-		SessionID: first.SessionID,
-		Order:     peen.MessageOrderAsc,
+		Order: peen.MessageOrderAsc,
 	})
 	require.NoError(t, err)
 	require.Len(t, page.Items, 4)
@@ -180,9 +191,8 @@ func TestRuntimeListMessages(t *testing.T) {
 	assert.False(t, page.HasMore)
 
 	firstPage, err := runtime.ListMessages(context.Background(), peen.ListMessagesRequest{
-		SessionID: first.SessionID,
-		Limit:     2,
-		Order:     peen.MessageOrderAsc,
+		Limit: 2,
+		Order: peen.MessageOrderAsc,
 	})
 	require.NoError(t, err)
 	assert.True(t, firstPage.HasMore)
@@ -194,18 +204,17 @@ func TestRuntimeListMessages(t *testing.T) {
 	)
 }
 
-func TestRuntimeSession(t *testing.T) {
+func TestRuntimeDetails(t *testing.T) {
 	driver := elelemtest.NewScriptedDriver(elelemtest.Text("hi"))
 	runtime := newTestRuntime(t, driver)
 
-	result, err := runtime.Message(context.Background(), peen.MessageRequest{
+	_, err := runtime.Message(context.Background(), peen.MessageRequest{
 		Message: "hello",
 	})
 	require.NoError(t, err)
 
-	details, err := runtime.Session(context.Background(), result.SessionID)
+	details, err := runtime.Details(context.Background())
 	require.NoError(t, err)
-	assert.Equal(t, result.SessionID, details.ID)
 	assert.Equal(t, testRootAgent, details.Agent)
 	assert.Equal(t, int64(1), details.CompletedTurnCount)
 	assert.False(t, details.ActiveTurn)
@@ -218,7 +227,7 @@ func TestRuntimeCancelHeldTurn(t *testing.T) {
 	)
 	runtime := newTestRuntime(t, driver)
 
-	first, err := runtime.Message(context.Background(), peen.MessageRequest{
+	_, err := runtime.Message(context.Background(), peen.MessageRequest{
 		Message: "hello there",
 	})
 	require.NoError(t, err)
@@ -251,7 +260,7 @@ func TestRuntimeCancelHeldTurn(t *testing.T) {
 		t.Fatal("held turn did not start in time")
 	}
 
-	cancelResult, err := runtime.Cancel(context.Background(), first.SessionID)
+	cancelResult, err := runtime.Cancel(context.Background())
 	require.NoError(t, err)
 	assert.True(t, cancelResult.CancelRequested)
 
@@ -266,19 +275,80 @@ func TestRuntimeCancelHeldTurn(t *testing.T) {
 	}
 }
 
-func TestRuntimeRejectsMalformedReadSessionID(t *testing.T) {
+// The direct runtime takes no session ID anywhere in its contract. Reads,
+// details, and cancellation all address its own workspace, so there is no
+// identifier for a caller to get wrong.
+func TestRuntimeReadsNeedNoSessionIdentifier(t *testing.T) {
 	runtime := newTestRuntime(t, elelemtest.NewScriptedDriver())
 
-	_, err := runtime.ListMessages(context.Background(), peen.ListMessagesRequest{
-		SessionID: testMalformedID,
-	})
-	assert.ErrorIs(t, err, commerr.ErrValidationFailed)
+	page, err := runtime.ListMessages(
+		context.Background(),
+		peen.ListMessagesRequest{},
+	)
+	require.NoError(t, err)
+	assert.Empty(t, page.Items)
 
-	_, err = runtime.Session(context.Background(), testMalformedID)
-	assert.ErrorIs(t, err, commerr.ErrValidationFailed)
+	details, err := runtime.Details(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, testRootAgent, details.Agent)
 
-	_, err = runtime.Cancel(context.Background(), testMalformedID)
-	assert.ErrorIs(t, err, commerr.ErrValidationFailed)
+	cancelled, err := runtime.Cancel(context.Background())
+	require.NoError(t, err)
+	assert.False(t, cancelled.CancelRequested)
+}
+
+// The direct facade addresses one workspace, so nothing it hands back may name
+// a session. A session ID here would invite a caller to route on it, which is
+// a control-plane job this runtime does not do.
+func TestPublicTypesCarryNoSessionIdentifier(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name  string
+		value any
+	}{
+		{name: "SessionDetails", value: peen.SessionDetails{}},
+		{name: "MessageResult", value: peen.MessageResult{}},
+		{name: "ListMessagesRequest", value: peen.ListMessagesRequest{}},
+		{name: "ListMessagesResult", value: peen.ListMessagesResult{}},
+		{name: "MessageRequest", value: peen.MessageRequest{}},
+		{name: "CancelResult", value: peen.CancelResult{}},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			fields := reflect.TypeOf(tc.value)
+			for field := range fields.Fields() {
+				field := field.Name
+				assert.NotContains(
+					t,
+					strings.ToLower(field),
+					"session",
+					"%s.%s names a session", tc.name, field,
+				)
+			}
+		})
+	}
+
+	assert.NotContains(
+		t,
+		exportedFieldNames(peen.SessionDetails{}),
+		"ID",
+		"SessionDetails still exposes a session identifier",
+	)
+}
+
+func exportedFieldNames(value any) []string {
+	valueType := reflect.TypeOf(value)
+	names := make([]string, 0, valueType.NumField())
+
+	for field := range valueType.Fields() {
+		names = append(names, field.Name)
+	}
+
+	return names
 }
 
 type streamOutcome struct {

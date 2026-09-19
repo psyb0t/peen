@@ -19,6 +19,10 @@ type Turn struct {
 	FailureClassification string
 	ContextSnapshotHash   *string
 	PromptSnapshotHash    *string
+
+	// WorkerGenerationID names the worker process that ran this turn. It is
+	// empty for a turn recorded before worker generations existed.
+	WorkerGenerationID string
 }
 
 // TableName pins the schema-owned turns table name.

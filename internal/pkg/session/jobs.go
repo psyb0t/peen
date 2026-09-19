@@ -38,17 +38,18 @@ func (s *Store) CreateJob(
 	}
 
 	result := &models.Job{
-		ID:         jobID,
-		SessionID:  sessionID,
-		TurnID:     input.TurnID,
-		ToolCallID: input.ToolCallID,
-		PID:        input.PID,
-		Purpose:    input.Purpose,
-		Command:    input.Command,
-		Directory:  input.Directory,
-		State:      models.JobStateRunning,
-		ExitCode:   -1,
-		StartedAt:  startedAt,
+		ID:                 jobID,
+		SessionID:          sessionID,
+		TurnID:             input.TurnID,
+		WorkerGenerationID: input.WorkerGenerationID,
+		ToolCallID:         input.ToolCallID,
+		PID:                input.PID,
+		Purpose:            input.Purpose,
+		Command:            input.Command,
+		Directory:          input.Directory,
+		State:              models.JobStateRunning,
+		ExitCode:           -1,
+		StartedAt:          startedAt,
 	}
 
 	if err := s.query.Transaction(func(tx *repositories.Query) error {

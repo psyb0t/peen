@@ -18,6 +18,7 @@ import (
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/agent"
+	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
 type webSocketMessageResult struct {
@@ -115,16 +116,17 @@ func (s *Server) handleWebSocketMessage(
 	event *dabluveees.Event,
 ) error {
 	requestID := uuid.New()
-	sessionID := s.deps.Runtime.SessionID()
 
-	if webSocketEventSelectsSession(event) {
+	sessionID, err := s.resolveWebSocketSession(event)
+	if err != nil {
 		ctxscope.GetLogger(s.deps.ServiceContext()).Warn(
 			"websocket message rejected",
-			"reason", "client_session_selection",
+			"reason", "session_routing",
+			"err", err,
 		)
 		s.broadcastWebSocketFailureToClient(
 			client.ID(),
-			&sessionID,
+			nil,
 			requestID,
 			event.ID,
 			aichteeteapee.ErrorCodeValidationFailed,
@@ -168,14 +170,67 @@ func (s *Server) handleWebSocketMessage(
 	return nil
 }
 
-func webSocketEventSelectsSession(event *dabluveees.Event) bool {
-	if event == nil || event.Metadata == nil {
-		return false
+// resolveWebSocketSession decides which durable session a message.send runs
+// against.
+//
+// A control surface serves many workspaces, so the client names the session in
+// the event's sessionId metadata. Naming it is routing, not an override: the
+// runtime still loads the session before starting a turn, and an ID the caller
+// is not entitled to fails there rather than here.
+//
+// An event that names no session falls back to the runtime's own startup
+// session, which is what an embedded one-workspace runtime has. A control
+// surface has none, so a message that names no session is refused instead of
+// running against an arbitrary workspace.
+func (s *Server) resolveWebSocketSession(
+	event *dabluveees.Event,
+) (uuid.UUID, error) {
+	selected, found, err := webSocketEventSession(event)
+	if err != nil {
+		return uuid.Nil, err
 	}
 
-	_, found := event.Metadata.Get(webSocketMetadataSessionID)
+	if found {
+		return selected, nil
+	}
 
-	return found
+	fallback := s.deps.Runtime.SessionID()
+	if fallback == uuid.Nil {
+		return uuid.Nil, ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"message.send requires a sessionId",
+		)
+	}
+
+	return fallback, nil
+}
+
+func webSocketEventSession(
+	event *dabluveees.Event,
+) (uuid.UUID, bool, error) {
+	if event == nil || event.Metadata == nil {
+		return uuid.Nil, false, nil
+	}
+
+	raw, found := event.Metadata.Get(webSocketMetadataSessionID)
+	if !found {
+		return uuid.Nil, false, nil
+	}
+
+	text, isText := raw.(string)
+	if !isText {
+		return uuid.Nil, false, ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"sessionId metadata must be a string",
+		)
+	}
+
+	sessionID, err := parseWebSocketSessionID(text)
+	if err != nil {
+		return uuid.Nil, false, ctxerrors.Wrap(err, "parse sessionId metadata")
+	}
+
+	return sessionID, true, nil
 }
 
 func parseWebSocketSessionID(value string) (uuid.UUID, error) {
@@ -207,20 +262,18 @@ func (s *Server) runWebSocketMessage(
 		triggeringEventID,
 	)
 
-	result, err := s.deps.Runtime.RunMessage(
+	// The routed session comes from the transport, never from the decoded
+	// message body, so a message cannot redirect itself to another session.
+	request.SessionID = &sessionID
+
+	// The turn runs in the session's worker. Its events reach this feed after
+	// the controller has written them, through the event relay, rather than
+	// through a second delivery path from here.
+	result, err := s.deps.Turns.RunSessionMessage(
 		ctx,
+		sessionID,
 		request,
 		requestID,
-		func(event agent.Event) error {
-			s.broadcastWebSocketAgentEvent(
-				sessionID,
-				requestID,
-				triggeringEventID,
-				event,
-			)
-
-			return nil
-		},
 	)
 	if err != nil {
 		s.reportWebSocketMessageFailure(
@@ -309,32 +362,6 @@ func (s *Server) broadcastWebSocketMessageCompletion(
 	)
 }
 
-func (s *Server) broadcastWebSocketAgentEvent(
-	sessionID uuid.UUID,
-	requestID uuid.UUID,
-	triggeringEventID uuid.UUID,
-	event agent.Event,
-) {
-	if event.RequestID != uuid.Nil {
-		requestID = event.RequestID
-	}
-
-	if event.TriggeringEventID != uuid.Nil {
-		triggeringEventID = event.TriggeringEventID
-	}
-
-	s.broadcastWebSocketEvent(
-		sessionID,
-		newWebSocketEvent(
-			dabluveees.EventType(event.Type),
-			event.Payload,
-			sessionID,
-			requestID,
-			triggeringEventID,
-		),
-	)
-}
-
 func (s *Server) broadcastWebSocketFailure(
 	sessionID uuid.UUID,
 	requestID uuid.UUID,
@@ -380,6 +407,31 @@ func (s *Server) broadcastWebSocketFailureToClient(
 	s.webSocketHub.BroadcastToClients([]uuid.UUID{clientID}, &event)
 }
 
+// BroadcastDurableSessionEvents fans out events the controller has already
+// written.
+//
+// It is the live half of the worker event path: a worker's durable write lands
+// in SQLite first, and only then does the controller hand the same records here
+// for delivery. A client therefore never sees an event the database does not
+// already hold.
+func (s *Server) BroadcastDurableSessionEvents(
+	sessionID uuid.UUID,
+	events []session.EventInput,
+) {
+	for _, event := range events {
+		s.broadcastWebSocketEvent(
+			sessionID,
+			newWebSocketEvent(
+				dabluveees.EventType(event.EventType),
+				json.RawMessage(event.PayloadJSON),
+				sessionID,
+				event.RequestID,
+				uuid.Nil,
+			),
+		)
+	}
+}
+
 func (s *Server) broadcastWebSocketEvent(
 	sessionID uuid.UUID,
 	event *dabluveees.Event,
@@ -392,6 +444,17 @@ func (s *Server) broadcastWebSocketEvent(
 	s.webSocketHub.BroadcastToClients(clientIDs, event)
 }
 
+// webSocketSessionFilterEntry is one client's server-side session filter.
+//
+// registered records that the hub has actually held this client, which is what
+// makes it safe to drop the filter once the hub no longer has it. The filter is
+// recorded before the upgrade runs, so an entry that has never been registered
+// is a connection still being established, not a stale one.
+type webSocketSessionFilterEntry struct {
+	sessionID  uuid.UUID
+	registered bool
+}
+
 func (s *Server) setWebSocketFilter(
 	clientID uuid.UUID,
 	sessionID uuid.UUID,
@@ -399,7 +462,9 @@ func (s *Server) setWebSocketFilter(
 	s.webSocketFilterMutex.Lock()
 	defer s.webSocketFilterMutex.Unlock()
 
-	s.webSocketFilters[clientID] = sessionID
+	s.webSocketFilters[clientID] = webSocketSessionFilterEntry{
+		sessionID: sessionID,
+	}
 }
 
 func (s *Server) clearWebSocketFilter(clientID uuid.UUID) {
@@ -416,15 +481,24 @@ func (s *Server) webSocketClientsFor(sessionID uuid.UUID) []uuid.UUID {
 	s.webSocketFilterMutex.Lock()
 	defer s.webSocketFilterMutex.Unlock()
 
-	for clientID := range s.webSocketFilters {
-		if _, active := clients[clientID]; !active {
+	// Dropping a filter whose client the hub never held would turn a client
+	// that asked for one session into a global subscriber the moment its
+	// upgrade finished, which is the opposite of what it requested.
+	for clientID, entry := range s.webSocketFilters {
+		_, active := clients[clientID]
+
+		switch {
+		case active && !entry.registered:
+			entry.registered = true
+			s.webSocketFilters[clientID] = entry
+		case !active && entry.registered:
 			delete(s.webSocketFilters, clientID)
 		}
 	}
 
 	for clientID := range clients {
-		filterSessionID, filtered := s.webSocketFilters[clientID]
-		if filtered && filterSessionID != sessionID {
+		entry, filtered := s.webSocketFilters[clientID]
+		if filtered && entry.sessionID != sessionID {
 			continue
 		}
 

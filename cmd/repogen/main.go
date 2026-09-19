@@ -41,7 +41,9 @@ func main() {
 		models.PromptSnapshot{},
 		models.Session{},
 		models.SessionNotice{},
+		models.SessionProfileDecision{},
 		models.Turn{},
+		models.WorkerGeneration{},
 	)
 	generator.ApplyInterface(func(CompactionQuerier) {}, models.Compaction{})
 	generator.ApplyInterface(func(MessageQuerier) {}, models.Message{})

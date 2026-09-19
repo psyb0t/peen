@@ -341,6 +341,10 @@ func jobModelToAPI(stored *models.Job) (api.Job, error) {
 		result.ToolCallId = &stored.ToolCallID
 	}
 
+	if stored.WorkerGenerationID != "" {
+		result.WorkerGenerationId = &stored.WorkerGenerationID
+	}
+
 	return result, nil
 }
 

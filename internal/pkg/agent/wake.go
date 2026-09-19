@@ -171,7 +171,7 @@ func (r *Runtime) considerWake(ctx context.Context, notice events.Notice) {
 		return
 	}
 
-	handler, found, err := r.wakeHandler(notice)
+	handler, found, err := r.wakeHandler(ctx, notice)
 	if err != nil {
 		logger.Warn(
 			"event wake handler lookup failed, event stays queued",
@@ -218,15 +218,23 @@ func (r *Runtime) considerWake(ctx context.Context, notice events.Notice) {
 	r.startWakeTurn(ctx, notice, handler)
 }
 
-// wakeHandler resolves the startup workspace's handler for this event type.
+// wakeHandler resolves the handler for this event type from the workspace of
+// the session the notice belongs to. It reads that session rather than the
+// runtime's own, because a control surface serves many workspaces and each one
+// declares its own handlers.
 func (r *Runtime) wakeHandler(
+	ctx context.Context,
 	notice events.Notice,
 ) (harness.EventHandler, bool, error) {
-	if notice.SessionID != r.sessionID {
-		return harness.EventHandler{}, false, nil
+	stored, err := r.store.Get(ctx, notice.SessionID)
+	if err != nil {
+		return harness.EventHandler{}, false, ctxerrors.Wrap(
+			err,
+			"load session for event wake",
+		)
 	}
 
-	snapshot, err := r.resolver.Resolve(r.defaultWorkspace)
+	snapshot, err := r.resolver.Resolve(stored.Workspace)
 	if err != nil {
 		return harness.EventHandler{}, false, ctxerrors.Wrap(
 			err,
@@ -252,7 +260,7 @@ func (r *Runtime) startWakeTurn(
 	notice events.Notice,
 	handler harness.EventHandler,
 ) {
-	sessionID := r.sessionID
+	sessionID := notice.SessionID
 	detached := context.WithoutCancel(ctx)
 
 	go func() {
@@ -274,7 +282,8 @@ func (r *Runtime) startWakeTurn(
 		)
 
 		if _, err := r.Run(detached, TurnRequest{
-			Message: wakeMessage(handler),
+			SessionID: &sessionID,
+			Message:   wakeMessage(handler),
 			Origin: &TurnOrigin{
 				EventID:   notice.ID,
 				EventType: notice.Type,

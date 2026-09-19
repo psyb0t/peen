@@ -145,7 +145,10 @@ func TestRuntimeResolveInput(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			workspace, model, err := fixture.runtime.resolveInput(tc.input)
+			stored, model, err := fixture.runtime.resolveInput(
+				t.Context(),
+				tc.input,
+			)
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
 
@@ -153,7 +156,8 @@ func TestRuntimeResolveInput(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.Equal(t, tc.wantWorkspace, workspace)
+			require.NotNil(t, stored)
+			assert.Equal(t, tc.wantWorkspace, stored.Workspace)
 			assert.Equal(t, tc.wantModel, model)
 		})
 	}
@@ -190,6 +194,11 @@ func TestRuntimeFailurePersistsTerminalState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, EventTypeTurnFailed, events[len(events)-1].EventType)
 }
+
+// A worker that cannot start no longer fails inside this runtime: the
+// controller's worker supervisor owns that path, and
+// TestSupervisorFailsAGenerationThatNeverRegisters covers it against a real
+// socket and a real generation record.
 
 func TestPromptHistoryAndRuntimeHelpers(t *testing.T) {
 	history := &session.History{

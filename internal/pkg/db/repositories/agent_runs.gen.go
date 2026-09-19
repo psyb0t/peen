@@ -31,6 +31,7 @@ func newAgentRun(db *gorm.DB, opts ...gen.DOOption) agentRun {
 	_agentRun.ID = field.NewField(tableName, "id")
 	_agentRun.SessionID = field.NewField(tableName, "session_id")
 	_agentRun.ParentTurnID = field.NewField(tableName, "parent_turn_id")
+	_agentRun.WorkerGenerationID = field.NewString(tableName, "worker_generation_id")
 	_agentRun.ParentAgentRunID = field.NewField(tableName, "parent_agent_run_id")
 	_agentRun.ParentToolCallID = field.NewString(tableName, "parent_tool_call_id")
 	_agentRun.RequestID = field.NewField(tableName, "request_id")
@@ -70,6 +71,7 @@ type agentRun struct {
 	ID                    field.Field
 	SessionID             field.Field
 	ParentTurnID          field.Field
+	WorkerGenerationID    field.String
 	ParentAgentRunID      field.Field
 	ParentToolCallID      field.String
 	RequestID             field.Field
@@ -115,6 +117,7 @@ func (a *agentRun) updateTableName(table string) *agentRun {
 	a.ID = field.NewField(table, "id")
 	a.SessionID = field.NewField(table, "session_id")
 	a.ParentTurnID = field.NewField(table, "parent_turn_id")
+	a.WorkerGenerationID = field.NewString(table, "worker_generation_id")
 	a.ParentAgentRunID = field.NewField(table, "parent_agent_run_id")
 	a.ParentToolCallID = field.NewString(table, "parent_tool_call_id")
 	a.RequestID = field.NewField(table, "request_id")
@@ -157,10 +160,11 @@ func (a *agentRun) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (a *agentRun) fillFieldMap() {
-	a.fieldMap = make(map[string]field.Expr, 29)
+	a.fieldMap = make(map[string]field.Expr, 30)
 	a.fieldMap["id"] = a.ID
 	a.fieldMap["session_id"] = a.SessionID
 	a.fieldMap["parent_turn_id"] = a.ParentTurnID
+	a.fieldMap["worker_generation_id"] = a.WorkerGenerationID
 	a.fieldMap["parent_agent_run_id"] = a.ParentAgentRunID
 	a.fieldMap["parent_tool_call_id"] = a.ParentToolCallID
 	a.fieldMap["request_id"] = a.RequestID

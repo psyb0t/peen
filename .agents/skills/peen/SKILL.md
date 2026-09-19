@@ -56,8 +56,9 @@ local network.
 
 - Editing Peen's own Go implementation. Use the repository development docs
   and Make targets instead.
-- Treating Peen as a sandbox. The deployment container, its user, mounts, and
-  network policy are the actual security boundary.
+- Assuming a session is sandboxed. The execution profile the operator gave it
+  decides that, and the default `native` profile runs tools with the
+  controller's own access.
 
 ## Start Peen
 
@@ -82,17 +83,26 @@ docker run --rm \
 ```
 
 `PEEN_CONFIG_DIR=/data/peen` holds SQLite, logs, and an optional trusted base
-harness. `PEEN_WORKING_DIR=/workspace` is the default workspace. Both host
-directories must exist and be writable by UID and GID `10001` before launch.
+harness. The container working directory `/workspace` is the default allowed
+workspace root; `PEEN_WORKSPACE_ROOTS` widens that to a JSON array of absolute
+paths. Both host directories must exist and be writable by UID and GID `10001`
+before launch.
 
 ## Send and follow work
 
-Generate a UUIDv4 for each new conversation. Send it as
-`metadata.sessionId` in a `message.send` WebSocket event. Reuse it to continue
-the conversation. A normal connection gets live events for every session, so
-the client builds tabs by filtering event metadata. `?sessionId=<uuid>` is an
-optional server-side outbound filter only. It does not select a session for a
-new message.
+Peen starts with no sessions. Open a workspace with
+`POST /v1/sessions/open` and a body of `{"workspace":"/workspace"}`. It returns
+the durable session, creating it the first time that directory is opened and
+resuming it afterwards. Never invent a session ID: an unknown one is refused
+and starts no turn.
+
+Send the returned ID as `metadata.sessionId` in a `message.send` WebSocket
+event, and reuse it to continue the conversation. A normal connection gets live
+events for every session, so the client builds tabs by filtering event
+metadata. `?sessionId=<uuid>` is an optional server-side outbound filter only.
+It does not route a new message.
+
+`GET /v1/sessions` lists what exists and needs no session header.
 
 Use REST for durable reads and control, never to start a turn. Supply
 `X-Session-ID` for session-scoped endpoints. For example, list messages with

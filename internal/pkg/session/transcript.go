@@ -587,15 +587,16 @@ func (s *Store) appendEvents(
 		}
 
 		events = append(events, &models.Event{
-			ID:               eventID,
-			SessionID:        lease.SessionID,
-			TurnID:           lease.TurnID,
-			Sequence:         currentSequence + int64(index) + 1,
-			RequestID:        input.RequestID,
-			EventType:        input.EventType,
-			PayloadJSON:      input.PayloadJSON,
-			ParentToolCallID: input.ParentToolCallID,
-			CreatedAt:        s.now(),
+			ID:                 eventID,
+			SessionID:          lease.SessionID,
+			TurnID:             lease.TurnID,
+			WorkerGenerationID: input.WorkerGenerationID,
+			Sequence:           currentSequence + int64(index) + 1,
+			RequestID:          input.RequestID,
+			EventType:          input.EventType,
+			PayloadJSON:        input.PayloadJSON,
+			ParentToolCallID:   input.ParentToolCallID,
+			CreatedAt:          s.now(),
 		})
 	}
 

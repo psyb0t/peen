@@ -25,9 +25,11 @@ func TestStoreDurableReplayReadsEverySessionOwnedTable(t *testing.T) {
 
 	const contextHash = "durable-replay-context"
 	const promptHash = "durable-replay-prompt"
+	workerGenerationID := uuid.New().String()
 	require.NoError(t, store.SaveContextSnapshot(ctx, &models.ContextSnapshot{
-		Hash:            contextHash,
-		ManifestJSON:    `{"files":["AGENTS.md"]}`,
+		Hash: contextHash,
+		ManifestJSON: `[{"kind":"rules","name":"AGENTS.md",` +
+			`"source":"/w/AGENTS.md","priority":1,"hash":"h"}]`,
 		ResolvedContent: "resolved context",
 	}))
 	require.NoError(t, store.SavePromptSnapshot(ctx, &models.PromptSnapshot{
@@ -44,9 +46,10 @@ func TestStoreDurableReplayReadsEverySessionOwnedTable(t *testing.T) {
 				Content: "work item",
 			}},
 			Events: []EventInput{{
-				RequestID:   uuid.New(),
-				EventType:   "turn.started",
-				PayloadJSON: fmt.Sprintf(`{"index":%d}`, index),
+				RequestID:          uuid.New(),
+				WorkerGenerationID: workerGenerationID,
+				EventType:          "turn.started",
+				PayloadJSON:        fmt.Sprintf(`{"index":%d}`, index),
 			}},
 		})
 		require.NoError(t, acquireErr)
@@ -100,6 +103,9 @@ func TestStoreDurableReplayReadsEverySessionOwnedTable(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, replayed.Items, 3)
 	assert.False(t, replayed.HasMore)
+	for _, event := range replayed.Items {
+		assert.Equal(t, workerGenerationID, event.WorkerGenerationID)
+	}
 }
 
 func TestStoreSessionNoticesPersistUntilDelivery(t *testing.T) {

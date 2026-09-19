@@ -25,9 +25,9 @@ COPY . .
 # Build binary with static linking.
 #
 # The app name is derived from go.mod's module path and injected into
-# main.appName, which cmd/main.go uses as cobra's Use:/Short:. Without it the
-# binary falls back to the literal "servicepack" and introduces itself by the
-# framework's name in its own --help.
+# main.appName, which cmd/main.go uses as cobra's Use:/Short:. cmd/init.go
+# already replaces the framework's default name, so this only keeps the built
+# image and a from-source build reporting the same name through the same path.
 RUN APP_NAME="$(head -n 1 go.mod | awk '{print $2}' | awk -F'/' '{print $NF}')" && \
 	if [ "$PEEN_ENABLE_COVERAGE" = "true" ]; then \
 		CGO_ENABLED=0 go build -a -cover \
@@ -56,6 +56,12 @@ FROM ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a
 # Runtime tooling the agent's shell is expected to have. ca-certificates is
 # required for outbound HTTPS; the rest are the utilities an agent reaches for
 # first. Trim this list if a deployment wants a smaller blast radius.
+#
+# sudo is installed but authorizes nobody. The image ships no sudoers rule, so
+# it stays inert until a worker container that the controller started under an
+# execution profile marked allowPrivilegeEscalation writes one for that worker's
+# own account. util-linux supplies setpriv, which is how that bootstrap drops
+# back to a non-root account before the agent runs.
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -64,9 +70,11 @@ RUN apt-get update && \
         jq \
         less \
         ripgrep \
+        sudo \
         tini \
         tzdata \
-        unzip && \
+        unzip \
+        util-linux && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -81,11 +89,34 @@ WORKDIR /app
 # Copy binary from builder stage with explicit ownership
 COPY --from=builder --chown=appuser:appuser /app/build/app .
 
+# The entrypoint is a no-op for the non-root control plane. Every Docker worker
+# starts as root only long enough to reconcile the controller host account and
+# drop to it. A profile that permits escalation additionally grants that account
+# sudo. See docker/entrypoint.sh.
+COPY --chown=root:root --chmod=0755 docker/entrypoint.sh /usr/local/bin/peen-entrypoint
+
 # Switch to non-root user
 USER appuser
 
 # tini reaps the processes run_command spawns and forwards signals to the app.
-ENTRYPOINT ["/usr/bin/tini", "--", "./app"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/peen-entrypoint", "./app"]
 
-# Default command if no args provided
-CMD ["--help"]
+# The image is one binary with two roles, and its default is the control plane:
+# `docker run psyb0t/peen` starts a controller.
+#
+# The same image is also the worker image. The controller creates a container
+# from it with the `worker` command and hands that worker its launch document on
+# stdin, so a worker is this same ENTRYPOINT under a different command, never a
+# second control plane.
+#
+# A controller in this image always starts native workers inside itself. It can
+# only start sibling worker containers when a Docker socket is mounted; a Docker
+# execution profile without one is refused outright rather than run natively.
+CMD ["run"]
+
+# No HEALTHCHECK on purpose. Only the control-plane role listens on HTTP; a
+# worker container built from this same image serves the private controller
+# socket and would report permanently unhealthy against any HTTP probe. Readiness
+# therefore belongs to whatever starts the controller, which knows it is starting
+# a controller and knows the PEEN_HTTP_LISTEN_ADDRESS it chose. See
+# docs/deployment.md for the probe to configure there.

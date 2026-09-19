@@ -144,7 +144,7 @@ func TestServerSessionAgentRunEndpoints(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			instance, err := New(Dependencies{Runtime: tc.runtime})
+			instance, err := newTestServer(Dependencies{Runtime: tc.runtime})
 			require.NoError(t, err)
 
 			request := httptest.NewRequestWithContext(t.Context(), tc.method, tc.path, nil)
@@ -188,7 +188,7 @@ func TestServerSessionAgentRunEndpointsRequireTheBearerToken(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			instance, err := New(Dependencies{
+			instance, err := newTestServer(Dependencies{
 				Runtime:  &testRuntime{sessionID: sessionID},
 				APIToken: testBearerToken,
 			})
@@ -207,7 +207,7 @@ func TestServerSessionAgentRunEndpointsRequireTheBearerToken(t *testing.T) {
 }
 
 func TestServerSessionAgentRunEndpointsRejectMissingSessionHeader(t *testing.T) {
-	instance, err := New(Dependencies{Runtime: &testRuntime{}})
+	instance, err := newTestServer(Dependencies{Runtime: &testRuntime{}})
 	require.NoError(t, err)
 
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, agentRunsPath(), nil)

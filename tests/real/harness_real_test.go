@@ -34,48 +34,87 @@ import (
 )
 
 const (
-	realHarnessTestTimeout        = 8 * time.Minute
-	realHarnessStartupTimeout     = 30 * time.Second
-	realHarnessShutdownTimeout    = 15 * time.Second
-	realHarnessPollInterval       = 50 * time.Millisecond
-	realHarnessDirectoryMode      = 0o700
-	realHarnessFileMode           = 0o600
-	realHarnessBinaryName         = "peen-real-harness"
-	realHarnessCommandPackage     = "./cmd"
-	realHarnessRunCommand         = "run"
-	realHarnessNetwork            = "tcp"
-	realHarnessLoopback           = "127.0.0.1:0"
-	realHarnessAPIPath            = "/v1"
-	realHarnessMessagesPath       = realHarnessAPIPath + "/messages"
-	realHarnessWebSocketPath      = realHarnessAPIPath + "/ws"
-	realHarnessSessionPath        = realHarnessAPIPath + "/session"
-	realHarnessEventsPath         = realHarnessSessionPath + "/events"
-	realHarnessAgentRunsPath      = realHarnessSessionPath + "/agents"
-	realHarnessJobsPath           = realHarnessSessionPath + "/jobs"
-	realHarnessReadyPath          = "/ready"
-	realHarnessAuthorization      = "Authorization"
-	realHarnessSessionIDHeader    = "X-Session-ID"
-	realHarnessContentType        = "Content-Type"
-	realHarnessBearerPrefix       = "Bearer "
-	realHarnessJSONMediaType      = "application/json"
-	realHarnessWebSocketSessionID = "sessionId"
-	realHarnessWebSocketProtocol  = "peen.v1"
-	realHarnessWebSocketBearer    = "peen.bearer."
-	realHarnessMessageSendEvent   = "message.send"
-	realHarnessMessageCompleted   = "message.completed"
-	realHarnessMessageFailed      = "message.failed"
-	realHarnessRootAgent          = "default"
-	realHarnessSkill              = "fixture-service"
-	realHarnessReviewer           = "fixture-reviewer"
-	realHarnessPatchEvent         = "fixture.patch.applied"
-	realHarnessWakeEvent          = "fixture.wake"
-	realHarnessFixtureTestCommand = "go test ./..."
-	realHarnessPatchOnlyReason    = "Fixture changes must use apply_patch."
-	realHarnessCommandOnlyReason  = "Only the fixture test command is allowed."
-	realHarnessHookHelperEnv      = "PEEN_REAL_HOOK_HELPER"
-	realHarnessHookHelperEnabled  = "enabled"
-	realHarnessReadMarker         = "read-observed"
-	realHarnessTaskMessage        = `This is an execution task with mandatory tool-call acceptance criteria, not a request for advice. Do not return a final answer until all criteria below have completed successfully. In this exact order: (1) call use_skill with fixture-service; (2) call launch_agent with fixture-reviewer, asking it to inspect internal/status/status.go and internal/status/status_test.go without changes; (3) after the child returns, call read_file yourself for each of those two paths; (4) call apply_patch, and only apply_patch, to make Label return "ready" and make the test expect "ready"; (5) call run_command with exactly "go test ./..." from this workspace. Do not alter any other path.`
+	realHarnessTestTimeout = 20 * time.Minute
+
+	// realHarnessIdleTimeout bounds the gap between two live events rather than
+	// the whole turn. A real model doing a hundred tool rounds is slow but not
+	// stuck, and an absolute deadline cannot tell those apart. Silence for this
+	// long is the actual failure.
+	realHarnessIdleTimeout     = 4 * time.Minute
+	realHarnessStartupTimeout  = 30 * time.Second
+	realHarnessShutdownTimeout = 15 * time.Second
+	realHarnessPollInterval    = 50 * time.Millisecond
+	realHarnessPageLimit       = 200
+
+	realHarnessSocketDirectoryName = "pw"
+	realHarnessWorkerSocketName    = "worker.sock"
+	realHarnessMaxSocketPathBytes  = 107
+
+	// realHarnessLifecycleTurns is the turn count before the wake event. One
+	// user message is one turn: the child agent the task launches runs inside
+	// it and must not open a turn of its own.
+	realHarnessLifecycleTurns = 1
+
+	// realHarnessMaxEvents bounds the durable event walk. It is a runaway
+	// guard, not a limit on what a turn may emit.
+	realHarnessMaxEvents        = 100000
+	realHarnessDirectoryMode    = 0o700
+	realHarnessFileMode         = 0o600
+	realHarnessBinaryName       = "peen-real-harness"
+	realHarnessCommandPackage   = "./cmd"
+	realHarnessRunCommand       = "run"
+	realHarnessNetwork          = "tcp"
+	realHarnessLoopback         = "127.0.0.1:0"
+	realHarnessAPIPath          = "/v1"
+	realHarnessMessagesPath     = realHarnessAPIPath + "/messages"
+	realHarnessWebSocketPath    = realHarnessAPIPath + "/ws"
+	realHarnessSessionPath      = realHarnessAPIPath + "/session"
+	realHarnessEventsPath       = realHarnessSessionPath + "/events"
+	realHarnessNoticesPath      = realHarnessSessionPath + "/notices"
+	realHarnessWorkersPath      = realHarnessSessionPath + "/workers"
+	realHarnessMessagesListPath = realHarnessSessionPath + "/messages"
+	realHarnessAgentRunsPath    = realHarnessSessionPath + "/agents"
+	realHarnessJobsPath         = realHarnessSessionPath + "/jobs"
+	realHarnessTurnsPath        = realHarnessSessionPath + "/turns"
+	realHarnessModelRunsPath    = realHarnessSessionPath + "/model-runs"
+
+	realHarnessContextSnapshotsPath = realHarnessSessionPath + "/context-snapshots"
+	realHarnessPromptSnapshotsPath  = realHarnessSessionPath + "/prompt-snapshots"
+	realHarnessReadyPath            = "/ready"
+	realHarnessAuthorization        = "Authorization"
+	realHarnessSessionIDHeader      = "X-Session-ID"
+	realHarnessContentType          = "Content-Type"
+	realHarnessBearerPrefix         = "Bearer "
+	realHarnessJSONMediaType        = "application/json"
+	realHarnessWebSocketSessionID   = "sessionId"
+	realHarnessWebSocketProtocol    = "peen.v1"
+	realHarnessWebSocketBearer      = "peen.bearer."
+	realHarnessMessageSendEvent     = "message.send"
+	realHarnessMessageCompleted     = "message.completed"
+	realHarnessMessageFailed        = "message.failed"
+	realHarnessRootAgent            = "default"
+	realHarnessSkill                = "fixture-service"
+	realHarnessReviewer             = "fixture-reviewer"
+	realHarnessPatchEvent           = "fixture.patch.applied"
+	realHarnessWakeEvent            = "fixture.wake"
+	realHarnessFixtureTestCommand   = "go test ./..."
+
+	// realHarnessLongCommand is the only other command the fixture allows. A
+	// job has to still be running for the signal endpoints to have anything to
+	// act on, and the fixture's test command finishes too fast for that.
+	realHarnessLongCommand = "sleep 300"
+
+	realHarnessNotesFileName = "NOTES.md"
+
+	// realHarnessNotesLineCount makes that file big enough that one read fills
+	// a tool result at the deployment's result cap.
+	realHarnessNotesLineCount    = 1500
+	realHarnessPatchOnlyReason   = "Fixture changes must use apply_patch."
+	realHarnessCommandOnlyReason = "Only the fixture test command is allowed."
+	realHarnessHookHelperEnv     = "PEEN_REAL_HOOK_HELPER"
+	realHarnessHookHelperEnabled = "enabled"
+	realHarnessReadMarker        = "read-observed"
+	realHarnessTaskMessage       = `This is an execution task with mandatory tool-call acceptance criteria, not a request for advice. Do not return a final answer until all criteria below have completed successfully. In this exact order: (1) call use_skill with fixture-service; (2) call launch_agent with fixture-reviewer, asking it to inspect internal/status/status.go and internal/status/status_test.go without changes; (3) after the child returns, call read_file yourself for each of those two paths; (4) call apply_patch, and only apply_patch, to make Label return "ready" and make the test expect "ready"; (5) call run_command with exactly "go test ./..." from this workspace. Do not alter any other path.`
 
 	realHarnessConfigRuleMarker    = "REAL_HARNESS_CONFIG_RULE_MARKER"
 	realHarnessWorkspaceRuleMarker = "REAL_HARNESS_WORKSPACE_RULE_MARKER"
@@ -95,11 +134,33 @@ const (
 
 type realHarnessFixture struct {
 	configDirectory string
-	workspace       string
-	service         string
-	implementation  string
-	testFile        string
-	auditDirectory  string
+
+	// stateDirectory is the controller's own durable state. It is a sibling of
+	// the configuration directory, never a child, because Peen refuses a state
+	// directory that sits inside the one every worker receives read-only.
+	stateDirectory string
+
+	// socketDirectory keeps the worker socket path inside the 107-byte Unix
+	// socket limit. t.TempDir() embeds the test name, which alone pushes the
+	// default state/workers root past it.
+	socketDirectory string
+
+	// workspaceRootsJSON pins the directories a client may open. Without it the
+	// controller would inherit the operator's PEEN_WORKSPACE_ROOTS from the
+	// deployment .env this suite reads providers from, and refuse the fixture.
+	workspaceRootsJSON string
+
+	workspace      string
+	service        string
+	implementation string
+	testFile       string
+
+	// notesFile is large on purpose. One read of it fills a tool result, which
+	// is how the compaction test crosses a context budget that a turn reading
+	// the small fixture sources never would.
+	notesFile string
+
+	auditDirectory string
 }
 
 type runningRealHarnessPeen struct {
@@ -188,18 +249,72 @@ func TestRealHarnessExecutesTheFullCodingLifecycle(t *testing.T) {
 	process := startRealHarnessPeen(t, binary, fixture, string(encodedUpstreams), configured.DefaultModel)
 	t.Cleanup(func() { process.stop(t) })
 
-	sessionID := sendRealHarnessMessage(t, process)
+	// The session opens on the service directory, not the fixture root. The
+	// task names paths relative to it, and the deepest AGENTS.md layer only
+	// resolves for a session rooted there.
+	sessionID := openRealHarnessSession(t, process, fixture.service)
+	require.Equal(t, sessionID, sendRealHarnessMessage(t, process, sessionID))
+
 	messages := listRealHarnessMessages(t, process.baseURL, process.apiToken, sessionID)
 	t.Logf("real harness tool calls: %v", realHarnessToolCallNames(messages))
 	assertRealHarnessTranscriptMessages(t, messages)
 	assertRealHarnessTranscript(t, process.baseURL, process.apiToken, sessionID)
 	assertRealHarnessAgentRun(t, process.baseURL, process.apiToken, sessionID)
 	assertRealHarnessJob(t, process.baseURL, process.apiToken, sessionID, fixture.service)
-	assertRealHarnessQueuedEvent(t, process.baseURL, process.apiToken, sessionID)
+	assertRealHarnessInjectedEventDelivered(t, process.baseURL, process.apiToken, sessionID)
 	assertRealHarnessFiles(t, fixture)
+
+	generationID := assertRealHarnessWorkerGeneration(
+		t,
+		process.baseURL,
+		process.apiToken,
+		sessionID,
+		fixture.service,
+	)
+	turnIDs := assertRealHarnessDurableTurns(
+		t,
+		process.baseURL,
+		process.apiToken,
+		sessionID,
+		fixture.service,
+		realHarnessLifecycleTurns,
+	)
+	assertRealHarnessDurableEvents(
+		t,
+		process.baseURL,
+		process.apiToken,
+		sessionID,
+		turnIDs,
+		generationID,
+	)
+	assertRealHarnessModelRuns(
+		t,
+		process.baseURL,
+		process.apiToken,
+		sessionID,
+		turnIDs,
+		modelID,
+	)
+	assertRealHarnessTurnSnapshots(
+		t,
+		process.baseURL,
+		process.apiToken,
+		sessionID,
+		fixture.service,
+	)
 
 	publishRealHarnessWakeEvent(t, process.baseURL, process.apiToken, sessionID)
 	waitForRealHarnessWake(t, process.baseURL, process.apiToken, sessionID)
+
+	// The wake turn runs in the same generation. A controller that restarted
+	// the worker between the two turns would show a second row here.
+	assert.Equal(t, generationID, assertRealHarnessWorkerGeneration(
+		t,
+		process.baseURL,
+		process.apiToken,
+		sessionID,
+		fixture.service,
+	))
 
 	assertRealHarnessProviderContext(t, proxy, fixture.service)
 	assertRealHarnessAuditLog(t, fixture.auditDirectory)
@@ -281,7 +396,7 @@ func TestRealHarnessHookHelper(_ *testing.T) {
 			os.Exit(1)
 		}
 
-		if input.Command != realHarnessFixtureTestCommand {
+		if !realHarnessCommandAllowed(input.Command) {
 			if _, err := fmt.Fprintf(
 				os.Stdout,
 				`{"decision":"deny","reason":%q}`,
@@ -300,16 +415,40 @@ func TestRealHarnessHookHelper(_ *testing.T) {
 	}
 }
 
+// realHarnessNotesDocument builds a file large enough that reading it fills a
+// tool result, which is what pushes a session over a context budget.
+func realHarnessNotesDocument() string {
+	lines := make([]string, 0, realHarnessNotesLineCount)
+	for index := range realHarnessNotesLineCount {
+		lines = append(lines, fmt.Sprintf(
+			"- note %04d: the fixture service records status label history.",
+			index,
+		))
+	}
+
+	return "# Status notes\n\n" + strings.Join(lines, "\n") + "\n"
+}
+
+// realHarnessCommandAllowed is the fixture's command policy, enforced by the
+// pre_tool_use hook. Everything outside this set is denied, which is what the
+// lifecycle test checks when it asserts a refused command.
+func realHarnessCommandAllowed(command string) bool {
+	return command == realHarnessFixtureTestCommand ||
+		command == realHarnessLongCommand
+}
+
 func newRealHarnessFixture(t *testing.T) realHarnessFixture {
 	t.Helper()
 
-	root := t.TempDir()
+	root := newRealHarnessRoot(t)
 	configDirectory := filepath.Join(root, "config")
+	stateDirectory := filepath.Join(root, "state")
 	workspace := filepath.Join(root, "workspace")
 	service := filepath.Join(workspace, "projects", "catalog", "service")
 	auditDirectory := filepath.Join(root, "audit")
 	implementation := filepath.Join(service, "internal", "status", "status.go")
 	testFile := filepath.Join(service, "internal", "status", "status_test.go")
+	notesFile := filepath.Join(service, realHarnessNotesFileName)
 
 	writeRealHarnessFile(t, filepath.Join(configDirectory, "AGENTS.md"), realHarnessConfigRuleMarker+"\n")
 	writeRealHarnessFile(t, filepath.Join(workspace, "AGENTS.md"), realHarnessWorkspaceRuleMarker+"\n")
@@ -376,18 +515,78 @@ func newRealHarnessFixture(t *testing.T) realHarnessFixture {
 		realHarnessServiceHooksDocument(),
 	)
 
+	writeRealHarnessFile(t, notesFile, realHarnessNotesDocument())
 	writeRealHarnessFile(t, filepath.Join(service, "go.mod"), "module fixture.local/service\n\ngo 1.26.6\n")
 	writeRealHarnessFile(t, implementation, "package status\n\nfunc Label() string {\n\treturn \"pending\"\n}\n")
 	writeRealHarnessFile(t, testFile, "package status\n\nimport \"testing\"\n\nfunc TestLabel(t *testing.T) {\n\tif got := Label(); got != \"pending\" {\n\t\tt.Fatalf(\"Label() = %q, want pending\", got)\n\t}\n}\n")
 
+	require.NoError(t, os.MkdirAll(stateDirectory, realHarnessDirectoryMode))
+
+	// Not under root: t.TempDir() embeds the test name, which alone pushes the
+	// worker socket path past its 107 byte limit.
+	socketDirectory, err := os.MkdirTemp("", realHarnessSocketDirectoryName)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(socketDirectory)) })
+	assertRealHarnessSocketBudget(t, socketDirectory)
+
+	workspaceRoots, err := json.Marshal([]string{workspace})
+	require.NoError(t, err)
+
 	return realHarnessFixture{
-		configDirectory: configDirectory,
-		workspace:       workspace,
-		service:         service,
-		implementation:  implementation,
-		testFile:        testFile,
-		auditDirectory:  auditDirectory,
+		configDirectory:    configDirectory,
+		stateDirectory:     stateDirectory,
+		socketDirectory:    socketDirectory,
+		workspaceRootsJSON: string(workspaceRoots),
+		workspace:          workspace,
+		service:            service,
+		implementation:     implementation,
+		testFile:           testFile,
+		notesFile:          notesFile,
+		auditDirectory:     auditDirectory,
 	}
+}
+
+// newRealHarnessRoot creates this test's disposable root outside the
+// repository.
+//
+// The root must not sit under the repository. The harness resolver treats every
+// ancestor of a workspace as a context layer, so a fixture inside the checkout
+// inherits Peen's own .agents/ tree and fails to resolve before any turn runs.
+//
+// That rules out the repository-relative .testing/ root the Docker worker test
+// uses to keep bind sources identical on the host. This suite mounts no Docker
+// socket and launches no sibling container, so none of these directories is
+// ever a bind source and the host does not need to see them. Giving this suite
+// a Docker execution profile would have to solve both constraints at once.
+func newRealHarnessRoot(t *testing.T) string {
+	t.Helper()
+
+	return t.TempDir()
+}
+
+// assertRealHarnessSocketBudget fails before the controller starts when the
+// worker socket path would not fit.
+//
+// A Unix socket path is limited to 107 bytes. The controller adds one
+// session-UUID directory and the socket file name under this root, and a
+// deployment that overruns the limit otherwise fails deep inside worker start
+// with an error that does not name the path as the cause.
+func assertRealHarnessSocketBudget(t *testing.T, socketDirectory string) {
+	t.Helper()
+
+	longest := filepath.Join(
+		socketDirectory,
+		uuid.NewString(),
+		realHarnessWorkerSocketName,
+	)
+	require.LessOrEqualf(
+		t,
+		len(longest),
+		realHarnessMaxSocketPathBytes,
+		"worker socket path %q needs %d bytes",
+		longest,
+		len(longest),
+	)
 }
 
 func writeRealHarnessSkill(t *testing.T, directory, name string) {
@@ -511,6 +710,31 @@ func startRealHarnessPeen(
 ) *runningRealHarnessPeen {
 	t.Helper()
 
+	return startRealHarnessPeenWith(
+		t,
+		binary,
+		fixture,
+		upstreams,
+		defaultModel,
+		nil,
+	)
+}
+
+// startRealHarnessPeenWith starts a controller with extra configuration.
+//
+// The overrides are applied after the fixture's own settings, so a test that
+// needs a second execution profile or a smaller context budget can ask for one
+// without every other test inheriting it.
+func startRealHarnessPeenWith(
+	t *testing.T,
+	binary string,
+	fixture realHarnessFixture,
+	upstreams string,
+	defaultModel string,
+	overrides map[string]string,
+) *runningRealHarnessPeen {
+	t.Helper()
+
 	apiAddress := reserveRealHarnessAddress(t)
 	metricsAddress := reserveRealHarnessAddress(t)
 	apiToken := uuid.NewString()
@@ -528,6 +752,7 @@ func startRealHarnessPeen(
 		apiToken,
 		upstreams,
 		defaultModel,
+		overrides,
 	)
 	process.command.Stdout = &process.output
 	process.command.Stderr = &process.output
@@ -545,6 +770,7 @@ func startRealHarnessPeen(
 func realHarnessEnvironment(
 	fixture realHarnessFixture,
 	apiAddress, metricsAddress, apiToken, upstreams, defaultModel string,
+	overrides map[string]string,
 ) []string {
 	environment := make(map[string]string, len(os.Environ())+16)
 	for _, value := range os.Environ() {
@@ -554,20 +780,38 @@ func realHarnessEnvironment(
 		}
 	}
 
+	// Every directory and worker setting is pinned to the fixture rather than
+	// inherited. The deployment .env this suite reads providers from also
+	// carries the operator's own roots, profiles, image, and Docker socket, and
+	// any one of them reaching the spawned controller would test their
+	// deployment instead of this fixture.
 	for name, value := range map[string]string{
-		"PEEN_CONFIG_DIR":             fixture.configDirectory,
-		"PEEN_AGENT":                  realHarnessRootAgent,
-		"PEEN_HTTP_LISTEN_ADDRESS":    apiAddress,
-		"PEEN_METRICS_LISTEN_ADDRESS": metricsAddress,
-		"PEEN_UPSTREAMS":              upstreams,
-		"PEEN_DEFAULT_MODEL":          defaultModel,
-		"PEEN_API_TOKEN":              apiToken,
-		"PEEN_ENABLE_WORKSPACE_HOOKS": "true",
-		"PEEN_TURN_TIMEOUT":           realHarnessTestTimeout.String(),
-		"PEEN_LOG_DIRECTORY":          fixture.auditDirectory,
-		"PEEN_LOG_RETENTION_DAYS":     "14",
-		"LOG_LEVEL":                   "debug",
+		"PEEN_CONFIG_DIR":                fixture.configDirectory,
+		"PEEN_STATE_DIR":                 fixture.stateDirectory,
+		"PEEN_WORKER_SOCKET_DIR":         fixture.socketDirectory,
+		"PEEN_WORKSPACE_ROOTS":           fixture.workspaceRootsJSON,
+		"PEEN_EXECUTION_PROFILES":        "",
+		"PEEN_DEFAULT_EXECUTION_PROFILE": "",
+		"PEEN_WORKER_IMAGE":              "",
+		"PEEN_DOCKER_SOCKET":             "",
+		"PEEN_HOST_USERNAME":             "",
+		"PEEN_HOST_HOME":                 "",
+		"PEEN_AGENT":                     realHarnessRootAgent,
+		"PEEN_HTTP_LISTEN_ADDRESS":       apiAddress,
+		"PEEN_METRICS_LISTEN_ADDRESS":    metricsAddress,
+		"PEEN_UPSTREAMS":                 upstreams,
+		"PEEN_DEFAULT_MODEL":             defaultModel,
+		"PEEN_API_TOKEN":                 apiToken,
+		"PEEN_ENABLE_WORKSPACE_HOOKS":    "true",
+		"PEEN_TURN_TIMEOUT":              realHarnessTestTimeout.String(),
+		"PEEN_LOG_DIRECTORY":             fixture.auditDirectory,
+		"PEEN_LOG_RETENTION_DAYS":        "14",
+		"LOG_LEVEL":                      "debug",
 	} {
+		environment[name] = name + "=" + value
+	}
+
+	for name, value := range overrides {
 		environment[name] = name + "=" + value
 	}
 
@@ -649,19 +893,87 @@ func reserveRealHarnessAddress(t *testing.T) string {
 func sendRealHarnessMessage(
 	t *testing.T,
 	process *runningRealHarnessPeen,
+	sessionID uuid.UUID,
 ) uuid.UUID {
 	t.Helper()
 
 	connection := dialRealHarnessWebSocket(t, process)
 	t.Cleanup(func() { require.NoError(t, connection.Close()) })
-	require.NoError(t, connection.WriteJSON(dabluveees.NewEvent(
-		realHarnessMessageSendEvent,
-		realHarnessWebSocketMessage{
-			Message: realHarnessTaskMessage,
-		},
-	)))
 
-	return awaitRealHarnessWebSocketCompletion(t, process, connection)
+	sent := writeRealHarnessMessage(t, connection, sessionID, realHarnessTaskMessage)
+
+	return awaitRealHarnessWebSocketCompletion(t, process, connection, sent)
+}
+
+// writeRealHarnessMessage sends one message.send frame for a named session.
+//
+// The control plane routes on the session in the frame metadata, never on the
+// connection, so a client names the session it wants on every message.
+//
+// It returns the sent frame's ID. The controller echoes that ID as the
+// triggeredBy of the completion it broadcasts, and because every client on a
+// session receives every completion, that ID is the only way a caller can tell
+// its own answer from another client's.
+func writeRealHarnessMessage(
+	t *testing.T,
+	connection *websocket.Conn,
+	sessionID uuid.UUID,
+	message string,
+) uuid.UUID {
+	t.Helper()
+
+	event := dabluveees.NewEvent(
+		realHarnessMessageSendEvent,
+		realHarnessWebSocketMessage{Message: message},
+	).SetMetadata(realHarnessWebSocketSessionID, sessionID.String())
+	require.NoError(t, connection.WriteJSON(event))
+
+	return event.ID
+}
+
+// openRealHarnessSession resolves the fixture workspace to its durable session.
+//
+// A controller starts with no sessions, so this is where every turn in this
+// suite begins. Opening the same workspace again resumes the same session.
+func openRealHarnessSession(
+	t *testing.T,
+	process *runningRealHarnessPeen,
+	workspace string,
+) uuid.UUID {
+	t.Helper()
+
+	payload, err := json.Marshal(api.OpenSessionRequest{Workspace: workspace})
+	require.NoError(t, err)
+
+	request, err := http.NewRequest(
+		http.MethodPost,
+		process.baseURL+realHarnessAPIPath+"/sessions/open",
+		bytes.NewReader(payload),
+	)
+	require.NoError(t, err)
+	request.Header.Set(realHarnessContentType, realHarnessJSONMediaType)
+	request.Header.Set(
+		realHarnessAuthorization,
+		realHarnessBearerPrefix+process.apiToken,
+	)
+
+	response, err := http.DefaultClient.Do(request)
+	require.NoError(t, err)
+
+	defer func() { require.NoError(t, response.Body.Close()) }()
+	require.Equalf(
+		t,
+		http.StatusOK,
+		response.StatusCode,
+		"Peen output:\n%s",
+		process.output.String(),
+	)
+
+	opened := api.OpenedSession{}
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&opened))
+	require.Equal(t, workspace, opened.Session.Workspace)
+
+	return opened.Session.Id
 }
 
 func dialRealHarnessWebSocket(
@@ -694,39 +1006,51 @@ func dialRealHarnessWebSocket(
 	return connection
 }
 
+// awaitRealHarnessWebSocketCompletion reads until the completion that answers
+// sent, and fails if that completion says the message was queued rather than
+// run as its own turn.
 func awaitRealHarnessWebSocketCompletion(
 	t *testing.T,
 	process *runningRealHarnessPeen,
 	connection *websocket.Conn,
+	sent uuid.UUID,
 ) uuid.UUID {
 	t.Helper()
 
-	require.NoError(t, connection.SetReadDeadline(
-		time.Now().Add(realHarnessTestTimeout),
-	))
+	sessionID, queued := awaitRealHarnessWebSocketResult(
+		t,
+		process,
+		connection,
+		sent,
+	)
+	require.False(t, queued)
+
+	return sessionID
+}
+
+// awaitRealHarnessWebSocketResult reads frames until the completion triggered
+// by sent arrives, and reports the session it names and whether the controller
+// queued the message behind an active turn.
+func awaitRealHarnessWebSocketResult(
+	t *testing.T,
+	process *runningRealHarnessPeen,
+	connection *websocket.Conn,
+	sent uuid.UUID,
+) (uuid.UUID, bool) {
+	t.Helper()
+
 	for {
-		event := dabluveees.Event{}
-		require.NoErrorf(
-			t,
-			connection.ReadJSON(&event),
-			"Peen output:\n%s",
-			process.output.String(),
-		)
+		event := readRealHarnessWebSocketEvent(t, process, connection)
+		if event.TriggeredBy == nil || *event.TriggeredBy != sent {
+			continue
+		}
 
 		switch event.Type {
 		case realHarnessMessageCompleted:
 			result := realHarnessWebSocketMessageResult{}
 			require.NoError(t, json.Unmarshal(event.Data, &result))
-			require.False(t, result.Queued)
-			require.NotNil(t, event.Metadata)
-			sessionValue, found := event.Metadata.Get(realHarnessWebSocketSessionID)
-			require.True(t, found)
-			sessionText, ok := sessionValue.(string)
-			require.True(t, ok)
-			sessionID, parseErr := uuid.Parse(sessionText)
-			require.NoError(t, parseErr)
 
-			return sessionID
+			return realHarnessEventSession(t, event), result.Queued
 		case realHarnessMessageFailed:
 			require.Failf(
 				t,
@@ -739,6 +1063,50 @@ func awaitRealHarnessWebSocketCompletion(
 	}
 }
 
+// readRealHarnessWebSocketEvent reads one live frame under an idle deadline.
+func readRealHarnessWebSocketEvent(
+	t *testing.T,
+	process *runningRealHarnessPeen,
+	connection *websocket.Conn,
+) dabluveees.Event {
+	t.Helper()
+
+	// Renewed per frame. A turn that keeps emitting live events is slow,
+	// not stuck, and one absolute deadline cannot tell those apart.
+	require.NoError(t, connection.SetReadDeadline(
+		time.Now().Add(realHarnessIdleTimeout),
+	))
+
+	event := dabluveees.Event{}
+	require.NoErrorf(
+		t,
+		connection.ReadJSON(&event),
+		"Peen output:\n%s",
+		process.output.String(),
+	)
+
+	return event
+}
+
+// realHarnessEventSession reads the session every live frame must name, so a
+// client with many session tabs can route the frame it just received.
+func realHarnessEventSession(
+	t *testing.T,
+	event dabluveees.Event,
+) uuid.UUID {
+	t.Helper()
+
+	require.NotNil(t, event.Metadata)
+	value, found := event.Metadata.Get(realHarnessWebSocketSessionID)
+	require.True(t, found)
+	text, isText := value.(string)
+	require.True(t, isText)
+	sessionID, err := uuid.Parse(text)
+	require.NoError(t, err)
+
+	return sessionID
+}
+
 func assertRealHarnessFiles(t *testing.T, fixture realHarnessFixture) {
 	t.Helper()
 
@@ -746,10 +1114,14 @@ func assertRealHarnessFiles(t *testing.T, fixture realHarnessFixture) {
 	require.NoError(t, err)
 	assert.Contains(t, string(implementation), "return \"ready\"")
 
+	// The assertion is the comparison the test makes, not the wording of its
+	// failure message. A model that updates the comparison and leaves the
+	// message reading "want pending" has still made the change the task asked
+	// for, and the fixture test passes either way.
 	testContent, err := os.ReadFile(fixture.testFile)
 	require.NoError(t, err)
-	assert.Contains(t, string(testContent), "want ready")
 	assert.Contains(t, string(testContent), "!= \"ready\"")
+	assert.NotContains(t, string(testContent), "!= \"pending\"")
 }
 
 func assertRealHarnessTranscript(
@@ -899,14 +1271,320 @@ func assertRealHarnessJob(
 	for _, job := range page.Jobs {
 		assert.Equal(t, realHarnessFixtureTestCommand, job.Command)
 		assert.Equal(t, service, job.Directory)
-		assert.Equal(t, int32(0), job.ExitCode)
+		assert.Equal(t, int64(0), job.ExitCode)
 		found = true
 	}
 
 	assert.True(t, found)
 }
 
-func assertRealHarnessQueuedEvent(
+// assertRealHarnessWorkerGeneration checks the durable record of the process
+// that actually ran the turn, and returns its identifier.
+//
+// A native profile keeps the worker in a child process of the controller, so
+// the generation must carry neither a container nor an image digest. Those
+// belong to a Docker generation and their presence here would mean the
+// controller launched something other than what the profile asked for.
+func assertRealHarnessWorkerGeneration(
+	t *testing.T,
+	baseURL, apiToken string,
+	sessionID uuid.UUID,
+	workspace string,
+) string {
+	t.Helper()
+
+	page := getRealHarnessJSON[api.WorkerGenerationPage](
+		t,
+		baseURL+realHarnessWorkersPath+"?limit=50",
+		apiToken,
+		sessionID,
+	)
+	require.Len(t, page.Items, 1)
+
+	generation := page.Items[0]
+	assert.Equal(t, sessionID, generation.SessionId)
+	assert.Equal(t, workspace, generation.Workspace)
+	assert.Equal(t, api.WorkerGenerationKindNative, generation.Kind)
+	assert.Equal(t, api.WorkerGenerationStateReady, generation.State)
+	assert.Nil(t, generation.ContainerId)
+	assert.Nil(t, generation.ImageDigest)
+	assert.Nil(t, generation.FailureDetail)
+	assert.Nil(t, generation.EndedAt)
+	require.NotNil(t, generation.StartedAt)
+
+	return generation.Id.String()
+}
+
+// assertRealHarnessDurableTurns checks the turn rows the session produced and
+// returns their identifiers, so callers can check that every other durable
+// record points back at a turn that really exists.
+func assertRealHarnessDurableTurns(
+	t *testing.T,
+	baseURL, apiToken string,
+	sessionID uuid.UUID,
+	workspace string,
+	wantCount int,
+) map[uuid.UUID]struct{} {
+	t.Helper()
+
+	page := getRealHarnessJSON[api.TurnPage](
+		t,
+		baseURL+realHarnessTurnsPath+"?limit=200",
+		apiToken,
+		sessionID,
+	)
+	require.Len(t, page.Turns, wantCount)
+
+	turnIDs := make(map[uuid.UUID]struct{}, len(page.Turns))
+	for _, turn := range page.Turns {
+		assert.Equal(t, sessionID, turn.SessionId)
+		assert.Equal(t, workspace, turn.Workspace)
+		assert.Equal(t, api.TurnStateCompleted, turn.State)
+		assert.False(t, turn.CancelRequested)
+		assert.Empty(t, turn.FailureClassification)
+		assert.NotEqual(t, uuid.Nil, turn.RequestId)
+		assert.NotNil(t, turn.CompletedAt)
+		turnIDs[turn.Id] = struct{}{}
+	}
+
+	return turnIDs
+}
+
+// assertRealHarnessTurnSnapshots follows a turn's context and prompt hashes to
+// the snapshots they name.
+//
+// The hashes are how a later reader reconstructs what the model was actually
+// given. A turn that stored a hash no snapshot resolves would read as complete
+// and still be impossible to audit.
+func assertRealHarnessTurnSnapshots(
+	t *testing.T,
+	baseURL, apiToken string,
+	sessionID uuid.UUID,
+	service string,
+) {
+	t.Helper()
+
+	page := getRealHarnessJSON[api.TurnPage](
+		t,
+		baseURL+realHarnessTurnsPath+"?limit=200",
+		apiToken,
+		sessionID,
+	)
+	require.NotEmpty(t, page.Turns)
+
+	turn := page.Turns[0]
+	require.NotNil(t, turn.ContextSnapshotHash)
+	require.NotNil(t, turn.PromptSnapshotHash)
+
+	context := getRealHarnessJSON[api.ContextSnapshot](
+		t,
+		baseURL+realHarnessContextSnapshotsPath+"/"+*turn.ContextSnapshotHash,
+		apiToken,
+		sessionID,
+	)
+	assert.Equal(t, *turn.ContextSnapshotHash, context.Hash)
+	assert.NotEmpty(t, context.Manifest)
+	assert.Contains(t, context.ResolvedContent, realHarnessServiceRuleMarker)
+
+	prompt := getRealHarnessJSON[api.PromptSnapshot](
+		t,
+		baseURL+realHarnessPromptSnapshotsPath+"/"+*turn.PromptSnapshotHash,
+		apiToken,
+		sessionID,
+	)
+	assert.Equal(t, *turn.PromptSnapshotHash, prompt.Hash)
+	assert.NotEmpty(t, prompt.EffectivePrompt)
+
+	// The workspace the turn ran in must be the one the fixture opened, and the
+	// prompt is where a wrong workspace would first show.
+	assert.Contains(t, prompt.EffectivePrompt+context.ResolvedContent, service)
+}
+
+// assertRealHarnessDurableEvents walks the whole durable event stream and
+// checks the identity every event must carry.
+//
+// The sequence check matters most: a client rebuilding a session from another
+// machine replays these in order, so a gap or a repeat is a corrupt transcript
+// rather than a cosmetic flaw.
+func assertRealHarnessDurableEvents(
+	t *testing.T,
+	baseURL, apiToken string,
+	sessionID uuid.UUID,
+	turnIDs map[uuid.UUID]struct{},
+	generationID string,
+) []api.TranscriptEvent {
+	t.Helper()
+
+	events := listRealHarnessEvents(t, baseURL, apiToken, sessionID)
+	require.NotEmpty(t, events)
+
+	previousSequence := int64(0)
+	for index, event := range events {
+		assert.Equalf(t, sessionID, event.SessionId, "event %d", index)
+		assert.NotEqual(t, uuid.Nil, event.Id)
+		assert.Greaterf(
+			t,
+			event.Sequence,
+			previousSequence,
+			"event %d type %q sequence must increase",
+			index,
+			event.Type,
+		)
+		previousSequence = event.Sequence
+
+		if event.TurnId != uuid.Nil {
+			assert.Containsf(
+				t,
+				turnIDs,
+				event.TurnId,
+				"event %d type %q names an unknown turn",
+				index,
+				event.Type,
+			)
+		}
+
+		if event.WorkerGenerationId != nil {
+			assert.Equalf(
+				t,
+				generationID,
+				*event.WorkerGenerationId,
+				"event %d type %q came from an unexpected generation",
+				index,
+				event.Type,
+			)
+		}
+	}
+
+	return events
+}
+
+// listRealHarnessEvents pages the durable event stream to its end.
+//
+// A real turn emits far more events than one page holds, and a check that read
+// only the first page would silently stop looking exactly where a long turn
+// gets interesting.
+func listRealHarnessEvents(
+	t *testing.T,
+	baseURL, apiToken string,
+	sessionID uuid.UUID,
+) []api.TranscriptEvent {
+	t.Helper()
+
+	events := make([]api.TranscriptEvent, 0, realHarnessPageLimit)
+	for offset := 0; offset < realHarnessMaxEvents; offset += realHarnessPageLimit {
+		page := getRealHarnessJSON[api.TranscriptEventPage](
+			t,
+			fmt.Sprintf(
+				"%s%s?order=asc&limit=%d&offset=%d",
+				baseURL,
+				realHarnessEventsPath,
+				realHarnessPageLimit,
+				offset,
+			),
+			apiToken,
+			sessionID,
+		)
+
+		events = append(events, page.Events...)
+		if !page.HasMore {
+			return events
+		}
+	}
+
+	require.Failf(t, "durable event stream did not end", "read %d events", len(events))
+
+	return nil
+}
+
+// assertRealHarnessModelRuns checks that the provider calls the turn made were
+// recorded with the model, usage, and per-round accounting the session needs to
+// report cost.
+func assertRealHarnessModelRuns(
+	t *testing.T,
+	baseURL, apiToken string,
+	sessionID uuid.UUID,
+	turnIDs map[uuid.UUID]struct{},
+	modelID string,
+) {
+	t.Helper()
+
+	page := getRealHarnessJSON[api.ModelRunPage](
+		t,
+		baseURL+realHarnessModelRunsPath+"?limit=200&stage=turn",
+		apiToken,
+		sessionID,
+	)
+	require.NotEmpty(t, page.ModelRuns)
+
+	for _, run := range page.ModelRuns {
+		assert.Equal(t, sessionID, run.SessionId)
+		assert.Equal(t, api.ModelRunStageTurn, run.Stage)
+		assert.Equal(t, api.ModelRunStateCompleted, run.State)
+		assert.Contains(t, turnIDs, run.TurnId)
+		assert.Equal(t, modelID, run.RequestedModelId)
+		assert.NotEmpty(t, run.ConnectionName)
+		assert.Empty(t, run.FailureClassification)
+		assert.NotEmpty(t, run.ResponseUsage)
+		assert.NotEmpty(t, run.ResponseMessages)
+	}
+
+	assertRealHarnessModelCalls(t, baseURL, apiToken, sessionID, page.ModelRuns[0])
+}
+
+// assertRealHarnessModelCalls checks the per-round provider records behind one
+// model run: rounds numbered from one with no gap, and real token accounting.
+func assertRealHarnessModelCalls(
+	t *testing.T,
+	baseURL, apiToken string,
+	sessionID uuid.UUID,
+	run api.ModelRun,
+) {
+	t.Helper()
+
+	page := getRealHarnessJSON[api.ModelCallPage](
+		t,
+		fmt.Sprintf(
+			"%s%s/%s/calls?limit=200",
+			baseURL,
+			realHarnessModelRunsPath,
+			run.Id.String(),
+		),
+		apiToken,
+		sessionID,
+	)
+	require.NotEmpty(t, page.Calls)
+
+	completionTokens := int64(0)
+
+	for index, call := range page.Calls {
+		assert.Equal(t, sessionID, call.SessionId)
+		assert.Equal(t, run.Id, call.ModelRunId)
+		// Rounds are zero-based and the page is ordered by round, so the index
+		// is the round a complete run must hold at that position.
+		assert.Equalf(t, int64(index), call.Round, "round at position %d", index)
+		assert.Equal(t, api.ModelCallStateCompleted, call.State)
+		assert.Positivef(t, call.PromptTokens, "round %d prompt tokens", call.Round)
+		assert.Positivef(t, call.TotalTokens, "round %d total tokens", call.Round)
+		assert.NotEmptyf(t, call.RequestMessages, "round %d request messages", call.Round)
+		assert.NotEmptyf(t, call.RequestTools, "round %d request tools", call.Round)
+		assert.NotNilf(t, call.ResponseMessage, "round %d response message", call.Round)
+
+		completionTokens += call.CompletionTokens
+	}
+
+	// Summed rather than per round, because a single round may legitimately
+	// report no completion tokens while a run that produced none did not
+	// record usage at all.
+	assert.Positive(t, completionTokens)
+}
+
+// assertRealHarnessInjectedEventDelivered checks that a hook-emitted event
+// reached the running turn's transcript.
+//
+// This is event injection, not user-message queueing. The two produce similar
+// looking transcript entries, and the queueing contract is checked against a
+// live turn in the session suite instead.
+func assertRealHarnessInjectedEventDelivered(
 	t *testing.T,
 	baseURL, apiToken string,
 	sessionID uuid.UUID,
@@ -930,8 +1608,8 @@ func publishRealHarnessWakeEvent(
 ) {
 	t.Helper()
 
-	delivery := api.SessionEventRequestDelivery("wake")
-	payload, err := json.Marshal(api.SessionEventRequest{
+	delivery := api.SessionNoticeRequestDelivery("wake")
+	payload, err := json.Marshal(api.SessionNoticeRequest{
 		Type:     realHarnessWakeEvent,
 		Summary:  "Review the completed fixture.",
 		Delivery: &delivery,
@@ -940,7 +1618,7 @@ func publishRealHarnessWakeEvent(
 
 	request, err := http.NewRequest(
 		http.MethodPost,
-		baseURL+realHarnessEventsPath,
+		baseURL+realHarnessNoticesPath,
 		bytes.NewReader(payload),
 	)
 	require.NoError(t, err)

@@ -144,6 +144,15 @@ func sessionBusyError(message string) api.Error {
 	return api.Error{Code: ErrorCodeSessionBusy, Message: message}
 }
 
+// executionProfileNotAllowedError names no profile, because a refused caller is
+// not entitled to learn which profiles the deployment defines.
+func executionProfileNotAllowedError() api.Error {
+	return api.Error{
+		Code:    ErrorCodeExecutionProfileNotAllowed,
+		Message: "execution profile is not allowed by this deployment",
+	}
+}
+
 func turnCancelledError() api.Error {
 	return api.Error{
 		Code:    ErrorCodeTurnCancelled,

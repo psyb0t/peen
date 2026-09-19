@@ -26,10 +26,13 @@ import (
 )
 
 const (
-	executionFormsAPIMessagesPath = "/v1/messages"
-	executionFormsWebSocketPath   = "/v1/ws"
-	executionFormsReadyPath       = "/ready"
-	executionFormsMetricsPath     = "/metrics"
+	executionFormsAPIMessagesPath    = "/v1/messages"
+	executionFormsAPIOpenSessionPath = "/v1/sessions/open"
+	executionFormsContentTypeJSON    = "application/json"
+	executionFormsHeaderContentType  = "Content-Type"
+	executionFormsWebSocketPath      = "/v1/ws"
+	executionFormsReadyPath          = "/ready"
+	executionFormsMetricsPath        = "/metrics"
 
 	executionFormsHeaderAuthorization = "Authorization"
 	executionFormsHeaderSessionID     = "X-Session-ID"
@@ -75,6 +78,8 @@ const (
 	executionFormsRunCommand           = "run"
 
 	executionFormsConfigDirectory = "config"
+	executionFormsStateDirectory  = "state"
+	executionFormsSocketDirPrefix = "pw"
 	executionFormsWorkspace       = "workspace"
 	executionFormsAgentsDirectory = ".agents/agents"
 	executionFormsAgentFile       = "default.md"
@@ -131,7 +136,9 @@ type runningPeen struct {
 type processConfig struct {
 	binary          string
 	configDirectory string
+	stateDirectory  string
 	workspace       string
+	workerSocketDir string
 	apiAddress      string
 	metricsAddress  string
 	provider        *testinfra.ProviderMock
@@ -194,7 +201,9 @@ func runAuthenticatedFormScenario(t *testing.T, binary string) {
 	process := startPeen(t, processConfig{
 		binary:          binary,
 		configDirectory: state.configDirectory,
+		stateDirectory:  state.stateDirectory,
 		workspace:       state.workspace,
+		workerSocketDir: state.workerSocketDir,
 		apiAddress:      reserveLoopbackAddress(t),
 		metricsAddress:  reserveLoopbackAddress(t),
 		provider:        provider,
@@ -209,6 +218,7 @@ func runAuthenticatedFormScenario(t *testing.T, binary string) {
 		t,
 		process.baseURL,
 		executionFormsAPIToken,
+		state.workspace,
 		executionFormsJSONToolMessage,
 	)
 	provider.DisableScriptedToolTurn()
@@ -220,6 +230,7 @@ func runAuthenticatedFormScenario(t *testing.T, binary string) {
 		t,
 		process.baseURL,
 		executionFormsAPIToken,
+		state.workspace,
 		executionFormsPatchToolMessage,
 	)
 	provider.DisableScriptedToolTurn()
@@ -230,7 +241,9 @@ func runAuthenticatedFormScenario(t *testing.T, binary string) {
 	process = startPeen(t, processConfig{
 		binary:          binary,
 		configDirectory: state.configDirectory,
+		stateDirectory:  state.stateDirectory,
 		workspace:       state.workspace,
+		workerSocketDir: state.workerSocketDir,
 		apiAddress:      reserveLoopbackAddress(t),
 		metricsAddress:  reserveLoopbackAddress(t),
 		provider:        provider,
@@ -247,11 +260,22 @@ func runAuthenticatedFormScenario(t *testing.T, binary string) {
 		t,
 		process.baseURL,
 		executionFormsAPIToken,
+		state.workspace,
 		executionFormsReloadMessage,
 	)
 	assert.Contains(t, provider.LastSystemPrompt(), executionFormsUpdatedRules)
 	assertPrivateMetrics(t, process)
-	assert.FileExists(t, filepath.Join(state.configDirectory, executionFormsDatabaseFile))
+
+	// Durable state lives in the state directory, never in the configuration
+	// directory a Docker worker receives read-only.
+	assert.FileExists(
+		t,
+		filepath.Join(state.stateDirectory, executionFormsDatabaseFile),
+	)
+	assert.NoFileExists(
+		t,
+		filepath.Join(state.configDirectory, executionFormsDatabaseFile),
+	)
 }
 
 func runUnauthenticatedFormScenario(t *testing.T, binary string) {
@@ -263,7 +287,9 @@ func runUnauthenticatedFormScenario(t *testing.T, binary string) {
 	process := startPeen(t, processConfig{
 		binary:          binary,
 		configDirectory: state.configDirectory,
+		stateDirectory:  state.stateDirectory,
 		workspace:       state.workspace,
+		workerSocketDir: state.workerSocketDir,
 		apiAddress:      reserveLoopbackAddress(t),
 		metricsAddress:  reserveLoopbackAddress(t),
 		provider:        provider,
@@ -274,6 +300,7 @@ func runUnauthenticatedFormScenario(t *testing.T, binary string) {
 		t,
 		process.baseURL,
 		"",
+		state.workspace,
 		executionFormsUnauthMessage,
 	)
 }
@@ -318,7 +345,27 @@ func patchToolTurn() testinfra.ScriptedToolTurn {
 
 type processState struct {
 	configDirectory string
+	stateDirectory  string
 	workspace       string
+	workerSocketDir string
+}
+
+// shortWorkerSocketDirectory gives the worker sockets a root well inside the
+// 107-byte Unix socket path limit.
+//
+// t.TempDir() embeds the test and subtest names, which here is long enough on
+// its own that the default PEEN_CONFIG_DIR/workers path plus a session UUID
+// would not fit. That is a property of this test's directory naming, not of a
+// real deployment, so the test names the root the way an operator with a deep
+// configuration directory would.
+func shortWorkerSocketDirectory(t *testing.T) string {
+	t.Helper()
+
+	directory, err := os.MkdirTemp("", executionFormsSocketDirPrefix)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(directory)) })
+
+	return directory
 }
 
 func newProcessState(t *testing.T) processState {
@@ -350,7 +397,12 @@ func newProcessState(t *testing.T) processState {
 
 	return processState{
 		configDirectory: configDirectory,
+		// The state directory is a sibling of the configuration directory, not
+		// a child, because the controller refuses durable state inside the
+		// directory it mounts into workers.
+		stateDirectory:  filepath.Join(root, executionFormsStateDirectory),
 		workspace:       workspace,
+		workerSocketDir: shortWorkerSocketDirectory(t),
 	}
 }
 
@@ -380,6 +432,15 @@ func startPeen(t *testing.T, config processConfig) *runningPeen {
 		process.done <- process.command.Wait()
 	}()
 
+	// A failure here is usually a controller-side or worker-side error that
+	// only the process log names. Without it the test reports the HTTP
+	// envelope, which is deliberately generic.
+	t.Cleanup(func() {
+		if t.Failed() {
+			t.Logf("peen process output:\n%s", process.output.String())
+		}
+	})
+
 	awaitReady(t, process)
 
 	return process
@@ -397,6 +458,8 @@ func peenEnvironment(config processConfig, upstreams string) []string {
 
 	environment = append(environment,
 		"PEEN_CONFIG_DIR="+config.configDirectory,
+		"PEEN_STATE_DIR="+config.stateDirectory,
+		"PEEN_WORKER_SOCKET_DIR="+config.workerSocketDir,
 		"PEEN_AGENT="+executionFormsAgentName,
 		"PEEN_HTTP_LISTEN_ADDRESS="+config.apiAddress,
 		"PEEN_METRICS_LISTEN_ADDRESS="+config.metricsAddress,
@@ -473,9 +536,12 @@ func sendWebSocketTurn(
 	t *testing.T,
 	baseURL string,
 	token string,
+	workspace string,
 	message string,
 ) uuid.UUID {
 	t.Helper()
+
+	routedSession := openExecutionFormsSession(t, baseURL, token, workspace)
 
 	dialer := websocket.Dialer{
 		HandshakeTimeout: executionFormsStartupTimeout,
@@ -498,6 +564,9 @@ func sendWebSocketTurn(
 	messageEvent := dabluveees.NewEvent(
 		executionFormsWebSocketMessageSend,
 		map[string]string{executionFormsMessageKey: message},
+	).SetMetadata(
+		executionFormsWebSocketMetadataSessionID,
+		routedSession.String(),
 	)
 	require.NoError(t, connection.WriteJSON(messageEvent))
 
@@ -536,6 +605,62 @@ func executionFormsWebSocketURL(
 	endpoint.Scheme = "ws"
 
 	return endpoint.String()
+}
+
+// openExecutionFormsSession opens the process's workspace through the real
+// control endpoint. Peen starts with no sessions in every execution form, so a
+// turn has to name the session it belongs to.
+func openExecutionFormsSession(
+	t *testing.T,
+	baseURL string,
+	token string,
+	workspace string,
+) uuid.UUID {
+	t.Helper()
+
+	body, err := json.Marshal(map[string]string{"workspace": workspace})
+	require.NoError(t, err)
+
+	request, err := http.NewRequest(
+		http.MethodPost,
+		baseURL+executionFormsAPIOpenSessionPath,
+		bytes.NewReader(body),
+	)
+	require.NoError(t, err)
+
+	// A deployment with no configured token authenticates nothing, and the
+	// unauthenticated scenario runs that way. Sending an empty bearer instead
+	// of no header would be a malformed credential rather than none.
+	if token != "" {
+		request.Header.Set(
+			executionFormsHeaderAuthorization,
+			executionFormsBearerPrefix+token,
+		)
+	}
+
+	request.Header.Set(
+		executionFormsHeaderContentType,
+		executionFormsContentTypeJSON,
+	)
+
+	response, err := http.DefaultClient.Do(request)
+	require.NoError(t, err)
+
+	payload, readErr := io.ReadAll(response.Body)
+	closeErr := response.Body.Close()
+	require.NoError(t, readErr)
+	require.NoError(t, closeErr)
+	require.Equal(t, http.StatusOK, response.StatusCode, string(payload))
+
+	opened := struct {
+		Session struct {
+			ID        uuid.UUID `json:"id"`
+			Workspace string    `json:"workspace"`
+		} `json:"session"`
+	}{}
+	require.NoError(t, json.Unmarshal(payload, &opened))
+
+	return opened.Session.ID
 }
 
 func assertSessionHistory(

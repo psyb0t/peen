@@ -291,6 +291,7 @@ func TestAPICancelsActiveTurn(t *testing.T) {
 	connection := dialAPIWebSocket(t, nil)
 	t.Cleanup(func() { require.NoError(t, connection.Close()) })
 	require.NoError(t, writeAPIWebSocketMessage(
+		t,
 		connection,
 		"block this request",
 	))
@@ -334,6 +335,7 @@ func TestAPIQueuesMessageForActiveTurn(t *testing.T) {
 	connection := dialAPIWebSocket(t, nil)
 	t.Cleanup(func() { require.NoError(t, connection.Close()) })
 	require.NoError(t, writeAPIWebSocketMessage(
+		t,
 		connection,
 		apiTestActiveTurnMessage,
 	))
@@ -351,6 +353,7 @@ func TestAPIQueuesMessageForActiveTurn(t *testing.T) {
 	queuedConnection := dialAPIWebSocket(t, nil)
 	t.Cleanup(func() { require.NoError(t, queuedConnection.Close()) })
 	require.NoError(t, writeAPIWebSocketMessage(
+		t,
 		queuedConnection,
 		apiTestQueuedMessage,
 	))

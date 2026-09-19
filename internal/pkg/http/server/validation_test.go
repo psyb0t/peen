@@ -96,7 +96,7 @@ func TestSpecValidatorRejectsWhatTheDocumentForbids(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			instance, err := New(Dependencies{
+			instance, err := newTestServer(Dependencies{
 				Runtime: &testRuntime{sessionID: sessionID},
 			})
 			require.NoError(t, err)
@@ -130,7 +130,7 @@ func TestSpecValidatorRejectsWhatTheDocumentForbids(t *testing.T) {
 func TestSpecValidatorKeepsTheDocumentedErrorEnvelope(t *testing.T) {
 	sessionID := uuid.New()
 
-	instance, err := New(Dependencies{
+	instance, err := newTestServer(Dependencies{
 		Runtime: &testRuntime{sessionID: sessionID},
 	})
 	require.NoError(t, err)
@@ -157,7 +157,7 @@ func TestSpecValidatorLeavesAuthenticationToTheMiddleware(t *testing.T) {
 	sessionID := uuid.New()
 
 	t.Run("no token configured accepts an unauthenticated request", func(t *testing.T) {
-		instance, err := New(Dependencies{
+		instance, err := newTestServer(Dependencies{
 			Runtime: &testRuntime{sessionID: sessionID},
 		})
 		require.NoError(t, err)
@@ -177,7 +177,7 @@ func TestSpecValidatorLeavesAuthenticationToTheMiddleware(t *testing.T) {
 	})
 
 	t.Run("token configured still rejects a missing one", func(t *testing.T) {
-		instance, err := New(Dependencies{
+		instance, err := newTestServer(Dependencies{
 			Runtime:  &testRuntime{sessionID: sessionID},
 			APIToken: testBearerToken,
 		})

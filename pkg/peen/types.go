@@ -150,11 +150,14 @@ type MessageRequest struct {
 	SystemPrompt *SystemPrompt
 }
 
-// MessageResult carries the durable session identity and the final assistant
-// message.
+// MessageResult carries the final assistant message.
+//
+// It names no session on purpose. This runtime is one workspace, and it owns
+// its durable session identity privately. Session IDs are a control-plane
+// concept: they exist so a controller can route between many workspaces, which
+// is not a problem a direct caller has.
 type MessageResult struct {
-	SessionID string
-	Message   string
+	Message string
 	// Queued reports that an active turn accepted the message. Message is empty
 	// because the original turn owns the eventual model response.
 	Queued bool
@@ -181,9 +184,9 @@ const (
 )
 
 // ListMessagesRequest describes one bounded transcript page request.
+//
+// It names no session: this runtime reads its own workspace's transcript.
 type ListMessagesRequest struct {
-	// SessionID must name an existing session.
-	SessionID string
 	// Limit bounds the page size. Zero takes the internal default.
 	Limit int
 	// Offset skips this many messages from the start of Order's direction.
@@ -232,9 +235,13 @@ type ListMessagesResult struct {
 	HasMore bool
 }
 
-// SessionDetails is one durable session's read-only metadata.
+// SessionDetails is this workspace's read-only metadata.
+//
+// It carries no identifier on purpose. This runtime is one workspace and owns
+// its durable session privately, so there is nothing for a caller to address.
+// Session IDs are a control-plane concept: they exist so a controller can route
+// between many workspaces, which is not a problem a direct caller has.
 type SessionDetails struct {
-	ID                 string
 	Agent              string
 	Model              string
 	Workspace          string

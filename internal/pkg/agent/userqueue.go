@@ -255,8 +255,13 @@ func (r *Runtime) queueActiveUserMessage(
 		return nil, false, nil
 	}
 
+	// The queue is keyed by the session the request targets, not by the
+	// runtime's own, because a control surface runs many sessions at once and
+	// a message may only join the queue of the turn it belongs to.
+	sessionID := r.turnSessionID(input)
+
 	r.userMessageQueuesMutex.Lock()
-	queue := r.userMessageQueues[r.sessionID]
+	queue := r.userMessageQueues[sessionID]
 	r.userMessageQueuesMutex.Unlock()
 
 	if queue == nil {
@@ -276,7 +281,7 @@ func (r *Runtime) queueActiveUserMessage(
 	}
 
 	return &TurnResult{
-		SessionID: r.sessionID,
+		SessionID: sessionID,
 		Queued:    true,
 	}, true, nil
 }

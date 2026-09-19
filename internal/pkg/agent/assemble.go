@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/db"
 	"github.com/psyb0t/peen/internal/pkg/harness"
@@ -33,6 +34,15 @@ type AssembleOptions struct {
 	// are filled in by Assemble, so a caller leaves them zero.
 	Runtime RuntimeOptions
 
+	// StateDirectory is where SQLite lives. It is required and deliberately
+	// separate from Runtime.ConfigDirectory, which is the harness directory a
+	// Docker worker receives read-only: durable state inside that directory
+	// would travel into every worker along with it.
+	//
+	// A direct pkg/peen runtime owns both and passes its one directory here,
+	// because it has no worker to hand a mount to.
+	StateDirectory string
+
 	// HarnessLimits bounds filesystem-derived context. Zero fields take the
 	// harness package defaults.
 	HarnessLimits harness.Limits
@@ -59,10 +69,15 @@ func Assemble(
 	ctx context.Context,
 	options AssembleOptions,
 ) (*Assembled, error) {
-	configDirectory := options.Runtime.ConfigDirectory
+	if options.StateDirectory == "" {
+		return nil, ctxerrors.Wrap(
+			commerr.ErrRequiredFieldNotSet,
+			"assemble requires a state directory for durable storage",
+		)
+	}
 
 	handle, err := db.Open(ctx, db.Config{
-		Directory: configDirectory,
+		Directory: options.StateDirectory,
 		Metrics:   options.Runtime.Metrics,
 	})
 	if err != nil {

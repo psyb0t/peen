@@ -8,7 +8,7 @@ add hooks for checks you do not want a model to be able to skip.
 `hooks.yaml` adds ordered lifecycle actions to a Peen harness layer. Put the
 trusted base file at `PEEN_CONFIG_DIR/.agents/hooks.yaml`. Peen then finds
 another `.agents/hooks.yaml` in every ancestor from the filesystem root through
-the startup workspace. It keeps groups in that order. A later layer adds
+the session's workspace. It keeps groups in that order. A later layer adds
 actions. It does not replace an earlier layer.
 
 The configuration-directory layer always runs. Workspace hook files are parsed,

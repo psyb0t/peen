@@ -61,12 +61,13 @@ func (e *JobExecutor) RunCommand(
 	}
 
 	job, err := e.jobs.Start(ctx, StartJobInput{
-		Command:    input.Command,
-		Directory:  directory,
-		Env:        append(os.Environ(), env...),
-		Purpose:    purpose,
-		TurnID:     e.turnID,
-		ToolCallID: toolCallIDFromContext(ctx),
+		Command:            input.Command,
+		Directory:          directory,
+		Env:                append(os.Environ(), env...),
+		Purpose:            purpose,
+		TurnID:             e.turnID,
+		WorkerGenerationID: e.workerGenerationID,
+		ToolCallID:         toolCallIDFromContext(ctx),
 	})
 	if err != nil {
 		return RunCommandOutput{}, err

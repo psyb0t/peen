@@ -109,7 +109,7 @@ func TestServerSessionDurableReadEndpoints(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			instance, err := New(Dependencies{Runtime: tc.runtime})
+			instance, err := newTestServer(Dependencies{Runtime: tc.runtime})
 			require.NoError(t, err)
 
 			request := httptest.NewRequestWithContext(
@@ -139,7 +139,7 @@ func TestServerSessionDurableReadEndpointsRequireBearerToken(t *testing.T) {
 		modelRunsPath(),
 		modelRunCallsPath(uuid.New()),
 	} {
-		instance, err := New(Dependencies{
+		instance, err := newTestServer(Dependencies{
 			Runtime:  &testRuntime{sessionID: sessionID},
 			APIToken: testBearerToken,
 		})

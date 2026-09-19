@@ -17,19 +17,19 @@ import (
 
 const auditLogTestRetentionDays = 14
 
-func TestAuditConfigDefaultsToLocalLogDirectoryWithoutConfigDirectory(t *testing.T) {
-	config := (Config{}).withDefaults()
+func TestNewDailyHandlerRequiresDirectoryOrStateDirectory(t *testing.T) {
+	_, err := NewDailyHandler(Config{})
 
-	assert.Equal(t, defaultDirectory, config.Directory)
+	require.ErrorIs(t, err, commerr.ErrValidationFailed)
 }
 
-func TestNewDailyHandlerDefaultsUnderConfigDirectory(t *testing.T) {
-	configDirectory := filepath.Join(t.TempDir(), "config")
-	handler, err := NewDailyHandler(Config{ConfigDirectory: configDirectory})
+func TestNewDailyHandlerDefaultsUnderStateDirectory(t *testing.T) {
+	stateDirectory := filepath.Join(t.TempDir(), "state")
+	handler, err := NewDailyHandler(Config{StateDirectory: stateDirectory})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, handler.Close()) })
 
-	entries, err := os.ReadDir(filepath.Join(configDirectory, defaultDirectory))
+	entries, err := os.ReadDir(filepath.Join(stateDirectory, defaultDirectory))
 	require.NoError(t, err)
 	assert.Len(t, entries, 1)
 }

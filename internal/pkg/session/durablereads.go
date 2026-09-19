@@ -8,6 +8,44 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 )
 
+// ListSessions returns a stable bounded page of every durable session.
+//
+// Unlike the other durable reads it takes no session ID, because it is how a
+// client discovers which sessions exist. Ordering is newest-updated first so a
+// client that pages sees the sessions it is most likely to want first.
+func (s *Store) ListSessions(
+	ctx context.Context,
+	options ListSessionsOptions,
+) (*WorkspaceSessionPage, error) {
+	page, err := normalizeReadPage(options.Limit, options.Offset)
+	if err != nil {
+		return nil, err
+	}
+
+	stored := s.query.Session
+	query := stored.WithContext(ctx).
+		Order(stored.UpdatedAt.Desc(), stored.ID.Desc())
+
+	items, hasMore, err := listReadPage(
+		page,
+		func(offset, limit int) ([]*models.Session, error) {
+			return query.Offset(offset).Limit(limit).Find()
+		},
+		"list sessions",
+		"probe session page",
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &WorkspaceSessionPage{
+		Items:   items,
+		Limit:   page.limit,
+		Offset:  page.offset,
+		HasMore: hasMore,
+	}, nil
+}
+
 // ListTurns returns a stable newest-first page of durable session turns.
 //
 //nolint:dupl // The generated Turn query has a distinct typed builder.

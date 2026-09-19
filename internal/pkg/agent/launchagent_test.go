@@ -13,6 +13,7 @@ import (
 	"github.com/psyb0t/elelem/elelemtest"
 	"github.com/psyb0t/peen/internal/pkg/db"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/db/repositories"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/session"
@@ -91,7 +92,7 @@ func newLaunchAgentFixture(
 
 	eventBus := events.NewBus(events.Options{})
 
-	runtime, err := NewRuntime(context.Background(), RuntimeOptions{
+	runtimeOptions := RuntimeOptions{
 		Store:            store,
 		Resolver:         resolver,
 		Models:           registry,
@@ -103,7 +104,9 @@ func newLaunchAgentFixture(
 		Events:           eventBus,
 		AgentLimits:      options.AgentLimits,
 		ConfigDirectory:  configDirectory,
-	})
+	}
+
+	runtime, err := NewRuntime(context.Background(), runtimeOptions)
 	require.NoError(t, err)
 
 	return runtimeFixture{
@@ -226,6 +229,17 @@ func TestLaunchAgentNamedAgentReturnsFinalResponse(t *testing.T) {
 	require.Len(t, runs, 1)
 	assert.Equal(t, AgentRunStateCompleted, runs[0].Snapshot().State)
 	assert.Equal(t, launchAgentCallID, runs[0].ParentToolCallID)
+
+	query := repositories.Use(fixture.handle.GormDB)
+	turn, err := query.Turn.WithContext(context.Background()).
+		Where(query.Turn.ID.Eq(runs[0].ParentTurnID)).
+		First()
+	require.NoError(t, err)
+	storedRun, err := query.AgentRun.WithContext(context.Background()).
+		Where(query.AgentRun.ID.Eq(runs[0].ID)).
+		First()
+	require.NoError(t, err)
+	assert.Equal(t, turn.WorkerGenerationID, storedRun.WorkerGenerationID)
 }
 
 func TestLaunchAgentAllowedToolsExcludeWrites(t *testing.T) {
@@ -716,9 +730,8 @@ func TestLaunchAgentRunRemainsInStartupWorkspaceSession(t *testing.T) {
 	runs := registryA.List()
 	require.Len(t, runs, 1)
 
-	requestedSessionID := uuid.New()
 	second, err := fixture.runtime.Run(context.Background(), TurnRequest{
-		SessionID: &requestedSessionID,
+		SessionID: &first.SessionID,
 		Message:   "an unrelated session",
 		Workspace: fixture.workspace,
 	})

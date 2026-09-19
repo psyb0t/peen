@@ -31,6 +31,7 @@ func newEvent(db *gorm.DB, opts ...gen.DOOption) event {
 	_event.ID = field.NewField(tableName, "id")
 	_event.SessionID = field.NewField(tableName, "session_id")
 	_event.TurnID = field.NewField(tableName, "turn_id")
+	_event.WorkerGenerationID = field.NewString(tableName, "worker_generation_id")
 	_event.Sequence = field.NewInt64(tableName, "sequence")
 	_event.RequestID = field.NewField(tableName, "request_id")
 	_event.EventType = field.NewString(tableName, "event_type")
@@ -46,16 +47,17 @@ func newEvent(db *gorm.DB, opts ...gen.DOOption) event {
 type event struct {
 	eventDo
 
-	ALL              field.Asterisk
-	ID               field.Field
-	SessionID        field.Field
-	TurnID           field.Field
-	Sequence         field.Int64
-	RequestID        field.Field
-	EventType        field.String
-	PayloadJSON      field.String
-	ParentToolCallID field.String
-	CreatedAt        field.Time
+	ALL                field.Asterisk
+	ID                 field.Field
+	SessionID          field.Field
+	TurnID             field.Field
+	WorkerGenerationID field.String
+	Sequence           field.Int64
+	RequestID          field.Field
+	EventType          field.String
+	PayloadJSON        field.String
+	ParentToolCallID   field.String
+	CreatedAt          field.Time
 
 	fieldMap map[string]field.Expr
 }
@@ -75,6 +77,7 @@ func (e *event) updateTableName(table string) *event {
 	e.ID = field.NewField(table, "id")
 	e.SessionID = field.NewField(table, "session_id")
 	e.TurnID = field.NewField(table, "turn_id")
+	e.WorkerGenerationID = field.NewString(table, "worker_generation_id")
 	e.Sequence = field.NewInt64(table, "sequence")
 	e.RequestID = field.NewField(table, "request_id")
 	e.EventType = field.NewString(table, "event_type")
@@ -97,10 +100,11 @@ func (e *event) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (e *event) fillFieldMap() {
-	e.fieldMap = make(map[string]field.Expr, 9)
+	e.fieldMap = make(map[string]field.Expr, 10)
 	e.fieldMap["id"] = e.ID
 	e.fieldMap["session_id"] = e.SessionID
 	e.fieldMap["turn_id"] = e.TurnID
+	e.fieldMap["worker_generation_id"] = e.WorkerGenerationID
 	e.fieldMap["sequence"] = e.Sequence
 	e.fieldMap["request_id"] = e.RequestID
 	e.fieldMap["event_type"] = e.EventType

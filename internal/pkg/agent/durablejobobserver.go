@@ -13,7 +13,7 @@ import (
 // durableJobObserver makes the live process registry an adapter over the
 // session's SQLite record, rather than a second source of truth.
 type durableJobObserver struct {
-	store *session.Store
+	store session.Storage
 }
 
 func (o durableJobObserver) JobStarted(
@@ -25,14 +25,15 @@ func (o durableJobObserver) JobStarted(
 	}
 
 	_, err := o.store.CreateJob(ctx, snapshot.SessionID, session.CreateJobInput{
-		ID:         snapshot.ID,
-		TurnID:     snapshot.TurnID,
-		ToolCallID: snapshot.ToolCallID,
-		PID:        int64(snapshot.PID),
-		Purpose:    snapshot.Purpose,
-		Command:    snapshot.Command,
-		Directory:  snapshot.Directory,
-		StartedAt:  snapshot.StartedAt,
+		ID:                 snapshot.ID,
+		TurnID:             snapshot.TurnID,
+		WorkerGenerationID: snapshot.WorkerGenerationID,
+		ToolCallID:         snapshot.ToolCallID,
+		PID:                int64(snapshot.PID),
+		Purpose:            snapshot.Purpose,
+		Command:            snapshot.Command,
+		Directory:          snapshot.Directory,
+		StartedAt:          snapshot.StartedAt,
 	})
 	if err != nil {
 		return ctxerrors.Wrap(err, "create durable job")

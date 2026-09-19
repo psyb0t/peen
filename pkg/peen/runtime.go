@@ -5,10 +5,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/agent"
@@ -68,6 +66,11 @@ func New(options Options) (*Runtime, error) {
 	assembled, err := agent.Assemble(
 		context.Background(),
 		agent.AssembleOptions{
+			// A direct runtime owns its whole directory. The controller splits
+			// configuration from state because it mounts configuration into
+			// workers read-only; an embedding program has no worker to hand a
+			// mount to, so one directory holds both.
+			StateDirectory: configDirectory,
 			Runtime: runtimeOptions(
 				configDirectory,
 				workspace,
@@ -159,9 +162,8 @@ func (r *Runtime) Message(
 	}
 
 	return MessageResult{
-		SessionID: result.SessionID.String(),
-		Message:   result.Text,
-		Queued:    result.Queued,
+		Message: result.Text,
+		Queued:  result.Queued,
 	}, nil
 }
 
@@ -187,18 +189,17 @@ func (r *Runtime) Stream(
 	}
 
 	return MessageResult{
-		SessionID: result.SessionID.String(),
-		Message:   result.Text,
-		Queued:    result.Queued,
+		Message: result.Text,
+		Queued:  result.Queued,
 	}, nil
 }
 
-// ListMessages reads one bounded page of an existing session's transcript.
+// ListMessages reads one bounded page of this workspace's transcript.
 func (r *Runtime) ListMessages(
 	ctx context.Context,
 	request ListMessagesRequest,
 ) (ListMessagesResult, error) {
-	params, err := toListMessagesParams(request)
+	params, err := toListMessagesParams(request, r.internal.SessionID())
 	if err != nil {
 		return ListMessagesResult{}, err
 	}
@@ -219,39 +220,23 @@ func (r *Runtime) ListMessages(
 	return result, nil
 }
 
-// Session reads one existing session's read-only metadata.
-func (r *Runtime) Session(
-	ctx context.Context,
-	sessionID string,
-) (SessionDetails, error) {
-	parsed, err := parseSessionID(sessionID)
+// Details reads this workspace's read-only metadata.
+func (r *Runtime) Details(ctx context.Context) (SessionDetails, error) {
+	stored, err := r.internal.Session(ctx, r.internal.SessionID())
 	if err != nil {
-		return SessionDetails{}, err
-	}
-
-	stored, err := r.internal.Session(ctx, parsed)
-	if err != nil {
-		return SessionDetails{}, ctxerrors.Wrap(err, "get session")
+		return SessionDetails{}, ctxerrors.Wrap(err, "get workspace details")
 	}
 
 	return toSessionDetails(*stored), nil
 }
 
-// Cancel requests cancellation of an existing session's active turn. It is
-// idempotent: cancelling a session with no active turn reports
-// CancelRequested false rather than failing.
-func (r *Runtime) Cancel(
-	ctx context.Context,
-	sessionID string,
-) (CancelResult, error) {
-	parsed, err := parseSessionID(sessionID)
+// Cancel requests cancellation of this workspace's active turn. It is
+// idempotent: cancelling with no active turn reports CancelRequested false
+// rather than failing.
+func (r *Runtime) Cancel(ctx context.Context) (CancelResult, error) {
+	response, err := r.internal.CancelSession(ctx, r.internal.SessionID())
 	if err != nil {
-		return CancelResult{}, err
-	}
-
-	response, err := r.internal.CancelSession(ctx, parsed)
-	if err != nil {
-		return CancelResult{}, ctxerrors.Wrap(err, "cancel session")
+		return CancelResult{}, ctxerrors.Wrap(err, "cancel the active turn")
 	}
 
 	return CancelResult{CancelRequested: response.CancelRequested}, nil
@@ -274,19 +259,4 @@ func translateTurnError(err error) error {
 	}
 
 	return err
-}
-
-// parseSessionID validates a session ID crossing the public boundary as a
-// string.
-func parseSessionID(sessionID string) (uuid.UUID, error) {
-	parsed, err := uuid.Parse(strings.TrimSpace(sessionID))
-	if err != nil {
-		return uuid.Nil, ctxerrors.Wrapf(
-			commerr.ErrValidationFailed,
-			"session id %q is not a valid UUID",
-			sessionID,
-		)
-	}
-
-	return parsed, nil
 }

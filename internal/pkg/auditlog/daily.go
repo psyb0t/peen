@@ -27,10 +27,15 @@ const (
 )
 
 // Config controls the private rolling audit-log sink.
+//
+// The default directory sits under the controller's state directory, never
+// under PEEN_CONFIG_DIR. Audit records carry session identifiers, harness
+// digests, and tool outcomes, and PEEN_CONFIG_DIR is mounted into every Docker
+// worker, so an audit directory there would be readable by every session.
 type Config struct {
-	ConfigDirectory string `env:"PEEN_CONFIG_DIR"`
-	Directory       string `env:"PEEN_LOG_DIRECTORY"`
-	RetentionDays   int    `default:"14"             env:"PEEN_LOG_RETENTION_DAYS"` //nolint:lll // Immutable env tag.
+	StateDirectory string `env:"PEEN_STATE_DIR"`
+	Directory      string `env:"PEEN_LOG_DIRECTORY"`
+	RetentionDays  int    `default:"14"             env:"PEEN_LOG_RETENTION_DAYS"` //nolint:lll // Immutable env tag.
 }
 
 // Configure reads audit-log settings and adds the durable sink beside stdout.
@@ -162,8 +167,9 @@ func (h *DailyHandler) Close() error {
 }
 
 func (c Config) withDefaults() Config {
-	if strings.TrimSpace(c.Directory) == "" {
-		c.Directory = filepath.Join(c.ConfigDirectory, defaultDirectory)
+	if strings.TrimSpace(c.Directory) == "" &&
+		strings.TrimSpace(c.StateDirectory) != "" {
+		c.Directory = filepath.Join(c.StateDirectory, defaultDirectory)
 	}
 
 	if c.RetentionDays == 0 {

@@ -19,11 +19,85 @@ import (
 
 // Dependencies are the transport-neutral operations required by the API.
 type Dependencies struct {
-	Runtime        agent.API
+	Runtime agent.API
+
+	// Sessions opens and lists workspace sessions. It is the control surface's
+	// registry rather than the runtime, because opening a workspace is a
+	// control operation bounded by deployment policy, not part of running a
+	// turn.
+	Sessions SessionRegistry
+
+	// Turns dispatches an accepted client message to the session's worker. The
+	// control plane routes work; it does not run the model loop.
+	Turns TurnRouter
+
 	APIToken       string
 	ListenAddress  string
 	Metrics        *metrics.Metrics
 	ServiceContext func() context.Context
+}
+
+// TurnRouter sends one accepted client message to its session's worker.
+//
+// It is an interface so the HTTP layer depends on dispatching a turn rather
+// than on how a worker is found or launched.
+type TurnRouter interface {
+	RunSessionMessage(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		request agent.MessageRequest,
+		requestID uuid.UUID,
+	) (*agent.MessageRunResult, error)
+
+	// CancelSessionTurn reaches the worker process running the turn. The
+	// controller records the request durably but cannot interrupt a model loop
+	// that runs in another process, so cancellation has to travel the same
+	// route the turn did.
+	CancelSessionTurn(
+		ctx context.Context,
+		sessionID uuid.UUID,
+	) (bool, error)
+
+	// SignalSessionJob reaches the worker whose process group holds the job. A
+	// nil response means no live worker holds it, which the caller records
+	// against the durable row instead.
+	SignalSessionJob(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		jobID uuid.UUID,
+		signal string,
+	) (*api.JobSignalResponse, error)
+}
+
+// SessionRegistry is the control-surface operation set the session endpoints
+// need. It is an interface so the HTTP layer depends on the operations rather
+// than the registry's construction.
+type SessionRegistry interface {
+	OpenWorkspaceSession(
+		ctx context.Context,
+		workspace string,
+		profile string,
+	) (api.OpenedSession, error)
+	ListSessions(
+		ctx context.Context,
+		params api.ListSessionsParams,
+	) (api.SessionPage, error)
+	ExecutionProfiles() api.ExecutionProfileList
+	ListWorkerGenerations(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		params api.ListSessionWorkersParams,
+	) (api.WorkerGenerationPage, error)
+	ReconfigureSession(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		request api.ReconfigureSessionRequest,
+	) (api.SessionProfileDecision, error)
+	ListProfileDecisions(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		params api.ListSessionProfileDecisionsParams,
+	) (api.SessionProfileDecisionPage, error)
 }
 
 // Server owns Peen's Serbewr listener and its generated OpenAPI handler.
@@ -35,7 +109,7 @@ type Server struct {
 	webSocketHub            wshub.Hub
 	webSocketUpgradeHandler http.Handler
 	webSocketFilterMutex    sync.Mutex
-	webSocketFilters        map[uuid.UUID]uuid.UUID
+	webSocketFilters        map[uuid.UUID]webSocketSessionFilterEntry
 }
 
 var _ api.StrictServerInterface = (*Server)(nil)
@@ -44,6 +118,10 @@ var _ api.StrictServerInterface = (*Server)(nil)
 func New(deps Dependencies) (*Server, error) {
 	if deps.Runtime == nil {
 		return nil, ctxerrors.Wrap(ErrMissingDependency, "agent runtime")
+	}
+
+	if deps.Sessions == nil {
+		return nil, ctxerrors.Wrap(ErrMissingDependency, "session registry")
 	}
 
 	if deps.ListenAddress == "" {
@@ -97,7 +175,7 @@ func New(deps Dependencies) (*Server, error) {
 
 func (s *Server) configureWebSocketHub() {
 	s.webSocketHub = wshub.NewHub(webSocketHubName)
-	s.webSocketFilters = make(map[uuid.UUID]uuid.UUID)
+	s.webSocketFilters = make(map[uuid.UUID]webSocketSessionFilterEntry)
 	s.webSocketHub.RegisterEventHandler(
 		webSocketMessageSendEventType,
 		s.handleWebSocketMessage,

@@ -2,9 +2,9 @@
 
 Copy `.env.example` to `.env`, then set the provider values that fit your
 machine. Peen validates every `PEEN_` value before opening its listener, so a
-bad setting fails at startup instead of halfway through a task. Its process
-working directory is the immutable agent workspace and identifies the durable
-session it opens at startup.
+bad setting fails at startup instead of halfway through a task. Peen starts
+with no sessions. A client opens a workspace through `POST /v1/sessions/open`,
+and `PEEN_WORKSPACE_ROOTS` bounds which directories it may name.
 
 For Docker, `.env` is input for `docker run --env-file`. Do not source it from
 Bash because `PEEN_UPSTREAMS` is raw JSON. For a bare binary, set the same
@@ -19,12 +19,22 @@ Peen adds a JSON audit sink configured by `PEEN_LOG_DIRECTORY` and
 
 These values decide where Peen keeps its state and which model handles a task.
 Start Peen from the directory the agent should work in. Docker users set that
-directory with `docker run --workdir`; bare-process users change directory
-before launching Peen.
+directory with `docker run --workdir` and must use a literal host path when
+they want Docker worker profiles. Bare-process users change directory before
+launching Peen.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PEEN_CONFIG_DIR` | required, absolute | Harness base layer and durable state root. See [project rules](../README.md#make-it-understand-your-project). |
+| `PEEN_CONFIG_DIR` | required, absolute | Global configuration and harness layer. Every worker receives it read-only. See [directories](#directories). |
+| `PEEN_STATE_DIR` | required, absolute | Controller-owned durable state: SQLite, audit logs, worker sockets. No worker receives it. See [directories](#directories). |
+| `PEEN_WORKSPACE_ROOTS` | process working directory | JSON array of absolute paths a client may open as a workspace. See [workspace roots](#workspace-roots). |
+| `PEEN_EXECUTION_PROFILES` | one `native` profile | JSON array of runnable execution profiles a client may name. See [execution profiles](#execution-profiles). |
+| `PEEN_DEFAULT_EXECUTION_PROFILE` | `native` | Profile a session opened without naming one uses. |
+| `PEEN_WORKER_SOCKET_DIR` | `PEEN_STATE_DIR/workers` | Root holding one directory per session worker. A worker receives only its own. |
+| `PEEN_DOCKER_SOCKET` | `DOCKER_HOST`, else `/var/run/docker.sock` | Docker socket the controller uses to create worker containers. Absent means Docker profiles are refused. |
+| `PEEN_WORKER_IMAGE` | empty | Overrides the image for every Docker profile. Empty uses each profile's own `image`, and a profile without one runs the image published alongside this build. Set it to run a worker from a local build. |
+| `PEEN_HOST_USERNAME` | empty | Host account name for a Docker controller started with numeric `--user` IDs. Set together with `PEEN_HOST_HOME`. |
+| `PEEN_HOST_HOME` | empty | Absolute host home for a Docker controller started with numeric `--user` IDs. Set together with `PEEN_HOST_USERNAME`. |
 | `PEEN_AGENT` | `default` | Root agent name. `default` is embedded and may be replaced by `.agents/agents/default.md`. |
 | `PEEN_UPSTREAMS` | required, JSON | Named provider list. See [provider configuration](../README.md#provider-configuration). |
 | `PEEN_DEFAULT_MODEL` | required | Qualified `provider/model` for the root agent and, unless overridden, compaction. |
@@ -33,12 +43,209 @@ before launching Peen.
 | `PEEN_API_TOKEN` | empty | Bearer token. Empty disables authentication. |
 | `PEEN_METRICS_LISTEN_ADDRESS` | `127.0.0.1:9090` | Separate loopback-only Prometheus listener. See [metrics](#metrics). |
 
+## Directories
+
+Peen keeps two directories apart, and refuses to start if they overlap.
+
+`PEEN_CONFIG_DIR` is the global configuration and harness layer: `AGENTS.md`,
+`.agents/`, and the optional `SYSTEM.md`, `APPEND_SYSTEM.md`, and
+`COMPACTION.md`. Every Docker worker receives this directory read-only, so
+anything inside it is readable by every session.
+
+`PEEN_STATE_DIR` is the controller's own durable state: `peen.db`, the audit
+logs, and the worker socket root. No worker receives it.
+
+Peen refuses to start when the two are the same path, or when either sits inside
+the other. Without that rule, the read-only configuration mount would carry
+SQLite into every worker, and one session could read every other session's
+transcript.
+
+The check resolves both paths through their symlinks before comparing, so a
+state directory that is a link into the configuration directory is refused even
+though the two strings share no prefix. A directory Peen has not created yet is
+normal, so the deepest existing ancestor is resolved and the remaining names are
+rejoined onto it. A path that cannot be resolved for any other reason refuses
+startup rather than falling back to the literal string.
+
+```bash
+PEEN_CONFIG_DIR=/absolute/path/to/peen/config
+PEEN_STATE_DIR=/absolute/path/to/peen/state
+```
+
+Siblings under a shared parent are fine. Nesting is not.
+
+## Workspace roots
+
+`PEEN_WORKSPACE_ROOTS` is a JSON array of absolute paths:
+
+```bash
+PEEN_WORKSPACE_ROOTS='["/srv/work","/srv/scratch"]'
+```
+
+A client may open any directory that is a root or sits under one. Peen resolves
+the requested path through its symlinks before checking it, so an alias of an
+allowed directory opens the same session as the real path, and a symlink inside
+a root that points outside it is refused. A path outside every root returns
+`403 WORKSPACE_NOT_ALLOWED` and creates no session.
+
+Leaving the variable unset allows only the process working directory, which
+matches the single-workspace behavior this setting generalizes. Set it when one
+Peen should serve several projects.
+
+Peen refuses to start when a configured root is relative or missing, so a typo
+fails at startup rather than when a client first opens a workspace.
+
+## Execution profiles
+
+A session's tools run under an operator-defined execution profile. A client
+names a profile when it opens a workspace and never sends execution arguments.
+
+`PEEN_EXECUTION_PROFILES` is a JSON array. Leaving it unset defines the single
+`native` profile, so a deployment that configures nothing runs tools on the host
+as it always has. `PEEN_DEFAULT_EXECUTION_PROFILE` names the profile a session
+opened without one uses, and defaults to `native`.
+
+A `native` profile runs the session worker as a child process of the controller,
+using the same installed Peen binary. A `docker` profile runs it in a sibling
+container named `peen-worker-<session-uuid>`.
+
+Peen picks the worker image in one order: `PEEN_WORKER_IMAGE` if it is set, then
+the profile's own `image`, then the image published alongside the running
+controller. That last one is `psyb0t/peen` tagged with the controller's own build
+version, which is why a release runs the worker built beside it without anyone
+editing configuration. A digest cannot do that, because the digest does not
+exist until the push that creates it has finished.
+
+A build with no release tag on `HEAD` reports `dev`, so it names an image the
+registry has no reason to hold. Set `PEEN_WORKER_IMAGE` to run a Docker worker
+from a local build.
+
+Any reference the daemon can resolve is accepted, by tag or by digest, from any
+repository. A deployment naming its own image is naming it on purpose, and a
+controller that can create containers at all can already create them from any
+image. A worker container does start as root so the Peen entrypoint can create
+the controller's host account and drop to it, so an image without that
+entrypoint fails when the worker runs, not before.
+
+An image the daemon does not already hold is pulled. The Engine API's container
+create does not pull the way the `docker` CLI does, so without this a worker
+could not start on a host that had never seen the image.
+
+Peen records the repository digest the daemon reports for the image on the worker
+generation, so naming a tag still leaves a durable record of the exact bytes that
+ran. A locally built image has no repository digest until it is pushed, and the
+generation then records none rather than the local image ID, which no registry
+could resolve.
+
+A Docker profile needs the controller to reach a Docker socket. Peen decides
+that at startup by checking `PEEN_DOCKER_SOCKET`, then a `unix://` `DOCKER_HOST`,
+then `/var/run/docker.sock`. Without one, a session on a Docker profile is
+refused. Peen never falls back to a native worker, because that would run the
+model's tools on the host after the operator asked for a container.
+
+```bash
+PEEN_EXECUTION_PROFILES='[
+  {"name":"native","kind":"native"},
+  {"name":"sandbox","kind":"docker"},
+  {"name":"host-like","kind":"docker",
+   "allowNetwork":true,"allowDockerSocket":true}
+]'
+PEEN_DEFAULT_EXECUTION_PROFILE=native
+```
+
+| Field | Meaning |
+| --- | --- |
+| `name` | The name a client may send as `profile` when it opens a workspace. |
+| `kind` | `native` or `docker`. |
+| `image` | Docker only, optional. Any image reference the daemon can resolve. Empty runs the image published alongside this build. Overridden by `PEEN_WORKER_IMAGE` when that is set. |
+| `mounts` | Extra host paths the worker container gets, each with `readOnly`. |
+| `allowNetwork` | Docker only. False creates the container with networking disabled. |
+| `allowDockerSocket` | Docker only. Mounts the host Docker socket into the worker. |
+| `allowPrivilegeEscalation` | Docker only. Gives the worker account passwordless sudo and removes the worker's `no-new-privileges` guard. Reported as a capability warning. |
+| `revision` | Records the profile definition version on every worker generation. |
+
+A Docker worker runs as the controller's own host UID, GID, and username, so
+files it writes in a mounted workspace keep host ownership. Peen refuses to start
+a Docker worker as root. The workspace is mounted writable at its literal host
+path, the config directory read-only at its literal path, and the session's own
+socket directory writable, so a path in a transcript means the same thing inside
+and outside the container.
+
+A native controller reads its username and home from the operating system. A
+controller itself running in Docker with `--user uid:gid` has no passwd entry
+for that host account, so set `PEEN_HOST_USERNAME` and `PEEN_HOST_HOME` together.
+Peen uses those values with the controller's numeric UID and GID to recreate the
+same account inside each worker. A partial pair or a relative home fails startup.
+
+A worker receives only the runtime configuration required to run a turn. This
+includes the provider definitions, model selection, limits, and the named
+provider credentials selected by `apiKeyEnv`. It never receives
+`PEEN_STATE_DIR`, the public `PEEN_API_TOKEN`, controller Docker authority, or
+the entrypoint's identity controls. The provider credential is available to the
+worker's agent process, so do not give a Docker profile a workspace containing
+secrets you would not expose to that process.
+
+### Privilege escalation
+
+`allowPrivilegeEscalation` gives the agent working sudo inside its own container.
+The image installs sudo but ships no sudoers rule, so sudo authorizes nobody
+until a profile asks for it.
+
+Every Docker worker starts as root only for entrypoint bootstrap. The entrypoint
+creates or reconciles the controller host UID, GID, and username inside the
+image, then drops to that account with `setpriv` before the agent starts. This
+keeps both host file ownership and the host username correct inside a worker.
+
+For an escalating profile, the entrypoint also writes
+`/etc/sudoers.d/peen-worker` for exactly that account. Other Docker profiles
+write no sudoers rule and receive Docker's `no-new-privileges` guard. A `native`
+profile cannot set the flag: there is no entrypoint to grant anything, so Peen
+refuses the profile at startup rather than accepting a promise it cannot keep.
+
+This is host-root-equivalent inside the container. Combined with `mounts`, it
+reaches whatever those mounts expose. It is a separate decision from
+`allowDockerSocket`, and neither implies the other.
+
+### Worker sockets
+
+`PEEN_WORKER_SOCKET_DIR` is the root, and it defaults to
+`PEEN_STATE_DIR/workers`. Each session gets its own directory beneath it,
+`<root>/<session-uuid>/worker.sock`, and a Docker worker is given that one
+directory rather than the root. The root lists every live session's socket, so
+mounting it would show one worker where every other session's controller surface
+lives.
+
+A Unix socket address holds 107 bytes, and the root plus the session directory
+and file name has to fit inside that. Peen measures it at startup and refuses to
+start with the length it computed, so a deep state directory is fixed by naming
+a shorter `PEEN_WORKER_SOCKET_DIR` rather than by finding the limit when a client
+sends its first message.
+
+`allowDockerSocket` is a separate opt-in from the controller's own Docker
+authority. The controller's socket lets it create worker containers. This option
+additionally gives the worker its own access to the daemon, which is
+host-root-equivalent. Peen adds the socket's owning group to the worker's
+supplementary groups, read from the socket itself, so the worker reaches the
+daemon without running as root. A socket owned by group 0 is refused.
+
+Naming a profile the operator did not define returns 403 and creates no session.
+Opening an existing session never changes the profile it already runs under.
+
+Moving an existing session to another profile is a separate operation,
+`POST /v1/session/reconfigure`, and it requires a reason. Peen records every
+change in `session_profile_decisions` with the profile the session came from,
+the profile it moved to, the reason, and the time. A session with a turn in
+flight is refused until that turn ends. On success Peen stops the session's
+current worker, so the next turn starts a new generation under the new
+profile. `GET /v1/session/profile-decisions` reads that history back.
+
 ## Logging and audit trail
 
 `LOG_LEVEL` controls which structured application records go to stdout. The
 audit sink retains debug-and-above records in the active UTC-day file,
 `PEEN_LOG_DIRECTORY/YYYYMMDD-000000.log`. When `PEEN_LOG_DIRECTORY` is empty,
-the directory defaults to `PEEN_CONFIG_DIR/logs`; set a path to override it.
+the directory defaults to `PEEN_STATE_DIR/logs`; set a path to override it. Keep
+it out of `PEEN_CONFIG_DIR`, which every worker can read.
 `PEEN_LOG_RETENTION_DAYS=14` keeps at most 14 daily files. The directory and
 files are created as `0700` and `0600` respectively.
 
@@ -46,7 +253,14 @@ files are created as `0700` and `0600` respectively.
 child-agent, model, tool-call, and service fields through the log chain. Audit
 records name the resolved harness manifest, skill activation, hook actions,
 child-agent lifecycle, provider and tool outcomes, plus content byte counts and
-SHA-256 digests. Raw user prompts, model thinking, tool arguments, tool results,
+SHA-256 digests.
+
+The agent loop runs in a session's worker, so those records are produced in
+another process. The controller reads each worker's output and re-emits it
+through its own logging stack at the level the worker used, tagged with
+`session_id` and `worker_generation_id`. That is what puts them in this file. A
+worker receives neither the audit directory nor the state directory, so it never
+writes here itself and never sees another session's records. Raw user prompts, model thinking, tool arguments, tool results,
 environment values, and credentials are not copied into logs. Hook records may
 include bounded operational counters such as the active-context token estimate.
 The durable SQLite transcript retains the sensitive, verbatim trace for
@@ -168,7 +382,7 @@ same order, every turn:
 1. Embedded operating rules, the `planning` and `freshness` skills, and the
    `default` root agent are the immutable base layer.
 2. `PEEN_CONFIG_DIR` extends the base layer.
-3. Every filesystem ancestor of the startup workspace is then
+3. Every filesystem ancestor of the session's workspace is then
    applied, from `/` down to the workspace itself.
 4. At each filesystem layer, `AGENTS.md` and `.agents/` are read before moving to the
    next, more specific layer.

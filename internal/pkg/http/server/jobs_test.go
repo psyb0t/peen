@@ -204,7 +204,7 @@ func TestServerSessionJobEndpoints(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			instance, err := New(Dependencies{Runtime: tc.runtime})
+			instance, err := newTestServer(Dependencies{Runtime: tc.runtime})
 			require.NoError(t, err)
 
 			request := httptest.NewRequestWithContext(
@@ -262,7 +262,7 @@ func TestServerSessionJobEndpointsRequireTheBearerToken(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			instance, err := New(Dependencies{
+			instance, err := newTestServer(Dependencies{
 				Runtime:  &testRuntime{sessionID: sessionID},
 				APIToken: testBearerToken,
 			})
@@ -287,7 +287,7 @@ func TestServerSessionJobEndpointsRequireTheBearerToken(t *testing.T) {
 }
 
 func TestServerSessionJobEndpointsRejectAMissingSessionHeader(t *testing.T) {
-	instance, err := New(Dependencies{Runtime: &testRuntime{}})
+	instance, err := newTestServer(Dependencies{Runtime: &testRuntime{}})
 	require.NoError(t, err)
 
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, jobsPath(), nil)

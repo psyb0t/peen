@@ -31,6 +31,11 @@ type Options struct {
 type OpenSessionOptions struct {
 	RootAgent string
 	ModelID   string
+
+	// ExecutionProfile is the operator-defined profile a newly created session
+	// runs under. Opening an existing session never changes its profile, so
+	// this only applies to creation.
+	ExecutionProfile string
 }
 
 // OpenSessionResult is a resolved session and whether this call created it.
@@ -69,11 +74,12 @@ type MessageInput struct {
 
 // EventInput describes one exact internal or protocol event.
 type EventInput struct {
-	ID               uuid.UUID
-	RequestID        uuid.UUID
-	EventType        string
-	PayloadJSON      string
-	ParentToolCallID string
+	ID                 uuid.UUID
+	RequestID          uuid.UUID
+	WorkerGenerationID string
+	EventType          string
+	PayloadJSON        string
+	ParentToolCallID   string
 }
 
 // FinalizeTurnInput describes terminal turn state and durable references.
@@ -129,22 +135,23 @@ type CompactionInput struct {
 
 // StartAgentRunInput describes the immutable child-agent launch record.
 type StartAgentRunInput struct {
-	ID               uuid.UUID
-	ParentTurnID     uuid.UUID
-	ParentAgentRunID *uuid.UUID
-	ParentToolCallID string
-	RequestID        uuid.UUID
-	Name             string
-	Definition       models.AgentRunDefinition
-	Depth            int64
-	Workspace        string
-	ModelReference   string
-	ModelID          string
-	Task             string
-	Instructions     string
-	AllowedToolsJSON string
-	SystemPrompt     string
-	StartedAt        time.Time
+	ID                 uuid.UUID
+	ParentTurnID       uuid.UUID
+	WorkerGenerationID string
+	ParentAgentRunID   *uuid.UUID
+	ParentToolCallID   string
+	RequestID          uuid.UUID
+	Name               string
+	Definition         models.AgentRunDefinition
+	Depth              int64
+	Workspace          string
+	ModelReference     string
+	ModelID            string
+	Task               string
+	Instructions       string
+	AllowedToolsJSON   string
+	SystemPrompt       string
+	StartedAt          time.Time
 }
 
 // FinalizeAgentRunInput describes the durable terminal outcome of a child.
@@ -212,6 +219,53 @@ type TurnPage struct {
 	HasMore bool
 }
 
+// ListWorkerGenerationsOptions controls a bounded page of one session's
+// worker generations.
+type ListWorkerGenerationsOptions struct {
+	Limit  int
+	Offset int
+}
+
+// WorkerGenerationPage is one complete page of worker generations.
+type WorkerGenerationPage struct {
+	Items   []*models.WorkerGeneration
+	Limit   int
+	Offset  int
+	HasMore bool
+}
+
+// ListProfileDecisionsOptions controls a bounded page of one session's
+// execution profile decisions.
+type ListProfileDecisionsOptions struct {
+	Limit  int
+	Offset int
+}
+
+// ProfileDecisionPage is one complete page of profile decisions.
+type ProfileDecisionPage struct {
+	Items   []*models.SessionProfileDecision
+	Limit   int
+	Offset  int
+	HasMore bool
+}
+
+// ListSessionsOptions controls a bounded page of the control surface's
+// durable sessions.
+type ListSessionsOptions struct {
+	Limit  int
+	Offset int
+}
+
+// WorkspaceSessionPage is one complete page of durable sessions. Every session
+// is bound to a canonical workspace, so the name says which sessions it holds
+// without stuttering as session.SessionPage.
+type WorkspaceSessionPage struct {
+	Items   []*models.Session
+	Limit   int
+	Offset  int
+	HasMore bool
+}
+
 // ListEventsOptions controls a bounded page of durable protocol events.
 type ListEventsOptions struct {
 	Limit  int
@@ -269,14 +323,15 @@ type NoticePage struct {
 
 // CreateJobInput records a supervised process before its output is observed.
 type CreateJobInput struct {
-	ID         uuid.UUID
-	TurnID     uuid.UUID
-	ToolCallID string
-	PID        int64
-	Purpose    string
-	Command    string
-	Directory  string
-	StartedAt  time.Time
+	ID                 uuid.UUID
+	TurnID             uuid.UUID
+	WorkerGenerationID string
+	ToolCallID         string
+	PID                int64
+	Purpose            string
+	Command            string
+	Directory          string
+	StartedAt          time.Time
 }
 
 // AppendJobOutputInput is one immutable line in the combined process stream.

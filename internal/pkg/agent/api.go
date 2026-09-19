@@ -186,8 +186,11 @@ func (r *Runtime) RunMessage(
 	}, nil
 }
 
-// SessionID returns the durable session assigned to this runtime's startup
-// workspace.
+// SessionID returns the durable session assigned to this runtime's configured
+// workspace, which a turn uses when the caller names no session.
+//
+// It is uuid.Nil on a control-surface runtime, which has no configured
+// workspace. A caller that gets uuid.Nil must name the session it means.
 func (r *Runtime) SessionID() uuid.UUID {
 	return r.sessionID
 }
@@ -202,7 +205,7 @@ func (r *Runtime) Session(
 		return nil, ctxerrors.Wrap(err, "get session")
 	}
 
-	result := sessionToAPI(stored, r.store.IsActive(sessionID))
+	result := SessionToAPI(stored, r.store.IsActive(sessionID))
 
 	return &result, nil
 }
@@ -254,6 +257,7 @@ func messageRequestToTurnRequest(
 	input := TurnRequest{
 		Message:       request.Message,
 		Model:         optionalString(request.Model),
+		SessionID:     request.SessionID,
 		RequestID:     requestID,
 		SourceEventID: request.SourceEventID,
 	}

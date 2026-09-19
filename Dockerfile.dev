@@ -13,6 +13,8 @@ RUN apk add --no-cache \
     musl-dev \
     bash \
     curl \
+    docker-cli \
+    docker-cli-buildx \
     git \
     jq \
     shellcheck \

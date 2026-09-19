@@ -11,7 +11,11 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
-func sessionToAPI(
+// SessionToAPI maps one durable session onto its API representation. It is
+// exported so the control surface reports a session in exactly the shape the
+// session endpoints already return, rather than keeping a second mapping that
+// could drift from this one.
+func SessionToAPI(
 	stored *models.Session,
 	activeTurn bool,
 ) api.Session {

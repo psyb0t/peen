@@ -18,6 +18,7 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/agent"
+	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,17 +27,22 @@ const (
 	testWebSocketReadTimeout  = 2 * time.Second
 	testWebSocketAgentEvent   = "message.delta"
 	testWebSocketAgentMessage = "hello"
+
+	// webSocketClientPollInterval paces the wait for the server to finish
+	// registering a dialed client.
+	webSocketClientPollInterval = 5 * time.Millisecond
 )
 
+// A worker's events reach every global client through the durable relay.
+//
+// The turn itself runs in a worker, so the transport no longer sees per-event
+// callbacks. The controller writes each event, then hands the same records here
+// for delivery, which is what keeps a client from ever seeing an event the
+// database does not already hold.
 func TestWebSocketBroadcastsSessionEventsToGlobalClients(t *testing.T) {
 	sessionID := uuid.New()
-	runtime := newTestRuntime(sessionID)
-	runtime.runEvent = agent.Event{
-		Type:    testWebSocketAgentEvent,
-		Payload: json.RawMessage(`{"text":"hello"}`),
-	}
-	instance, err := New(Dependencies{
-		Runtime:  runtime,
+	instance, err := newTestServer(Dependencies{
+		Runtime:  newTestRuntime(sessionID),
 		APIToken: testAPIToken,
 	})
 	require.NoError(t, err)
@@ -50,24 +56,35 @@ func TestWebSocketBroadcastsSessionEventsToGlobalClients(t *testing.T) {
 	second := dialWebSocket(t, httpServer.URL, nil)
 	t.Cleanup(func() { require.NoError(t, second.Close()) })
 
-	inbound := newWebSocketMessage(
-		agent.MessageRequest{Message: testWebSocketAgentMessage},
-	)
-	require.NoError(t, first.WriteJSON(inbound))
+	waitForWebSocketClients(t, instance, sessionID, 2)
 
-	assertWebSocketAgentEvent(t, first, sessionID, inbound.ID, runtime.runEvent)
-	assertWebSocketAgentEvent(t, second, sessionID, inbound.ID, runtime.runEvent)
+	requestID := uuid.New()
+	durable := agent.Event{
+		Type:      testWebSocketAgentEvent,
+		Payload:   json.RawMessage(`{"text":"hello"}`),
+		RequestID: requestID,
+	}
+
+	instance.BroadcastDurableSessionEvents(sessionID, []session.EventInput{{
+		RequestID:   requestID,
+		EventType:   testWebSocketAgentEvent,
+		PayloadJSON: `{"text":"hello"}`,
+	}})
+
+	assertWebSocketAgentEvent(t, first, sessionID, uuid.Nil, durable)
+	assertWebSocketAgentEvent(t, second, sessionID, uuid.Nil, durable)
 }
 
+// A client that asked for one session's feed sees only that session's durable
+// events.
 func TestWebSocketFiltersOutboundEventsBySession(t *testing.T) {
 	sessionID := uuid.New()
 	otherSessionID := uuid.New()
-	runtime := newTestRuntime(sessionID)
-	runtime.runEvent = agent.Event{
-		Type:    testWebSocketAgentEvent,
-		Payload: json.RawMessage(`{"text":"hello"}`),
-	}
-	instance, err := New(Dependencies{Runtime: runtime, APIToken: testAPIToken})
+
+	instance, err := newTestServer(Dependencies{
+		Runtime:  newTestRuntime(sessionID),
+		APIToken: testAPIToken,
+	})
 	require.NoError(t, err)
 	t.Cleanup(instance.webSocketHub.Close)
 
@@ -81,20 +98,97 @@ func TestWebSocketFiltersOutboundEventsBySession(t *testing.T) {
 	nonMatching := dialWebSocket(t, httpServer.URL, &otherSessionID)
 	t.Cleanup(func() { require.NoError(t, nonMatching.Close()) })
 
+	// The global client and the matching filter both receive this session; the
+	// non-matching filter must not. Both filters have to be registered before
+	// the counts mean anything: a connected client whose filter has not landed
+	// yet still counts as deliverable for every session.
+	waitForWebSocketSessionFilters(t, instance, 2)
+	waitForWebSocketClients(t, instance, sessionID, 2)
+	waitForWebSocketClients(t, instance, otherSessionID, 2)
+
+	requestID := uuid.New()
+	durable := agent.Event{
+		Type:      testWebSocketAgentEvent,
+		Payload:   json.RawMessage(`{"text":"hello"}`),
+		RequestID: requestID,
+	}
+
+	instance.BroadcastDurableSessionEvents(sessionID, []session.EventInput{{
+		RequestID:   requestID,
+		EventType:   testWebSocketAgentEvent,
+		PayloadJSON: `{"text":"hello"}`,
+	}})
+
+	assertWebSocketAgentEvent(t, global, sessionID, uuid.Nil, durable)
+	assertWebSocketAgentEvent(t, matching, sessionID, uuid.Nil, durable)
+	assertNoWebSocketEvent(t, nonMatching)
+}
+
+// A filter is recorded before the upgrade puts its client in the hub. A
+// broadcast landing in that window must not discard the filter, or the client
+// finishes connecting as a global subscriber and receives every session.
+func TestWebSocketKeepsAFilterRecordedBeforeItsClientRegisters(t *testing.T) {
+	sessionID := uuid.New()
+	otherSessionID := uuid.New()
+	connectingClientID := uuid.New()
+
+	instance, err := newTestServer(Dependencies{
+		Runtime:  newTestRuntime(sessionID),
+		APIToken: testAPIToken,
+	})
+	require.NoError(t, err)
+	t.Cleanup(instance.webSocketHub.Close)
+
+	instance.setWebSocketFilter(connectingClientID, otherSessionID)
+
+	assert.Empty(t, instance.webSocketClientsFor(sessionID))
+
+	instance.webSocketFilterMutex.Lock()
+	entry, kept := instance.webSocketFilters[connectingClientID]
+	instance.webSocketFilterMutex.Unlock()
+
+	require.True(t, kept, "the filter was dropped before its client registered")
+	assert.Equal(t, otherSessionID, entry.sessionID)
+	assert.False(t, entry.registered)
+}
+
+// A client message is routed to the session's worker, and the session comes
+// from the transport rather than the message body.
+func TestWebSocketRoutesTheMessageToTheSessionWorker(t *testing.T) {
+	sessionID := uuid.New()
+	runtime := newTestRuntime(sessionID)
+	router := &testTurnRouter{runtime: runtime}
+
+	instance, err := newTestServer(Dependencies{
+		Runtime:  runtime,
+		Turns:    router,
+		APIToken: testAPIToken,
+	})
+	require.NoError(t, err)
+	t.Cleanup(instance.webSocketHub.Close)
+
+	httpServer := httptest.NewServer(instance.testHandler)
+	t.Cleanup(httpServer.Close)
+
+	connection := dialWebSocket(t, httpServer.URL, nil)
+	t.Cleanup(func() { require.NoError(t, connection.Close()) })
+
 	inbound := newWebSocketMessage(
 		agent.MessageRequest{Message: testWebSocketAgentMessage},
 	)
-	require.NoError(t, global.WriteJSON(inbound))
+	require.NoError(t, connection.WriteJSON(inbound))
 
-	assertWebSocketAgentEvent(t, global, sessionID, inbound.ID, runtime.runEvent)
-	assertWebSocketAgentEvent(t, matching, sessionID, inbound.ID, runtime.runEvent)
-	assertNoWebSocketEvent(t, nonMatching)
+	assertWebSocketMessageCompleted(t, connection)
+
+	require.Len(t, router.sessions, 1)
+	assert.Equal(t, sessionID, router.sessions[0])
+	assert.Equal(t, testWebSocketAgentMessage, runtime.lastRequest.Message)
 }
 
 func TestWebSocketRejectsUnknownMessageFields(t *testing.T) {
 	sessionID := uuid.New()
 	runtime := newTestRuntime(sessionID)
-	instance, err := New(Dependencies{Runtime: runtime})
+	instance, err := newTestServer(Dependencies{Runtime: runtime})
 	require.NoError(t, err)
 	t.Cleanup(instance.webSocketHub.Close)
 
@@ -119,9 +213,13 @@ func TestWebSocketRejectsUnknownMessageFields(t *testing.T) {
 	assert.Zero(t, runtime.runCalls)
 }
 
-func TestWebSocketRejectsClientSessionSelectionPrivately(t *testing.T) {
-	sessionID := uuid.New()
-	instance, err := New(Dependencies{Runtime: newTestRuntime(sessionID)})
+// A control surface serves many workspaces, so sessionId metadata routes the
+// message to one of them. The transport carries the routed session into the
+// turn rather than letting the message body choose it.
+func TestWebSocketRoutesMessageToTheNamedSession(t *testing.T) {
+	routed := uuid.New()
+	runtime := newTestRuntime(uuid.New())
+	instance, err := newTestServer(Dependencies{Runtime: runtime})
 	require.NoError(t, err)
 	t.Cleanup(instance.webSocketHub.Close)
 
@@ -130,18 +228,72 @@ func TestWebSocketRejectsClientSessionSelectionPrivately(t *testing.T) {
 
 	sender := dialWebSocket(t, httpServer.URL, nil)
 	t.Cleanup(func() { require.NoError(t, sender.Close()) })
-	observer := dialWebSocket(t, httpServer.URL, nil)
-	t.Cleanup(func() { require.NoError(t, observer.Close()) })
+
 	inbound := dabluveees.NewEvent(
 		webSocketMessageSendEventType,
 		agent.MessageRequest{Message: testWebSocketAgentMessage},
-	).SetMetadata(webSocketMetadataSessionID, uuid.New().String())
+	).SetMetadata(webSocketMetadataSessionID, routed.String())
+	require.NoError(t, sender.WriteJSON(inbound))
+
+	received := readWebSocketEvent(t, sender)
+	assert.Equal(t, webSocketMessageCompletedEventType, string(received.Type))
+
+	require.NotNil(t, runtime.lastRequest.SessionID)
+	assert.Equal(t, routed, *runtime.lastRequest.SessionID)
+}
+
+// A malformed sessionId never reaches the runtime, so a bad route cannot start
+// a turn.
+func TestWebSocketRejectsMalformedSessionIDMetadata(t *testing.T) {
+	runtime := newTestRuntime(uuid.New())
+	instance, err := newTestServer(Dependencies{Runtime: runtime})
+	require.NoError(t, err)
+	t.Cleanup(instance.webSocketHub.Close)
+
+	httpServer := httptest.NewServer(instance.testHandler)
+	t.Cleanup(httpServer.Close)
+
+	sender := dialWebSocket(t, httpServer.URL, nil)
+	t.Cleanup(func() { require.NoError(t, sender.Close()) })
+
+	inbound := dabluveees.NewEvent(
+		webSocketMessageSendEventType,
+		agent.MessageRequest{Message: testWebSocketAgentMessage},
+	).SetMetadata(webSocketMetadataSessionID, "not-a-uuid")
 	require.NoError(t, sender.WriteJSON(inbound))
 
 	received := readWebSocketEvent(t, sender)
 	assert.Equal(t, webSocketMessageFailedEventType, string(received.Type))
-	assertWebSocketMetadata(t, received, sessionID, inbound.ID)
-	assertNoWebSocketEvent(t, observer)
+
+	failure := webSocketMessageFailure{}
+	require.NoError(t, json.Unmarshal(received.Data, &failure))
+	assert.Equal(t, aichteeteapee.ErrorCodeValidationFailed, failure.Code)
+	assert.Zero(t, runtime.runCalls)
+}
+
+// A control-surface runtime has no startup session, so a message that names no
+// session is refused rather than run against an arbitrary workspace.
+func TestWebSocketRequiresASessionWithoutAStartupSession(t *testing.T) {
+	runtime := newTestRuntime(uuid.Nil)
+	instance, err := newTestServer(Dependencies{Runtime: runtime})
+	require.NoError(t, err)
+	t.Cleanup(instance.webSocketHub.Close)
+
+	httpServer := httptest.NewServer(instance.testHandler)
+	t.Cleanup(httpServer.Close)
+
+	sender := dialWebSocket(t, httpServer.URL, nil)
+	t.Cleanup(func() { require.NoError(t, sender.Close()) })
+
+	inbound := dabluveees.NewEvent(
+		webSocketMessageSendEventType,
+		agent.MessageRequest{Message: testWebSocketAgentMessage},
+	)
+	require.NoError(t, sender.WriteJSON(inbound))
+
+	received := readWebSocketEvent(t, sender)
+	assert.Equal(t, webSocketMessageFailedEventType, string(received.Type))
+	assert.Zero(t, runtime.runCalls)
 }
 
 func TestWebSocketMessageFailureFor(t *testing.T) {
@@ -243,6 +395,74 @@ func newWebSocketMessage(
 	return *dabluveees.NewEvent(
 		webSocketMessageSendEventType,
 		data,
+	)
+}
+
+// waitForWebSocketClients blocks until the server has registered the expected
+// number of deliverable clients for a session.
+//
+// Dialing returns as soon as the upgrade response is written, which is before
+// the server has finished registering the connection and its session filter.
+// Broadcasting in that window would drop the event and make the test flaky.
+func waitForWebSocketClients(
+	t *testing.T,
+	instance *Server,
+	sessionID uuid.UUID,
+	want int,
+) {
+	t.Helper()
+
+	require.Eventually(
+		t,
+		func() bool {
+			return len(instance.webSocketClientsFor(sessionID)) == want
+		},
+		testWebSocketReadTimeout,
+		webSocketClientPollInterval,
+		"the server did not register %d clients for the session",
+		want,
+	)
+}
+
+// waitForWebSocketSessionFilters blocks until the server has recorded want
+// session filters. Registering the connection and recording its filter are two
+// steps, and an unfiltered client is deliverable for every session, so a
+// broadcast in that window reaches a client that asked for a different session.
+func waitForWebSocketSessionFilters(
+	t *testing.T,
+	instance *Server,
+	want int,
+) {
+	t.Helper()
+
+	require.Eventually(
+		t,
+		func() bool {
+			instance.webSocketFilterMutex.Lock()
+			defer instance.webSocketFilterMutex.Unlock()
+
+			return len(instance.webSocketFilters) == want
+		},
+		testWebSocketReadTimeout,
+		webSocketClientPollInterval,
+		"the server did not register %d session filters",
+		want,
+	)
+}
+
+// assertWebSocketMessageCompleted waits for the transport's own completion
+// frame, which is what the client sees once the worker answers.
+func assertWebSocketMessageCompleted(
+	t *testing.T,
+	connection *websocket.Conn,
+) {
+	t.Helper()
+
+	received := readWebSocketEvent(t, connection)
+	assert.Equal(
+		t,
+		webSocketMessageCompletedEventType,
+		string(received.Type),
 	)
 }
 

@@ -22,4 +22,18 @@ const (
 	ErrorCodeUserMessageQueueFull = aichteeteapee.ErrorCode(
 		"USER_MESSAGE_QUEUE_FULL",
 	)
+	// ErrorCodeExecutionProfileNotAllowed reports a named execution profile
+	// the deployment does not define. It is a refusal rather than a
+	// not-found, because the allowed set is operator policy and the response
+	// never names which profiles exist.
+	ErrorCodeExecutionProfileNotAllowed = aichteeteapee.ErrorCode(
+		"EXECUTION_PROFILE_NOT_ALLOWED",
+	)
+	// ErrorCodeWorkspaceNotAllowed reports a requested workspace that falls
+	// outside every configured workspace root. It is distinct from a
+	// validation failure because the path is well formed and the deployment
+	// simply does not expose it.
+	ErrorCodeWorkspaceNotAllowed = aichteeteapee.ErrorCode(
+		"WORKSPACE_NOT_ALLOWED",
+	)
 )

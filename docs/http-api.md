@@ -29,10 +29,56 @@ frames, not HTTP request and response bodies. An optional
 one session. It does not create, select, or authorize a session. Request
 logging excludes query strings.
 
-Peen opens or resumes one durable session when its runtime starts. The session
-is keyed by the canonical process working directory, so a client cannot create,
-select, or replace it through a message frame. No REST endpoint creates a
-session or accepts a user message. Peen gives each socket a server-controlled
+The control service starts with no sessions. A client creates one by naming a
+workspace through `POST /v1/sessions/open`, the only operation that creates a
+session. Sessions are keyed by canonical workspace path, so opening the same
+directory again, by any of its names, resumes the existing session instead of
+making a second one. `GET /v1/sessions` lists them, and takes no session header
+because it is how a client discovers them.
+
+A workspace must sit under a configured `PEEN_WORKSPACE_ROOTS` entry. Peen
+refuses one outside every root with `403 WORKSPACE_NOT_ALLOWED` and creates no
+session. The refusal names no root, so a caller cannot map the deployment's
+directory layout by probing it.
+
+An open request may also name an execution profile. That is the only environment
+choice a client makes: images, mounts, network, and capabilities come from
+deployment configuration alone. A name the operator did not define is refused
+and creates no session, and opening an existing session never changes the
+profile it already runs under. `GET /v1/execution-profiles` lists what a client
+may name, with `hostRootEquivalent` and a `capabilityWarning` for a profile that
+grants effectively host-root access.
+
+`GET /v1/session/workers` reports one session's durable worker generations,
+newest first. A generation is one run of one worker process. It records the
+profile and profile revision it started under, its lifecycle state, and for a
+Docker generation its container and immutable image digest. Turns, post-start
+protocol events, jobs, and child-agent runs record the generation that produced
+them. The accepted user-message record predates worker startup, so it has no
+generation.
+
+`POST /v1/session/reconfigure` moves an already-open session to a different
+profile. The body carries `profile` and `reason`, both required, and nothing
+else. An image, mount, network setting, or capability in the body is rejected by
+schema validation before a handler sees it. An undefined profile is refused with
+`403 EXECUTION_PROFILE_NOT_ALLOWED`, and the refusal names no profile, so a
+caller cannot enumerate the allowed set by probing. A session with a turn in
+flight is refused with `409 SESSION_BUSY`, because changing the environment
+under running work would attribute that turn's tool calls to a profile that did
+not run them. The same call succeeds once the turn ends. On success Peen stops
+the session's current worker, so the next turn starts a new generation under
+the new profile instead of continuing in the old one.
+
+`GET /v1/session/profile-decisions` reports that history, newest first. Each
+entry names the profile the session moved from, the profile it moved to, the
+reason the caller gave, and when it was decided.
+
+A `message.send` frame names its session in the event's `sessionId` metadata.
+That routes the message, it does not authorize it. Peen loads the session
+before starting a turn, so an unknown session ID fails there and writes no turn
+record. The transport supplies the routed session, not the message body, so a
+message cannot redirect itself to another session. No REST endpoint accepts a
+user message. Peen gives each socket a server-controlled
 [Aichteeteapee WShub](https://github.com/psyb0t/aichteeteapee) identity, then
 fans each accepted session event to all global sockets and to sockets filtered
 for that session. The server retains WShub's default origin policy: an `Origin`
@@ -159,7 +205,9 @@ the optional context and prompt snapshot hashes used for that turn.
 
 Reads the exact resolved context identified by a turn's `contextSnapshotHash`.
 `X-Session-ID` is required. The response includes the hash, creation time,
-resolved content, and manifest. A hash belonging to another session returns
+resolved content, and manifest. The manifest is an array of the layers the
+context was assembled from, in resolution order, each carrying `kind`, `name`,
+`source`, `priority`, and `hash`. A hash belonging to another session returns
 `404`.
 
 ## GET /v1/session/prompt-snapshots/{promptHash}
@@ -243,7 +291,7 @@ Lists durable protocol events recorded while Peen handled the session.
 `order` (`asc` or `desc`).
 
 ```json
-{"events": [{"id": "uuid", "sessionId": "uuid", "turnId": "uuid", "sequence": 1, "requestId": "uuid", "type": "tool_call", "payload": {}, "parentToolCallId": null, "createdAt": "..."}], "limit": 50, "offset": 0, "hasMore": false}
+{"events": [{"id": "uuid", "sessionId": "uuid", "turnId": "uuid", "workerGenerationId": "uuid", "sequence": 1, "requestId": "uuid", "type": "tool_call", "payload": {}, "parentToolCallId": null, "createdAt": "..."}], "limit": 50, "offset": 0, "hasMore": false}
 ```
 
 These are transcript protocol records, not a queue. Listing never consumes or
@@ -279,8 +327,9 @@ Query parameters: `limit`, `offset`, and an optional `state` filter
 
 Each entry is the full durable job row: `jobId`, `sessionId`, `turnId`, `pid`,
 `purpose`, `command`, `directory`, optional `toolCallId`, `state`,
-`startedAt`, optional `endedAt`, `exitCode` (`-1` while unknown), and
-`failureDetail`. The live ring buffers are not this API's source of truth.
+optional `workerGenerationId`, `startedAt`, optional `endedAt`, `exitCode`
+(`-1` while unknown), and `failureDetail`. The live ring buffers are not this
+API's source of truth.
 
 ## GET /v1/session/jobs/{jobId}/output
 
@@ -321,9 +370,9 @@ required. Query parameters: `limit`, `offset`, and an optional `state` filter
 
 Each entry is a full durable run record: root and parent IDs, task, effective
 instructions, allowed tools, system prompt, workspace and model identity,
-event count, state and cancellation flag, final text, thinking, response
-messages, token counts, failure details, and timestamps. `definition` is
-`stored` or `ad-hoc`.
+worker generation, event count, state and cancellation flag, final text,
+thinking, response messages, token counts, failure details, and timestamps.
+`definition` is `stored` or `ad-hoc`.
 
 ## GET /v1/session/agents/{agentRunId}
 

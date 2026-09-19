@@ -30,7 +30,7 @@ const (
 // deliberately passed as JSON so session stays transport-neutral and never
 // needs Elelem's types.
 type modelAuditOptions struct {
-	Store               *session.Store
+	Store               session.Storage
 	SessionID           uuid.UUID
 	TurnID              uuid.UUID
 	AgentRunID          *uuid.UUID
@@ -45,7 +45,7 @@ type modelAuditOptions struct {
 // provider round. Elelem invokes these callbacks serially for one Request, but
 // the mutex makes that invariant explicit at the persistence boundary.
 type modelAuditRecorder struct {
-	store     *session.Store
+	store     session.Storage
 	sessionID uuid.UUID
 	model     elelem.Model
 	now       func() time.Time

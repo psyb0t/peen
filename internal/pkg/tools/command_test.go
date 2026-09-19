@@ -68,7 +68,11 @@ func newTestJobExecutor(t *testing.T) *JobExecutor {
 	return newTestJobExecutorWithLimits(t, Limits{})
 }
 
-func newTestJobExecutorWithLimits(t *testing.T, limits Limits) *JobExecutor {
+func newTestJobExecutorWithLimits(
+	t *testing.T,
+	limits Limits,
+	generationIDs ...uuid.UUID,
+) *JobExecutor {
 	t.Helper()
 
 	executor := newTestExecutorWithLimits(t, limits)
@@ -76,7 +80,12 @@ func newTestJobExecutorWithLimits(t *testing.T, limits Limits) *JobExecutor {
 	registry, err := NewJobRegistry(uuid.New(), nil, limits)
 	require.NoError(t, err)
 
-	jobExecutor, err := NewJobExecutor(executor, registry, uuid.New())
+	jobExecutor, err := NewJobExecutor(
+		executor,
+		registry,
+		uuid.New(),
+		generationIDs...,
+	)
 	require.NoError(t, err)
 
 	return jobExecutor
@@ -530,7 +539,8 @@ func TestRunCommand_ContextAlreadyCancelled(t *testing.T) {
 func TestRunCommand_ToolCallIDRecordedOnJob(t *testing.T) {
 	t.Parallel()
 
-	executor := newTestJobExecutor(t)
+	generationID := uuid.New()
+	executor := newTestJobExecutorWithLimits(t, Limits{}, generationID)
 
 	const callID = "call-123"
 
@@ -545,6 +555,7 @@ func TestRunCommand_ToolCallIDRecordedOnJob(t *testing.T) {
 	job, ok := executor.jobs.Get(out.JobID)
 	require.True(t, ok)
 	assert.Equal(t, callID, job.ToolCallID)
+	assert.Equal(t, generationID.String(), job.WorkerGenerationID)
 }
 
 func TestRunCommand_GracefulStopReachesForkedGrandchild(t *testing.T) {

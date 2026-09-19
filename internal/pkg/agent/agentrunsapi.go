@@ -220,6 +220,9 @@ func agentRunModelToAPI(stored *models.AgentRun) (api.AgentRun, error) {
 		Task:                  stored.Task,
 		Workspace:             stored.Workspace,
 	}
+	if stored.WorkerGenerationID != "" {
+		run.WorkerGenerationId = &stored.WorkerGenerationID
+	}
 
 	if stored.ParentToolCallID != "" {
 		run.ParentToolCallId = &stored.ParentToolCallID

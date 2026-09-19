@@ -18,6 +18,7 @@ import (
 const (
 	realProviderTimeout      = 90 * time.Second
 	realProviderDefaultModel = "PEEN_TEST_DEFAULT_MODEL"
+	realStateDirectoryEnv    = "PEEN_STATE_DIR"
 )
 
 func TestRealProvidersListModels(t *testing.T) {
@@ -42,6 +43,15 @@ func TestRealProvidersListModels(t *testing.T) {
 
 func realConfig(t *testing.T) config.Config {
 	t.Helper()
+
+	// A deployment .env written before PEEN_STATE_DIR existed still names a
+	// provider list and a model, which is all this suite reads from it. The
+	// test process owns no durable state, so it points the controller
+	// validation path at a directory of its own rather than requiring the
+	// operator's file to carry one.
+	if strings.TrimSpace(os.Getenv(realStateDirectoryEnv)) == "" {
+		t.Setenv(realStateDirectoryEnv, t.TempDir())
+	}
 
 	configured, err := config.Parse()
 	require.NoError(t, err)

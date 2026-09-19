@@ -261,7 +261,10 @@ func (r *Runtime) GetSessionContextSnapshot(
 		return nil, ctxerrors.Wrap(err, "get durable context snapshot")
 	}
 
-	manifest := map[string]any{}
+	// The manifest is stored as the JSON array the harness produced, one entry
+	// per contributing layer, so it decodes into a slice. Decoding it into a
+	// map failed on every snapshot Peen has ever written.
+	manifest := []api.ContextManifestEntry{}
 	if err := json.Unmarshal(
 		[]byte(stored.ManifestJSON),
 		&manifest,
@@ -702,6 +705,10 @@ func transcriptEventToAPI(stored *models.Event) (api.TranscriptEvent, error) {
 	}
 	if stored.ParentToolCallID != "" {
 		converted.ParentToolCallId = &stored.ParentToolCallID
+	}
+
+	if stored.WorkerGenerationID != "" {
+		converted.WorkerGenerationId = &stored.WorkerGenerationID
 	}
 
 	return converted, nil

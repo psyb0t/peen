@@ -118,7 +118,7 @@ func TestServerSessionEventEndpoints(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			instance, err := New(Dependencies{Runtime: tc.runtime})
+			instance, err := newTestServer(Dependencies{Runtime: tc.runtime})
 			require.NoError(t, err)
 
 			request := httptest.NewRequestWithContext(
@@ -165,7 +165,7 @@ func TestServerSessionEventEndpointsRequireTheBearerToken(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			instance, err := New(Dependencies{
+			instance, err := newTestServer(Dependencies{
 				Runtime:  &testRuntime{sessionID: sessionID},
 				APIToken: testBearerToken,
 			})
@@ -190,7 +190,7 @@ func TestServerSessionEventEndpointsRequireTheBearerToken(t *testing.T) {
 }
 
 func TestServerSessionEventEndpointsRejectAMissingSessionHeader(t *testing.T) {
-	instance, err := New(Dependencies{Runtime: &testRuntime{}})
+	instance, err := newTestServer(Dependencies{Runtime: &testRuntime{}})
 	require.NoError(t, err)
 
 	request := httptest.NewRequestWithContext(

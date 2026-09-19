@@ -4,6 +4,245 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.8.0 (2026-09-19)
+
+Peen is now a control service that starts with no sessions. A client names the
+workspace it wants, and the returned session ID routes every turn.
+
+- `peen run` now starts `control-core` and `control-api` instead of the single
+  `http-server` service. `control-core` opens configuration, SQLite, the
+  provider registry, the workspace policy, and the agent runtime, and reports
+  ready only after those exist. `control-api` depends on it, serves REST, the
+  global WebSocket feed, and metrics, and reports ready only once its endpoint
+  answers a connection. Servicepack stops them in reverse order, so the API
+  stops accepting work before SQLite closes.
+- Adds local control-client commands: `peen control status`,
+  `peen session open <workspace>`, and `peen session list`. They call the
+  control API over the configured endpoint. A command that finds no controller
+  takes a start lock under `PEEN_CONFIG_DIR`, re-checks while holding it, and
+  starts `peen run` only if one is still absent, so two racing commands produce
+  one controller. No command opens SQLite or starts a second supervisor.
+  `peen control status` never starts a controller, so it can report that none
+  is running.
+- Adds `peen session attach <session-id>`, which streams one session's live
+  events over the server-side session filter, and `peen session stop
+  <session-id>`, which cancels the session's active turn and reports whether
+  one was running.
+- Splits the model loop out of the control plane. A session's turns now run in
+  a worker process the controller starts on demand, and the controller keeps
+  SQLite, REST, the WebSocket hub, routing, and worker lifecycle. A worker
+  never opens the control database. It reaches durable state over a private
+  per-session Unix socket carrying `run_turn`, `cancel`, and `shutdown`, and
+  authenticates with a credential minted per worker generation. Only the
+  credential's SHA-256 hash is stored. The raw value goes to the worker on
+  stdin and never reaches a command line, an environment variable, a container
+  label, or a log.
+- Adds the internal `peen worker` command, which reads one launch document from
+  stdin, connects back to the controller, and serves that session's turns. It
+  is hidden from `--help` because the controller is its only caller.
+- Every turn, post-start protocol event, job, and child-agent run records the
+  worker generation that produced it in SQLite. The tool surface is the same
+  `tools` package in every environment, so read-before-write hashes, no-replace
+  creation, cancellation, and job signals are unchanged.
+- Public WebSocket `message.send` now resolves the session's operator-selected
+  profile, ensures that session's worker, and dispatches the turn to it. Global
+  event fan-out happens only after the durable write, so a client never sees an
+  event that a reconnect and replay would not produce.
+- Adds operator-defined execution profiles through `PEEN_EXECUTION_PROFILES`
+  and `PEEN_DEFAULT_EXECUTION_PROFILE`, with `native`, `docker.sandbox`, and
+  `docker.host-like` as the documented names. A client names a profile and
+  never sends an image, mount, network setting, or capability. An undefined
+  name returns 403 and creates no session.
+- Adds the native worker launcher, which starts the same installed Peen binary
+  under its `worker` command, and the Docker worker launcher, which creates
+  `peen-worker-<session-uuid>` from the configured image. A worker container
+  carries exactly two labels, `peen.managed=true` and
+  `peen.session=<session-uuid>`, is mounted at literal host paths with the
+  configuration read-only, runs as the controller's host UID, GID, and
+  username, and is refused if that identity is root or incomplete. The
+  supervisor stops or removes a stored container ID only while both labels
+  still match. Unit tests drive a fake Docker client; no live daemon coverage
+  runs.
+- Adds working `allowPrivilegeEscalation`. A Docker profile with it gives the
+  worker account passwordless sudo inside its own container: the controller
+  starts that container as root, and the image entrypoint creates the account
+  for the controller's host UID, GID, and username, writes
+  `/etc/sudoers.d/peen-worker` for that account alone, and drops to it with
+  `setpriv` before the agent starts. The agent runs as the host user under every
+  profile. Any other profile starts as that identity directly, never touches
+  sudoers, and runs no root process. The image installs sudo and ships no
+  sudoers rule, so sudo authorizes nobody until a profile asks. A `native`
+  profile that sets the flag is refused at startup, because there is no
+  entrypoint there to grant it.
+- Docker authority is now a startup decision. The controller resolves its
+  socket from `PEEN_DOCKER_SOCKET`, then a `unix://` `DOCKER_HOST`, then
+  `/var/run/docker.sock`, and registers a Docker launcher only when one is
+  reachable. Without it a session on a Docker profile is refused outright. Peen
+  never falls back to a native worker, which would run tools on the host after
+  the operator asked for a container.
+- Adds `PEEN_WORKER_SOCKET_DIR`, `PEEN_DOCKER_SOCKET`, and `PEEN_WORKER_IMAGE`.
+- Breaking: adds a required `PEEN_STATE_DIR`, and `PEEN_CONFIG_DIR` no longer
+  holds durable state. `PEEN_CONFIG_DIR` is the global configuration and
+  harness layer, and it is the one directory a Docker worker receives,
+  read-only. `PEEN_STATE_DIR` holds SQLite, the audit logs, and the worker
+  socket root, and no worker receives it. Peen refuses to start when the two
+  are the same path or one sits inside the other. Before this, the
+  configuration mount carried `peen.db` and the audit logs into every Docker
+  worker, so one session could read every other session's transcript.
+  `PEEN_WORKER_SOCKET_DIR` and `PEEN_LOG_DIRECTORY` now default under
+  `PEEN_STATE_DIR`. Move an existing deployment's `peen.db` and `logs` into the
+  new state directory and point both variables at their new homes. The check
+  resolves both paths through their symlinks before comparing, so a state
+  directory that is a link into the configuration directory is refused too, and
+  a path that cannot be resolved refuses startup rather than falling back to
+  the literal string.
+- A worker now receives only its own session's socket directory,
+  `<root>/<session-uuid>/worker.sock`, instead of the shared socket root. The
+  root lists every live session's socket, so mounting it showed one worker
+  where every other session's controller surface lived.
+- The worker generation now records the repository digest the daemon reports
+  for the image, so naming a tag still leaves a durable record of the bytes that
+  ran. It previously stored the local image ID from a container inspect and
+  called that a digest, which no registry can resolve. An image the daemon holds
+  no repository digest for, such as one built locally and never pushed, records
+  no digest rather than failing the launch.
+- Adds the opt-in `make test-docker-worker` target, the image-entrypoint
+  contract test. It creates one test-owned container from a named image inside
+  a disposable root under the repository's gitignored `.testing/` directory,
+  builds the request through the production launch builder, then replaces the
+  worker command with a fixed probe that records what the dropped process can
+  see. It asserts the effective UID, GID, and username, that `sudo -n true`
+  fails, that no Docker socket is present, that the network is unreachable,
+  that the configuration mount is readable while a file planted under the state
+  directory is not, that another session's socket is invisible while this
+  session's own directory is not, and that a file the probe writes carries host
+  ownership. Teardown inspects the exact recorded container ID and acts only
+  while the ownership labels still match. It runs no agent, no model, and no
+  controller database, and it is not part of `make test`.
+- Adds `GET /v1/execution-profiles`, reporting each profile with
+  `hostRootEquivalent` and a `capabilityWarning`, and
+  `GET /v1/session/workers`, reporting one session's durable worker
+  generations.
+- A Docker worker now runs the image published alongside the controller running
+  it. Peen takes `PEEN_WORKER_IMAGE` if it is set, then the profile's own
+  `image`, then `psyb0t/peen` tagged with the controller's own build version, so
+  a release runs the worker built beside it without anyone editing
+  configuration. A build with no release tag reports `dev` and names an image no
+  registry holds; set `PEEN_WORKER_IMAGE` to run a Docker worker from a local
+  build. A Docker profile no longer has to carry an `image` of its own.
+- Removes the worker image rules. A reference previously had to be exactly
+  `psyb0t/peen@sha256:<digest>`: no tag, no other repository. No release could
+  satisfy that for itself, because the digest does not exist until the push that
+  creates it finishes, so every deployment had to read one off the registry by
+  hand afterwards. It also blocked a locally built image, a mirror, and a fork,
+  while stopping nothing: anyone who can set `PEEN_WORKER_IMAGE` already holds
+  the controller's Docker socket and can run any container without asking Peen.
+  Any reference the daemon can resolve is now accepted. A worker container still
+  starts as root so the Peen entrypoint can drop it to the host account, so an
+  image without that entrypoint fails when the worker runs.
+- The Docker worker launcher now pulls an image the daemon does not already
+  hold. The Engine API's container create does not pull, unlike the docker CLI,
+  which pulls on a 404 and retries, so a worker could not start on a host that
+  had never seen the image.
+- Fixes `POST /v1/session/jobs/{jobId}/signal`, which recorded every signal as
+  unaccepted while the command kept running. A job's process group is a child of
+  the session's worker, and the endpoint read the controller's own job registry,
+  which is empty after the worker split. The signal now travels to the worker
+  over a new `signal_job` command, and the worker's own signal path both reaches
+  the process group and records the durable request. A session with no live
+  worker still records the request against the durable row and reports that
+  nothing was signalled.
+- Fixes `POST /v1/session/cancel`, which answered `cancelRequested` and then let
+  the turn run to completion. The endpoint reached the controller's own store,
+  which records the request and fires the cancellation registered in this
+  process. After the worker split the turn's cancellation is registered in the
+  worker, so the controller held nothing to fire and the model loop never
+  stopped. The endpoint now also routes to the session's worker, which is where
+  `peen session stop` ends up too. `control.TurnRouter.CancelSessionTurn`
+  already did the routing and had no callers.
+- Worker log records now reach the controller's sinks. A worker runs the model
+  loop in its own process, so its records for hook actions, skill activation,
+  child-agent lifecycle, and tool outcomes were written there and never passed
+  through the controller's logging stack. The daily audit file kept controller
+  records only, against the trail `docs/configuration.md` describes. A native
+  worker's output is read from a pipe instead of inherited file descriptors, a
+  Docker worker's is followed from the container, and both are re-emitted at the
+  worker's own level with its session and generation attached. A worker still
+  receives neither the audit directory nor the state directory.
+- Fixes `GET /v1/session/context-snapshots/{contextHash}`, which returned 500
+  for every snapshot Peen has written since the endpoint shipped in v0.4.0. The
+  turn writer stores the harness manifest as the JSON array it is, one entry per
+  contributing layer, while the read path decoded it into an object and the
+  schema declared one. The write path only checks `json.Valid`, which an array
+  satisfies, so snapshots stored cleanly and every read failed. `manifest` is
+  now an array of `ContextManifestEntry` carrying `kind`, `name`, `source`,
+  `priority`, and `hash`. This changes a response type inside `/v1` rather than
+  opening a new major, because no client can depend on a shape the endpoint
+  never returned, and because it makes the snapshots already stored in an
+  existing database readable.
+- `make test-real` now checks what a live turn writes to SQLite. The lifecycle
+  test opens a session, routes the turn through the session metadata, and then
+  reads back one native worker generation in `ready` with no container or image
+  digest, one completed turn, a durable event stream whose sequence never
+  repeats or skips and whose events name only known turns and that one
+  generation, and completed model runs whose per-round provider calls carry
+  real token counts. The wake turn must reuse the same generation.
+- Adds a live one-session, many-clients and queueing test. Two WebSocket
+  clients attach to one session, and the client that sent nothing still
+  receives the other's live events and its completion, each frame naming the
+  session. A message sent while that turn is running is answered with `queued`,
+  joins the running turn's transcript, and leaves the session with one turn
+  instead of two.
+- Adds a live cancellation test, which stops a turn already several tool rounds
+  into a real model loop, then checks the WebSocket failure code and that the
+  turn is recorded as cancelled rather than failed.
+- The real suite renews its WebSocket read deadline per frame instead of
+  spanning the whole turn. A long turn that keeps emitting events no longer
+  fails at a fixed wall-clock limit, and a silent one still does.
+- Shutdown now stops every session worker after supervised jobs and before
+  SQLite closes, and records each stop, so no worker outlives the process with
+  a durable row still claiming it is ready.
+- Adds `POST /v1/session/reconfigure`, which moves an idle session to another
+  operator-defined profile. It takes a profile name and a reason and nothing
+  else, refuses an undefined profile with 403, refuses a session with a turn in
+  flight with 409, and stops the session's worker so the next turn starts a new
+  generation under the new profile. Every change is stored in
+  `session_profile_decisions` and readable through
+  `GET /v1/session/profile-decisions`.
+- The `psyb0t/peen` image now defaults to `run`, so `docker run psyb0t/peen`
+  starts a control plane. The same image is the worker image: the controller
+  creates a container from it with the `worker` command.
+
+- Breaking: starting Peen no longer opens a session. Open one with
+  `POST /v1/sessions/open`, which resolves a workspace path to its durable
+  session and creates that session the first time the directory is opened.
+  Opening the same directory again, by any of its names, resumes it.
+- Breaking: WebSocket `message.send` now takes the session in the event's
+  `sessionId` metadata, replacing the rule that refused a client-selected
+  session. Naming a session routes the message, it does not authorize it: Peen
+  loads the session before starting a turn, so an unknown ID writes no turn
+  record. A deployment with no session and no named session refuses the
+  message.
+- Adds `GET /v1/sessions`, which lists durable sessions and takes no session
+  header because it is how a client discovers them.
+- Adds `PEEN_WORKSPACE_ROOTS`, a JSON array of absolute paths a client may open
+  as a workspace. An unset value allows only the process working directory. A
+  path outside every root returns `403 WORKSPACE_NOT_ALLOWED` and creates no
+  session. Peen resolves a requested path through its symlinks before the root
+  check, so an alias of an allowed directory opens the same session and a
+  symlink escaping a root is refused.
+- Breaking: `pkg/peen` no longer names a session anywhere in its contract.
+  `MessageResult.SessionID`, `ListMessagesRequest.SessionID`, and
+  `SessionDetails.ID` are gone, `Session(ctx, id)` becomes `Details(ctx)`, and
+  `Cancel(ctx, id)` becomes `Cancel(ctx)`. A direct runtime is one workspace and
+  owns its durable session privately. Session IDs exist so a controller can
+  route between workspaces, which is not a problem an embedding caller has.
+- The binary now calls itself `peen` in its own `--help` and in the `binary`
+  field of every log line, whatever built it. It previously reported the
+  framework's name unless the build passed `-ldflags -X main.appName=peen`, so
+  `go install` and a plain `go build` produced a binary that introduced itself
+  as Servicepack.
+
 ## v0.7.0 (2026-09-13)
 
 Peen now binds each running process to one durable session for its startup

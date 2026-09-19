@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/elelem/elelemtest"
 	"github.com/psyb0t/essessey"
@@ -110,6 +111,24 @@ func TestRuntimeRunPersistsTranscriptEventsAndSnapshots(t *testing.T) {
 	require.NotNil(t, turn.ContextSnapshotHash)
 	require.NotNil(t, turn.PromptSnapshotHash)
 
+	// This fixture is the direct runtime form, which has no control plane and
+	// therefore no worker generation to attribute the turn to. A runtime
+	// running inside a worker stamps one, which
+	// TestRuntimeStampsItsWorkerGeneration covers.
+	assert.Empty(t, turn.WorkerGenerationID)
+
+	storedEvents, err := fixture.store.ListEvents(
+		context.Background(),
+		result.SessionID,
+		session.ListEventsOptions{Order: session.PageOrderAscending},
+	)
+	require.NoError(t, err)
+	require.Greater(t, len(storedEvents.Items), 1)
+
+	for _, event := range storedEvents.Items {
+		assert.Empty(t, event.WorkerGenerationID)
+	}
+
 	contextSnapshot, err := query.ContextSnapshot.WithContext(context.Background()).
 		Where(query.ContextSnapshot.Hash.Eq(*turn.ContextSnapshotHash)).
 		First()
@@ -140,9 +159,11 @@ func TestRuntimeResumesStartupWorkspaceSession(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	selectedSessionID := uuid.New()
+	// Naming the startup session routes the turn to it. The request's own
+	// workspace is still ignored: a session's workspace is durable and a
+	// client does not get to redirect it per turn.
 	second, err := fixture.runtime.Run(context.Background(), TurnRequest{
-		SessionID: &selectedSessionID,
+		SessionID: &first.SessionID,
 		Message:   "second request",
 		Workspace: fixture.otherWorkspace,
 		RequestID: uuid.New(),
@@ -178,6 +199,29 @@ func TestRuntimeResumesStartupWorkspaceSession(t *testing.T) {
 		},
 		messageWorkspaces(messages.Items),
 	)
+}
+
+// A session ID a client invented must not reach the model or leave a durable
+// record. The turn is refused while resolving its session, before any turn row
+// exists, so a forged ID cannot start work against someone else's workspace.
+func TestRuntimeRejectsForgedSessionID(t *testing.T) {
+	driver := elelemtest.NewScriptedDriver(elelemtest.Text("must not run"))
+	fixture := newRuntimeFixture(t, driver)
+
+	forged := uuid.New()
+
+	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
+		SessionID: &forged,
+		Message:   "second request",
+		RequestID: uuid.New(),
+	})
+	require.ErrorIs(t, err, commerr.ErrNotFound)
+	assert.Nil(t, result)
+
+	assert.Empty(t, driver.Requests(), "the model must not be called")
+
+	_, err = fixture.store.Get(context.Background(), forged)
+	require.ErrorIs(t, err, commerr.ErrNotFound)
 }
 
 func TestRuntimePerTurnSystemPromptModes(t *testing.T) {

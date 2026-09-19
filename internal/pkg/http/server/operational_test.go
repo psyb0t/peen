@@ -25,7 +25,7 @@ func TestOperationalProbesAnswerWithoutCredentials(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			instance, err := New(Dependencies{
+			instance, err := newTestServer(Dependencies{
 				Runtime:  &testRuntime{sessionID: uuid.New()},
 				APIToken: testBearerToken,
 			})
@@ -55,7 +55,7 @@ func TestOperationalProbesAnswerWithoutCredentials(t *testing.T) {
 // The probes are not in the OpenAPI document, so the spec validator would
 // reject them if they were not skipped.
 func TestOperationalProbesBypassTheSpecValidator(t *testing.T) {
-	instance, err := New(Dependencies{
+	instance, err := newTestServer(Dependencies{
 		Runtime: &testRuntime{sessionID: uuid.New()},
 	})
 	require.NoError(t, err)
@@ -77,7 +77,7 @@ func TestOperationalProbesBypassTheSpecValidator(t *testing.T) {
 func TestSkipOperationalDoesNotWidenTheAgentAPI(t *testing.T) {
 	sessionID := uuid.New()
 
-	instance, err := New(Dependencies{
+	instance, err := newTestServer(Dependencies{
 		Runtime:  &testRuntime{sessionID: sessionID},
 		APIToken: testBearerToken,
 	})
