@@ -32,7 +32,7 @@ const (
 	apiTestAgentName       = "default"
 	apiTestModelID         = "test-model"
 	apiTestModelReference  = "scripted/" + apiTestModelID
-	apiTestUpstreamsJSON   = `[{"name":"scripted","provider":"openai"}]`
+	apiTestUpstreamsJSON   = `[{"name":"scripted","type":"openai"}]`
 	apiTestToken           = "test-token"
 	apiTestRules           = "Follow the workspace rules."
 	apiTestSocketDirPrefix = "pw"
@@ -125,7 +125,7 @@ func newTestCore(t *testing.T, config peenconfig.Config) *control.Core {
 
 	models, err := agent.NewRegistry(t.Context(), agent.RegistryOptions{
 		Upstreams: []peenconfig.Upstream{
-			{Name: "scripted", Provider: peenconfig.ProviderTypeOpenAI},
+			{Name: "scripted", Type: peenconfig.UpstreamTypeOpenAI},
 		},
 		DefaultModel:     config.DefaultModel,
 		MaxContextTokens: config.MaxContextTokens,

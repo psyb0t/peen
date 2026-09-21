@@ -34,12 +34,20 @@ type HostIdentity struct {
 }
 
 // CurrentHostIdentity reads the control process's own account.
+//
+// The lookup fails when the process runs as a UID with no passwd entry, which
+// is what `docker run --user uid:gid` produces against an image that does not
+// carry that account. The error names the two variables that resolve it,
+// because the underlying message reports only the unknown id.
 func CurrentHostIdentity() (HostIdentity, error) {
 	current, err := user.Current()
 	if err != nil {
-		return HostIdentity{}, ctxerrors.Wrap(
+		return HostIdentity{}, ctxerrors.Wrapf(
 			err,
-			"read the controller host identity",
+			"read the controller host identity for uid %d, "+
+				"set PEEN_HOST_USERNAME and PEEN_HOST_HOME when the "+
+				"controller runs as a UID the image has no account for",
+			os.Geteuid(),
 		)
 	}
 

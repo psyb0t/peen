@@ -33,9 +33,25 @@ func TestImageShipsThePrivilegeBootstrap(t *testing.T) {
 	assert.Contains(
 		t,
 		dockerfile,
-		"COPY --chown=root:root --chmod=0755 "+entrypointRelative+" "+
-			entrypointInstalled,
+		"COPY --chown=root:root "+entrypointRelative+" "+entrypointInstalled,
 		"the image must install the entrypoint the launcher relies on",
+	)
+
+	// The mode is a separate RUN because COPY --chmod requires BuildKit and
+	// the classic builder testcontainers uses would reject it. The entrypoint
+	// still has to end up executable, so both halves are asserted.
+	assert.Contains(
+		t,
+		dockerfile,
+		"RUN chmod 0755 "+entrypointInstalled,
+		"the installed entrypoint must be executable",
+	)
+
+	assert.NotContains(
+		t,
+		dockerfile,
+		"--chmod=",
+		"COPY --chmod needs BuildKit, which the classic builder lacks",
 	)
 	assert.Contains(
 		t,

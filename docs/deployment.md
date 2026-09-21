@@ -21,7 +21,7 @@ and `REF` picks a tag or branch:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/psyb0t/peen/main/install.sh |
-  PREFIX=/usr/local/bin REF=v0.9.0 bash
+  PREFIX=/usr/local/bin REF=v0.10.0 bash
 ```
 
 It needs `git` and `docker` and refuses to start without them. Doing the same
@@ -68,7 +68,7 @@ root="$PWD"
 mkdir -p "$root/data/peen/config" "$root/data/peen/state" "$root/workspace"
 export PEEN_CONFIG_DIR="$root/data/peen/config"
 export PEEN_STATE_DIR="$root/data/peen/state"
-export PEEN_UPSTREAMS='[{"name":"aigate","provider":"openai","baseUrl":"https://aigate.example/v1","apiKeyEnv":"AIGATE_TOKEN"}]'
+export PEEN_UPSTREAMS='[{"name":"aigate","type":"openai","baseUrl":"https://aigate.example/v1","apiKeyEnv":"AIGATE_TOKEN"}]'
 export PEEN_DEFAULT_MODEL="aigate/your-model-id"
 export PEEN_COMPACTION_MODEL="aigate/your-model-id"
 export AIGATE_TOKEN="your-token-here"
@@ -226,6 +226,13 @@ socket to create one. It resolves that socket from `PEEN_DOCKER_SOCKET`, then a
 `unix://` `DOCKER_HOST`, then `/var/run/docker.sock`, and decides at startup
 whether it has that authority. Without it, opening a session on a Docker profile
 is refused. Peen does not quietly run the worker natively instead.
+
+A socket it can reach but cannot use degrades the same way. The controller logs
+the reason once at startup and keeps serving every other profile, rather than
+refusing to start over a capability those sessions may never ask for. The usual
+cause is a controller run with numeric `--user uid:gid` against an image that
+holds no account for that UID; set `PEEN_HOST_USERNAME` and `PEEN_HOST_HOME` to
+resolve it.
 
 Mounting the host Docker socket into the controller is what grants that
 authority, and it is host-root-equivalent. Do it only when you want sibling

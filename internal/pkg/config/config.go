@@ -17,13 +17,15 @@ import (
 	"github.com/psyb0t/gonfiguration"
 )
 
-// ProviderType selects an Elelem driver implementation.
-type ProviderType string
+// UpstreamType selects an Elelem driver implementation. It names the wire
+// protocol an upstream speaks, not the vendor behind it. The vendor is the
+// upstream's own Name.
+type UpstreamType string
 
 const (
-	ProviderTypeOpenAI    ProviderType = "openai"
-	ProviderTypeAnthropic ProviderType = "anthropic"
-	ProviderTypeZAICoding ProviderType = "zai-coding"
+	UpstreamTypeOpenAI    UpstreamType = "openai"
+	UpstreamTypeAnthropic UpstreamType = "anthropic"
+	UpstreamTypeZAICoding UpstreamType = "zai-coding"
 )
 
 // CompactionMode determines how Peen handles an over-budget transcript.
@@ -178,10 +180,11 @@ type Config struct {
 }
 
 // Upstream configures one deployment-owned named provider. The name is Peen's
-// stable prefix in qualified model references such as aigate/model-name.
+// stable prefix in qualified model references such as aigate/model-name, and
+// the type is the wire protocol that provider speaks.
 type Upstream struct {
 	Name      string       `json:"name"`
-	Provider  ProviderType `json:"provider"`
+	Type      UpstreamType `json:"type"`
 	BaseURL   string       `json:"baseUrl"`
 	APIKeyEnv string       `json:"apiKeyEnv"`
 }
@@ -751,13 +754,13 @@ func validateUpstream(upstream Upstream) error {
 		)
 	}
 
-	if upstream.Provider != ProviderTypeOpenAI &&
-		upstream.Provider != ProviderTypeAnthropic &&
-		upstream.Provider != ProviderTypeZAICoding {
+	if upstream.Type != UpstreamTypeOpenAI &&
+		upstream.Type != UpstreamTypeAnthropic &&
+		upstream.Type != UpstreamTypeZAICoding {
 		return ctxerrors.Wrapf(
 			ErrInvalidUpstream,
-			"unsupported provider %q",
-			upstream.Provider,
+			"unsupported type %q",
+			upstream.Type,
 		)
 	}
 

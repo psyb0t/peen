@@ -46,6 +46,16 @@ const (
 	executionFormsShutdownTimeout = 15 * time.Second
 	executionFormsPollInterval    = 10 * time.Millisecond
 
+	// executionFormsTurnTimeout bounds one complete turn, which is a longer
+	// wait than startup: the controller launches a worker, the worker runs the
+	// model, and only then does the completion event arrive. Reusing the
+	// startup budget here made the suite flake under `make test-coverage`,
+	// where the instrumented binary is slow enough that the read deadline
+	// expired mid-turn. The client then closed the connection, cancelling the
+	// controller's own run_turn call, which surfaced as a worker failure
+	// rather than the client timeout it actually was.
+	executionFormsTurnTimeout = 3 * time.Minute
+
 	executionFormsAgentDocument = "---\nname: default\ndescription: execution form test agent\n---\nFollow the test instructions."
 	executionFormsInitialRules  = "Initial workspace rule."
 	executionFormsUpdatedRules  = "Updated workspace rule."
@@ -93,7 +103,7 @@ const (
 	executionFormsUpstreamName               = "integration"
 	executionFormsUpstreamProvider           = "openai"
 	executionFormsUpstreamNameKey            = "name"
-	executionFormsUpstreamTypeKey            = "provider"
+	executionFormsUpstreamTypeKey            = "type"
 	executionFormsUpstreamURLKey             = "baseUrl"
 	executionFormsMessageKey                 = "message"
 	executionFormsWebSocketMetadataSessionID = "sessionId"
@@ -570,7 +580,7 @@ func sendWebSocketTurn(
 	)
 	require.NoError(t, connection.WriteJSON(messageEvent))
 
-	deadline := time.Now().Add(executionFormsStartupTimeout)
+	deadline := time.Now().Add(executionFormsTurnTimeout)
 	for {
 		require.NoError(t, connection.SetReadDeadline(deadline))
 		event := dabluveees.Event{}

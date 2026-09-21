@@ -24,7 +24,7 @@ const (
 	coreTestAgentName       = "default"
 	coreTestModelID         = "test-model"
 	coreTestModelReference  = "scripted/" + coreTestModelID
-	coreTestUpstreamsJSON   = `[{"name":"scripted","provider":"openai"}]`
+	coreTestUpstreamsJSON   = `[{"name":"scripted","type":"openai"}]`
 	coreTestConfigRules     = "Follow the configuration rules."
 	coreTestWorkspaceRules  = "Follow the workspace rules."
 	coreTestSocketDirPrefix = "pw"

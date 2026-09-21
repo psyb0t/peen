@@ -959,7 +959,10 @@ func call[R any](
 	}
 
 	if err := json.Unmarshal(payload, &result); err != nil {
-		return result, ctxerrors.Wrapf(
+		// encoding/json can allocate into result before it rejects the
+		// payload, so the zero value is returned rather than whatever
+		// partial value the failed decode left behind.
+		return *new(R), ctxerrors.Wrapf(
 			commerr.ErrParseFailed,
 			"decode the answer to worker call %q",
 			method,

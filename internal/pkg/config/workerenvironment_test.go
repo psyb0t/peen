@@ -19,7 +19,7 @@ func TestWorkerEnvironmentCarriesRuntimeAndProviderConfiguration(t *testing.T) {
 	t.Setenv("PEEN_WORKER_UID", "0")
 
 	config := testConfig(t)
-	config.UpstreamsJSON = `[{"name":"aigate","provider":"openai","apiKeyEnv":"` +
+	config.UpstreamsJSON = `[{"name":"aigate","type":"openai","apiKeyEnv":"` +
 		testWorkerProviderKey + `"}]`
 
 	environment, err := config.WorkerEnvironment()
@@ -42,7 +42,7 @@ func TestWorkerEnvironmentRefusesAReservedProviderCredentialKey(t *testing.T) {
 	t.Setenv("PEEN_STATE_DIR", "/controller/state")
 
 	config := testConfig(t)
-	config.UpstreamsJSON = `[{"name":"aigate","provider":"openai","apiKeyEnv":"PEEN_STATE_DIR"}]`
+	config.UpstreamsJSON = `[{"name":"aigate","type":"openai","apiKeyEnv":"PEEN_STATE_DIR"}]`
 
 	_, err := config.WorkerEnvironment()
 

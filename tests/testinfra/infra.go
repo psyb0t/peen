@@ -32,10 +32,14 @@ import (
 )
 
 const (
-	appDockerfile              = "Dockerfile"
-	appBootTimeout             = 25 * time.Minute
-	appCleanupTimeout          = 30 * time.Second
-	appConfigDirectory         = "/tmp/peen"
+	appDockerfile      = "Dockerfile"
+	appBootTimeout     = 25 * time.Minute
+	appCleanupTimeout  = 30 * time.Second
+	appConfigDirectory = "/tmp/peen"
+	// appStateDirectory is a sibling of appConfigDirectory, never a child.
+	// Peen refuses to start when one contains the other, because the
+	// read-only configuration mount would carry SQLite into every worker.
+	appStateDirectory          = "/tmp/peen-state"
 	appWorkingDirectory        = "/tmp"
 	appAgentName               = "default"
 	appFixtureInstructionsPath = "/tmp/peen-test-AGENTS.md"
@@ -45,7 +49,7 @@ const (
 	appRootInstructions        = "Follow the request and use available tools."
 	//nolint:lll // Fixture content is byte exact and has no trailing newline.
 	appAgentDocument    = "---\nname: default\ndescription: API integration test agent\n---\nFollow the request and return the result."
-	appBootstrapCommand = `mkdir -p /tmp/peen/.agents/agents
+	appBootstrapCommand = `mkdir -p /tmp/peen/.agents/agents /tmp/peen-state
 cp /tmp/peen-test-AGENTS.md /tmp/peen/AGENTS.md
 cp /tmp/peen-test-default.md /tmp/peen/.agents/agents/default.md
 exec /app/app run`
@@ -1157,9 +1161,9 @@ func appEnvironment(
 	metricsListenAddress string,
 ) (map[string]string, error) {
 	upstreams, err := json.Marshal([]map[string]string{{
-		"name":     providerName,
-		"provider": providerType,
-		"baseUrl":  providerBaseURL,
+		"name":    providerName,
+		"type":    providerType,
+		"baseUrl": providerBaseURL,
 	}})
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "marshal test provider configuration")
@@ -1167,6 +1171,7 @@ func appEnvironment(
 
 	return map[string]string{
 		"PEEN_CONFIG_DIR":             appConfigDirectory,
+		"PEEN_STATE_DIR":              appStateDirectory,
 		"PEEN_AGENT":                  appAgentName,
 		"PEEN_HTTP_LISTEN_ADDRESS":    listenAddress,
 		"PEEN_METRICS_LISTEN_ADDRESS": metricsListenAddress,

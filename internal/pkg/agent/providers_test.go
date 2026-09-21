@@ -66,7 +66,7 @@ func TestNewRegistry(t *testing.T) {
 		{
 			name: "discovers models and preserves model slashes",
 			upstreams: []config.Upstream{
-				{Name: "aigate", Provider: config.ProviderTypeOpenAI},
+				{Name: "aigate", Type: config.UpstreamTypeOpenAI},
 			},
 			defaultModel: "aigate/gateway/model",
 			drivers: map[string]elelem.Driver{
@@ -77,8 +77,8 @@ func TestNewRegistry(t *testing.T) {
 		{
 			name: "unselected provider failure does not block startup",
 			upstreams: []config.Upstream{
-				{Name: "aigate", Provider: config.ProviderTypeOpenAI},
-				{Name: "offline", Provider: config.ProviderTypeOpenAI},
+				{Name: "aigate", Type: config.UpstreamTypeOpenAI},
+				{Name: "offline", Type: config.UpstreamTypeOpenAI},
 			},
 			defaultModel: "aigate/model",
 			drivers: map[string]elelem.Driver{
@@ -90,7 +90,7 @@ func TestNewRegistry(t *testing.T) {
 		{
 			name: "selected default model is unavailable",
 			upstreams: []config.Upstream{
-				{Name: "aigate", Provider: config.ProviderTypeOpenAI},
+				{Name: "aigate", Type: config.UpstreamTypeOpenAI},
 			},
 			defaultModel: "aigate/missing",
 			drivers: map[string]elelem.Driver{
@@ -101,7 +101,7 @@ func TestNewRegistry(t *testing.T) {
 		{
 			name: "selected compaction model is unavailable",
 			upstreams: []config.Upstream{
-				{Name: "aigate", Provider: config.ProviderTypeOpenAI},
+				{Name: "aigate", Type: config.UpstreamTypeOpenAI},
 			},
 			defaultModel:    "aigate/default",
 			compactionModel: "aigate/missing",
@@ -113,7 +113,7 @@ func TestNewRegistry(t *testing.T) {
 		{
 			name: "a budget above the model's published window",
 			upstreams: []config.Upstream{
-				{Name: "claude", Provider: config.ProviderTypeAnthropic},
+				{Name: "claude", Type: config.UpstreamTypeAnthropic},
 			},
 			defaultModel: "claude/" + registryTestKnownAnthropicModel,
 			maxContextTokens: registryTestAnthropicContextSize +
@@ -127,7 +127,7 @@ func TestNewRegistry(t *testing.T) {
 		{
 			name: "a budget within the model's published window",
 			upstreams: []config.Upstream{
-				{Name: "claude", Provider: config.ProviderTypeAnthropic},
+				{Name: "claude", Type: config.UpstreamTypeAnthropic},
 			},
 			defaultModel:     "claude/" + registryTestKnownAnthropicModel,
 			maxContextTokens: registryTestAnthropicContextSize,
@@ -142,7 +142,7 @@ func TestNewRegistry(t *testing.T) {
 		{
 			name: "a compaction model above the published window",
 			upstreams: []config.Upstream{
-				{Name: "claude", Provider: config.ProviderTypeAnthropic},
+				{Name: "claude", Type: config.UpstreamTypeAnthropic},
 			},
 			defaultModel:    "claude/gateway-passthrough",
 			compactionModel: "claude/" + registryTestKnownAnthropicModel,
@@ -159,7 +159,7 @@ func TestNewRegistry(t *testing.T) {
 		{
 			name: "a non-positive budget is rejected",
 			upstreams: []config.Upstream{
-				{Name: "aigate", Provider: config.ProviderTypeOpenAI},
+				{Name: "aigate", Type: config.UpstreamTypeOpenAI},
 			},
 			defaultModel:     "aigate/model",
 			maxContextTokens: registryInvalidBudget,
@@ -218,34 +218,34 @@ func TestNewRegistry(t *testing.T) {
 // size-dependent checks instead of bounding them.
 func TestNewRegistryModelContextSize(t *testing.T) {
 	testCases := []struct {
-		name     string
-		provider config.ProviderType
-		modelID  string
-		want     int
+		name         string
+		upstreamType config.UpstreamType
+		modelID      string
+		want         int
 	}{
 		{
-			name:     "a published window is preserved",
-			provider: config.ProviderTypeAnthropic,
-			modelID:  registryTestKnownAnthropicModel,
-			want:     registryTestAnthropicContextSize,
+			name:         "a published window is preserved",
+			upstreamType: config.UpstreamTypeAnthropic,
+			modelID:      registryTestKnownAnthropicModel,
+			want:         registryTestAnthropicContextSize,
 		},
 		{
-			name:     "an unlisted model takes the configured budget",
-			provider: config.ProviderTypeAnthropic,
-			modelID:  registryUnknownModelID,
-			want:     registryTestMaxContextTokens,
+			name:         "an unlisted model takes the configured budget",
+			upstreamType: config.UpstreamTypeAnthropic,
+			modelID:      registryUnknownModelID,
+			want:         registryTestMaxContextTokens,
 		},
 		{
-			name:     "an unlisted OpenAI model takes the configured budget",
-			provider: config.ProviderTypeOpenAI,
-			modelID:  registryUnknownModelID,
-			want:     registryTestMaxContextTokens,
+			name:         "an unlisted OpenAI model takes the configured budget",
+			upstreamType: config.UpstreamTypeOpenAI,
+			modelID:      registryUnknownModelID,
+			want:         registryTestMaxContextTokens,
 		},
 		{
-			name:     "a Z.ai Coding model takes the configured budget",
-			provider: config.ProviderTypeZAICoding,
-			modelID:  registryTestKnownZAICodingModel,
-			want:     registryTestMaxContextTokens,
+			name:         "a Z.ai Coding model takes the configured budget",
+			upstreamType: config.UpstreamTypeZAICoding,
+			modelID:      registryTestKnownZAICodingModel,
+			want:         registryTestMaxContextTokens,
 		},
 	}
 
@@ -256,7 +256,7 @@ func TestNewRegistryModelContextSize(t *testing.T) {
 				context.Background(),
 				RegistryOptions{
 					Upstreams: []config.Upstream{
-						{Name: "provider", Provider: tc.provider},
+						{Name: "provider", Type: tc.upstreamType},
 					},
 					DefaultModel:     reference,
 					MaxContextTokens: registryTestMaxContextTokens,
@@ -370,7 +370,7 @@ func TestNewDriverZAICodingUsesConfiguredEndpointAndKey(t *testing.T) {
 
 	driver, err := NewDriver(config.Upstream{
 		Name:      "zai",
-		Provider:  config.ProviderTypeZAICoding,
+		Type:      config.UpstreamTypeZAICoding,
 		BaseURL:   server.URL,
 		APIKeyEnv: zaiCodingEnvironment,
 	})

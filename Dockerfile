@@ -93,7 +93,12 @@ COPY --from=builder --chown=appuser:appuser /app/build/app .
 # starts as root only long enough to reconcile the controller host account and
 # drop to it. A profile that permits escalation additionally grants that account
 # sudo. See docker/entrypoint.sh.
-COPY --chown=root:root --chmod=0755 docker/entrypoint.sh /usr/local/bin/peen-entrypoint
+#
+# The mode is set by a RUN rather than COPY --chmod, because --chmod needs
+# BuildKit and this image is also built by the classic builder that
+# testcontainers drives.
+COPY --chown=root:root docker/entrypoint.sh /usr/local/bin/peen-entrypoint
+RUN chmod 0755 /usr/local/bin/peen-entrypoint
 
 # Switch to non-root user
 USER appuser

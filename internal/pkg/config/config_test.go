@@ -31,7 +31,7 @@ func TestConfigValidate(t *testing.T) {
 		{
 			name: "valid Z.ai Coding upstream",
 			mutate: func(config *Config) {
-				config.UpstreamsJSON = `[{"name":"zai","provider":"zai-coding"}]`
+				config.UpstreamsJSON = `[{"name":"zai","type":"zai-coding"}]`
 			},
 		},
 		{
@@ -94,8 +94,8 @@ func TestConfigValidate(t *testing.T) {
 			name: "duplicate upstream name",
 			mutate: func(config *Config) {
 				config.UpstreamsJSON = `[
-					{"name":"aigate","provider":"openai"},
-					{"name":"aigate","provider":"anthropic"}
+					{"name":"aigate","type":"openai"},
+					{"name":"aigate","type":"anthropic"}
 				]`
 			},
 			wantErr: ErrInvalidUpstream,
@@ -104,8 +104,26 @@ func TestConfigValidate(t *testing.T) {
 			name: "key environment is explicitly empty",
 			mutate: func(config *Config) {
 				config.UpstreamsJSON = `[
-					{"name":"aigate","provider":"openai","apiKeyEnv":"PEEN_TEST_MISSING_KEY"}
+					{"name":"aigate","type":"openai","apiKeyEnv":"PEEN_TEST_MISSING_KEY"}
 				]`
+			},
+			wantErr: ErrInvalidUpstream,
+		},
+		{
+			name: "unsupported type",
+			mutate: func(config *Config) {
+				config.UpstreamsJSON = `[{"name":"aigate","type":"gemini"}]`
+			},
+			wantErr: ErrInvalidUpstream,
+		},
+		{
+			// The v0.10.0 rename has no compatibility path, so an entry
+			// still spelling the key "provider" must fail rather than
+			// start with whatever the empty type selects. The unknown key
+			// is dropped during decoding, which leaves the type empty.
+			name: "the pre-rename provider key is refused",
+			mutate: func(config *Config) {
+				config.UpstreamsJSON = `[{"name":"aigate","provider":"openai"}]`
 			},
 			wantErr: ErrInvalidUpstream,
 		},
@@ -138,7 +156,7 @@ func TestParseUsesFixedEnvironmentBindings(t *testing.T) {
 	t.Setenv("PEEN_STATE_DIR", filepath.Join(t.TempDir(), "state"))
 	t.Setenv("PEEN_WORKING_DIR", ignoredWorkingDirectory)
 	t.Setenv("PEEN_AGENT", "coding")
-	t.Setenv("PEEN_UPSTREAMS", `[{"name":"aigate","provider":"openai"}]`)
+	t.Setenv("PEEN_UPSTREAMS", `[{"name":"aigate","type":"openai"}]`)
 	t.Setenv("PEEN_DEFAULT_MODEL", testQualifiedModel)
 	t.Setenv("PEEN_COMPACTION_MODEL", testQualifiedModel)
 	t.Setenv("PEEN_MAX_CONTEXT_TOKENS", "8192")
@@ -191,7 +209,7 @@ func TestParseDefaultsWorkingDirectoryToProcessDirectory(t *testing.T) {
 	t.Chdir(workingDirectory)
 	t.Setenv("PEEN_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
 	t.Setenv("PEEN_STATE_DIR", filepath.Join(t.TempDir(), "state"))
-	t.Setenv("PEEN_UPSTREAMS", `[{"name":"aigate","provider":"openai"}]`)
+	t.Setenv("PEEN_UPSTREAMS", `[{"name":"aigate","type":"openai"}]`)
 	t.Setenv("PEEN_DEFAULT_MODEL", testQualifiedModel)
 
 	config, err := Parse()
@@ -208,7 +226,7 @@ func testConfig(t *testing.T) Config {
 		StateDirectory:         filepath.Join(t.TempDir(), "state"),
 		WorkingDirectory:       filepath.Join(t.TempDir(), "workspace"),
 		Agent:                  "default",
-		UpstreamsJSON:          `[{"name":"aigate","provider":"openai"}]`,
+		UpstreamsJSON:          `[{"name":"aigate","type":"openai"}]`,
 		DefaultModel:           testQualifiedModel,
 		MaxContextTokens:       8192,
 		CompactionMode:         CompactionModeDropOldest,

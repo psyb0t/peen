@@ -54,7 +54,7 @@ tag or branch:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/psyb0t/peen/main/install.sh |
-  PREFIX=/usr/local/bin REF=v0.9.0 bash
+  PREFIX=/usr/local/bin REF=v0.10.0 bash
 ```
 
 Piping a script from the internet into a shell is worth a look first. Read it at
@@ -91,7 +91,7 @@ this:
 ```dotenv
 PEEN_CONFIG_DIR=/absolute/path/to/peen/config
 PEEN_STATE_DIR=/absolute/path/to/peen/state
-PEEN_UPSTREAMS=[{"name":"aigate","provider":"openai","baseUrl":"https://aigate.example/v1","apiKeyEnv":"AIGATE_TOKEN"}]
+PEEN_UPSTREAMS=[{"name":"aigate","type":"openai","baseUrl":"https://aigate.example/v1","apiKeyEnv":"AIGATE_TOKEN"}]
 PEEN_DEFAULT_MODEL=aigate/your-model-id
 PEEN_COMPACTION_MODEL=aigate/your-model-id
 AIGATE_TOKEN=your-token-here
@@ -196,8 +196,11 @@ Give every provider a short local name. Models are then addressed as
 asks each configured provider which models it actually offers at startup. A
 misspelled or unavailable model fails early instead of burning a turn.
 
-It supports `openai`, `anthropic`, and `zai-coding` providers. `zai-coding`
-keeps Z.ai thinking state through tool rounds. A `message.send` can override
+Each upstream also declares a `type`, which is the wire protocol it speaks
+rather than the vendor behind it. An OpenAI-compatible gateway is
+`type: "openai"` whoever runs it. The supported types are `openai`,
+`anthropic`, and `zai-coding`. `zai-coding` keeps Z.ai thinking state through
+tool rounds. A `message.send` can override
 the model for that one task. Peen never guesses task difficulty or silently
 switches models behind your back.
 

@@ -34,6 +34,10 @@ const ServiceName = control.CoreServiceName
 // beside it.
 const buildVersionScopeKey = "version"
 
+// reasonDockerLauncherUnavailable marks a controller that reached a Docker
+// socket but could not build the launcher behind it.
+const reasonDockerLauncherUnavailable = "docker_launcher_unavailable"
+
 type serviceDependencies struct {
 	parseConfig       func() (peenconfig.Config, error)
 	configureAuditLog func() error
@@ -189,6 +193,7 @@ func (s *ControlCore) openCore(
 	relay := control.NewEventRelay()
 
 	workers, err := newWorkerSupervisor(
+		ctx,
 		config,
 		assembled.Store,
 		profiles,
@@ -248,10 +253,16 @@ func (s *ControlCore) closeCore(ctx context.Context, core *control.Core) error {
 // newWorkerSupervisor wires the session worker supervisor.
 //
 // A Docker launcher is registered only when this controller can actually reach
-// a Docker socket. Without one, a Docker profile is refused rather than run
-// somewhere else, which is what keeps an isolation promise from quietly
-// becoming a host process.
+// a Docker socket AND can build a launcher for it. Without one, a Docker
+// profile is refused rather than run somewhere else, which is what keeps an
+// isolation promise from quietly becoming a host process.
+//
+// A socket that is present but unusable degrades the same way rather than
+// failing startup. The common case is a controller started with numeric
+// `--user uid:gid` whose UID has no passwd entry in the image, which leaves
+// every native profile working and only Docker profiles refused.
 func newWorkerSupervisor(
+	ctx context.Context,
 	config peenconfig.Config,
 	store *session.Store,
 	profiles *worker.ProfileSet,
@@ -270,14 +281,7 @@ func newWorkerSupervisor(
 	// checked here rather than when a session first asks for a worker.
 	workerImage := resolveWorkerImage(config)
 
-	if config.HasDockerAuthority() {
-		dockerLauncher, err := newDockerLauncher(config, workerImage)
-		if err != nil {
-			return nil, err
-		}
-
-		launchers[worker.KindDocker] = dockerLauncher
-	}
+	registerDockerLauncher(ctx, config, workerImage, launchers)
 
 	built, err := supervisor.New(supervisor.Options{
 		Publisher:       publisher,
@@ -308,6 +312,38 @@ func resolveWorkerImage(config peenconfig.Config) string {
 	version, _ := ctxscope.GetGlobal()[buildVersionScopeKey].(string)
 
 	return worker.ImageForBuildVersion(version)
+}
+
+// registerDockerLauncher adds the Docker launcher when this controller can
+// both reach a Docker socket and build a launcher over it.
+//
+// A socket it cannot use leaves Docker profiles refused rather than failing
+// startup, which is the same outcome as having no socket at all. Every other
+// profile keeps working, so one unusable capability does not take down a
+// controller whose sessions may never ask for it.
+func registerDockerLauncher(
+	ctx context.Context,
+	config peenconfig.Config,
+	workerImage string,
+	launchers map[worker.Kind]worker.Launcher,
+) {
+	if !config.HasDockerAuthority() {
+		return
+	}
+
+	dockerLauncher, err := newDockerLauncher(config, workerImage)
+	if err != nil {
+		ctxscope.GetLogger(ctx).Warn(
+			"docker worker launcher unavailable, docker profiles refused",
+			"reason", reasonDockerLauncherUnavailable,
+			"docker_socket_path", config.DockerSocketPath(),
+			"err", err,
+		)
+
+		return
+	}
+
+	launchers[worker.KindDocker] = dockerLauncher
 }
 
 // newDockerLauncher builds the Docker worker launcher for a controller that

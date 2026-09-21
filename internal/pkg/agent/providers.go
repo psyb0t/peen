@@ -200,18 +200,18 @@ func (r *Registry) ResolveModel(qualifiedModel string) (ModelClient, error) {
 //
 //nolint:ireturn // Elelem's driver contract is an interface.
 func NewDriver(upstream config.Upstream) (elelem.Driver, error) {
-	switch upstream.Provider {
-	case config.ProviderTypeOpenAI:
+	switch upstream.Type {
+	case config.UpstreamTypeOpenAI:
 		return newOpenAIDriver(upstream), nil
-	case config.ProviderTypeAnthropic:
+	case config.UpstreamTypeAnthropic:
 		return newAnthropicDriver(upstream), nil
-	case config.ProviderTypeZAICoding:
+	case config.UpstreamTypeZAICoding:
 		return newZAICodingDriver(upstream), nil
 	default:
 		return nil, ctxerrors.Wrapf(
 			ErrModelUnavailable,
-			"unsupported provider %q",
-			upstream.Provider,
+			"unsupported type %q",
+			upstream.Type,
 		)
 	}
 }
@@ -304,7 +304,7 @@ func (r *Registry) discover(
 			continue
 		}
 
-		model := modelMetadata(upstream.Provider, modelID, maxContextTokens)
+		model := modelMetadata(upstream.Type, modelID, maxContextTokens)
 		qualifiedModel := upstream.Name + "/" + modelID
 		r.models[qualifiedModel] = ModelClient{
 			Client: elelem.New(driver, elelem.WithDefaultModel(model)),
@@ -323,18 +323,18 @@ func (r *Registry) discover(
 // budget as its size, which is what makes PEEN_MAX_CONTEXT_TOKENS the explicit
 // context size for a gateway or local model no catalog covers.
 func modelMetadata(
-	provider config.ProviderType,
+	upstreamType config.UpstreamType,
 	modelID string,
 	maxContextTokens int,
 ) elelem.Model {
 	var model elelem.Model
 
-	switch provider {
-	case config.ProviderTypeOpenAI:
+	switch upstreamType {
+	case config.UpstreamTypeOpenAI:
 		model = openai.LookupModel(modelID)
-	case config.ProviderTypeAnthropic:
+	case config.UpstreamTypeAnthropic:
 		model = anthropic.LookupModel(modelID)
-	case config.ProviderTypeZAICoding:
+	case config.UpstreamTypeZAICoding:
 		model = zaicoding.LookupModel(modelID)
 	default:
 		model = elelem.Model{ID: modelID}

@@ -4,6 +4,44 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.10.0 (2026-09-21)
+
+An upstream now declares the wire protocol it speaks in `type`. The field was
+called `provider`, which read as the vendor when the vendor is already the
+upstream's `name`. A controller that cannot use its Docker socket also stays
+up instead of refusing to start.
+
+- Breaking: every `PEEN_UPSTREAMS` entry renames `provider` to `type`.
+  `{"name":"aigate","provider":"openai",...}` becomes
+  `{"name":"aigate","type":"openai",...}`. The accepted values do not change:
+  `openai`, `anthropic`, and `zai-coding`. An entry left spelling it
+  `provider` is refused at startup, because the unknown key is dropped and the
+  missing type fails validation as `unsupported type ""`. Qualified model
+  references such as `aigate/your-model-id` name the upstream and are
+  unaffected.
+- A controller that reaches a Docker socket but cannot build a launcher over it
+  now refuses Docker profiles and keeps running, instead of failing to start.
+  A controller run with numeric `--user uid:gid` against an image holding no
+  account for that UID hit this, which stopped deployments whose sessions may
+  never have named a Docker profile. Native profiles were unaffected then and
+  still are. The controller logs the refusal once with
+  `reason=docker_launcher_unavailable` and the socket path.
+- The host identity failure names `PEEN_HOST_USERNAME` and `PEEN_HOST_HOME`,
+  the two variables that resolve it. It previously reported only the numeric
+  UID it could not look up, which said nothing about the fix.
+- The production image installs its entrypoint without `COPY --chmod`, so it
+  builds under the classic Docker builder as well as BuildKit. The installed
+  mode and ownership are unchanged.
+- A worker call whose answer fails to decode returns the zero value alongside
+  its error rather than whatever the failed decode left behind.
+- The API integration harness sets `PEEN_STATE_DIR`, which the control plane
+  has required since v0.8.0. Without it the harness could not start its
+  container, so that suite had been unable to run.
+- The execution-form suite bounds one complete turn separately from startup.
+  Sharing the startup budget made the suite fail whenever a turn outran the
+  thirty-second read deadline, which reported a client timeout as a worker
+  failure.
+
 ## v0.9.0 (2026-09-19)
 
 Peen now installs in one command. Both routes build in a pinned Go image, so

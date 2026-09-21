@@ -15,7 +15,7 @@ const (
 	stateTestConfigDirectory = "/srv/peen/config"
 	stateTestStateDirectory  = "/srv/peen/state"
 	stateTestWorkspace       = "/srv/work/project"
-	stateTestUpstreamsJSON   = `[{"name":"scripted","provider":"openai"}]`
+	stateTestUpstreamsJSON   = `[{"name":"scripted","type":"openai"}]`
 	stateTestModelReference  = "scripted/test-model"
 	stateTestContextTokens   = 8192
 	stateTestOutputTokens    = 1024

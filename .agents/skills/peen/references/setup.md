@@ -8,7 +8,7 @@ credentials belong in the named environment variable, never inside
 `PEEN_UPSTREAMS`.
 
 ```dotenv
-PEEN_UPSTREAMS=[{"name":"aigate","provider":"openai","baseUrl":"https://aigate.example/v1","apiKeyEnv":"AIGATE_TOKEN"}]
+PEEN_UPSTREAMS=[{"name":"aigate","type":"openai","baseUrl":"https://aigate.example/v1","apiKeyEnv":"AIGATE_TOKEN"}]
 PEEN_DEFAULT_MODEL=aigate/your-model-id
 PEEN_COMPACTION_MODEL=aigate/your-model-id
 AIGATE_TOKEN=your-token-here
