@@ -219,12 +219,14 @@ func TestLaunchAgentNamedAgentReturnsFinalResponse(t *testing.T) {
 		session.ListMessagesOptions{Order: session.PageOrderAscending},
 	)
 	require.NoError(t, err)
+
 	toolMessage := messages.Items[2]
 	assert.Equal(t, launchAgentCallID, toolMessage.ToolCallID)
 	assert.False(t, toolMessage.IsError)
 
 	registry, err := fixture.runtime.sessionAgentRuns(result.SessionID)
 	require.NoError(t, err)
+
 	runs := registry.List()
 	require.Len(t, runs, 1)
 	assert.Equal(t, AgentRunStateCompleted, runs[0].Snapshot().State)
@@ -272,6 +274,7 @@ func TestLaunchAgentAllowedToolsExcludeWrites(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "parent complete", result.Text)
+
 	_, err = os.Stat(filepath.Join(fixture.workspace, "must-not-exist.txt"))
 	assert.True(t, os.IsNotExist(err))
 }
@@ -307,6 +310,7 @@ func TestLaunchAgentAdHocDefinitionReturnsFinalResponse(t *testing.T) {
 		session.ListMessagesOptions{Order: session.PageOrderAscending},
 	)
 	require.NoError(t, err)
+
 	toolMessage := messages.Items[2]
 
 	output := decodeLaunchAgentOutput(t, toolMessage.Content)
@@ -502,12 +506,14 @@ func TestLaunchAgentRecursion(t *testing.T) {
 		session.ListMessagesOptions{Order: session.PageOrderAscending},
 	)
 	require.NoError(t, err)
+
 	toolMessage := messages.Items[2]
 	output := decodeLaunchAgentOutput(t, toolMessage.Content)
 	assert.Equal(t, "child final, saw: grandchild says hi", output.Response)
 
 	registry, err := fixture.runtime.sessionAgentRuns(result.SessionID)
 	require.NoError(t, err)
+
 	runs := registry.List()
 	require.Len(t, runs, 2)
 
@@ -515,6 +521,7 @@ func TestLaunchAgentRecursion(t *testing.T) {
 	for _, run := range runs {
 		byDepth[run.Depth] = run
 	}
+
 	require.Contains(t, byDepth, 1)
 	require.Contains(t, byDepth, 2)
 	assert.Equal(t, launchAgentChildName, byDepth[1].Name)
@@ -563,6 +570,7 @@ func TestLaunchAgentDepthLimitRejectsGrandchild(t *testing.T) {
 
 	registry, err := fixture.runtime.sessionAgentRuns(result.SessionID)
 	require.NoError(t, err)
+
 	runs := registry.List()
 	require.Len(
 		t,
@@ -665,6 +673,7 @@ func TestLaunchAgentChildToolFailureStaysVisibleAndRunCompletes(t *testing.T) {
 
 	registry, err := fixture.runtime.sessionAgentRuns(result.SessionID)
 	require.NoError(t, err)
+
 	runs := registry.List()
 	require.Len(t, runs, 1)
 	assert.Equal(
@@ -727,6 +736,7 @@ func TestLaunchAgentRunRemainsInStartupWorkspaceSession(t *testing.T) {
 
 	registryA, err := fixture.runtime.sessionAgentRuns(first.SessionID)
 	require.NoError(t, err)
+
 	runs := registryA.List()
 	require.Len(t, runs, 1)
 

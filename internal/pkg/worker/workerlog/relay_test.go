@@ -24,6 +24,7 @@ func TestRelayCarriesWorkerRecordsIntoTheControllerLogger(t *testing.T) {
 	generationID := uuid.New()
 
 	captured := &bytes.Buffer{}
+
 	restore := captureDefaultLogger(t, captured, slog.LevelDebug)
 	defer restore()
 
@@ -54,6 +55,7 @@ func TestRelayCarriesWorkerRecordsIntoTheControllerLogger(t *testing.T) {
 // sink that filters by level sees what the worker actually emitted.
 func TestRelayPreservesWorkerLevels(t *testing.T) {
 	captured := &bytes.Buffer{}
+
 	restore := captureDefaultLogger(t, captured, slog.LevelWarn)
 	defer restore()
 
@@ -73,6 +75,7 @@ func TestRelayPreservesWorkerLevels(t *testing.T) {
 // text. Dropping it would lose the output of a command the agent ran.
 func TestRelayKeepsNonRecordOutput(t *testing.T) {
 	captured := &bytes.Buffer{}
+
 	restore := captureDefaultLogger(t, captured, slog.LevelDebug)
 	defer restore()
 
@@ -96,6 +99,7 @@ func TestRelayKeepsNonRecordOutput(t *testing.T) {
 // producing a spurious record.
 func TestRelayHandlesAnEmptyStream(t *testing.T) {
 	captured := &bytes.Buffer{}
+
 	restore := captureDefaultLogger(t, captured, slog.LevelDebug)
 	defer restore()
 
@@ -114,6 +118,7 @@ func captureDefaultLogger(
 	t.Helper()
 
 	previous := slog.Default()
+
 	slog.SetDefault(slog.New(slog.NewJSONHandler(
 		into,
 		&slog.HandlerOptions{Level: level},

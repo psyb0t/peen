@@ -29,6 +29,7 @@ func TestSnapshotReturnsIndependentCollections(t *testing.T) {
 	skills[0].Metadata["source"] = testChangedValue
 	permissions, ok := skills[0].Permissions["filesystem"].(map[string]any)
 	require.True(t, ok)
+
 	permissions["read"] = testChangedValue
 
 	agents := snapshot.Agents()

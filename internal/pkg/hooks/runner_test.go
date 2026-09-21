@@ -106,7 +106,9 @@ pre_tool_use:
           CHECK_MODE: strict
 `, "")
 	publisher := &testPublisher{}
+
 	var received CommandInput
+
 	runner, err := New(Options{
 		Snapshot:  snapshot,
 		Workspace: workspace,
@@ -194,6 +196,7 @@ pre_tool_use:
 	require.NoError(t, err)
 
 	sessionA := uuid.New()
+
 	sessionB := uuid.New()
 	for _, sessionID := range []uuid.UUID{sessionA, sessionA, sessionB} {
 		_, err = runner.Run(context.Background(), Invocation{
@@ -206,6 +209,7 @@ pre_tool_use:
 	require.Len(t, invocations, 3)
 	assert.Equal(t, invocations[0].StateDirectory, invocations[1].StateDirectory)
 	assert.NotEqual(t, invocations[0].StateDirectory, invocations[2].StateDirectory)
+
 	for _, invocation := range invocations {
 		relative, relErr := filepath.Rel(snapshot.ConfigRoot(), invocation.StateDirectory)
 		require.NoError(t, relErr)
@@ -252,7 +256,9 @@ pre_tool_use:
 
 func TestRunnerDebugLogsEveryHookLifecycleAndName(t *testing.T) {
 	var captured bytes.Buffer
+
 	originalLogger := slog.Default()
+
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&captured, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	})))
@@ -306,6 +312,7 @@ pre_tool_use:
 	} {
 		assert.Contains(t, logs, message)
 	}
+
 	assert.Contains(t, logs, `"hook_name":"protected-read"`)
 	assert.Contains(t, logs, `"hook_action_name":"record-check"`)
 	assert.Contains(t, logs, `"hook_event":"pre_read_file"`)
@@ -412,12 +419,14 @@ func testSnapshot(
 	root := t.TempDir()
 	configRoot := filepath.Join(root, "config")
 	workspace := filepath.Join(root, "workspace")
+
 	require.NoError(t, os.MkdirAll(configRoot, 0o700))
 	require.NoError(t, os.MkdirAll(workspace, 0o700))
 
 	if configHooks != "" {
 		writeHookFixture(t, configRoot, configHooks)
 	}
+
 	if workspaceHooks != "" {
 		writeHookFixture(t, workspace, workspaceHooks)
 	}

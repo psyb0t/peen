@@ -73,6 +73,7 @@ func TestObserveModelRequestRecordsCancellationAndTokens(t *testing.T) {
 
 	families, err := collector.Registry().Gather()
 	require.NoError(t, err)
+
 	labels := map[string]string{
 		"service":  "peen",
 		"stage":    modelMetricStageChild,

@@ -177,12 +177,14 @@ func TestModelAuditRecorderPersistsRetryTokenAndCostBreakdown(t *testing.T) {
 		},
 	}
 	require.NoError(t, audit.onRetry(ctx, retry))
+
 	assistantMessage := elelem.Message{
 		Role:      elelem.RoleAssistant,
 		Content:   elelem.Text("audit complete"),
 		Reasoning: "checked every counter",
 	}
 	require.NoError(t, audit.onAssistantMessage(ctx, assistantMessage))
+
 	usage := elelem.Usage{
 		TokenCounts: elelem.TokenCounts{
 			Prompt:            10,
@@ -305,6 +307,7 @@ func findModelRunByStage(
 	stage models.ModelRunStage,
 ) *models.ModelRun {
 	t.Helper()
+
 	for _, run := range runs {
 		if run.Stage == stage {
 			return run

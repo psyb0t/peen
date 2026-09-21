@@ -38,6 +38,7 @@ func TestWorkspaceRootsReadsConfiguredPaths(t *testing.T) {
 	base := canonicalDir(t)
 	first := filepath.Join(base, "first")
 	second := filepath.Join(base, "second")
+
 	require.NoError(t, os.MkdirAll(first, testDirectoryMode))
 	require.NoError(t, os.MkdirAll(second, testDirectoryMode))
 

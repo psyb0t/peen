@@ -259,6 +259,7 @@ func TestRuntimePerTurnSystemPromptModes(t *testing.T) {
 
 			request, ok := driver.LastRequest()
 			require.True(t, ok)
+
 			systemPrompt := request.Messages[0].Text()
 			assert.Equal(t, tc.wantBasePrompt, containsBasePrompt(systemPrompt))
 			assert.Equal(t, tc.wantRequestPrompt, containsRequestPrompt(systemPrompt))
@@ -305,6 +306,7 @@ func newRuntimeFixtureWithOptions(
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, handle.Close()) })
+
 	store, err := session.NewStore(handle, session.Options{})
 	require.NoError(t, err)
 	registry, err := NewStaticRegistry(map[string]ModelClient{
@@ -314,6 +316,7 @@ func newRuntimeFixtureWithOptions(
 		},
 	})
 	require.NoError(t, err)
+
 	eventBus := events.NewBus(events.Options{})
 	options := RuntimeOptions{
 		Store:            store,

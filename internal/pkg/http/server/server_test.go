@@ -43,6 +43,7 @@ func TestServerDoesNotServeHTTPMessageSubmission(t *testing.T) {
 		nil,
 	)
 	request.Header.Set(headerAuthorization, bearerScheme+" "+testAPIToken)
+
 	recorder := httptest.NewRecorder()
 
 	instance.testHandler.ServeHTTP(recorder, request)
@@ -142,11 +143,13 @@ func TestServerSessionEndpoints(t *testing.T) {
 			require.NoError(t, err)
 			request := httptest.NewRequestWithContext(t.Context(), tc.method, tc.path, nil)
 			request.Header.Set(headerSessionID, sessionID.String())
+
 			recorder := httptest.NewRecorder()
 
 			instance.testHandler.ServeHTTP(recorder, request)
 
 			assert.Equal(t, tc.wantStatus, recorder.Code)
+
 			if tc.wantCode != "" {
 				assertErrorCode(t, recorder, tc.wantCode)
 			}
@@ -449,6 +452,7 @@ func (r *testRuntime) RunMessage(
 	sink agent.EventSink,
 ) (*agent.MessageRunResult, error) {
 	r.runCalls++
+
 	r.lastRequest = request
 	if r.runErr != nil {
 		return nil, r.runErr

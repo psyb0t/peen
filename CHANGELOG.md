@@ -4,6 +4,17 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.10.1 (2026-09-21)
+
+Maintenance release. No configuration, API, or workspace migration is needed.
+
+- Updates the Servicepack baseline to v1.9.3, including its current security
+  maintenance.
+- Keeps Peen's dependency policy and byte-exact test fixtures project-owned, so
+  future framework updates do not replace them.
+- Makes the command process-group test wait for the forked process PID to be
+  written before stopping it. This removes a timing-dependent CI failure.
+
 ## v0.10.0 (2026-09-21)
 
 An upstream now declares the wire protocol it speaks in `type`. The field was

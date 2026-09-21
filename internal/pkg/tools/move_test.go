@@ -228,6 +228,7 @@ func TestRenameNoReplaceNeverReplacesExistingPath(t *testing.T) {
 	directory := t.TempDir()
 	source := filepath.Join(directory, "source.txt")
 	destination := filepath.Join(directory, "destination.txt")
+
 	require.NoError(t, os.WriteFile(source, []byte("source"), newFileMode))
 	require.NoError(t, os.WriteFile(destination, []byte("keep"), newFileMode))
 

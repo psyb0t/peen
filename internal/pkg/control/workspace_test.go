@@ -95,6 +95,7 @@ func TestWorkspacePolicyRefusesSymlinkEscapingRoot(t *testing.T) {
 	base := canonicalTempDir(t)
 	root := filepath.Join(base, "allowed")
 	outside := filepath.Join(base, "outside")
+
 	require.NoError(t, os.MkdirAll(root, 0o750))
 	require.NoError(t, os.MkdirAll(outside, 0o750))
 
@@ -117,6 +118,7 @@ func TestWorkspacePolicyRefusesPathsOutsideRoot(t *testing.T) {
 	base := canonicalTempDir(t)
 	root := filepath.Join(base, "work")
 	sibling := filepath.Join(base, "work-other")
+
 	require.NoError(t, os.MkdirAll(root, 0o750))
 	require.NoError(t, os.MkdirAll(sibling, 0o750))
 
@@ -148,6 +150,7 @@ func TestWorkspacePolicyAdmitsAnyConfiguredRoot(t *testing.T) {
 	base := canonicalTempDir(t)
 	first := filepath.Join(base, "first")
 	second := filepath.Join(base, "second")
+
 	require.NoError(t, os.MkdirAll(first, 0o750))
 	require.NoError(t, os.MkdirAll(second, 0o750))
 

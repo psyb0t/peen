@@ -41,7 +41,7 @@ linters:
     - godox
     - goheader
     - gomoddirectives
-    - gomodguard
+    - gomodguard_v2
     - goprintffuncname
     - gosec
     - gosmopolitan
@@ -105,12 +105,22 @@ linters:
             - github.com/spf13/viper
             - github.com/sirupsen/logrus
             - github.com/google/uuid
+            - github.com/getkin/kin-openapi
+            - github.com/glebarez/sqlite
+            - github.com/gorilla/websocket
+            - github.com/moby/moby
+            - github.com/prometheus/client_golang
+            - github.com/prometheus/client_model
+            - github.com/prometheus/common
             - github.com/psyb0t
             - github.com/joho/godotenv
             - github.com/spf13/cobra
             # Integration-test harness under tests/ that builds and runs the app
             # image via testcontainers-go. Test-only; production never imports it.
             - github.com/testcontainers/testcontainers-go
+            - golang.org/x/sys
+            - gorm.io/gen
+            - gorm.io/gorm
 
   exclusions:
     generated: lax
@@ -122,13 +132,21 @@ linters:
       - builtin$
       - examples$
     rules:
+      # Test fixtures intentionally repeat exact protocol and filesystem values.
+      # Keep production code under the full baseline while avoiding fake
+      # constants or altered fixture bytes solely for style checks.
       - path: _test\.go
         linters:
           - cyclop
+          - dupl
+          - dupword
           - funlen
           - gocognit
+          - goconst
+          - lll
           - maintidx
           - wrapcheck
+          - wsl_v5
 
 formatters:
   enable:

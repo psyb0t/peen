@@ -119,10 +119,12 @@ func TestServerSessionDurableReadEndpoints(t *testing.T) {
 				nil,
 			)
 			request.Header.Set(headerSessionID, sessionID.String())
+
 			recorder := httptest.NewRecorder()
 			instance.testHandler.ServeHTTP(recorder, request)
 
 			assert.Equal(t, tc.wantStatus, recorder.Code)
+
 			if tc.wantCode != "" {
 				assertErrorCode(t, recorder, tc.wantCode)
 			}
@@ -152,6 +154,7 @@ func TestServerSessionDurableReadEndpointsRequireBearerToken(t *testing.T) {
 			nil,
 		)
 		request.Header.Set(headerSessionID, sessionID.String())
+
 		recorder := httptest.NewRecorder()
 		instance.testHandler.ServeHTTP(recorder, request)
 
@@ -183,6 +186,7 @@ func agentRunPath(agentRunID uuid.UUID) string {
 func TestServerSessionReplayEndpoints(t *testing.T) {
 	sessionID := uuid.New()
 	agentRunID := uuid.New()
+
 	const snapshotHash = "abc123"
 
 	testCases := []struct {
@@ -284,10 +288,12 @@ func TestServerSessionReplayEndpoints(t *testing.T) {
 				nil,
 			)
 			request.Header.Set(headerSessionID, sessionID.String())
+
 			recorder := httptest.NewRecorder()
 			instance.testHandler.ServeHTTP(recorder, request)
 
 			assert.Equal(t, tc.wantStatus, recorder.Code)
+
 			if tc.wantCode != "" {
 				assertErrorCode(t, recorder, tc.wantCode)
 			}

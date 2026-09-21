@@ -37,6 +37,7 @@ func TestStoreCreateOrResumeCreatesRequestedSessionIDAtomically(t *testing.T) {
 	ctx := context.Background()
 	store, handle := openTestStore(t)
 	t.Cleanup(func() { require.NoError(t, handle.Close()) })
+
 	requestedSessionID := uuid.New()
 
 	type result struct {
@@ -47,10 +48,12 @@ func TestStoreCreateOrResumeCreatesRequestedSessionIDAtomically(t *testing.T) {
 
 	start := make(chan struct{})
 	results := make(chan result, 2)
+
 	var waitGroup sync.WaitGroup
 	for range 2 {
 		waitGroup.Go(func() {
 			<-start
+
 			opened, err := store.CreateOrResume(
 				ctx,
 				&requestedSessionID,
@@ -74,14 +77,17 @@ func TestStoreCreateOrResumeCreatesRequestedSessionIDAtomically(t *testing.T) {
 	close(results)
 
 	createdCount := 0
+
 	for opened := range results {
 		require.NoError(t, opened.err)
 		require.NotNil(t, opened.session)
 		assert.Equal(t, requestedSessionID, opened.session.ID)
+
 		if opened.created {
 			createdCount++
 		}
 	}
+
 	assert.Equal(t, 1, createdCount)
 }
 
@@ -104,10 +110,12 @@ func TestStoreOpenWorkspaceCreatesOneCanonicalDurableSession(t *testing.T) {
 
 	start := make(chan struct{})
 	results := make(chan result, 2)
+
 	var waitGroup sync.WaitGroup
 	for _, path := range []string{workspace, workspaceLink} {
 		waitGroup.Go(func() {
 			<-start
+
 			opened, openErr := store.OpenWorkspace(
 				ctx,
 				path,
@@ -125,24 +133,31 @@ func TestStoreOpenWorkspaceCreatesOneCanonicalDurableSession(t *testing.T) {
 	close(results)
 
 	createdCount := 0
+
 	var sessionID uuid.UUID
+
 	for item := range results {
 		require.NoError(t, item.err)
 		require.NotNil(t, item.opened)
 		assert.Equal(t, workspace, item.opened.Session.Workspace)
+
 		if item.opened.Created {
 			createdCount++
 		}
+
 		if sessionID == uuid.Nil {
 			sessionID = item.opened.Session.ID
 
 			continue
 		}
+
 		assert.Equal(t, sessionID, item.opened.Session.ID)
 	}
+
 	assert.Equal(t, 1, createdCount)
 
 	require.NoError(t, handle.Close())
+
 	reopenedHandle, err := db.Open(ctx, db.Config{Directory: stateDirectory})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, reopenedHandle.Close()) })

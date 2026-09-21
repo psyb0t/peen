@@ -20,6 +20,9 @@
 cmd/init.go
 cmd/commands.go
 
+# Peen owns its dependency allowlist and test-fixture lint policy.
+.golangci.yml
+
 # Note: docs/ and tests/ are always protected by the update's mechanical floor,
 # so they never need an entry here. Both are yours from the moment you scaffold:
 # docs/ is prose you rewrite for your app, tests/ is the testcontainers harness

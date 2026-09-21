@@ -59,6 +59,7 @@ func newFakeEngine(t *testing.T, handler http.HandlerFunc) (*fakeEngine, string)
 			Handler: http.HandlerFunc(
 				func(w http.ResponseWriter, r *http.Request) {
 					engine.requests <- r
+
 					engine.handler(w, r)
 				},
 			),

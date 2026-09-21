@@ -805,7 +805,7 @@ func TestLaunchPullsAnAbsentImage(t *testing.T) {
 	assert.Equal(t, testImage, process.Describe().ImageDigest)
 }
 
-// A pull that fails fails the launch, rather than leaving a container to be
+// A failed pull stops the launch, rather than leaving a container to be
 // created from an image the daemon does not have.
 func TestLaunchFailsWhenTheImageCannotBePulled(t *testing.T) {
 	t.Parallel()

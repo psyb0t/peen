@@ -189,6 +189,7 @@ func TestRuntimeFailurePersistsTerminalState(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, messages.Items, 1)
 	assert.False(t, messages.Items[0].Incomplete)
+
 	events, err := query.Event.WithContext(context.Background()).
 		Where(query.Event.TurnID.Eq(turn.ID)).Find()
 	require.NoError(t, err)
@@ -281,6 +282,7 @@ func TestPromptHistoryAndRuntimeHelpers(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, convertErr := elelemMessage(tc.message)
 			require.Error(t, convertErr)
+
 			if tc.wantErr != nil {
 				require.ErrorIs(t, convertErr, tc.wantErr)
 			}

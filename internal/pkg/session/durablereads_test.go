@@ -23,9 +23,13 @@ func TestStoreDurableReplayReadsEverySessionOwnedTable(t *testing.T) {
 	owner := newTestSession(ctx, t, store)
 	other := newTestSession(ctx, t, store)
 
-	const contextHash = "durable-replay-context"
-	const promptHash = "durable-replay-prompt"
+	const (
+		contextHash = "durable-replay-context"
+		promptHash  = "durable-replay-prompt"
+	)
+
 	workerGenerationID := uuid.New().String()
+
 	require.NoError(t, store.SaveContextSnapshot(ctx, &models.ContextSnapshot{
 		Hash: contextHash,
 		ManifestJSON: `[{"kind":"rules","name":"AGENTS.md",` +
@@ -55,12 +59,14 @@ func TestStoreDurableReplayReadsEverySessionOwnedTable(t *testing.T) {
 		require.NoError(t, acquireErr)
 
 		finalize := FinalizeTurnInput{State: models.TurnStateCompleted}
+
 		if index == 0 {
 			contextSnapshotHash := contextHash
 			promptSnapshotHash := promptHash
 			finalize.ContextSnapshotHash = &contextSnapshotHash
 			finalize.PromptSnapshotHash = &promptSnapshotHash
 		}
+
 		require.NoError(t, store.FinalizeTurn(ctx, lease, finalize))
 		store.ReleaseTurn(lease)
 	}
@@ -90,6 +96,7 @@ func TestStoreDurableReplayReadsEverySessionOwnedTable(t *testing.T) {
 	require.ErrorIs(t, err, commerr.ErrNotFound)
 
 	require.NoError(t, handle.Close())
+
 	reopenedHandle, err := db.Open(ctx, db.Config{Directory: stateDirectory})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, reopenedHandle.Close()) })
@@ -103,6 +110,7 @@ func TestStoreDurableReplayReadsEverySessionOwnedTable(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, replayed.Items, 3)
 	assert.False(t, replayed.HasMore)
+
 	for _, event := range replayed.Items {
 		assert.Equal(t, workerGenerationID, event.WorkerGenerationID)
 	}
@@ -148,6 +156,7 @@ func TestStoreSessionNoticesPersistUntilDelivery(t *testing.T) {
 	assert.Empty(t, empty)
 
 	require.NoError(t, handle.Close())
+
 	reopenedHandle, err := db.Open(ctx, db.Config{Directory: stateDirectory})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, reopenedHandle.Close()) })

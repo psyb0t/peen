@@ -46,6 +46,7 @@ func newStoreHarness(t *testing.T, reply func(Frame) Frame) (*Store, *fakeContro
 
 	t.Cleanup(func() {
 		cancel()
+
 		_ = workerSide.Close()
 		_ = controllerSide.Close()
 	})

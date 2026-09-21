@@ -32,6 +32,7 @@ func TestStoreAgentRunReplaySurvivesRestartAndPagesEveryRow(t *testing.T) {
 	lease := startAgentRunTestTurn(ctx, t, store, session.ID)
 
 	runs := make([]*models.AgentRun, 0, 13)
+
 	for index := range 13 {
 		run := createAgentRunForTest(ctx, t, store, session.ID, lease.TurnID, index)
 		runs = append(runs, run)
@@ -65,19 +66,23 @@ func TestStoreAgentRunReplaySurvivesRestartAndPagesEveryRow(t *testing.T) {
 	require.NoError(t, err)
 
 	var listed []uuid.UUID
+
 	for offset := 0; ; offset += 5 {
 		page, pageErr := store.ListAgentRuns(ctx, session.ID, ListAgentRunsOptions{
 			Limit:  5,
 			Offset: offset,
 		})
 		require.NoError(t, pageErr)
+
 		for _, item := range page.Items {
 			listed = append(listed, item.ID)
 		}
+
 		if !page.HasMore {
 			break
 		}
 	}
+
 	require.Len(t, listed, len(runs))
 	assert.ElementsMatch(t, agentRunIDs(runs), listed)
 
@@ -95,6 +100,7 @@ func TestStoreAgentRunReplaySurvivesRestartAndPagesEveryRow(t *testing.T) {
 	assert.Equal(t, "complete", firstEvents.Run.ResponseText)
 
 	require.NoError(t, handle.Close())
+
 	reopenedHandle, err := db.Open(ctx, db.Config{Directory: stateDirectory})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, reopenedHandle.Close()) })

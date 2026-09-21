@@ -123,6 +123,7 @@ func TestResolverOrdersLayersAndReplacesEffectiveDefinitions(t *testing.T) {
 		t,
 		strictlyIncreasing(instructionPriorities(instructions)),
 	)
+
 	activatedSkill, err := snapshot.ActivateSkill("shared-skill")
 	require.NoError(t, err)
 	assert.Equal(t, "workspace", activatedSkill.Description)
@@ -131,6 +132,7 @@ func TestResolverOrdersLayersAndReplacesEffectiveDefinitions(t *testing.T) {
 		skillDocument("shared-skill", "workspace", "workspace skill"),
 		activatedSkill.Content,
 	)
+
 	sharedAgent, err := snapshot.Agent("shared-agent")
 	require.NoError(t, err)
 	assert.Equal(t, "workspace", sharedAgent.Description)
@@ -415,6 +417,7 @@ func TestResolverExpandsTildeConfigRootAndWorkspace(t *testing.T) {
 
 	configRoot := filepath.Join(home, "config")
 	workspace := filepath.Join(home, "work", "workspace")
+
 	makeDirectory(t, configRoot)
 	makeDirectory(t, workspace)
 	writeFile(

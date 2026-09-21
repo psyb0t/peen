@@ -490,6 +490,7 @@ func TestCompactionHooksRunAroundStoredSummary(t *testing.T) {
 		event   harness.HookEvent
 		payload compactionHookPayload
 	}
+
 	calls := make([]hookCall, 0, 2)
 	fixture.runtime.compactionOptions.Hook = func(
 		_ context.Context,
@@ -678,10 +679,12 @@ func TestCompactionRepeatedSupersedingPreservesHistoryAndPlacement(
 		require.NotNil(t, messages[index].CompactionID)
 		assert.Equal(t, first.ID, *messages[index].CompactionID)
 	}
+
 	for index := compactionFirstToIndex + 1; index <= compactionSecondToIndex; index++ {
 		require.NotNil(t, messages[index].CompactionID)
 		assert.Equal(t, latest.ID, *messages[index].CompactionID)
 	}
+
 	for index := compactionSecondToIndex + 1; index < len(messages); index++ {
 		assert.Nil(t, messages[index].CompactionID)
 	}

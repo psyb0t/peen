@@ -35,7 +35,9 @@ func TestOpenUsesPrivateFilesystemState(t *testing.T) {
 
 func TestOpenDoesNotLogSQLValues(t *testing.T) {
 	var output bytes.Buffer
+
 	previousLogger := slog.Default()
+
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&output, nil)))
 	t.Cleanup(func() { slog.SetDefault(previousLogger) })
 
@@ -44,7 +46,9 @@ func TestOpenDoesNotLogSQLValues(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, handle.Close()) })
 
 	output.Reset()
+
 	sensitiveSQLValue := "controlled-sensitive-sql-value"
+
 	handle.GormDB.Logger.Trace(
 		context.Background(),
 		time.Now(),
@@ -201,6 +205,7 @@ func TestOpenRebuildsDirectCompactionLinksAfterUpgrade(t *testing.T) {
 	reopened, reopenErr := Open(ctx, Config{Directory: stateDirectory})
 	require.NoError(t, reopenErr)
 	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+
 	reopenedQuery := repositories.Use(reopened.GormDB)
 	messages, listErr := reopenedQuery.Message.WithContext(ctx).
 		Where(reopenedQuery.Message.SessionID.Eq(sessionID)).

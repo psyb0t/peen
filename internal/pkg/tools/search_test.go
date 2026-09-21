@@ -123,6 +123,7 @@ func TestSearchText_RelativeAbsoluteAndParentPaths(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
 	other := filepath.Join(root, "other")
+
 	require.NoError(t, os.Mkdir(workspace, 0o750))
 	require.NoError(t, os.Mkdir(other, 0o750))
 	require.NoError(t, os.WriteFile(

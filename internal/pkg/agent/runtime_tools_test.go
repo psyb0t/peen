@@ -212,6 +212,7 @@ func TestRuntimeRunToolLogsCarryNoFileContents(t *testing.T) {
 	var captured bytes.Buffer
 
 	originalLogger := slog.Default()
+
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&captured, &slog.HandlerOptions{
 		Level: slog.LevelDebug,
 	})))

@@ -260,6 +260,7 @@ func TestSupervisorRecordsAGenerationThenMarksItReady(t *testing.T) {
 
 	// The raw credential is never stored, only its verification hash.
 	issued := string(fixture.launcher.workers[0].document.Credential)
+
 	assert.NotEmpty(t, current.CredentialHash)
 	assert.NotEqual(t, issued, current.CredentialHash)
 }

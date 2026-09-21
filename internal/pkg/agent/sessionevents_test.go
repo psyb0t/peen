@@ -76,6 +76,7 @@ func TestRenderSessionEventsQuotesInjectionAttempts(t *testing.T) {
 
 	preambleAt := strings.Index(rendered, sessionEventsPreamble)
 	attackAt := strings.Index(rendered, attack)
+
 	require.Positive(t, preambleAt)
 	assert.Less(
 		t,

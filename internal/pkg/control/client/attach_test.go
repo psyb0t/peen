@@ -62,6 +62,9 @@ func (s *attachStub) handler() http.Handler {
 
 		upgrader := websocket.Upgrader{
 			Subprotocols: []string{attachTestSubprotocol},
+			CheckOrigin: func(*http.Request) bool {
+				return true
+			},
 		}
 
 		connection, err := upgrader.Upgrade(w, r, nil)
@@ -129,6 +132,7 @@ func TestAttachRequestsTheServerSideSessionFilter(t *testing.T) {
 	defer cancel()
 
 	received := []controlclient.AttachEvent{}
+
 	require.NoError(t, client.Attach(
 		ctx,
 		sessionID,
@@ -199,6 +203,9 @@ func TestAttachStopsCleanlyWhenTheContextEnds(t *testing.T) {
 	held := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		upgrader := websocket.Upgrader{
 			Subprotocols: []string{attachTestSubprotocol},
+			CheckOrigin: func(*http.Request) bool {
+				return true
+			},
 		}
 
 		connection, err := upgrader.Upgrade(w, r, nil)

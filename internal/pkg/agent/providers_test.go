@@ -345,6 +345,7 @@ func TestNewDriverZAICodingUsesConfiguredEndpointAndKey(t *testing.T) {
 		"_",
 	)
 	providerCredential := "provider-credential"
+
 	t.Setenv(openAIEnvironment, "generic-credential")
 	t.Setenv(zaiCodingEnvironment, providerCredential)
 
@@ -353,6 +354,7 @@ func TestNewDriverZAICodingUsesConfiguredEndpointAndKey(t *testing.T) {
 		path          string
 		authorization string
 	}
+
 	server := httptest.NewServer(http.HandlerFunc(func(
 		writer http.ResponseWriter,
 		incoming *http.Request,
@@ -382,6 +384,7 @@ func TestNewDriverZAICodingUsesConfiguredEndpointAndKey(t *testing.T) {
 
 	request.Lock()
 	defer request.Unlock()
+
 	assert.Equal(t, testZAICodingModelsPath, request.path)
 	assert.Equal(t, "Bearer "+providerCredential, request.authorization)
 }

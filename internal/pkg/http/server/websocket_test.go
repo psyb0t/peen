@@ -197,6 +197,7 @@ func TestWebSocketRejectsUnknownMessageFields(t *testing.T) {
 
 	connection := dialWebSocket(t, httpServer.URL, nil)
 	t.Cleanup(func() { require.NoError(t, connection.Close()) })
+
 	inbound := newWebSocketMessage(
 		json.RawMessage(`{"message":"hello","unexpected":true}`),
 	)
@@ -363,12 +364,15 @@ func dialWebSocket(
 
 	endpoint, err := url.Parse(httpURL)
 	require.NoError(t, err)
+
 	endpoint.Scheme = "ws"
 	endpoint.Path = webSocketPath
+
 	query := endpoint.Query()
 	if filterSessionID != nil {
 		query.Set(webSocketSessionIDParameter, filterSessionID.String())
 	}
+
 	endpoint.RawQuery = query.Encode()
 
 	dialer := websocket.Dialer{
@@ -379,10 +383,12 @@ func dialWebSocket(
 			),
 		},
 	}
+
 	connection, response, err := dialer.Dial(endpoint.String(), nil)
 	if response != nil {
 		t.Cleanup(func() { require.NoError(t, response.Body.Close()) })
 	}
+
 	require.NoError(t, err)
 	require.Equal(t, webSocketSubprotocol, connection.Subprotocol())
 
@@ -526,6 +532,7 @@ func assertNoWebSocketEvent(t *testing.T, connection *websocket.Conn) {
 	require.Error(t, err)
 
 	var networkErr net.Error
+
 	ok := errors.As(err, &networkErr)
 	require.True(t, ok)
 	assert.True(t, networkErr.Timeout())
@@ -537,8 +544,10 @@ func webSocketMetadataString(
 	key string,
 ) string {
 	t.Helper()
+
 	value, found := event.Metadata.Get(key)
 	require.True(t, found)
+
 	stringValue, ok := value.(string)
 	require.True(t, ok)
 

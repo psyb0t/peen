@@ -575,15 +575,27 @@ func TestRunCommand_GracefulStopReachesForkedGrandchild(t *testing.T) {
 	})
 	require.NoError(t, err)
 
+	grandchildPID := 0
 	require.Eventually(t, func() bool {
-		_, statErr := os.Stat(marker)
+		content, readErr := os.ReadFile(marker)
+		if readErr != nil {
+			return false
+		}
 
-		return statErr == nil
+		pid, parseErr := strconv.Atoi(strings.TrimSpace(string(content)))
+		if parseErr != nil {
+			return false
+		}
+
+		if !processAlive(t, pid) {
+			return false
+		}
+
+		grandchildPID = pid
+
+		return true
 	}, commandEventuallyWait, commandEventuallyTick,
-		"grandchild pid file never appeared")
-
-	grandchildPID := readPIDFile(t, marker)
-	require.True(t, processAlive(t, grandchildPID))
+		"grandchild pid never became readable and live")
 
 	snapshot, ok := executor.jobs.Signal(
 		context.Background(), out.JobID, JobSignalStop,
@@ -631,16 +643,4 @@ func TestRunCommand_EscalatesToSIGKILLWhenTERMIgnored(t *testing.T) {
 		return job.Snapshot().State == JobStateSignalled
 	}, commandEventuallyWait, commandEventuallyTick,
 		"job must finalize as signalled")
-}
-
-func readPIDFile(t *testing.T, path string) int {
-	t.Helper()
-
-	content, err := os.ReadFile(path)
-	require.NoError(t, err)
-
-	pid, err := strconv.Atoi(strings.TrimSpace(string(content)))
-	require.NoError(t, err)
-
-	return pid
 }

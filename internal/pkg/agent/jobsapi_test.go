@@ -53,6 +53,7 @@ func TestRuntimeReplaysJobsFromSQLiteWithoutALiveRegistry(t *testing.T) {
 		_, appendErr := fixture.store.AppendJobOutput(ctx, turnResult.SessionID, job.ID, input)
 		require.NoError(t, appendErr)
 	}
+
 	_, err = fixture.store.RecordJobSignal(
 		ctx,
 		turnResult.SessionID,

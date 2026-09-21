@@ -119,13 +119,16 @@ func TestExecutor_ApplyPatch_AllOperations(t *testing.T) {
 	updated, readErr := os.ReadFile(updatePath)
 	require.NoError(t, readErr)
 	assert.Equal(t, "alpha\nchanged\ngamma\n", string(updated))
+
 	added, readErr := os.ReadFile(addPath)
 	require.NoError(t, readErr)
 	assert.Equal(t, "added\ncontent\n", string(added))
+
 	_, statErr := os.Stat(deletePath)
 	require.ErrorIs(t, statErr, os.ErrNotExist)
 	_, statErr = os.Stat(movePath)
 	require.ErrorIs(t, statErr, os.ErrNotExist)
+
 	moved, readErr := os.ReadFile(moveDestination)
 	require.NoError(t, readErr)
 	assert.Equal(t, "after move\n", string(moved))
@@ -153,6 +156,7 @@ func TestExecutor_ApplyPatch_PreservesLineEndingsAndMode(t *testing.T) {
 	content, readErr := os.ReadFile(path)
 	require.NoError(t, readErr)
 	assert.Equal(t, "one\r\nchanged\r\n", string(content))
+
 	info, statErr := os.Stat(path)
 	require.NoError(t, statErr)
 	assert.Equal(t, os.FileMode(0o400), info.Mode().Perm())
@@ -226,6 +230,7 @@ func TestExecutor_ApplyPatch_RequiresFreshObservedContent(t *testing.T) {
 
 	executor.observeContent(path, hashBytes([]byte("before\n")))
 	require.NoError(t, os.WriteFile(path, []byte("changed elsewhere\n"), applyPatchTestMode))
+
 	_, err = executor.ApplyPatch(context.Background(), patch)
 	require.ErrorIs(t, err, ErrStaleHash)
 }
@@ -251,6 +256,7 @@ func TestExecutor_ApplyPatch_PrevalidatesEveryAction(t *testing.T) {
 
 	_, statErr := os.Stat(filepath.Join(workspace, "should-not-exist.txt"))
 	require.ErrorIs(t, statErr, os.ErrNotExist)
+
 	content, readErr := os.ReadFile(path)
 	require.NoError(t, readErr)
 	assert.Equal(t, "actual\n", string(content))
@@ -299,6 +305,7 @@ func TestExecutor_ApplyPatch_RejectsBinaryAndDirectorySources(t *testing.T) {
 			name: "directory",
 			setup: func(t *testing.T, executor *Executor, workspace string) {
 				t.Helper()
+
 				path := filepath.Join(workspace, "source")
 				require.NoError(t, os.Mkdir(path, newDirectoryMode))
 				executor.observe(path)
@@ -332,6 +339,7 @@ func TestExecutor_ApplyPatch_RejectsExistingMoveDestination(t *testing.T) {
 	executor, workspace := newApplyPatchTestExecutor(t, Limits{})
 	source := filepath.Join(workspace, "source.txt")
 	destination := filepath.Join(workspace, "destination.txt")
+
 	writeObservedPatchFile(t, executor, source, "source\n")
 	require.NoError(t, os.WriteFile(destination, []byte("keep\n"), newFileMode))
 
@@ -555,6 +563,7 @@ func TestExecutor_ApplyPatch_ConcurrentCallsSerialize(t *testing.T) {
 	writeObservedPatchFile(t, executor, path, "before\n")
 
 	results := make(chan error, 2)
+
 	for _, replacement := range []string{"first", "second"} {
 		go func() {
 			_, err := executor.ApplyPatch(context.Background(), ApplyPatchInput{
@@ -571,6 +580,7 @@ func TestExecutor_ApplyPatch_ConcurrentCallsSerialize(t *testing.T) {
 
 	successes := 0
 	failures := 0
+
 	for range 2 {
 		if err := <-results; err != nil {
 			failures++

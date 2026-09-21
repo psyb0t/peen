@@ -54,7 +54,7 @@ tag or branch:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/psyb0t/peen/main/install.sh |
-  PREFIX=/usr/local/bin REF=v0.10.0 bash
+  PREFIX=/usr/local/bin REF=v0.10.1 bash
 ```
 
 Piping a script from the internet into a shell is worth a look first. Read it at

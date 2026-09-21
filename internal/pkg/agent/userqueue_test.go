@@ -42,6 +42,7 @@ func TestRuntimeQueuesUserMessageAtActiveTurnRoundBoundary(t *testing.T) {
 		queueErr error
 		events   []Event
 	)
+
 	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
 		Message:   queuedUserMessageInitial,
 		Workspace: fixture.workspace,
@@ -139,6 +140,7 @@ func TestRuntimeRunMessageQueuesActiveTurn(t *testing.T) {
 		queued   *MessageRunResult
 		queueErr error
 	)
+
 	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
 		Message:   queuedUserMessageInitial,
 		Workspace: fixture.workspace,
@@ -187,6 +189,7 @@ func TestRuntimeRejectsFullActiveUserMessageQueue(t *testing.T) {
 		firstErr  error
 		secondErr error
 	)
+
 	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
 		Message:   queuedUserMessageInitial,
 		Workspace: fixture.workspace,
@@ -233,6 +236,7 @@ func TestRuntimeIgnoresActiveTurnWorkspaceOverride(t *testing.T) {
 		queued   *TurnResult
 		queueErr error
 	)
+
 	_, err := fixture.runtime.Run(context.Background(), TurnRequest{
 		Message:   queuedUserMessageInitial,
 		Workspace: fixture.workspace,

@@ -37,8 +37,10 @@ func TestStoreModelRunReplayPagesAccountingAndRecovery(t *testing.T) {
 	lease := startAgentRunTestTurn(ctx, t, store, owner.ID)
 
 	runs := make([]*models.ModelRun, 0, 13)
+
 	for index := range 13 {
 		run := createModelRunForTest(ctx, t, store, owner.ID, lease.TurnID, index)
+
 		call := createModelCallForTest(ctx, t, store, owner.ID, run.ID, index)
 		if index == 0 {
 			require.NoError(t, store.RecordModelCallRetries(
@@ -52,6 +54,7 @@ func TestStoreModelRunReplayPagesAccountingAndRecovery(t *testing.T) {
 				},
 			))
 		}
+
 		_, err = store.FinalizeModelCall(ctx, owner.ID, run.ID, call.ID, FinalizeModelCallInput{
 			State:                   models.ModelCallStateCompleted,
 			ResponseMessageJSON:     modelRunTestResponseJSON,
@@ -92,6 +95,7 @@ func TestStoreModelRunReplayPagesAccountingAndRecovery(t *testing.T) {
 			FinishReason:           "stop",
 		})
 		require.NoError(t, err)
+
 		runs = append(runs, run)
 	}
 
@@ -99,19 +103,23 @@ func TestStoreModelRunReplayPagesAccountingAndRecovery(t *testing.T) {
 	runningCall := createModelCallForTest(ctx, t, store, owner.ID, running.ID, 99)
 
 	var listed []uuid.UUID
+
 	for offset := 0; ; offset += 5 {
 		page, pageErr := store.ListModelRuns(ctx, owner.ID, ListModelRunsOptions{
 			Limit:  5,
 			Offset: offset,
 		})
 		require.NoError(t, pageErr)
+
 		for _, item := range page.Items {
 			listed = append(listed, item.ID)
 		}
+
 		if !page.HasMore {
 			break
 		}
 	}
+
 	require.Len(t, listed, len(runs)+1)
 	assert.Contains(t, listed, running.ID)
 	assert.ElementsMatch(t, append(modelRunIDs(runs), running.ID), listed)
@@ -134,6 +142,7 @@ func TestStoreModelRunReplayPagesAccountingAndRecovery(t *testing.T) {
 	require.ErrorIs(t, err, commerr.ErrNotFound)
 
 	require.NoError(t, handle.Close())
+
 	reopenedHandle, err := db.Open(ctx, db.Config{Directory: stateDirectory})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, reopenedHandle.Close()) })
@@ -142,10 +151,12 @@ func TestStoreModelRunReplayPagesAccountingAndRecovery(t *testing.T) {
 	recovered, err := reopened.RecoverInterruptedModelRuns(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, 1, recovered)
+
 	interrupted, err := reopened.GetModelRun(ctx, owner.ID, running.ID)
 	require.NoError(t, err)
 	assert.Equal(t, models.ModelRunStateInterrupted, interrupted.State)
 	assert.Contains(t, interrupted.FailureDetail, "process stopped")
+
 	interruptedCalls, err := reopened.ListModelCalls(
 		ctx,
 		owner.ID,

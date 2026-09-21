@@ -26,6 +26,7 @@ func TestStoreJobReplaySurvivesRestartAndRecordsSignals(t *testing.T) {
 	session := newTestSession(ctx, t, store)
 	lease := startAgentRunTestTurn(ctx, t, store, session.ID)
 	jobs := make([]*models.Job, 0, 13)
+
 	for index := range 13 {
 		job := createJobForTest(ctx, t, store, session.ID, lease.TurnID, index)
 		jobs = append(jobs, job)
@@ -82,19 +83,23 @@ func TestStoreJobReplaySurvivesRestartAndRecordsSignals(t *testing.T) {
 	assert.Equal(t, models.JobStateExited, noOp.StateAtRequest)
 
 	var listed []uuid.UUID
+
 	for offset := 0; ; offset += 5 {
 		page, pageErr := store.ListJobs(ctx, session.ID, ListJobsOptions{
 			Limit:  5,
 			Offset: offset,
 		})
 		require.NoError(t, pageErr)
+
 		for _, item := range page.Items {
 			listed = append(listed, item.ID)
 		}
+
 		if !page.HasMore {
 			break
 		}
 	}
+
 	require.Len(t, listed, len(jobs))
 	assert.ElementsMatch(t, jobIDs(jobs), listed)
 
@@ -137,6 +142,7 @@ func TestStoreJobReplaySurvivesRestartAndRecordsSignals(t *testing.T) {
 	assert.False(t, signals.Items[1].Accepted)
 
 	require.NoError(t, handle.Close())
+
 	reopenedHandle, err := db.Open(ctx, db.Config{Directory: stateDirectory})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, reopenedHandle.Close()) })
