@@ -17,6 +17,7 @@ linters:
     - contextcheck
     - cyclop
     - decorder
+    - depguard
     - dogsled
     - dupl
     - dupword
@@ -40,7 +41,7 @@ linters:
     - godox
     - goheader
     - gomoddirectives
-    - gomodguard_v2
+    - gomodguard
     - goprintffuncname
     - gosec
     - gosmopolitan
@@ -121,22 +122,13 @@ linters:
       - builtin$
       - examples$
     rules:
-      # Servicepack's floor, plus the linters whose findings in test code are
-      # noise rather than defects: repeated fixture strings, table literals
-      # that run long, and blank-line placement around table cases. Tests stay
-      # linted for everything that can hide a real defect.
       - path: _test\.go
         linters:
           - cyclop
-          - dupl
-          - dupword
           - funlen
           - gocognit
-          - goconst
-          - lll
           - maintidx
           - wrapcheck
-          - wsl_v5
 
 formatters:
   enable:
