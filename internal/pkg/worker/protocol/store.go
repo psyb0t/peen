@@ -990,3 +990,122 @@ func callVoid(
 
 	return nil
 }
+
+// A child agent runs a separate model context, so its transcript and its
+// compactions are proxied under their own methods rather than the session's.
+
+func (s *Store) AppendAgentRunMessages(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	agentRunID uuid.UUID,
+	inputs []session.AgentRunMessageInput,
+) ([]*models.AgentRunMessage, error) {
+	return call[[]*models.AgentRunMessage](
+		ctx,
+		s,
+		MethodAppendAgentRunMessages,
+		ChildInputRequest[[]session.AgentRunMessageInput]{
+			SessionID: sessionID,
+			ChildID:   agentRunID,
+			Input:     inputs,
+		},
+	)
+}
+
+func (s *Store) ListAgentRunMessages(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	agentRunID uuid.UUID,
+	options session.ListAgentRunMessagesOptions,
+) (*session.AgentRunMessagePage, error) {
+	return call[*session.AgentRunMessagePage](
+		ctx,
+		s,
+		MethodListAgentRunMessages,
+		ChildOptionsRequest[session.ListAgentRunMessagesOptions]{
+			SessionID: sessionID,
+			ChildID:   agentRunID,
+			Options:   options,
+		},
+	)
+}
+
+func (s *Store) AgentRunHistory(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	agentRunID uuid.UUID,
+) (*session.AgentRunHistoryResult, error) {
+	return call[*session.AgentRunHistoryResult](
+		ctx,
+		s,
+		MethodAgentRunHistory,
+		ChildRequest{SessionID: sessionID, ChildID: agentRunID},
+	)
+}
+
+func (s *Store) CreateAgentRunCompaction(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	agentRunID uuid.UUID,
+	input session.AgentRunCompactionInput,
+) (*models.AgentRunCompaction, error) {
+	return call[*models.AgentRunCompaction](
+		ctx,
+		s,
+		MethodCreateAgentRunCompaction,
+		ChildInputRequest[session.AgentRunCompactionInput]{
+			SessionID: sessionID,
+			ChildID:   agentRunID,
+			Input:     input,
+		},
+	)
+}
+
+func (s *Store) LatestAgentRunCompaction(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	agentRunID uuid.UUID,
+) (*models.AgentRunCompaction, error) {
+	return call[*models.AgentRunCompaction](
+		ctx,
+		s,
+		MethodLatestAgentRunCompaction,
+		ChildRequest{SessionID: sessionID, ChildID: agentRunID},
+	)
+}
+
+func (s *Store) ListAgentRunCompactions(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	agentRunID uuid.UUID,
+	options session.ListAgentRunCompactionsOptions,
+) (*session.AgentRunCompactionPage, error) {
+	return call[*session.AgentRunCompactionPage](
+		ctx,
+		s,
+		MethodListAgentRunCompactions,
+		ChildOptionsRequest[session.ListAgentRunCompactionsOptions]{
+			SessionID: sessionID,
+			ChildID:   agentRunID,
+			Options:   options,
+		},
+	)
+}
+
+func (s *Store) GetAgentRunCompaction(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	agentRunID uuid.UUID,
+	compactionID uuid.UUID,
+) (*models.AgentRunCompaction, error) {
+	return call[*models.AgentRunCompaction](
+		ctx,
+		s,
+		MethodGetAgentRunCompaction,
+		NestedChildRequest{
+			SessionID: sessionID,
+			ChildID:   agentRunID,
+			NestedID:  compactionID,
+		},
+	)
+}

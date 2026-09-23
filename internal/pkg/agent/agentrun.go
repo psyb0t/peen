@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	defaultMaxAgentDepth          = 3
+	defaultMaxAgentDepth          = 5
 	defaultMaxChildAgentTurns     = 16
 	defaultMaxConcurrentAgentRuns = 4
 	defaultMaxAgentRunEventCount  = 2000

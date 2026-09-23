@@ -305,7 +305,16 @@ func TestAgentRunSentinelsWrapCleanly(t *testing.T) {
 // instruction-byte bound per PLAN.md's "Named agents" contract. This locks
 // the default to harness.Limits' MaxFileBytes default (128 KiB) so the two
 // stay equal out of the box.
-const wantDefaultInstructionBytes = 128 * 1024
+const (
+	wantDefaultAgentDepth       = 5
+	wantDefaultInstructionBytes = 128 * 1024
+)
+
+func TestDefaultAgentRunLimitsDepth(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, wantDefaultAgentDepth, DefaultAgentRunLimits().MaxDepth)
+}
 
 func TestDefaultAgentRunLimitsMatchesStoredFileByteBound(t *testing.T) {
 	t.Parallel()

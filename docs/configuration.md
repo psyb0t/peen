@@ -367,7 +367,7 @@ order, and execution policy.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PEEN_MAX_CHILD_AGENT_DEPTH` | `3` | How many `launch_agent` calls may nest. |
+| `PEEN_MAX_CHILD_AGENT_DEPTH` | `5` | How many `launch_agent` calls may nest. A child at that depth does not receive `launch_agent`. |
 | `PEEN_MAX_CHILD_AGENT_TURNS` | `16` | Tool rounds one child conversation may run. |
 | `PEEN_MAX_CONCURRENT_AGENT_RUNS` | `4` | Agent runs one session may have in flight at once. |
 | `PEEN_MAX_AGENT_RUN_EVENT_COUNT` | `2000` | Events kept in a run's in-memory follow buffer. |
@@ -376,15 +376,17 @@ order, and execution policy.
 
 ## Harness layering
 
-Peen resolves `AGENTS.md`, skills, named agents, and event handlers in the
-same order, every turn:
+Peen resolves standing instructions, skills, named agents, and event handlers
+in the same order, every turn:
 
 1. Embedded operating rules, the `planning` and `freshness` skills, and the
    `default` root agent are the immutable base layer.
 2. `PEEN_CONFIG_DIR` extends the base layer.
 3. Every filesystem ancestor of the session's workspace is then
    applied, from `/` down to the workspace itself.
-4. At each filesystem layer, `AGENTS.md` and `.agents/` are read before moving to the
+4. At each filesystem layer, Peen reads `AGENTS.md`, then sorted
+   `.claude/rules/*.md`, then sorted `.agents/rules/*.md`, then compatible
+   `.claude/skills/` and native `.agents/` definitions before moving to the
    next, more specific layer.
 
 A missing layer is normal. An unreadable or malformed layer that does exist
@@ -393,13 +395,29 @@ bytewise for stable, repeatable results.
 
 - **`AGENTS.md`**: each file is kept as its own instruction block in layer
   order. A message's own text cannot rewrite these blocks.
-- **Skills** (`.agents/skills/<name>/SKILL.md`): only the name and
+- **Modular rules** (`.claude/rules/<name>.md` and
+  `.agents/rules/<name>.md`): every direct non-empty Markdown file is an
+  additive, always-on instruction block. Missing directories are normal.
+  An empty file, unreadable path, or a directory masquerading as a Markdown
+  rule is a hard error. Claude-compatible rules load before native rules at
+  one layer. Rules are never replacements for an earlier rule file.
+- **Skills** (`.claude/skills/<name>/SKILL.md` or
+  `.agents/skills/<name>/SKILL.md`): only the name and
   description are placed in the system prompt at turn start (progressive
   disclosure). `use_skill` loads one full `SKILL.md` and its source directory
   on demand; files it references are then read with the normal `read_file`
   tool, so that read is a visible, ordinary tool call. A same-named skill in
-  a later layer replaces the earlier or embedded one as a whole unit; they are
-  never merged. `homepage`, `user-invocable`, `permissions`, and nested
+  a later layer replaces the earlier or embedded one as a whole unit; a native
+  `.agents` skill wins over the compatible `.claude` skill in one layer. They
+  are never merged. A user can write a standalone `:skill-name` reference at
+  the start of a message or after whitespace to require that exact effective
+  skill. Peen rejects an unknown name before opening a turn or contacting a
+  provider, then injects the full document into the root and child-agent
+  prompt. The original user text remains unchanged. A queued message cannot
+  directly activate a skill because the running turn's prompt is already
+  fixed. Without that syntax, the model uses the catalogue name and
+  description to decide whether to call `use_skill`. `homepage`,
+  `user-invocable`, `permissions`, and nested
   `metadata` are accepted and retained in the resolved skill record.
   `allowed-tools` and `permissions` are advisory only. Peen has no permission
   layer, so it cannot narrow which tools a skill's turn may call.

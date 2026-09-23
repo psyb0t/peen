@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"strconv"
 	"strings"
 
@@ -131,23 +132,35 @@ func writeSessionEvent(
 	position int,
 	notice events.Notice,
 ) {
-	builder.WriteString("[")
-	builder.WriteString(strconv.Itoa(position))
-	builder.WriteString("] type=")
-	builder.WriteString(notice.Type)
-	builder.WriteString(" source=")
-	builder.WriteString(notice.Source)
-	builder.WriteString(" at=")
-	builder.WriteString(notice.CreatedAt.Format(sessionEventTimeLayout))
-	builder.WriteString("\nsummary: ")
-	builder.WriteString(notice.Summary)
-	builder.WriteString("\n")
-
-	if len(notice.Data) > 0 {
-		builder.WriteString("data: ")
-		builder.Write(notice.Data)
-		builder.WriteString("\n")
+	payload, err := json.Marshal(sessionEventPrompt{
+		ID:        notice.ID.String(),
+		Type:      notice.Type,
+		Source:    notice.Source,
+		Summary:   notice.Summary,
+		Data:      notice.Data,
+		Delivery:  notice.Delivery,
+		CreatedAt: notice.CreatedAt.Format(sessionEventTimeLayout),
+	})
+	if err != nil {
+		payload = []byte(`{"error":"event payload could not be encoded"}`)
 	}
 
-	builder.WriteString("\n")
+	builder.WriteString("[")
+	builder.WriteString(strconv.Itoa(position))
+	builder.WriteString("] event: ")
+	builder.Write(payload)
+	builder.WriteString("\n\n")
+}
+
+// sessionEventPrompt is one untrusted notice rendered as a JSON value. JSON
+// encoding escapes markup in untrusted strings, preventing a notice summary or
+// payload from closing the surrounding prompt-data block.
+type sessionEventPrompt struct {
+	ID        string          `json:"id"`
+	Type      events.Type     `json:"type"`
+	Source    string          `json:"source"`
+	Summary   string          `json:"summary"`
+	Data      json.RawMessage `json:"data,omitempty"`
+	Delivery  events.Delivery `json:"delivery"`
+	CreatedAt string          `json:"createdAt"`
 }

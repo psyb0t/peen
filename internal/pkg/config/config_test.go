@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	testQualifiedModel = "aigate/gateway-model"
-	testDirectoryMode  = 0o700
+	testQualifiedModel  = "aigate/gateway-model"
+	testDirectoryMode   = 0o700
+	wantChildAgentDepth = 5
 )
 
 func TestConfigValidate(t *testing.T) {
@@ -216,6 +217,7 @@ func TestParseDefaultsWorkingDirectoryToProcessDirectory(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, workingDirectory, config.WorkingDirectory)
+	assert.Equal(t, wantChildAgentDepth, config.MaxChildAgentDepth)
 }
 
 func testConfig(t *testing.T) Config {

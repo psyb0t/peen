@@ -133,7 +133,7 @@ paths:
         Returns the durable worker generations for one session, newest first. A
         generation records the worker process that ran a set of turns, the
         profile revision it started under, and for a Docker generation its
-        container and immutable image digest.
+        container and repository image digest when one is available.
       parameters:
         - $ref: '#/components/parameters/SessionIDRequired'
         - $ref: '#/components/parameters/Limit'
@@ -834,6 +834,96 @@ paths:
           $ref: '#/components/responses/ErrorNotFound'
         '500':
           $ref: '#/components/responses/ErrorInternal'
+  /session/agents/{agentRunId}/messages:
+    get:
+      operationId: listSessionAgentRunMessages
+      summary: List one child agent run's own durable transcript
+      description: >-
+        A child agent runs a separate model context, so its transcript is
+        stored apart from the session transcript and is never absorbed by a
+        parent-session compaction.
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/AgentRunID'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Agent run message page
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRunMessagePage'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/agents/{agentRunId}/compactions:
+    get:
+      operationId: listSessionAgentRunCompactions
+      summary: List one child agent run's compaction lineage
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/AgentRunID'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Agent run compaction page
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRunCompactionPage'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/agents/{agentRunId}/compactions/{compactionId}:
+    get:
+      operationId: getSessionAgentRunCompaction
+      summary: Read one immutable child compaction record
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/AgentRunID'
+        - $ref: '#/components/parameters/CompactionID'
+      responses:
+        '200':
+          description: Agent run compaction record
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRunCompaction'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
   /session/agents/{agentRunId}/cancel:
     post:
       operationId: cancelSessionAgentRun
@@ -1435,6 +1525,157 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/TranscriptEvent'
+        limit:
+          type: integer
+          format: int32
+        offset:
+          type: integer
+          format: int32
+        hasMore:
+          type: boolean
+    AgentRunMessage:
+      type: object
+      additionalProperties: false
+      description: >-
+        One prompt-visible record in a child agent run's own transcript. It
+        carries no turn: a child belongs to its agent run, not to a session
+        turn's message sequence.
+      required:
+        [id, sessionId, agentRunId, sequence, role, content, isError,
+         incomplete, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        agentRunId:
+          type: string
+          format: uuid
+        sequence:
+          type: integer
+          format: int64
+        role:
+          type: string
+          enum: [user, assistant, tool]
+        content:
+          type: string
+        model:
+          type: string
+        thinking:
+          type: string
+        toolCalls:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        toolCallId:
+          type: string
+        compactionId:
+          type: [string, 'null']
+          format: uuid
+          description: >-
+            The child compaction that directly covered this message, or null
+            while it is still raw.
+        isError:
+          type: boolean
+        incomplete:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+    AgentRunMessagePage:
+      type: object
+      additionalProperties: false
+      required: [messages, limit, offset, hasMore]
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentRunMessage'
+        limit:
+          type: integer
+          format: int32
+        offset:
+          type: integer
+          format: int32
+        hasMore:
+          type: boolean
+    AgentRunCompaction:
+      type: object
+      additionalProperties: false
+      description: >-
+        One immutable summary covering a completed prefix of one child agent
+        run's transcript. directFromSequence and directToSequence name only the
+        messages this row covered itself; fromSequence and toSequence span the
+        whole superseded lineage.
+      required:
+        [id, sessionId, agentRunId, fromMessageId, toMessageId, fromSequence,
+         toSequence, directFromSequence, directToSequence, summary,
+         sourceMessageCount, inputTokenCount, summaryTokenCount, model,
+         promptHash, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        agentRunId:
+          type: string
+          format: uuid
+        fromMessageId:
+          type: string
+          format: uuid
+        toMessageId:
+          type: string
+          format: uuid
+        fromSequence:
+          type: integer
+          format: int64
+        toSequence:
+          type: integer
+          format: int64
+        directFromSequence:
+          type: integer
+          format: int64
+        directToSequence:
+          type: integer
+          format: int64
+        summary:
+          type: string
+        sourceMessageCount:
+          type: integer
+          format: int64
+        inputTokenCount:
+          type: integer
+          format: int64
+        summaryTokenCount:
+          type: integer
+          format: int64
+        model:
+          type: string
+        promptHash:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        parentCompactionId:
+          type: [string, 'null']
+          format: uuid
+          description: >-
+            The direct predecessor this compaction supersedes, or null for the
+            first compaction in the chain.
+    AgentRunCompactionPage:
+      type: object
+      additionalProperties: false
+      required: [compactions, limit, offset, hasMore]
+      properties:
+        compactions:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentRunCompaction'
         limit:
           type: integer
           format: int32

@@ -43,9 +43,9 @@ test-execution-forms: dev-image ## Run source and installed binary contract test
 
 # test-docker-worker is the image-entrypoint contract test. It creates one real
 # container, so it takes the Docker socket and is deliberately not part of
-# `make test`. It needs a pinned image:
+# `make test`. It needs an image reference Docker can resolve:
 #
-#   make test-docker-worker PEEN_DOCKER_WORKER_TEST_IMAGE=psyb0t/peen@sha256:...
+#   make test-docker-worker PEEN_DOCKER_WORKER_TEST_IMAGE=psyb0t/peen:latest
 #
 # It proves that a container created with User 0:0 ends up running as the
 # controller's host account, with no sudo, no Docker socket, no network, and no
@@ -58,7 +58,7 @@ test-execution-forms: dev-image ## Run source and installed binary contract test
 # under /tmp would resolve to a different directory on the host.
 test-docker-worker: dev-image ## Run the opt-in Docker image-entrypoint contract test
 	@test -n "$(PEEN_DOCKER_WORKER_TEST_IMAGE)" || \
-		{ echo "set PEEN_DOCKER_WORKER_TEST_IMAGE to a pinned psyb0t/peen@sha256 digest"; exit 1; }
+		{ echo "set PEEN_DOCKER_WORKER_TEST_IMAGE to a Docker image reference"; exit 1; }
 	@$(DEV_RUN_DIND) env \
 		PEEN_DOCKER_WORKER_TEST=true \
 		PEEN_DOCKER_WORKER_TEST_IMAGE=$(PEEN_DOCKER_WORKER_TEST_IMAGE) \
@@ -67,7 +67,7 @@ test-docker-worker: dev-image ## Run the opt-in Docker image-entrypoint contract
 
 # test-docker-worker-source builds the Dockerfile in this checkout and runs the
 # same probe. The temporary image tag is random, owned by this target, and
-# removed afterwards. Unlike the pinned-image check above, this catches an
+# removed afterwards. Unlike the published-image check above, this catches an
 # entrypoint change before the image reaches a registry.
 test-docker-worker-source: dev-image ## Build this checkout's worker image and probe its entrypoint
 	@$(DEV_RUN_DIND) bash -euc '\

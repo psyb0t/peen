@@ -39,6 +39,11 @@ const (
 	runtimeTestConfigRules   = "Follow config rules."
 	runtimeTestWorkspaceRule = "Follow workspace rules."
 	runtimeTestOtherRule     = "Follow the other workspace rules."
+
+	runtimeTestExplicitSkillName          = "review-rules"
+	runtimeTestExplicitSkillMessage       = "Apply :review-rules to this task."
+	runtimeTestConfigSkillInstructions    = "Config review instructions."
+	runtimeTestWorkspaceSkillInstructions = "Workspace review instructions."
 )
 
 func TestRuntimeRunPersistsTranscriptEventsAndSnapshots(t *testing.T) {
@@ -148,6 +153,88 @@ func TestRuntimeRunPersistsTranscriptEventsAndSnapshots(t *testing.T) {
 		Find()
 	require.NoError(t, err)
 	assert.Equal(t, eventTypes(events), persistedEventTypes(persistedEvents))
+}
+
+func TestRuntimeExplicitSkillReferenceInjectsTheEffectiveSkill(t *testing.T) {
+	driver := elelemtest.NewScriptedDriver(elelemtest.Text("done"))
+	fixture := newRuntimeFixture(t, driver)
+	writeRuntimeFile(
+		t,
+		filepath.Join(
+			fixture.configDirectory,
+			".agents",
+			"skills",
+			runtimeTestExplicitSkillName,
+			"SKILL.md",
+		),
+		"---\nname: review-rules\ndescription: Config review procedure.\n---\n"+
+			runtimeTestConfigSkillInstructions,
+	)
+	writeRuntimeFile(
+		t,
+		filepath.Join(
+			fixture.workspace,
+			".agents",
+			"skills",
+			runtimeTestExplicitSkillName,
+			"SKILL.md",
+		),
+		"---\nname: review-rules\ndescription: Workspace review procedure.\n---\n"+
+			runtimeTestWorkspaceSkillInstructions,
+	)
+
+	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
+		Message:   runtimeTestExplicitSkillMessage,
+		Workspace: fixture.workspace,
+	})
+	require.NoError(t, err)
+
+	requests := driver.Requests()
+	require.Len(t, requests, 1)
+	systemPrompt := requests[0].Messages[0].Text()
+	assert.Contains(t, systemPrompt, "Workspace review procedure.")
+	assert.Contains(t, systemPrompt, runtimeTestWorkspaceSkillInstructions)
+	assert.NotContains(t, systemPrompt, runtimeTestConfigSkillInstructions)
+	assert.Equal(
+		t,
+		runtimeTestExplicitSkillMessage,
+		requests[0].Messages[len(requests[0].Messages)-1].Text(),
+	)
+
+	query := repositories.Use(fixture.handle.GormDB)
+	turn, err := query.Turn.WithContext(context.Background()).
+		Where(query.Turn.SessionID.Eq(result.SessionID)).
+		First()
+	require.NoError(t, err)
+	require.NotNil(t, turn.ContextSnapshotHash)
+
+	contextSnapshot, err := query.ContextSnapshot.WithContext(context.Background()).
+		Where(query.ContextSnapshot.Hash.Eq(*turn.ContextSnapshotHash)).
+		First()
+	require.NoError(t, err)
+	assert.Contains(
+		t,
+		contextSnapshot.ResolvedContent,
+		runtimeTestWorkspaceSkillInstructions,
+	)
+}
+
+func TestRuntimeRejectsUnknownExplicitSkillBeforeOpeningATurn(t *testing.T) {
+	driver := elelemtest.NewScriptedDriver(elelemtest.Text("must not run"))
+	fixture := newRuntimeFixture(t, driver)
+
+	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
+		Message:   ":missing-skill inspect the project",
+		Workspace: fixture.workspace,
+	})
+	require.ErrorIs(t, err, harness.ErrSkillNotFound)
+	assert.Nil(t, result)
+	assert.Empty(t, driver.Requests())
+
+	query := repositories.Use(fixture.handle.GormDB)
+	turns, err := query.Turn.WithContext(context.Background()).Find()
+	require.NoError(t, err)
+	assert.Empty(t, turns)
 }
 
 func TestRuntimeResumesStartupWorkspaceSession(t *testing.T) {
@@ -301,8 +388,11 @@ func newRuntimeFixtureWithOptions(
 
 	resolver, err := harness.NewResolver(configDirectory, harness.Limits{})
 	require.NoError(t, err)
+
+	stateDirectory := filepath.Join(root, "state")
+
 	handle, err := db.Open(context.Background(), db.Config{
-		Directory: filepath.Join(root, "state"),
+		Directory: stateDirectory,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, handle.Close()) })
@@ -346,6 +436,7 @@ func newRuntimeFixtureWithOptions(
 		otherWorkspace:  otherWorkspace,
 		eventBus:        eventBus,
 		configDirectory: configDirectory,
+		stateDirectory:  stateDirectory,
 	}
 }
 
@@ -357,6 +448,7 @@ type runtimeFixture struct {
 	otherWorkspace  string
 	eventBus        *events.Bus
 	configDirectory string
+	stateDirectory  string
 }
 
 func writeRuntimeFile(t *testing.T, path string, content string) {

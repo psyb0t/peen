@@ -10,6 +10,7 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
+	"github.com/psyb0t/peen/internal/pkg/events"
 )
 
 const defaultSessionNoticeDataJSON = "{}"
@@ -253,11 +254,8 @@ func validateSessionNoticeInput(
 		)
 	}
 
-	if input.DataJSON != "" && !json.Valid([]byte(input.DataJSON)) {
-		return ctxerrors.Wrap(
-			commerr.ErrValidationFailed,
-			"session notice data JSON",
-		)
+	if err := events.ValidateData(json.RawMessage(input.DataJSON)); err != nil {
+		return ctxerrors.Wrap(err, "session notice data JSON")
 	}
 
 	return nil

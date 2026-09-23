@@ -18,7 +18,9 @@ import (
 var (
 	Q                      = new(Query)
 	AgentRun               *agentRun
+	AgentRunCompaction     *agentRunCompaction
 	AgentRunEvent          *agentRunEvent
+	AgentRunMessage        *agentRunMessage
 	Compaction             *compaction
 	ContextSnapshot        *contextSnapshot
 	Event                  *event
@@ -39,7 +41,9 @@ var (
 func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 	*Q = *Use(db, opts...)
 	AgentRun = &Q.AgentRun
+	AgentRunCompaction = &Q.AgentRunCompaction
 	AgentRunEvent = &Q.AgentRunEvent
+	AgentRunMessage = &Q.AgentRunMessage
 	Compaction = &Q.Compaction
 	ContextSnapshot = &Q.ContextSnapshot
 	Event = &Q.Event
@@ -61,7 +65,9 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 	return &Query{
 		db:                     db,
 		AgentRun:               newAgentRun(db, opts...),
+		AgentRunCompaction:     newAgentRunCompaction(db, opts...),
 		AgentRunEvent:          newAgentRunEvent(db, opts...),
+		AgentRunMessage:        newAgentRunMessage(db, opts...),
 		Compaction:             newCompaction(db, opts...),
 		ContextSnapshot:        newContextSnapshot(db, opts...),
 		Event:                  newEvent(db, opts...),
@@ -84,7 +90,9 @@ type Query struct {
 	db *gorm.DB
 
 	AgentRun               agentRun
+	AgentRunCompaction     agentRunCompaction
 	AgentRunEvent          agentRunEvent
+	AgentRunMessage        agentRunMessage
 	Compaction             compaction
 	ContextSnapshot        contextSnapshot
 	Event                  event
@@ -110,7 +118,9 @@ func (q *Query) clone(db *gorm.DB) *Query {
 	return &Query{
 		db:                     db,
 		AgentRun:               q.AgentRun.clone(db),
+		AgentRunCompaction:     q.AgentRunCompaction.clone(db),
 		AgentRunEvent:          q.AgentRunEvent.clone(db),
+		AgentRunMessage:        q.AgentRunMessage.clone(db),
 		Compaction:             q.Compaction.clone(db),
 		ContextSnapshot:        q.ContextSnapshot.clone(db),
 		Event:                  q.Event.clone(db),
@@ -141,7 +151,9 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 	return &Query{
 		db:                     db,
 		AgentRun:               q.AgentRun.replaceDB(db),
+		AgentRunCompaction:     q.AgentRunCompaction.replaceDB(db),
 		AgentRunEvent:          q.AgentRunEvent.replaceDB(db),
+		AgentRunMessage:        q.AgentRunMessage.replaceDB(db),
 		Compaction:             q.Compaction.replaceDB(db),
 		ContextSnapshot:        q.ContextSnapshot.replaceDB(db),
 		Event:                  q.Event.replaceDB(db),
@@ -162,7 +174,9 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 
 type queryCtx struct {
 	AgentRun               IAgentRunDo
+	AgentRunCompaction     IAgentRunCompactionDo
 	AgentRunEvent          IAgentRunEventDo
+	AgentRunMessage        IAgentRunMessageDo
 	Compaction             ICompactionDo
 	ContextSnapshot        IContextSnapshotDo
 	Event                  IEventDo
@@ -183,7 +197,9 @@ type queryCtx struct {
 func (q *Query) WithContext(ctx context.Context) *queryCtx {
 	return &queryCtx{
 		AgentRun:               q.AgentRun.WithContext(ctx),
+		AgentRunCompaction:     q.AgentRunCompaction.WithContext(ctx),
 		AgentRunEvent:          q.AgentRunEvent.WithContext(ctx),
+		AgentRunMessage:        q.AgentRunMessage.WithContext(ctx),
 		Compaction:             q.Compaction.WithContext(ctx),
 		ContextSnapshot:        q.ContextSnapshot.WithContext(ctx),
 		Event:                  q.Event.WithContext(ctx),

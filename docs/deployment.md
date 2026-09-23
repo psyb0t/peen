@@ -21,7 +21,7 @@ and `REF` picks a tag or branch:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/psyb0t/peen/main/install.sh |
-  PREFIX=/usr/local/bin REF=v0.10.1 bash
+  PREFIX=/usr/local/bin REF=v0.11.0 bash
 ```
 
 It needs `git` and `docker` and refuses to start without them. Doing the same
@@ -266,10 +266,7 @@ literal path, and its own session socket directory writable, and runs as the
 controller's own host UID, GID, and username, so files it writes keep host
 ownership and a path means the same thing on both sides of the boundary.
 
-Three things are deliberately absent from a worker: `PEEN_STATE_DIR`, so the
-controller's database and audit logs are unreachable; the worker socket root, so
-one worker never learns another session's socket path; and any image from a
-repository other than `psyb0t/peen`.
+Three things are deliberately absent from a worker: `PEEN_STATE_DIR`, so the controller's database and audit logs are unreachable; the worker socket root, so one worker never learns another session's socket path; and any client or model supplied image selection. The operator selects an image in the execution profile.
 
 The worker gets its own runtime settings and the named provider credentials for
 its model calls. It does not get the controller API token or controller Docker

@@ -57,6 +57,8 @@ metadata:
         - docker
 ---
 `
+	testClaudeSkillName              = "claude-skill"
+	testNativeSkillBody              = "native skill body"
 	testNamedAgentLicenseFrontMatter = `---
 name: valid-agent
 description: valid
@@ -274,6 +276,78 @@ func TestResolverFilesystemSkillsReplaceEmbeddedDefinitions(t *testing.T) {
 		Source: planning.Source,
 		Hash:   planning.Hash,
 	})
+}
+
+func TestResolverLoadsClaudeCompatibleSkills(t *testing.T) {
+	t.Parallel()
+
+	fixture := newResolverFixture(t)
+	writeFile(
+		t,
+		filepath.Join(
+			fixture.configRoot,
+			claudeDirectoryName,
+			skillsDirectoryName,
+			testClaudeSkillName,
+			skillFileName,
+		),
+		skillDocument(testClaudeSkillName, "Claude skill", testSkillBody),
+	)
+
+	snapshot := resolveFixture(t, fixture)
+	skill, err := snapshot.ActivateSkill(testClaudeSkillName)
+	require.NoError(t, err)
+	assert.Equal(
+		t,
+		filepath.Join(
+			fixture.configRoot,
+			claudeDirectoryName,
+			skillsDirectoryName,
+			testClaudeSkillName,
+			skillFileName,
+		),
+		skill.Source,
+	)
+}
+
+func TestResolverPrefersNativeSkillWithinOneLayer(t *testing.T) {
+	t.Parallel()
+
+	fixture := newResolverFixture(t)
+	writeFile(
+		t,
+		filepath.Join(
+			fixture.configRoot,
+			claudeDirectoryName,
+			skillsDirectoryName,
+			testClaudeSkillName,
+			skillFileName,
+		),
+		skillDocument(testClaudeSkillName, "Claude skill", testSkillBody),
+	)
+	fixture.writeSkill(
+		t,
+		fixture.configRoot,
+		testClaudeSkillName,
+		"Native skill",
+		testNativeSkillBody,
+	)
+
+	snapshot := resolveFixture(t, fixture)
+	skill, err := snapshot.ActivateSkill(testClaudeSkillName)
+	require.NoError(t, err)
+	assert.Contains(t, skill.Content, testNativeSkillBody)
+	assert.Equal(
+		t,
+		filepath.Join(
+			fixture.configRoot,
+			agentsDirectoryName,
+			skillsDirectoryName,
+			testClaudeSkillName,
+			skillFileName,
+		),
+		skill.Source,
+	)
 }
 
 func TestResolverProducesStableAndChangingHashes(t *testing.T) {

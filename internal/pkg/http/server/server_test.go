@@ -728,6 +728,59 @@ func (r *testRuntime) GetSessionAgentRun(
 	return &api.AgentRun{AgentRunId: agentRunID}, nil
 }
 
+// A child agent's transcript and compaction lineage are separate durable
+// records, so the double answers them from their own error seam.
+func (r *testRuntime) ListSessionAgentRunMessages(
+	_ context.Context,
+	sessionID uuid.UUID,
+	agentRunID uuid.UUID,
+	_ api.ListSessionAgentRunMessagesParams,
+) (*api.AgentRunMessagePage, error) {
+	if r.agentRunsErr != nil {
+		return nil, r.agentRunsErr
+	}
+
+	return &api.AgentRunMessagePage{
+		Messages: []api.AgentRunMessage{
+			{AgentRunId: agentRunID, SessionId: sessionID, Sequence: 1},
+		},
+	}, nil
+}
+
+func (r *testRuntime) ListSessionAgentRunCompactions(
+	_ context.Context,
+	sessionID uuid.UUID,
+	agentRunID uuid.UUID,
+	_ api.ListSessionAgentRunCompactionsParams,
+) (*api.AgentRunCompactionPage, error) {
+	if r.agentRunsErr != nil {
+		return nil, r.agentRunsErr
+	}
+
+	return &api.AgentRunCompactionPage{
+		Compactions: []api.AgentRunCompaction{
+			{AgentRunId: agentRunID, SessionId: sessionID},
+		},
+	}, nil
+}
+
+func (r *testRuntime) GetSessionAgentRunCompaction(
+	_ context.Context,
+	sessionID uuid.UUID,
+	agentRunID uuid.UUID,
+	compactionID uuid.UUID,
+) (*api.AgentRunCompaction, error) {
+	if r.agentRunsErr != nil {
+		return nil, r.agentRunsErr
+	}
+
+	return &api.AgentRunCompaction{
+		Id:         compactionID,
+		AgentRunId: agentRunID,
+		SessionId:  sessionID,
+	}, nil
+}
+
 func (r *testRuntime) CancelSessionAgentRun(
 	_ context.Context,
 	_ uuid.UUID,

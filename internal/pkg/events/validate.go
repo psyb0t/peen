@@ -1,9 +1,13 @@
 package events
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/ctxerrors/commerr"
 )
 
 const (
@@ -99,4 +103,23 @@ func ValidateDelivery(delivery Delivery) (Delivery, error) {
 	default:
 		return "", ctxerrors.Wrap(ErrInvalidDelivery, delivery)
 	}
+}
+
+// ValidateData accepts an absent payload or one JSON object. Session notices
+// are exposed through an object-shaped HTTP field, so accepting an array,
+// scalar, or null here would allow a record that durable reads cannot replay.
+func ValidateData(data json.RawMessage) error {
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil
+	}
+
+	object := map[string]json.RawMessage{}
+	if err := json.Unmarshal(data, &object); err != nil || object == nil {
+		return ctxerrors.Wrap(
+			errors.Join(ErrInvalidData, commerr.ErrValidationFailed),
+			"event data must be a JSON object",
+		)
+	}
+
+	return nil
 }

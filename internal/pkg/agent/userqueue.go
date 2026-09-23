@@ -268,6 +268,13 @@ func (r *Runtime) queueActiveUserMessage(
 		return nil, false, nil
 	}
 
+	if len(explicitSkillNames(input.Message)) > 0 {
+		return nil, true, ctxerrors.Wrap(
+			commerr.ErrConflict,
+			"active turn cannot explicitly activate a skill",
+		)
+	}
+
 	if input.Model != "" || input.SystemPrompt != "" ||
 		input.SystemPromptMode != "" {
 		return nil, true, ctxerrors.Wrap(

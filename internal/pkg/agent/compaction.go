@@ -130,7 +130,48 @@ type compactor struct {
 	sessionID uuid.UUID
 	turnID    uuid.UUID
 	plan      reconstructionPlan
-	active    *models.Compaction
+	sink      compactionSink
+	active    *compactionHead
+
+	// agentRunID marks compaction model work done for a child agent. Session
+	// and parent-turn attribution stay either way, so a compaction run remains
+	// joinable to the turn that owns it.
+	agentRunID *uuid.UUID
+
+	// refresh reloads the plan and chain head immediately before compacting.
+	//
+	// A session turn needs none: its coverable history is everything that
+	// completed before the turn started, which the turn cannot change. A child
+	// agent's whole conversation is written during the turn, so its plan is
+	// stale the moment it is built and has to be reread from the durable child
+	// transcript.
+	refresh planRefresher
+}
+
+// planRefresher rereads a compactor's reconstruction plan and the chain head
+// it would supersede.
+type planRefresher func(
+	context.Context,
+) (reconstructionPlan, *compactionHead, error)
+
+// compactionHead is the chain head a later compaction supersedes. It is the
+// shape both a session compaction and a child compaction share, so one
+// compactor serves either without knowing which table it writes.
+type compactionHead struct {
+	ID                 uuid.UUID
+	FromMessageID      uuid.UUID
+	FromSequence       int64
+	SourceMessageCount int64
+}
+
+// compactionSink stores one committed summary in the durable record that owns
+// it. A session turn and a child agent run keep separate rows, so the sink is
+// what decides which.
+type compactionSink interface {
+	persist(
+		ctx context.Context,
+		input session.CompactionInput,
+	) (*compactionHead, error)
 }
 
 func newCompactor(
@@ -138,7 +179,8 @@ func newCompactor(
 	sessionID uuid.UUID,
 	turnID uuid.UUID,
 	plan reconstructionPlan,
-	active *models.Compaction,
+	sink compactionSink,
+	active *compactionHead,
 ) (*compactor, error) {
 	if err := options.validate(); err != nil {
 		return nil, ctxerrors.Wrap(err, "validate compaction options")
@@ -151,12 +193,87 @@ func newCompactor(
 		)
 	}
 
+	if sink == nil {
+		return nil, ctxerrors.Wrap(
+			ErrInvalidCompactionOptions,
+			"compaction sink",
+		)
+	}
+
 	return &compactor{
 		options:   options,
 		sessionID: sessionID,
 		turnID:    turnID,
 		plan:      plan,
+		sink:      sink,
 		active:    active,
+	}, nil
+}
+
+// sessionCompactionSink writes the session's own compaction rows.
+type sessionCompactionSink struct {
+	store     session.Storage
+	sessionID uuid.UUID
+}
+
+func (s sessionCompactionSink) persist(
+	ctx context.Context,
+	input session.CompactionInput,
+) (*compactionHead, error) {
+	stored, err := s.store.CreateCompaction(ctx, s.sessionID, input)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "store compaction")
+	}
+
+	return &compactionHead{
+		ID:                 stored.ID,
+		FromMessageID:      stored.FromMessageID,
+		FromSequence:       stored.FromSequence,
+		SourceMessageCount: stored.SourceMessageCount,
+	}, nil
+}
+
+// agentRunCompactionSink writes one child agent's own compaction rows, so a
+// child compaction never touches the session transcript or its compactions.
+type agentRunCompactionSink struct {
+	store      session.Storage
+	sessionID  uuid.UUID
+	agentRunID uuid.UUID
+}
+
+func (s agentRunCompactionSink) persist(
+	ctx context.Context,
+	input session.CompactionInput,
+) (*compactionHead, error) {
+	stored, err := s.store.CreateAgentRunCompaction(
+		ctx,
+		s.sessionID,
+		s.agentRunID,
+		session.AgentRunCompactionInput{
+			FromMessageID:          input.FromMessageID,
+			ToMessageID:            input.ToMessageID,
+			FromSequence:           input.FromSequence,
+			ToSequence:             input.ToSequence,
+			DirectFromSequence:     input.DirectFromSequence,
+			DirectToSequence:       input.DirectToSequence,
+			Summary:                input.Summary,
+			SourceMessageCount:     input.SourceMessageCount,
+			InputTokenCount:        input.InputTokenCount,
+			SummaryTokenCount:      input.SummaryTokenCount,
+			ModelID:                input.ModelID,
+			PromptHash:             input.PromptHash,
+			SupersedesCompactionID: input.SupersedesCompactionID,
+		},
+	)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "store child compaction")
+	}
+
+	return &compactionHead{
+		ID:                 stored.ID,
+		FromMessageID:      stored.FromMessageID,
+		FromSequence:       stored.FromSequence,
+		SourceMessageCount: stored.SourceMessageCount,
 	}, nil
 }
 
@@ -190,6 +307,10 @@ func (c *compactor) handle(
 			"duration_ms", time.Since(startedAt).Milliseconds(),
 		)
 	}()
+
+	if err := c.reloadPlan(ctx); err != nil {
+		return ctxerrors.Wrap(err, "reload reconstruction plan")
+	}
 
 	if err := c.plan.verify(event.Messages); err != nil {
 		return ctxerrors.Wrap(err, "verify reconstruction plan")
@@ -254,6 +375,27 @@ func (c *compactor) handle(
 		"budget_tokens", event.BudgetTokens,
 		"round", event.Round,
 	)
+
+	return nil
+}
+
+// reloadPlan rereads the plan when the compactor has a refresher.
+//
+// Rereading also replaces the chain head, so a compactor whose transcript grew
+// since construction supersedes the row that is actually active rather than
+// the one that was active when it was built.
+func (c *compactor) reloadPlan(ctx context.Context) error {
+	if c.refresh == nil {
+		return nil
+	}
+
+	plan, active, err := c.refresh(ctx)
+	if err != nil {
+		return err
+	}
+
+	c.plan = plan
+	c.active = active
 
 	return nil
 }
@@ -399,7 +541,7 @@ func (c *compactor) persist(
 	units int,
 	text string,
 	summary compactionSummary,
-) (*models.Compaction, error) {
+) (*compactionHead, error) {
 	covered := c.plan.Units[:units]
 	first := covered[0]
 	last := covered[len(covered)-1]
@@ -429,9 +571,9 @@ func (c *compactor) persist(
 		input.SupersedesCompactionID = &c.active.ID
 	}
 
-	stored, err := c.options.Store.CreateCompaction(ctx, c.sessionID, input)
+	stored, err := c.sink.persist(ctx, input)
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "store compaction")
+		return nil, err
 	}
 
 	return stored, nil
@@ -597,6 +739,7 @@ func (c *compactor) newCompactionAudit(
 		Store:               c.options.Store,
 		SessionID:           c.sessionID,
 		TurnID:              c.turnID,
+		AgentRunID:          c.agentRunID,
 		Stage:               models.ModelRunStageCompaction,
 		ModelReference:      c.options.ModelReference,
 		Model:               model.Model,

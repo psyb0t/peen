@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
@@ -181,10 +182,12 @@ pre_tool_use:
       - type: command
         command: state-check
 `, "")
+	stateRoot := filepath.Join(t.TempDir(), "worker-private-state")
 	invocations := make([]Invocation, 0, 3)
 	runner, err := New(Options{
 		Snapshot:  snapshot,
 		Workspace: workspace,
+		StateRoot: stateRoot,
 		RunCommand: func(_ context.Context, input CommandInput) ([]byte, error) {
 			invocation := Invocation{}
 			require.NoError(t, json.Unmarshal(input.Stdin, &invocation))
@@ -211,12 +214,48 @@ pre_tool_use:
 	assert.NotEqual(t, invocations[0].StateDirectory, invocations[2].StateDirectory)
 
 	for _, invocation := range invocations {
-		relative, relErr := filepath.Rel(snapshot.ConfigRoot(), invocation.StateDirectory)
+		relative, relErr := filepath.Rel(stateRoot, invocation.StateDirectory)
 		require.NoError(t, relErr)
 		assert.NotEqual(t, "..", relative)
 		assert.False(t, strings.HasPrefix(relative, ".."+string(filepath.Separator)))
+		assert.NotEqual(t, snapshot.ConfigRoot(), filepath.Dir(invocation.StateDirectory))
 		assertPrivateDirectory(t, invocation.StateDirectory)
 	}
+}
+
+func TestRunnerRejectsUnreplayableCommandEventData(t *testing.T) {
+	t.Parallel()
+
+	snapshot, workspace := testSnapshot(t, `version: 1
+pre_tool_use:
+  - actions:
+      - type: command
+        command: poisoned-hook
+`, "")
+	publisher := &testPublisher{}
+	runner, err := New(Options{
+		Snapshot:  snapshot,
+		Workspace: workspace,
+		Publisher: publisher,
+		RunCommand: func(context.Context, CommandInput) ([]byte, error) {
+			return []byte(`{
+  "events":[{
+    "type":"hook.checked",
+    "summary":"poisoned event",
+    "data":[],
+    "delivery":"queue"
+  }]
+}`), nil
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = runner.Run(context.Background(), Invocation{
+		Event:     harness.HookEventPreToolUse,
+		SessionID: uuid.New(),
+	})
+	require.ErrorIs(t, err, events.ErrInvalidData)
+	assert.Empty(t, publisher.notices)
 }
 
 func TestRunnerRejectsPreActionWhenTokenEstimateFails(t *testing.T) {
@@ -362,6 +401,41 @@ post_tool_use:
 	assert.Equal(t, sessionID, publisher.notices[0].SessionID)
 }
 
+func TestRunnerCanExplicitlyContinueAfterAPreActionFailure(t *testing.T) {
+	t.Parallel()
+
+	snapshot, workspace := testSnapshot(t, `version: 1
+pre_tool_use:
+  - actions:
+      - type: command
+        command: failed-check
+        on_failure: continue
+      - type: inject
+        message: the next action still runs
+`, "")
+	publisher := &testPublisher{}
+	runner, err := New(Options{
+		Snapshot:  snapshot,
+		Workspace: workspace,
+		Publisher: publisher,
+		RunCommand: func(context.Context, CommandInput) ([]byte, error) {
+			return nil, errHookCommandFailed
+		},
+	})
+	require.NoError(t, err)
+
+	sessionID := uuid.New()
+	outcome, err := runner.Run(context.Background(), Invocation{
+		Event:     harness.HookEventPreToolUse,
+		SessionID: sessionID,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"the next action still runs"}, outcome.Injections)
+	require.Len(t, publisher.notices, 1)
+	assert.Equal(t, hookFailureEventType, publisher.notices[0].Type)
+	assert.Equal(t, sessionID, publisher.notices[0].SessionID)
+}
+
 func TestRunnerDenialNeverDegradesToPostFailure(t *testing.T) {
 	t.Parallel()
 
@@ -391,6 +465,40 @@ func TestRunCommandCapsOutputAndDoesNotUseShell(t *testing.T) {
 	})
 	assert.Empty(t, output)
 	require.ErrorIs(t, err, ErrCommandOutputLimit)
+}
+
+func TestRunCommandPassesOnlyPathAndDeclaredEnvironment(t *testing.T) {
+	t.Parallel()
+
+	output, err := runCommand(context.Background(), CommandInput{
+		Command: "/usr/bin/env",
+		Environment: map[string]string{
+			"HOOK_TEST_VALUE": "declared",
+		},
+		WorkingDir: t.TempDir(),
+		MaxOutput:  defaultCommandOutput,
+	})
+	require.NoError(t, err)
+	assert.Contains(t, string(output), "PATH=")
+	assert.Contains(t, string(output), "HOOK_TEST_VALUE=declared")
+	assert.NotContains(t, string(output), "HOME=")
+	assert.NotContains(t, string(output), "PEEN_API_TOKEN=")
+}
+
+func TestRunCommandStopsWhenItsContextExpires(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+	t.Cleanup(cancel)
+
+	output, err := runCommand(ctx, CommandInput{
+		Command:    "/bin/sleep",
+		Args:       []string{"1"},
+		WorkingDir: t.TempDir(),
+		MaxOutput:  defaultCommandOutput,
+	})
+	assert.Empty(t, output)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
 func TestMatchGlobAndInputMatching(t *testing.T) {

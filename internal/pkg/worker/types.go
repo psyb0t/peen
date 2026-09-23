@@ -95,8 +95,9 @@ type Generation struct {
 	// a Docker worker, whose identity is its container.
 	ProcessID int
 
-	// ContainerID and ImageDigest identify a Docker worker. The digest is
-	// immutable image identity, never a moving tag.
+	// ContainerID identifies a Docker worker. ImageDigest records immutable
+	// repository identity when Docker reports one. It is empty for a local
+	// image without a repository digest.
 	ContainerID string
 	ImageDigest string
 

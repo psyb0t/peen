@@ -251,6 +251,34 @@ func TestRuntimeSystemPromptsCarryTrustedSystemContext(t *testing.T) {
 	assert.Contains(t, childPrompt, string(encodedWorkspace))
 }
 
+func TestRuntimeChildSystemPromptCarriesExplicitSkill(t *testing.T) {
+	fixture := newRuntimeFixture(t, elelemtest.NewScriptedDriver())
+	writeRuntimeFile(
+		t,
+		filepath.Join(
+			fixture.workspace,
+			".agents",
+			"skills",
+			runtimeTestExplicitSkillName,
+			"SKILL.md",
+		),
+		"---\nname: review-rules\ndescription: Review rules.\n---\n"+
+			runtimeTestWorkspaceSkillInstructions,
+	)
+
+	snapshot, err := fixture.runtime.resolver.Resolve(fixture.workspace)
+	require.NoError(t, err)
+
+	prompt, err := fixture.runtime.childSystemPrompt(
+		snapshot,
+		"child instructions",
+		fixture.workspace,
+		[]string{runtimeTestExplicitSkillName},
+	)
+	require.NoError(t, err)
+	assert.Contains(t, prompt, runtimeTestWorkspaceSkillInstructions)
+}
+
 // A deployment prompt file must actually reach the assembled prompt, not just
 // parse. The wiring is what broke before: the loader did not exist at all.
 func TestRuntimeUsesTheDeploymentSystemPromptFile(t *testing.T) {

@@ -4,6 +4,38 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.11.0 (2026-09-23)
+
+Child agents now keep their own durable conversations and compaction lineages.
+Existing databases migrate automatically. No API migration is needed. Hook
+commands must use the `stateDirectory` in their invocation instead of assuming
+that hook state lives below `PEEN_CONFIG_DIR`.
+
+- Stores each child task, assistant message, tool result, and hook injection in
+  SQLite before the child continues. A child summary stays separate from the
+  parent session, retains immutable direct message membership, and links to the
+  summary it supersedes.
+- Adds `GET /v1/session/agents/{agentRunId}/messages`,
+  `GET /v1/session/agents/{agentRunId}/compactions`, and
+  `GET /v1/session/agents/{agentRunId}/compactions/{compactionId}`. They expose
+  a child transcript and compaction lineage only to its owning session.
+- Adds `.claude/rules/*.md`, `.agents/rules/*.md`, and compatible
+  `.claude/skills/` discovery. A standalone `:skill-name` in a user message
+  activates that resolved skill before the first provider request, including
+  for child agents.
+- Raises the default child-agent depth to five. The child at the limit cannot
+  launch another child. Child prompts now include Peen's base instructions, and
+  child hook command input includes `agentRunId`.
+- Keeps writable hook state below `PEEN_STATE_DIR` for native workers and in a
+  Docker worker's session-private writable mount. The configuration directory
+  stays read-only for every Docker worker.
+- Requires session-notice and hook-emitted `data` to be a JSON object before a
+  durable write. Peen renders delivered notices as quoted JSON data, so event
+  text cannot alter the prompt boundary.
+- Lets an operator select any Docker image reference the daemon can resolve,
+  including a local development image. Worker records keep a repository digest
+  when the daemon supplies one.
+
 ## v0.10.1 (2026-09-21)
 
 Maintenance release. No configuration, API, or workspace migration is needed.

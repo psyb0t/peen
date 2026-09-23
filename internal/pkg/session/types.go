@@ -115,6 +115,74 @@ type MessagePage struct {
 	HasMore bool
 }
 
+// AgentRunMessageInput is one prompt-visible record in a child agent's own
+// transcript. It carries no turn or workspace: a child belongs to its agent
+// run, not to a session turn's message sequence.
+type AgentRunMessageInput struct {
+	ID            uuid.UUID
+	Role          models.MessageRole
+	Content       string
+	ModelID       string
+	Thinking      string
+	ToolCallsJSON string
+	ToolCallID    string
+	IsError       bool
+	Incomplete    bool
+}
+
+// ListAgentRunMessagesOptions bounds one child transcript page.
+type ListAgentRunMessagesOptions struct {
+	Limit  int
+	Offset int
+}
+
+// AgentRunMessagePage is one complete child transcript page, oldest first.
+type AgentRunMessagePage struct {
+	Items   []*models.AgentRunMessage
+	Limit   int
+	Offset  int
+	HasMore bool
+}
+
+// AgentRunHistoryResult is a child's current summary plus the raw tail after
+// it, which is what rebuilds the child conversation from SQLite.
+type AgentRunHistoryResult struct {
+	Compaction *models.AgentRunCompaction
+	Messages   []*models.AgentRunMessage
+}
+
+// AgentRunCompactionInput stores one immutable child replacement summary.
+type AgentRunCompactionInput struct {
+	ID                     uuid.UUID
+	FromMessageID          uuid.UUID
+	ToMessageID            uuid.UUID
+	FromSequence           int64
+	ToSequence             int64
+	DirectFromSequence     int64
+	DirectToSequence       int64
+	Summary                string
+	SourceMessageCount     int64
+	InputTokenCount        int64
+	SummaryTokenCount      int64
+	ModelID                string
+	PromptHash             string
+	SupersedesCompactionID *uuid.UUID
+}
+
+// ListAgentRunCompactionsOptions bounds one child compaction page.
+type ListAgentRunCompactionsOptions struct {
+	Limit  int
+	Offset int
+}
+
+// AgentRunCompactionPage is one complete child compaction page, newest first.
+type AgentRunCompactionPage struct {
+	Items   []*models.AgentRunCompaction
+	Limit   int
+	Offset  int
+	HasMore bool
+}
+
 // CompactionInput stores one immutable replacement summary.
 type CompactionInput struct {
 	ID                     uuid.UUID

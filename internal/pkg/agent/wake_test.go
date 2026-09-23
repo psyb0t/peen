@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem/elelemtest"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
@@ -343,6 +344,36 @@ func TestPublishEventWithoutABusFails(t *testing.T) {
 		wakeTestNotice(sessionID),
 	)
 	require.ErrorIs(t, err, ErrEventsUnavailable)
+}
+
+func TestPublishEventDuplicateIDDoesNotReplayOrFanOutTwice(t *testing.T) {
+	fixture := newRuntimeFixture(t, elelemtest.NewScriptedDriver(
+		elelemtest.Text("session open"),
+	))
+	sessionID := openWakeSession(t, fixture)
+	notice := wakeTestNotice(sessionID)
+	notice.ID = uuid.New()
+	notice.Delivery = events.DeliveryQueue
+
+	first, err := fixture.runtime.PublishEvent(context.Background(), notice)
+	require.NoError(t, err)
+
+	stream, stop := fixture.eventBus.Subscribe(sessionID)
+	t.Cleanup(stop)
+
+	_, err = fixture.runtime.PublishEvent(context.Background(), notice)
+	require.ErrorIs(t, err, commerr.ErrAlreadyExists)
+	assert.Equal(t, 1, fixture.eventBus.Pending(sessionID))
+	assert.Empty(t, stream)
+
+	page, err := fixture.store.ListSessionNotices(
+		context.Background(),
+		sessionID,
+		session.ListSessionNoticesOptions{Limit: 10},
+	)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.Equal(t, first.ID, page.Items[0].ID)
 }
 
 func TestWakeLimiterBoundsWakesPerWindow(t *testing.T) {

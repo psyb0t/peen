@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -40,6 +41,19 @@ func TestReadLaunchDocumentAcceptsAControllerIssuedDocument(t *testing.T) {
 	got, err := readLaunchDocument(bytes.NewReader(encoded))
 	require.NoError(t, err)
 	assert.Equal(t, want, got)
+}
+
+func TestWorkerHookStateRootUsesThePrivateSocketMount(t *testing.T) {
+	t.Parallel()
+
+	document := validLaunchDocument(t)
+
+	assert.Equal(
+		t,
+		filepath.Join(filepath.Dir(document.SocketPath), "hook-state"),
+		workerHookStateRoot(document),
+	)
+	assert.NotContains(t, workerHookStateRoot(document), document.ConfigDirectory)
 }
 
 // `peen worker` is not a general user command. Without a complete

@@ -49,13 +49,7 @@ profile it already runs under. `GET /v1/execution-profiles` lists what a client
 may name, with `hostRootEquivalent` and a `capabilityWarning` for a profile that
 grants effectively host-root access.
 
-`GET /v1/session/workers` reports one session's durable worker generations,
-newest first. A generation is one run of one worker process. It records the
-profile and profile revision it started under, its lifecycle state, and for a
-Docker generation its container and immutable image digest. Turns, post-start
-protocol events, jobs, and child-agent runs record the generation that produced
-them. The accepted user-message record predates worker startup, so it has no
-generation.
+`GET /v1/session/workers` reports one session's durable worker generations, newest first. A generation is one run of one worker process. It records the profile and profile revision it started under, its lifecycle state, and for a Docker generation its container and repository image digest when one is available. Turns, post-start protocol events, jobs, and child-agent runs record the generation that produced them. The accepted user-message record predates worker startup, so it has no generation.
 
 `POST /v1/session/reconfigure` moves an already-open session to a different
 profile. The body carries `profile` and `reason`, both required, and nothing
@@ -107,9 +101,17 @@ or `replace` for the supplied text alone. Neither setting is sticky.
 message. `data.workspace` is also rejected. The first server frame carries the
 session UUID in `metadata.sessionId`; retain it for REST reads and controls.
 
+Write a standalone `:skill-name` at the start of a message or after whitespace
+to require that exact resolved skill for the turn. Peen validates the name
+before it opens a turn or contacts a provider. The full `SKILL.md` reaches the
+root and any child agents. An unknown name produces `message.failed`; the user
+message remains unchanged. Without this syntax, the model sees the skill
+catalogue and decides whether to load a matching procedure with `use_skill`.
+
 When the session already has a running turn, a `message.send` with only a
 `message` joins that turn's FIFO user-message queue. A queued message cannot set
 `model` or `systemPrompt`, because those settings belong to the running turn.
+It also cannot directly activate a skill, because the running prompt is fixed.
 The live queue is bounded by `PEEN_MAX_QUEUED_USER_MESSAGES`,
 defaults to 16, and does not interrupt an in-flight provider request. Queued
 delivery is process-local until the next provider round. Clients retry after a
@@ -391,6 +393,49 @@ parameters: `cursor` (default 0) and `limit` (1-200, default 100).
 
 A run ID belonging to another session returns `404`, the same as an unknown
 one, so a caller cannot use this to probe for another session's run IDs.
+
+## GET /v1/session/agents/{agentRunId}/messages
+
+Lists one child agent run's own transcript, oldest first. `X-Session-ID` is
+required. Query parameters are `limit` and `offset`.
+
+A child agent runs a separate model context, so its conversation lives apart
+from the session transcript and never appears under `GET /v1/messages`. The
+first record is the task its parent gave it. The rest are the assistant
+messages, tool results, and hook injections the child saw. Each record carries
+`agentRunId`, `sequence`, `role`, `content`, the `isError` and `incomplete`
+flags, optional `model`, `thinking`, `toolCalls`, and `toolCallId`, and
+`compactionId` when a child compaction covers it.
+
+```json
+{"messages": [{"id": "uuid", "sessionId": "uuid", "agentRunId": "uuid", "sequence": 1, "role": "user", "content": "...", "isError": false, "incomplete": false, "compactionId": null, "createdAt": "..."}], "limit": 50, "offset": 0, "hasMore": false}
+```
+
+## GET /v1/session/agents/{agentRunId}/compactions
+
+Lists one child agent run's compaction records, newest first. `X-Session-ID` is
+required. Query parameters are `limit` and `offset`.
+
+These records are the child's own. A child compaction never covers a session
+message and never supersedes a session compaction, so this route and
+`GET /v1/session/compactions` describe separate lineages.
+
+Each record has the source message range, the direct range it covered itself,
+summary, model, prompt hash, token counts, and optional `parentCompactionId`. A
+later child summary covers the earlier summary plus new raw messages and points
+at the earlier record. The earlier record's direct range and the `compactionId`
+on its messages stay as they were.
+
+## GET /v1/session/agents/{agentRunId}/compactions/{compactionId}
+
+Reads one immutable child compaction record. `X-Session-ID` is required, and
+the record must belong to both the session and the agent run. A compaction ID
+from another session or another run returns `404`, so a caller cannot probe for
+records it does not own.
+
+```json
+{"id": "uuid", "sessionId": "uuid", "agentRunId": "uuid", "fromSequence": 1, "toSequence": 6, "directFromSequence": 3, "directToSequence": 6, "summary": "...", "sourceMessageCount": 6, "parentCompactionId": "uuid", "createdAt": "..."}
+```
 
 ## POST /v1/session/agents/{agentRunId}/cancel
 

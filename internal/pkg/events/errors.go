@@ -9,6 +9,9 @@ var (
 	ErrReservedType = errors.New("event type prefix is reserved")
 	// ErrInvalidDelivery reports a delivery mode Peen does not implement.
 	ErrInvalidDelivery = errors.New("invalid event delivery mode")
+	// ErrInvalidData reports event data that cannot round-trip through Peen's
+	// object-shaped durable and HTTP contracts.
+	ErrInvalidData = errors.New("invalid event data")
 	// ErrInvalidOptions reports an unusable bus configuration.
 	ErrInvalidOptions = errors.New("invalid event bus options")
 )

@@ -52,14 +52,14 @@ const (
 	// container unless the operator asked for one in this run.
 	enableEnvKey = "PEEN_DOCKER_WORKER_TEST"
 
-	// imageEnvKey names the pinned worker image. There is no default, because a
-	// default would let this suite create a container from whatever the local
-	// daemon happened to have under that name.
+	// imageEnvKey names the worker image to probe. There is no default, because
+	// a default would let this suite create a container from an unrequested
+	// local daemon image.
 	imageEnvKey = "PEEN_DOCKER_WORKER_TEST_IMAGE"
 
 	// localImageEnvKey is set only by make test-docker-worker-source. The
-	// production profile still sees a pinned repository image, then the test
-	// swaps only its probe request to the Dockerfile image it built itself.
+	// profile uses a local tag to prove the normal builder accepts it, then the
+	// test swaps the probe request to the Dockerfile image it built itself.
 	localImageEnvKey = "PEEN_DOCKER_WORKER_TEST_LOCAL_IMAGE"
 
 	// socketEnvKey names the daemon socket. The controller's own socket is a
@@ -98,12 +98,10 @@ const (
 	expectedRootUsers = "0:0"
 	sourceImagePrefix = "peen-dockerworker-source-"
 
-	// sourceContractProfileImage is a syntactically valid but deliberately
-	// nonexistent repository image. The source-image target never asks Docker
-	// to run it: it proves the normal builder accepts a pinned image, then
-	// replaces only the test probe's image with the just-built local one.
-	sourceContractProfileImage = "psyb0t/peen@sha256:" +
-		"0000000000000000000000000000000000000000000000000000000000000000"
+	// sourceContractProfileImage is a local image tag. The source-image target
+	// never asks Docker to run it. It proves the normal builder accepts a local
+	// tag, then replaces only the test probe's image with the just-built image.
+	sourceContractProfileImage = "peen-dockerworker-contract:local"
 
 	// containerExitTimeout bounds the probe. It writes one file and exits, so a
 	// container still running after this is a finding rather than slowness.

@@ -54,7 +54,7 @@ tag or branch:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/psyb0t/peen/main/install.sh |
-  PREFIX=/usr/local/bin REF=v0.10.1 bash
+  PREFIX=/usr/local/bin REF=v0.11.0 bash
 ```
 
 Piping a script from the internet into a shell is worth a look first. Read it at
@@ -216,16 +216,27 @@ adds project-specific instructions:
 ```text
 workspace/
   AGENTS.md
+  .claude/
+    rules/<rule-name>.md
+    skills/<skill-name>/SKILL.md
   .agents/
+    rules/<rule-name>.md
     skills/<skill-name>/SKILL.md
     agents/<agent-name>.md
     events/<event-type>.md
     hooks.yaml
 ```
 
-Write ordinary project rules in `AGENTS.md`. Add a skill when the agent needs a
-named procedure. Add a named agent when it should delegate a bounded job. Use
-hooks when the harness itself must gate, annotate, or react to an action.
+Write ordinary project rules in `AGENTS.md`. Split topic-specific always-on
+rules into Markdown files in `.claude/rules/` or `.agents/rules/`. Add a skill
+when the agent needs a named procedure. Peen puts every skill name and
+description in the turn context. For an ordinary request, the model decides
+whether the task matches a skill, then calls `use_skill` to load it. Put a
+standalone `:skill-name` at the start of a message or after whitespace to
+require that exact effective skill for the turn. Peen validates it before
+contacting a provider and injects its full `SKILL.md` into the root and
+child-agent prompts. Add a named agent when it should delegate a bounded job.
+Use hooks when the harness itself must gate, annotate, or react to an action.
 
 Peen resolves layers from the filesystem root down to the active workspace, so
 a repository can put broad rules at the top and narrow rules beside one

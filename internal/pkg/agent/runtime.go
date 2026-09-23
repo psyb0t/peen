@@ -77,6 +77,7 @@ type Runtime struct {
 	enableWorkspaceHooks bool
 	hookCommandTimeout   time.Duration
 	maxHookCommandOutput int
+	hookStateRoot        string
 	eventBus             *events.Bus
 	metrics              *metrics.Metrics
 	wakes                *wakeLimiter
@@ -107,6 +108,7 @@ type turnBasis struct {
 	modelReference string
 	model          ModelClient
 	snapshot       harness.Snapshot
+	explicitSkills []string
 	systemPrompt   string
 	contextHash    string
 	promptHash     string
@@ -155,6 +157,7 @@ type preparedTurn struct {
 	eventBus           *events.Bus
 	pendingEvents      string
 	snapshot           harness.Snapshot
+	explicitSkills     []string
 	toolHooks          *toolHookRuntime
 	userMessages       *activeUserMessageQueue
 }
@@ -228,6 +231,7 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 		enableWorkspaceHooks: options.EnableWorkspaceHooks,
 		hookCommandTimeout:   options.HookCommandTimeout,
 		maxHookCommandOutput: options.MaxHookCommandOutput,
+		hookStateRoot:        options.HookStateRoot,
 		eventBus:             options.Events,
 		metrics:              options.Metrics,
 		wakes:                newWakeLimiter(options.MaxEventWakesPerHour),
@@ -471,6 +475,7 @@ func (r *Runtime) prepareTurn(
 		eventBus:       r.eventBus,
 		pendingEvents:  opening.pendingEvents,
 		snapshot:       basis.snapshot,
+		explicitSkills: basis.explicitSkills,
 	}
 
 	executor, generationID, err := r.openTurnExecutor(
@@ -547,7 +552,12 @@ func (r *Runtime) resolveTurnBasis(
 		return turnBasis{}, ctxerrors.Wrap(err, "resolve model")
 	}
 
-	snapshot, systemPrompt, contextHash, promptHash, err := r.resolveContext(
+	snapshot,
+		explicitSkills,
+		systemPrompt,
+		contextHash,
+		promptHash,
+		err := r.resolveContext(
 		ctx,
 		input,
 		workspace,
@@ -562,6 +572,7 @@ func (r *Runtime) resolveTurnBasis(
 		modelReference: modelReference,
 		model:          model,
 		snapshot:       snapshot,
+		explicitSkills: explicitSkills,
 		systemPrompt:   systemPrompt,
 		contextHash:    contextHash,
 		promptHash:     promptHash,
@@ -572,21 +583,53 @@ func (r *Runtime) resolveContext(
 	ctx context.Context,
 	input TurnRequest,
 	workspace string,
-) (harness.Snapshot, string, string, string, error) {
+) (harness.Snapshot, []string, string, string, string, error) {
 	snapshot, err := r.resolver.Resolve(workspace)
 	if err != nil {
-		return harness.Snapshot{}, "", "", "", ctxerrors.Wrap(
+		return harness.Snapshot{}, nil, "", "", "", ctxerrors.Wrap(
 			err,
 			"resolve harness context",
 		)
 	}
 
-	systemPrompt, err := r.systemPrompt(snapshot, input, workspace)
+	explicitSkills, err := resolveTurnExplicitSkills(
+		ctx,
+		snapshot,
+		input.Message,
+	)
 	if err != nil {
-		return harness.Snapshot{}, "", "", "", ctxerrors.Wrap(
-			err,
-			"build system prompt",
-		)
+		return harness.Snapshot{}, nil, "", "", "", err
+	}
+
+	systemPrompt, contextHash, promptHash, err := r.resolveSystemPrompt(
+		ctx,
+		snapshot,
+		input,
+		workspace,
+		explicitSkills,
+	)
+	if err != nil {
+		return harness.Snapshot{}, nil, "", "", "", err
+	}
+
+	return snapshot, explicitSkills, systemPrompt, contextHash, promptHash, nil
+}
+
+func (r *Runtime) resolveSystemPrompt(
+	ctx context.Context,
+	snapshot harness.Snapshot,
+	input TurnRequest,
+	workspace string,
+	explicitSkills []string,
+) (string, string, string, error) {
+	systemPrompt, err := r.systemPrompt(
+		snapshot,
+		input,
+		workspace,
+		explicitSkills,
+	)
+	if err != nil {
+		return "", "", "", ctxerrors.Wrap(err, "build system prompt")
 	}
 
 	systemPrompt, err = r.appendPreUserHookContext(
@@ -597,10 +640,7 @@ func (r *Runtime) resolveContext(
 		systemPrompt,
 	)
 	if err != nil {
-		return harness.Snapshot{}, "", "", "", ctxerrors.Wrap(
-			err,
-			"run pre-user-message hooks",
-		)
+		return "", "", "", ctxerrors.Wrap(err, "run pre-user-message hooks")
 	}
 
 	contextHash, promptHash, err := r.saveSnapshots(
@@ -610,13 +650,10 @@ func (r *Runtime) resolveContext(
 		systemPrompt,
 	)
 	if err != nil {
-		return harness.Snapshot{}, "", "", "", ctxerrors.Wrap(
-			err,
-			"save harness snapshots",
-		)
+		return "", "", "", ctxerrors.Wrap(err, "save harness snapshots")
 	}
 
-	return snapshot, systemPrompt, contextHash, promptHash, nil
+	return systemPrompt, contextHash, promptHash, nil
 }
 
 func (r *Runtime) openPrompt(
@@ -729,6 +766,7 @@ func (r *Runtime) launchAgentDeps(prepared *preparedTurn) *launchAgentDeps {
 		runtime:            r,
 		executor:           prepared.executor,
 		snapshot:           prepared.snapshot,
+		explicitSkills:     prepared.explicitSkills,
 		model:              prepared.model,
 		modelReference:     prepared.modelReference,
 		workerGenerationID: prepared.workerGenerationID,
@@ -1131,8 +1169,14 @@ func (r *Runtime) systemPrompt(
 	snapshot harness.Snapshot,
 	input TurnRequest,
 	workspace string,
+	explicitSkillSets ...[]string,
 ) (string, error) {
-	blocks, err := snapshot.PromptBlocks(r.rootAgent)
+	var explicitSkills []string
+	if len(explicitSkillSets) > 0 {
+		explicitSkills = explicitSkillSets[0]
+	}
+
+	blocks, err := snapshot.PromptBlocks(r.rootAgent, explicitSkills...)
 	if err != nil {
 		return "", ctxerrors.Wrap(err, "resolve prompt blocks")
 	}
@@ -1341,6 +1385,7 @@ func (r *Runtime) runProvider(
 		r.launchAgentDeps(prepared),
 		prepared.injectSessionEvents,
 		rootAgent.AllowedTools,
+		rootAgentDepth,
 	)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "build root agent tool set")
@@ -1543,18 +1588,36 @@ func (r *Runtime) newTurnCompactor(
 		prepared.runCompactionHook,
 	)
 
+	sessionID := opening.opened.Session.ID
+
 	built, err := newCompactor(
 		options,
-		opening.opened.Session.ID,
+		sessionID,
 		prepared.lease.TurnID,
 		opening.assembly.plan,
-		opening.assembly.active,
+		sessionCompactionSink{store: r.store, sessionID: sessionID},
+		sessionCompactionHead(opening.assembly.active),
 	)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create turn compactor")
 	}
 
 	return built, nil
+}
+
+// sessionCompactionHead adapts the session's stored chain head to the shape a
+// compactor supersedes.
+func sessionCompactionHead(active *models.Compaction) *compactionHead {
+	if active == nil {
+		return nil
+	}
+
+	return &compactionHead{
+		ID:                 active.ID,
+		FromMessageID:      active.FromMessageID,
+		FromSequence:       active.FromSequence,
+		SourceMessageCount: active.SourceMessageCount,
+	}
 }
 
 func composeCompactionHooks(

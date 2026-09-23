@@ -23,21 +23,25 @@ import (
 
 const (
 	launchAgentCallID       = "call_launch"
+	launchAgentGrandCallID  = "call_grand"
 	launchAgentWorkspaceDir = "workspace"
 	launchAgentChildName    = "child-agent"
 	launchAgentGrandName    = "grandchild-agent"
 
-	launchAgentChildAgentFile           = "---\nname: child-agent\ndescription: test child\n---\nDo the child task."
-	launchAgentGrandAgentFile           = "---\nname: grandchild-agent\ndescription: test grandchild\n---\nDo the grandchild task."
-	launchAgentRestrictedChildAgentFile = "---\nname: child-agent\ndescription: test child\nallowed-tools: read_file\n---\nReview only."
+	launchAgentChildAgentFile             = "---\nname: child-agent\ndescription: test child\n---\nDo the child task."
+	launchAgentGrandAgentFile             = "---\nname: grandchild-agent\ndescription: test grandchild\n---\nDo the grandchild task."
+	launchAgentRestrictedChildAgentFile   = "---\nname: child-agent\ndescription: test child\nallowed-tools: read_file\n---\nReview only."
+	launchAgentDepthLimitedChildAgentFile = "---\nname: child-agent\ndescription: test child\nallowed-tools: read_file, launch_agent\n---\nReview and delegate when possible."
 )
 
 // launchAgentFixtureOptions parameterizes newLaunchAgentFixture beyond what
 // the shared newRuntimeFixture (runtime_test.go) supports: extra named
-// agent files, and non-default agent run limits.
+// agent files, non-default agent run limits, and a last-word hook over the
+// runtime options for settings a test drives rather than accepts.
 type launchAgentFixtureOptions struct {
 	AgentLimits AgentRunLimits
 	AgentFiles  map[string]string
+	Customize   func(*RuntimeOptions)
 }
 
 // newLaunchAgentFixture builds a runtime the same way newRuntimeFixture
@@ -73,8 +77,10 @@ func newLaunchAgentFixture(
 	resolver, err := harness.NewResolver(configDirectory, harness.Limits{})
 	require.NoError(t, err)
 
+	stateDirectory := filepath.Join(root, "state")
+
 	handle, err := db.Open(context.Background(), db.Config{
-		Directory: filepath.Join(root, "state"),
+		Directory: stateDirectory,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, handle.Close()) })
@@ -106,6 +112,10 @@ func newLaunchAgentFixture(
 		ConfigDirectory:  configDirectory,
 	}
 
+	if options.Customize != nil {
+		options.Customize(&runtimeOptions)
+	}
+
 	runtime, err := NewRuntime(context.Background(), runtimeOptions)
 	require.NoError(t, err)
 
@@ -116,6 +126,7 @@ func newLaunchAgentFixture(
 		workspace:       workspace,
 		eventBus:        eventBus,
 		configDirectory: configDirectory,
+		stateDirectory:  stateDirectory,
 	}
 }
 
@@ -242,6 +253,63 @@ func TestLaunchAgentNamedAgentReturnsFinalResponse(t *testing.T) {
 		First()
 	require.NoError(t, err)
 	assert.Equal(t, turn.WorkerGenerationID, storedRun.WorkerGenerationID)
+}
+
+func TestLaunchAgentCarriesExplicitSkillIntoChildPrompt(t *testing.T) {
+	driver := elelemtest.NewScriptedDriver(
+		elelemtest.ToolCall(
+			launchAgentCallID,
+			toolNameLaunchAgent,
+			launchAgentArguments(t, launchAgentInput{
+				Task:  "review the workspace",
+				Agent: launchAgentChildName,
+			}),
+		),
+		elelemtest.Text("child finished"),
+		elelemtest.Text("done"),
+	)
+	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
+		AgentFiles: map[string]string{
+			launchAgentChildName: launchAgentChildAgentFile,
+		},
+	})
+	writeRuntimeFile(
+		t,
+		filepath.Join(
+			fixture.workspace,
+			".agents",
+			"skills",
+			runtimeTestExplicitSkillName,
+			"SKILL.md",
+		),
+		"---\nname: review-rules\ndescription: Review rules.\n---\n"+
+			runtimeTestWorkspaceSkillInstructions,
+	)
+
+	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
+		Message:   runtimeTestExplicitSkillMessage,
+		Workspace: fixture.workspace,
+	})
+	require.NoError(t, err)
+
+	requests := driver.Requests()
+	require.Len(t, requests, 3)
+	assert.Contains(
+		t,
+		requests[1].Messages[0].Text(),
+		runtimeTestWorkspaceSkillInstructions,
+	)
+
+	query := repositories.Use(fixture.handle.GormDB)
+	storedRun, err := query.AgentRun.WithContext(context.Background()).
+		Where(query.AgentRun.SessionID.Eq(result.SessionID)).
+		First()
+	require.NoError(t, err)
+	assert.Contains(
+		t,
+		storedRun.SystemPrompt,
+		runtimeTestWorkspaceSkillInstructions,
+	)
 }
 
 func TestLaunchAgentAllowedToolsExcludeWrites(t *testing.T) {
@@ -475,7 +543,7 @@ func TestLaunchAgentRecursion(t *testing.T) {
 			}),
 		),
 		elelemtest.ToolCall(
-			"call_grand",
+			launchAgentGrandCallID,
 			toolNameLaunchAgent,
 			launchAgentArguments(t, launchAgentInput{
 				Task:  "do the grandchild work",
@@ -528,11 +596,32 @@ func TestLaunchAgentRecursion(t *testing.T) {
 	assert.Equal(t, launchAgentGrandName, byDepth[2].Name)
 	assert.Equal(t, AgentRunStateCompleted, byDepth[1].Snapshot().State)
 	assert.Equal(t, AgentRunStateCompleted, byDepth[2].Snapshot().State)
+	assert.Nil(t, byDepth[1].ParentAgentRunID)
+	require.NotNil(t, byDepth[2].ParentAgentRunID)
+	assert.Equal(t, byDepth[1].ID, *byDepth[2].ParentAgentRunID)
+	assert.Equal(t, launchAgentCallID, byDepth[1].ParentToolCallID)
+	assert.Equal(t, launchAgentGrandCallID, byDepth[2].ParentToolCallID)
+
+	query := repositories.Use(fixture.handle.GormDB)
+	storedChild, err := query.AgentRun.WithContext(context.Background()).
+		Where(query.AgentRun.ID.Eq(byDepth[1].ID)).
+		First()
+	require.NoError(t, err)
+	assert.Nil(t, storedChild.ParentAgentRunID)
+	assert.Equal(t, launchAgentCallID, storedChild.ParentToolCallID)
+
+	storedGrandchild, err := query.AgentRun.WithContext(context.Background()).
+		Where(query.AgentRun.ID.Eq(byDepth[2].ID)).
+		First()
+	require.NoError(t, err)
+	require.NotNil(t, storedGrandchild.ParentAgentRunID)
+	assert.Equal(t, byDepth[1].ID, *storedGrandchild.ParentAgentRunID)
+	assert.Equal(t, launchAgentGrandCallID, storedGrandchild.ParentToolCallID)
 }
 
-// A child launching a grandchild past the configured depth bound must fail
-// only that nested call, not the whole chain.
-func TestLaunchAgentDepthLimitRejectsGrandchild(t *testing.T) {
+// A child at the configured limit cannot request more child work because the
+// model never receives the launch_agent tool definition.
+func TestLaunchAgentAtDepthLimitDoesNotExposeLaunchAgent(t *testing.T) {
 	driver := elelemtest.NewScriptedDriver(
 		elelemtest.ToolCall(
 			launchAgentCallID,
@@ -542,22 +631,13 @@ func TestLaunchAgentDepthLimitRejectsGrandchild(t *testing.T) {
 				Agent: launchAgentChildName,
 			}),
 		),
-		elelemtest.ToolCall(
-			"call_grand",
-			toolNameLaunchAgent,
-			launchAgentArguments(t, launchAgentInput{
-				Task:  "do the grandchild work",
-				Agent: launchAgentGrandName,
-			}),
-		),
-		elelemtest.Text("child final, depth was blocked"),
+		elelemtest.Text("child final"),
 		elelemtest.Text("parent final"),
 	)
 	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
 		AgentLimits: AgentRunLimits{MaxDepth: 1},
 		AgentFiles: map[string]string{
-			launchAgentChildName: launchAgentChildAgentFile,
-			launchAgentGrandName: launchAgentGrandAgentFile,
+			launchAgentChildName: launchAgentDepthLimitedChildAgentFile,
 		},
 	})
 
@@ -568,6 +648,12 @@ func TestLaunchAgentDepthLimitRejectsGrandchild(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "parent final", result.Text)
 
+	requests := driver.Requests()
+	require.Len(t, requests, 3)
+	assert.Contains(t, toolNames(requests[0].Tools), toolNameLaunchAgent)
+	assert.Contains(t, toolNames(requests[1].Tools), toolNameReadFile)
+	assert.NotContains(t, toolNames(requests[1].Tools), toolNameLaunchAgent)
+
 	registry, err := fixture.runtime.sessionAgentRuns(result.SessionID)
 	require.NoError(t, err)
 
@@ -576,10 +662,59 @@ func TestLaunchAgentDepthLimitRejectsGrandchild(t *testing.T) {
 		t,
 		runs,
 		1,
-		"the rejected grandchild must never register a run",
+		"the depth-limited child must be the only registered run",
 	)
 	assert.Equal(t, launchAgentChildName, runs[0].Name)
 	assert.Equal(t, AgentRunStateCompleted, runs[0].Snapshot().State)
+}
+
+// The tool is absent at the depth limit, but a stale provider response can
+// still contain an old tool call. The handler itself must reject that call
+// before it creates another child run.
+func TestLaunchAgentRejectsUnadvertisedCallPastDepthLimit(t *testing.T) {
+	fixture := newLaunchAgentFixture(
+		t,
+		elelemtest.NewScriptedDriver(),
+		launchAgentFixtureOptions{
+			AgentLimits: AgentRunLimits{MaxDepth: 1},
+			AgentFiles: map[string]string{
+				launchAgentChildName: launchAgentChildAgentFile,
+			},
+		},
+	)
+
+	snapshot, err := fixture.runtime.resolver.Resolve(fixture.workspace)
+	require.NoError(t, err)
+
+	_, err = fixture.runtime.launchAgent(
+		contextWithAgentDepth(
+			context.Background(),
+			fixture.runtime.agentLimits.MaxDepth,
+		),
+		&launchAgentDeps{
+			snapshot:  snapshot,
+			sessionID: uuid.New(),
+		},
+		launchAgentInput{
+			Task:  "delegate",
+			Agent: launchAgentChildName,
+		},
+	)
+	require.ErrorIs(t, err, ErrAgentDepthExceeded)
+
+	query := repositories.Use(fixture.handle.GormDB)
+	agentRunCount, err := query.AgentRun.WithContext(context.Background()).Count()
+	require.NoError(t, err)
+	assert.Zero(t, agentRunCount)
+}
+
+func toolNames(tools []elelem.Tool) []string {
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		names = append(names, tool.Name)
+	}
+
+	return names
 }
 
 // A low MaxChildTurns bound must withhold tools on the child's final round,
@@ -870,7 +1005,13 @@ func startDurableAgentRun(
 	})
 	require.NoError(t, err)
 
-	return registry, run, runCtx, newAgentRunSink(fixture.store, sessionID, run, nil)
+	return registry, run, runCtx, newAgentRunSink(
+		fixture.store,
+		sessionID,
+		run,
+		nil,
+		runtimeTestModelReference,
+	)
 }
 
 // wrappedCancelError satisfies errors.Is(err, context.Canceled) without needing a

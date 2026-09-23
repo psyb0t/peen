@@ -318,6 +318,65 @@ func (c *Controller) handleAgentRunCall(
 	case MethodCancelAgentRun:
 		return served(c.cancelAgentRun(ctx, payload))
 	default:
+		return c.handleAgentRunTranscriptCall(ctx, method, payload)
+	}
+}
+
+// handleAgentRunTranscriptCall serves the child's own transcript and
+// compaction lineage, which are stored apart from the session's.
+//
+//nolint:exhaustive // One published method per branch reads as a table.
+func (c *Controller) handleAgentRunTranscriptCall(
+	ctx context.Context,
+	method Method,
+	payload json.RawMessage,
+) (any, bool, error) {
+	switch method {
+	case MethodAppendAgentRunMessages:
+		return served(callChildInput(
+			ctx,
+			c,
+			payload,
+			c.store.AppendAgentRunMessages,
+		))
+	case MethodListAgentRunMessages:
+		return served(callChildOptions(
+			ctx,
+			c,
+			payload,
+			c.store.ListAgentRunMessages,
+		))
+	case MethodAgentRunHistory:
+		return served(callChild(ctx, c, payload, c.store.AgentRunHistory))
+	case MethodCreateAgentRunCompaction:
+		return served(callChildInput(
+			ctx,
+			c,
+			payload,
+			c.store.CreateAgentRunCompaction,
+		))
+	case MethodLatestAgentRunCompaction:
+		return served(callChild(
+			ctx,
+			c,
+			payload,
+			c.store.LatestAgentRunCompaction,
+		))
+	case MethodListAgentRunCompactions:
+		return served(callChildOptions(
+			ctx,
+			c,
+			payload,
+			c.store.ListAgentRunCompactions,
+		))
+	case MethodGetAgentRunCompaction:
+		return served(callNestedRead(
+			ctx,
+			c,
+			payload,
+			c.store.GetAgentRunCompaction,
+		))
+	default:
 		return nil, false, nil
 	}
 }
@@ -754,6 +813,36 @@ func callNestedInput[I, R any](
 
 // callNestedWrite serves a nested write whose only outcome is success or
 // failure.
+// callNestedRead serves a read addressing a record inside a child record,
+// which is one compaction inside one agent run.
+func callNestedRead[R any](
+	ctx context.Context,
+	c *Controller,
+	payload json.RawMessage,
+	operation func(
+		context.Context,
+		uuid.UUID,
+		uuid.UUID,
+		uuid.UUID,
+	) (R, error),
+) (any, error) {
+	request, err := decode[NestedChildRequest](payload)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := c.assertSession(request.SessionID); err != nil {
+		return nil, err
+	}
+
+	return operation(
+		ctx,
+		request.SessionID,
+		request.ChildID,
+		request.NestedID,
+	)
+}
+
 func callNestedWrite[I any](
 	ctx context.Context,
 	c *Controller,

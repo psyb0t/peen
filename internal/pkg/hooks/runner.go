@@ -80,10 +80,7 @@ func New(options Options) (Runner, error) {
 			)
 		}
 
-		options.StateRoot = filepath.Join(
-			configRoot,
-			hookStateDirectoryName,
-		)
+		options.StateRoot = DefaultStateRoot(configRoot)
 	}
 
 	return Runner{
@@ -97,6 +94,17 @@ func New(options Options) (Runner, error) {
 		stateRoot:            filepath.Clean(options.StateRoot),
 		contextTokenCounter:  options.ContextTokenCounter,
 	}, nil
+}
+
+// DefaultStateRoot returns the stable root for hook state beneath one writable
+// runtime-owned directory. Workers may supply a session-private directory
+// instead of their read-only harness configuration mount.
+func DefaultStateRoot(root string) string {
+	if strings.TrimSpace(root) == "" {
+		return ""
+	}
+
+	return filepath.Join(root, hookStateDirectoryName)
 }
 
 // Run evaluates matching groups and actions serially. Config-root groups are
@@ -563,6 +571,10 @@ func (r Runner) publishEvent(
 		return ctxerrors.Wrap(err, "validate hook event type")
 	}
 
+	if err := events.ValidateData(event.Data); err != nil {
+		return ctxerrors.Wrap(err, "validate hook event data")
+	}
+
 	_, err = r.publisher.PublishContext(ctx, events.Notice{
 		SessionID: invocation.SessionID,
 		Type:      event.Type,
@@ -699,6 +711,10 @@ func runCommand(ctx context.Context, input CommandInput) ([]byte, error) {
 	}
 
 	if err != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return nil, ctxerrors.Wrap(contextErr, "run hook executable")
+		}
+
 		return nil, ctxerrors.Wrap(err, "run hook executable")
 	}
 

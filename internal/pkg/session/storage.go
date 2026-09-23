@@ -25,6 +25,7 @@ type Storage interface {
 	modelStorage
 	jobStorage
 	agentRunStorage
+	agentRunTranscriptStorage
 	recordStorage
 	lifecycleStorage
 }
@@ -222,6 +223,56 @@ type agentRunStorage interface {
 		sessionID uuid.UUID,
 		agentRunID uuid.UUID,
 	) (*models.AgentRun, bool, error)
+}
+
+// agentRunTranscriptStorage records one child agent's own conversation and the
+// compactions over it.
+//
+// A child agent runs a separate model context, so its transcript and its
+// compactions are stored apart from the session's own. A parent-session
+// compaction can never absorb a child message, and a child compaction can
+// never rewrite a session record.
+type agentRunTranscriptStorage interface {
+	AppendAgentRunMessages(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		agentRunID uuid.UUID,
+		inputs []AgentRunMessageInput,
+	) ([]*models.AgentRunMessage, error)
+	ListAgentRunMessages(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		agentRunID uuid.UUID,
+		options ListAgentRunMessagesOptions,
+	) (*AgentRunMessagePage, error)
+	AgentRunHistory(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		agentRunID uuid.UUID,
+	) (*AgentRunHistoryResult, error)
+	CreateAgentRunCompaction(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		agentRunID uuid.UUID,
+		input AgentRunCompactionInput,
+	) (*models.AgentRunCompaction, error)
+	LatestAgentRunCompaction(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		agentRunID uuid.UUID,
+	) (*models.AgentRunCompaction, error)
+	ListAgentRunCompactions(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		agentRunID uuid.UUID,
+		options ListAgentRunCompactionsOptions,
+	) (*AgentRunCompactionPage, error)
+	GetAgentRunCompaction(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		agentRunID uuid.UUID,
+		compactionID uuid.UUID,
+	) (*models.AgentRunCompaction, error)
 }
 
 // recordStorage covers compactions, snapshots, and session notices.

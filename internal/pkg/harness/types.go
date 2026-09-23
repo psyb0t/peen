@@ -26,14 +26,16 @@ type SourceKind string
 
 const (
 	SourceKindInstruction  SourceKind = "instruction"
+	SourceKindRule         SourceKind = "rule"
 	SourceKindSkill        SourceKind = "skill"
 	SourceKindAgent        SourceKind = "agent"
 	SourceKindEventHandler SourceKind = "event-handler"
 	SourceKindHook         SourceKind = "hook"
 )
 
-// Instruction is one ordered AGENTS.md block.
+// Instruction is one ordered, always-on harness instruction block.
 type Instruction struct {
+	Kind     SourceKind
 	Source   string
 	Priority int
 	Content  string
@@ -309,13 +311,17 @@ func (s Snapshot) EventHandler(eventType string) (EventHandler, error) {
 	return EventHandler{}, ErrEventHandlerNotFound
 }
 
-func (s Snapshot) PromptBlocks(rootAgent string) ([]PromptBlock, error) {
-	blockCapacity := len(s.instructions) + promptBlockExtraCapacity
+func (s Snapshot) PromptBlocks(
+	rootAgent string,
+	explicitSkillNames ...string,
+) ([]PromptBlock, error) {
+	blockCapacity := len(s.instructions) + promptBlockExtraCapacity +
+		len(explicitSkillNames)
 
 	blocks := make([]PromptBlock, 0, blockCapacity)
 	for _, instruction := range s.instructions {
 		blocks = append(blocks, PromptBlock{
-			Kind:    SourceKindInstruction,
+			Kind:    instruction.kind(),
 			Source:  instruction.Source,
 			Content: instruction.Content,
 			Hash:    instruction.Hash,
@@ -338,8 +344,40 @@ func (s Snapshot) PromptBlocks(rootAgent string) ([]PromptBlock, error) {
 	}
 
 	blocks = append(blocks, s.skillCatalogueBlock(), s.agentCatalogueBlock())
+	for _, name := range uniqueSkillNames(explicitSkillNames) {
+		activated, err := s.ActivateSkill(name)
+		if err != nil {
+			return nil, err
+		}
+
+		blocks = append(blocks, activatedSkillBlock(activated))
+	}
 
 	return blocks, nil
+}
+
+func (i Instruction) kind() SourceKind {
+	if i.Kind == "" {
+		return SourceKindInstruction
+	}
+
+	return i.Kind
+}
+
+func uniqueSkillNames(names []string) []string {
+	unique := make([]string, 0, len(names))
+	seen := make(map[string]struct{}, len(names))
+
+	for _, name := range names {
+		if _, exists := seen[name]; exists {
+			continue
+		}
+
+		seen[name] = struct{}{}
+		unique = append(unique, name)
+	}
+
+	return unique
 }
 
 func (s Snapshot) skillCatalogueBlock() PromptBlock {
@@ -359,6 +397,20 @@ func (s Snapshot) agentCatalogueBlock() PromptBlock {
 	return PromptBlock{
 		Kind:    SourceKindAgent,
 		Name:    "catalogue",
+		Content: content,
+		Hash:    hashString(content),
+	}
+}
+
+func activatedSkillBlock(skill ActivatedSkill) PromptBlock {
+	content := "The user explicitly activated skill \"" + skill.Name +
+		"\" for this turn. Apply its complete instructions below.\n\n" +
+		skill.Content
+
+	return PromptBlock{
+		Kind:    SourceKindSkill,
+		Name:    skill.Name,
+		Source:  skill.Source,
 		Content: content,
 		Hash:    hashString(content),
 	}

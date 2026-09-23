@@ -121,7 +121,11 @@ gets more specific:
 ```text
 workspace/
   AGENTS.md
+  .claude/
+    rules/<rule-name>.md
+    skills/<skill-name>/SKILL.md
   .agents/
+    rules/<rule-name>.md
     skills/<skill-name>/SKILL.md
     agents/<agent-name>.md
     events/<event-type>.md
@@ -129,9 +133,15 @@ workspace/
 ```
 
 Rules and definitions nearer to a file are more specific than ones above it.
-Skills give the agent named procedures. Named agents let it split off a bounded
-job. Hooks are for mechanical checks and hard stops that an ordinary prompt
-should not be trusted to enforce. Read [the harness configuration guide](configuration.md#harness-layering)
+Put topic rules that must apply to every turn in `.claude/rules/*.md` or
+`.agents/rules/*.md`. Skills give the agent named procedures. Every turn sees a
+skill's name and description, then the model decides whether an ordinary task
+matches and loads it with `use_skill`. Put a standalone `:skill-name` at the
+start of a message or after whitespace to require the effective skill by exact
+name. Its full `SKILL.md` enters the root and child-agent prompts before the
+first provider request. Named agents let it split off a bounded job. Hooks are
+for mechanical checks and hard stops that an ordinary prompt should not be
+trusted to enforce. Read [the harness configuration guide](configuration.md#harness-layering)
 and [hook configuration](hooks.md) before adding hooks.
 
 ## 5. Inspect or stop a run

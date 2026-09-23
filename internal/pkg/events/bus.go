@@ -131,6 +131,10 @@ func (b *Bus) Prepare(notice Notice) (Notice, error) {
 	notice.Delivery = delivery
 	b.applyDefaults(&notice)
 
+	if err := ValidateData(notice.Data); err != nil {
+		return Notice{}, err
+	}
+
 	return notice, nil
 }
 

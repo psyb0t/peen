@@ -93,7 +93,7 @@ func TestBuildCreateRequestUsesDeterministicNameAndLabels(t *testing.T) {
 }
 
 // The container runs the same worker subcommand a native worker runs, from the
-// operator's pinned image.
+// operator-selected image.
 func TestBuildCreateRequestRunsTheWorkerCommand(t *testing.T) {
 	t.Parallel()
 
@@ -564,9 +564,8 @@ type fakeDaemon struct {
 	labels  map[string]string
 	running bool
 
-	// repoDigests is what the daemon reports for the worker image. Nil means
-	// an image the daemon knows only locally, which the launcher refuses
-	// rather than recording a local ID as a digest.
+	// repoDigests is what the daemon reports for the worker image. Nil means an
+	// image the daemon knows only locally, which records no repository digest.
 	repoDigests []string
 
 	// loggedContainers records which containers the launcher followed, so a

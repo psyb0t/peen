@@ -4,6 +4,7 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/config"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/hooks"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"github.com/psyb0t/peen/internal/pkg/tools"
 )
@@ -55,6 +56,7 @@ func RuntimeOptionsFromConfig(
 		EnableWorkspaceHooks: deployment.EnableWorkspaceHooks,
 		HookCommandTimeout:   deployment.HookCommandTimeout,
 		MaxHookCommandOutput: deployment.MaxHookCommandOutput,
+		HookStateRoot:        hooks.DefaultStateRoot(deployment.StateDirectory),
 	}
 }
 

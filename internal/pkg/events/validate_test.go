@@ -1,9 +1,11 @@
 package events
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
+	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -174,6 +176,41 @@ func TestValidateDelivery(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestValidateDataAcceptsOnlyJSONObjectPayloads(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name    string
+		data    json.RawMessage
+		wantErr error
+	}{
+		{name: "absent"},
+		{name: "whitespace only", data: json.RawMessage(" \t\n")},
+		{name: "empty object", data: json.RawMessage(`{}`)},
+		{name: "nested object", data: json.RawMessage(`{"nested":{"value":[1,true]}}`)},
+		{name: "malformed", data: json.RawMessage(`{"broken":`), wantErr: ErrInvalidData},
+		{name: "array", data: json.RawMessage(`[]`), wantErr: ErrInvalidData},
+		{name: "null", data: json.RawMessage(`null`), wantErr: ErrInvalidData},
+		{name: "string", data: json.RawMessage(`"value"`), wantErr: ErrInvalidData},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := ValidateData(tc.data)
+			if tc.wantErr == nil {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, tc.wantErr)
+			require.ErrorIs(t, err, commerr.ErrValidationFailed)
 		})
 	}
 }

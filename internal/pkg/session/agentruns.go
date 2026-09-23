@@ -605,6 +605,19 @@ func (s *Store) RecoverInterruptedAgentRuns(ctx context.Context) (int, error) {
 				return ctxerrors.Wrap(err, "mark agent run interrupted")
 			}
 
+			// The child's own transcript is marked the same way an
+			// interrupted turn's is, so a reader can tell a record the child
+			// finished writing from one the process stopped mid-write.
+			message := tx.AgentRunMessage
+			if _, err := message.WithContext(ctx).
+				Where(message.AgentRunID.Eq(item.ID)).
+				UpdateSimple(message.Incomplete.Value(true)); err != nil {
+				return ctxerrors.Wrap(
+					err,
+					"mark interrupted child messages incomplete",
+				)
+			}
+
 			recovered++
 		}
 

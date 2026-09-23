@@ -43,6 +43,7 @@ type toolHookRuntime struct {
 	requestID     uuid.UUID
 	sessionID     uuid.UUID
 	turnID        uuid.UUID
+	agentRunID    *uuid.UUID
 	executor      *tools.JobExecutor
 	sessionEvents elelem.MessageInjector
 	tokenCounter  elelem.TokenCounter
@@ -55,9 +56,11 @@ type toolHookRuntime struct {
 func newToolHookRuntime(
 	snapshot harness.Snapshot,
 	workspace string,
+	hookStateRoot string,
 	requestID uuid.UUID,
 	sessionID uuid.UUID,
 	turnID uuid.UUID,
+	agentRunID *uuid.UUID,
 	executor *tools.JobExecutor,
 	sessionEvents elelem.MessageInjector,
 	enableWorkspaceHooks bool,
@@ -78,6 +81,7 @@ func newToolHookRuntime(
 		CommandTimeout:       commandTimeoutDuration,
 		MaxCommandOutput:     maxCommandOutput,
 		Publisher:            publisher,
+		StateRoot:            hookStateRoot,
 		ContextTokenCounter:  contextTokenCounter,
 	})
 	if err != nil {
@@ -89,6 +93,7 @@ func newToolHookRuntime(
 		requestID:     requestID,
 		sessionID:     sessionID,
 		turnID:        turnID,
+		agentRunID:    agentRunID,
 		executor:      executor,
 		sessionEvents: sessionEvents,
 		tokenCounter:  tokenCounter,
@@ -103,9 +108,11 @@ func (r *Runtime) newToolHookRuntime(
 	runner, err := newToolHookRuntime(
 		prepared.snapshot,
 		prepared.workspace,
+		r.hookStateRoot,
 		prepared.turn.requestID,
 		prepared.opened.Session.ID,
 		prepared.lease.TurnID,
+		nil,
 		prepared.executor,
 		prepared.injectSessionEvents,
 		r.enableWorkspaceHooks,
@@ -136,6 +143,7 @@ func (r *Runtime) appendPreUserHookContext(
 		CommandTimeout:       r.hookCommandTimeout,
 		MaxCommandOutput:     r.maxHookCommandOutput,
 		Publisher:            r.durableEventPublisher(),
+		StateRoot:            r.hookStateRoot,
 	})
 	if err != nil {
 		return "", ctxerrors.Wrap(err, "create pre-user-message hook runner")
@@ -230,12 +238,13 @@ func (h *toolHookRuntime) runLifecycleWithEstimate(
 	}
 
 	invocation := hooks.Invocation{
-		Event:     event,
-		SessionID: h.sessionID,
-		RequestID: h.requestID,
-		TurnID:    h.turnID,
-		Workspace: h.executor.Workspace(),
-		Input:     input,
+		Event:      event,
+		SessionID:  h.sessionID,
+		RequestID:  h.requestID,
+		TurnID:     h.turnID,
+		AgentRunID: h.agentRunID,
+		Workspace:  h.executor.Workspace(),
+		Input:      input,
 	}
 	if contextTokens != nil {
 		invocation.ContextTokens = *contextTokens
@@ -475,16 +484,17 @@ func (h *toolHookRuntime) invocation(
 	}
 
 	return hooks.Invocation{
-		SessionID: h.sessionID,
-		RequestID: h.requestID,
-		TurnID:    h.turnID,
-		Tool:      event.Tool.Name,
-		CallID:    event.CallID,
-		Workspace: h.executor.Workspace(),
-		Paths:     h.paths(event.Tool.Name, event.RawArguments),
-		Input:     append(json.RawMessage(nil), event.RawArguments...),
-		Result:    result,
-		Error:     errText,
+		SessionID:  h.sessionID,
+		RequestID:  h.requestID,
+		TurnID:     h.turnID,
+		AgentRunID: h.agentRunID,
+		Tool:       event.Tool.Name,
+		CallID:     event.CallID,
+		Workspace:  h.executor.Workspace(),
+		Paths:      h.paths(event.Tool.Name, event.RawArguments),
+		Input:      append(json.RawMessage(nil), event.RawArguments...),
+		Result:     result,
+		Error:      errText,
 	}, nil
 }
 

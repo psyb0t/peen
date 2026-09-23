@@ -157,6 +157,24 @@ func TestBusPublishValidates(t *testing.T) {
 			},
 			wantErr: ErrInvalidDelivery,
 		},
+		{
+			name: "unreplayable array payload",
+			notice: Notice{
+				SessionID: session,
+				Type:      TypeJobExited,
+				Data:      json.RawMessage(`[]`),
+			},
+			wantErr: ErrInvalidData,
+		},
+		{
+			name: "malformed payload",
+			notice: Notice{
+				SessionID: session,
+				Type:      TypeJobExited,
+				Data:      json.RawMessage(`{"broken":`),
+			},
+			wantErr: ErrInvalidData,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -165,6 +183,7 @@ func TestBusPublishValidates(t *testing.T) {
 
 			_, err := bus.Publish(tc.notice)
 			require.ErrorIs(t, err, tc.wantErr)
+			assert.Zero(t, bus.Pending(session))
 		})
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/psyb0t/ctxerrors"
@@ -23,6 +24,7 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/agent"
 	peenconfig "github.com/psyb0t/peen/internal/pkg/config"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/hooks"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"github.com/psyb0t/peen/internal/pkg/worker"
@@ -244,6 +246,7 @@ func buildRuntime(
 	options.Store = connection.Store()
 	options.Resolver = resolver
 	options.WorkerGenerationID = document.GenerationID
+	options.HookStateRoot = workerHookStateRoot(document)
 
 	// The worker runs one session in one workspace, which is what makes its
 	// runtime a single-workspace runtime rather than a second control plane.
@@ -259,6 +262,13 @@ func buildRuntime(
 	}
 
 	return runtime, nil
+}
+
+// workerHookStateRoot keeps executable hook state inside the one writable
+// session-private mount a worker receives. PEEN_CONFIG_DIR is read-only in a
+// Docker worker and must remain source configuration only.
+func workerHookStateRoot(document worker.LaunchDocument) string {
+	return hooks.DefaultStateRoot(filepath.Dir(document.SocketPath))
 }
 
 // commandHandler answers the controller's commands.

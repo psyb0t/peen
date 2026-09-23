@@ -123,6 +123,27 @@ func (e AgentRunEventPageState) Valid() bool {
 	}
 }
 
+// Defines values for AgentRunMessageRole.
+const (
+	AgentRunMessageRoleAssistant AgentRunMessageRole = "assistant"
+	AgentRunMessageRoleTool      AgentRunMessageRole = "tool"
+	AgentRunMessageRoleUser      AgentRunMessageRole = "user"
+)
+
+// Valid indicates whether the value is a known member of the AgentRunMessageRole enum.
+func (e AgentRunMessageRole) Valid() bool {
+	switch e {
+	case AgentRunMessageRoleAssistant:
+		return true
+	case AgentRunMessageRoleTool:
+		return true
+	case AgentRunMessageRoleUser:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ExecutionProfileKind.
 const (
 	ExecutionProfileKindDocker ExecutionProfileKind = "docker"
@@ -738,6 +759,37 @@ type AgentRunCancelResponse struct {
 // AgentRunCancelResponseState defines model for AgentRunCancelResponse.State.
 type AgentRunCancelResponseState string
 
+// AgentRunCompaction One immutable summary covering a completed prefix of one child agent run's transcript. directFromSequence and directToSequence name only the messages this row covered itself; fromSequence and toSequence span the whole superseded lineage.
+type AgentRunCompaction struct {
+	AgentRunId         openapi_types.UUID `json:"agentRunId"`
+	CreatedAt          time.Time          `json:"createdAt"`
+	DirectFromSequence int64              `json:"directFromSequence"`
+	DirectToSequence   int64              `json:"directToSequence"`
+	FromMessageId      openapi_types.UUID `json:"fromMessageId"`
+	FromSequence       int64              `json:"fromSequence"`
+	Id                 openapi_types.UUID `json:"id"`
+	InputTokenCount    int64              `json:"inputTokenCount"`
+	Model              string             `json:"model"`
+
+	// ParentCompactionId The direct predecessor this compaction supersedes, or null for the first compaction in the chain.
+	ParentCompactionId *openapi_types.UUID `json:"parentCompactionId,omitempty"`
+	PromptHash         string              `json:"promptHash"`
+	SessionId          openapi_types.UUID  `json:"sessionId"`
+	SourceMessageCount int64               `json:"sourceMessageCount"`
+	Summary            string              `json:"summary"`
+	SummaryTokenCount  int64               `json:"summaryTokenCount"`
+	ToMessageId        openapi_types.UUID  `json:"toMessageId"`
+	ToSequence         int64               `json:"toSequence"`
+}
+
+// AgentRunCompactionPage defines model for AgentRunCompactionPage.
+type AgentRunCompactionPage struct {
+	Compactions []AgentRunCompaction `json:"compactions"`
+	HasMore     bool                 `json:"hasMore"`
+	Limit       int32                `json:"limit"`
+	Offset      int32                `json:"offset"`
+}
+
 // AgentRunEvent defines model for AgentRunEvent.
 type AgentRunEvent struct {
 	CreatedAt time.Time               `json:"createdAt"`
@@ -759,6 +811,37 @@ type AgentRunEventPage struct {
 
 // AgentRunEventPageState defines model for AgentRunEventPage.State.
 type AgentRunEventPageState string
+
+// AgentRunMessage One prompt-visible record in a child agent run's own transcript. It carries no turn: a child belongs to its agent run, not to a session turn's message sequence.
+type AgentRunMessage struct {
+	AgentRunId openapi_types.UUID `json:"agentRunId"`
+
+	// CompactionId The child compaction that directly covered this message, or null while it is still raw.
+	CompactionId *openapi_types.UUID       `json:"compactionId,omitempty"`
+	Content      string                    `json:"content"`
+	CreatedAt    time.Time                 `json:"createdAt"`
+	Id           openapi_types.UUID        `json:"id"`
+	Incomplete   bool                      `json:"incomplete"`
+	IsError      bool                      `json:"isError"`
+	Model        *string                   `json:"model,omitempty"`
+	Role         AgentRunMessageRole       `json:"role"`
+	Sequence     int64                     `json:"sequence"`
+	SessionId    openapi_types.UUID        `json:"sessionId"`
+	Thinking     *string                   `json:"thinking,omitempty"`
+	ToolCallId   *string                   `json:"toolCallId,omitempty"`
+	ToolCalls    *[]map[string]interface{} `json:"toolCalls,omitempty"`
+}
+
+// AgentRunMessageRole defines model for AgentRunMessage.Role.
+type AgentRunMessageRole string
+
+// AgentRunMessagePage defines model for AgentRunMessagePage.
+type AgentRunMessagePage struct {
+	HasMore  bool              `json:"hasMore"`
+	Limit    int32             `json:"limit"`
+	Messages []AgentRunMessage `json:"messages"`
+	Offset   int32             `json:"offset"`
+}
 
 // AgentRunPage defines model for AgentRunPage.
 type AgentRunPage struct {
@@ -1385,10 +1468,29 @@ type CancelSessionAgentRunParams struct {
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
+// ListSessionAgentRunCompactionsParams defines parameters for ListSessionAgentRunCompactions.
+type ListSessionAgentRunCompactionsParams struct {
+	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// GetSessionAgentRunCompactionParams defines parameters for GetSessionAgentRunCompaction.
+type GetSessionAgentRunCompactionParams struct {
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
 // ListSessionAgentRunEventsParams defines parameters for ListSessionAgentRunEvents.
 type ListSessionAgentRunEventsParams struct {
 	Cursor     *int64            `form:"cursor,omitempty" json:"cursor,omitempty"`
 	Limit      *int32            `form:"limit,omitempty" json:"limit,omitempty"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// ListSessionAgentRunMessagesParams defines parameters for ListSessionAgentRunMessages.
+type ListSessionAgentRunMessagesParams struct {
+	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
@@ -1562,9 +1664,18 @@ type ServerInterface interface {
 	// CancelSessionAgentRun Cancel one child agent run without ending its parent turn
 	// (POST /session/agents/{agentRunId}/cancel)
 	CancelSessionAgentRun(w http.ResponseWriter, r *http.Request, agentRunId AgentRunID, params CancelSessionAgentRunParams)
+	// ListSessionAgentRunCompactions List one child agent run's compaction lineage
+	// (GET /session/agents/{agentRunId}/compactions)
+	ListSessionAgentRunCompactions(w http.ResponseWriter, r *http.Request, agentRunId AgentRunID, params ListSessionAgentRunCompactionsParams)
+	// GetSessionAgentRunCompaction Read one immutable child compaction record
+	// (GET /session/agents/{agentRunId}/compactions/{compactionId})
+	GetSessionAgentRunCompaction(w http.ResponseWriter, r *http.Request, agentRunId AgentRunID, compactionId CompactionID, params GetSessionAgentRunCompactionParams)
 	// ListSessionAgentRunEvents Follow what one child agent run is doing
 	// (GET /session/agents/{agentRunId}/events)
 	ListSessionAgentRunEvents(w http.ResponseWriter, r *http.Request, agentRunId AgentRunID, params ListSessionAgentRunEventsParams)
+	// ListSessionAgentRunMessages List one child agent run's own durable transcript
+	// (GET /session/agents/{agentRunId}/messages)
+	ListSessionAgentRunMessages(w http.ResponseWriter, r *http.Request, agentRunId AgentRunID, params ListSessionAgentRunMessagesParams)
 	// CancelSession Request cancellation for the active turn
 	// (POST /session/cancel)
 	CancelSession(w http.ResponseWriter, r *http.Request, params CancelSessionParams)
@@ -1971,6 +2082,149 @@ func (siw *ServerInterfaceWrapper) CancelSessionAgentRun(w http.ResponseWriter, 
 	handler.ServeHTTP(w, r)
 }
 
+// ListSessionAgentRunCompactions operation middleware
+func (siw *ServerInterfaceWrapper) ListSessionAgentRunCompactions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentRunId" -------------
+	var agentRunId AgentRunID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentRunId", r.PathValue("agentRunId"), &agentRunId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentRunId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSessionAgentRunCompactionsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Session-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
+		var XSessionID SessionIDRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
+			return
+		}
+
+		params.XSessionID = XSessionID
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSessionAgentRunCompactions(w, r, agentRunId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSessionAgentRunCompaction operation middleware
+func (siw *ServerInterfaceWrapper) GetSessionAgentRunCompaction(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentRunId" -------------
+	var agentRunId AgentRunID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentRunId", r.PathValue("agentRunId"), &agentRunId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentRunId", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "compactionId" -------------
+	var compactionId CompactionID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "compactionId", r.PathValue("compactionId"), &compactionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "compactionId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetSessionAgentRunCompactionParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Session-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
+		var XSessionID SessionIDRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
+			return
+		}
+
+		params.XSessionID = XSessionID
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSessionAgentRunCompaction(w, r, agentRunId, compactionId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListSessionAgentRunEvents operation middleware
 func (siw *ServerInterfaceWrapper) ListSessionAgentRunEvents(w http.ResponseWriter, r *http.Request) {
 
@@ -2042,6 +2296,86 @@ func (siw *ServerInterfaceWrapper) ListSessionAgentRunEvents(w http.ResponseWrit
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListSessionAgentRunEvents(w, r, agentRunId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListSessionAgentRunMessages operation middleware
+func (siw *ServerInterfaceWrapper) ListSessionAgentRunMessages(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "agentRunId" -------------
+	var agentRunId AgentRunID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "agentRunId", r.PathValue("agentRunId"), &agentRunId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "agentRunId", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSessionAgentRunMessagesParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Session-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
+		var XSessionID SessionIDRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
+			return
+		}
+
+		params.XSessionID = XSessionID
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSessionAgentRunMessages(w, r, agentRunId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3481,6 +3815,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/prompt-snapshots/{promptHash}", wrapper.GetSessionPromptSnapshot)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/agents/{agentRunId}", wrapper.GetSessionAgentRun)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/agents/{agentRunId}/events", wrapper.ListSessionAgentRunEvents)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/agents/{agentRunId}/messages", wrapper.ListSessionAgentRunMessages)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/agents/{agentRunId}/compactions", wrapper.ListSessionAgentRunCompactions)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/agents/{agentRunId}/compactions/{compactionId}", wrapper.GetSessionAgentRunCompaction)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/session/agents/{agentRunId}/cancel", wrapper.CancelSessionAgentRun)
 
 	return m
@@ -3997,6 +4334,185 @@ func (response CancelSessionAgentRun500JSONResponse) VisitCancelSessionAgentRunR
 	return err
 }
 
+type ListSessionAgentRunCompactionsRequestObject struct {
+	AgentRunId AgentRunID `json:"agentRunId"`
+	Params     ListSessionAgentRunCompactionsParams
+}
+
+type ListSessionAgentRunCompactionsResponseObject interface {
+	VisitListSessionAgentRunCompactionsResponse(w http.ResponseWriter) error
+}
+
+type ListSessionAgentRunCompactions200ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListSessionAgentRunCompactions200JSONResponse struct {
+	Body    AgentRunCompactionPage
+	Headers ListSessionAgentRunCompactions200ResponseHeaders
+}
+
+func (response ListSessionAgentRunCompactions200JSONResponse) VisitListSessionAgentRunCompactionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionAgentRunCompactions400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response ListSessionAgentRunCompactions400JSONResponse) VisitListSessionAgentRunCompactionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionAgentRunCompactions401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response ListSessionAgentRunCompactions401JSONResponse) VisitListSessionAgentRunCompactionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionAgentRunCompactions404JSONResponse struct{ ErrorNotFoundJSONResponse }
+
+func (response ListSessionAgentRunCompactions404JSONResponse) VisitListSessionAgentRunCompactionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionAgentRunCompactions500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response ListSessionAgentRunCompactions500JSONResponse) VisitListSessionAgentRunCompactionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionAgentRunCompactionRequestObject struct {
+	AgentRunId   AgentRunID   `json:"agentRunId"`
+	CompactionId CompactionID `json:"compactionId"`
+	Params       GetSessionAgentRunCompactionParams
+}
+
+type GetSessionAgentRunCompactionResponseObject interface {
+	VisitGetSessionAgentRunCompactionResponse(w http.ResponseWriter) error
+}
+
+type GetSessionAgentRunCompaction200ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type GetSessionAgentRunCompaction200JSONResponse struct {
+	Body    AgentRunCompaction
+	Headers GetSessionAgentRunCompaction200ResponseHeaders
+}
+
+func (response GetSessionAgentRunCompaction200JSONResponse) VisitGetSessionAgentRunCompactionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionAgentRunCompaction400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response GetSessionAgentRunCompaction400JSONResponse) VisitGetSessionAgentRunCompactionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionAgentRunCompaction401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response GetSessionAgentRunCompaction401JSONResponse) VisitGetSessionAgentRunCompactionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionAgentRunCompaction404JSONResponse struct{ ErrorNotFoundJSONResponse }
+
+func (response GetSessionAgentRunCompaction404JSONResponse) VisitGetSessionAgentRunCompactionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionAgentRunCompaction500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response GetSessionAgentRunCompaction500JSONResponse) VisitGetSessionAgentRunCompactionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListSessionAgentRunEventsRequestObject struct {
 	AgentRunId AgentRunID `json:"agentRunId"`
 	Params     ListSessionAgentRunEventsParams
@@ -4075,6 +4591,95 @@ func (response ListSessionAgentRunEvents404JSONResponse) VisitListSessionAgentRu
 type ListSessionAgentRunEvents500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response ListSessionAgentRunEvents500JSONResponse) VisitListSessionAgentRunEventsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionAgentRunMessagesRequestObject struct {
+	AgentRunId AgentRunID `json:"agentRunId"`
+	Params     ListSessionAgentRunMessagesParams
+}
+
+type ListSessionAgentRunMessagesResponseObject interface {
+	VisitListSessionAgentRunMessagesResponse(w http.ResponseWriter) error
+}
+
+type ListSessionAgentRunMessages200ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListSessionAgentRunMessages200JSONResponse struct {
+	Body    AgentRunMessagePage
+	Headers ListSessionAgentRunMessages200ResponseHeaders
+}
+
+func (response ListSessionAgentRunMessages200JSONResponse) VisitListSessionAgentRunMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionAgentRunMessages400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response ListSessionAgentRunMessages400JSONResponse) VisitListSessionAgentRunMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionAgentRunMessages401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response ListSessionAgentRunMessages401JSONResponse) VisitListSessionAgentRunMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionAgentRunMessages404JSONResponse struct{ ErrorNotFoundJSONResponse }
+
+func (response ListSessionAgentRunMessages404JSONResponse) VisitListSessionAgentRunMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionAgentRunMessages500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response ListSessionAgentRunMessages500JSONResponse) VisitListSessionAgentRunMessagesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -5888,9 +6493,18 @@ type StrictServerInterface interface {
 	// CancelSessionAgentRun Cancel one child agent run without ending its parent turn
 	// (POST /session/agents/{agentRunId}/cancel)
 	CancelSessionAgentRun(ctx context.Context, request CancelSessionAgentRunRequestObject) (CancelSessionAgentRunResponseObject, error)
+	// ListSessionAgentRunCompactions List one child agent run's compaction lineage
+	// (GET /session/agents/{agentRunId}/compactions)
+	ListSessionAgentRunCompactions(ctx context.Context, request ListSessionAgentRunCompactionsRequestObject) (ListSessionAgentRunCompactionsResponseObject, error)
+	// GetSessionAgentRunCompaction Read one immutable child compaction record
+	// (GET /session/agents/{agentRunId}/compactions/{compactionId})
+	GetSessionAgentRunCompaction(ctx context.Context, request GetSessionAgentRunCompactionRequestObject) (GetSessionAgentRunCompactionResponseObject, error)
 	// ListSessionAgentRunEvents Follow what one child agent run is doing
 	// (GET /session/agents/{agentRunId}/events)
 	ListSessionAgentRunEvents(ctx context.Context, request ListSessionAgentRunEventsRequestObject) (ListSessionAgentRunEventsResponseObject, error)
+	// ListSessionAgentRunMessages List one child agent run's own durable transcript
+	// (GET /session/agents/{agentRunId}/messages)
+	ListSessionAgentRunMessages(ctx context.Context, request ListSessionAgentRunMessagesRequestObject) (ListSessionAgentRunMessagesResponseObject, error)
 	// CancelSession Request cancellation for the active turn
 	// (POST /session/cancel)
 	CancelSession(ctx context.Context, request CancelSessionRequestObject) (CancelSessionResponseObject, error)
@@ -6148,6 +6762,61 @@ func (sh *strictHandler) CancelSessionAgentRun(w http.ResponseWriter, r *http.Re
 	}
 }
 
+// ListSessionAgentRunCompactions operation middleware
+func (sh *strictHandler) ListSessionAgentRunCompactions(w http.ResponseWriter, r *http.Request, agentRunId AgentRunID, params ListSessionAgentRunCompactionsParams) {
+	var request ListSessionAgentRunCompactionsRequestObject
+
+	request.AgentRunId = agentRunId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSessionAgentRunCompactions(ctx, request.(ListSessionAgentRunCompactionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSessionAgentRunCompactions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSessionAgentRunCompactionsResponseObject); ok {
+		if err := validResponse.VisitListSessionAgentRunCompactionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetSessionAgentRunCompaction operation middleware
+func (sh *strictHandler) GetSessionAgentRunCompaction(w http.ResponseWriter, r *http.Request, agentRunId AgentRunID, compactionId CompactionID, params GetSessionAgentRunCompactionParams) {
+	var request GetSessionAgentRunCompactionRequestObject
+
+	request.AgentRunId = agentRunId
+	request.CompactionId = compactionId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSessionAgentRunCompaction(ctx, request.(GetSessionAgentRunCompactionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSessionAgentRunCompaction")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetSessionAgentRunCompactionResponseObject); ok {
+		if err := validResponse.VisitGetSessionAgentRunCompactionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListSessionAgentRunEvents operation middleware
 func (sh *strictHandler) ListSessionAgentRunEvents(w http.ResponseWriter, r *http.Request, agentRunId AgentRunID, params ListSessionAgentRunEventsParams) {
 	var request ListSessionAgentRunEventsRequestObject
@@ -6168,6 +6837,33 @@ func (sh *strictHandler) ListSessionAgentRunEvents(w http.ResponseWriter, r *htt
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListSessionAgentRunEventsResponseObject); ok {
 		if err := validResponse.VisitListSessionAgentRunEventsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListSessionAgentRunMessages operation middleware
+func (sh *strictHandler) ListSessionAgentRunMessages(w http.ResponseWriter, r *http.Request, agentRunId AgentRunID, params ListSessionAgentRunMessagesParams) {
+	var request ListSessionAgentRunMessagesRequestObject
+
+	request.AgentRunId = agentRunId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSessionAgentRunMessages(ctx, request.(ListSessionAgentRunMessagesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSessionAgentRunMessages")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSessionAgentRunMessagesResponseObject); ok {
+		if err := validResponse.VisitListSessionAgentRunMessagesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -6733,121 +7429,130 @@ func (sh *strictHandler) OpenSession(w http.ResponseWriter, r *http.Request) {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"jlU8j86ik/sX0cOnh/8PAAD//w==",
+	"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",
+	"sCuz42OVzCevJmcP304ef3/83wAAAP//",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

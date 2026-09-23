@@ -16,6 +16,8 @@ import (
 const (
 	agentsFileName              = "AGENTS.md"
 	agentsDirectoryName         = ".agents"
+	claudeDirectoryName         = ".claude"
+	rulesDirectoryName          = "rules"
 	skillsDirectoryName         = "skills"
 	agentsSubdirectory          = "agents"
 	eventHandlersSubdirectory   = "events"
@@ -283,6 +285,7 @@ func (s *resolutionState) discoverEmbedded() error {
 	}
 
 	s.instructions = append(s.instructions, Instruction{
+		Kind:     SourceKindInstruction,
 		Source:   embeddedInstructionSource,
 		Priority: embeddedInstructionPriority,
 		Content:  instructions,
@@ -391,6 +394,16 @@ func (s *resolutionState) discoverLayer(
 		return ctxerrors.Wrap(err, "discover instruction file")
 	}
 
+	if err := s.discoverRules(layer, priority); err != nil {
+		return ctxerrors.Wrap(err, "discover rule files")
+	}
+
+	if err := s.discoverSkillsDirectory(
+		filepath.Join(layer, claudeDirectoryName, skillsDirectoryName),
+	); err != nil {
+		return ctxerrors.Wrap(err, "discover Claude-compatible skills")
+	}
+
 	agentsDirectory, found, err := optionalDirectory(
 		filepath.Join(layer, agentsDirectoryName),
 	)
@@ -402,7 +415,9 @@ func (s *resolutionState) discoverLayer(
 		return nil
 	}
 
-	if err := s.discoverSkills(agentsDirectory); err != nil {
+	if err := s.discoverSkillsDirectory(
+		filepath.Join(agentsDirectory, skillsDirectoryName),
+	); err != nil {
 		return ctxerrors.Wrap(err, "discover skills")
 	}
 
@@ -452,6 +467,7 @@ func (s *resolutionState) discoverInstructions(
 	}
 
 	s.instructions = append(s.instructions, Instruction{
+		Kind:     SourceKindInstruction,
 		Source:   source,
 		Priority: priority,
 		Content:  content,
@@ -462,10 +478,109 @@ func (s *resolutionState) discoverInstructions(
 	return nil
 }
 
-func (s *resolutionState) discoverSkills(agentsDirectory string) error {
-	skillsDirectory, found, err := optionalDirectory(
-		filepath.Join(agentsDirectory, skillsDirectoryName),
+// discoverRules loads compatible and Peen-native modular rule files after a
+// layer's AGENTS.md. Rules are all additive, unlike skills and named agents,
+// because each is standing context rather than one named definition.
+func (s *resolutionState) discoverRules(layer string, priority int) error {
+	ruleDirectories := []string{
+		filepath.Join(layer, claudeDirectoryName, rulesDirectoryName),
+		filepath.Join(layer, agentsDirectoryName, rulesDirectoryName),
+	}
+
+	for _, directory := range ruleDirectories {
+		if err := s.discoverRuleDirectory(directory, priority); err != nil {
+			return ctxerrors.Wrap(err, "discover rule directory")
+		}
+	}
+
+	return nil
+}
+
+func (s *resolutionState) discoverRuleDirectory(
+	directory string,
+	priority int,
+) error {
+	rulesDirectory, found, err := optionalDirectory(directory)
+	if err != nil {
+		return ctxerrors.Wrap(err, "resolve rule directory")
+	}
+
+	if !found {
+		return nil
+	}
+
+	entries, err := sortedDirectoryEntries(
+		rulesDirectory,
+		s.limits.MaxDirectoryEntries,
 	)
+	if err != nil {
+		return ctxerrors.Wrap(err, "read rule directory")
+	}
+
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) != agentsFileExtension {
+			continue
+		}
+
+		if entry.IsDir() {
+			return ctxerrors.Wrap(
+				ErrInvalidInstruction,
+				"rule entry is a directory",
+			)
+		}
+
+		if err := s.discoverRule(
+			rulesDirectory,
+			entry.Name(),
+			priority,
+		); err != nil {
+			return ctxerrors.Wrap(err, "discover rule file")
+		}
+	}
+
+	return nil
+}
+
+func (s *resolutionState) discoverRule(
+	rulesDirectory string,
+	entryName string,
+	priority int,
+) error {
+	source, content, found, err := s.readOptionalFile(
+		filepath.Join(rulesDirectory, entryName),
+	)
+	if err != nil {
+		return ctxerrors.Wrap(err, "read rule file")
+	}
+
+	if !found {
+		return ctxerrors.Wrap(ErrInvalidInstruction, "rule file is missing")
+	}
+
+	if strings.TrimSpace(content) == "" {
+		return ctxerrors.Wrap(ErrInvalidInstruction, "rule file is empty")
+	}
+
+	if s.filesystemInstructions >= s.limits.MaxInstructions {
+		return ctxerrors.Wrap(ErrResourceLimit, "instruction limit exceeded")
+	}
+
+	s.instructions = append(s.instructions, Instruction{
+		Kind:     SourceKindRule,
+		Source:   source,
+		Priority: priority,
+		Content:  content,
+		Hash:     hashString(content),
+	})
+	s.filesystemInstructions++
+
+	return nil
+}
+
+func (s *resolutionState) discoverSkillsDirectory(
+	skillsDirectory string,
+) error {
+	resolvedDirectory, found, err := optionalDirectory(skillsDirectory)
 	if err != nil {
 		return ctxerrors.Wrap(err, "discover skills directory")
 	}
@@ -475,7 +590,7 @@ func (s *resolutionState) discoverSkills(agentsDirectory string) error {
 	}
 
 	entries, err := sortedDirectoryEntries(
-		skillsDirectory,
+		resolvedDirectory,
 		s.limits.MaxDirectoryEntries,
 	)
 	if err != nil {
@@ -483,7 +598,7 @@ func (s *resolutionState) discoverSkills(agentsDirectory string) error {
 	}
 
 	for _, entry := range entries {
-		if err := s.discoverSkill(skillsDirectory, entry.Name()); err != nil {
+		if err := s.discoverSkill(resolvedDirectory, entry.Name()); err != nil {
 			return ctxerrors.Wrap(err, "discover skill")
 		}
 	}
@@ -1052,7 +1167,7 @@ func resolvedManifest(
 	manifest := make([]ManifestEntry, 0, manifestCapacity)
 	for _, instruction := range instructions {
 		manifest = append(manifest, ManifestEntry{
-			Kind:     SourceKindInstruction,
+			Kind:     instruction.kind(),
 			Source:   instruction.Source,
 			Priority: instruction.Priority,
 			Hash:     instruction.Hash,

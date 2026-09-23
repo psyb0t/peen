@@ -25,8 +25,8 @@ type Options struct {
 	// Identity is the host account every worker runs as.
 	Identity HostIdentity
 
-	// Image pins one immutable psyb0t/peen digest for every Docker profile.
-	// Empty makes each profile name its own, which is equally pinned.
+	// Image overrides the image for every Docker profile. Empty leaves each
+	// profile's image in effect. A local development image is valid here.
 	Image string
 
 	// DockerSocketGID is the host GID of the Docker socket, needed only by a
@@ -107,8 +107,9 @@ func (l *Launcher) Launch(
 		return nil, err
 	}
 
-	// The digest is resolved before anything is created. A launch that cannot
-	// record what actually ran should not leave a container behind.
+	// Inspect the image before anything is created, so an absent reference
+	// fails before Peen leaves a container behind. A repository digest is
+	// optional metadata and its absence never blocks a launch.
 	imageDigest, err := l.resolveImageDigest(ctx, create.Image)
 	if err != nil {
 		return nil, err

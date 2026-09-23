@@ -43,9 +43,8 @@ type Profile struct {
 	Revision int64
 
 	// Image is the container image for a Docker profile, ignored for native.
-	// It must be an immutable psyb0t/peen digest reference: the container
-	// starts as root and only the Peen entrypoint drops back to the
-	// controller's host account, so the exact bytes have to be pinned.
+	// Any reference the Docker daemon can resolve is valid. An image that needs
+	// host-account setup must provide Peen's worker entrypoint.
 	Image string
 
 	// Mounts are the extra paths beyond the workspace and the global Peen

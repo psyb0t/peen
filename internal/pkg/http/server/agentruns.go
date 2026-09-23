@@ -108,3 +108,124 @@ func (s *Server) CancelSessionAgentRun(
 		},
 	}, nil
 }
+
+// ListSessionAgentRunMessages returns one child agent run's own transcript.
+//
+// A child agent runs a separate model context, so these rows are the child's
+// and never the session's.
+//
+//nolint:ireturn // Generated strict handler response interface.
+func (s *Server) ListSessionAgentRunMessages(
+	ctx context.Context,
+	request api.ListSessionAgentRunMessagesRequestObject,
+) (api.ListSessionAgentRunMessagesResponseObject, error) {
+	page, err := s.deps.Runtime.ListSessionAgentRunMessages(
+		ctx,
+		request.Params.XSessionID,
+		request.AgentRunId,
+		request.Params,
+	)
+	if err != nil {
+		if errors.Is(err, commerr.ErrNotFound) {
+			return api.ListSessionAgentRunMessages404JSONResponse{
+				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
+					notFoundError(),
+				),
+			}, nil
+		}
+
+		if errors.Is(err, commerr.ErrValidationFailed) {
+			return api.ListSessionAgentRunMessages400JSONResponse{
+				ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(
+					validationError(clientMessage(err)),
+				),
+			}, nil
+		}
+
+		return nil, ctxerrors.Wrap(err, "list session agent run messages")
+	}
+
+	return api.ListSessionAgentRunMessages200JSONResponse{
+		Body: *page,
+		Headers: api.ListSessionAgentRunMessages200ResponseHeaders{
+			XRequestID: requestID(ctx),
+			XSessionID: request.Params.XSessionID,
+		},
+	}, nil
+}
+
+// ListSessionAgentRunCompactions returns one child's compaction lineage.
+//
+//nolint:ireturn // Generated strict handler response interface.
+func (s *Server) ListSessionAgentRunCompactions(
+	ctx context.Context,
+	request api.ListSessionAgentRunCompactionsRequestObject,
+) (api.ListSessionAgentRunCompactionsResponseObject, error) {
+	page, err := s.deps.Runtime.ListSessionAgentRunCompactions(
+		ctx,
+		request.Params.XSessionID,
+		request.AgentRunId,
+		request.Params,
+	)
+	if err != nil {
+		if errors.Is(err, commerr.ErrNotFound) {
+			return api.ListSessionAgentRunCompactions404JSONResponse{
+				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
+					notFoundError(),
+				),
+			}, nil
+		}
+
+		if errors.Is(err, commerr.ErrValidationFailed) {
+			return api.ListSessionAgentRunCompactions400JSONResponse{
+				ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(
+					validationError(clientMessage(err)),
+				),
+			}, nil
+		}
+
+		return nil, ctxerrors.Wrap(err, "list session agent run compactions")
+	}
+
+	return api.ListSessionAgentRunCompactions200JSONResponse{
+		Body: *page,
+		Headers: api.ListSessionAgentRunCompactions200ResponseHeaders{
+			XRequestID: requestID(ctx),
+			XSessionID: request.Params.XSessionID,
+		},
+	}, nil
+}
+
+// GetSessionAgentRunCompaction reads one immutable child compaction.
+//
+//nolint:ireturn // Generated strict handler response interface.
+func (s *Server) GetSessionAgentRunCompaction(
+	ctx context.Context,
+	request api.GetSessionAgentRunCompactionRequestObject,
+) (api.GetSessionAgentRunCompactionResponseObject, error) {
+	compaction, err := s.deps.Runtime.GetSessionAgentRunCompaction(
+		ctx,
+		request.Params.XSessionID,
+		request.AgentRunId,
+		request.CompactionId,
+	)
+	if err != nil {
+		if errors.Is(err, commerr.ErrNotFound) {
+			return api.GetSessionAgentRunCompaction404JSONResponse{
+				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
+					notFoundError(),
+				),
+			}, nil
+		}
+
+		return nil, ctxerrors.Wrap(err, "get session agent run compaction")
+	}
+
+	return api.GetSessionAgentRunCompaction200JSONResponse{
+		Body: *compaction,
+		Headers: api.GetSessionAgentRunCompaction200ResponseHeaders{
+			XRequestID: requestID(ctx),
+			XSessionID: request.Params.XSessionID,
+		},
+	}, nil
+}

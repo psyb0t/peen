@@ -222,6 +222,45 @@ func TestRuntimeRejectsFullActiveUserMessageQueue(t *testing.T) {
 	assert.Equal(t, queuedUserMessageText, requests[1].Messages[len(requests[1].Messages)-1].Text())
 }
 
+func TestRuntimeRejectsExplicitSkillReferenceInAnActiveTurnQueue(t *testing.T) {
+	driver := elelemtest.NewScriptedDriver(
+		elelemtest.ToolCall(
+			runtimeToolCallID,
+			toolNameListFiles,
+			`{"path":"."}`,
+		),
+		elelemtest.Text(queuedUserMessageFinal),
+	)
+	fixture := newRuntimeFixture(t, driver)
+
+	var queueErr error
+	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
+		Message:   queuedUserMessageInitial,
+		Workspace: fixture.workspace,
+		OnEvent: func(event Event) error {
+			if event.Type == EventTypeToolUse {
+				_, queueErr = fixture.runtime.Run(
+					context.Background(),
+					TurnRequest{Message: ":planning make a plan"},
+				)
+			}
+
+			return nil
+		},
+	})
+	require.NoError(t, err)
+	require.ErrorIs(t, queueErr, commerr.ErrConflict)
+	assert.Equal(t, queuedUserMessageFinal, result.Text)
+
+	requests := driver.Requests()
+	require.Len(t, requests, 2)
+	assert.NotContains(
+		t,
+		requests[1].Messages[len(requests[1].Messages)-1].Text(),
+		":planning",
+	)
+}
+
 func TestRuntimeIgnoresActiveTurnWorkspaceOverride(t *testing.T) {
 	fixture := newRuntimeFixture(t, elelemtest.NewScriptedDriver(
 		elelemtest.ToolCall(

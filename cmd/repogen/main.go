@@ -28,7 +28,9 @@ func main() {
 
 	generator.ApplyBasic(
 		models.AgentRun{},
+		models.AgentRunCompaction{},
 		models.AgentRunEvent{},
+		models.AgentRunMessage{},
 		models.Compaction{},
 		models.ContextSnapshot{},
 		models.Event{},
@@ -47,5 +49,9 @@ func main() {
 	)
 	generator.ApplyInterface(func(CompactionQuerier) {}, models.Compaction{})
 	generator.ApplyInterface(func(MessageQuerier) {}, models.Message{})
+	generator.ApplyInterface(
+		func(AgentRunCompactionQuerier) {},
+		models.AgentRunCompaction{},
+	)
 	generator.Execute()
 }

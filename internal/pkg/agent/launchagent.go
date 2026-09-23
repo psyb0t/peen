@@ -20,9 +20,13 @@ import (
 )
 
 const (
-	agentNameSeparator            = ", "
-	agentsNoneMessage             = "no agents are available"
-	childPromptAdditionalCapacity = 2
+	agentNameSeparator = ", "
+	agentsNoneMessage  = "no agents are available"
+	// childPromptAdditionalCapacity counts the sections a child prompt adds
+	// around the resolved harness blocks: the base system prompt, the child's
+	// own instructions, the workspace block, and the runtime block.
+	childPromptAdditionalCapacity = 4
+	rootAgentDepth                = 0
 )
 
 // agentDepthKey is the unexported context key carrying how many launch_agent
@@ -134,6 +138,7 @@ type launchAgentDeps struct {
 	runtime            *Runtime
 	executor           *tools.JobExecutor
 	snapshot           harness.Snapshot
+	explicitSkills     []string
 	model              ModelClient
 	modelReference     string
 	workerGenerationID string
@@ -218,6 +223,7 @@ func (r *Runtime) prepareChildLaunch(
 		deps.snapshot,
 		definition.instructions,
 		deps.executor.Workspace(),
+		deps.explicitSkills,
 	)
 	if err != nil {
 		return preparedChildLaunch{}, ctxerrors.Wrap(
@@ -264,7 +270,20 @@ func (r *Runtime) executeChildLaunch(
 		input.Task,
 	)
 
-	sink := newAgentRunSink(r.store, deps.sessionID, run, deps.liveSink)
+	sink := newAgentRunSink(
+		r.store,
+		deps.sessionID,
+		run,
+		deps.liveSink,
+		deps.modelReference,
+	)
+
+	// The task is the child's first durable message, so its transcript is
+	// complete from the request onward rather than from the first answer.
+	if err := sink.seedTask(runCtx, input.Task); err != nil {
+		return r.finishAgentRun(ctx, prepared.registry, sink, run, nil, err)
+	}
+
 	if err := sink.emit(
 		runCtx,
 		EventTypeAgentRunStarted,
@@ -487,16 +506,32 @@ func agentNames(snapshot harness.Snapshot) []string {
 	return names
 }
 
-// childSystemPrompt assembles the child's system prompt from the same
-// resolved rules and skill catalogue the parent turn sees, with the child's
-// own instructions (from a stored agent file or an ad-hoc definition) in
-// place of the parent's root agent block.
+// childSystemPrompt assembles the child's system prompt from the same base
+// system prompt, resolved rules, and skill catalogue the parent turn sees,
+// with the child's own instructions (from a stored agent file or an ad-hoc
+// definition) in place of the parent's root agent block.
+//
+// The base prompt leads, exactly as it does for the root. A child that ran
+// without it still received the workspace rules and the tool catalogue, so it
+// looked functional while missing the instructions that describe how Peen
+// expects its tools to be used.
+//
+// PromptBlocks is asked for no root agent, so the parent's agent definition
+// never lands in a child prompt. Per-turn PromptModeReplace and
+// PromptModeAppend overrides stay out too: those belong to the user turn that
+// requested them, not to every child the turn happens to launch.
 func (r *Runtime) childSystemPrompt(
 	snapshot harness.Snapshot,
 	childInstructions string,
 	workspace string,
+	explicitSkillSets ...[]string,
 ) (string, error) {
-	blocks, err := snapshot.PromptBlocks("")
+	var explicitSkills []string
+	if len(explicitSkillSets) > 0 {
+		explicitSkills = explicitSkillSets[0]
+	}
+
+	blocks, err := snapshot.PromptBlocks("", explicitSkills...)
 	if err != nil {
 		return "", ctxerrors.Wrap(err, "resolve child prompt blocks")
 	}
@@ -506,6 +541,9 @@ func (r *Runtime) childSystemPrompt(
 		0,
 		len(blocks)+childPromptAdditionalCapacity,
 	)
+
+	sections = append(sections, r.baseSystemPrompt)
+
 	for _, block := range blocks {
 		sections = append(sections, block.Content)
 	}
@@ -523,6 +561,57 @@ func (r *Runtime) childSystemPrompt(
 	)
 
 	return strings.Join(sections, systemSectionGap), nil
+}
+
+// bindChildHooks installs the child's tool hooks and returns its own
+// compactor, which is nil under drop-oldest.
+//
+// The hooks carry the launching request's ID. A child run belongs to the
+// request that launched it, and the durable run row already records that ID,
+// so a hook reading uuid.Nil could not correlate its own invocation with the
+// request every other record for this work is under.
+func (r *Runtime) bindChildHooks(
+	runCtx context.Context,
+	deps *launchAgentDeps,
+	run *AgentRun,
+	systemPrompt string,
+	childToolSet *elelem.ToolSet,
+) (*compactor, error) {
+	childHooks, err := newToolHookRuntime(
+		deps.snapshot,
+		deps.executor.Workspace(),
+		r.hookStateRoot,
+		deps.requestID,
+		deps.sessionID,
+		deps.parentTurnID,
+		&run.ID,
+		deps.executor,
+		nil,
+		r.enableWorkspaceHooks,
+		r.hookCommandTimeout,
+		r.maxHookCommandOutput,
+		r.durableEventPublisher(),
+		nil,
+		modelTokenCounter(deps.model),
+	)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "create child tool hooks")
+	}
+
+	bindToolHooks(childToolSet, childHooks)
+
+	childCompactor, err := r.newChildCompactor(
+		runCtx,
+		deps,
+		run,
+		systemPrompt,
+		childCompactionHook(run, childHooks),
+	)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "create child compactor")
+	}
+
+	return childCompactor, nil
 }
 
 // runChildAgent builds and runs one independent child conversation. Its event
@@ -543,31 +632,22 @@ func (r *Runtime) runChildAgent(
 		deps,
 		nil,
 		definition.allowedTools,
+		depth,
 	)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "build child agent tool set")
 	}
 
-	childHooks, err := newToolHookRuntime(
-		deps.snapshot,
-		deps.executor.Workspace(),
-		uuid.Nil,
-		deps.sessionID,
-		deps.parentTurnID,
-		deps.executor,
-		nil,
-		r.enableWorkspaceHooks,
-		r.hookCommandTimeout,
-		r.maxHookCommandOutput,
-		r.durableEventPublisher(),
-		nil,
-		modelTokenCounter(deps.model),
+	childCompactor, err := r.bindChildHooks(
+		runCtx,
+		deps,
+		run,
+		systemPrompt,
+		childToolSet,
 	)
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "create child tool hooks")
+		return nil, err
 	}
-
-	bindToolHooks(childToolSet, childHooks)
 
 	requestSettingsJSON, err := newModelAuditSettings(
 		deps.model.Model,
@@ -609,7 +689,7 @@ func (r *Runtime) runChildAgent(
 		firstDeltaOnce sync.Once
 	)
 
-	response, err := elelem.NewRequest(deps.model.Client).
+	request := elelem.NewRequest(deps.model.Client).
 		WithModel(deps.model.Model).
 		WithPrompt(elelem.NewPrompt().WithSystem(systemPrompt).UserText(task)).
 		WithTools(childToolSet).
@@ -653,8 +733,13 @@ func (r *Runtime) runChildAgent(
 			firstDeltaOnce.Do(func() { firstDeltaAt = time.Now() })
 
 			return nil
-		}).
-		Run(depthCtx)
+		})
+
+	if childCompactor != nil {
+		request = request.PreMaxTokensReached(childCompactor.handle)
+	}
+
+	response, err := request.Run(depthCtx)
 
 	persistCtx := context.WithoutCancel(depthCtx)
 	if auditErr := audit.finish(persistCtx, response, err); auditErr != nil {
@@ -683,6 +768,7 @@ func (r *Runtime) agentToolSet(
 	deps *launchAgentDeps,
 	onPostRun elelem.MessageInjector,
 	allowedTools []string,
+	depth int,
 ) (*elelem.ToolSet, error) {
 	toolSet := hostToolSet(
 		deps.executor,
@@ -690,7 +776,13 @@ func (r *Runtime) agentToolSet(
 		deps.snapshot,
 		r.metrics,
 	)
-	toolSet.Add(instrumentTool(launchAgentTool(deps, onPostRun), r.metrics))
+	if depth < r.agentLimits.MaxDepth {
+		toolSet.Add(
+			instrumentTool(launchAgentTool(deps, onPostRun), r.metrics),
+		)
+	} else {
+		allowedTools = withoutTool(allowedTools, toolNameLaunchAgent)
+	}
 
 	restricted, err := restrictToolSet(toolSet, allowedTools)
 	if err != nil {
@@ -698,6 +790,21 @@ func (r *Runtime) agentToolSet(
 	}
 
 	return restricted, nil
+}
+
+func withoutTool(tools []string, excluded string) []string {
+	if tools == nil {
+		return nil
+	}
+
+	filtered := make([]string, 0, len(tools))
+	for _, name := range tools {
+		if name != excluded {
+			filtered = append(filtered, name)
+		}
+	}
+
+	return filtered
 }
 
 // finishAgentRun records the run's terminal state and shapes the tool
@@ -920,11 +1027,12 @@ func (r *Runtime) sessionAgentRuns(
 // agentRunSink persists a child stream, refreshes the local convenience
 // buffer, then emits the exact child event to every live session client.
 type agentRunSink struct {
-	store     session.Storage
-	sessionID uuid.UUID
-	run       *AgentRun
-	liveSink  EventSink
-	mu        sync.Mutex
+	store          session.Storage
+	sessionID      uuid.UUID
+	run            *AgentRun
+	liveSink       EventSink
+	modelReference string
+	mu             sync.Mutex
 }
 
 func newAgentRunSink(
@@ -932,13 +1040,25 @@ func newAgentRunSink(
 	sessionID uuid.UUID,
 	run *AgentRun,
 	liveSink EventSink,
+	modelReference string,
 ) *agentRunSink {
 	return &agentRunSink{
-		store:     store,
-		sessionID: sessionID,
-		run:       run,
-		liveSink:  liveSink,
+		store:          store,
+		sessionID:      sessionID,
+		run:            run,
+		liveSink:       liveSink,
+		modelReference: modelReference,
 	}
+}
+
+// seedTask records the child's task as the first durable user message, so the
+// child transcript begins with the request the way a session transcript begins
+// with the user's.
+func (s *agentRunSink) seedTask(ctx context.Context, task string) error {
+	return s.persistMessages(ctx, session.AgentRunMessageInput{
+		Role:    models.MessageRoleUser,
+		Content: task,
+	})
 }
 
 func (s *agentRunSink) emit(
@@ -1041,6 +1161,15 @@ func (s *agentRunSink) onToolResult(
 		isError = call.Result.IsError
 	}
 
+	if err := s.persistMessages(ctx, session.AgentRunMessageInput{
+		Role:       models.MessageRoleTool,
+		Content:    content,
+		ToolCallID: call.CallID,
+		IsError:    isError,
+	}); err != nil {
+		return err
+	}
+
 	return s.emit(ctx, EventTypeAgentRunToolResult, toolResultPayload{
 		CallID:  call.CallID,
 		Name:    call.Name,
@@ -1053,6 +1182,21 @@ func (s *agentRunSink) onAssistantMessage(
 	ctx context.Context,
 	message elelem.Message,
 ) error {
+	toolCalls, err := json.Marshal(message.ToolCalls)
+	if err != nil {
+		return ctxerrors.Wrap(err, "marshal child assistant tool calls")
+	}
+
+	if err := s.persistMessages(ctx, session.AgentRunMessageInput{
+		Role:          models.MessageRoleAssistant,
+		Content:       message.Text(),
+		ModelID:       s.modelReference,
+		Thinking:      message.Reasoning,
+		ToolCallsJSON: string(toolCalls),
+	}); err != nil {
+		return err
+	}
+
 	return s.emit(ctx, EventTypeAgentRunAssistantMessage, message)
 }
 
@@ -1060,7 +1204,44 @@ func (s *agentRunSink) onMessageInjection(
 	ctx context.Context,
 	injection elelem.MessageInjection,
 ) error {
+	role, err := injectedMessageRole(injection.Type)
+	if err != nil {
+		return ctxerrors.Wrap(err, "resolve child injection role")
+	}
+
+	if err := s.persistMessages(ctx, session.AgentRunMessageInput{
+		Role:    role,
+		Content: injection.Content,
+	}); err != nil {
+		return err
+	}
+
 	return s.emit(ctx, EventTypeAgentRunMessageInjected, injection)
+}
+
+// persistMessages writes prompt-visible child records before the caller lets
+// the child loop continue.
+//
+// The event log stays an event log. These rows are the child's conversation,
+// which is what a compaction covers and what a restart replays.
+func (s *agentRunSink) persistMessages(
+	ctx context.Context,
+	inputs ...session.AgentRunMessageInput,
+) error {
+	if len(inputs) == 0 {
+		return nil
+	}
+
+	if _, err := s.store.AppendAgentRunMessages(
+		ctx,
+		s.sessionID,
+		s.run.ID,
+		inputs,
+	); err != nil {
+		return ctxerrors.Wrap(err, "append child transcript messages")
+	}
+
+	return nil
 }
 
 func (s *agentRunSink) onRetry(

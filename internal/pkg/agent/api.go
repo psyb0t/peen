@@ -151,6 +151,27 @@ type RunAPI interface {
 		sessionID uuid.UUID,
 		agentRunID uuid.UUID,
 	) (*api.AgentRun, error)
+
+	// A child agent's transcript and compaction lineage are separate durable
+	// records from the session's, so they are read through the agent run.
+	ListSessionAgentRunMessages(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		agentRunID uuid.UUID,
+		params api.ListSessionAgentRunMessagesParams,
+	) (*api.AgentRunMessagePage, error)
+	ListSessionAgentRunCompactions(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		agentRunID uuid.UUID,
+		params api.ListSessionAgentRunCompactionsParams,
+	) (*api.AgentRunCompactionPage, error)
+	GetSessionAgentRunCompaction(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		agentRunID uuid.UUID,
+		compactionID uuid.UUID,
+	) (*api.AgentRunCompaction, error)
 	CancelSessionAgentRun(
 		ctx context.Context,
 		sessionID uuid.UUID,

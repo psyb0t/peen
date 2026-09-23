@@ -110,10 +110,9 @@ type Config struct {
 	HostUsername string `env:"PEEN_HOST_USERNAME"`
 	HostHome     string `env:"PEEN_HOST_HOME"`
 
-	// WorkerImage pins one psyb0t/peen image for every Docker profile. Empty
-	// makes each Docker profile name its own. Either way the value must be an
-	// immutable psyb0t/peen digest reference, because the worker container
-	// starts as root and only the Peen entrypoint drops back down.
+	// WorkerImage overrides the image for every Docker profile. Empty leaves
+	// each profile's image in effect. Any reference the Docker daemon resolves,
+	// including a local development image, is valid.
 	WorkerImage string `env:"PEEN_WORKER_IMAGE"`
 
 	MaxContextTokens       int            `default:"32768"       env:"PEEN_MAX_CONTEXT_TOKENS"`           //nolint:lll // Immutable env tag.
@@ -167,7 +166,7 @@ type Config struct {
 	MaxEventDataBytes    int `default:"65536" env:"PEEN_MAX_EVENT_DATA_BYTES"`     //nolint:lll // Immutable env tag.
 	MaxEventWakesPerHour int `default:"60"    env:"PEEN_MAX_EVENT_WAKES_PER_HOUR"` //nolint:lll // Immutable env tag.
 
-	MaxChildAgentDepth               int `default:"3"     env:"PEEN_MAX_CHILD_AGENT_DEPTH"`             //nolint:lll // Immutable env tag.
+	MaxChildAgentDepth               int `default:"5"     env:"PEEN_MAX_CHILD_AGENT_DEPTH"`             //nolint:lll // Immutable env tag.
 	MaxChildAgentTurns               int `default:"16"    env:"PEEN_MAX_CHILD_AGENT_TURNS"`             //nolint:lll // Immutable env tag.
 	MaxConcurrentAgentRunsPerSession int `default:"4"     env:"PEEN_MAX_CONCURRENT_AGENT_RUNS"`         //nolint:lll // Immutable env tag.
 	MaxAgentRunEventCount            int `default:"2000"  env:"PEEN_MAX_AGENT_RUN_EVENT_COUNT"`         //nolint:lll // Immutable env tag.

@@ -54,6 +54,14 @@ const (
 	MethodListAgentRunEvents  Method = "agentRun.listEvents"
 	MethodCancelAgentRun      Method = "agentRun.requestCancellation"
 
+	MethodAppendAgentRunMessages   Method = "agentRun.appendMessages"
+	MethodListAgentRunMessages     Method = "agentRun.listMessages"
+	MethodAgentRunHistory          Method = "agentRun.history"
+	MethodCreateAgentRunCompaction Method = "agentRun.createCompaction"
+	MethodLatestAgentRunCompaction Method = "agentRun.latestCompaction"
+	MethodListAgentRunCompactions  Method = "agentRun.listCompactions"
+	MethodGetAgentRunCompaction    Method = "agentRun.getCompaction"
+
 	MethodCreateCompaction Method = "compaction.create"
 	MethodGetCompaction    Method = "compaction.get"
 	MethodListCompactions  Method = "compaction.list"
@@ -123,6 +131,14 @@ type NestedChildInputRequest[T any] struct {
 	ChildID   uuid.UUID `json:"childId"`
 	NestedID  uuid.UUID `json:"nestedId"`
 	Input     T         `json:"input"`
+}
+
+// NestedChildRequest addresses a record inside a child record for a read,
+// which is a compaction inside one agent run.
+type NestedChildRequest struct {
+	SessionID uuid.UUID `json:"sessionId"`
+	ChildID   uuid.UUID `json:"childId"`
+	NestedID  uuid.UUID `json:"nestedId"`
 }
 
 // LeaseRequest addresses one turn lease.

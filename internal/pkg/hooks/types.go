@@ -59,17 +59,18 @@ type Options struct {
 // Invocation is one full lifecycle occurrence available to hook matching and
 // command stdin. Paths are canonical host paths chosen by the tool adapter.
 type Invocation struct {
-	Event     harness.HookEvent `json:"event"`
-	SessionID uuid.UUID         `json:"sessionId,omitempty"`
-	RequestID uuid.UUID         `json:"requestId,omitempty"`
-	TurnID    uuid.UUID         `json:"turnId,omitempty"`
-	Tool      string            `json:"tool,omitempty"`
-	CallID    string            `json:"callId,omitempty"`
-	Workspace string            `json:"workspace"`
-	Paths     []string          `json:"paths,omitempty"`
-	Input     json.RawMessage   `json:"input,omitempty"`
-	Result    json.RawMessage   `json:"result,omitempty"`
-	Error     string            `json:"error,omitempty"`
+	Event      harness.HookEvent `json:"event"`
+	SessionID  uuid.UUID         `json:"sessionId,omitempty"`
+	RequestID  uuid.UUID         `json:"requestId,omitempty"`
+	TurnID     uuid.UUID         `json:"turnId,omitempty"`
+	AgentRunID *uuid.UUID        `json:"agentRunId,omitempty"`
+	Tool       string            `json:"tool,omitempty"`
+	CallID     string            `json:"callId,omitempty"`
+	Workspace  string            `json:"workspace"`
+	Paths      []string          `json:"paths,omitempty"`
+	Input      json.RawMessage   `json:"input,omitempty"`
+	Result     json.RawMessage   `json:"result,omitempty"`
+	Error      string            `json:"error,omitempty"`
 	// StateDirectory is a private, per-session directory available only to
 	// command actions. It is omitted when an invocation has no session.
 	StateDirectory string `json:"stateDirectory,omitempty"`

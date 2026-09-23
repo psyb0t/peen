@@ -119,23 +119,9 @@ boundary and is not delivered.
 `deny` has a required `reason` and stops the current operation. It never
 degrades into a warning.
 
-`emit_event` publishes a session notice. It requires `event_type` and
-`delivery` (`queue` or `wake`), and accepts `summary` and `data`. A new
-session has no ID during `pre_user_message`, so an event action belongs in
-`post_user_message` or a later event when it needs delivery.
+`emit_event` publishes a session notice. It requires `event_type` and `delivery` (`queue` or `wake`), and accepts `summary` and object-shaped `data`. A new session has no ID during `pre_user_message`, so an event action belongs in `post_user_message` or a later event when it needs delivery.
 
-`command` requires an executable `command` and accepts `args`, `environment`,
-`working_dir`, and `timeout_seconds`. Peen starts the executable directly. It
-does not invoke a shell. The child receives only `PATH` and the declared
-environment, runs in the workspace unless `working_dir` changes it, and reads
-one JSON invocation from standard input. The invocation contains the event,
-session, request, turn, tool, call, workspace, affected paths, input, result,
-and error when available. For a session-bound hook it also includes
-`stateDirectory`, a private stable directory at
-`PEEN_CONFIG_DIR/hook-state/<session-id>`, and `contextTokens`, the estimated
-active-context input tokens at that hook boundary. `contextTokens` is for
-local policy only. It is not provider billing usage. A hook without a session
-does not receive `stateDirectory`.
+`command` requires an executable `command` and accepts `args`, `environment`, `working_dir`, and `timeout_seconds`. Peen starts the executable directly. It does not invoke a shell. The child receives only `PATH` and the declared environment, runs in the workspace unless `working_dir` changes it, and reads one JSON invocation from standard input. The invocation contains the event, session, request, turn, optional child `agentRunId`, tool, call, workspace, affected paths, input, result, and error when available. For a session-bound hook it also includes `stateDirectory`, a private stable directory under Peen's writable runtime state, and `contextTokens`, the estimated active-context input tokens at that hook boundary. Native runs keep this under `PEEN_STATE_DIR`. Docker workers keep it inside their writable session-private mount. Peen never writes hook state under the read-only `PEEN_CONFIG_DIR` mount. `contextTokens` is for local policy only. It is not provider billing usage. A hook without a session does not receive `stateDirectory`.
 
 A command may write this JSON object to standard output:
 
@@ -154,8 +140,7 @@ A command may write this JSON object to standard output:
 }
 ```
 
-Set `decision` to `deny` with a `reason` to reject the operation. Empty or
-non-JSON output is allowed and means no extra effect.
+Set `decision` to `deny` with a `reason` to reject the operation. Every event `data` value must be a JSON object. Empty or non-JSON output is allowed and means no extra effect.
 
 ## Failures and bounds
 

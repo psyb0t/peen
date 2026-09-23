@@ -10,6 +10,7 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -170,4 +171,31 @@ func TestStoreSessionNoticesPersistUntilDelivery(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, history.Items, 3)
 	assert.Equal(t, models.NoticeStateDelivered, history.Items[2].State)
+}
+
+func TestStoreRefusesSessionNoticeDataThatCannotReplayThroughTheAPI(t *testing.T) {
+	ctx := context.Background()
+	store, handle := openTestStore(t)
+	t.Cleanup(func() { require.NoError(t, handle.Close()) })
+	owner := newTestSession(ctx, t, store)
+
+	for _, dataJSON := range []string{`[]`, `null`, `"scalar"`, `{"broken":`} {
+		_, err := store.CreateSessionNotice(ctx, owner.ID, CreateSessionNoticeInput{
+			Type:     "app.changed",
+			Source:   "test",
+			Summary:  "invalid data",
+			DataJSON: dataJSON,
+			Delivery: models.NoticeDeliveryQueue,
+		})
+		require.ErrorIs(t, err, events.ErrInvalidData)
+		require.ErrorIs(t, err, commerr.ErrValidationFailed)
+	}
+
+	page, err := store.ListSessionNotices(
+		ctx,
+		owner.ID,
+		ListSessionNoticesOptions{Limit: 10},
+	)
+	require.NoError(t, err)
+	assert.Empty(t, page.Items)
 }
