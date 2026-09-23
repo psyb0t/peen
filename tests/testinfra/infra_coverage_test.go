@@ -6,10 +6,13 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/moby/moby/api/types/build"
 	"github.com/moby/moby/api/types/container"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+const testAppImage = "peen-test-image:fixture"
 
 func TestAppCoverageFor(t *testing.T) {
 	root := t.TempDir()
@@ -36,17 +39,29 @@ func TestAppCoverageForRejectsOutsideRoot(t *testing.T) {
 
 func TestAppContainerRequestConfiguresCoverage(t *testing.T) {
 	coverageDirectory := t.TempDir()
-	request := appContainerRequest(
-		t.TempDir(),
+	containerRequest := appContainerRequest(
+		testAppImage,
 		map[string]string{},
+		appCoverage{hostDirectory: coverageDirectory},
+	)
+	buildRequest := appImageBuildRequest(
+		t.TempDir(),
 		appCoverage{hostDirectory: coverageDirectory},
 	)
 
 	hostConfig := container.HostConfig{}
-	request.HostConfigModifier(&hostConfig)
+	containerRequest.HostConfigModifier(&hostConfig)
 
-	assert.Equal(t, appCoverageDirectory, request.Env[appCoverageEnvironment])
-	assert.Equal(t, appCoverageEnabled, *request.BuildArgs[appCoverageBuildArgument])
+	assert.Equal(
+		t,
+		appCoverageDirectory,
+		containerRequest.Env[appCoverageEnvironment],
+	)
+	assert.Equal(
+		t,
+		appCoverageEnabled,
+		*buildRequest.BuildArgs[appCoverageBuildArgument],
+	)
 	assert.Equal(
 		t,
 		[]string{coverageDirectory + ":" + appCoverageDirectory},
@@ -60,16 +75,30 @@ func TestAppContainerRequestConfiguresCoverage(t *testing.T) {
 	assert.Equal(
 		t,
 		strconv.Itoa(os.Getuid())+":"+strconv.Itoa(os.Getgid()),
-		request.User,
+		containerRequest.User,
 	)
 }
 
 func TestAppContainerRequestDoesNotUseLogReadiness(t *testing.T) {
 	request := appContainerRequest(
-		t.TempDir(),
+		testAppImage,
 		map[string]string{},
 		appCoverage{},
 	)
 
 	assert.Nil(t, request.WaitingFor)
+}
+
+func TestAppImageBuildOptionsUseBuildKit(t *testing.T) {
+	request := appImageBuildRequest(
+		t.TempDir(),
+		appCoverage{},
+	)
+
+	options := appImageBuildOptions(&request, testAppImage)
+
+	assert.Equal(t, build.BuilderBuildKit, options.Version)
+	assert.Equal(t, []string{testAppImage}, options.Tags)
+	assert.True(t, options.Remove)
+	assert.True(t, options.ForceRemove)
 }

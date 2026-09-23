@@ -420,6 +420,7 @@ func assertErrorCode(
 
 type testRuntime struct {
 	sessionID  uuid.UUID
+	modelList  api.ModelList
 	runCalls   int
 	runErr     error
 	runQueued  bool
@@ -443,6 +444,10 @@ func newTestRuntime(sessionID uuid.UUID) *testRuntime {
 
 func (r *testRuntime) SessionID() uuid.UUID {
 	return r.sessionID
+}
+
+func (r *testRuntime) ListModels() api.ModelList {
+	return r.modelList
 }
 
 func (r *testRuntime) RunMessage(

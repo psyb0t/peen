@@ -116,12 +116,35 @@ var _ api.StrictServerInterface = (*Server)(nil)
 
 // New constructs a fully-wired HTTP server without opening a listener.
 func New(deps Dependencies) (*Server, error) {
+	if err := prepareDependencies(&deps); err != nil {
+		return nil, err
+	}
+
+	instance := &Server{deps: deps}
+	instance.configureWebSocketHub()
+
+	if err := instance.configureHandlers(); err != nil {
+		instance.webSocketHub.Close()
+
+		return nil, err
+	}
+
+	if err := instance.configureHTTPServer(); err != nil {
+		instance.webSocketHub.Close()
+
+		return nil, err
+	}
+
+	return instance, nil
+}
+
+func prepareDependencies(deps *Dependencies) error {
 	if deps.Runtime == nil {
-		return nil, ctxerrors.Wrap(ErrMissingDependency, "agent runtime")
+		return ctxerrors.Wrap(ErrMissingDependency, "agent runtime")
 	}
 
 	if deps.Sessions == nil {
-		return nil, ctxerrors.Wrap(ErrMissingDependency, "session registry")
+		return ctxerrors.Wrap(ErrMissingDependency, "session registry")
 	}
 
 	if deps.ListenAddress == "" {
@@ -136,24 +159,37 @@ func New(deps Dependencies) (*Server, error) {
 		deps.ServiceContext = context.Background
 	}
 
-	instance := &Server{deps: deps}
-	instance.configureWebSocketHub()
+	return nil
+}
 
+func (s *Server) configureHandlers() error {
 	validator, err := specValidator()
 	if err != nil {
-		instance.webSocketHub.Close()
-
-		return nil, err
+		return ctxerrors.Wrap(err, "create OpenAPI specification validator")
 	}
 
-	apiHandler := instance.newAPIHandler()
+	apiHandler := s.newAPIHandler()
 
-	instance.router = newRouter(instance, apiHandler, validator)
-	instance.testHandler = newTestHandler(instance, apiHandler, validator)
+	spaHandler, err := newSPAHandler()
+	if err != nil {
+		return ctxerrors.Wrap(err, "create static control-surface handler")
+	}
 
-	instance.httpServer, err = serbewr.NewWithConfig(
+	s.router = newRouter(s, apiHandler, validator, spaHandler)
+	s.testHandler = newTestHandler(
+		s,
+		apiHandler,
+		validator,
+		spaHandler,
+	)
+
+	return nil
+}
+
+func (s *Server) configureHTTPServer() error {
+	httpServer, err := serbewr.NewWithConfig(
 		serbewr.Config{
-			ListenAddress:       deps.ListenAddress,
+			ListenAddress:       s.deps.ListenAddress,
 			ReadTimeout:         aichteeteapee.DefaultHTTPServerReadTimeout,
 			ReadHeaderTimeout:   defaultReadHeaderTimeout,
 			WriteTimeout:        aichteeteapee.DefaultHTTPServerWriteTimeout,
@@ -165,12 +201,12 @@ func New(deps Dependencies) (*Server, error) {
 		},
 	)
 	if err != nil {
-		instance.webSocketHub.Close()
-
-		return nil, ctxerrors.Wrap(err, "create Serbewr HTTP server")
+		return ctxerrors.Wrap(err, "create Serbewr HTTP server")
 	}
 
-	return instance, nil
+	s.httpServer = httpServer
+
+	return nil
 }
 
 func (s *Server) configureWebSocketHub() {

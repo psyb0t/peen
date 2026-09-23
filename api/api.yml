@@ -125,6 +125,28 @@ paths:
           $ref: '#/components/responses/ErrorUnauthorized'
         '500':
           $ref: '#/components/responses/ErrorInternal'
+  /models:
+    get:
+      operationId: listModels
+      summary: List models discovered from configured connections
+      description: >
+        Lists the non-secret model metadata Peen confirmed at controller
+        startup. A model's name is the exact connection/model reference a
+        WebSocket message.send frame may use for its one-turn model override.
+      responses:
+        '200':
+          description: Discovered model list
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelList'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
   /session/workers:
     get:
       operationId: listSessionWorkers
@@ -1246,6 +1268,127 @@ components:
         default:
           type: string
           description: The profile a session opened without naming one uses.
+    Model:
+      type: object
+      additionalProperties: false
+      required: [name, connectionName, modelId, contextWindowTokens]
+      properties:
+        name:
+          type: string
+          description: >
+            Exact connection/model reference accepted by message.send for a
+            one-turn model override.
+        connectionName:
+          type: string
+          description: The configured connection portion of name.
+        modelId:
+          type: string
+          description: The raw model identifier the upstream accepted.
+        contextWindowTokens:
+          type: integer
+          format: int64
+          minimum: 1
+          description: >
+            The model context window Peen will enforce. For an upstream that
+            publishes no window, this is the deployment context budget.
+    ModelList:
+      type: object
+      additionalProperties: false
+      required: [models]
+      properties:
+        models:
+          type: array
+          description: Models available to this authenticated controller.
+          items:
+            $ref: '#/components/schemas/Model'
+    WebSocketMessageSystemPrompt:
+      type: object
+      additionalProperties: false
+      required: [content, mode]
+      properties:
+        content:
+          type: string
+        mode:
+          type: string
+          enum: [append, replace]
+    WebSocketMessageSendData:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message:
+          type: string
+          minLength: 1
+        model:
+          type: string
+          description: Exact model name returned by GET /models, for this turn only.
+        systemPrompt:
+          $ref: '#/components/schemas/WebSocketMessageSystemPrompt'
+    WebSocketMessageMetadata:
+      type: object
+      additionalProperties: false
+      required: [sessionId]
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+    WebSocketServerMetadata:
+      type: object
+      additionalProperties: false
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        requestId:
+          type: string
+          format: uuid
+    WebSocketMessageSendEvent:
+      type: object
+      additionalProperties: false
+      description: >-
+        The only client-to-server WebSocket command. sessionId is routing
+        metadata, not a permission grant. The server persists accepted work and
+        broadcasts its resulting session events to all global sockets.
+      required: [id, type, data, timestamp, metadata, triggeredBy]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: message.send
+        data:
+          $ref: '#/components/schemas/WebSocketMessageSendData'
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: '#/components/schemas/WebSocketMessageMetadata'
+        triggeredBy:
+          type: 'null'
+    WebSocketServerEvent:
+      type: object
+      additionalProperties: false
+      description: >-
+        One Dabluvee event emitted by Peen. data is intentionally unknown at
+        the envelope level because each native agent event type has its own
+        payload. Clients preserve and render it without guessing its shape.
+      required: [id, type, data, timestamp, metadata, triggeredBy]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        data: {}
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: '#/components/schemas/WebSocketServerMetadata'
+        triggeredBy:
+          type: [string, 'null']
+          format: uuid
     WorkerGeneration:
       type: object
       additionalProperties: false

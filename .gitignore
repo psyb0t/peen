@@ -27,6 +27,9 @@ commit.txt
 
 # Build and generated local reports
 /build/
+web/node_modules/
+web/.svelte-kit/
+.pnpm-store/
 coverage.html
 coverage_filtered.txt
 coverage-percent.txt

@@ -5,8 +5,7 @@ what Peen stored or to control a run. REST never starts a turn. A normal socket
 receives live events for every session. The client decides which session tab to
 render from each event's metadata.
 
-The full REST contract is [api/api.yml](../api/api.yml) (OpenAPI 3.1). This
-page explains the parts a client needs to get right.
+The full REST contract is [api/api.yml](../api/api.yml) (OpenAPI 3.1). Peen's embedded browser control surface is served at `/` and is built from the same generated REST types. This page explains the parts another client needs to get right.
 
 Every operation is mounted under `/v1`. `Authorization: Bearer <token>` is
 required only when `PEEN_API_TOKEN` is set; see the root
@@ -67,6 +66,8 @@ the new profile instead of continuing in the old one.
 entry names the profile the session moved from, the profile it moved to, the
 reason the caller gave, and when it was decided.
 
+`GET /v1/models` lists every model Peen discovered at controller startup. Each record provides the exact one-turn override name, its configured connection name, the raw model ID the upstream accepted, and Peen's enforced context window. The endpoint never makes a provider call and never returns provider credentials. Clients pass the `name` field as `data.model` in a `message.send` frame.
+
 A `message.send` frame names its session in the event's `sessionId` metadata.
 That routes the message, it does not authorize it. Peen loads the session
 before starting a turn, so an unknown session ID fails there and writes no turn
@@ -90,6 +91,7 @@ The accepted client event is `message.send`. Its `data` is strict JSON:
     "model": "optional provider/model override for this call only",
     "systemPrompt": {"mode": "append", "content": "optional instructions"}
   },
+  "metadata": {"sessionId": "canonical UUIDv4 returned by sessions/open"},
   "timestamp": 0,
   "triggeredBy": null
 }
@@ -97,9 +99,7 @@ The accepted client event is `message.send`. Its `data` is strict JSON:
 
 `systemPrompt.mode` is `append` for the default prompt plus the supplied text,
 or `replace` for the supplied text alone. Neither setting is sticky.
-`metadata.sessionId` is reserved for server frames and is rejected on a client
-message. `data.workspace` is also rejected. The first server frame carries the
-session UUID in `metadata.sessionId`; retain it for REST reads and controls.
+`metadata.sessionId` is required on every client message. It routes the work to an existing session and is not an authorization grant. `data.workspace` is rejected. A client learns a session ID from `POST /v1/sessions/open`, not from a special first socket frame.
 
 Write a standalone `:skill-name` at the start of a message or after whitespace
 to require that exact resolved skill for the turn. Peen validates the name

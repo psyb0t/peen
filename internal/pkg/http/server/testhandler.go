@@ -13,6 +13,7 @@ func newTestHandler(
 	server *Server,
 	apiHandler http.Handler,
 	validator middleware.Middleware,
+	spaHandler http.Handler,
 ) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc(http.MethodGet+" "+healthzPath, handleOperationalProbe)
@@ -28,6 +29,7 @@ func newTestHandler(
 		apiBaseURL+"/",
 		middleware.Chain(apiHandler, apiMiddlewares(server, validator)...),
 	)
+	mux.Handle("/", spaHandler)
 
 	return middleware.Chain(mux, globalMiddlewares(server)...)
 }

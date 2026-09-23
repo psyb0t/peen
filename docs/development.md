@@ -16,6 +16,7 @@ you need the full, current list.
 | Run package tests | `make test-unit` |
 | Run mocked integration tests | `make test-integration` |
 | Exercise production HTTP and WebSocket wiring | `make test-api` |
+| Exercise the embedded control surface in a real browser | `make test-browser` |
 | Exercise source and installed binaries | `make test-execution-forms` |
 | Build the binary | `make build` |
 | Build the production image | `make docker-build` |
@@ -23,6 +24,12 @@ you need the full, current list.
 `make test-real` is opt-in. It uses the configured live provider and costs
 money. It runs the agent in an isolated fixture with no Docker socket. Do not
 use it as a routine local check.
+
+`make test-browser` runs the embedded control surface against the production
+test controller in a pinned Stealthy browser container. It records safe browser
+console diagnostics, network metadata, and a screenshot under the gitignored
+`.testing/browser-artifacts/` directory. The browser receives no workspace
+mount or Docker socket.
 
 ## Where changes go
 

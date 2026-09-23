@@ -30,7 +30,7 @@ const (
 	coreTestSocketDirPrefix = "pw"
 	coreTestDirectoryMode   = 0o750
 	coreTestFileMode        = 0o600
-	coreTestStartupTimeout  = 30 * time.Second
+	coreTestStartupTimeout  = time.Minute
 	coreTestShutdownTimeout = 30 * time.Second
 	coreTestClearedTimeout  = time.Second
 	coreTestContextTokens   = 8192

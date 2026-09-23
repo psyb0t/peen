@@ -13,8 +13,10 @@ include Makefile.servicepack
 # Custom targets below this line
 # Note: Override warnings are expected and can be ignored
 
-.PHONY: install test test-unit test-integration test-api test-execution-forms \
-	test-docker-worker test-docker-worker-source test-real
+.PHONY: install test test-unit test-integration test-api test-browser \
+	test-execution-forms test-docker-worker test-docker-worker-source test-real \
+	web-generate web-build web-check web-lint web-lint-fix web-test web-pkg-lock \
+	web-pkg-add web-pkg-update web-pkg-upgrade web-pkg-remove
 
 # PREFIX is where `make install` puts the binary. Override it for a system-wide
 # install: `sudo make install PREFIX=/usr/local/bin`.
@@ -37,6 +39,16 @@ test-integration: dev-image ## Run integration tests without the race detector
 
 test-api: dev-image ## Run containerized API tests through production wiring
 	@$(DEV_RUN_DIND) go test -count=1 -tags=integration -timeout=$(TEST_TIMEOUT) ./tests/api
+
+# test-browser starts only the exact test-owned controller and Stealthy browser
+# containers. The browser has host networking only so it can reach the test
+# controller's loopback listener. It has no workspace mount or Docker socket.
+# Screenshots stay in the gitignored test-artifact root for visual inspection.
+test-browser: dev-image ## Run the embedded control surface in a real browser
+	@mkdir -p "$(CURDIR)/.testing/browser-artifacts"
+	@$(DEV_RUN_DIND) env \
+		PEEN_BROWSER_TEST_ARTIFACT_ROOT="$(CURDIR)/.testing/browser-artifacts" \
+		go test -count=1 -tags=browser -timeout=$(TEST_TIMEOUT) -v ./tests/browser
 
 test-execution-forms: dev-image ## Run source and installed binary contract tests
 	@$(DEV_RUN) go test -count=1 -tags=integration -timeout=$(TEST_TIMEOUT) ./tests/executionforms
@@ -84,6 +96,42 @@ test-docker-worker-source: dev-image ## Build this checkout's worker image and p
 
 test-real: ## Run opt-in real provider tests with the deployment .env
 	@bash scripts/make/test_real.sh
+
+web-generate: dev-image ## Regenerate TypeScript API types from api/api.yml
+	@$(DEV_RUN) bash scripts/web/run.sh generate
+
+web-build: dev-image ## Build the embedded static control-surface client
+	@$(DEV_RUN) bash scripts/web/run.sh build
+
+web-check: dev-image ## Type-check the static control-surface client
+	@$(DEV_RUN) bash scripts/web/run.sh check
+
+web-lint: dev-image ## Lint and format-check the static control-surface client
+	@$(DEV_RUN) bash scripts/web/run.sh lint
+
+web-lint-fix: dev-image ## Fix formatting in the static control-surface client
+	@$(DEV_RUN) bash scripts/web/run.sh format
+
+web-test: dev-image ## Run static control-surface unit tests
+	@$(DEV_RUN) bash scripts/web/run.sh test
+
+web-pkg-lock: dev-image ## Refresh the frontend lockfile without changing versions
+	@$(DEV_RUN) bash scripts/web/run.sh pkg-lock
+
+web-pkg-add: export WEB_PKG := $(WEB_PKG)
+web-pkg-add: dev-image ## Add a pinned frontend package, set WEB_PKG=name@version
+	@$(DEV_RUN) bash scripts/web/run.sh pkg-add
+
+web-pkg-update: export WEB_PKG := $(WEB_PKG)
+web-pkg-update: dev-image ## Update one frontend package, set WEB_PKG=name
+	@$(DEV_RUN) bash scripts/web/run.sh pkg-update
+
+web-pkg-upgrade: dev-image ## Update every frontend package after pnpm's age gate
+	@$(DEV_RUN) bash scripts/web/run.sh pkg-upgrade
+
+web-pkg-remove: export WEB_PKG := $(WEB_PKG)
+web-pkg-remove: dev-image ## Remove one frontend package, set WEB_PKG=name
+	@$(DEV_RUN) bash scripts/web/run.sh pkg-remove
 
 # Example: override a framework command by uncommenting and editing this.
 #

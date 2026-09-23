@@ -20,11 +20,19 @@ import (
 // instead of the whole runtime.
 type API interface {
 	MessageAPI
+	ModelAPI
 	SessionAPI
 	SessionReplayAPI
 	SessionNoticeAPI
 	ProcessJobAPI
 	RunAPI
+}
+
+// ModelAPI exposes the configured model catalogue without reaching a provider.
+// Provider discovery already happened during controller startup, so a client
+// sees exactly the references a turn can resolve without spending a model call.
+type ModelAPI interface {
+	ListModels() api.ModelList
 }
 
 // MessageAPI runs turns and reads the durable transcript.
@@ -214,6 +222,19 @@ func (r *Runtime) RunMessage(
 // workspace. A caller that gets uuid.Nil must name the session it means.
 func (r *Runtime) SessionID() uuid.UUID {
 	return r.sessionID
+}
+
+// ListModels returns the model catalogue available to this runtime. A normal
+// controller supplies Registry, while a minimal embedding may deliberately
+// supply only a resolver and therefore publishes an empty catalogue rather
+// than guessing at model metadata.
+func (r *Runtime) ListModels() api.ModelList {
+	catalog, ok := r.models.(ModelCatalog)
+	if !ok {
+		return api.ModelList{Models: []api.Model{}}
+	}
+
+	return catalog.ListModels()
 }
 
 // Session reads one durable session and its current in-process turn state.

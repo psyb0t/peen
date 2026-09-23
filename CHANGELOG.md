@@ -4,6 +4,28 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.12.0 (2026-09-23)
+
+Peen now includes a browser control surface at the controller root URL. It
+connects to the same global WebSocket feed as every other client, and it reads
+durable state through the public API. No database, configuration, or API
+migration is needed.
+
+- Embeds a static Svelte control surface in the Peen binary and production
+  image. It opens or resumes workspace sessions, shows their durable records,
+  sends WebSocket turns, cancels running work, selects profiles, and keeps the
+  active session view in step with global live events.
+- Adds `GET /v1/models`, which lists the non-secret models confirmed when the
+  controller started. Each result includes the exact `connection/model` name
+  a client may send as a one-turn model override, its connection, raw model ID,
+  and enforced context window.
+- Adds the frontend build, typecheck, lint, unit-test, and real-browser checks
+  to the project tooling and CI. Browser diagnostics log only a closed set of
+  safe metadata and never API tokens, message text, or event payloads.
+- Normalizes generated control-surface text assets before they enter the
+  embedded asset tree, so the release whitespace check accepts every fresh
+  frontend build.
+
 ## v0.11.0 (2026-09-23)
 
 Child agents now keep their own durable conversations and compaction lineages.

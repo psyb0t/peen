@@ -1083,6 +1083,21 @@ type MessageToolCall struct {
 	Name      string                 `json:"name"`
 }
 
+// Model defines model for Model.
+type Model struct {
+	// ConnectionName The configured connection portion of name.
+	ConnectionName string `json:"connectionName"`
+
+	// ContextWindowTokens The model context window Peen will enforce. For an upstream that publishes no window, this is the deployment context budget.
+	ContextWindowTokens int64 `json:"contextWindowTokens"`
+
+	// ModelId The raw model identifier the upstream accepted.
+	ModelId string `json:"modelId"`
+
+	// Name Exact connection/model reference accepted by message.send for a one-turn model override.
+	Name string `json:"name"`
+}
+
 // ModelCall defines model for ModelCall.
 type ModelCall struct {
 	BilledCostAmount        string                   `json:"billedCostAmount"`
@@ -1129,6 +1144,12 @@ type ModelCallPage struct {
 	Limit    int32       `json:"limit"`
 	ModelRun ModelRun    `json:"modelRun"`
 	Offset   int32       `json:"offset"`
+}
+
+// ModelList defines model for ModelList.
+type ModelList struct {
+	// Models Models available to this authenticated controller.
+	Models []Model `json:"models"`
 }
 
 // ModelRun defines model for ModelRun.
@@ -1724,6 +1745,13 @@ type ClientInterface interface {
 	// Corresponds with GET /messages (the `ListMessages` operationId).
 	ListMessages(ctx context.Context, params *ListMessagesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListModels List models discovered from configured connections
+	//
+	// Lists the non-secret model metadata Peen confirmed at controller startup. A model's name is the exact connection/model reference a WebSocket message.send frame may use for its one-turn model override.
+	//
+	// Corresponds with GET /models (the `ListModels` operationId).
+	ListModels(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetSession Read session details
 	//
 	// Corresponds with GET /session (the `GetSession` operationId).
@@ -1939,6 +1967,23 @@ func (c *Client) ListExecutionProfiles(ctx context.Context, reqEditors ...Reques
 // Corresponds with GET /messages (the `ListMessages` operationId).
 func (c *Client) ListMessages(ctx context.Context, params *ListMessagesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListMessagesRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListModels List models discovered from configured connections
+//
+// Lists the non-secret model metadata Peen confirmed at controller startup. A model's name is the exact connection/model reference a WebSocket message.send frame may use for its one-turn model override.
+//
+// Corresponds with GET /models (the `ListModels` operationId).
+func (c *Client) ListModels(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListModelsRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -2574,6 +2619,33 @@ func NewListMessagesRequest(server string, params *ListMessagesParams) (*http.Re
 
 		req.Header.Set("X-Session-ID", headerParam0)
 
+	}
+
+	return req, nil
+}
+
+// NewListModelsRequest constructs an http.Request for the ListModels method
+func NewListModelsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/models")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
 	}
 
 	return req, nil
@@ -4579,6 +4651,15 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /messages (the `ListMessages` operationId).
 	ListMessagesWithResponse(ctx context.Context, params *ListMessagesParams, reqEditors ...RequestEditorFn) (*ListMessagesResponse, error)
 
+	// ListModelsWithResponse List models discovered from configured connections
+	//
+	// Lists the non-secret model metadata Peen confirmed at controller startup. A model's name is the exact connection/model reference a WebSocket message.send frame may use for its one-turn model override.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /models (the `ListModels` operationId).
+	ListModelsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListModelsResponse, error)
+
 	// GetSessionWithResponse Read session details
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -4953,6 +5034,68 @@ func (r ListMessagesResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListMessagesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ListModelsResponse200Headers the declared response headers of an HTTP 200 response for ListModels
+type ListModelsResponse200Headers struct {
+	XRequestID openapi_types.UUID
+}
+
+type ListModelsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ModelList
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ListModelsResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListModelsResponse) GetJSON200() *ModelList {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListModelsResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListModelsResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListModelsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListModelsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListModelsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListModelsResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -7149,6 +7292,21 @@ func (c *ClientWithResponses) ListMessagesWithResponse(ctx context.Context, para
 	return ParseListMessagesResponse(rsp)
 }
 
+// ListModelsWithResponse List models discovered from configured connections
+//
+// Lists the non-secret model metadata Peen confirmed at controller startup. A model's name is the exact connection/model reference a WebSocket message.send frame may use for its one-turn model override.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /models (the `ListModels` operationId).
+func (c *ClientWithResponses) ListModelsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListModelsResponse, error) {
+	rsp, err := c.ListModels(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListModelsResponse(rsp)
+}
+
 // GetSessionWithResponse Read session details
 //
 // Returns a wrapper object for the known response body format(s).
@@ -7701,6 +7859,59 @@ func ParseListMessagesResponse(rsp *http.Response) (*ListMessagesResponse, error
 				return nil, err
 			}
 			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListModelsResponse parses an HTTP response from a ListModelsWithResponse call
+func ParseListModelsResponse(rsp *http.Response) (*ListModelsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListModelsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ModelList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ListModelsResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
 		}
 		response.Headers200 = &headers
 	}

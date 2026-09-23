@@ -11,6 +11,7 @@ func newRouter(
 	server *Server,
 	apiHandler http.Handler,
 	validator middleware.Middleware,
+	spaHandler http.Handler,
 ) *serbewr.Router {
 	return &serbewr.Router{
 		GlobalMiddlewares: globalMiddlewares(server),
@@ -43,6 +44,11 @@ func newRouter(
 				Middlewares: apiMiddlewares(server, validator),
 				Routes: []serbewr.RouteConfig{
 					{Path: apiMountPattern, Handler: apiHandler.ServeHTTP},
+				},
+			},
+			{
+				Routes: []serbewr.RouteConfig{
+					{Path: spaMountPattern, Handler: spaHandler.ServeHTTP},
 				},
 			},
 		},

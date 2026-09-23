@@ -23,14 +23,13 @@ and it starts a separate worker process per session to run that session's turns.
 Which environment a worker gets, a child process or its own container, is an
 operator decision. See [Architecture](docs/architecture.md).
 
-Peen is the backend and harness. It does not ship a browser chat UI. Bring a
-browser client, terminal client, bot, or your own application.
+Peen ships its own browser control surface at the controller's root URL. It is one client among many, so a terminal client, bot, or your own application can watch the same live work and use the same durable records.
 
 ## Contents
 
 - [Install](#install)
 - [Run it](#run-it)
-- [Send it a task](#send-it-a-task)
+- [Use the control surface](#use-the-control-surface)
 - [Provider configuration](#provider-configuration)
 - [Make it understand your project](#make-it-understand-your-project)
 - [See what happened](#see-what-happened)
@@ -44,42 +43,38 @@ browser client, terminal client, bot, or your own application.
 
 ## Install
 
+The normal install is the published Docker image:
+
+```bash
+docker pull psyb0t/peen:latest
+```
+
+The image starts Peen's control plane by default. You need Docker and a provider
+API key. The next section creates the configuration and starts it.
+
+If you want a native binary instead, use the installer:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/psyb0t/peen/main/install.sh | bash
 ```
 
-That clones Peen into a temporary directory, builds it, installs the binary to
-`~/bin`, and deletes the clone. Set `PREFIX` for somewhere else and `REF` for a
-tag or branch:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/psyb0t/peen/main/install.sh |
-  PREFIX=/usr/local/bin REF=v0.11.0 bash
-```
-
-Piping a script from the internet into a shell is worth a look first. Read it at
-[install.sh](install.sh), or do the same thing by hand:
-
-```bash
-git clone https://github.com/psyb0t/peen.git
-cd peen
-make install
-```
-
-Either way you need Docker. The build runs in a pinned Go image, so no local Go
-toolchain is involved. `make install` puts the binary in `~/bin` unless you pass
-`PREFIX`. [Deployment](docs/deployment.md) covers the other routes, including
-`go install` and building the image yourself.
+Read [install.sh](install.sh) before piping it into a shell. [Deployment](docs/deployment.md) covers native installs, source builds, and running Peen under a process manager.
 
 ## Run it
 
 Run Peen in Docker first. Pick a workspace you are happy to hand to an agent.
 Do not mount your whole home directory just because it is convenient.
 
-You need Docker and a provider API key. Copy the example configuration:
+You need Docker and a provider API key. Pick three host directories: one for trusted configuration, one for Peen's database and logs, and one workspace for the agent. Download the example configuration beside them:
 
 ```bash
-cp .env.example .env
+root="$HOME/.local/share/peen"
+config="$root/config"
+state="$root/state"
+workspace="$HOME/work/peen-workspace"
+mkdir -p "$config" "$state" "$workspace"
+curl -fsSLo "$root/.env" https://raw.githubusercontent.com/psyb0t/peen/main/.env.example
+${EDITOR:-vi} "$root/.env"
 ```
 
 The example has [AIGate](https://github.com/psyb0t/aigate) and Z.ai entries.
@@ -98,30 +93,16 @@ AIGATE_TOKEN=your-token-here
 PEEN_API_TOKEN=
 ```
 
-`PEEN_CONFIG_DIR` and `PEEN_STATE_DIR` are separate on purpose. Workers get the
-first one read-only and never get the second. Peen refuses to start if one sits
-inside the other.
+Set the provider URL, model IDs, and the named API-key environment variable in `$root/.env`. `PEEN_CONFIG_DIR` and `PEEN_STATE_DIR` are separate on purpose. Workers get the first one read-only and never get the second. Peen refuses to start if one sits inside the other.
 
-`.env` is a Docker `--env-file`, so leave the JSON unquoted. For a server
-outside your own machine, set `PEEN_API_TOKEN` to a real secret before starting
-it.
+The file is a Docker `--env-file`, so leave the JSON unquoted. For a server outside your own machine, set `PEEN_API_TOKEN` to a real secret before starting it.
 
-Build the image, create separate configuration, state, and workspace
-directories, then mount each at its literal host path. Literal paths matter
-when the controller starts Docker workers. Docker resolves worker mounts on the
-host, not inside the controller container.
+Mount each directory at its literal host path. Literal paths matter when the controller starts Docker workers. Docker resolves worker mounts on the host, not inside the controller container.
 
 ```bash
-make docker-build
-root="$PWD"
-config="$root/data/peen/config"
-state="$root/data/peen/state"
-workspace="$root/workspace"
-mkdir -p "$config" "$state" "$workspace"
-
 docker run --rm \
   --user "$(id -u):$(id -g)" \
-  --env-file .env \
+  --env-file "$root/.env" \
   -e PEEN_CONFIG_DIR="$config" \
   -e PEEN_STATE_DIR="$state" \
   -e PEEN_HOST_USERNAME="$(id -un)" \
@@ -131,7 +112,7 @@ docker run --rm \
   -v "$state:$state" \
   -v "$workspace:$workspace" \
   -w "$workspace" \
-  peen run
+  psyb0t/peen:latest
 ```
 
 The control process and workers run as your UID and GID, so files the agent
@@ -144,50 +125,15 @@ opens one when a client names that directory. It resumes the same session when
 it restarts with the same state directory and workspace. All three mounts
 survive a container restart.
 
-## Send it a task
+## Use the control surface
 
-Peen starts with no sessions, so open the workspace first, then route a message
-to the session it returns. With the default empty `PEEN_API_TOKEN`, open a
-browser console and paste this:
+Open `http://localhost:8080` after Peen starts. If `PEEN_API_TOKEN` is set, enter it in the connection form. The browser keeps it in page memory only. It does not put the token in a URL or browser storage.
 
-```js
-const workspace = "/absolute/path/to/workspace";
+Open an allowlisted workspace with an absolute path. Peen returns its existing session when that directory was opened before, otherwise it creates the one durable session for that workspace. Select a model for one message only when you need to override the session default, then send the work.
 
-const opened = await fetch("http://localhost:8080/v1/sessions/open", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ workspace }),
-}).then((response) => response.json());
+The socket receives the live feed for every session. The control surface keeps that global feed intact, but shows the selected session's events and durable records in its own tab. It also exposes cancellation, execution-profile changes, transcript messages, model runs, child agents, compactions, workers, jobs, and notices.
 
-const sessionId = opened.session.id;
-
-const socket = new WebSocket("ws://localhost:8080/v1/ws");
-
-socket.addEventListener("message", ({ data }) => console.log(JSON.parse(data)));
-socket.addEventListener("open", () => {
-  socket.send(JSON.stringify({
-    id: crypto.randomUUID(),
-    type: "message.send",
-    data: { message: "Read the project, then tell me what you would fix first." },
-    metadata: { sessionId },
-    timestamp: Math.floor(Date.now() / 1000),
-    triggeredBy: null,
-  }));
-});
-```
-
-Opening the same directory again returns the same session, so this is also how
-you reattach after a restart. Save the `sessionId` for REST reads and controls.
-Native agent events arrive while it works, then `message.completed` says that
-submission is done. The socket stays open for the next task, which names the
-same session.
-
-Every connected client receives every session's live events. A client renders
-tabs by filtering received events on `metadata.sessionId`. Add
-`?sessionId=<uuid>` to its WebSocket URL only when it deliberately wants the
-server to send one session's events. The full protocol, including browser
-authentication, failed turns, queued messages, and event fields, lives in [the
-WebSocket API guide](docs/http-api.md#send-and-watch-turns-over-websocket).
+The browser control surface is embedded in the Peen binary. There is no frontend service or browser token persistence to operate. Build another client against the [WebSocket and REST API guide](docs/http-api.md) when you need a different interface or automation.
 
 ## Provider configuration
 
@@ -359,12 +305,7 @@ does exactly this by default; see below.
 
 ## Docker deployment
 
-The local Docker command above is the normal way to run Peen. The image has a
-real shell and the tools a coding agent uses. Its image default is a non-root
-account, and the documented command deliberately overrides that with your UID
-and GID so controller and worker changes keep host ownership. For source builds,
-production mounts, networking, and container hardening, read
-[Deployment](docs/deployment.md).
+The Docker command above is the normal way to run Peen. The image has a real shell and the tools a coding agent uses. The command runs it as your UID and GID so controller and worker changes keep host ownership. For production mounts, networking, and container hardening, read [Deployment](docs/deployment.md).
 
 ## Agent integrations
 

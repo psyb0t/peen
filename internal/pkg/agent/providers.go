@@ -3,6 +3,8 @@ package agent
 
 import (
 	"context"
+	"maps"
+	"slices"
 	"strings"
 	"time"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/psyb0t/elelem/drivers/openai"
 	"github.com/psyb0t/elelem/drivers/zaicoding"
 	"github.com/psyb0t/peen/internal/pkg/config"
+	"github.com/psyb0t/peen/internal/pkg/http/api"
 )
 
 const (
@@ -38,6 +41,14 @@ type ModelClient struct {
 // ModelResolver resolves a qualified provider/model reference.
 type ModelResolver interface {
 	ResolveModel(qualifiedModel string) (ModelClient, error)
+}
+
+// ModelCatalog is a resolver that can also expose its startup-discovered
+// public metadata. Minimal embedding resolvers need only implement
+// ModelResolver and consequently expose no catalogue.
+type ModelCatalog interface {
+	ModelResolver
+	ListModels() api.ModelList
 }
 
 // DriverFactory builds a driver for one validated provider configuration.
@@ -194,6 +205,28 @@ func (r *Registry) ResolveModel(qualifiedModel string) (ModelClient, error) {
 	}
 
 	return model, nil
+}
+
+// ListModels returns startup-discovered, non-secret model metadata in a
+// deterministic order. The qualified name is intentionally the same string a
+// caller passes as a one-turn model override, so a UI never has to assemble a
+// provider reference from separate display fields.
+func (r *Registry) ListModels() api.ModelList {
+	references := slices.Sorted(maps.Keys(r.models))
+	models := make([]api.Model, 0, len(references))
+
+	for _, reference := range references {
+		model := r.models[reference].Model
+		connectionName, modelID, _ := strings.Cut(reference, "/")
+		models = append(models, api.Model{
+			Name:                reference,
+			ConnectionName:      connectionName,
+			ModelId:             modelID,
+			ContextWindowTokens: int64(model.ContextSize),
+		})
+	}
+
+	return api.ModelList{Models: models}
 }
 
 // NewDriver builds one environment-isolated Elelem provider driver.

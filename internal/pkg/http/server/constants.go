@@ -8,7 +8,12 @@ import "github.com/psyb0t/aichteeteapee"
 const (
 	apiBaseURL      = "/v1"
 	apiMountPattern = apiBaseURL + "/{path...}"
+	spaMountPattern = "/{path...}"
 	webSocketPath   = apiBaseURL + "/ws"
+
+	webDistRoot       = "web/dist"
+	spaIndexFile      = "index.html"
+	spaAllowedMethods = "GET, HEAD"
 
 	serviceName          = "peen"
 	metricRouteUnmatched = "unmatched"

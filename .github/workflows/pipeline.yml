@@ -20,7 +20,7 @@ jobs:
     uses: psyb0t/reusable-github-workflows/.github/workflows/code-workflow.yml@master
     with:
       lint_command: "make lint"
-      test_command: "make test-coverage"
+      test_command: "make test-coverage test-browser"
       sec_command: "make sec"
       generate_command: "make generate"
       coverage_file: "coverage-percent.txt"

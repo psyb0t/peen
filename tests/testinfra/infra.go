@@ -26,7 +26,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/moby/moby/api/types/build"
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/client"
+	"github.com/moby/moby/client/pkg/jsonmessage"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/testcontainers/testcontainers-go"
 )
@@ -144,6 +147,7 @@ var errNoGoMod = errors.New("go.mod not found above the working directory")
 type Infra struct {
 	App        testcontainers.Container
 	baseURL    string
+	image      string
 	metricsURL string
 	client     *http.Client
 	provider   *openAIModelsMock
@@ -207,45 +211,50 @@ func startApp(
 		return setupFailure(provider, err)
 	}
 
+	image, err := buildAppImage(
+		startupCtx,
+		appImageBuildRequest(root, coverage),
+	)
+	if err != nil {
+		return failedContainerSetup(startupCtx, nil, image, provider, err)
+	}
+
 	container, err := testcontainers.GenericContainer(startupCtx,
 		testcontainers.GenericContainerRequest{
-			ContainerRequest: appContainerRequest(root, environment, coverage),
+			ContainerRequest: appContainerRequest(image, environment, coverage),
 			Started:          false,
 		},
 	)
 	if err != nil {
-		return failedContainerSetup(startupCtx, container, provider, err)
+		return failedContainerSetup(startupCtx, container, image, provider, err)
 	}
 
 	if err := container.Start(startupCtx); err != nil {
-		return failedContainerSetup(startupCtx, container, provider, err)
+		return failedContainerSetup(startupCtx, container, image, provider, err)
 	}
 
 	infra := &Infra{
 		App:        container,
 		baseURL:    appURLPrefix + listenAddress,
+		image:      image,
 		metricsURL: appURLPrefix + metricsListenAddress,
 		client:     &http.Client{Timeout: appRequestTimeout},
 		provider:   provider,
 	}
 	if err := infra.waitForReady(startupCtx); err != nil {
-		return failedContainerSetup(startupCtx, container, provider, err)
+		return failedContainerSetup(startupCtx, container, image, provider, err)
 	}
 
 	return infra, nil
 }
 
 func appContainerRequest(
-	root string,
+	image string,
 	environment map[string]string,
 	coverage appCoverage,
 ) testcontainers.ContainerRequest {
 	request := testcontainers.ContainerRequest{
-		FromDockerfile: testcontainers.FromDockerfile{
-			Context:    root,
-			Dockerfile: appDockerfile,
-			KeepImage:  false,
-		},
+		Image:      image,
 		Entrypoint: []string{"/bin/sh", "-ceu", appBootstrapCommand},
 		Env:        environment,
 		WorkingDir: appWorkingDirectory,
@@ -267,10 +276,6 @@ func appContainerRequest(
 		return request
 	}
 
-	coverageBuildValue := appCoverageEnabled
-	request.BuildArgs = map[string]*string{
-		appCoverageBuildArgument: &coverageBuildValue,
-	}
 	request.Env[appCoverageEnvironment] = appCoverageDirectory
 	request.HostConfigModifier = func(hostConfig *container.HostConfig) {
 		hostConfig.NetworkMode = container.NetworkMode(appHostNetwork)
@@ -282,6 +287,146 @@ func appContainerRequest(
 	request.User = strconv.Itoa(os.Getuid()) + ":" + strconv.Itoa(os.Getgid())
 
 	return request
+}
+
+func appImageBuildRequest(
+	root string,
+	coverage appCoverage,
+) testcontainers.ContainerRequest {
+	request := testcontainers.ContainerRequest{
+		FromDockerfile: testcontainers.FromDockerfile{
+			Context:    root,
+			Dockerfile: appDockerfile,
+		},
+	}
+	if coverage.hostDirectory == "" {
+		return request
+	}
+
+	coverageBuildValue := appCoverageEnabled
+	request.BuildArgs = map[string]*string{
+		appCoverageBuildArgument: &coverageBuildValue,
+	}
+
+	return request
+}
+
+func appImageBuildOptions(
+	request *testcontainers.ContainerRequest,
+	image string,
+) client.ImageBuildOptions {
+	return client.ImageBuildOptions{
+		BuildArgs:   request.GetBuildArgs(),
+		Dockerfile:  request.GetDockerfile(),
+		ForceRemove: true,
+		Remove:      true,
+		Tags:        []string{image},
+		Version:     build.BuilderBuildKit,
+	}
+}
+
+// buildAppImage keeps the Docker client alive until Docker consumes the full
+// build context. Testcontainers closes its client before the Docker 29 daemon
+// has finished receiving a BuildKit context, which aborts source-built tests.
+func buildAppImage(
+	ctx context.Context,
+	request testcontainers.ContainerRequest,
+) (string, error) {
+	buildContext, err := request.GetContext()
+	if err != nil {
+		return "", ctxerrors.Wrap(err, "create app image build context")
+	}
+
+	image := request.GetRepo() + ":" + request.GetTag()
+
+	dockerClient, err := newDockerClient()
+	if err != nil {
+		return "", errors.Join(err, closeAppImageBuildContext(buildContext))
+	}
+
+	response, err := dockerClient.ImageBuild(
+		ctx,
+		buildContext,
+		appImageBuildOptions(&request, image),
+	)
+	if err != nil {
+		return "", errors.Join(
+			ctxerrors.Wrap(err, "build app image"),
+			closeAppImageBuildContext(buildContext),
+			closeDockerClient(dockerClient),
+		)
+	}
+
+	buildErr := jsonmessage.DisplayStream(response.Body, io.Discard)
+	responseCloseErr := response.Body.Close()
+	buildContextCloseErr := closeAppImageBuildContext(buildContext)
+
+	dockerClientCloseErr := closeDockerClient(dockerClient)
+	if buildErr != nil ||
+		responseCloseErr != nil ||
+		buildContextCloseErr != nil ||
+		dockerClientCloseErr != nil {
+		return image, errors.Join(
+			wrapOptionalError(buildErr, "read app image build result"),
+			wrapOptionalError(responseCloseErr, "close app image build result"),
+			buildContextCloseErr,
+			dockerClientCloseErr,
+		)
+	}
+
+	return image, nil
+}
+
+func removeAppImage(ctx context.Context, image string) error {
+	if image == "" {
+		return nil
+	}
+
+	dockerClient, err := newDockerClient()
+	if err != nil {
+		return err
+	}
+
+	_, removeErr := dockerClient.ImageRemove(
+		ctx,
+		image,
+		client.ImageRemoveOptions{},
+	)
+
+	return errors.Join(
+		wrapOptionalError(removeErr, "remove app image"),
+		closeDockerClient(dockerClient),
+	)
+}
+
+func newDockerClient() (*client.Client, error) {
+	dockerClient, err := client.New(client.FromEnv)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "create Docker client")
+	}
+
+	return dockerClient, nil
+}
+
+func closeAppImageBuildContext(buildContext io.Reader) error {
+	closer, ok := buildContext.(io.Closer)
+	if !ok {
+		return nil
+	}
+
+	if err := closer.Close(); err != nil {
+		return ctxerrors.Wrap(err, "close app image build context")
+	}
+
+	return nil
+}
+
+func closeDockerClient(dockerClient *client.Client) error {
+	if err := dockerClient.Close(); err != nil {
+		return ctxerrors.Wrap(err, "close Docker client")
+	}
+
+	return nil
 }
 
 func appCoverageFor(root string) (appCoverage, error) {
@@ -338,24 +483,37 @@ func setupFailure(provider *openAIModelsMock, err error) (*Infra, error) {
 func failedContainerSetup(
 	ctx context.Context,
 	container testcontainers.Container,
+	image string,
 	provider *openAIModelsMock,
 	err error,
 ) (*Infra, error) {
 	var cleanupErr error
 
-	if container != nil {
+	if container != nil || image != "" {
 		cleanupCtx, cancelCleanup := context.WithTimeout(
 			context.WithoutCancel(ctx),
 			appCleanupTimeout,
 		)
 		defer cancelCleanup()
 
-		if terminateErr := container.Terminate(
-			cleanupCtx,
-		); terminateErr != nil {
-			cleanupErr = ctxerrors.Wrap(
-				terminateErr,
-				"terminate failed app container",
+		if container != nil {
+			terminateErr := container.Terminate(cleanupCtx)
+			if terminateErr != nil {
+				cleanupErr = ctxerrors.Wrap(
+					terminateErr,
+					"terminate failed app container",
+				)
+			}
+		}
+
+		imageRemoveErr := removeAppImage(cleanupCtx, image)
+		if imageRemoveErr != nil {
+			cleanupErr = errors.Join(
+				cleanupErr,
+				ctxerrors.Wrap(
+					imageRemoveErr,
+					"remove app image after setup failure",
+				),
 			)
 		}
 	}
@@ -379,11 +537,26 @@ func (i *Infra) Teardown(ctx context.Context) error {
 		}
 	}
 
+	if err := removeAppImage(ctx, i.image); err != nil {
+		teardownErr = errors.Join(
+			teardownErr,
+			ctxerrors.Wrap(err, "remove app image"),
+		)
+	}
+
 	if i.provider != nil {
 		i.provider.server.Close()
 	}
 
 	return teardownErr
+}
+
+func wrapOptionalError(err error, message string) error {
+	if err == nil {
+		return nil
+	}
+
+	return ctxerrors.Wrap(err, message)
 }
 
 // Restart stops and starts the production application container, then waits
@@ -549,8 +722,8 @@ func (i *Infra) AppLogs(ctx context.Context) (string, error) {
 	closeErr := reader.Close()
 	if readErr != nil || closeErr != nil {
 		return "", errors.Join(
-			ctxerrors.Wrap(readErr, "read app container logs"),
-			ctxerrors.Wrap(closeErr, "close app container logs"),
+			wrapOptionalError(readErr, "read app container logs"),
+			wrapOptionalError(closeErr, "close app container logs"),
 		)
 	}
 

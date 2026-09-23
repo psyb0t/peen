@@ -1,3 +1,18 @@
+# Node builds the static control-surface client. Its output is copied into the
+# Go build stage and embedded into the final binary, so the runtime has no Node
+# package manager or frontend source tree.
+FROM node:22.22.0-alpine@sha256:e4bf2a82ad0a4037d28035ae71529873c069b13eb0455466ae0bc13363826e34 AS web-builder
+
+WORKDIR /web
+
+COPY web/package.json web/pnpm-lock.yaml ./
+RUN corepack pnpm install --frozen-lockfile --ignore-scripts && \
+	corepack pnpm rebuild esbuild
+
+COPY api/api.yml /api/api.yml
+COPY web/ ./
+RUN corepack pnpm run build
+
 # Production Dockerfile - Multi-stage build
 FROM golang:1.26.6-alpine@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df AS builder
 
@@ -21,6 +36,7 @@ RUN go mod download
 
 # Copy source code
 COPY . .
+COPY --from=web-builder /internal/pkg/http/server/web/dist ./internal/pkg/http/server/web/dist
 
 # Build binary with static linking.
 #

@@ -1,0 +1,11 @@
+export const API_BASE_URL = "/v1";
+export const AUTHORIZATION_HEADER = "Authorization";
+export const BEARER_PREFIX = "Bearer ";
+export const SESSION_ID_HEADER = "X-Session-ID";
+export const WEBSOCKET_PATH = "/v1/ws";
+export const WEBSOCKET_PROTOCOL = "peen.v1";
+export const WEBSOCKET_BEARER_PROTOCOL_PREFIX = "peen.bearer.";
+export const WEBSOCKET_MESSAGE_SEND = "message.send";
+export const MAX_LIVE_EVENTS = 200;
+export const SESSION_PAGE_LIMIT = 200;
+export const SESSION_DETAIL_LIMIT = 100;

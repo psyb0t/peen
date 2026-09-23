@@ -1,3 +1,8 @@
+# Node supplies the pinned frontend toolchain. The Go and Node Alpine images
+# share musl, so copying /usr/local keeps the dev image single-purpose without
+# relying on an unpinned apk package.
+FROM node:22.22.0-alpine@sha256:e4bf2a82ad0a4037d28035ae71529873c069b13eb0455466ae0bc13363826e34 AS node
+
 # Example user Dockerfile.dev
 # This file demonstrates how to override the framework development image
 # Delete this file to use the default framework image (Dockerfile.servicepack.dev)
@@ -5,6 +10,8 @@
 # Pinned by digest, not by tag. A tag is mutable and lets an upstream
 # republish different bytes under the same name. Bump deliberately.
 FROM golang:1.26.6-alpine@sha256:af8d6740070b8906d12eae1c3e3ea0957fb63f492051ea05e354c38ef9fe88df
+
+COPY --from=node /usr/local /usr/local
 
 # Install build dependencies
 RUN apk add --no-cache \
