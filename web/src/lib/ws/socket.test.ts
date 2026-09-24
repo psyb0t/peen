@@ -116,7 +116,7 @@ describe("PeenSocket", () => {
 		const transport = TestWebSocket.instances[0];
 		expect(transport).toBeDefined();
 		transport?.open();
-		socket.send(sessionID, "inspect this", "aigate/model/name");
+		expect(socket.send(sessionID, "inspect this", "aigate/model/name")).toBe(eventID);
 
 		expect(states).toEqual(["connecting", "open"]);
 		expect(errors).toEqual([]);

@@ -18,6 +18,7 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/agent"
+	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -214,6 +215,47 @@ func TestWebSocketRejectsUnknownMessageFields(t *testing.T) {
 	assert.Zero(t, runtime.runCalls)
 }
 
+func TestWebSocketSurfacesInvalidHarnessConfiguration(t *testing.T) {
+	sessionID := uuid.New()
+	runtime := newTestRuntime(sessionID)
+	router := &testTurnRouter{
+		runtime: runtime,
+		runErr: ctxerrors.Wrap(
+			harness.ErrInvalidSkill,
+			"skill directory .agents/skills/broken has no SKILL.md",
+		),
+	}
+	instance, err := newTestServer(Dependencies{
+		Runtime: runtime,
+		Turns:   router,
+	})
+	require.NoError(t, err)
+	t.Cleanup(instance.webSocketHub.Close)
+
+	httpServer := httptest.NewServer(instance.testHandler)
+	t.Cleanup(httpServer.Close)
+
+	connection := dialWebSocket(t, httpServer.URL, nil)
+	t.Cleanup(func() { require.NoError(t, connection.Close()) })
+
+	inbound := newWebSocketMessage(
+		agent.MessageRequest{Message: testWebSocketAgentMessage},
+	)
+	require.NoError(t, connection.WriteJSON(inbound))
+
+	received := readWebSocketEvent(t, connection)
+	require.Equal(t, webSocketMessageFailedEventType, string(received.Type))
+	assertWebSocketMetadata(t, received, sessionID, inbound.ID)
+
+	failure := webSocketMessageFailure{}
+	require.NoError(t, json.Unmarshal(received.Data, &failure))
+	assert.Equal(t, ErrorCodeHarnessConfigurationInvalid, failure.Code)
+	assert.Equal(t, webSocketHarnessConfigurationMessage, failure.Message)
+	assert.Equal(t, webSocketInvalidSkillReason, failure.Reason)
+	assert.NotContains(t, failure.Message, ".agents/skills/broken")
+	assert.NotContains(t, failure.Reason, ".agents/skills/broken")
+}
+
 // A control surface serves many workspaces, so sessionId metadata routes the
 // message to one of them. The transport carries the routed session into the
 // turn rather than letting the message body choose it.
@@ -299,28 +341,36 @@ func TestWebSocketRequiresASessionWithoutAStartupSession(t *testing.T) {
 
 func TestWebSocketMessageFailureFor(t *testing.T) {
 	testCases := []struct {
-		name        string
-		err         error
-		wantCode    aichteeteapee.ErrorCode
-		wantMessage string
+		name string
+		err  error
+		want webSocketMessageFailure
 	}{
 		{
-			name:        "missing session",
-			err:         commerr.ErrNotFound,
-			wantCode:    ErrorCodeSessionNotFound,
-			wantMessage: sessionNotFoundError().Message,
+			name: "missing session",
+			err:  commerr.ErrNotFound,
+			want: newWebSocketMessageFailure(
+				ErrorCodeSessionNotFound,
+				sessionNotFoundError().Message,
+				"",
+			),
 		},
 		{
-			name:        "invalid message",
-			err:         commerr.ErrValidationFailed,
-			wantCode:    aichteeteapee.ErrorCodeValidationFailed,
-			wantMessage: webSocketMessageRejectedMessage,
+			name: "invalid message",
+			err:  commerr.ErrValidationFailed,
+			want: newWebSocketMessageFailure(
+				aichteeteapee.ErrorCodeValidationFailed,
+				webSocketMessageRejectedMessage,
+				"",
+			),
 		},
 		{
-			name:        "cancelled turn",
-			err:         commerr.ErrCancelled,
-			wantCode:    ErrorCodeTurnCancelled,
-			wantMessage: turnCancelledError().Message,
+			name: "cancelled turn",
+			err:  commerr.ErrCancelled,
+			want: newWebSocketMessageFailure(
+				ErrorCodeTurnCancelled,
+				turnCancelledError().Message,
+				"",
+			),
 		},
 		{
 			name: "full queue",
@@ -328,29 +378,40 @@ func TestWebSocketMessageFailureFor(t *testing.T) {
 				commerr.ErrConflict,
 				elelem.ErrUserMessageQueueFull,
 			),
-			wantCode:    ErrorCodeUserMessageQueueFull,
-			wantMessage: userMessageQueueFullError().Message,
+			want: newWebSocketMessageFailure(
+				ErrorCodeUserMessageQueueFull,
+				userMessageQueueFullError().Message,
+				"",
+			),
 		},
 		{
-			name:        "busy session",
-			err:         commerr.ErrConflict,
-			wantCode:    ErrorCodeSessionBusy,
-			wantMessage: sessionBusyError("session already has an active turn").Message,
+			name: "busy session",
+			err:  commerr.ErrConflict,
+			want: newWebSocketMessageFailure(
+				ErrorCodeSessionBusy,
+				sessionBusyError("session already has an active turn").Message,
+				"",
+			),
 		},
 		{
-			name:        "unknown failure",
-			err:         ctxerrors.New("unexpected"),
-			wantCode:    aichteeteapee.ErrorCodeInternalServerError,
-			wantMessage: webSocketMessageFailedMessage,
+			name: "invalid skill",
+			err:  harness.ErrInvalidSkill,
+			want: harnessConfigurationFailure(webSocketInvalidSkillReason),
+		},
+		{
+			name: "unknown failure",
+			err:  ctxerrors.New("unexpected"),
+			want: newWebSocketMessageFailure(
+				aichteeteapee.ErrorCodeInternalServerError,
+				webSocketMessageFailedMessage,
+				"",
+			),
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			code, message := webSocketMessageFailureFor(tc.err)
-
-			assert.Equal(t, tc.wantCode, code)
-			assert.Equal(t, tc.wantMessage, message)
+			assert.Equal(t, tc.want, webSocketMessageFailureFor(tc.err))
 		})
 	}
 }

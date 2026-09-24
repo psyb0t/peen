@@ -92,7 +92,7 @@ export class PeenSocket {
 		this.socket = undefined;
 	}
 
-	public send(sessionID: string, message: string, model: string): void {
+	public send(sessionID: string, message: string, model: string): string {
 		if (this.socket?.readyState !== WebSocket.OPEN) {
 			throw new Error("The WebSocket is not connected.");
 		}
@@ -117,6 +117,8 @@ export class PeenSocket {
 			model: data.model,
 			session_id: sessionID,
 		});
+
+		return event.id;
 	}
 }
 

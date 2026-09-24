@@ -16,6 +16,10 @@ trap on_error ERR
 
 minimum_coverage=${MIN_TEST_COVERAGE:-90}
 test_timeout="30m"
+# Process-heavy integration packages share the Docker daemon and launch local
+# controller processes. Run package binaries one at a time under full-module
+# instrumentation so unrelated readiness budgets do not contend with each other.
+test_package_parallelism=1
 
 section "Running Tests with Coverage Check"
 
@@ -63,8 +67,8 @@ merge_profiles() {
 	} >"${output}"
 }
 
-info "running unit and integration tests with coverage..."
-if ! go test -count=1 -timeout="${test_timeout}" -tags=integration \
+info "running unit and integration tests with coverage package_parallelism=${test_package_parallelism}..."
+if ! go test -count=1 -p="${test_package_parallelism}" -timeout="${test_timeout}" -tags=integration \
 	-coverpkg="${module}/..." -coverprofile="${profile_raw}" ./...; then
 	error "Tests failed"
 	exit 1
@@ -78,7 +82,7 @@ else
 	cp "${profile_raw}" "${profile_merged}"
 fi
 
-gate_exclude='(/cmd/|/tests/|\.gen\.go:|/internal/pkg/service-manager/mocks\.go:|/internal/pkg/services/(example-|hello-world/))'
+gate_exclude='(/cmd/|/tests/|\.gen\.go:|/internal/pkg/service-manager/mocks\.go:|/internal/pkg/services/example-)'
 awk -v exclude="${gate_exclude}" '$1 !~ exclude' \
 	"${profile_merged}" >"${profile_filtered}"
 

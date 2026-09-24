@@ -6,8 +6,8 @@ exchanges after a client disconnects. You bring the workspace and the client.
 Peen runs the agent.
 
 This gets an agent working in one folder without handing it the rest of your
-machine. Peen has no bundled browser chat, so the first client below is a
-browser console. Replace it with your own app when you are ready.
+machine. Peen serves its own browser control surface at the controller URL. It
+also exposes the same WebSocket and REST surfaces for another client.
 
 ## What you need
 
@@ -15,7 +15,7 @@ browser console. Replace it with your own app when you are ready.
 - A provider API key.
 - An existing project directory you are comfortable letting an agent inspect
   and change.
-- A browser or WebSocket client.
+- A browser.
 
 ## 1. Configure Peen
 
@@ -70,46 +70,23 @@ writes keep host ownership. Peen resumes the same session on a later start with
 the same state directory and workspace. Do not mount your whole home directory
 because the agent has normal file and command access inside its container.
 
-## 3. Open a workspace and send a message
+## 3. Open a workspace chat
 
-Peen starts with no sessions. Open the workspace first, then send a message
-routed to the session it returns. With the default empty `PEEN_API_TOKEN`,
-paste this into a browser console:
-
-```js
-const workspace = "/absolute/path/to/workspace";
-
-const opened = await fetch("http://localhost:8080/v1/sessions/open", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ workspace }),
-}).then((response) => response.json());
-
-const sessionId = opened.session.id;
-
-const socket = new WebSocket("ws://localhost:8080/v1/ws");
-
-socket.addEventListener("message", ({ data }) => console.log(JSON.parse(data)));
-socket.addEventListener("open", () => {
-  socket.send(JSON.stringify({
-    id: crypto.randomUUID(),
-    type: "message.send",
-    data: { message: "Read the project, then tell me what you would fix first." },
-    metadata: { sessionId },
-    timestamp: Math.floor(Date.now() / 1000),
-    triggeredBy: null,
-  }));
-});
-```
+Visit `http://localhost:8080`. Enter `PEEN_API_TOKEN` when you set one, then
+choose a suggested workspace root or type an existing project directory below
+one of those roots. The controller remains the authority. It rejects a missing,
+non-directory, or outside-root path with a clear error. The chat shows durable
+messages, current reasoning, tool calls, and tool output as the agent works.
+The Details panel holds the full persisted record when you need it.
 
 Opening the same directory again returns the same session, so this is also how
-you reattach after a restart. Keep the `sessionId`: it identifies the workspace
-session for REST calls and routes every later `message.send`. Leave the socket
-open to see streaming model, tool, and agent events. A `message.completed`
-event means the submitted task is finished. Every WebSocket receives every
-session's events. Your client makes conversation tabs by filtering
-`metadata.sessionId`. Add `?sessionId=<uuid>` to the WebSocket URL only when a
-client wants Peen to apply that outbound filter itself.
+you reattach after a restart. Every connected browser receives live events for
+every session, then filters them into workspace tabs by `metadata.sessionId`.
+
+If you are writing another client, `POST /v1/sessions/open` returns the session
+ID and `GET /v1/workspace-roots` lists the roots it may offer. Send later turns
+through the global WebSocket with that ID in `metadata.sessionId`. [The API
+reference](http-api.md) has the exact frame shape.
 
 ## 4. Put project rules beside the project
 
@@ -143,6 +120,13 @@ first provider request. Named agents let it split off a bounded job. Hooks are
 for mechanical checks and hard stops that an ordinary prompt should not be
 trusted to enforce. Read [the harness configuration guide](configuration.md#harness-layering)
 and [hook configuration](hooks.md) before adding hooks.
+
+Peen validates every optional rule, skill, named agent, event handler, and hook
+independently. If one is malformed, Peen keeps the valid configuration, logs a
+warning, records a durable `harness.warning` event, and shows the exact source
+and validation reason in the chat. Fix the reported file when you need that
+definition. A direct `:skill-name` reference still fails clearly when the
+requested skill was ignored.
 
 ## 5. Inspect or stop a run
 

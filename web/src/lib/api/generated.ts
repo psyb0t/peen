@@ -52,7 +52,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Open or resume the session for a workspace
-		 * @description Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created.
+		 * @description Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 		 */
 		post: operations["openSession"];
 		delete?: never;
@@ -73,6 +73,26 @@ export interface paths {
 		 * @description Lists the operator-defined profiles a session may run under. A client names a profile when it opens a workspace and never sends an image, mount, network setting, or capability. A profile that grants host-root-equivalent access carries a capability warning.
 		 */
 		get: operations["listExecutionProfiles"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/workspace-roots": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * List workspace roots this controller may open
+		 * @description Lists the operator-configured workspace roots available to this authenticated control surface. A client selects one of these roots when it opens its first session instead of guessing a host path. This is the deliberate, authenticated disclosure of the controller's workspace boundary; rejected workspace opens still disclose no roots.
+		 */
+		get: operations["listWorkspaceRoots"];
 		put?: never;
 		post?: never;
 		delete?: never;
@@ -616,6 +636,10 @@ export interface components {
 			items: components["schemas"]["ExecutionProfile"][];
 			/** @description The profile a session opened without naming one uses. */
 			default: string;
+		};
+		WorkspaceRootList: {
+			/** @description Canonical absolute directories the authenticated controller will accept as workspace roots. */
+			roots: string[];
 		};
 		Model: {
 			/** @description Exact connection/model reference accepted by message.send for a one-turn model override. */
@@ -1343,7 +1367,7 @@ export interface components {
 				"application/json": components["schemas"]["Error"];
 			};
 		};
-		/** @description Session not found */
+		/** @description Requested resource not found */
 		ErrorNotFound: {
 			headers: {
 				[name: string]: unknown;
@@ -1481,6 +1505,7 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			403: components["responses"]["ErrorForbidden"];
+			404: components["responses"]["ErrorNotFound"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
@@ -1501,6 +1526,29 @@ export interface operations {
 				};
 				content: {
 					"application/json": components["schemas"]["ExecutionProfileList"];
+				};
+			};
+			401: components["responses"]["ErrorUnauthorized"];
+			500: components["responses"]["ErrorInternal"];
+		};
+	};
+	listWorkspaceRoots: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Configured workspace root list */
+			200: {
+				headers: {
+					"X-Request-ID": components["headers"]["RequestID"];
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["WorkspaceRootList"];
 				};
 			};
 			401: components["responses"]["ErrorUnauthorized"];

@@ -6,7 +6,6 @@ import (
 	servicemanager "github.com/psyb0t/peen/internal/pkg/service-manager"
 	controlapi "github.com/psyb0t/peen/internal/pkg/services/control-api"
 	controlcore "github.com/psyb0t/peen/internal/pkg/services/control-core"
-	helloworld "github.com/psyb0t/peen/internal/pkg/services/hello-world"
 )
 
 func Init() {
@@ -18,10 +17,6 @@ func Init() {
 
 	sm.Register(controlcore.ServiceName, func() (servicemanager.Service, error) {
 		return controlcore.New()
-	})
-
-	sm.Register(helloworld.ServiceName, func() (servicemanager.Service, error) {
-		return helloworld.New()
 	})
 
 }

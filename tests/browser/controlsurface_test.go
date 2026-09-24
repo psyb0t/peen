@@ -22,6 +22,7 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/psyb0t/aichteeteapee"
 	"github.com/psyb0t/ctxerrors"
+	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/tests/testinfra"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -48,6 +49,7 @@ const (
 	browserActionConsoleLog              = "enable_console_log"
 	browserActionNetworkLog              = "enable_network_log"
 	browserActionGoto                    = "goto"
+	browserActionWaitForElement          = "wait_for_element"
 	browserActionWaitForText             = "wait_for_text"
 	browserActionFill                    = "fill"
 	browserActionClick                   = "click"
@@ -63,25 +65,46 @@ const (
 	browserValueKey                      = "value"
 	browserSelectorToken                 = "form.connection input[type=password]"
 	browserSelectorConnect               = "form.connection button[type=submit]"
-	browserSelectorWorkspace             = "section.workspace-controls input[required]"
-	browserSelectorOpen                  = "section.workspace-controls form button[type=submit]"
-	browserSelectorMessage               = "form.message-form textarea"
-	browserSelectorSend                  = "form.message-form button[type=submit]"
-	browserSelectorEvents                = "details.global-events summary"
+	browserSelectorOpen                  = "form.workspace-form button[type=submit]:not(:disabled)"
+	browserSelectorWorkspace             = "form.workspace-form input[list=workspace-roots]"
+	browserSelectorMessage               = "form.composer textarea"
+	browserSelectorSend                  = "form.composer button[type=submit]"
+	browserSelectorDetails               = "aside.inspector"
+	browserSelectorSocketOpen            = "p.connection-state.connected"
 	browserEventKey                      = "event"
 	browserNetworkRequest                = "request"
 	browserNetworkResponse               = "response"
 	browserConsoleError                  = "error"
 	browserWebSocketPath                 = "/v1/ws"
 	browserModelsPath                    = "/v1/models"
+	browserWorkspaceRootsPath            = "/v1/workspace-roots"
 	browserSessionsOpenPath              = "/v1/sessions/open"
 	browserMessagesPath                  = "/v1/messages"
 	browserTestWorkspace                 = "/tmp"
+	browserChildWorkspaceName            = "browser-child-workspace"
+	browserChildWorkspace                = browserTestWorkspace + "/" + browserChildWorkspaceName
+	browserBrokenSkillFixture            = browserChildWorkspaceName + "/.agents/skills/broken-skill/ignored.txt"
+	browserBrokenSkillContent            = "this is not a skill document\n"
+	browserHarnessWarningLabel           = "Workspace configuration warning"
+	browserBrokenSkillWarningSource      = "skill at /tmp/browser-child-workspace/.agents/skills/broken-skill:"
+	browserBrokenSkillWarningReason      = "has no SKILL.md"
+	browserThinkingMessage               = "browser control surface thinking fixture"
+	browserThinkingCompletion            = "integration completion 1"
 	browserTestMessage                   = "browser control surface fixture message"
 	browserCompletionText                = "integration completion"
-	browserSocketOpenText                = "Socket: open"
-	browserMainHeading                   = "Durable coding sessions, without hiding the machinery."
-	browserGlobalEvents                  = "Global live event stream"
+	browserFixtureName                   = "browser-control-surface.md"
+	browserFixturePath                   = testinfra.ContainerWorkingDirectory + "/" + browserFixtureName
+	browserFixtureContent                = "before\n"
+	browserFixturePatch                  = "*** Begin Patch\n*** Update File: /tmp/browser-control-surface.md\n@@\n-before\n+after\n*** End Patch"
+	browserFixtureCommand                = "test -f /tmp/browser-control-surface.md"
+	browserFixtureCommandPurpose         = "confirm the browser fixture remains available"
+	browserMainHeading                   = "Code with a durable agent."
+	browserThinkingLabel                 = "Thinking"
+	browserToolReadFile                  = "read_file"
+	browserToolApplyPatch                = "apply_patch"
+	browserToolRunCommand                = "run_command"
+	browserToolOutputLabel               = "Tool output"
+	browserLiveEventsLabel               = "Live events ("
 	browserModelReference                = "integration/test-model"
 	browserMaxScreenshotEdge             = 512
 	browserImage                         = "psyb0t/stealthy-auto-browse@sha256:d481011eff9432a3afe7b03d06634eca1a1061f3ea1e17d99d0e18f7fcac425f"
@@ -207,8 +230,12 @@ func TestControlSurfaceCompletesATurnInARealBrowser(t *testing.T) {
 	assertNoDockerSocketMount(t, browserContainer)
 
 	ctx := t.Context()
+	requireWorkspaceRootAvailable(t, ctx)
 	browserAction(t, ctx, browserActionConsoleLog, nil)
 	browserAction(t, ctx, browserActionNetworkLog, nil)
+	t.Cleanup(func() {
+		reportBrowserFailureState(t)
+	})
 	browserAction(t, ctx, browserActionGoto, map[string]any{
 		"url":               integrationInfra.APIURL("/"),
 		browserWaitUntilKey: browserWaitUntilDOM,
@@ -225,14 +252,22 @@ func TestControlSurfaceCompletesATurnInARealBrowser(t *testing.T) {
 	browserAction(t, ctx, browserActionClick, map[string]any{
 		browserSelectorKey: browserSelectorConnect,
 	})
-	browserAction(t, ctx, browserActionWaitForText, map[string]any{
-		browserTextKey:    browserSocketOpenText,
-		browserTimeoutKey: browserRequestTimeout.Seconds(),
+	browserAction(t, ctx, browserActionWaitForElement, map[string]any{
+		browserSelectorKey: browserSelectorOpen,
+		browserTimeoutKey:  browserRequestTimeout.Seconds(),
 	})
-
+	browserAction(t, ctx, browserActionWaitForElement, map[string]any{
+		browserSelectorKey: browserSelectorSocketOpen,
+		browserTimeoutKey:  browserRequestTimeout.Seconds(),
+	})
+	require.NoError(t, integrationInfra.WriteWorkspaceFile(
+		ctx,
+		browserBrokenSkillFixture,
+		[]byte(browserBrokenSkillContent),
+	))
 	browserAction(t, ctx, browserActionFill, map[string]any{
 		browserSelectorKey: browserSelectorWorkspace,
-		browserValueKey:    browserTestWorkspace,
+		browserValueKey:    browserChildWorkspace,
 	})
 	browserAction(t, ctx, browserActionClick, map[string]any{
 		browserSelectorKey: browserSelectorOpen,
@@ -241,6 +276,47 @@ func TestControlSurfaceCompletesATurnInARealBrowser(t *testing.T) {
 		browserTextKey:    browserModelReference,
 		browserTimeoutKey: browserRequestTimeout.Seconds(),
 	})
+
+	browserAction(t, ctx, browserActionFill, map[string]any{
+		browserSelectorKey: browserSelectorMessage,
+		browserValueKey:    browserThinkingMessage,
+	})
+	browserAction(t, ctx, browserActionClick, map[string]any{
+		browserSelectorKey: browserSelectorSend,
+	})
+	browserAction(t, ctx, browserActionWaitForText, map[string]any{
+		browserTextKey:    browserThinkingCompletion,
+		browserTimeoutKey: browserRequestTimeout.Seconds(),
+	})
+	browserAction(t, ctx, browserActionWaitForText, map[string]any{
+		browserTextKey:    browserHarnessWarningLabel,
+		browserTimeoutKey: browserRequestTimeout.Seconds(),
+	})
+	browserAction(t, ctx, browserActionWaitForText, map[string]any{
+		browserTextKey:    browserBrokenSkillWarningSource,
+		browserTimeoutKey: browserRequestTimeout.Seconds(),
+	})
+
+	require.NoError(t, integrationInfra.WriteWorkspaceFile(
+		ctx,
+		browserFixtureName,
+		[]byte(browserFixtureContent),
+	))
+	integrationInfra.EnableScriptedToolTurn(testinfra.ScriptedToolTurn{
+		UserMessage: browserTestMessage,
+		ReadFileArguments: map[string]any{
+			"path": browserFixturePath,
+		},
+		ApplyPatchArguments: map[string]any{
+			"patch": browserFixturePatch,
+		},
+		RunCommandArguments: map[string]any{
+			"command": browserFixtureCommand,
+			"purpose": browserFixtureCommandPurpose,
+		},
+		FinalAnswer: browserCompletionText,
+	})
+	t.Cleanup(integrationInfra.DisableScriptedToolTurn)
 
 	browserAction(t, ctx, browserActionFill, map[string]any{
 		browserSelectorKey: browserSelectorMessage,
@@ -253,28 +329,104 @@ func TestControlSurfaceCompletesATurnInARealBrowser(t *testing.T) {
 		browserTextKey:    browserCompletionText,
 		browserTimeoutKey: browserRequestTimeout.Seconds(),
 	})
+	browserAction(t, ctx, browserActionWaitForText, map[string]any{
+		browserTextKey:    browserToolOutputLabel,
+		browserTimeoutKey: browserRequestTimeout.Seconds(),
+	})
 
 	page := browserText(t, ctx)
+	require.Contains(t, page, browserThinkingMessage)
+	require.Contains(t, page, browserThinkingCompletion)
 	require.Contains(t, page, browserTestMessage)
 	require.Contains(t, page, browserCompletionText)
 	require.Contains(t, page, browserModelReference)
+	require.Contains(t, page, browserThinkingLabel)
+	require.Contains(t, page, browserHarnessWarningLabel)
+	require.Contains(t, page, browserBrokenSkillWarningSource)
+	require.Contains(t, page, browserBrokenSkillWarningReason)
+	require.Contains(t, page, browserToolReadFile)
+	require.Contains(t, page, browserToolApplyPatch)
+	require.Contains(t, page, browserToolRunCommand)
 
-	globalEvents := browserElement(t, ctx, browserSelectorEvents)
-	require.Contains(t, globalEvents, browserGlobalEvents)
-	require.NotContains(t, globalEvents, "(0)")
+	browserAction(t, ctx, browserActionClick, map[string]any{
+		browserSelectorKey: "button[aria-pressed]",
+	})
+
+	details := browserElement(t, ctx, browserSelectorDetails)
+	require.Contains(t, details, browserLiveEventsLabel)
+	require.NotContains(t, details, browserLiveEventsLabel+"0)")
 
 	networkLog := browserNetworkLog(t, ctx)
 	requireNetworkRequest(t, networkLog, http.MethodGet, browserModelsPath)
+	requireNetworkRequest(t, networkLog, http.MethodGet, browserWorkspaceRootsPath)
 	requireNetworkRequest(t, networkLog, http.MethodPost, browserSessionsOpenPath)
 	requireNetworkRequest(t, networkLog, http.MethodGet, browserMessagesPath)
 	requireNetworkRequest(t, networkLog, http.MethodGet, browserWebSocketPath)
 	requireNetworkResponse(t, networkLog, browserModelsPath, http.StatusOK)
+	requireNetworkResponse(t, networkLog, browserWorkspaceRootsPath, http.StatusOK)
 	requireNetworkResponse(t, networkLog, browserSessionsOpenPath, http.StatusOK)
 	requireNoNetworkRequest(t, networkLog, http.MethodPost, browserMessagesPath)
 
 	consoleLog := browserConsoleLog(t, ctx)
 	requireSafeBrowserDiagnostics(t, consoleLog)
 	requireScreenshot(t, ctx)
+}
+
+func requireWorkspaceRootAvailable(t *testing.T, ctx context.Context) {
+	t.Helper()
+
+	request, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		integrationInfra.APIURL(browserWorkspaceRootsPath),
+		nil,
+	)
+	require.NoError(t, err)
+	request.Header.Set(
+		aichteeteapee.HeaderNameAuthorization,
+		"Bearer "+testinfra.TestAPIToken,
+	)
+
+	response, err := integrationInfra.HTTPClient().Do(request)
+	require.NoError(t, err)
+	defer response.Body.Close()
+
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, response.StatusCode, string(body))
+
+	roots := api.WorkspaceRootList{}
+	require.NoError(t, json.Unmarshal(body, &roots))
+	require.Contains(t, roots.Roots, browserTestWorkspace)
+}
+
+func reportBrowserFailureState(t *testing.T) {
+	t.Helper()
+	if !t.Failed() {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(
+		context.WithoutCancel(t.Context()),
+		browserRequestTimeout,
+	)
+	defer cancel()
+
+	if page, err := stealthyBrowser.action(ctx, browserActionGetText, nil); err == nil {
+		t.Logf("browser page after failure: %s", page)
+	} else {
+		t.Logf("read browser page after failure: %v", err)
+	}
+	if entries, err := stealthyBrowser.action(ctx, browserActionNetworkRead, nil); err == nil {
+		t.Logf("browser network after failure: %s", entries)
+	} else {
+		t.Logf("read browser network after failure: %v", err)
+	}
+	if entries, err := stealthyBrowser.action(ctx, browserActionConsoleRead, nil); err == nil {
+		t.Logf("browser console after failure: %s", entries)
+	} else {
+		t.Logf("read browser console after failure: %v", err)
+	}
 }
 
 func startBrowser(ctx context.Context) (testcontainers.Container, *browserClient, error) {

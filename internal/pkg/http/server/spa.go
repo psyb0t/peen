@@ -33,6 +33,12 @@ func newSPAHandler() (http.Handler, error) {
 			return
 		}
 
+		if isPrivateMetricsPath(r.URL.Path) {
+			http.NotFound(w, r)
+
+			return
+		}
+
 		name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
 		if name == "" {
 			name = spaIndexFile
@@ -45,4 +51,11 @@ func newSPAHandler() (http.Handler, error) {
 
 		fileServer.ServeHTTP(w, r)
 	}), nil
+}
+
+func isPrivateMetricsPath(requestPath string) bool {
+	return requestPath == privateMetricsPath || strings.HasPrefix(
+		requestPath,
+		privateMetricsPath+"/",
+	)
 }

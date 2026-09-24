@@ -20,6 +20,11 @@ you need the full, current list.
 | Exercise source and installed binaries | `make test-execution-forms` |
 | Build the binary | `make build` |
 | Build the production image | `make docker-build` |
+| Run this checkout's local controller | `make run-dev` |
+
+`make run-dev` rebuilds the development image, runs Peen as the current host UID and GID, loads the gitignored `.env` through Docker, and uses the invoking directory as the literal agent workspace. It uses Docker host networking so configured host and Tailnet services remain reachable, while Peen itself binds its API and browser control surface to `http://localhost:8080`. The default metrics listener is also host-loopback at `http://127.0.0.1:9090/metrics`. The target creates `data/peen/config` and `data/peen/state` in the Peen checkout on first use, and preserves state between runs. The config directory is read-only to the agent. Set `PEEN_DEV_HTTP_PORT` to use another loopback API port.
+
+The target does not grant Docker socket access. Set `PEEN_DEV_DOCKER_SOCKET=1 make run-dev` only when testing a Docker execution profile. That grants the controller host-root-equivalent Docker authority.
 
 `make test-real` is opt-in. It uses the configured live provider and costs
 money. It runs the agent in an isolated fixture with no Docker socket. Do not

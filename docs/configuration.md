@@ -389,18 +389,21 @@ in the same order, every turn:
    `.claude/skills/` and native `.agents/` definitions before moving to the
    next, more specific layer.
 
-A missing layer is normal. An unreadable or malformed layer that does exist
-is a hard startup or turn error, never a silent skip. Entries are sorted
-bytewise for stable, repeatable results.
+A missing layer is normal. An unreadable or malformed optional source is
+ignored without hiding its valid siblings. Peen logs the diagnostic, stores it
+in the resolved context, and emits a durable `harness.warning` event before the
+turn starts. Context and directory-size limits remain hard errors because Peen
+cannot safely continue after exceeding them. Entries are sorted bytewise for
+stable, repeatable results.
 
 - **`AGENTS.md`**: each file is kept as its own instruction block in layer
   order. A message's own text cannot rewrite these blocks.
 - **Modular rules** (`.claude/rules/<name>.md` and
   `.agents/rules/<name>.md`): every direct non-empty Markdown file is an
-  additive, always-on instruction block. Missing directories are normal.
-  An empty file, unreadable path, or a directory masquerading as a Markdown
-  rule is a hard error. Claude-compatible rules load before native rules at
-  one layer. Rules are never replacements for an earlier rule file.
+  additive, always-on instruction block. Missing directories are normal. An
+  empty file, unreadable path, or a directory masquerading as a Markdown rule
+  is ignored with a durable warning. Claude-compatible rules load before native
+  rules at one layer. Rules are never replacements for an earlier rule file.
 - **Skills** (`.claude/skills/<name>/SKILL.md` or
   `.agents/skills/<name>/SKILL.md`): only the name and
   description are placed in the system prompt at turn start (progressive

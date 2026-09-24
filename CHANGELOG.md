@@ -4,6 +4,33 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.13.0 (2026-09-24)
+
+Peen now has a complete workspace-first controller flow. The bundled browser
+client opens or resumes a workspace session, shows live work as it happens,
+and gives clear feedback when a workspace or harness definition needs repair.
+
+- Breaking: `message.send.data.workdir` is no longer accepted. Open or resume
+  the workspace first with `POST /v1/sessions/open`, then send the returned
+  session ID in WebSocket event metadata. This prevents individual messages
+  from changing the directory a durable session owns.
+- Adds workspace-root discovery and a typed workspace-opening API. The
+  controller rejects missing, non-directory, or out-of-root paths with a
+  specific client-safe error instead of a generic server failure.
+- Reworks the bundled control surface into a full-height coding chat. It can
+  open an existing child workspace, switch sessions, show thinking, tool calls,
+  output, failures, profiles, and the complete durable session record.
+- Invalid optional `AGENTS.md`, rules, skills, named agents, event handlers,
+  and hooks no longer prevent a usable workspace from running. Peen logs and
+  stores a durable `harness.warning` event with the skipped source and repair
+  reason, while valid sibling configuration still loads. Unreadable workspaces
+  and resource limits remain hard failures.
+- Adds `make run-dev` for a local controller using the current host UID and
+  GID. It uses the invoking checkout as its workspace and does not grant
+  Docker socket access unless explicitly requested.
+- Removes the unused hello-world example service and keeps coverage output
+  scoped to Peen's actual packages.
+
 ## v0.12.0 (2026-09-23)
 
 Peen now includes a browser control surface at the controller root URL. It

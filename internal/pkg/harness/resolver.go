@@ -54,6 +54,7 @@ type resolutionState struct {
 	agents                 map[string]Agent
 	eventHandlers          map[string]EventHandler
 	hooks                  []Hook
+	warnings               []Warning
 }
 
 type discoveredSkill struct {
@@ -71,6 +72,7 @@ type manifestSnapshot struct {
 	EventHandlers []EventHandler  `json:"eventHandlers"`
 	Hooks         []Hook          `json:"hooks"`
 	Manifest      []ManifestEntry `json:"manifest"`
+	Warnings      []Warning       `json:"warnings"`
 }
 
 // NewResolver builds a resolver whose config root is always the first layer.
@@ -390,7 +392,15 @@ func (s *resolutionState) discoverLayer(
 	priority int,
 	configLayer bool,
 ) error {
-	if err := s.discoverInstructions(layer, priority); err != nil {
+	if err := requireReadableLayer(layer); err != nil {
+		return ctxerrors.Wrap(err, "read harness layer")
+	}
+
+	if err := s.discoverOptional(
+		SourceKindInstruction,
+		filepath.Join(layer, agentsFileName),
+		func() error { return s.discoverInstructions(layer, priority) },
+	); err != nil {
 		return ctxerrors.Wrap(err, "discover instruction file")
 	}
 
@@ -404,11 +414,27 @@ func (s *resolutionState) discoverLayer(
 		return ctxerrors.Wrap(err, "discover Claude-compatible skills")
 	}
 
-	agentsDirectory, found, err := optionalDirectory(
-		filepath.Join(layer, agentsDirectoryName),
-	)
+	return s.discoverAgentsDirectory(layer, priority, configLayer)
+}
+
+func (s *resolutionState) discoverAgentsDirectory(
+	layer string,
+	priority int,
+	configLayer bool,
+) error {
+	agentsDirectoryPath := filepath.Join(layer, agentsDirectoryName)
+
+	agentsDirectory, found, err := optionalDirectory(agentsDirectoryPath)
 	if err != nil {
-		return ctxerrors.Wrap(err, "discover agents directory")
+		if warningErr := s.discoverOptional(
+			SourceKindInstruction,
+			agentsDirectoryPath,
+			func() error { return err },
+		); warningErr != nil {
+			return ctxerrors.Wrap(warningErr, "discover agents directory")
+		}
+
+		return nil
 	}
 
 	if !found {
@@ -429,15 +455,55 @@ func (s *resolutionState) discoverLayer(
 		return ctxerrors.Wrap(err, "discover event handlers")
 	}
 
-	if err := s.discoverHooks(
-		agentsDirectory,
-		priority,
-		configLayer,
+	if err := s.discoverOptional(
+		SourceKindHook,
+		filepath.Join(agentsDirectory, hooksFileName),
+		func() error {
+			return s.discoverHooks(agentsDirectory, priority, configLayer)
+		},
 	); err != nil {
 		return ctxerrors.Wrap(err, "discover hooks")
 	}
 
 	return nil
+}
+
+func (s *resolutionState) discoverOptional(
+	kind SourceKind,
+	source string,
+	discover func() error,
+) error {
+	err := discover()
+	if err == nil {
+		return nil
+	}
+
+	if !isIgnorableOptionalError(err) {
+		return err
+	}
+
+	s.warnings = append(s.warnings, Warning{
+		Kind:   kind,
+		Source: source,
+		Reason: err.Error(),
+	})
+
+	return nil
+}
+
+func isIgnorableOptionalError(err error) bool {
+	if errors.Is(err, ErrResourceLimit) {
+		return false
+	}
+
+	return errors.Is(err, ErrInvalidInstruction) ||
+		errors.Is(err, ErrInvalidSkill) ||
+		errors.Is(err, ErrInvalidAgent) ||
+		errors.Is(err, ErrInvalidEventHandler) ||
+		errors.Is(err, ErrInvalidHook) ||
+		errors.Is(err, ErrInvalidPath) ||
+		errors.Is(err, ErrNotDirectory) ||
+		errors.Is(err, ErrUnreadableLayer)
 }
 
 func (s *resolutionState) discoverInstructions(
@@ -502,7 +568,9 @@ func (s *resolutionState) discoverRuleDirectory(
 ) error {
 	rulesDirectory, found, err := optionalDirectory(directory)
 	if err != nil {
-		return ctxerrors.Wrap(err, "resolve rule directory")
+		return s.discoverOptional(SourceKindRule, directory, func() error {
+			return ctxerrors.Wrap(err, "resolve rule directory")
+		})
 	}
 
 	if !found {
@@ -514,7 +582,9 @@ func (s *resolutionState) discoverRuleDirectory(
 		s.limits.MaxDirectoryEntries,
 	)
 	if err != nil {
-		return ctxerrors.Wrap(err, "read rule directory")
+		return s.discoverOptional(SourceKindRule, rulesDirectory, func() error {
+			return ctxerrors.Wrap(err, "read rule directory")
+		})
 	}
 
 	for _, entry := range entries {
@@ -523,16 +593,28 @@ func (s *resolutionState) discoverRuleDirectory(
 		}
 
 		if entry.IsDir() {
-			return ctxerrors.Wrap(
-				ErrInvalidInstruction,
-				"rule entry is a directory",
-			)
+			if err := s.discoverOptional(
+				SourceKindRule,
+				filepath.Join(rulesDirectory, entry.Name()),
+				func() error {
+					return ctxerrors.Wrap(
+						ErrInvalidInstruction,
+						"rule entry is a directory",
+					)
+				},
+			); err != nil {
+				return err
+			}
+
+			continue
 		}
 
-		if err := s.discoverRule(
-			rulesDirectory,
-			entry.Name(),
-			priority,
+		if err := s.discoverOptional(
+			SourceKindRule,
+			filepath.Join(rulesDirectory, entry.Name()),
+			func() error {
+				return s.discoverRule(rulesDirectory, entry.Name(), priority)
+			},
 		); err != nil {
 			return ctxerrors.Wrap(err, "discover rule file")
 		}
@@ -582,7 +664,13 @@ func (s *resolutionState) discoverSkillsDirectory(
 ) error {
 	resolvedDirectory, found, err := optionalDirectory(skillsDirectory)
 	if err != nil {
-		return ctxerrors.Wrap(err, "discover skills directory")
+		return s.discoverOptional(
+			SourceKindSkill,
+			skillsDirectory,
+			func() error {
+				return ctxerrors.Wrap(err, "discover skills directory")
+			},
+		)
 	}
 
 	if !found {
@@ -594,11 +682,23 @@ func (s *resolutionState) discoverSkillsDirectory(
 		s.limits.MaxDirectoryEntries,
 	)
 	if err != nil {
-		return ctxerrors.Wrap(err, "read skills directory")
+		return s.discoverOptional(
+			SourceKindSkill,
+			resolvedDirectory,
+			func() error {
+				return ctxerrors.Wrap(err, "read skills directory")
+			},
+		)
 	}
 
 	for _, entry := range entries {
-		if err := s.discoverSkill(resolvedDirectory, entry.Name()); err != nil {
+		if err := s.discoverOptional(
+			SourceKindSkill,
+			filepath.Join(resolvedDirectory, entry.Name()),
+			func() error {
+				return s.discoverSkill(resolvedDirectory, entry.Name())
+			},
+		); err != nil {
 			return ctxerrors.Wrap(err, "discover skill")
 		}
 	}
@@ -625,9 +725,10 @@ func (s *resolutionState) discoverSkill(
 	}
 
 	if !found {
-		return ctxerrors.Wrap(
+		return ctxerrors.Wrapf(
 			ErrInvalidSkill,
-			"skill directory has no SKILL.md",
+			"skill directory %s has no SKILL.md",
+			filepath.Join(agentsDirectoryName, skillsDirectoryName, entryName),
 		)
 	}
 
@@ -683,12 +784,24 @@ func (s *resolutionState) registerSkill(
 	return nil
 }
 
-func (s *resolutionState) discoverNamedAgents(agentsDirectory string) error {
-	namedAgentsDirectory, found, err := optionalDirectory(
-		filepath.Join(agentsDirectory, agentsSubdirectory),
-	)
+func (s *resolutionState) discoverOptionalMarkdownDirectory(
+	kind SourceKind,
+	directory, directoryDescription, entryDescription string,
+	discover func(directory, entryName string) error,
+) error {
+	resolvedDirectory, found, err := optionalDirectory(directory)
 	if err != nil {
-		return ctxerrors.Wrap(err, "discover named agents directory")
+		return s.discoverOptional(
+			kind,
+			directory,
+			func() error {
+				return ctxerrors.Wrapf(
+					err,
+					"discover %s directory",
+					directoryDescription,
+				)
+			},
+		)
 	}
 
 	if !found {
@@ -696,11 +809,21 @@ func (s *resolutionState) discoverNamedAgents(agentsDirectory string) error {
 	}
 
 	entries, err := sortedDirectoryEntries(
-		namedAgentsDirectory,
+		resolvedDirectory,
 		s.limits.MaxDirectoryEntries,
 	)
 	if err != nil {
-		return ctxerrors.Wrap(err, "read named agents directory")
+		return s.discoverOptional(
+			kind,
+			resolvedDirectory,
+			func() error {
+				return ctxerrors.Wrapf(
+					err,
+					"read %s directory",
+					directoryDescription,
+				)
+			},
+		)
 	}
 
 	for _, entry := range entries {
@@ -708,15 +831,29 @@ func (s *resolutionState) discoverNamedAgents(agentsDirectory string) error {
 			continue
 		}
 
-		if err := s.discoverNamedAgent(
-			namedAgentsDirectory,
-			entry.Name(),
+		entryName := entry.Name()
+		if err := s.discoverOptional(
+			kind,
+			filepath.Join(resolvedDirectory, entryName),
+			func() error {
+				return discover(resolvedDirectory, entryName)
+			},
 		); err != nil {
-			return ctxerrors.Wrap(err, "discover named agent")
+			return ctxerrors.Wrapf(err, "discover %s", entryDescription)
 		}
 	}
 
 	return nil
+}
+
+func (s *resolutionState) discoverNamedAgents(agentsDirectory string) error {
+	return s.discoverOptionalMarkdownDirectory(
+		SourceKindAgent,
+		filepath.Join(agentsDirectory, agentsSubdirectory),
+		"named agents",
+		"named agent",
+		s.discoverNamedAgent,
+	)
 }
 
 func (s *resolutionState) discoverNamedAgent(
@@ -771,39 +908,13 @@ func (s *resolutionState) discoverNamedAgent(
 }
 
 func (s *resolutionState) discoverEventHandlers(agentsDirectory string) error {
-	eventHandlersDirectory, found, err := optionalDirectory(
+	return s.discoverOptionalMarkdownDirectory(
+		SourceKindEventHandler,
 		filepath.Join(agentsDirectory, eventHandlersSubdirectory),
+		"event handlers",
+		"event handler",
+		s.discoverEventHandler,
 	)
-	if err != nil {
-		return ctxerrors.Wrap(err, "discover event handlers directory")
-	}
-
-	if !found {
-		return nil
-	}
-
-	entries, err := sortedDirectoryEntries(
-		eventHandlersDirectory,
-		s.limits.MaxDirectoryEntries,
-	)
-	if err != nil {
-		return ctxerrors.Wrap(err, "read event handlers directory")
-	}
-
-	for _, entry := range entries {
-		if filepath.Ext(entry.Name()) != agentsFileExtension {
-			continue
-		}
-
-		if err := s.discoverEventHandler(
-			eventHandlersDirectory,
-			entry.Name(),
-		); err != nil {
-			return ctxerrors.Wrap(err, "discover event handler")
-		}
-	}
-
-	return nil
 }
 
 func (s *resolutionState) discoverEventHandler(
@@ -1070,6 +1181,27 @@ func sortedDirectoryEntries(
 	return entries, nil
 }
 
+// requireReadableLayer checks the directory that supplies optional harness
+// files before treating any child as optional. A workspace Peen cannot read is
+// not an invalid optional definition. It is an unusable workspace and must
+// stop the turn.
+func requireReadableLayer(directory string) error {
+	directoryHandle, err := os.Open(directory)
+	if err != nil {
+		return wrapPathError(err, "open harness layer")
+	}
+
+	_, readErr := directoryHandle.ReadDir(1)
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		return closeFile(
+			directoryHandle,
+			wrapPathError(readErr, "read harness layer"),
+		)
+	}
+
+	return closeFile(directoryHandle, nil)
+}
+
 func (s *resolutionState) snapshot(
 	configRoot string,
 	workspace string,
@@ -1095,6 +1227,7 @@ func (s *resolutionState) snapshot(
 		eventHandlers,
 		hooks,
 		manifest,
+		s.warnings,
 	)
 	if err != nil {
 		return Snapshot{}, ctxerrors.Wrap(err, "hash resolved harness snapshot")
@@ -1110,6 +1243,7 @@ func (s *resolutionState) snapshot(
 		eventHandlers: cloneEventHandlers(eventHandlers),
 		hooks:         hooks,
 		manifest:      append([]ManifestEntry(nil), manifest...),
+		warnings:      append([]Warning(nil), s.warnings...),
 		skillContents: skillContents,
 	}, nil
 }
@@ -1223,6 +1357,7 @@ func snapshotHash(
 	eventHandlers []EventHandler,
 	hooks []Hook,
 	manifest []ManifestEntry,
+	warnings []Warning,
 ) (string, error) {
 	manifestData := manifestSnapshot{
 		Version:       manifestVersion,
@@ -1234,6 +1369,7 @@ func snapshotHash(
 		EventHandlers: eventHandlers,
 		Hooks:         hooks,
 		Manifest:      manifest,
+		Warnings:      warnings,
 	}
 	//nolint:musttag // Internal hash includes typed contract values.
 	encoded, err := json.Marshal(manifestData)

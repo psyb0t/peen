@@ -35,10 +35,18 @@ directory again, by any of its names, resumes the existing session instead of
 making a second one. `GET /v1/sessions` lists them, and takes no session header
 because it is how a client discovers them.
 
+`GET /v1/workspace-roots` returns the configured canonical roots that an
+authenticated client may offer before opening a session. The embedded control
+surface uses them as suggestions, while still allowing a user to type an
+existing child directory. The endpoint does not create a session. A rejected
+`POST /v1/sessions/open` still names no configured root.
+
 A workspace must sit under a configured `PEEN_WORKSPACE_ROOTS` entry. Peen
 refuses one outside every root with `403 WORKSPACE_NOT_ALLOWED` and creates no
 session. The refusal names no root, so a caller cannot map the deployment's
-directory layout by probing it.
+directory layout by probing it. A missing directory beneath an allowed root
+returns `404 WORKSPACE_NOT_FOUND` with `workspace directory does not exist`, so
+a client can correct the path instead of receiving a generic server failure.
 
 An open request may also name an execution profile. That is the only environment
 choice a client makes: images, mounts, network, and capabilities come from
@@ -120,14 +128,14 @@ restart, cancellation, or an unfinished queue.
 Every accepted `message.send` first emits a durable `user_message.created`
 event. Every server frame is a Dabluvee event with `id`, `type`, `data`,
 `timestamp`, `metadata`, and `triggeredBy`. Agent events use their native type
-directly. For example, a content delta has type `content_block_delta`, not a
-wrapper type. All session events carry `metadata.sessionId`,
+directly. For example, text and reasoning deltas are `text.delta` and
+`thinking.delta`; tool activity is `tool.use` and `tool.result`. All session events carry `metadata.sessionId`,
 `metadata.requestId`, and the inbound event ID in `triggeredBy`:
 
 ```json
 {
   "id": "uuid",
-  "type": "content_block_delta",
+  "type": "text.delta",
   "data": {},
   "timestamp": 0,
   "metadata": {"sessionId": "uuid", "requestId": "uuid"},
@@ -140,9 +148,16 @@ Successful submissions finish with `message.completed`. Its data is
 message joined an active turn's queue. `queued: true` acknowledges only that
 submission; the existing turn processes the queued text at its next provider
 round boundary. `message.completed` closes the submission, not the socket.
-An unsuccessful submission finishes with `message.failed`, whose safe
-`{code, message}` payload never exposes provider errors, file paths, or tool
-output.
+An unsuccessful submission finishes with `message.failed`. Its safe payload is
+`{code, message, reason?}`. `reason` appears only for known safe categories.
+Unknown provider, worker, and tool errors never expose their wrapped details.
+
+An accepted turn may emit `harness.warning` before `turn.started`. Its data is
+`{"warnings":[{"kind":"skill","source":"...","reason":"..."}]}`.
+This means Peen ignored one or more invalid optional harness sources and loaded
+the valid configuration around them. The event is durable and visible to every
+global socket for that session. A bad optional definition does not stop a turn;
+an explicit `:skill-name` reference to an ignored skill still fails clearly.
 
 Malformed client commands receive a private `message.failed` frame only on the
 originating socket. They create no session and are not added to the global

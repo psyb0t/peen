@@ -67,8 +67,15 @@ func openSessionFailure(
 		}, nil
 	}
 
-	if errors.Is(err, commerr.ErrValidationFailed) ||
-		errors.Is(err, commerr.ErrNotFound) {
+	if errors.Is(err, commerr.ErrNotFound) {
+		return api.OpenSession404JSONResponse{
+			ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
+				workspaceNotFoundError(),
+			),
+		}, nil
+	}
+
+	if errors.Is(err, commerr.ErrValidationFailed) {
 		return api.OpenSession400JSONResponse{
 			ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(
 				validationError(clientMessage(err)),
@@ -117,5 +124,12 @@ func workspaceNotAllowedError() api.Error {
 	return api.Error{
 		Code:    ErrorCodeWorkspaceNotAllowed,
 		Message: "workspace is outside every configured workspace root",
+	}
+}
+
+func workspaceNotFoundError() api.Error {
+	return api.Error{
+		Code:    ErrorCodeWorkspaceNotFound,
+		Message: workspaceDirectoryNotFoundMessage,
 	}
 }

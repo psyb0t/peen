@@ -99,7 +99,7 @@ pre_tool_use:
 	assert.Contains(t, manifestKinds(snapshot.Manifest()), SourceKindHook)
 }
 
-func TestResolverRejectsMalformedHookDocuments(t *testing.T) {
+func TestResolverIgnoresMalformedOptionalHookDocuments(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
@@ -185,8 +185,10 @@ pre_tool_use:
 			resolver, err := NewResolver(fixture.configRoot, Limits{})
 			require.NoError(t, err)
 
-			_, err = resolver.Resolve(fixture.workspace)
-			require.ErrorIs(t, err, ErrInvalidHook)
+			snapshot, resolveErr := resolver.Resolve(fixture.workspace)
+			require.NoError(t, resolveErr)
+			require.Len(t, snapshot.Warnings(), 1)
+			assert.Equal(t, SourceKindHook, snapshot.Warnings()[0].Kind)
 		})
 	}
 }

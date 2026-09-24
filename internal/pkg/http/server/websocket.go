@@ -18,6 +18,7 @@ import (
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/agent"
+	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -28,6 +29,7 @@ type webSocketMessageResult struct {
 type webSocketMessageFailure struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	Reason  string `json:"reason,omitempty"`
 }
 
 const webSocketSessionIDVersion uuid.Version = 4
@@ -119,19 +121,7 @@ func (s *Server) handleWebSocketMessage(
 
 	sessionID, err := s.resolveWebSocketSession(event)
 	if err != nil {
-		ctxscope.GetLogger(s.deps.ServiceContext()).Warn(
-			"websocket message rejected",
-			"reason", "session_routing",
-			"err", err,
-		)
-		s.broadcastWebSocketFailureToClient(
-			client.ID(),
-			nil,
-			requestID,
-			event.ID,
-			aichteeteapee.ErrorCodeValidationFailed,
-			webSocketMessageRejectedMessage,
-		)
+		s.rejectWebSocketSessionRouting(client.ID(), event.ID, requestID, err)
 
 		return nil
 	}
@@ -150,8 +140,11 @@ func (s *Server) handleWebSocketMessage(
 			&failedSessionID,
 			requestID,
 			event.ID,
-			aichteeteapee.ErrorCodeValidationFailed,
-			webSocketMessageRejectedMessage,
+			newWebSocketMessageFailure(
+				aichteeteapee.ErrorCodeValidationFailed,
+				webSocketMessageRejectedMessage,
+				"",
+			),
 		)
 
 		return nil
@@ -168,6 +161,30 @@ func (s *Server) handleWebSocketMessage(
 	go s.runWebSocketMessage(ctx, request, sessionID, requestID, event.ID)
 
 	return nil
+}
+
+func (s *Server) rejectWebSocketSessionRouting(
+	clientID uuid.UUID,
+	triggeringEventID uuid.UUID,
+	requestID uuid.UUID,
+	err error,
+) {
+	ctxscope.GetLogger(s.deps.ServiceContext()).Warn(
+		"websocket message rejected",
+		"reason", "session_routing",
+		"err", err,
+	)
+	s.broadcastWebSocketFailureToClient(
+		clientID,
+		nil,
+		requestID,
+		triggeringEventID,
+		newWebSocketMessageFailure(
+			aichteeteapee.ErrorCodeValidationFailed,
+			webSocketMessageRejectedMessage,
+			"",
+		),
+	)
 }
 
 // resolveWebSocketSession decides which durable session a message.send runs
@@ -315,8 +332,11 @@ func (s *Server) recoverWebSocketMessagePanic(
 			sessionID,
 			requestID,
 			triggeringEventID,
-			aichteeteapee.ErrorCodeInternalServerError,
-			webSocketMessageFailedMessage,
+			newWebSocketMessageFailure(
+				aichteeteapee.ErrorCodeInternalServerError,
+				webSocketMessageFailedMessage,
+				"",
+			),
 		)
 	}
 }
@@ -334,13 +354,12 @@ func (s *Server) reportWebSocketMessageFailure(
 		"err", wrapped,
 	)
 
-	code, message := webSocketMessageFailureFor(err)
+	failure := webSocketMessageFailureFor(err)
 	s.broadcastWebSocketFailure(
 		sessionID,
 		requestID,
 		triggeringEventID,
-		code,
-		message,
+		failure,
 	)
 }
 
@@ -366,17 +385,13 @@ func (s *Server) broadcastWebSocketFailure(
 	sessionID uuid.UUID,
 	requestID uuid.UUID,
 	triggeringEventID uuid.UUID,
-	code aichteeteapee.ErrorCode,
-	message string,
+	failure webSocketMessageFailure,
 ) {
 	s.broadcastWebSocketEvent(
 		sessionID,
 		newWebSocketEvent(
 			webSocketMessageFailedEventType,
-			webSocketMessageFailure{
-				Code:    code,
-				Message: message,
-			},
+			failure,
 			sessionID,
 			requestID,
 			triggeringEventID,
@@ -389,12 +404,11 @@ func (s *Server) broadcastWebSocketFailureToClient(
 	sessionID *uuid.UUID,
 	requestID uuid.UUID,
 	triggeringEventID uuid.UUID,
-	code aichteeteapee.ErrorCode,
-	message string,
+	failure webSocketMessageFailure,
 ) {
 	event := dabluveees.NewEvent(
 		webSocketMessageFailedEventType,
-		webSocketMessageFailure{Code: code, Message: message},
+		failure,
 	).SetMetadata(webSocketMetadataRequestID, requestID.String()).
 		SetTriggeredBy(triggeringEventID)
 	if sessionID != nil {
@@ -553,28 +567,95 @@ func newWebSocketEvent(
 	return &event
 }
 
-func webSocketMessageFailureFor(
-	err error,
-) (aichteeteapee.ErrorCode, string) {
+func webSocketMessageFailureFor(err error) webSocketMessageFailure {
+	if failure, found := harnessConfigurationFailureFor(err); found {
+		return failure
+	}
+
 	switch {
 	case errors.Is(err, commerr.ErrNotFound):
-		return ErrorCodeSessionNotFound, sessionNotFoundError().Message
+		return newWebSocketMessageFailure(
+			ErrorCodeSessionNotFound,
+			sessionNotFoundError().Message,
+			"",
+		)
 	case errors.Is(err, commerr.ErrValidationFailed),
 		errors.Is(err, commerr.ErrRequiredFieldNotSet):
-		return aichteeteapee.ErrorCodeValidationFailed,
-			webSocketMessageRejectedMessage
+		return newWebSocketMessageFailure(
+			aichteeteapee.ErrorCodeValidationFailed,
+			webSocketMessageRejectedMessage,
+			"",
+		)
 	case errors.Is(err, commerr.ErrCancelled):
-		return ErrorCodeTurnCancelled, turnCancelledError().Message
+		return newWebSocketMessageFailure(
+			ErrorCodeTurnCancelled,
+			turnCancelledError().Message,
+			"",
+		)
 	case errors.Is(err, elelem.ErrUserMessageQueueFull):
-		return ErrorCodeUserMessageQueueFull,
-			userMessageQueueFullError().Message
+		return newWebSocketMessageFailure(
+			ErrorCodeUserMessageQueueFull,
+			userMessageQueueFullError().Message,
+			"",
+		)
 	case errors.Is(err, commerr.ErrConflict):
-		return ErrorCodeSessionBusy, sessionBusyError(
-			"session already has an active turn",
-		).Message
+		return newWebSocketMessageFailure(
+			ErrorCodeSessionBusy,
+			sessionBusyError("session already has an active turn").Message,
+			"",
+		)
 	default:
-		return aichteeteapee.ErrorCodeInternalServerError,
-			webSocketMessageFailedMessage
+		return newWebSocketMessageFailure(
+			aichteeteapee.ErrorCodeInternalServerError,
+			webSocketMessageFailedMessage,
+			"",
+		)
+	}
+}
+
+func harnessConfigurationFailureFor(
+	err error,
+) (webSocketMessageFailure, bool) {
+	switch {
+	case errors.Is(err, harness.ErrInvalidSkill):
+		return harnessConfigurationFailure(webSocketInvalidSkillReason), true
+	case errors.Is(err, harness.ErrInvalidInstruction):
+		return harnessConfigurationFailure(
+			webSocketInvalidInstructionReason,
+		), true
+	case errors.Is(err, harness.ErrInvalidAgent):
+		return harnessConfigurationFailure(webSocketInvalidAgentReason), true
+	case errors.Is(err, harness.ErrInvalidEventHandler),
+		errors.Is(err, harness.ErrInvalidHook):
+		return harnessConfigurationFailure(webSocketInvalidHookReason), true
+	case errors.Is(err, harness.ErrResourceLimit):
+		return harnessConfigurationFailure(webSocketHarnessLimitReason), true
+	case errors.Is(err, harness.ErrUnreadableLayer):
+		return harnessConfigurationFailure(
+			webSocketUnreadableHarnessReason,
+		), true
+	default:
+		return webSocketMessageFailure{}, false
+	}
+}
+
+func harnessConfigurationFailure(reason string) webSocketMessageFailure {
+	return newWebSocketMessageFailure(
+		ErrorCodeHarnessConfigurationInvalid,
+		webSocketHarnessConfigurationMessage,
+		reason,
+	)
+}
+
+func newWebSocketMessageFailure(
+	code aichteeteapee.ErrorCode,
+	message string,
+	reason string,
+) webSocketMessageFailure {
+	return webSocketMessageFailure{
+		Code:    code,
+		Message: message,
+		Reason:  reason,
 	}
 }
 

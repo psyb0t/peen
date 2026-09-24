@@ -75,7 +75,8 @@ paths:
         and a client must name the workspace it wants. Opening the same
         directory again, by any of its names, resumes the existing session. A
         path outside every configured workspace root is refused with 403 and no
-        session is created.
+        session is created. A path beneath a configured root whose directory
+        does not exist returns 404 WORKSPACE_NOT_FOUND.
       requestBody:
         required: true
         content:
@@ -100,6 +101,8 @@ paths:
           $ref: '#/components/responses/ErrorUnauthorized'
         '403':
           $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
         '500':
           $ref: '#/components/responses/ErrorInternal'
   /execution-profiles:
@@ -121,6 +124,30 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ExecutionProfileList'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /workspace-roots:
+    get:
+      operationId: listWorkspaceRoots
+      summary: List workspace roots this controller may open
+      description: >
+        Lists the operator-configured workspace roots available to this
+        authenticated control surface. A client selects one of these roots when
+        it opens its first session instead of guessing a host path. This is the
+        deliberate, authenticated disclosure of the controller's workspace
+        boundary; rejected workspace opens still disclose no roots.
+      responses:
+        '200':
+          description: Configured workspace root list
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceRootList'
         '401':
           $ref: '#/components/responses/ErrorUnauthorized'
         '500':
@@ -1096,7 +1123,7 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
     ErrorNotFound:
-      description: Session not found
+      description: Requested resource not found
       content:
         application/json:
           schema:
@@ -1268,6 +1295,19 @@ components:
         default:
           type: string
           description: The profile a session opened without naming one uses.
+    WorkspaceRootList:
+      type: object
+      additionalProperties: false
+      required: [roots]
+      properties:
+        roots:
+          type: array
+          description: >
+            Canonical absolute directories the authenticated controller will
+            accept as workspace roots.
+          items:
+            type: string
+            minLength: 1
     Model:
       type: object
       additionalProperties: false

@@ -57,8 +57,10 @@ pre_write_file:
 ```
 
 Unknown fields, unknown events, empty action lists, invalid regular
-expressions, multiple YAML documents, and a version other than `1` reject the
-turn before the hook can run.
+expressions, multiple YAML documents, and a version other than `1` make that
+optional `hooks.yaml` invalid. Peen skips that file, keeps valid hooks from
+other layers, logs the diagnostic, and emits a durable `harness.warning` event
+that names the source and reason. Fix the reported file to enable its hooks.
 
 ## Events and ordering
 

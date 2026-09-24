@@ -595,7 +595,7 @@ func TestResolverAcceptsCodexSkillFrontMatter(t *testing.T) {
 	assert.Equal(t, []any{"docker"}, requires["bins"])
 }
 
-func TestResolverRejectsMalformedDiscoveredInputs(t *testing.T) {
+func TestResolverIgnoresMalformedOptionalInputs(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
@@ -806,10 +806,93 @@ Use this skill when requested.`,
 			tc.setup(t, fixture)
 			resolver, err := NewResolver(fixture.configRoot, Limits{})
 			require.NoError(t, err)
-			_, err = resolver.Resolve(fixture.workspace)
-			require.ErrorIs(t, err, tc.wantErr)
+			snapshot, resolveErr := resolver.Resolve(fixture.workspace)
+			require.NoError(t, resolveErr)
+			assert.NotEmpty(t, snapshot.Warnings())
 		})
 	}
+}
+
+func TestResolverKeepsValidOptionalSourcesWhenSiblingsAreInvalid(t *testing.T) {
+	t.Parallel()
+
+	fixture := newResolverFixture(t)
+	fixture.writeSkill(t, fixture.configRoot, "kept-skill", "kept", testSkillBody)
+	makeDirectory(t, filepath.Join(
+		fixture.workspace,
+		agentsDirectoryName,
+		skillsDirectoryName,
+		"broken-skill",
+	))
+
+	fixture.writeRule(
+		t,
+		fixture.configRoot,
+		agentsDirectoryName,
+		"kept.md",
+		"keep this rule",
+	)
+	fixture.writeRule(
+		t,
+		fixture.workspace,
+		agentsDirectoryName,
+		"broken.md",
+		" \n\t",
+	)
+
+	fixture.writeAgent(t, fixture.configRoot, "kept-agent", "kept", testAgentBody)
+	fixture.writeAgentDocument(
+		t,
+		fixture.workspace,
+		"broken-agent",
+		"---\nname: broken-agent\n---\nmissing description",
+	)
+
+	writeFile(t, filepath.Join(
+		fixture.configRoot,
+		agentsDirectoryName,
+		eventHandlersSubdirectory,
+		"kept.event.md",
+	), "---\ntype: kept.event\ndelivery: queue\n---\nHandle this report.")
+	writeFile(t, filepath.Join(
+		fixture.workspace,
+		agentsDirectoryName,
+		eventHandlersSubdirectory,
+		"broken.event.md",
+	), "---\ndelivery: queue\n---\nMissing type.")
+
+	fixture.writeHook(t, fixture.configRoot, `version: 1
+pre_tool_use:
+  - actions:
+      - type: inject
+        message: Keep this hook.
+`)
+	fixture.writeHook(t, fixture.workspace, "version: 2\n")
+
+	resolver, err := NewResolver(fixture.configRoot, Limits{})
+	require.NoError(t, err)
+	snapshot, err := resolver.Resolve(fixture.workspace)
+	require.NoError(t, err)
+
+	_, err = snapshot.ActivateSkill("kept-skill")
+	require.NoError(t, err)
+	assert.Contains(t, instructionContents(snapshot.Instructions()), "keep this rule")
+	_, err = snapshot.Agent("kept-agent")
+	require.NoError(t, err)
+	_, err = snapshot.EventHandler("kept.event")
+	require.NoError(t, err)
+	assert.Len(t, snapshot.Hooks(), 1)
+	assert.ElementsMatch(t, []SourceKind{
+		SourceKindSkill,
+		SourceKindRule,
+		SourceKindAgent,
+		SourceKindEventHandler,
+		SourceKindHook,
+	}, warningKinds(snapshot.Warnings()))
+
+	blocks, err := snapshot.PromptBlocks("")
+	require.NoError(t, err)
+	assert.Contains(t, blocks[len(blocks)-1].Content, "broken-skill")
 }
 
 func TestResolverEnforcesFileAndEffectiveDefinitionBounds(t *testing.T) {
@@ -1358,6 +1441,15 @@ func instructionContents(instructions []Instruction) []string {
 	}
 
 	return contents
+}
+
+func warningKinds(warnings []Warning) []SourceKind {
+	values := make([]SourceKind, 0, len(warnings))
+	for _, warning := range warnings {
+		values = append(values, warning.Kind)
+	}
+
+	return values
 }
 
 func instructionPriorities(instructions []Instruction) []int {

@@ -592,6 +592,15 @@ func (r *Runtime) resolveContext(
 		)
 	}
 
+	for _, warning := range snapshot.Warnings() {
+		ctxscope.GetLogger(ctx).Warn(
+			"invalid optional harness configuration ignored",
+			"kind", warning.Kind,
+			"source", warning.Source,
+			"reason", warning.Reason,
+		)
+	}
+
 	explicitSkills, err := resolveTurnExplicitSkills(
 		ctx,
 		snapshot,
@@ -1333,6 +1342,10 @@ func (r *Runtime) startLease(
 		return ctxerrors.Wrap(err, "publish accepted user message")
 	}
 
+	if err := prepared.emitHarnessWarnings(ctx); err != nil {
+		return ctxerrors.Wrap(err, "emit harness configuration warnings")
+	}
+
 	if err := prepared.runLifecycleHook(
 		ctx,
 		r,
@@ -1366,6 +1379,28 @@ func (r *Runtime) startLease(
 		"workspace", prepared.workspace,
 		"harness_hash", prepared.snapshot.Hash(),
 		"harness_manifest", prepared.snapshot.Manifest(),
+	)
+
+	return nil
+}
+
+func (p *preparedTurn) emitHarnessWarnings(ctx context.Context) error {
+	warnings := p.snapshot.Warnings()
+	if len(warnings) == 0 {
+		return nil
+	}
+
+	if err := p.turn.emit(
+		ctx,
+		EventTypeHarnessWarning,
+		harnessWarningPayload{Warnings: warnings},
+	); err != nil {
+		return ctxerrors.Wrap(err, "emit ignored harness sources")
+	}
+
+	ctxscope.GetLogger(ctx).Warn(
+		"harness configuration warnings emitted",
+		"warning_count", len(warnings),
 	)
 
 	return nil

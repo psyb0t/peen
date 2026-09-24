@@ -27,6 +27,7 @@ commit.txt
 
 # Build and generated local reports
 /build/
+/data/
 web/node_modules/
 web/.svelte-kit/
 .pnpm-store/

@@ -1398,6 +1398,12 @@ type WorkerGenerationPage struct {
 	Offset  int32              `json:"offset"`
 }
 
+// WorkspaceRootList defines model for WorkspaceRootList.
+type WorkspaceRootList struct {
+	// Roots Canonical absolute directories the authenticated controller will accept as workspace roots.
+	Roots []string `json:"roots"`
+}
+
 // AgentRunID defines model for AgentRunID.
 type AgentRunID = openapi_types.UUID
 
@@ -1928,7 +1934,7 @@ type ClientInterface interface {
 
 	// OpenSessionWithBody Open or resume the session for a workspace
 	//
-	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created.
+	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -1937,12 +1943,19 @@ type ClientInterface interface {
 
 	// OpenSession Open or resume the session for a workspace
 	//
-	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created.
+	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 	//
 	// Takes a body of the `application/json` content type.
 	//
 	// Corresponds with POST /sessions/open (the `OpenSession` operationId).
 	OpenSession(ctx context.Context, body OpenSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListWorkspaceRoots List workspace roots this controller may open
+	//
+	// Lists the operator-configured workspace roots available to this authenticated control surface. A client selects one of these roots when it opens its first session instead of guessing a host path. This is the deliberate, authenticated disclosure of the controller's workspace boundary; rejected workspace opens still disclose no roots.
+	//
+	// Corresponds with GET /workspace-roots (the `ListWorkspaceRoots` operationId).
+	ListWorkspaceRoots(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 // ListExecutionProfiles List the execution profiles a client may name
@@ -2470,7 +2483,7 @@ func (c *Client) ListSessions(ctx context.Context, params *ListSessionsParams, r
 
 // OpenSessionWithBody Open or resume the session for a workspace
 //
-// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created.
+// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 //
 // Takes any type of body and a specified content type.
 //
@@ -2489,13 +2502,30 @@ func (c *Client) OpenSessionWithBody(ctx context.Context, contentType string, bo
 
 // OpenSession Open or resume the session for a workspace
 //
-// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created.
+// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 //
 // Takes a body of the `application/json` content type.
 //
 // Corresponds with POST /sessions/open (the `OpenSession` operationId).
 func (c *Client) OpenSession(ctx context.Context, body OpenSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewOpenSessionRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListWorkspaceRoots List workspace roots this controller may open
+//
+// Lists the operator-configured workspace roots available to this authenticated control surface. A client selects one of these roots when it opens its first session instead of guessing a host path. This is the deliberate, authenticated disclosure of the controller's workspace boundary; rejected workspace opens still disclose no roots.
+//
+// Corresponds with GET /workspace-roots (the `ListWorkspaceRoots` operationId).
+func (c *Client) ListWorkspaceRoots(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListWorkspaceRootsRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -4591,6 +4621,33 @@ func NewOpenSessionRequestWithBody(server string, contentType string, body io.Re
 	return req, nil
 }
 
+// NewListWorkspaceRootsRequest constructs an http.Request for the ListWorkspaceRoots method
+func NewListWorkspaceRootsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/workspace-roots")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 func (c *Client) applyEditors(ctx context.Context, req *http.Request, additionalEditors []RequestEditorFn) error {
 	for _, r := range c.RequestEditors {
 		if err := r(ctx, req); err != nil {
@@ -4884,7 +4941,7 @@ type ClientWithResponsesInterface interface {
 
 	// OpenSessionWithBodyWithResponse Open or resume the session for a workspace
 	//
-	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created.
+	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -4893,12 +4950,21 @@ type ClientWithResponsesInterface interface {
 
 	// OpenSessionWithResponse Open or resume the session for a workspace
 	//
-	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created.
+	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /sessions/open (the `OpenSession` operationId).
 	OpenSessionWithResponse(ctx context.Context, body OpenSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*OpenSessionResponse, error)
+
+	// ListWorkspaceRootsWithResponse List workspace roots this controller may open
+	//
+	// Lists the operator-configured workspace roots available to this authenticated control surface. A client selects one of these roots when it opens its first session instead of guessing a host path. This is the deliberate, authenticated disclosure of the controller's workspace boundary; rejected workspace opens still disclose no roots.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /workspace-roots (the `ListWorkspaceRoots` operationId).
+	ListWorkspaceRootsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListWorkspaceRootsResponse, error)
 }
 
 // ListExecutionProfilesResponse200Headers the declared response headers of an HTTP 200 response for ListExecutionProfiles
@@ -7204,6 +7270,8 @@ type OpenSessionResponse struct {
 	JSON401 *ErrorUnauthorized
 	// JSON403 the response for an HTTP 403 `application/json` response
 	JSON403 *ErrorForbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
 	// JSON500 the response for an HTTP 500 `application/json` response
 	JSON500 *ErrorInternal
 	// Headers200 the parsed response headers for an HTTP 200 response
@@ -7228,6 +7296,11 @@ func (r OpenSessionResponse) GetJSON401() *ErrorUnauthorized {
 // GetJSON403 returns the response for an HTTP 403 `application/json` response
 func (r OpenSessionResponse) GetJSON403() *ErrorForbidden {
 	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r OpenSessionResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
 }
 
 // GetJSON500 returns the response for an HTTP 500 `application/json` response
@@ -7258,6 +7331,68 @@ func (r OpenSessionResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r OpenSessionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ListWorkspaceRootsResponse200Headers the declared response headers of an HTTP 200 response for ListWorkspaceRoots
+type ListWorkspaceRootsResponse200Headers struct {
+	XRequestID openapi_types.UUID
+}
+
+type ListWorkspaceRootsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *WorkspaceRootList
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ListWorkspaceRootsResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListWorkspaceRootsResponse) GetJSON200() *WorkspaceRootList {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListWorkspaceRootsResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListWorkspaceRootsResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListWorkspaceRootsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListWorkspaceRootsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListWorkspaceRootsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListWorkspaceRootsResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -7711,7 +7846,7 @@ func (c *ClientWithResponses) ListSessionsWithResponse(ctx context.Context, para
 
 // OpenSessionWithBodyWithResponse Open or resume the session for a workspace
 //
-// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created.
+// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -7726,7 +7861,7 @@ func (c *ClientWithResponses) OpenSessionWithBodyWithResponse(ctx context.Contex
 
 // OpenSessionWithResponse Open or resume the session for a workspace
 //
-// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created.
+// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -7737,6 +7872,21 @@ func (c *ClientWithResponses) OpenSessionWithResponse(ctx context.Context, body 
 		return nil, err
 	}
 	return ParseOpenSessionResponse(rsp)
+}
+
+// ListWorkspaceRootsWithResponse List workspace roots this controller may open
+//
+// Lists the operator-configured workspace roots available to this authenticated control surface. A client selects one of these roots when it opens its first session instead of guessing a host path. This is the deliberate, authenticated disclosure of the controller's workspace boundary; rejected workspace opens still disclose no roots.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /workspace-roots (the `ListWorkspaceRoots` operationId).
+func (c *ClientWithResponses) ListWorkspaceRootsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListWorkspaceRootsResponse, error) {
+	rsp, err := c.ListWorkspaceRoots(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListWorkspaceRootsResponse(rsp)
 }
 
 // ParseListExecutionProfilesResponse parses an HTTP response from a ListExecutionProfilesWithResponse call
@@ -9959,6 +10109,13 @@ func ParseOpenSessionResponse(rsp *http.Response) (*OpenSessionResponse, error) 
 		}
 		response.JSON403 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest ErrorInternal
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -9984,6 +10141,59 @@ func ParseOpenSessionResponse(rsp *http.Response) (*OpenSessionResponse, error) 
 				return nil, err
 			}
 			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListWorkspaceRootsResponse parses an HTTP response from a ListWorkspaceRootsWithResponse call
+func ParseListWorkspaceRootsResponse(rsp *http.Response) (*ListWorkspaceRootsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListWorkspaceRootsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest WorkspaceRootList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ListWorkspaceRootsResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
 		}
 		response.Headers200 = &headers
 	}

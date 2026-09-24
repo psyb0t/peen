@@ -41,6 +41,8 @@ const (
 	EventTypeToolResult = "tool.result"
 	// EventTypeSessionEvents carries session events delivered to the model.
 	EventTypeSessionEvents = "session.events"
+	// EventTypeHarnessWarning records ignored optional harness configuration.
+	EventTypeHarnessWarning = "harness.warning"
 	// EventTypeTurnCompleted marks a completed durable turn.
 	EventTypeTurnCompleted = "turn.completed"
 	// EventTypeTurnFailed marks a non-cancellation failed turn.
@@ -507,6 +509,12 @@ type toolResultPayload struct {
 type sessionEventsPayload struct {
 	Notices []events.Notice `json:"notices"`
 	Dropped int             `json:"dropped"`
+}
+
+// harnessWarningPayload tells a client which optional harness sources Peen
+// ignored while preserving all valid configuration around them.
+type harnessWarningPayload struct {
+	Warnings []harness.Warning `json:"warnings"`
 }
 
 var _ HarnessResolver = harness.Resolver{}

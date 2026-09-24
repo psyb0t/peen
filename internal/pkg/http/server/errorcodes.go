@@ -36,4 +36,15 @@ const (
 	ErrorCodeWorkspaceNotAllowed = aichteeteapee.ErrorCode(
 		"WORKSPACE_NOT_ALLOWED",
 	)
+	// ErrorCodeWorkspaceNotFound reports an admitted workspace path whose
+	// directory no longer exists.
+	ErrorCodeWorkspaceNotFound = aichteeteapee.ErrorCode(
+		"WORKSPACE_NOT_FOUND",
+	)
+	// ErrorCodeHarnessConfigurationInvalid reports a harness safety bound that
+	// prevents a turn from starting. Malformed optional definitions emit a
+	// harness.warning event instead.
+	ErrorCodeHarnessConfigurationInvalid = aichteeteapee.ErrorCode(
+		"HARNESS_CONFIGURATION_INVALID",
+	)
 )

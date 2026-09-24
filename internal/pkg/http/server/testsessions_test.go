@@ -25,6 +25,7 @@ type testSessionRegistry struct {
 	profiles []string
 
 	profileList api.ExecutionProfileList
+	rootList    api.WorkspaceRootList
 	workerPage  api.WorkerGenerationPage
 	workersErr  error
 
@@ -55,6 +56,10 @@ func (r *testSessionRegistry) OpenWorkspaceSession(
 
 func (r *testSessionRegistry) ExecutionProfiles() api.ExecutionProfileList {
 	return r.profileList
+}
+
+func (r *testSessionRegistry) WorkspaceRoots() api.WorkspaceRootList {
+	return r.rootList
 }
 
 func (r *testSessionRegistry) ListWorkerGenerations(
@@ -113,6 +118,7 @@ func (r *testSessionRegistry) ListSessions(
 // router, so this records them and answers from the test runtime.
 type testTurnRouter struct {
 	runtime *testRuntime
+	runErr  error
 
 	// sessions records the session each routed turn named, so a routing test
 	// can assert the transport chose it rather than the message body.
@@ -152,6 +158,9 @@ func (r *testTurnRouter) RunSessionMessage(
 	requestID uuid.UUID,
 ) (*agent.MessageRunResult, error) {
 	r.sessions = append(r.sessions, sessionID)
+	if r.runErr != nil {
+		return nil, r.runErr
+	}
 
 	return r.runtime.RunMessage(ctx, request, requestID, nil)
 }

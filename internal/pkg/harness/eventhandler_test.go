@@ -199,13 +199,12 @@ func TestDiscoverEventHandlersResolvesLayeredFiles(t *testing.T) {
 	})
 }
 
-func TestDiscoverEventHandlersRejectsMalformedDocuments(t *testing.T) {
+func TestDiscoverEventHandlersIgnoresMalformedOptionalDocuments(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		name    string
-		setup   func(t *testing.T, fixture resolverFixture)
-		wantErr error
+		name  string
+		setup func(t *testing.T, fixture resolverFixture)
 	}{
 		{
 			name: "type does not match file name",
@@ -223,7 +222,6 @@ func TestDiscoverEventHandlersRejectsMalformedDocuments(t *testing.T) {
 					),
 				)
 			},
-			wantErr: ErrInvalidEventHandler,
 		},
 		{
 			name: "missing type field",
@@ -238,7 +236,6 @@ func TestDiscoverEventHandlersRejectsMalformedDocuments(t *testing.T) {
 						testEventHandlerBody,
 				)
 			},
-			wantErr: ErrInvalidEventHandler,
 		},
 		{
 			name: "empty body",
@@ -252,7 +249,6 @@ func TestDiscoverEventHandlersRejectsMalformedDocuments(t *testing.T) {
 					"---\ntype: app.error\n---\n   ",
 				)
 			},
-			wantErr: ErrInvalidEventHandler,
 		},
 		{
 			name: "unknown frontmatter key",
@@ -267,7 +263,6 @@ func TestDiscoverEventHandlersRejectsMalformedDocuments(t *testing.T) {
 						testEventHandlerBody,
 				)
 			},
-			wantErr: ErrInvalidEventHandler,
 		},
 		{
 			name: "malformed yaml",
@@ -281,7 +276,6 @@ func TestDiscoverEventHandlersRejectsMalformedDocuments(t *testing.T) {
 					"---\ntype: [unterminated\n---\n"+testEventHandlerBody,
 				)
 			},
-			wantErr: ErrInvalidEventHandler,
 		},
 		{
 			name: "malformed frontmatter delimiters",
@@ -295,7 +289,6 @@ func TestDiscoverEventHandlersRejectsMalformedDocuments(t *testing.T) {
 					"type: app.error\n"+testEventHandlerBody,
 				)
 			},
-			wantErr: ErrInvalidEventHandler,
 		},
 		{
 			name: "invalid event type",
@@ -313,7 +306,6 @@ func TestDiscoverEventHandlersRejectsMalformedDocuments(t *testing.T) {
 					),
 				)
 			},
-			wantErr: ErrInvalidEventHandler,
 		},
 		{
 			name: "invalid delivery mode",
@@ -329,7 +321,6 @@ func TestDiscoverEventHandlersRejectsMalformedDocuments(t *testing.T) {
 					testEventHandlerBody,
 				)
 			},
-			wantErr: ErrInvalidEventHandler,
 		},
 	}
 
@@ -341,8 +332,10 @@ func TestDiscoverEventHandlersRejectsMalformedDocuments(t *testing.T) {
 			tc.setup(t, fixture)
 			resolver, err := NewResolver(fixture.configRoot, Limits{})
 			require.NoError(t, err)
-			_, err = resolver.Resolve(fixture.workspace)
-			require.ErrorIs(t, err, tc.wantErr)
+			snapshot, resolveErr := resolver.Resolve(fixture.workspace)
+			require.NoError(t, resolveErr)
+			require.Len(t, snapshot.Warnings(), 1)
+			assert.Equal(t, SourceKindEventHandler, snapshot.Warnings()[0].Kind)
 		})
 	}
 }

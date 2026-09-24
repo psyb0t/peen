@@ -118,7 +118,7 @@ func TestResolverLoadsModularRulesInLayerOrder(t *testing.T) {
 	assert.NotEqual(t, first.Hash(), second.Hash())
 }
 
-func TestResolverRejectsUnusableModularRule(t *testing.T) {
+func TestResolverIgnoresUnusableOptionalModularRule(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
@@ -163,8 +163,10 @@ func TestResolverRejectsUnusableModularRule(t *testing.T) {
 
 			resolver, err := NewResolver(fixture.configRoot, Limits{})
 			require.NoError(t, err)
-			_, err = resolver.Resolve(fixture.workspace)
-			require.ErrorIs(t, err, ErrInvalidInstruction)
+			snapshot, resolveErr := resolver.Resolve(fixture.workspace)
+			require.NoError(t, resolveErr)
+			require.Len(t, snapshot.Warnings(), 1)
+			assert.Equal(t, SourceKindRule, snapshot.Warnings()[0].Kind)
 		})
 	}
 }

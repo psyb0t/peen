@@ -193,8 +193,24 @@ func TestWorkspacePolicyRefusesUnusableRequests(t *testing.T) {
 		t.Parallel()
 
 		_, err := policy.Resolve(filepath.Join(root, "absent"))
-		require.Error(t, err)
+		require.ErrorIs(t, err, commerr.ErrNotFound)
 	})
+}
+
+func TestWorkspacePolicyRefusesMissingPathOutsideRoot(t *testing.T) {
+	t.Parallel()
+
+	base := canonicalTempDir(t)
+	root := filepath.Join(base, "allowed")
+	rejected := filepath.Join(base, "outside", "absent")
+	require.NoError(t, os.MkdirAll(root, 0o750))
+
+	policy, err := control.NewWorkspacePolicy([]string{root})
+	require.NoError(t, err)
+
+	resolved, err := policy.Resolve(rejected)
+	require.ErrorIs(t, err, commerr.ErrPermissionDenied)
+	assert.Empty(t, resolved)
 }
 
 func TestWorkspacePolicyRootsAreNotAliasedToCaller(t *testing.T) {

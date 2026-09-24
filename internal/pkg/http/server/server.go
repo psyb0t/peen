@@ -82,6 +82,7 @@ type SessionRegistry interface {
 		ctx context.Context,
 		params api.ListSessionsParams,
 	) (api.SessionPage, error)
+	WorkspaceRoots() api.WorkspaceRootList
 	ExecutionProfiles() api.ExecutionProfileList
 	ListWorkerGenerations(
 		ctx context.Context,

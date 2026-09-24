@@ -168,11 +168,12 @@ func TestServerOpenSessionMapsRefusals(t *testing.T) {
 	sessionID := uuid.New()
 
 	testCases := []struct {
-		name       string
-		body       string
-		openErr    error
-		wantStatus int
-		wantCode   aichteeteapee.ErrorCode
+		name        string
+		body        string
+		openErr     error
+		wantStatus  int
+		wantCode    aichteeteapee.ErrorCode
+		wantMessage string
 	}{
 		{
 			name: "workspace outside every configured root",
@@ -193,6 +194,17 @@ func TestServerOpenSessionMapsRefusals(t *testing.T) {
 			),
 			wantStatus: http.StatusBadRequest,
 			wantCode:   aichteeteapee.ErrorCodeValidationFailed,
+		},
+		{
+			name: "workspace directory does not exist",
+			body: `{"workspace":"` + testWorkspacePath + `"}`,
+			openErr: ctxerrors.Wrap(
+				commerr.ErrNotFound,
+				workspaceDirectoryNotFoundMessage,
+			),
+			wantStatus:  http.StatusNotFound,
+			wantCode:    aichteeteapee.ErrorCode("WORKSPACE_NOT_FOUND"),
+			wantMessage: workspaceDirectoryNotFoundMessage,
 		},
 		{
 			name:       "missing workspace field",
@@ -229,6 +241,12 @@ func TestServerOpenSessionMapsRefusals(t *testing.T) {
 
 			if tc.wantCode != "" {
 				assertErrorCode(t, recorder, tc.wantCode)
+			}
+
+			if tc.wantMessage != "" {
+				response := api.Error{}
+				require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+				assert.Equal(t, tc.wantMessage, response.Message)
 			}
 		})
 	}

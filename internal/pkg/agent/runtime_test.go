@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -153,6 +154,54 @@ func TestRuntimeRunPersistsTranscriptEventsAndSnapshots(t *testing.T) {
 		Find()
 	require.NoError(t, err)
 	assert.Equal(t, eventTypes(events), persistedEventTypes(persistedEvents))
+}
+
+func TestRuntimeContinuesAfterIgnoringInvalidOptionalHarnessSource(t *testing.T) {
+	driver := elelemtest.NewScriptedDriver(elelemtest.Text("done"))
+	fixture := newRuntimeFixture(t, driver)
+	rejectedSource := filepath.Join(
+		fixture.workspace,
+		".agents",
+		"skills",
+		"broken-skill",
+	)
+	require.NoError(t, os.MkdirAll(rejectedSource, runtimeTestDirectoryMode))
+
+	events := make([]Event, 0)
+	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
+		Message:   "keep working",
+		Workspace: fixture.workspace,
+		OnEvent:   collectEvents(&events),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "done", result.Text)
+	assert.Equal(t, []string{
+		EventTypeUserMessageCreated,
+		EventTypeHarnessWarning,
+		EventTypeTurnStarted,
+		EventTypeTurnCompleted,
+	}, harnessEventTypes(events))
+
+	payload := harnessWarningPayload{}
+	require.NoError(t, json.Unmarshal(
+		decodeEventPayload(t, events, EventTypeHarnessWarning),
+		&payload,
+	))
+	require.Len(t, payload.Warnings, 1)
+	assert.Equal(t, harness.SourceKindSkill, payload.Warnings[0].Kind)
+	assert.Equal(t, rejectedSource, payload.Warnings[0].Source)
+
+	requests := driver.Requests()
+	require.Len(t, requests, 1)
+	assert.Contains(t, requests[0].Messages[0].Text(), "broken-skill")
+
+	stored, err := fixture.store.ListEvents(
+		context.Background(),
+		result.SessionID,
+		session.ListEventsOptions{Order: session.PageOrderAscending},
+	)
+	require.NoError(t, err)
+	assert.Contains(t, persistedEventTypes(stored.Items), EventTypeHarnessWarning)
 }
 
 func TestRuntimeExplicitSkillReferenceInjectsTheEffectiveSkill(t *testing.T) {

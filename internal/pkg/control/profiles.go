@@ -28,6 +28,12 @@ func (r *Registry) ExecutionProfiles() api.ExecutionProfileList {
 	}
 }
 
+// WorkspaceRoots reports the directories this authenticated controller lets a
+// client select when opening its first workspace session.
+func (r *Registry) WorkspaceRoots() api.WorkspaceRootList {
+	return api.WorkspaceRootList{Roots: r.Roots()}
+}
+
 func executionProfileToAPI(profile worker.Profile) api.ExecutionProfile {
 	converted := api.ExecutionProfile{
 		Name:                     profile.Name,

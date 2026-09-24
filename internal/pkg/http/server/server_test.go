@@ -52,6 +52,27 @@ func TestServerDoesNotServeHTTPMessageSubmission(t *testing.T) {
 	assert.Zero(t, runtime.runCalls)
 }
 
+func TestServerDoesNotServePrivateMetricsFromThePublicListener(t *testing.T) {
+	instance, err := newTestServer(Dependencies{Runtime: newTestRuntime(uuid.New())})
+	require.NoError(t, err)
+
+	for _, requestPath := range []string{privateMetricsPath, privateMetricsPath + "/"} {
+		t.Run(requestPath, func(t *testing.T) {
+			request := httptest.NewRequestWithContext(
+				t.Context(),
+				http.MethodGet,
+				requestPath,
+				nil,
+			)
+			recorder := httptest.NewRecorder()
+
+			instance.testHandler.ServeHTTP(recorder, request)
+
+			assert.Equal(t, http.StatusNotFound, recorder.Code)
+		})
+	}
+}
+
 func assertUnauthorizedEnvelope(t *testing.T, recorder *httptest.ResponseRecorder) {
 	t.Helper()
 

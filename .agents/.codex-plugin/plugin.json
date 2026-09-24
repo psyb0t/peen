@@ -1,6 +1,6 @@
 {
   "name": "peen",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "description": "Durable coding-agent backend: configure providers and Docker workspaces, send work over WebSocket, add harness layers, and inspect or control SQLite-backed sessions.",
   "author": { "name": "psyb0t", "url": "https://github.com/psyb0t" },
   "homepage": "https://github.com/psyb0t/peen",
