@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"time"
@@ -872,7 +873,15 @@ func (h *toolHookRuntime) takeDenial(callID string) (string, bool) {
 	return reason, found
 }
 
+// hookFailureMessage is the text the model reads for a hook that stopped its
+// tool. A deliberate denial reaches it verbatim. Any other failure is reduced
+// to its message without the source location.
 func hookFailureMessage(err error) string {
+	var denial *hooks.DenialError
+	if errors.As(err, &denial) {
+		return denial.Reason
+	}
+
 	message := toolErrorMessage(err)
 
 	return strings.TrimSuffix(message, ": "+hooks.ErrDenied.Error())

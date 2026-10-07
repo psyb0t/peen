@@ -144,6 +144,71 @@ A command may write this JSON object to standard output:
 
 Set `decision` to `deny` with a `reason` to reject the operation. Every event `data` value must be a JSON object. Empty or non-JSON output is allowed and means no extra effect.
 
+When a `deny` action or a command decision stops a tool, the model reads the reason exactly as written, as that tool's result. Peen adds nothing to it and does not shorten it, so a reason can carry Markdown or code.
+
+## Example: hand the model a rule once
+
+A pre-event command can deliver a project rule the first time the model changes a matching file, then let the model's retry through. Peen has no built-in rule system. This is one hooks file and two short scripts.
+
+```yaml
+version: 1
+pre_write_file:
+  - name: go-rules
+    match:
+      extensions: [".go"]
+    actions:
+      - name: deliver-go-rules
+        type: command
+        command: /opt/peen-hooks/deliver-rule.sh
+        environment:
+          RULE_FILE: /opt/peen-hooks/rules/go.md
+          RULE_ID: go
+pre_edit_file:
+  - name: go-rules
+    match:
+      extensions: [".go"]
+    actions:
+      - name: deliver-go-rules
+        type: command
+        command: /opt/peen-hooks/deliver-rule.sh
+        environment:
+          RULE_FILE: /opt/peen-hooks/rules/go.md
+          RULE_ID: go
+post_compact:
+  - name: forget-delivered-rules
+    actions:
+      - name: forget-rules
+        type: command
+        command: /opt/peen-hooks/forget-rules.sh
+```
+
+`deliver-rule.sh` keeps one marker per rule and per conversation in the hook's `stateDirectory`. A child agent has its own model context, so `agentRunId` keeps its marker apart from the root turn's:
+
+```sh
+#!/bin/sh
+set -eu
+invocation="$(cat)"
+state="$(printf '%s' "$invocation" | jq -r '.stateDirectory')"
+owner="$(printf '%s' "$invocation" | jq -r '.agentRunId // "root"')"
+marker="$state/rule-$RULE_ID-$owner.delivered"
+[ -f "$marker" ] && exit 0
+: > "$marker"
+exec jq -n --rawfile rule "$RULE_FILE" '{decision: "deny", reason: $rule}'
+```
+
+`forget-rules.sh` removes the markers after a compaction, because the summary may have dropped the rule from the model's context:
+
+```sh
+#!/bin/sh
+set -eu
+state="$(jq -r '.stateDirectory')"
+find "$state" -maxdepth 1 -name 'rule-*.delivered' -delete
+```
+
+The forget script clears every marker, so a compaction that lands between a denial and the model's retry delivers the rule once more. Keep the context budget comfortably above the size of your rule files so a single write does not trigger a compaction on its own.
+
+The scripts need `jq`. Keep each rule file within `PEEN_MAX_HOOK_COMMAND_OUTPUT`, because the rule travels as the command's output.
+
 ## Failures and bounds
 
 A failed action rejects a pre-event by default. A failed post or failure event

@@ -4,6 +4,23 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.13.1 (2026-10-07)
+
+A hook that denies a tool now hands the model its reason exactly as written.
+No configuration or API migration is needed.
+
+- Fixes deny reasons that reached the model cut short. Peen recovered the
+  reason by parsing the error text and stopped at the first ` [`, which is
+  where an error's source location begins. A reason containing Markdown
+  links, checkboxes, or Go types such as `[]string` lost everything after
+  that point and carried an internal `run hook action:` prefix. Both the
+  `deny` action and a command's `deny` decision now pass the reason through
+  unchanged.
+- Documents how to give the model a project rule the first time it changes a
+  matching file, using one hooks file and two short scripts. The recipe in
+  `docs/hooks.md` delivers the rule once per conversation, keeps a separate
+  delivery for each child agent, and delivers it again after a compaction.
+
 ## v0.13.0 (2026-09-24)
 
 Peen now has a complete workspace-first controller flow. The bundled browser

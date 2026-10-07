@@ -305,7 +305,10 @@ func (r Runner) runAction(
 	case harness.HookActionInject:
 		return actionResult{Injections: []string{action.Message}}, nil
 	case harness.HookActionDeny:
-		return actionResult{}, ctxerrors.Wrap(ErrDenied, action.Reason)
+		return actionResult{}, ctxerrors.Wrap(
+			&DenialError{Reason: action.Reason},
+			"run deny action",
+		)
 	case harness.HookActionEmitEvent:
 		return actionResult{}, r.publishActionEvent(ctx, action, invocation)
 	case harness.HookActionCommand:
@@ -390,7 +393,10 @@ func (r Runner) runCommandAction(
 			reason = "hook command denied operation"
 		}
 
-		return actionResult{}, ctxerrors.Wrap(ErrDenied, reason)
+		return actionResult{}, ctxerrors.Wrap(
+			&DenialError{Reason: reason},
+			"apply hook command decision",
+		)
 	}
 
 	return actionResult{Injections: nonEmptyString(decision.Message)}, nil
