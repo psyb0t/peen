@@ -109,9 +109,9 @@ agents. `.agents/events` tells Peen how to wake a session for an external event.
 `.agents/hooks.yaml` adds mechanical actions around lifecycle and tool events.
 
 Peen applies the configuration directory first, then filesystem layers from the
-root down to the active workspace. Rules closer to the file being worked on are
-therefore more specific. [Configuration](configuration.md#harness-layering) and
-[hooks](hooks.md) describe the exact rules.
+root down to the active workspace, so a layer closer to the workspace is more
+specific. Layers stop at the workspace: nothing below it is read. [The
+harness guide](harness.md) describes the exact rules.
 
 ## Durable state and visibility
 

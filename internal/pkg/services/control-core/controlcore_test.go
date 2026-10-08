@@ -217,7 +217,7 @@ func TestControlCoreStartsWithNoSessionRows(t *testing.T) {
 	assert.Empty(t, page.Items)
 }
 
-// An unset PEEN_WORKSPACE_ROOTS confines a client to the directory the
+// An unset PEEN_WORKSPACE_ROOT confines a client to the directory the
 // controller was started in.
 func TestControlCoreAppliesTheConfiguredWorkspaceRoots(t *testing.T) {
 	fixture := newCoreFixture(t)

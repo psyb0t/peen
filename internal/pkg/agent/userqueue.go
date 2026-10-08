@@ -275,11 +275,11 @@ func (r *Runtime) queueActiveUserMessage(
 		)
 	}
 
-	if input.Model != "" || input.SystemPrompt != "" ||
-		input.SystemPromptMode != "" {
+	if input.Model != "" || input.ReasoningEffort != "" ||
+		input.SystemPrompt != "" || input.SystemPromptMode != "" {
 		return nil, true, ctxerrors.Wrap(
 			commerr.ErrConflict,
-			"active turn cannot change model or system prompt",
+			"active turn cannot change its model, reasoning, or prompt",
 		)
 	}
 

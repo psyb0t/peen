@@ -224,16 +224,25 @@ func TestRuntimeDeliversPendingEventsAtTurnStart(t *testing.T) {
 	require.NoError(t, err)
 
 	delivered := ""
+	deliveredInjected := false
+	typedInjected := true
 
 	for _, message := range messages.Items {
 		if strings.Contains(message.Content, sessionEventsOpenTag) {
 			delivered = message.Content
+			deliveredInjected = message.Injected
+		}
+
+		if message.Content == "carry on" {
+			typedInjected = message.Injected
 		}
 	}
 
 	require.NotEmpty(t, delivered, "the injected message is durable")
 	assert.Contains(t, delivered, eventTestSummary)
 	assert.Contains(t, delivered, sessionEventsPreamble)
+	assert.True(t, deliveredInjected, "the delivered events are marked as injected")
+	assert.False(t, typedInjected, "the typed prompt is not marked as injected")
 }
 
 func TestInjectedMessageRole(t *testing.T) {

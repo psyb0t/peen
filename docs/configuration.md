@@ -4,7 +4,7 @@ Copy `.env.example` to `.env`, then set the provider values that fit your
 machine. Peen validates every `PEEN_` value before opening its listener, so a
 bad setting fails at startup instead of halfway through a task. Peen starts
 with no sessions. A client opens a workspace through `POST /v1/sessions/open`,
-and `PEEN_WORKSPACE_ROOTS` bounds which directories it may name.
+and `PEEN_WORKSPACE_ROOT` bounds which directories it may name.
 
 For Docker, `.env` is input for `docker run --env-file`. Do not source it from
 Bash because `PEEN_UPSTREAMS` is raw JSON. For a bare binary, set the same
@@ -27,7 +27,7 @@ launching Peen.
 | --- | --- | --- |
 | `PEEN_CONFIG_DIR` | required, absolute | Global configuration and harness layer. Every worker receives it read-only. See [directories](#directories). |
 | `PEEN_STATE_DIR` | required, absolute | Controller-owned durable state: SQLite, audit logs, worker sockets. No worker receives it. See [directories](#directories). |
-| `PEEN_WORKSPACE_ROOTS` | process working directory | JSON array of absolute paths a client may open as a workspace. See [workspace roots](#workspace-roots). |
+| `PEEN_WORKSPACE_ROOT` | process working directory | Absolute directory a client may open workspaces inside. See [workspace root](#workspace-root). |
 | `PEEN_EXECUTION_PROFILES` | one `native` profile | JSON array of runnable execution profiles a client may name. See [execution profiles](#execution-profiles). |
 | `PEEN_DEFAULT_EXECUTION_PROFILE` | `native` | Profile a session opened without naming one uses. |
 | `PEEN_WORKER_SOCKET_DIR` | `PEEN_STATE_DIR/workers` | Root holding one directory per session worker. A worker receives only its own. |
@@ -74,26 +74,19 @@ PEEN_STATE_DIR=/absolute/path/to/peen/state
 
 Siblings under a shared parent are fine. Nesting is not.
 
-## Workspace roots
+## Workspace root
 
-`PEEN_WORKSPACE_ROOTS` is a JSON array of absolute paths:
+The controller has one workspace root. Each chat opens a workspace, which is the root itself or any existing directory inside it, and every workspace gets its own agent session. Point the root at the directory that holds your projects:
 
 ```bash
-PEEN_WORKSPACE_ROOTS='["/srv/work","/srv/scratch"]'
+PEEN_WORKSPACE_ROOT=/srv/work
 ```
 
-A client may open any directory that is a root or sits under one. Peen resolves
-the requested path through its symlinks before checking it, so an alias of an
-allowed directory opens the same session as the real path, and a symlink inside
-a root that points outside it is refused. A path outside every root returns
-`403 WORKSPACE_NOT_ALLOWED` and creates no session.
+With that root, a client can open `/srv/work/api` and `/srv/work/web` as two separate workspaces. Peen resolves the requested path through its symlinks before checking it, so an alias of an allowed directory opens the same session as the real path, and a symlink inside the root that points outside it is refused. A path outside the root returns `403 WORKSPACE_NOT_ALLOWED` and creates no session.
 
-Leaving the variable unset allows only the process working directory, which
-matches the single-workspace behavior this setting generalizes. Set it when one
-Peen should serve several projects.
+Leaving the variable unset uses the process working directory as the root. The Docker command in the README sets the working directory with `-w`, so there the mounted directory is the root.
 
-Peen refuses to start when a configured root is relative or missing, so a typo
-fails at startup rather than when a client first opens a workspace.
+Peen refuses to start when the root is relative or missing, so a typo fails at startup rather than when a client first opens a workspace. It also refuses to start when the removed `PEEN_WORKSPACE_ROOTS` list is still set, and the error names `PEEN_WORKSPACE_ROOT` as its replacement.
 
 ## Execution profiles
 
@@ -358,10 +351,12 @@ order, and execution policy.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PEEN_MAX_PENDING_EVENTS` | `256` | Per-session notice-queue depth. Oldest is dropped first, and the drop is counted. |
-| `PEEN_MAX_EVENT_SUMMARY_BYTES` | `4096` | Bounds `summary` on a posted notice. |
-| `PEEN_MAX_EVENT_DATA_BYTES` | `65536` | Bounds `data` on a posted notice. |
-| `PEEN_MAX_EVENT_WAKES_PER_HOUR` | `60` | Per-session cap on `wake`-started turns. Wakes over the bound coalesce into the next queued delivery instead of starting more turns. |
+| `PEEN_MAX_PENDING_EVENTS` | `256` | Per-session cap on the in-memory copy of pending notices. The oldest copy is dropped and counted in metrics. Delivery to the model reads stored notices from SQLite, so this cap never drops what the model receives. |
+| `PEEN_MAX_EVENT_SUMMARY_BYTES` | `4096` | Bounds `summary` on a notice. |
+| `PEEN_MAX_EVENT_DATA_BYTES` | `65536` | Bounds `data` on a notice. |
+| `PEEN_MAX_EVENT_WAKES_PER_HOUR` | `60` | Per-session cap on turns started by a wake. An event over the cap stays queued for the next turn or tool boundary. |
+
+See [session events](events.md) for event types, delivery, wakes, and event handlers.
 
 ## Child agent limits
 
@@ -376,72 +371,7 @@ order, and execution policy.
 
 ## Harness layering
 
-Peen resolves standing instructions, skills, named agents, and event handlers
-in the same order, every turn:
-
-1. Embedded operating rules, the `planning` and `freshness` skills, and the
-   `default` root agent are the immutable base layer.
-2. `PEEN_CONFIG_DIR` extends the base layer.
-3. Every filesystem ancestor of the session's workspace is then
-   applied, from `/` down to the workspace itself.
-4. At each filesystem layer, Peen reads `AGENTS.md`, then sorted
-   `.claude/rules/*.md`, then sorted `.agents/rules/*.md`, then compatible
-   `.claude/skills/` and native `.agents/` definitions before moving to the
-   next, more specific layer.
-
-A missing layer is normal. An unreadable or malformed optional source is
-ignored without hiding its valid siblings. Peen logs the diagnostic, stores it
-in the resolved context, and emits a durable `harness.warning` event before the
-turn starts. Context and directory-size limits remain hard errors because Peen
-cannot safely continue after exceeding them. Entries are sorted bytewise for
-stable, repeatable results.
-
-- **`AGENTS.md`**: each file is kept as its own instruction block in layer
-  order. A message's own text cannot rewrite these blocks.
-- **Modular rules** (`.claude/rules/<name>.md` and
-  `.agents/rules/<name>.md`): every direct non-empty Markdown file is an
-  additive, always-on instruction block. Missing directories are normal. An
-  empty file, unreadable path, or a directory masquerading as a Markdown rule
-  is ignored with a durable warning. Claude-compatible rules load before native
-  rules at one layer. Rules are never replacements for an earlier rule file.
-- **Skills** (`.claude/skills/<name>/SKILL.md` or
-  `.agents/skills/<name>/SKILL.md`): only the name and
-  description are placed in the system prompt at turn start (progressive
-  disclosure). `use_skill` loads one full `SKILL.md` and its source directory
-  on demand; files it references are then read with the normal `read_file`
-  tool, so that read is a visible, ordinary tool call. A same-named skill in
-  a later layer replaces the earlier or embedded one as a whole unit; a native
-  `.agents` skill wins over the compatible `.claude` skill in one layer. They
-  are never merged. A user can write a standalone `:skill-name` reference at
-  the start of a message or after whitespace to require that exact effective
-  skill. Peen rejects an unknown name before opening a turn or contacting a
-  provider, then injects the full document into the root and child-agent
-  prompt. The original user text remains unchanged. A queued message cannot
-  directly activate a skill because the running turn's prompt is already
-  fixed. Without that syntax, the model uses the catalogue name and
-  description to decide whether to call `use_skill`. `homepage`,
-  `user-invocable`, `permissions`, and nested
-  `metadata` are accepted and retained in the resolved skill record.
-  `allowed-tools` and `permissions` are advisory only. Peen has no permission
-  layer, so it cannot narrow which tools a skill's turn may call.
-- **Named agents** (`.agents/agents/<name>.md`): YAML frontmatter with `name`
-  and `description`, lowercase kebab-case, followed by system instructions.
-  An optional `allowed-tools` string is a comma-separated allowlist enforced
-  for that stored agent, including a replacement `default` root agent. Omit it
-  to expose the normal host tool set. `launch_agent` runs one by name, or
-  accepts an inline `agentDefinition` for a one-off job no stored file covers.
-  Exactly one of the two must be supplied. A child shares the parent turn's
-  session, workspace, resolved rules, and model; it cannot select its own
-  model or provider.
-- **Event handlers** (`.agents/events/<type>.md`): frontmatter with `type`,
-  an optional `agent` naming which effective agent handles it, and an
-  optional `delivery` override. The body is the instruction the agent
-  receives when that event type arrives.
-- **Hooks** (`.agents/hooks.yaml`): additive ordered action groups. A hook
-  document under `PEEN_CONFIG_DIR` is executable. Documents from workspace
-  ancestor layers are resolved, hashed, and listed in the context manifest,
-  but their actions only execute when `PEEN_ENABLE_WORKSPACE_HOOKS=true`.
-  See [hook configuration](hooks.md).
+Rules, skills, named agents, event handlers, and hooks are files Peen reads from the configuration directory and from every directory between `/` and the workspace, fresh at the start of every turn. [The harness guide](harness.md) covers the layer order, how layers combine, what the model sees, and the limits. Each piece has its own page: [rules](rules.md), [skills](skills.md), [named agents](agents.md), [session events and event handlers](events.md), and [hooks](hooks.md).
 
 Every root and child turn also receives the server's current local timestamp,
 timezone, operating system, CPU architecture, logical CPU count, and Go
@@ -451,20 +381,7 @@ changed.
 
 ## Session notices
 
-`POST /v1/session/notices` is how something outside Peen (a webhook, a CI
-job, an operator) tells a running session something happened. `type` uses
-the `job.` and `agent.` prefixes reserved for Peen's own producers
-(`job.exited`, `job.signalled`, `job.failed`, `agent.finished`,
-`agent.failed`); anything else is the deployment's to define.
-
-`delivery: queue` (default) waits for the next turn or tool boundary.
-`delivery: wake` starts a turn immediately if the session is idle and a
-matching `.agents/events/<type>.md` handler exists; a busy session degrades
-the wake to `queue`, and an unhandled type starts nothing. Notice `summary`
-and `data` always reach the model quoted as data under a header naming their
-source, never merged into the system prompt: notice content is untrusted
-input. `GET /v1/session/events` is separate. It replays Peen's durable
-protocol transcript and never consumes or injects notices.
+Background jobs, child agents, hooks, and outside callers report what happened through session notices. Peen hands them to the model at the next turn or tool boundary, or starts a turn when an event handler asks for a wake. See [session events](events.md).
 
 ## Process jobs
 
@@ -483,7 +400,8 @@ line to SQLite before it enters a bounded live ring buffer. The buffer is only
 for the active tool call. REST output replay, job metadata, and signal history
 come from SQLite and survive reconnects and restarts. On shutdown, Peen stops
 every running job gracefully, waits a grace period, then kills its process
-group; no job silently outlives the process.
+group; no job silently outlives the process. A finished job publishes a
+`job.exited`, `job.signalled`, or `job.failed` [session event](events.md).
 
 ## Agent run observability
 

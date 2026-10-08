@@ -452,6 +452,10 @@ func (h *commandHandler) runTurn(
 		message.Model = &request.Model
 	}
 
+	if request.ReasoningEffort != "" {
+		message.ReasoningEffort = &request.ReasoningEffort
+	}
+
 	result, err := h.runtime.RunMessage(ctx, message, request.RequestID, nil)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "run the session turn")

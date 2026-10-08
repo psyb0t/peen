@@ -33,8 +33,9 @@ func TestMessageRequestToTurnRequest(t *testing.T) {
 		{
 			name: "request with explicit settings",
 			request: MessageRequest{
-				Message: "inspect",
-				Model:   new("provider/model"),
+				Message:         "inspect",
+				Model:           new("provider/model"),
+				ReasoningEffort: new("high"),
 				SystemPrompt: &MessageSystemPrompt{
 					Mode:    PromptModeAppend,
 					Content: "extra rules",
@@ -43,6 +44,7 @@ func TestMessageRequestToTurnRequest(t *testing.T) {
 			want: TurnRequest{
 				Message:          "inspect",
 				Model:            "provider/model",
+				ReasoningEffort:  "high",
 				SystemPrompt:     "extra rules",
 				SystemPromptMode: PromptModeAppend,
 				RequestID:        requestID,
@@ -58,6 +60,22 @@ func TestMessageRequestToTurnRequest(t *testing.T) {
 			request: MessageRequest{
 				Message: "inspect",
 				Model:   new(""),
+			},
+			wantErr: commerr.ErrValidationFailed,
+		},
+		{
+			name: "unknown reasoning effort",
+			request: MessageRequest{
+				Message:         "inspect",
+				ReasoningEffort: new("extreme"),
+			},
+			wantErr: commerr.ErrValidationFailed,
+		},
+		{
+			name: "blank reasoning effort",
+			request: MessageRequest{
+				Message:         "inspect",
+				ReasoningEffort: new(""),
 			},
 			wantErr: commerr.ErrValidationFailed,
 		},

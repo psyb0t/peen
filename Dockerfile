@@ -120,7 +120,11 @@ RUN chmod 0755 /usr/local/bin/peen-entrypoint
 USER appuser
 
 # tini reaps the processes run_command spawns and forwards signals to the app.
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/peen-entrypoint", "./app"]
+#
+# The binary path is absolute because containers rarely start in /app. The
+# documented controller command sets -w to the workspace, and every Docker
+# worker starts in its session workspace.
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/peen-entrypoint", "/app/app"]
 
 # The image is one binary with two roles, and its default is the control plane:
 # `docker run psyb0t/peen` starts a controller.

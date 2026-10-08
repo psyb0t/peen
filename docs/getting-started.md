@@ -35,7 +35,7 @@ source this file from Bash. Keep it out of version control.
 
 ## 2. Start it with one workspace
 
-Build the image, create separate configuration, state, and workspace
+Build the image, create separate configuration, state, and workspace root
 directories, then run the server. The controller and any Docker worker must see
 each host directory at the same literal path.
 
@@ -44,8 +44,8 @@ make docker-build
 root="$PWD"
 config="$root/data/peen/config"
 state="$root/data/peen/state"
-workspace="$root/workspace"
-mkdir -p "$config" "$state" "$workspace"
+workspace_root="$root/workspaces"
+mkdir -p "$config" "$state" "$workspace_root/my-app"
 
 docker run --rm \
   --user "$(id -u):$(id -g)" \
@@ -57,27 +57,16 @@ docker run --rm \
   -p 8080:8080 \
   -v "$config:$config" \
   -v "$state:$state" \
-  -v "$workspace:$workspace" \
-  -w "$workspace" \
+  -v "$workspace_root:$workspace_root" \
+  -w "$workspace_root" \
   peen run
 ```
 
-Put the project you want the agent to work on in `workspace`, or point that
-variable at an existing project. `config` holds the trusted harness layer.
-`state` holds SQLite, logs, and worker sockets. `workspace` is the default
-allowed workspace root. The Docker processes use your UID and GID, so agent
-writes keep host ownership. Peen resumes the same session on a later start with
-the same state directory and workspace. Do not mount your whole home directory
-because the agent has normal file and command access inside its container.
+`workspace_root` is the workspace root: the controller may open it or any directory inside it. Put the projects you want the agent to work on inside it, or point the variable at a directory that already holds them. Each project you open becomes a workspace with its own session. `config` holds the trusted harness layer. `state` holds SQLite, logs, and worker sockets. The Docker processes use your UID and GID, so agent writes keep host ownership. Peen resumes the same session on a later start with the same state directory and workspace. Do not mount your whole home directory because the agent has normal file and command access inside its container.
 
 ## 3. Open a workspace chat
 
-Visit `http://localhost:8080`. Enter `PEEN_API_TOKEN` when you set one, then
-choose a suggested workspace root or type an existing project directory below
-one of those roots. The controller remains the authority. It rejects a missing,
-non-directory, or outside-root path with a clear error. The chat shows durable
-messages, current reasoning, tool calls, and tool output as the agent works.
-The Details panel holds the full persisted record when you need it.
+Visit `http://localhost:8080`. Enter `PEEN_API_TOKEN` when you set one. The sidebar shows the workspace root; type a project directory inside it, such as `.../workspaces/my-app`, and open the chat. The controller remains the authority. It rejects a missing, non-directory, or outside-root path with a clear error. The reply streams in as the model writes it, rendered as Markdown, with reasoning collapsed and each tool call shown as one card next to its result. The Details panel holds the full persisted record when you need it.
 
 Opening the same directory again returns the same session, so this is also how
 you reattach after a restart. Every connected browser receives live events for
@@ -109,17 +98,18 @@ workspace/
     hooks.yaml
 ```
 
-Rules and definitions nearer to a file are more specific than ones above it.
-Put topic rules that must apply to every turn in `.claude/rules/*.md` or
-`.agents/rules/*.md`. Skills give the agent named procedures. Every turn sees a
-skill's name and description, then the model decides whether an ordinary task
-matches and loads it with `use_skill`. Put a standalone `:skill-name` at the
-start of a message or after whitespace to require the effective skill by exact
-name. Its full `SKILL.md` enters the root and child-agent prompts before the
-first provider request. Named agents let it split off a bounded job. Hooks are
-for mechanical checks and hard stops that an ordinary prompt should not be
-trusted to enforce. Read [the harness configuration guide](configuration.md#harness-layering)
-and [hook configuration](hooks.md) before adding hooks.
+Peen also reads these files in every parent directory of the workspace, so
+`~/work/AGENTS.md` applies to every project under `~/work` and the project's
+own `AGENTS.md` adds to it. Put topic rules that must apply to every turn in
+`.claude/rules/*.md` or `.agents/rules/*.md`. Skills give the agent named
+procedures. Every turn sees a skill's name and description, then the model
+decides whether an ordinary task matches and loads it with `use_skill`. Put a
+standalone `:skill-name` at the start of a message or after whitespace to
+require the effective skill by exact name. Named agents let it split off a
+bounded job. Hooks are for mechanical checks and hard stops that an ordinary
+prompt should not be trusted to enforce. Each one has its own guide:
+[the harness](harness.md), [rules](rules.md), [skills](skills.md),
+[named agents](agents.md), [session events](events.md), and [hooks](hooks.md).
 
 Peen validates every optional rule, skill, named agent, event handler, and hook
 independently. If one is malformed, Peen keeps the valid configuration, logs a

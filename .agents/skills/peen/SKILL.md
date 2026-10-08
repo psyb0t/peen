@@ -83,10 +83,10 @@ docker run --rm \
 ```
 
 `PEEN_CONFIG_DIR=/data/peen` holds SQLite, logs, and an optional trusted base
-harness. The container working directory `/workspace` is the default allowed
-workspace root; `PEEN_WORKSPACE_ROOTS` widens that to a JSON array of absolute
-paths. Both host directories must exist and be writable by UID and GID `10001`
-before launch.
+harness. The container working directory `/workspace` is the default
+workspace root, and `PEEN_WORKSPACE_ROOT` sets a different one. A client may
+open the root or any directory inside it as a workspace. Both host directories
+must exist and be writable by UID and GID `10001` before launch.
 
 ## Send and follow work
 
@@ -118,7 +118,8 @@ Put always-on project rules in `AGENTS.md`. Add named procedures under
 mechanical guards in `.agents/hooks.yaml`.
 
 Peen resolves the configuration directory first, then every filesystem layer
-from root to the active workspace. A closer layer is more specific. A skill
+from root to the active workspace, at the start of every turn. A layer closer
+to the workspace is more specific. Nothing below the workspace is read. A skill
 description is present in context; the model loads the full skill only when it
 chooses to use it. Hooks are different: they are mechanical and can inject,
 deny, run a direct command, or emit a session notice.
@@ -127,5 +128,10 @@ deny, run a direct command, or emit a session notice.
 
 - [Setup, providers, WebSocket, and REST](references/setup.md)
 - [Configuration](../../../docs/configuration.md)
-- [Hook configuration](../../../docs/hooks.md)
+- [The harness](../../../docs/harness.md)
+- [Rules](../../../docs/rules.md)
+- [Skills](../../../docs/skills.md)
+- [Named agents](../../../docs/agents.md)
+- [Session events](../../../docs/events.md)
+- [Hooks](../../../docs/hooks.md)
 - [API reference](../../../docs/http-api.md)

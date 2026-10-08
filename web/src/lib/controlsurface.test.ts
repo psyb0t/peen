@@ -73,7 +73,49 @@ const messages = [
 		],
 		workspace: "/workspace/catalog",
 	},
+	{
+		content: "# Catalog readme",
+		createdAt: "2026-09-24T00:00:02Z",
+		id: "44444444-4444-4444-8444-444444444441",
+		role: "tool",
+		sequence: 3,
+		toolCallId: "call-read-file",
+		workspace: "/workspace/catalog",
+	},
+	{
+		content:
+			'<session-events count="1">\nA background job finished.\n</session-events>',
+		createdAt: "2026-09-24T00:00:03Z",
+		id: "99999999-9999-4999-8999-999999999999",
+		injected: true,
+		role: "user",
+		sequence: 4,
+		workspace: "/workspace/catalog",
+	},
 ];
+
+async function connectAndOpenChat(): Promise<TestWebSocket | undefined> {
+	const connectionForm = screen
+		.getByRole("button", { name: "Connect" })
+		.closest("form");
+	expect(connectionForm).not.toBeNull();
+	await fireEvent.submit(connectionForm as HTMLFormElement);
+	await screen.findByDisplayValue("/workspace/catalog");
+
+	const transport = TestWebSocket.instances[0];
+	expect(transport).toBeDefined();
+	transport?.open();
+	await fireEvent.click(screen.getByRole("button", { name: "Open chat" }));
+	await screen.findByRole("heading", { name: "catalog" });
+
+	return transport;
+}
+
+function sentMessageData(transport: TestWebSocket | undefined): unknown[] {
+	return (transport?.sent ?? []).map(
+		(frame) => (JSON.parse(frame) as { data: unknown }).data,
+	);
+}
 
 function response(body: unknown): Response {
 	return new Response(JSON.stringify(body), {
@@ -131,8 +173,11 @@ describe("control surface", () => {
 					});
 				case "/v1/session":
 					return response(session);
-				case "/v1/messages":
-					return response({ hasMore: false, items: messages, limit: 100, offset: 0 });
+				case "/v1/messages": {
+					const isNewestFirst = url.searchParams.get("order") === "desc";
+					const items = isNewestFirst ? [...messages].reverse() : messages;
+					return response({ hasMore: false, items, limit: 100, offset: 0 });
+				}
 				case "/v1/session/events":
 					return response({ events: [], hasMore: false, limit: 100, offset: 0 });
 				case "/v1/session/agents":
@@ -183,12 +228,73 @@ describe("control surface", () => {
 
 		await screen.findByRole("heading", { name: "catalog" });
 		await screen.findByText("inspect the workspace");
-		await screen.findByText("Thinking");
-		await screen.findByText("read_file");
+
+		const thinking = (await screen.findByText("Thinking")).closest("details");
+		expect(thinking?.open).toBe(false);
+		await fireEvent.click(screen.getByText("Thinking"));
+		expect(thinking?.open).toBe(true);
+		expect(thinking?.textContent).toContain(
+			"Inspect the workspace before changing it.",
+		);
+
+		const toolCard = (await screen.findByText("read_file")).closest("details");
+		expect(toolCard?.querySelector("summary")?.textContent).toContain("Done");
+		expect(screen.queryByText("Tool result")).toBeNull();
+		await fireEvent.click(screen.getByText("read_file"));
+		expect(toolCard?.open).toBe(true);
+		expect(toolCard?.textContent).toContain("Arguments");
+		expect(toolCard?.textContent).toContain('"path": "README.md"');
+		expect(toolCard?.textContent).toContain("Result");
+		expect(toolCard?.textContent).toContain("# Catalog readme");
+
+		const prompt = screen.getByText("inspect the workspace");
+		const reply = screen.getByText("I found the first thing to fix.");
+		expect(
+			prompt.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+		const injectedLabel = await screen.findByText("Background update");
+		const injectedMessage = injectedLabel.closest("article");
+		expect(injectedMessage?.classList.contains("user")).toBe(false);
+		expect(screen.getAllByText("You")).toHaveLength(1);
 
 		const modelSelector = await screen.findByLabelText<HTMLSelectElement>("Model");
 		const names = Array.from(modelSelector.options, (option) => option.value);
-		expect(names).toEqual(["", "aigate/catalog/model", "zai/glm-5.3"]);
+		expect(names).toEqual(["aigate/default", "aigate/catalog/model", "zai/glm-5.3"]);
+		expect(modelSelector.value).toBe("aigate/default");
+	});
+
+	it("sends the shown model and reasoning level with each new turn", async () => {
+		render(Page);
+		const transport = await connectAndOpenChat();
+
+		const reasoningSelector = screen.getByLabelText<HTMLSelectElement>("Reasoning");
+		expect(Array.from(reasoningSelector.options, (option) => option.value)).toEqual([
+			"minimal",
+			"low",
+			"medium",
+			"high",
+			"xhigh",
+			"max",
+		]);
+		expect(reasoningSelector.value).toBe("medium");
+
+		const messageInput = screen.getByLabelText<HTMLTextAreaElement>("Message");
+		const composer = messageInput.closest("form") as HTMLFormElement;
+		await fireEvent.input(messageInput, { target: { value: "first" } });
+		await fireEvent.submit(composer);
+
+		await fireEvent.change(screen.getByLabelText("Model"), {
+			target: { value: "zai/glm-5.3" },
+		});
+		await fireEvent.change(reasoningSelector, { target: { value: "xhigh" } });
+		await fireEvent.input(messageInput, { target: { value: "second" } });
+		await fireEvent.submit(composer);
+
+		expect(sentMessageData(transport)).toEqual([
+			{ message: "first", model: "aigate/default", reasoningEffort: "medium" },
+			{ message: "second", model: "zai/glm-5.3", reasoningEffort: "xhigh" },
+		]);
 	});
 
 	it("shows an ignored harness source in the active workspace chat", async () => {
@@ -233,5 +339,109 @@ describe("control surface", () => {
 		await screen.findByText(
 			"skill at /workspace/catalog/.agents/skills/broken-skill: skill directory has no SKILL.md",
 		);
+	});
+
+	it("streams content blocks into one live reply rendered as markdown", async () => {
+		render(Page);
+
+		const connectionForm = screen
+			.getByRole("button", { name: "Connect" })
+			.closest("form");
+		expect(connectionForm).not.toBeNull();
+		await fireEvent.submit(connectionForm as HTMLFormElement);
+		await screen.findByDisplayValue("/workspace/catalog");
+
+		const transport = TestWebSocket.instances[0];
+		expect(transport).toBeDefined();
+		transport?.open();
+		await fireEvent.click(screen.getByRole("button", { name: "Open chat" }));
+		await screen.findByRole("heading", { name: "catalog" });
+
+		const requestID = "77777777-7777-4777-8777-777777777777";
+		let sequence = 0;
+		const send = (type: string, data: unknown): void => {
+			sequence += 1;
+			transport?.receive(
+				JSON.stringify({
+					data,
+					id: `88888888-8888-4888-8888-${String(sequence).padStart(12, "0")}`,
+					metadata: { requestId: requestID, sessionId: session.id },
+					timestamp: 1,
+					triggeredBy: null,
+					type,
+				}),
+			);
+		};
+
+		send("user_message.created", { message: "make a script" });
+		send("content_block_start", {
+			content_block: { type: "thinking" },
+			index: 0,
+			type: "content_block_start",
+		});
+		send("content_block_delta", {
+			delta: { text: "plan the ", type: "thinking_delta" },
+			index: 0,
+			type: "content_block_delta",
+		});
+		send("content_block_delta", {
+			delta: { text: "script", type: "thinking_delta" },
+			index: 0,
+			type: "content_block_delta",
+		});
+		send("content_block_stop", { index: 0, type: "content_block_stop" });
+		send("content_block_start", {
+			content_block: {
+				id: "call-write",
+				input: {},
+				name: "write_file",
+				type: "tool_use",
+			},
+			index: 1,
+			type: "content_block_start",
+		});
+		send("content_block_delta", {
+			delta: { partial_json: '{"path":"run.sh"}', type: "input_json_delta" },
+			index: 1,
+			type: "content_block_delta",
+		});
+		send("content_block_stop", { index: 1, type: "content_block_stop" });
+		send("content_block_start", {
+			content_block: { tool_use_id: "call-write", type: "tool_result" },
+			index: 2,
+			type: "content_block_start",
+		});
+		send("content_block_delta", {
+			delta: { text: '{"created":true}', type: "json_partial" },
+			index: 2,
+			type: "content_block_delta",
+		});
+		send("content_block_stop", { index: 2, type: "content_block_stop" });
+		send("content_block_start", {
+			content_block: { type: "text" },
+			index: 3,
+			type: "content_block_start",
+		});
+		send("content_block_delta", {
+			delta: { text: "Created **run", type: "text_delta" },
+			index: 3,
+			type: "content_block_delta",
+		});
+		send("content_block_delta", {
+			delta: { text: ".sh** for you.", type: "text_delta" },
+			index: 3,
+			type: "content_block_delta",
+		});
+
+		await screen.findByText("make a script");
+		await screen.findByText("plan the script");
+		const writeCard = (await screen.findByText("write_file")).closest("details");
+		expect(writeCard?.querySelector("summary")?.textContent).toContain("Done");
+		expect(writeCard?.textContent).toContain('"path": "run.sh"');
+		expect(writeCard?.textContent).toContain('{"created":true}');
+		const emphasized = await screen.findByText("run.sh");
+		expect(emphasized.tagName).toBe("STRONG");
+		expect(screen.queryByText("content_block_delta")).toBeNull();
+		expect(screen.queryByText("content_block_start")).toBeNull();
 	});
 });

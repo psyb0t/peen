@@ -300,6 +300,7 @@ func assertHostToolsTranscript(
 
 	assert.Equal(t, api.MessageRoleUser, messages[0].Role)
 	assert.Equal(t, hostToolsUserMessage, messages[0].Content)
+	assert.Nil(t, messages[0].Injected, "a typed prompt is not marked as injected")
 
 	assertToolRound(
 		t, messages[1], messages[2],
@@ -337,6 +338,8 @@ func assertHostToolsTranscript(
 	assert.Equal(t, api.MessageRoleUser, delivered.Role)
 	assert.Contains(t, delivered.Content, hostToolsJobEventMarker)
 	assert.Contains(t, delivered.Content, hostToolsJobExitedType)
+	require.NotNil(t, delivered.Injected, "delivered events are marked as injected")
+	assert.True(t, *delivered.Injected)
 
 	final := messages[8]
 	assert.Equal(t, api.MessageRoleAssistant, final.Role)

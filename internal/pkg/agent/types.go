@@ -140,9 +140,10 @@ const (
 // It stays transport-neutral so embedding callers and the live socket share
 // one validation and turn-conversion path.
 type MessageRequest struct {
-	Message      string               `json:"message"`
-	Model        *string              `json:"model,omitempty"`
-	SystemPrompt *MessageSystemPrompt `json:"systemPrompt,omitempty"`
+	Message         string               `json:"message"`
+	Model           *string              `json:"model,omitempty"`
+	ReasoningEffort *string              `json:"reasoningEffort,omitempty"`
+	SystemPrompt    *MessageSystemPrompt `json:"systemPrompt,omitempty"`
 
 	// SessionID routes the turn to one durable session. The transport sets it
 	// from the session the client named, never from the message body, so a
@@ -181,11 +182,15 @@ type TurnOrigin struct {
 
 // TurnRequest describes one user message and its optional per-turn settings.
 type TurnRequest struct {
-	SessionID        *uuid.UUID
-	RequestID        uuid.UUID
-	Message          string
-	Workspace        string
-	Model            string
+	SessionID *uuid.UUID
+	RequestID uuid.UUID
+	Message   string
+	Workspace string
+	Model     string
+	// ReasoningEffort is the reasoning level for this turn's model calls.
+	// Empty leaves the provider default. Elelem drops the level for a model
+	// that cannot take one.
+	ReasoningEffort  elelem.ReasoningEffort
 	SystemPrompt     string
 	SystemPromptMode PromptMode
 	OnEvent          EventSink

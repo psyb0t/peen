@@ -88,11 +88,12 @@ func (r *TurnRouter) RunSessionMessage(
 	)
 
 	result, err := live.RunTurn(ctx, protocol.RunTurn{
-		RequestID:    requestID,
-		Message:      request.Message,
-		Model:        optionalString(request.Model),
-		SystemPrompt: promptContent(request),
-		PromptMode:   promptMode(request),
+		RequestID:       requestID,
+		Message:         request.Message,
+		Model:           optionalString(request.Model),
+		ReasoningEffort: optionalString(request.ReasoningEffort),
+		SystemPrompt:    promptContent(request),
+		PromptMode:      promptMode(request),
 	})
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "run the turn in the session worker")

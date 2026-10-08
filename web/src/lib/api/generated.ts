@@ -578,6 +578,8 @@ export interface components {
 			toolCallId?: string | null;
 			isError?: boolean;
 			incomplete?: boolean;
+			/** @description True when Peen added this message to the conversation itself, such as a report of session events delivered during a turn, rather than a person or the model writing it. */
+			injected?: boolean;
 			/** Format: uuid */
 			compactionId?: string | null;
 			/** Format: date-time */
@@ -667,6 +669,11 @@ export interface components {
 			message: string;
 			/** @description Exact model name returned by GET /models, for this turn only. */
 			model?: string;
+			/**
+			 * @description Reasoning level for this turn only. When omitted, the model's own default applies. A message queued into an active turn cannot set it.
+			 * @enum {string}
+			 */
+			reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 			systemPrompt?: components["schemas"]["WebSocketMessageSystemPrompt"];
 		};
 		WebSocketMessageMetadata: {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/psyb0t/aichteeteapee"
 	dabluveees "github.com/psyb0t/aichteeteapee/serbewr/dabluvee-es"
 	"github.com/psyb0t/peen/tests/testinfra"
 	"github.com/stretchr/testify/assert"
@@ -37,6 +38,8 @@ const (
 	apiTestWebSocketInitialMessage     = "open a synchronized websocket session"
 	apiTestWebSocketActiveMessage      = "hold this websocket turn active"
 	apiTestWebSocketQueuedMessage      = "queue this websocket message"
+	apiTestWebSocketReasoningMessage   = "think about this websocket message"
+	apiTestWebSocketReasoningEffort    = "high"
 )
 
 type apiTestWebSocketResult struct {
@@ -140,6 +143,44 @@ func TestAPIWebSocketRejectsUnauthenticatedAndRoutesToTheOpenedSession(
 	})
 }
 
+func TestAPIWebSocketCarriesTheTurnReasoningEffort(t *testing.T) {
+	t.Run("requested level reaches the provider", func(t *testing.T) {
+		connection := dialAPIWebSocket(t, nil)
+		t.Cleanup(func() { require.NoError(t, connection.Close()) })
+
+		require.NoError(t, writeAPIWebSocketMessageData(t, connection, map[string]string{
+			"message":         apiTestWebSocketReasoningMessage,
+			"reasoningEffort": apiTestWebSocketReasoningEffort,
+		}))
+		awaitAPIWebSocketCompletion(t, connection, false)
+
+		assert.Equal(
+			t,
+			apiTestWebSocketReasoningEffort,
+			integrationInfra.LastReasoningEffort(),
+		)
+	})
+
+	t.Run("no level leaves the provider default", func(t *testing.T) {
+		sendAPIWebSocketMessage(t, apiTestWebSocketReasoningMessage)
+
+		assert.Empty(t, integrationInfra.LastReasoningEffort())
+	})
+
+	t.Run("unknown level is rejected", func(t *testing.T) {
+		connection := dialAPIWebSocket(t, nil)
+		t.Cleanup(func() { require.NoError(t, connection.Close()) })
+
+		require.NoError(t, writeAPIWebSocketMessageData(t, connection, map[string]string{
+			"message":         apiTestWebSocketReasoningMessage,
+			"reasoningEffort": "extreme",
+		}))
+
+		failure := awaitAPIWebSocketFailure(t, connection)
+		assert.Equal(t, string(aichteeteapee.ErrorCodeValidationFailed), failure.Code)
+	})
+}
+
 func createAPIWebSocketSession(t *testing.T, message string) uuid.UUID {
 	t.Helper()
 	result := sendAPIWebSocketMessage(t, message)
@@ -171,9 +212,23 @@ func writeAPIWebSocketMessage(
 ) error {
 	t.Helper()
 
+	return writeAPIWebSocketMessageData(
+		t,
+		connection,
+		map[string]string{"message": message},
+	)
+}
+
+func writeAPIWebSocketMessageData(
+	t *testing.T,
+	connection *websocket.Conn,
+	data map[string]string,
+) error {
+	t.Helper()
+
 	event := dabluveees.NewEvent(
 		apiTestWebSocketMessageSend,
-		map[string]string{"message": message},
+		data,
 	).SetMetadata(
 		apiTestWebSocketSessionIDParameter,
 		openAPIWorkspaceSession(t).String(),

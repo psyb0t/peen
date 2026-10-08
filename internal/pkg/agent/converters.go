@@ -124,6 +124,11 @@ func applyMessageOptionalFields(
 		message.IsError = &isError
 	}
 
+	if stored.Injected {
+		injected := true
+		message.Injected = &injected
+	}
+
 	if stored.ModelID != "" {
 		message.Model = &stored.ModelID
 	}

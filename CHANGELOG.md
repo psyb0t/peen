@@ -4,6 +4,28 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.14.0 (2026-10-08)
+
+The control surface now streams replies as they are written, renders them as Markdown, shows each tool call as one card, and lets you pick the model and reasoning level for each turn. A controller has one workspace root, and every project inside it opens as its own workspace. Deployments that set `PEEN_WORKSPACE_ROOTS` must switch to `PEEN_WORKSPACE_ROOT`.
+
+- Breaking: `PEEN_WORKSPACE_ROOTS` is replaced by `PEEN_WORKSPACE_ROOT`, one absolute directory. Peen refuses to start while the old variable is set, and the error names the new one. `GET /v1/workspace-roots` keeps its shape and returns that single root. Migrate by setting `PEEN_WORKSPACE_ROOT` to the directory that holds your projects, or leave it unset to keep using the working directory.
+- Fixes the chat showing one row per streamed `content_block_delta` while the reply itself never appeared until the turn ended. The page now folds content blocks into one live reply: text and reasoning stream in, and each tool call is one card paired with its result.
+- Renders assistant replies as GitHub-flavored Markdown. Raw HTML in model output is not rendered, links are limited to http, https, mailto, and relative targets, and images are shown as links instead of being loaded.
+- Keeps the conversation scrolled to the newest output until you scroll up, and resumes following when you scroll back to the bottom.
+- Loads the newest 100 messages of a session instead of the oldest 100, so long sessions show their latest work.
+- Adds `reasoningEffort` to `message.send`: `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`, for that turn only. Peen fits the level to the turn's model, so a model without reasoning levels runs without one and a level past the model's range runs at its nearest supported level. A message queued into a running turn cannot set it.
+- Adds a Reasoning picker next to Model in the control surface. The Model picker now starts on the session's own model instead of "Session default", and both pickers lock while a turn runs because queued messages keep the running turn's settings.
+- Shows each tool call in a stored conversation as one card with its status (running, done, error, or no result). Expanding the card shows its arguments and its result or error, and thinking blocks expand the same way.
+- Adds `injected` to stored messages. Messages Peen adds itself, such as delivered session events, are marked and shown as a collapsed background update instead of as your own message.
+- Fixes a user's message not appearing live in worker mode. The events a turn opens with are now published to WebSocket clients after they are written, like every checkpointed event.
+- Fixes the session list's message count staying stale until a manual refresh.
+- Fixes the Docker image's entrypoint, which ran `./app` relative to the working directory and failed whenever the container started outside `/app`, including the documented `-w` workspace and every Docker worker.
+- Fixes a path cleaning issue in the embedded web server that the security scan flagged, and builds integration test images with Docker's classic builder.
+- Documents the live event protocol in `docs/http-api.md`, including how a client folds content blocks into a reply.
+- Adds a guide for each part of the harness: `docs/harness.md` for the layer order, load timing, prompt order, and limits, plus `docs/rules.md`, `docs/skills.md`, `docs/agents.md`, and `docs/events.md`. `docs/hooks.md` now covers all 38 events with their input, every action, the command protocol, failure handling, and an example for each kind of hook. The README gives a short overview of each and links to its guide.
+- Corrects the docs on rule layering. Peen reads rule files from the configuration directory and from every directory between `/` and the workspace. It never reads below the workspace and never loads a rule because the model touched a file. Also corrects that `emit_event` `delivery` defaults to `queue`, that an event handler's `agent` field only adds a hint to the wake message, and that `PEEN_MAX_PENDING_EVENTS` never drops what the model receives.
+- Fixes `make web-pkg-add`, `web-pkg-update`, and `web-pkg-remove`, which never passed `WEB_PKG` into the build container.
+
 ## v0.13.1 (2026-10-07)
 
 A hook that denies a tool now hands the model its reason exactly as written.

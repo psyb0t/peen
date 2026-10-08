@@ -1,13 +1,18 @@
 import type { PeenSocketEvent } from "$lib/ws/socket";
 
-import { isRecord } from "$lib/common/json";
+import { isStreamProtocolEvent } from "$lib/chat/stream";
+import { isRecord, stringField } from "$lib/common/json";
 
-const EVENT_TYPE_TEXT_DELTA = "text.delta";
-const EVENT_TYPE_THINKING_DELTA = "thinking.delta";
 const EVENT_TYPE_TOOL_USE = "tool.use";
 const EVENT_TYPE_TOOL_RESULT = "tool.result";
 const EVENT_TYPE_TURN_STARTED = "turn.started";
 const EVENT_TYPE_TURN_COMPLETED = "turn.completed";
+const EVENT_TYPE_USER_MESSAGE_CREATED = "user_message.created";
+const EVENT_TYPE_MESSAGE_COMPLETED = "message.completed";
+const EVENT_TYPE_SESSION_EVENTS = "session.events";
+const EVENT_TYPE_AGENT_RUN_TEXT_DELTA = "agent.run.text.delta";
+const EVENT_TYPE_AGENT_RUN_THINKING_DELTA = "agent.run.thinking.delta";
+const EVENT_TYPE_AGENT_RUN_ASSISTANT_MESSAGE = "agent.run.assistant.message";
 const EVENT_TYPE_TURN_FAILED = "turn.failed";
 const EVENT_TYPE_TURN_CANCELLED = "turn.cancelled";
 const EVENT_TYPE_MESSAGE_FAILED = "message.failed";
@@ -26,7 +31,6 @@ const FAILED_DETAIL = "Failed";
 const CANCELLED_DETAIL = "Cancelled";
 const RETRYING_DETAIL = "Retrying the provider";
 const CHILD_AGENT_TITLE = "Child agent";
-const AGENT_STARTED_TITLE = "Agent started";
 const AGENT_FINISHED_TITLE = "Agent finished";
 
 export type ActivityTone = "default" | "error" | "success" | "warning";
@@ -41,49 +45,39 @@ export interface AgentActivity {
 	tone: ActivityTone;
 }
 
-export function liveText(events: PeenSocketEvent[]): string {
-	return events
-		.filter((event) => event.type === EVENT_TYPE_TEXT_DELTA)
-		.map((event) => textField(event.data))
-		.join("");
-}
+// Events the live reply or the persisted messages already show. Listing them
+// as activity rows would repeat the chat.
+const EVENT_TYPES_SHOWN_ELSEWHERE = new Set([
+	EVENT_TYPE_TOOL_USE,
+	EVENT_TYPE_TOOL_RESULT,
+	EVENT_TYPE_TURN_STARTED,
+	EVENT_TYPE_TURN_COMPLETED,
+	EVENT_TYPE_USER_MESSAGE_CREATED,
+	EVENT_TYPE_MESSAGE_COMPLETED,
+	EVENT_TYPE_SESSION_EVENTS,
+	EVENT_TYPE_AGENT_RUN_TEXT_DELTA,
+	EVENT_TYPE_AGENT_RUN_THINKING_DELTA,
+	EVENT_TYPE_AGENT_RUN_ASSISTANT_MESSAGE,
+]);
 
-export function liveThinking(events: PeenSocketEvent[]): string {
-	return events
-		.filter((event) => event.type === EVENT_TYPE_THINKING_DELTA)
-		.map((event) => textField(event.data))
-		.join("");
+/**
+ * Reports whether an event belongs in the activity list. Stream protocol
+ * events and events the chat already renders do not.
+ */
+export function isActivityEvent(event: PeenSocketEvent): boolean {
+	return !isStreamProtocolEvent(event) && !EVENT_TYPES_SHOWN_ELSEWHERE.has(event.type);
 }
 
 export function activities(events: PeenSocketEvent[]): AgentActivity[] {
-	return events.flatMap((event) => {
-		const activity = activityForEvent(event);
-
-		return activity === undefined ? [] : [activity];
-	});
+	return events.filter(isActivityEvent).map(activityForEvent);
 }
 
-function activityForEvent(event: PeenSocketEvent): AgentActivity | undefined {
+function activityForEvent(event: PeenSocketEvent): AgentActivity {
 	switch (event.type) {
-		case EVENT_TYPE_TEXT_DELTA:
-		case EVENT_TYPE_THINKING_DELTA:
-			return undefined;
-		case EVENT_TYPE_TOOL_USE:
-			return toolActivity(event, RUNNING_DETAIL, "default");
-		case EVENT_TYPE_TOOL_RESULT:
-			return toolActivity(
-				event,
-				toolResultDetail(event.data),
-				toolResultTone(event.data),
-			);
 		case EVENT_TYPE_AGENT_RUN_TOOL_USE:
 			return toolActivity(event, CHILD_AGENT_TITLE, "default");
 		case EVENT_TYPE_AGENT_RUN_TOOL_RESULT:
 			return toolActivity(event, CHILD_AGENT_TITLE, toolResultTone(event.data));
-		case EVENT_TYPE_TURN_STARTED:
-			return simpleActivity(event, AGENT_STARTED_TITLE, RUNNING_DETAIL, "default");
-		case EVENT_TYPE_TURN_COMPLETED:
-			return simpleActivity(event, AGENT_FINISHED_TITLE, COMPLETE_DETAIL, "success");
 		case EVENT_TYPE_TURN_FAILED:
 			return simpleActivity(event, AGENT_FINISHED_TITLE, FAILED_DETAIL, "error");
 		case EVENT_TYPE_TURN_CANCELLED:
@@ -180,28 +174,10 @@ function simpleActivity(
 	return { data: event.data, detail, id: event.id, title, tone };
 }
 
-function toolResultDetail(data: unknown): string {
-	return isError(data) ? FAILED_DETAIL : COMPLETE_DETAIL;
-}
-
 function toolResultTone(data: unknown): ActivityTone {
 	return isError(data) ? "error" : "success";
 }
 
 function isError(data: unknown): boolean {
 	return isRecord(data) && data.isError === true;
-}
-
-function textField(data: unknown): string {
-	return stringField(data, "text") ?? "";
-}
-
-function stringField(data: unknown, name: string): string | undefined {
-	if (!isRecord(data)) {
-		return undefined;
-	}
-
-	const value = data[name];
-
-	return typeof value === "string" ? value : undefined;
 }

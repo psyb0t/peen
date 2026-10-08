@@ -68,13 +68,17 @@ type Config struct {
 	DefaultModel    string `env:"PEEN_DEFAULT_MODEL,required"`
 	CompactionModel string `env:"PEEN_COMPACTION_MODEL"`
 
-	// WorkspaceRootsJSON is the operator's allowlist of directories a client
-	// may open as a session workspace, given as a JSON array of absolute
-	// paths. It bounds which host directories the control surface will ever
-	// expose to a session, so it is deployment configuration and never comes
-	// from a client request. An empty value allows only the process working
-	// directory, which is the single-workspace behavior it generalizes.
-	WorkspaceRootsJSON string `env:"PEEN_WORKSPACE_ROOTS"`
+	// WorkspaceRoot is the absolute directory a client may open session
+	// workspaces under: the root itself or any directory below it. It bounds
+	// which host directories the control surface will ever expose to a
+	// session, so it is deployment configuration and never comes from a
+	// client request. Empty uses the process working directory.
+	WorkspaceRoot string `env:"PEEN_WORKSPACE_ROOT"`
+
+	// RemovedWorkspaceRootsJSON catches the PEEN_WORKSPACE_ROOTS list this
+	// release replaced, so a deployment still setting it fails at startup
+	// instead of silently confining sessions to the working directory.
+	RemovedWorkspaceRootsJSON string `env:"PEEN_WORKSPACE_ROOTS"`
 
 	// ExecutionProfilesJSON defines the execution profiles a client may name,
 	// as a JSON array. Every worker capability lives here: image, mounts,
@@ -256,6 +260,7 @@ func (c Config) validate(requireStateDirectory bool) error {
 		c.validateUpstreamConfiguration,
 		c.validateAgentRunLimits,
 		c.validateMessageLimits,
+		c.validateWorkspaceRoot,
 	}
 	for _, validate := range validators {
 		if err := validate(); err != nil {
@@ -670,69 +675,44 @@ func (c Config) Upstreams() ([]Upstream, error) {
 }
 
 // WorkspaceRoots returns the canonical directories a client may open a session
-// under. An unset PEEN_WORKSPACE_ROOTS yields the process working directory, so
-// a deployment that never configures roots still confines sessions to the
-// directory it was started in.
+// under. Peen supports one workspace root, so the list holds exactly one
+// entry: PEEN_WORKSPACE_ROOT, or the process working directory when it is
+// unset. The list shape is what the workspace policy and the HTTP API carry.
 //
-// Every root is resolved through its symlinks, so a request naming an alias of
-// an allowed root compares equal to it rather than being refused.
+// The root is resolved through its symlinks, so a request naming an alias of
+// it compares equal to it rather than being refused.
 func (c Config) WorkspaceRoots() ([]string, error) {
-	configured, err := c.configuredWorkspaceRoots()
-	if err != nil {
-		return nil, err
+	root := strings.TrimSpace(c.WorkspaceRoot)
+	if root == "" {
+		root = c.WorkingDirectory
 	}
 
-	canonical := make([]string, 0, len(configured))
-	seen := make(map[string]struct{}, len(configured))
-
-	for index, root := range configured {
-		if !filepath.IsAbs(root) {
-			return nil, ctxerrors.Wrapf(
-				ErrInvalidConfig,
-				"PEEN_WORKSPACE_ROOTS entry %d must be absolute",
-				index,
-			)
-		}
-
-		resolved, err := filepath.EvalSymlinks(root)
-		if err != nil {
-			return nil, ctxerrors.Wrapf(
-				err,
-				"resolve PEEN_WORKSPACE_ROOTS entry %d",
-				index,
-			)
-		}
-
-		if _, exists := seen[resolved]; exists {
-			continue
-		}
-
-		seen[resolved] = struct{}{}
-
-		canonical = append(canonical, resolved)
-	}
-
-	if len(canonical) == 0 {
+	if !filepath.IsAbs(root) {
 		return nil, ctxerrors.Wrap(
 			ErrInvalidConfig,
-			"at least one workspace root is required",
+			"PEEN_WORKSPACE_ROOT must be an absolute path",
 		)
 	}
 
-	return canonical, nil
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "resolve PEEN_WORKSPACE_ROOT")
+	}
+
+	return []string{resolved}, nil
 }
 
-func (c Config) configuredWorkspaceRoots() ([]string, error) {
-	if strings.TrimSpace(c.WorkspaceRootsJSON) == "" {
-		return []string{c.WorkingDirectory}, nil
+// validateWorkspaceRoot refuses the removed multi-root setting by name, so an
+// operator upgrading learns which variable to set instead.
+func (c Config) validateWorkspaceRoot() error {
+	if strings.TrimSpace(c.RemovedWorkspaceRootsJSON) != "" {
+		return ctxerrors.Wrap(
+			ErrInvalidConfig,
+			"PEEN_WORKSPACE_ROOTS was removed, set PEEN_WORKSPACE_ROOT",
+		)
 	}
 
-	var roots []string
-	if err := json.Unmarshal([]byte(c.WorkspaceRootsJSON), &roots); err != nil {
-		return nil, ctxerrors.Wrap(err, "parse PEEN_WORKSPACE_ROOTS JSON")
-	}
-
-	return roots, nil
+	return nil
 }
 
 // APIKey resolves only the environment variable selected by the operator.

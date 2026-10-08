@@ -9,10 +9,12 @@ import tseslint from "typescript-eslint";
 const browserGlobals = {
 	btoa: "readonly",
 	crypto: "readonly",
+	HTMLDivElement: "readonly",
 	SubmitEvent: "readonly",
 	TextEncoder: "readonly",
 	URL: "readonly",
 	WebSocket: "readonly",
+	WheelEvent: "readonly",
 	window: "readonly",
 };
 
@@ -36,6 +38,14 @@ export default defineConfig(
 				parser: tseslint.parser,
 				svelteConfig,
 			},
+		},
+	},
+	{
+		// Markdown links point at content outside the app, which resolve() does
+		// not apply to. Their targets are protocol-filtered by safeLinkHref.
+		files: ["src/lib/chat/Markdown.svelte"],
+		rules: {
+			"svelte/no-navigation-without-resolve": ["error", { ignoreLinks: true }],
 		},
 	},
 	{

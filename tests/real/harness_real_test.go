@@ -145,10 +145,10 @@ type realHarnessFixture struct {
 	// default state/workers root past it.
 	socketDirectory string
 
-	// workspaceRootsJSON pins the directories a client may open. Without it the
-	// controller would inherit the operator's PEEN_WORKSPACE_ROOTS from the
+	// workspaceRoot pins the directory a client may open. Without it the
+	// controller would inherit the operator's PEEN_WORKSPACE_ROOT from the
 	// deployment .env this suite reads providers from, and refuse the fixture.
-	workspaceRootsJSON string
+	workspaceRoot string
 
 	workspace      string
 	service        string
@@ -529,14 +529,11 @@ func newRealHarnessFixture(t *testing.T) realHarnessFixture {
 	t.Cleanup(func() { require.NoError(t, os.RemoveAll(socketDirectory)) })
 	assertRealHarnessSocketBudget(t, socketDirectory)
 
-	workspaceRoots, err := json.Marshal([]string{workspace})
-	require.NoError(t, err)
-
 	return realHarnessFixture{
 		configDirectory:    configDirectory,
 		stateDirectory:     stateDirectory,
 		socketDirectory:    socketDirectory,
-		workspaceRootsJSON: string(workspaceRoots),
+		workspaceRoot:      workspace,
 		workspace:          workspace,
 		service:            service,
 		implementation:     implementation,
@@ -789,7 +786,8 @@ func realHarnessEnvironment(
 		"PEEN_CONFIG_DIR":                fixture.configDirectory,
 		"PEEN_STATE_DIR":                 fixture.stateDirectory,
 		"PEEN_WORKER_SOCKET_DIR":         fixture.socketDirectory,
-		"PEEN_WORKSPACE_ROOTS":           fixture.workspaceRootsJSON,
+		"PEEN_WORKSPACE_ROOT":            fixture.workspaceRoot,
+		"PEEN_WORKSPACE_ROOTS":           "",
 		"PEEN_EXECUTION_PROFILES":        "",
 		"PEEN_DEFAULT_EXECUTION_PROFILE": "",
 		"PEEN_WORKER_IMAGE":              "",

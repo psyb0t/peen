@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { activities, liveText, liveThinking } from "./activity";
+import { activities } from "./activity";
 
 const sessionID = "22222222-2222-4222-8222-222222222222";
 
@@ -16,72 +16,36 @@ function event(id: string, type: string, data: unknown) {
 }
 
 describe("agent activity", () => {
-	it("keeps streamed text and thinking in their own ordered chat regions", () => {
-		const events = [
-			event("text-one", "text.delta", { text: "first " }),
-			event("thinking-one", "thinking.delta", { text: "inspect " }),
-			event("text-two", "text.delta", { text: "answer" }),
-			event("thinking-two", "thinking.delta", { text: "files" }),
-		];
-
-		expect(liveText(events)).toBe("first answer");
-		expect(liveThinking(events)).toBe("inspect files");
-		expect(activities(events)).toEqual([]);
+	it.each([
+		["content_block_start", { content_block: { type: "text" }, index: 0 }],
+		["content_block_delta", { delta: { text: "hi", type: "text_delta" }, index: 0 }],
+		["content_block_stop", { index: 0 }],
+		["message_start", {}],
+		["message_delta", {}],
+		["message_stop", {}],
+		["ping", {}],
+		["tool.use", { callId: "call-1", name: "read_file" }],
+		["tool.result", { callId: "call-1", isError: false, name: "read_file" }],
+		["turn.started", {}],
+		["turn.completed", { text: "done" }],
+		["user_message.created", { message: "hello" }],
+		["message.completed", { queued: false }],
+		["session.events", { notices: [] }],
+		["agent.run.text.delta", { text: "child text" }],
+		["agent.run.thinking.delta", { text: "child thought" }],
+		["agent.run.assistant.message", { content: "child reply" }],
+	])("keeps %s out of the activity list because the chat shows it", (type, data) => {
+		expect(activities([event("shown-elsewhere", type, data)])).toEqual([]);
 	});
 
-	it("renders paired tool activity with details without treating tool output as text", () => {
+	it("marks a failed turn without leaking a provider error", () => {
 		const events = [
-			event("tool-start", "tool.use", {
-				arguments: { path: "README.md" },
-				callId: "call-1",
-				name: "read_file",
-			}),
-			event("tool-result", "tool.result", {
-				callId: "call-1",
-				content: "file content",
-				isError: false,
-				name: "read_file",
-			}),
-		];
-
-		expect(activities(events)).toEqual([
-			{
-				data: events[0]?.data,
-				detail: "Running",
-				id: "tool-start",
-				title: "read_file",
-				tone: "default",
-			},
-			{
-				data: events[1]?.data,
-				detail: "Complete",
-				id: "tool-result",
-				title: "read_file",
-				tone: "success",
-			},
-		]);
-	});
-
-	it("marks failed turns and failed tool results without leaking a provider error", () => {
-		const events = [
-			event("tool-failure", "tool.result", {
-				content: "private tool output",
-				isError: true,
-				name: "apply_patch",
-			}),
 			event("turn-failure", "turn.failed", { reason: "private provider detail" }),
 		];
 
 		expect(activities(events)).toEqual([
 			{
 				data: events[0]?.data,
-				detail: "Failed",
-				id: "tool-failure",
-				title: "apply_patch",
-				tone: "error",
-			},
-			{
-				data: events[1]?.data,
 				detail: "Failed",
 				id: "turn-failure",
 				title: "Agent finished",

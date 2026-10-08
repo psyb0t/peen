@@ -89,7 +89,7 @@ func TestAppContainerRequestDoesNotUseLogReadiness(t *testing.T) {
 	assert.Nil(t, request.WaitingFor)
 }
 
-func TestAppImageBuildOptionsUseBuildKit(t *testing.T) {
+func TestAppImageBuildOptionsUseClassicDockerBuilder(t *testing.T) {
 	request := appImageBuildRequest(
 		t.TempDir(),
 		appCoverage{},
@@ -97,7 +97,7 @@ func TestAppImageBuildOptionsUseBuildKit(t *testing.T) {
 
 	options := appImageBuildOptions(&request, testAppImage)
 
-	assert.Equal(t, build.BuilderBuildKit, options.Version)
+	assert.Equal(t, build.BuilderV1, options.Version)
 	assert.Equal(t, []string{testAppImage}, options.Tags)
 	assert.True(t, options.Remove)
 	assert.True(t, options.ForceRemove)

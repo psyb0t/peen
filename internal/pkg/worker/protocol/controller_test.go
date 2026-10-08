@@ -42,6 +42,72 @@ func mustEncode(t *testing.T, value any) json.RawMessage {
 	return encoded
 }
 
+type recordingPublisher struct {
+	sessionIDs []uuid.UUID
+	events     []session.EventInput
+}
+
+func (p *recordingPublisher) PublishSessionEvents(
+	_ context.Context,
+	sessionID uuid.UUID,
+	events []session.EventInput,
+) {
+	p.sessionIDs = append(p.sessionIDs, sessionID)
+	p.events = append(p.events, events...)
+}
+
+// A turn's opening events, such as the user's own message, are written by
+// AcquireTurn rather than a checkpoint. They must still reach live clients,
+// and only after the database holds them.
+func TestControllerPublishesTurnStartEventsAfterTheWrite(t *testing.T) {
+	ctx := context.Background()
+
+	handle, err := db.Open(ctx, db.Config{Directory: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = handle.Close() })
+
+	store, err := session.NewStore(handle, session.Options{})
+	require.NoError(t, err)
+
+	opened, err := store.CreateOrResume(ctx, nil, session.OpenSessionOptions{})
+	require.NoError(t, err)
+
+	publisher := &recordingPublisher{}
+	controller := NewController(store, publisher, opened.Session.ID, uuid.New())
+
+	requestID := uuid.New()
+	opening := session.EventInput{
+		RequestID:   requestID,
+		EventType:   "user_message.created",
+		PayloadJSON: `{"message":"make a script"}`,
+	}
+
+	result, err := controller.HandleCall(
+		ctx,
+		string(MethodAcquireTurn),
+		mustEncode(t, InputRequest[session.StartTurnInput]{
+			SessionID: opened.Session.ID,
+			Input: session.StartTurnInput{
+				RequestID: requestID,
+				Workspace: opened.Session.Workspace,
+				Events:    []session.EventInput{opening},
+			},
+		}),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	require.Len(t, publisher.events, 1)
+	assert.Equal(t, []uuid.UUID{opened.Session.ID}, publisher.sessionIDs)
+	assert.Equal(t, opening.EventType, publisher.events[0].EventType)
+	assert.Equal(t, requestID, publisher.events[0].RequestID)
+
+	stored, err := store.ListEvents(ctx, opened.Session.ID, session.ListEventsOptions{})
+	require.NoError(t, err)
+	require.Len(t, stored.Items, 1)
+	assert.Equal(t, opening.EventType, stored.Items[0].EventType)
+}
+
 // The private socket is only a real boundary because every request is checked
 // against the session the connection registered for. Without this check a
 // worker holding one session's socket could read another session's transcript.

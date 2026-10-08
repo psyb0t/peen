@@ -545,6 +545,7 @@ func (s *Store) newMessage(
 		ToolCallID:    input.ToolCallID,
 		IsError:       input.IsError,
 		Incomplete:    input.Incomplete,
+		Injected:      input.Injected,
 		CreatedAt:     s.now(),
 	}, nil
 }

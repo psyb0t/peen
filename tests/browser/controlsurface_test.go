@@ -70,6 +70,9 @@ const (
 	browserSelectorMessage               = "form.composer textarea"
 	browserSelectorSend                  = "form.composer button[type=submit]"
 	browserSelectorDetails               = "aside.inspector"
+	browserSelectorToolCardDone          = `details.tool-card[data-status="done"]`
+	browserSelectorToolCardError         = `details.tool-card[data-status="error"]`
+	browserSelectorToolCardErrorSummary  = browserSelectorToolCardError + " summary"
 	browserSelectorSocketOpen            = "p.connection-state.connected"
 	browserEventKey                      = "event"
 	browserNetworkRequest                = "request"
@@ -103,8 +106,12 @@ const (
 	browserToolReadFile                  = "read_file"
 	browserToolApplyPatch                = "apply_patch"
 	browserToolRunCommand                = "run_command"
-	browserToolOutputLabel               = "Tool output"
+	browserToolStatusDone                = "done"
+	browserToolStatusError               = "error"
+	browserToolArgumentsLabel            = "arguments"
+	browserOrphanToolResultName          = "Tool result"
 	browserLiveEventsLabel               = "Live events ("
+	browserStreamProtocolEvent           = "content_block_"
 	browserModelReference                = "integration/test-model"
 	browserMaxScreenshotEdge             = 512
 	browserImage                         = "psyb0t/stealthy-auto-browse@sha256:d481011eff9432a3afe7b03d06634eca1a1061f3ea1e17d99d0e18f7fcac425f"
@@ -329,12 +336,28 @@ func TestControlSurfaceCompletesATurnInARealBrowser(t *testing.T) {
 		browserTextKey:    browserCompletionText,
 		browserTimeoutKey: browserRequestTimeout.Seconds(),
 	})
-	browserAction(t, ctx, browserActionWaitForText, map[string]any{
-		browserTextKey:    browserToolOutputLabel,
-		browserTimeoutKey: browserRequestTimeout.Seconds(),
+	// CSS upper-cases the status labels, so card text is compared without case.
+	doneCard := strings.ToLower(
+		browserElement(t, ctx, browserSelectorToolCardDone),
+	)
+	require.Contains(t, doneCard, browserToolStatusDone)
+
+	errorCard := strings.ToLower(
+		browserElement(t, ctx, browserSelectorToolCardError),
+	)
+	require.Contains(t, errorCard, browserToolApplyPatch)
+	require.Contains(t, errorCard, browserToolStatusError)
+
+	browserAction(t, ctx, browserActionClick, map[string]any{
+		browserSelectorKey: browserSelectorToolCardErrorSummary,
 	})
+	expandedErrorCard := strings.ToLower(
+		browserElement(t, ctx, browserSelectorToolCardError),
+	)
+	require.Contains(t, expandedErrorCard, browserToolArgumentsLabel)
 
 	page := browserText(t, ctx)
+	require.NotContains(t, page, browserOrphanToolResultName)
 	require.Contains(t, page, browserThinkingMessage)
 	require.Contains(t, page, browserThinkingCompletion)
 	require.Contains(t, page, browserTestMessage)
@@ -347,6 +370,12 @@ func TestControlSurfaceCompletesATurnInARealBrowser(t *testing.T) {
 	require.Contains(t, page, browserToolReadFile)
 	require.Contains(t, page, browserToolApplyPatch)
 	require.Contains(t, page, browserToolRunCommand)
+	require.NotContains(
+		t,
+		page,
+		browserStreamProtocolEvent,
+		"streamed content blocks must fold into the reply, not render as rows",
+	)
 
 	browserAction(t, ctx, browserActionClick, map[string]any{
 		browserSelectorKey: "button[aria-pressed]",

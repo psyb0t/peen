@@ -1055,14 +1055,17 @@ type Message struct {
 	CreatedAt    time.Time           `json:"createdAt"`
 	Id           openapi_types.UUID  `json:"id"`
 	Incomplete   *bool               `json:"incomplete,omitempty"`
-	IsError      *bool               `json:"isError,omitempty"`
-	Model        *string             `json:"model,omitempty"`
-	Role         MessageRole         `json:"role"`
-	Sequence     int64               `json:"sequence"`
-	Thinking     *string             `json:"thinking,omitempty"`
-	ToolCallId   *string             `json:"toolCallId,omitempty"`
-	ToolCalls    *[]MessageToolCall  `json:"toolCalls,omitempty"`
-	Workspace    string              `json:"workspace"`
+
+	// Injected True when Peen added this message to the conversation itself, such as a report of session events delivered during a turn, rather than a person or the model writing it.
+	Injected   *bool              `json:"injected,omitempty"`
+	IsError    *bool              `json:"isError,omitempty"`
+	Model      *string            `json:"model,omitempty"`
+	Role       MessageRole        `json:"role"`
+	Sequence   int64              `json:"sequence"`
+	Thinking   *string            `json:"thinking,omitempty"`
+	ToolCallId *string            `json:"toolCallId,omitempty"`
+	ToolCalls  *[]MessageToolCall `json:"toolCalls,omitempty"`
+	Workspace  string             `json:"workspace"`
 }
 
 // MessageRole defines model for Message.Role.

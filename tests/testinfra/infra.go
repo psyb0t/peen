@@ -321,7 +321,7 @@ func appImageBuildOptions(
 		ForceRemove: true,
 		Remove:      true,
 		Tags:        []string{image},
-		Version:     build.BuilderBuildKit,
+		Version:     build.BuilderV1,
 	}
 }
 
@@ -366,7 +366,7 @@ func buildAppImage(
 		responseCloseErr != nil ||
 		buildContextCloseErr != nil ||
 		dockerClientCloseErr != nil {
-		return image, errors.Join(
+		return "", errors.Join(
 			wrapOptionalError(buildErr, "read app image build result"),
 			wrapOptionalError(responseCloseErr, "close app image build result"),
 			buildContextCloseErr,
@@ -615,6 +615,16 @@ func (i *Infra) LastSystemPrompt() string {
 	return i.provider.systemPrompt()
 }
 
+// LastReasoningEffort returns the reasoning_effort of the most recent provider
+// request, or an empty string when the request carried none.
+func (i *Infra) LastReasoningEffort() string {
+	if i == nil || i.provider == nil {
+		return ""
+	}
+
+	return i.provider.reasoningEffort()
+}
+
 // ModelDiscoveryObserved reports whether the app called the configured models
 // endpoint during startup.
 func (i *Infra) ModelDiscoveryObserved() bool {
@@ -757,15 +767,17 @@ func (h *CompletionHold) Release() {
 }
 
 type openAIModelsMock struct {
-	server           *httptest.Server
-	modelsListed     atomic.Bool
-	completionCount  atomic.Int64
-	holdMu           sync.Mutex
-	nextHold         *completionHold
-	scriptMu         sync.RWMutex
-	script           *ScriptedToolTurn
-	promptMu         sync.RWMutex
-	lastSystemPrompt string
+	server          *httptest.Server
+	modelsListed    atomic.Bool
+	completionCount atomic.Int64
+	holdMu          sync.Mutex
+	nextHold        *completionHold
+	scriptMu        sync.RWMutex
+	script          *ScriptedToolTurn
+	// promptMu guards both values recorded from the latest completion request.
+	promptMu            sync.RWMutex
+	lastSystemPrompt    string
+	lastReasoningEffort string
 }
 
 // ProviderMock is a deterministic local OpenAI-compatible provider for
@@ -852,9 +864,11 @@ type completionHold struct {
 }
 
 type providerCompletionRequest struct {
-	Model    string                      `json:"model"`
-	Stream   bool                        `json:"stream"`
-	Messages []providerCompletionMessage `json:"messages"`
+	Model  string `json:"model"`
+	Stream bool   `json:"stream"`
+	//nolint:tagliatelle // The OpenAI chat completions API defines this name.
+	ReasoningEffort string                      `json:"reasoning_effort"`
+	Messages        []providerCompletionMessage `json:"messages"`
 }
 
 // providerCompletionMessage carries only the field a scripted turn needs:
@@ -991,6 +1005,7 @@ func (m *openAIModelsMock) handleCompletion(
 	}
 
 	m.recordSystemPrompt(completionRequest.systemPrompt())
+	m.recordReasoningEffort(completionRequest.ReasoningEffort)
 
 	if !m.awaitCompletionRelease(request.Context()) {
 		return
@@ -1029,6 +1044,20 @@ func (m *openAIModelsMock) systemPrompt() string {
 	defer m.promptMu.RUnlock()
 
 	return m.lastSystemPrompt
+}
+
+func (m *openAIModelsMock) recordReasoningEffort(effort string) {
+	m.promptMu.Lock()
+	defer m.promptMu.Unlock()
+
+	m.lastReasoningEffort = effort
+}
+
+func (m *openAIModelsMock) reasoningEffort() string {
+	m.promptMu.RLock()
+	defer m.promptMu.RUnlock()
+
+	return m.lastReasoningEffort
 }
 
 func (m *openAIModelsMock) writeScriptedCompletion(

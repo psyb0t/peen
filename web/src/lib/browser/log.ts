@@ -1,3 +1,4 @@
+import { REASONING_EFFORTS } from "$lib/common/constants";
 import { isRecord } from "$lib/common/json";
 
 // Every record is one console.debug call: this prefix, a space, then one JSON
@@ -20,9 +21,12 @@ export const BROWSER_LOG_EVENTS = [
 	"session.load.complete",
 	"session.load.fail",
 	"session.load.start",
+	"session.load.superseded",
 	"session.reconfigure.complete",
 	"session.reconfigure.fail",
 	"session.reconfigure.start",
+	"sessions.refresh.complete",
+	"sessions.refresh.fail",
 	"socket.close",
 	"socket.connect.start",
 	"socket.error",
@@ -42,6 +46,7 @@ export const BROWSER_LOG_OPERATIONS = [
 	"session.cancel",
 	"session.load",
 	"session.reconfigure",
+	"sessions.refresh",
 	"socket",
 	"workspace.open",
 ] as const;
@@ -65,6 +70,7 @@ export interface BrowserLogMetadata {
 	model?: string;
 	operation?: BrowserLogOperation;
 	reason?: BrowserFrameRejectReason;
+	reasoning_effort?: string;
 	request_id?: string;
 	session_id?: string;
 	socket_state?: BrowserSocketState;
@@ -82,6 +88,7 @@ const allowedEvents: ReadonlySet<string> = new Set(BROWSER_LOG_EVENTS);
 const allowedOperations: ReadonlySet<string> = new Set(BROWSER_LOG_OPERATIONS);
 const allowedSocketStates: ReadonlySet<string> = new Set(BROWSER_SOCKET_STATES);
 const allowedRejectReasons: ReadonlySet<string> = new Set(BROWSER_FRAME_REJECT_REASONS);
+const allowedReasoningEfforts: ReadonlySet<string> = new Set(REASONING_EFFORTS);
 
 // logBrowserEvent writes one diagnostic record. An event name outside the
 // allowlist writes nothing. A metadata value that is not an allowlisted key of
@@ -120,6 +127,7 @@ function safeMetadata(metadata: unknown): BrowserLogMetadata {
 		model: matching(metadata.model, MODEL_PATTERN),
 		operation: oneOf<BrowserLogOperation>(metadata.operation, allowedOperations),
 		reason: oneOf<BrowserFrameRejectReason>(metadata.reason, allowedRejectReasons),
+		reasoning_effort: oneOf<string>(metadata.reasoning_effort, allowedReasoningEfforts),
 		request_id: matching(metadata.request_id, UUID_PATTERN),
 		session_id: matching(metadata.session_id, UUID_PATTERN),
 		socket_state: oneOf<BrowserSocketState>(metadata.socket_state, allowedSocketStates),

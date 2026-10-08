@@ -341,6 +341,33 @@ func TestRouterStartsAWorkerAndRunsTheTurnInIt(t *testing.T) {
 	require.Len(t, turns, 1)
 	assert.Equal(t, routedMessage, turns[0].Message)
 	assert.Equal(t, requestID, turns[0].RequestID)
+	assert.Empty(t, turns[0].Model)
+	assert.Empty(t, turns[0].ReasoningEffort)
+}
+
+// The per-turn model and reasoning level travel to the worker unchanged.
+func TestRouterCarriesTheTurnSettingsToTheWorker(t *testing.T) {
+	fixture := newRoutingFixture(t)
+
+	model := "provider/other"
+	effort := "xhigh"
+	_, err := fixture.router.RunSessionMessage(
+		t.Context(),
+		fixture.sessionID,
+		agent.MessageRequest{
+			Message:         routedMessage,
+			Model:           &model,
+			ReasoningEffort: &effort,
+		},
+		uuid.New(),
+	)
+	require.NoError(t, err)
+
+	require.Len(t, fixture.launcher.workers, 1)
+	turns := fixture.launcher.workers[0].turns
+	require.Len(t, turns, 1)
+	assert.Equal(t, model, turns[0].Model)
+	assert.Equal(t, effort, turns[0].ReasoningEffort)
 }
 
 // TestRouterSignalsAJobInTheSessionWorker carries a job signal to the process

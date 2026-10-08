@@ -20,8 +20,7 @@ func canonicalDir(t *testing.T) string {
 	return canonical
 }
 
-// An unset value confines sessions to the directory Peen was started in, which
-// is the single-workspace behavior this setting generalizes.
+// An unset value confines sessions to the directory Peen was started in.
 func TestWorkspaceRootsDefaultsToTheWorkingDirectory(t *testing.T) {
 	t.Parallel()
 
@@ -32,43 +31,47 @@ func TestWorkspaceRootsDefaultsToTheWorkingDirectory(t *testing.T) {
 	assert.Equal(t, []string{working}, roots)
 }
 
-func TestWorkspaceRootsReadsConfiguredPaths(t *testing.T) {
+func TestWorkspaceRootsReadsTheConfiguredRoot(t *testing.T) {
 	t.Parallel()
 
 	base := canonicalDir(t)
-	first := filepath.Join(base, "first")
-	second := filepath.Join(base, "second")
+	root := filepath.Join(base, "projects")
+	require.NoError(t, os.MkdirAll(root, testDirectoryMode))
 
-	require.NoError(t, os.MkdirAll(first, testDirectoryMode))
-	require.NoError(t, os.MkdirAll(second, testDirectoryMode))
-
-	config := Config{
-		WorkingDirectory:   base,
-		WorkspaceRootsJSON: `["` + first + `","` + second + `"]`,
+	testCases := []struct {
+		name  string
+		value string
+	}{
+		{name: "plain path", value: root},
+		{name: "surrounding whitespace", value: "  " + root + "\t"},
 	}
 
-	roots, err := config.WorkspaceRoots()
-	require.NoError(t, err)
-	assert.Equal(t, []string{first, second}, roots)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			config := Config{WorkingDirectory: base, WorkspaceRoot: tc.value}
+
+			roots, err := config.WorkspaceRoots()
+			require.NoError(t, err)
+			assert.Equal(t, []string{root}, roots)
+		})
+	}
 }
 
-// Two names for one directory are one root, so the resolved list holds it once.
-func TestWorkspaceRootsDeduplicatesResolvedPaths(t *testing.T) {
+// A symlinked root resolves to its target, so a request naming either path
+// compares equal to the one allowed root.
+func TestWorkspaceRootsResolvesSymlinks(t *testing.T) {
 	t.Parallel()
 
 	base := canonicalDir(t)
-	target := filepath.Join(base, "project")
+	target := filepath.Join(base, "projects")
 	require.NoError(t, os.MkdirAll(target, testDirectoryMode))
 
 	alias := filepath.Join(base, "alias")
 	require.NoError(t, os.Symlink(target, alias))
 
-	config := Config{
-		WorkingDirectory:   base,
-		WorkspaceRootsJSON: `["` + target + `","` + alias + `"]`,
-	}
-
-	roots, err := config.WorkspaceRoots()
+	roots, err := Config{WorkingDirectory: base, WorkspaceRoot: alias}.WorkspaceRoots()
 	require.NoError(t, err)
 	assert.Equal(t, []string{target}, roots)
 }
@@ -80,39 +83,19 @@ func TestWorkspaceRootsRejectsUnusableValues(t *testing.T) {
 
 	testCases := []struct {
 		name    string
-		json    string
+		value   string
 		wantErr error
 	}{
-		{
-			name:    "malformed JSON",
-			json:    `["/srv/work"`,
-			wantErr: nil,
-		},
-		{
-			name:    "relative path",
-			json:    `["relative/path"]`,
-			wantErr: ErrInvalidConfig,
-		},
-		{
-			name:    "empty array",
-			json:    `[]`,
-			wantErr: ErrInvalidConfig,
-		},
-		{
-			name:    "missing directory",
-			json:    `["` + filepath.Join(base, "absent") + `"]`,
-			wantErr: nil,
-		},
+		{name: "relative path", value: "relative/path", wantErr: ErrInvalidConfig},
+		{name: "dot path", value: ".", wantErr: ErrInvalidConfig},
+		{name: "missing directory", value: filepath.Join(base, "absent")},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			config := Config{
-				WorkingDirectory:   base,
-				WorkspaceRootsJSON: tc.json,
-			}
+			config := Config{WorkingDirectory: base, WorkspaceRoot: tc.value}
 
 			roots, err := config.WorkspaceRoots()
 			require.Error(t, err)
@@ -121,6 +104,40 @@ func TestWorkspaceRootsRejectsUnusableValues(t *testing.T) {
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
 			}
+		})
+	}
+}
+
+// The removed multi-root list must stop startup with a message naming its
+// replacement, rather than being ignored while sessions fall back to the
+// working directory.
+func TestValidateRefusesTheRemovedWorkspaceRootsList(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name    string
+		removed string
+		wantErr bool
+	}{
+		{name: "unset", removed: "", wantErr: false},
+		{name: "whitespace only", removed: "   ", wantErr: false},
+		{name: "a JSON list", removed: `["/srv/work"]`, wantErr: true},
+		{name: "an empty JSON list", removed: `[]`, wantErr: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := Config{RemovedWorkspaceRootsJSON: tc.removed}.validateWorkspaceRoot()
+			if !tc.wantErr {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, ErrInvalidConfig)
+			assert.Contains(t, err.Error(), "PEEN_WORKSPACE_ROOT")
 		})
 	}
 }

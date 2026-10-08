@@ -3,22 +3,23 @@ package server
 import (
 	"net/http"
 
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/openapi3filter"
 	legacyrouter "github.com/getkin/kin-openapi/routers/legacy"
 	"github.com/psyb0t/aichteeteapee"
 	"github.com/psyb0t/aichteeteapee/serbewr/middleware"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxscope"
-	api "github.com/psyb0t/peen/internal/pkg/http/api"
+	apispec "github.com/psyb0t/peen/api"
 )
 
 // specValidator validates every declared API request before it reaches the
 // generated handler. Unknown paths pass through so ServeMux retains its normal
 // 404 and 405 behavior.
 func specValidator() (middleware.Middleware, error) {
-	spec, err := api.GetSpec()
+	spec, err := openapi3.NewLoader().LoadFromData(apispec.Spec)
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "load generated OpenAPI document")
+		return nil, ctxerrors.Wrap(err, "load OpenAPI document")
 	}
 
 	router, err := legacyrouter.NewRouter(spec)

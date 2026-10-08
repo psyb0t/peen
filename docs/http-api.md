@@ -41,8 +41,9 @@ surface uses them as suggestions, while still allowing a user to type an
 existing child directory. The endpoint does not create a session. A rejected
 `POST /v1/sessions/open` still names no configured root.
 
-A workspace must sit under a configured `PEEN_WORKSPACE_ROOTS` entry. Peen
-refuses one outside every root with `403 WORKSPACE_NOT_ALLOWED` and creates no
+A workspace must be the configured `PEEN_WORKSPACE_ROOT` or sit inside it. The
+list from `GET /v1/workspace-roots` therefore holds that one root. Peen
+refuses a workspace outside it with `403 WORKSPACE_NOT_ALLOWED` and creates no
 session. The refusal names no root, so a caller cannot map the deployment's
 directory layout by probing it. A missing directory beneath an allowed root
 returns `404 WORKSPACE_NOT_FOUND` with `workspace directory does not exist`, so
@@ -97,6 +98,7 @@ The accepted client event is `message.send`. Its `data` is strict JSON:
   "data": {
     "message": "required, non-empty",
     "model": "optional provider/model override for this call only",
+    "reasoningEffort": "optional minimal | low | medium | high | xhigh | max",
     "systemPrompt": {"mode": "append", "content": "optional instructions"}
   },
   "metadata": {"sessionId": "canonical UUIDv4 returned by sessions/open"},
@@ -107,6 +109,7 @@ The accepted client event is `message.send`. Its `data` is strict JSON:
 
 `systemPrompt.mode` is `append` for the default prompt plus the supplied text,
 or `replace` for the supplied text alone. Neither setting is sticky.
+`reasoningEffort` sets the reasoning level for this turn's model calls. Without it the model uses its own default. A level the model cannot take is fitted to it: a model without reasoning levels gets none, and a level outside the model's range runs at the nearest level it supports. The controller logs each change with the requested level, the level used, and a `reason`. Any other value fails the message with `VALIDATION_FAILED`.
 `metadata.sessionId` is required on every client message. It routes the work to an existing session and is not an authorization grant. `data.workspace` is rejected. A client learns a session ID from `POST /v1/sessions/open`, not from a special first socket frame.
 
 Write a standalone `:skill-name` at the start of a message or after whitespace
@@ -118,7 +121,7 @@ catalogue and decides whether to load a matching procedure with `use_skill`.
 
 When the session already has a running turn, a `message.send` with only a
 `message` joins that turn's FIFO user-message queue. A queued message cannot set
-`model` or `systemPrompt`, because those settings belong to the running turn.
+`model`, `reasoningEffort`, or `systemPrompt`, because those settings belong to the running turn.
 It also cannot directly activate a skill, because the running prompt is fixed.
 The live queue is bounded by `PEEN_MAX_QUEUED_USER_MESSAGES`,
 defaults to 16, and does not interrupt an in-flight provider request. Queued
@@ -127,21 +130,30 @@ restart, cancellation, or an unfinished queue.
 
 Every accepted `message.send` first emits a durable `user_message.created`
 event. Every server frame is a Dabluvee event with `id`, `type`, `data`,
-`timestamp`, `metadata`, and `triggeredBy`. Agent events use their native type
-directly. For example, text and reasoning deltas are `text.delta` and
-`thinking.delta`; tool activity is `tool.use` and `tool.result`. All session events carry `metadata.sessionId`,
-`metadata.requestId`, and the inbound event ID in `triggeredBy`:
+`timestamp`, `metadata`, and `triggeredBy`. All session events carry `metadata.sessionId` and `metadata.requestId`; every event of one turn shares the same `requestId`:
 
 ```json
 {
   "id": "uuid",
-  "type": "text.delta",
-  "data": {},
+  "type": "content_block_delta",
+  "data": {"type": "content_block_delta", "index": 1, "delta": {"type": "text_delta", "text": "Hel"}},
   "timestamp": 0,
   "metadata": {"sessionId": "uuid", "requestId": "uuid"},
   "triggeredBy": "uuid"
 }
 ```
+
+A turn emits Peen's own events (`user_message.created`, `turn.started`, `tool.use`, `tool.result`, `session.events`, `harness.warning`, `provider.retry`, and one of `turn.completed`, `turn.failed`, or `turn.cancelled`) plus the model's reply as Anthropic-style content blocks:
+
+| Event | `data` | Meaning |
+| --- | --- | --- |
+| `content_block_start` | `{index, content_block: {type}}` | Opens block `index`. `type` is `text`, `thinking`, `tool_use` (with `id`, `name`), or `tool_result` (with `tool_use_id`, `is_error`). |
+| `content_block_delta` | `{index, delta: {type, ...}}` | Appends to block `index`: `text_delta` and `thinking_delta` carry `text`, `input_json_delta` carries `partial_json`, and `json_partial` carries a tool result's `text`. |
+| `content_block_stop` | `{index}` | Closes block `index`. |
+
+Block indexes count up from zero within one turn and start over in the next, so a client keys blocks by `requestId` and `index`. A `tool_result` block answers the `tool_use` block whose `id` equals its `tool_use_id`. To render a live reply, fold the blocks of a turn in arrival order: append `text_delta` and `thinking_delta` text to their block, and attach each tool result to its call. When `turn.completed`, `turn.failed`, or `turn.cancelled` arrives, the turn's messages are durable and `GET /v1/messages` returns them. The embedded control surface does exactly this and then replaces the live reply with the stored messages.
+
+A stored message with `injected: true` was added by Peen, not typed by a person or written by the model. Delivered session events are the common case: they arrive as a user-role message the agent reads as data.
 
 Successful submissions finish with `message.completed`. Its data is
 `{"queued": false}` when the turn finished or `{"queued": true}` when the

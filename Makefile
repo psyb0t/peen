@@ -118,20 +118,22 @@ web-test: dev-image ## Run static control-surface unit tests
 web-pkg-lock: dev-image ## Refresh the frontend lockfile without changing versions
 	@$(DEV_RUN) bash scripts/web/run.sh pkg-lock
 
+# DEV_RUN forwards only the framework's own variables into the container, so
+# the package targets pass WEB_PKG through env from the exported shell value.
 web-pkg-add: export WEB_PKG := $(WEB_PKG)
 web-pkg-add: dev-image ## Add a pinned frontend package, set WEB_PKG=name@version
-	@$(DEV_RUN) bash scripts/web/run.sh pkg-add
+	@$(DEV_RUN) env WEB_PKG="$$WEB_PKG" bash scripts/web/run.sh pkg-add
 
 web-pkg-update: export WEB_PKG := $(WEB_PKG)
 web-pkg-update: dev-image ## Update one frontend package, set WEB_PKG=name
-	@$(DEV_RUN) bash scripts/web/run.sh pkg-update
+	@$(DEV_RUN) env WEB_PKG="$$WEB_PKG" bash scripts/web/run.sh pkg-update
 
 web-pkg-upgrade: dev-image ## Update every frontend package after pnpm's age gate
 	@$(DEV_RUN) bash scripts/web/run.sh pkg-upgrade
 
 web-pkg-remove: export WEB_PKG := $(WEB_PKG)
 web-pkg-remove: dev-image ## Remove one frontend package, set WEB_PKG=name
-	@$(DEV_RUN) bash scripts/web/run.sh pkg-remove
+	@$(DEV_RUN) env WEB_PKG="$$WEB_PKG" bash scripts/web/run.sh pkg-remove
 
 # Example: override a framework command by uncommenting and editing this.
 #

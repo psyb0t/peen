@@ -6,6 +6,8 @@
 [![license](https://raw.githubusercontent.com/psyb0t/peen/badges/license.svg)](LICENSE)
 [![Docker Pulls](https://img.shields.io/docker/pulls/psyb0t/peen?style=flat-square)](https://hub.docker.com/r/psyb0t/peen)
 
+_peen goes in vageen_
+
 Peen puts a coding agent in a real working directory and keeps the whole job
 alive after the first response. Connect a client over WebSocket, give it a
 task, and it can read code, edit files, run commands, use skills, launch child
@@ -62,17 +64,18 @@ Read [install.sh](install.sh) before piping it into a shell. [Deployment](docs/d
 
 ## Run it
 
-Run Peen in Docker first. Pick a workspace you are happy to hand to an agent.
-Do not mount your whole home directory just because it is convenient.
+Run Peen in Docker first. Pick a workspace root you are happy to hand to an agent: a directory that holds the projects you want it to work on. Do not mount your whole home directory just because it is convenient.
 
-You need Docker and a provider API key. Pick three host directories: one for trusted configuration, one for Peen's database and logs, and one workspace for the agent. Download the example configuration beside them:
+Two words matter here. The workspace root is the one directory the controller may hand out. A workspace is a project directory inside it that you open as a chat, and each workspace gets its own agent session.
+
+You need Docker and a provider API key. Pick three host directories: one for trusted configuration, one for Peen's database and logs, and the workspace root. Download the example configuration beside them:
 
 ```bash
 root="$HOME/.local/share/peen"
 config="$root/config"
 state="$root/state"
-workspace="$HOME/work/peen-workspace"
-mkdir -p "$config" "$state" "$workspace"
+workspace_root="$HOME/work"
+mkdir -p "$config" "$state" "$workspace_root/my-app"
 curl -fsSLo "$root/.env" https://raw.githubusercontent.com/psyb0t/peen/main/.env.example
 ${EDITOR:-vi} "$root/.env"
 ```
@@ -110,8 +113,8 @@ docker run --rm \
   -p 8080:8080 \
   -v "$config:$config" \
   -v "$state:$state" \
-  -v "$workspace:$workspace" \
-  -w "$workspace" \
+  -v "$workspace_root:$workspace_root" \
+  -w "$workspace_root" \
   psyb0t/peen:latest
 ```
 
@@ -119,17 +122,13 @@ The control process and workers run as your UID and GID, so files the agent
 creates stay yours. `PEEN_HOST_USERNAME` and `PEEN_HOST_HOME` let a Docker
 worker recreate that account inside its own image. `config` holds the trusted
 harness layer and workers receive it read-only. `state` holds the database,
-audit logs, and worker sockets and workers never receive it. `workspace` is the
-process working directory and agent workspace. Peen starts with no sessions and
-opens one when a client names that directory. It resumes the same session when
-it restarts with the same state directory and workspace. All three mounts
-survive a container restart.
+audit logs, and worker sockets and workers never receive it. `workspace_root` is the process working directory, which makes it the workspace root. Set `PEEN_WORKSPACE_ROOT` to use a different one. Peen starts with no sessions and opens one when a client names a workspace inside the root. It resumes the same session when it restarts with the same state directory and the same workspace. All three mounts survive a container restart.
 
 ## Use the control surface
 
 Open `http://localhost:8080` after Peen starts. If `PEEN_API_TOKEN` is set, enter it in the connection form. The browser keeps it in page memory only. It does not put the token in a URL or browser storage.
 
-Open an allowlisted workspace with an absolute path. Peen returns its existing session when that directory was opened before, otherwise it creates the one durable session for that workspace. Select a model for one message only when you need to override the session default, then send the work.
+The sidebar shows the workspace root. Type a workspace inside it, such as `$HOME/work/my-app`, and open the chat. Peen returns its existing session when that directory was opened before, otherwise it creates the one durable session for that workspace. Open `$HOME/work/other-app` for a second project with its own agent. The composer shows the model and reasoning level the next turn will use, starting from the session's model, and you can change either for that turn before you send the work. Replies stream in as the model writes them, rendered as Markdown, with each tool call shown as one card next to its result.
 
 The socket receives the live feed for every session. The control surface keeps that global feed intact, but shows the selected session's events and durable records in its own tab. It also exposes cancellation, execution-profile changes, transcript messages, model runs, child agents, compactions, workers, jobs, and notices.
 
@@ -147,7 +146,7 @@ rather than the vendor behind it. An OpenAI-compatible gateway is
 `type: "openai"` whoever runs it. The supported types are `openai`,
 `anthropic`, and `zai-coding`. `zai-coding` keeps Z.ai thinking state through
 tool rounds. A `message.send` can override
-the model for that one task. Peen never guesses task difficulty or silently
+the model and its reasoning level for that one task. Peen never guesses task difficulty or silently
 switches models behind your back.
 
 The full list of provider, context, tool, and event settings is in
@@ -173,23 +172,17 @@ workspace/
     hooks.yaml
 ```
 
-Write ordinary project rules in `AGENTS.md`. Split topic-specific always-on
-rules into Markdown files in `.claude/rules/` or `.agents/rules/`. Add a skill
-when the agent needs a named procedure. Peen puts every skill name and
-description in the turn context. For an ordinary request, the model decides
-whether the task matches a skill, then calls `use_skill` to load it. Put a
-standalone `:skill-name` at the start of a message or after whitespace to
-require that exact effective skill for the turn. Peen validates it before
-contacting a provider and injects its full `SKILL.md` into the root and
-child-agent prompts. Add a named agent when it should delegate a bounded job.
-Use hooks when the harness itself must gate, annotate, or react to an action.
+Peen reads these files from the configuration directory and from every directory between `/` and the workspace, at the start of every turn. Edit one and the next message sees it. A broken file is skipped with a warning in the chat, and everything else keeps working. [The harness guide](docs/harness.md) has the layer order and limits.
 
-Peen resolves layers from the filesystem root down to the active workspace, so
-a repository can put broad rules at the top and narrow rules beside one
-component. The configuration directory can add a trusted base layer.
+**Rules.** `AGENTS.md` and every `.md` file in `.agents/rules/` or `.claude/rules/` go into the system prompt on every turn. Use them for build commands, conventions, and things the agent must not touch. Rules from every layer add up, so `~/work/AGENTS.md` covers all your projects and `~/work/my-app/AGENTS.md` adds to it. [Rules](docs/rules.md)
 
-Full layering, event, and hook details: [Configuration](docs/configuration.md#harness-layering)
-and [Hooks](docs/hooks.md).
+**Skills.** A skill is a directory with a `SKILL.md`: YAML frontmatter with a `name` and `description`, then the procedure. The model sees every skill's name and description each turn and loads the full text with `use_skill` when a task fits. Write `:skill-name` in a message to force one. [Skills](docs/skills.md)
+
+**Named agents.** A file in `.agents/agents/` defines a child agent with its own instructions and an optional `allowed-tools` list. The main agent hands it a job with `launch_agent` and gets its final answer back. Every child run is stored and inspectable. [Named agents](docs/agents.md)
+
+**Session events.** When a background command finishes, a child agent ends, a hook reports something, or an outside system posts to `/v1/session/notices`, Peen records an event and hands it to the model at the next turn or tool boundary. A handler in `.agents/events/<type>.md` can make an event start a turn on an idle session. [Session events](docs/events.md)
+
+**Hooks.** `.agents/hooks.yaml` runs actions at 38 points in a turn: before and after each message, turn, compaction, and tool call. An action can block the operation, run a command, add context for the model, or publish an event. Workspace hooks only run with `PEEN_ENABLE_WORKSPACE_HOOKS=true`. [Hooks](docs/hooks.md)
 
 ## See what happened
 
@@ -331,9 +324,14 @@ openclaw skills install @psyb0t/peen
 | You want to | Read |
 | --- | --- |
 | Start from zero | [Getting started](docs/getting-started.md) |
-| Configure providers, limits, logs, and harness layers | [Configuration](docs/configuration.md) |
+| Configure providers, limits, and logs | [Configuration](docs/configuration.md) |
+| Understand how Peen reads project files | [The harness](docs/harness.md) |
+| Give the agent standing project rules | [Rules](docs/rules.md) |
+| Write named procedures the agent loads on demand | [Skills](docs/skills.md) |
+| Define child agents for contained jobs | [Named agents](docs/agents.md) |
+| React to background jobs, child agents, and outside systems | [Session events](docs/events.md) |
+| Add hard checks or model instructions around actions | [Hooks](docs/hooks.md) |
 | Build a WebSocket or REST client | [API reference](docs/http-api.md) |
-| Add hard checks or model instructions around actions | [Hook configuration](docs/hooks.md) |
 | Run it outside a local Docker command | [Deployment](docs/deployment.md) |
 
 ## What Peen is built with

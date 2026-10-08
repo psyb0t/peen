@@ -116,13 +116,22 @@ describe("PeenSocket", () => {
 		const transport = TestWebSocket.instances[0];
 		expect(transport).toBeDefined();
 		transport?.open();
-		expect(socket.send(sessionID, "inspect this", "aigate/model/name")).toBe(eventID);
+		expect(
+			socket.send(sessionID, "inspect this", {
+				model: "aigate/model/name",
+				reasoningEffort: "high",
+			}),
+		).toBe(eventID);
 
 		expect(states).toEqual(["connecting", "open"]);
 		expect(errors).toEqual([]);
 		expect(transport?.sent).toEqual([
 			JSON.stringify({
-				data: { message: "inspect this", model: "aigate/model/name" },
+				data: {
+					message: "inspect this",
+					model: "aigate/model/name",
+					reasoningEffort: "high",
+				},
 				id: eventID,
 				metadata: { sessionId: sessionID },
 				timestamp: 1_750_000_000,
@@ -196,7 +205,10 @@ describe("PeenSocket", () => {
 
 		const transport = TestWebSocket.instances[0];
 		transport?.open();
-		socket.send(sessionID, secretMessage, "aigate/catalog/model");
+		socket.send(sessionID, secretMessage, {
+			model: "aigate/catalog/model",
+			reasoningEffort: "low",
+		});
 		transport?.receive(
 			JSON.stringify({
 				data: { text: secretPayload },
@@ -219,6 +231,7 @@ describe("PeenSocket", () => {
 				event: "socket.message.sent",
 				event_id: eventID,
 				model: "aigate/catalog/model",
+				reasoning_effort: "low",
 				session_id: sessionID,
 			},
 			{
@@ -243,7 +256,7 @@ describe("PeenSocket", () => {
 		expect(logged).not.toContain(secretPayload);
 	});
 
-	it("leaves the model out of the sent record when none was chosen", () => {
+	it("sends a queued message without turn settings", () => {
 		const debug = vi.spyOn(console, "debug").mockImplementation(() => undefined);
 		const socket = new PeenSocket({
 			onError: () => undefined,
@@ -252,9 +265,14 @@ describe("PeenSocket", () => {
 			token: "",
 		});
 		socket.connect();
-		TestWebSocket.instances[0]?.open();
-		socket.send(sessionID, secretMessage, "");
+		const transport = TestWebSocket.instances[0];
+		transport?.open();
+		socket.send(sessionID, secretMessage);
 
+		const sent: unknown = JSON.parse(transport?.sent[0] ?? "null");
+		expect(sent).toMatchObject({ data: { message: secretMessage } });
+		expect(sent).not.toHaveProperty("data.model");
+		expect(sent).not.toHaveProperty("data.reasoningEffort");
 		expect(browserRecords(debug).at(-1)).toEqual({
 			event: "socket.message.sent",
 			event_id: eventID,
@@ -273,7 +291,7 @@ describe("PeenSocket", () => {
 		});
 		socket.connect();
 
-		expect(() => socket.send(sessionID, secretMessage, "")).toThrow(
+		expect(() => socket.send(sessionID, secretMessage)).toThrow(
 			"The WebSocket is not connected.",
 		);
 		expect(browserRecords(debug)).toEqual([

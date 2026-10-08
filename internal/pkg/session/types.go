@@ -70,6 +70,7 @@ type MessageInput struct {
 	ToolCallID    string
 	IsError       bool
 	Incomplete    bool
+	Injected      bool
 }
 
 // EventInput describes one exact internal or protocol event.

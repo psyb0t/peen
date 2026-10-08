@@ -22,7 +22,10 @@ type Message struct {
 	CompactionID  *uuid.UUID
 	IsError       bool
 	Incomplete    bool
-	CreatedAt     time.Time
+	// Injected marks a message the harness added to the conversation, such as
+	// delivered session events, rather than one a person typed.
+	Injected  bool
+	CreatedAt time.Time
 }
 
 // TableName pins the schema-owned messages table name.

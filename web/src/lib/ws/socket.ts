@@ -13,7 +13,13 @@ type MessageSendData = components["schemas"]["WebSocketMessageSendData"];
 type MessageSendEvent = components["schemas"]["WebSocketMessageSendEvent"];
 
 export type PeenSocketEvent = components["schemas"]["WebSocketServerEvent"];
+export type ReasoningEffort = NonNullable<MessageSendData["reasoningEffort"]>;
 export type SocketState = "closed" | "connecting" | "open";
+
+export interface TurnSettings {
+	model: string;
+	reasoningEffort: ReasoningEffort;
+}
 
 export interface PeenSocketOptions {
 	onError: (message: string) => void;
@@ -92,14 +98,20 @@ export class PeenSocket {
 		this.socket = undefined;
 	}
 
-	public send(sessionID: string, message: string, model: string): string {
+	/**
+	 * Sends a message to a session. Settings apply to a new turn only: a
+	 * message queued into a running turn must leave them out, because the
+	 * server rejects a queued message that tries to change them.
+	 */
+	public send(sessionID: string, message: string, settings?: TurnSettings): string {
 		if (this.socket?.readyState !== WebSocket.OPEN) {
 			throw new Error("The WebSocket is not connected.");
 		}
 
 		const data: MessageSendData = { message };
-		if (model !== "") {
-			data.model = model;
+		if (settings !== undefined) {
+			data.model = settings.model;
+			data.reasoningEffort = settings.reasoningEffort;
 		}
 
 		const event: MessageSendEvent = {
@@ -115,6 +127,7 @@ export class PeenSocket {
 		logBrowserEvent("socket.message.sent", {
 			event_id: event.id,
 			model: data.model,
+			reasoning_effort: data.reasoningEffort,
 			session_id: sessionID,
 		});
 

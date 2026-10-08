@@ -4,7 +4,6 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
-	"path"
 	"strings"
 
 	"github.com/psyb0t/aichteeteapee"
@@ -39,18 +38,34 @@ func newSPAHandler() (http.Handler, error) {
 			return
 		}
 
-		name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
-		if name == "" {
+		name := spaAssetName(r.URL.Path)
+		if _, statErr := fs.Stat(staticFS, name); statErr != nil {
 			name = spaIndexFile
 		}
 
-		if _, statErr := fs.Stat(staticFS, name); statErr != nil {
-			r = r.Clone(r.Context())
-			r.URL.Path = "/" + spaIndexFile
-		}
+		r = r.Clone(r.Context())
+		r.URL.Path = spaFileServerPath(name)
+		r.URL.RawPath = ""
 
 		fileServer.ServeHTTP(w, r)
 	}), nil
+}
+
+func spaAssetName(requestPath string) string {
+	name := strings.TrimPrefix(requestPath, "/")
+	if name == "" || name == "." || !fs.ValidPath(name) {
+		return spaIndexFile
+	}
+
+	return name
+}
+
+func spaFileServerPath(name string) string {
+	if name == spaIndexFile {
+		return "/"
+	}
+
+	return "/" + name
 }
 
 func isPrivateMetricsPath(requestPath string) bool {

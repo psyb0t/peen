@@ -53,11 +53,15 @@ func TestImageShipsThePrivilegeBootstrap(t *testing.T) {
 		"--chmod=",
 		"COPY --chmod needs BuildKit, which the classic builder lacks",
 	)
+	// The binary path is absolute because a container rarely starts in /app.
+	// The documented controller command sets -w to the workspace, and every
+	// Docker worker starts in its session workspace, so a relative ./app
+	// resolves inside the workspace and the container exits at once.
 	assert.Contains(
 		t,
 		dockerfile,
-		`ENTRYPOINT ["/usr/bin/tini", "--", "`+entrypointInstalled+`", "./app"]`,
-		"every container must route through the entrypoint",
+		`ENTRYPOINT ["/usr/bin/tini", "--", "`+entrypointInstalled+`", "/app/app"]`,
+		"every container must route through the entrypoint to the absolute binary",
 	)
 
 	for _, tool := range []string{"sudo", "util-linux"} {

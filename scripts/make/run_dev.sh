@@ -76,7 +76,6 @@ ensure_directory "$state_directory"
 log INFO "building the development image"
 make -C "$peen_root" dev-image
 
-workspace_roots="[$(json_string "$workspace_root")]"
 docker_args=(
 	--rm
 	--init
@@ -90,7 +89,7 @@ docker_args=(
 	--env "PEEN_DEV_SOURCE_ROOT=$peen_root"
 	--env "PEEN_CONFIG_DIR=$configuration_directory"
 	--env "PEEN_STATE_DIR=$state_directory"
-	--env "PEEN_WORKSPACE_ROOTS=$workspace_roots"
+	--env "PEEN_WORKSPACE_ROOT=$workspace_root"
 	--env "PEEN_HTTP_LISTEN_ADDRESS=127.0.0.1:$http_port"
 	--env "PEEN_HOST_USERNAME=$host_username"
 	--env "PEEN_HOST_HOME=$host_home"

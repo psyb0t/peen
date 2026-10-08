@@ -21,7 +21,7 @@ and `REF` picks a tag or branch:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/psyb0t/peen/main/install.sh |
-  PREFIX=/usr/local/bin REF=v0.13.1 bash
+  PREFIX=/usr/local/bin REF=v0.14.0 bash
 ```
 
 It needs `git` and `docker` and refuses to start without them. Doing the same
@@ -168,8 +168,8 @@ such as `/workspace` that exists only inside the controller container.
 root="$PWD"
 config="$root/data/peen/config"
 state="$root/data/peen/state"
-workspace="$root/workspace"
-mkdir -p "$config" "$state" "$workspace"
+workspace_root="$root/workspaces"
+mkdir -p "$config" "$state" "$workspace_root"
 
 docker run --rm \
   --user "$(id -u):$(id -g)" \
@@ -181,16 +181,17 @@ docker run --rm \
   -p 8080:8080 \
   -v "$config:$config" \
   -v "$state:$state" \
-  -v "$workspace:$workspace" \
-  -w "$workspace" \
+  -v "$workspace_root:$workspace_root" \
+  -w "$workspace_root" \
   peen run
 ```
 
 The command overrides the example's placeholder directories with the literal
 host paths it mounts. `PEEN_HOST_USERNAME` and `PEEN_HOST_HOME` tell a
 controller running under numeric `--user` IDs how a Docker worker should name
-the recreated host account. `-w` selects the workspace. Change all three paths
-together when your project lives elsewhere.
+the recreated host account. `-w` selects the workspace root, and each project
+directory inside it opens as its own workspace. Change all three paths together
+when your projects live elsewhere.
 
 Two mount requirements matter here:
 
@@ -200,10 +201,7 @@ Two mount requirements matter here:
 - The configuration, state, and workspace sources must exist before `docker
   run`. Docker otherwise creates a root-owned empty source, which is almost
   never the project you meant to hand to an agent.
-- Serving several projects from one Peen needs `PEEN_WORKSPACE_ROOTS`. Mount
-  each project at its literal host path, then list the allowed roots as a JSON
-  array of those same paths. A client may open any directory under a root. See
-  [workspace roots](configuration.md#workspace-roots).
+- To serve several projects from one Peen, mount the directory that holds them at its literal host path and make it the workspace root, either with `-w` or with `PEEN_WORKSPACE_ROOT`. A client may then open any project directory inside it as its own workspace. See [workspace root](configuration.md#workspace-root).
 
 ### Networking and the API token
 
@@ -251,9 +249,9 @@ docker run --rm \
   -p 8080:8080 \
   -v "$config:$config" \
   -v "$state:$state" \
-  -v "$workspace:$workspace" \
+  -v "$workspace_root:$workspace_root" \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  -w "$workspace" \
+  -w "$workspace_root" \
   peen run
 ```
 

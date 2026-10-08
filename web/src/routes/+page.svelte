@@ -1,12 +1,14 @@
 <script lang="ts">
-	import { onMount } from "svelte";
+	import { afterUpdate, onMount } from "svelte";
 
+	import { activities, isActivityEvent, type AgentActivity } from "$lib/chat/activity";
+	import ReplyBlocks from "$lib/chat/ReplyBlocks.svelte";
+	import { groupTranscript, liveReplyBlock } from "$lib/chat/transcript";
 	import {
-		activities,
-		liveText,
-		liveThinking,
-		type AgentActivity,
-	} from "$lib/chat/activity";
+		applyStreamEvent,
+		isTurnTerminalEvent,
+		type LiveTurn,
+	} from "$lib/chat/stream";
 	import {
 		createPeenAPI,
 		PeenAPIError,
@@ -21,18 +23,26 @@
 		type BrowserLogOperation,
 	} from "$lib/browser/log";
 	import {
+		DEFAULT_REASONING_EFFORT,
 		MAX_LIVE_EVENTS,
+		REASONING_EFFORTS,
 		SESSION_DETAIL_LIMIT,
 		SESSION_ID_HEADER,
 		SESSION_PAGE_LIMIT,
 	} from "$lib/common/constants";
 	import { formatJSON } from "$lib/common/json";
-	import { PeenSocket, type PeenSocketEvent, type SocketState } from "$lib/ws/socket";
+	import {
+		PeenSocket,
+		type PeenSocketEvent,
+		type ReasoningEffort,
+		type SocketState,
+	} from "$lib/ws/socket";
 
-	const EVENT_TYPE_MESSAGE_COMPLETED = "message.completed";
 	const EVENT_TYPE_MESSAGE_FAILED = "message.failed";
-	const EVENT_TYPE_USER_MESSAGE_CREATED = "user_message.created";
 	const PATH_SEPARATOR = "/";
+	// The conversation keeps following new output while the reader is within
+	// this distance of the bottom.
+	const FOLLOW_THRESHOLD_PX = 64;
 
 	type Session = components["schemas"]["Session"];
 	type ExecutionProfile = components["schemas"]["ExecutionProfile"];
@@ -62,6 +72,10 @@
 	let reconfigureReason = "";
 	let selectedSessionID = "";
 	let selectedModel = "";
+	let selectedReasoningEffort: ReasoningEffort = DEFAULT_REASONING_EFFORT;
+	// modelSessionID is the session whose stored model last seeded the picker,
+	// so a session refresh keeps a model the reader picked for the next turn.
+	let modelSessionID = "";
 	let messageText = "";
 
 	let sessions: Session[] = [];
@@ -79,16 +93,54 @@
 	let jobs: Job[] = [];
 	let turns: Turn[] = [];
 	let profileDecisions: SessionProfileDecision[] = [];
+	// liveEvents is the raw socket feed for the Details panel. Activity cards
+	// read their own list, so a burst of streamed deltas cannot push a failure
+	// or warning out of the capped feed before the chat shows it.
 	let liveEvents: PeenSocketEvent[] = [];
+	let activityEvents: PeenSocketEvent[] = [];
+	let liveTurns: LiveTurn[] = [];
+	let sessionLoadGeneration = 0;
+	let conversationElement: HTMLDivElement | undefined;
+	let isFollowingConversation = true;
 
 	$: selectedLiveEvents = liveEvents.filter((event) =>
 		isSelectedSession(event.metadata.sessionId),
 	);
-	$: selectedActivities = activities(selectedLiveEvents);
-	$: selectedLiveText = liveText(selectedLiveEvents);
-	$: selectedLiveThinking = liveThinking(selectedLiveEvents);
+	$: selectedActivities = activities(
+		activityEvents.filter((event) => isSelectedSession(event.metadata.sessionId)),
+	);
+	$: selectedLiveTurns = liveTurns.filter((turn) => isSelectedSession(turn.sessionID));
+	$: transcriptItems = groupTranscript(messages);
+	$: syncSelectedModel(selectedSession);
+	$: modelNames = modelOptions(models, selectedSession?.model);
 
 	onMount(() => () => socket?.close());
+
+	afterUpdate(() => {
+		if (isFollowingConversation && conversationElement !== undefined) {
+			conversationElement.scrollTop = conversationElement.scrollHeight;
+		}
+	});
+
+	function onConversationScroll(): void {
+		if (conversationElement === undefined) {
+			return;
+		}
+
+		const distanceFromBottom =
+			conversationElement.scrollHeight -
+			conversationElement.scrollTop -
+			conversationElement.clientHeight;
+		isFollowingConversation = distanceFromBottom <= FOLLOW_THRESHOLD_PX;
+	}
+
+	// Scrolling up stops following at once. Waiting for the scroll event would
+	// let a delta that lands in the same frame pull the reader back down.
+	function onConversationWheel(event: WheelEvent): void {
+		if (event.deltaY < 0) {
+			isFollowingConversation = false;
+		}
+	}
 
 	function sessionHeaders(): { "X-Session-ID": string } {
 		return { [SESSION_ID_HEADER]: selectedSessionID };
@@ -127,15 +179,19 @@
 
 	function onSocketEvent(event: PeenSocketEvent): void {
 		liveEvents = [...liveEvents, event].slice(-MAX_LIVE_EVENTS);
-		if (!isSelectedSession(event.metadata.sessionId)) {
+		liveTurns = applyStreamEvent(liveTurns, event);
+		if (isActivityEvent(event)) {
+			activityEvents = [...activityEvents, event].slice(-MAX_LIVE_EVENTS);
+		}
+
+		const isTurnOver =
+			isTurnTerminalEvent(event) || event.type === EVENT_TYPE_MESSAGE_FAILED;
+		if (!isTurnOver) {
 			return;
 		}
 
-		if (
-			event.type === EVENT_TYPE_USER_MESSAGE_CREATED ||
-			event.type === EVENT_TYPE_MESSAGE_COMPLETED ||
-			event.type === EVENT_TYPE_MESSAGE_FAILED
-		) {
+		void refreshSessions();
+		if (isSelectedSession(event.metadata.sessionId)) {
 			void loadSession();
 		}
 	}
@@ -198,6 +254,26 @@
 		}
 	}
 
+	async function refreshSessions(): Promise<void> {
+		const elapsed = startBrowserTimer();
+
+		try {
+			const sessionPage = await requireData(
+				controller().GET("/sessions", {
+					params: { query: { limit: SESSION_PAGE_LIMIT, offset: 0 } },
+				}),
+			);
+			sessions = sessionPage.items;
+			logBrowserEvent("sessions.refresh.complete", {
+				count: sessions.length,
+				duration_ms: elapsed(),
+			});
+		} catch (cause) {
+			logBrowserEvent("sessions.refresh.fail", failure(cause, elapsed));
+			setError("sessions.refresh", cause);
+		}
+	}
+
 	async function openWorkspace(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
 		if (workspace === "") {
@@ -237,6 +313,7 @@
 
 	async function selectSession(sessionID: string): Promise<void> {
 		selectedSessionID = sessionID;
+		isFollowingConversation = true;
 		error = "";
 		await loadSession();
 	}
@@ -247,6 +324,15 @@
 		}
 
 		const loadingSessionID = selectedSessionID;
+		sessionLoadGeneration += 1;
+		const generation = sessionLoadGeneration;
+		// A live turn that had already finished when this load started is in
+		// the persisted messages the load returns, so it gives way to them.
+		const persistedRequestIDs = new Set(
+			liveTurns
+				.filter((turn) => turn.isFinished && turn.sessionID === loadingSessionID)
+				.map((turn) => turn.requestID),
+		);
 		const elapsed = startBrowserTimer();
 		logBrowserEvent("session.load.start", { session_id: loadingSessionID });
 
@@ -256,6 +342,10 @@
 			const pageParams = {
 				header: sessionHeaders(),
 				query: { limit: SESSION_DETAIL_LIMIT, offset: 0 },
+			};
+			const newestMessagesParams = {
+				header: sessionHeaders(),
+				query: { limit: SESSION_DETAIL_LIMIT, offset: 0, order: "desc" as const },
 			};
 			const [
 				session,
@@ -273,7 +363,7 @@
 				requireData(
 					connected.GET("/session", { params: { header: sessionHeaders() } }),
 				),
-				requireData(connected.GET("/messages", { params: pageParams })),
+				requireData(connected.GET("/messages", { params: newestMessagesParams })),
 				requireData(connected.GET("/session/events", { params: pageParams })),
 				requireData(connected.GET("/session/agents", { params: pageParams })),
 				requireData(connected.GET("/session/compactions", { params: pageParams })),
@@ -287,12 +377,19 @@
 				),
 			]);
 
-			if (loadingSessionID !== selectedSessionID) {
+			// An older load that resolves late must not replace newer state.
+			if (
+				generation !== sessionLoadGeneration ||
+				loadingSessionID !== selectedSessionID
+			) {
+				logBrowserEvent("session.load.superseded", { session_id: loadingSessionID });
+
 				return;
 			}
 
 			selectedSession = session;
-			messages = messagePage.items;
+			messages = [...messagePage.items].reverse();
+			liveTurns = liveTurns.filter((turn) => !persistedRequestIDs.has(turn.requestID));
 			transcriptEvents = eventPage.events;
 			agents = agentPage.agents;
 			compactions = compactionPage.compactions;
@@ -329,13 +426,21 @@
 			return;
 		}
 
+		// A message sent while a turn runs joins that turn, which keeps the
+		// model and reasoning level it started with.
+		const settings =
+			selectedSession?.activeTurn === true
+				? undefined
+				: { model: selectedModel, reasoningEffort: selectedReasoningEffort };
+
 		logBrowserEvent("message.send.start", {
-			model: selectedModel,
+			model: settings?.model,
+			reasoning_effort: settings?.reasoningEffort,
 			session_id: selectedSessionID,
 		});
 
 		try {
-			socket?.send(selectedSessionID, messageText.trim(), selectedModel);
+			socket?.send(selectedSessionID, messageText.trim(), settings);
 			messageText = "";
 		} catch (cause) {
 			logBrowserEvent("message.send.fail", { session_id: selectedSessionID });
@@ -416,21 +521,33 @@
 		}
 	}
 
+	function syncSelectedModel(session: Session | undefined): void {
+		if (session === undefined || session.id === modelSessionID) {
+			return;
+		}
+
+		modelSessionID = session.id;
+		selectedModel = session.model;
+	}
+
+	// The session's own model stays selectable even when GET /models no
+	// longer lists it, so the picker always names the model a turn will use.
+	function modelOptions(
+		available: Model[],
+		sessionModel: string | undefined,
+	): string[] {
+		const names = available.map((model) => model.name);
+		if (sessionModel === undefined || names.includes(sessionModel)) {
+			return names;
+		}
+
+		return [sessionModel, ...names];
+	}
+
 	function workspaceName(path: string): string {
 		const segments = path.split(PATH_SEPARATOR).filter((segment) => segment !== "");
 
 		return segments.at(-1) ?? path;
-	}
-
-	function messageLabel(message: Message): string {
-		if (message.role === "user") {
-			return "You";
-		}
-		if (message.role === "tool") {
-			return "Tool result";
-		}
-
-		return "Peen";
 	}
 
 	function messageTime(value: string): string {
@@ -489,11 +606,19 @@
 
 			<form class="workspace-form" onsubmit={openWorkspace}>
 				<div>
-					<h2>New workspace</h2>
-					<p>Choose a directory this controller allows.</p>
+					<h2>Open a workspace</h2>
+					{#if workspaceRoots.length === 0}
+						<p>This controller has no workspace root.</p>
+					{:else}
+						<p>
+							Workspace root: <code class="workspace-root"
+								>{workspaceRoots.join(", ")}</code
+							>
+						</p>
+					{/if}
 				</div>
 				<label>
-					Workspace directory
+					Workspace
 					<input
 						bind:value={workspace}
 						disabled={workspaceRoots.length === 0}
@@ -507,11 +632,10 @@
 						<option value={root}></option>
 					{/each}
 				</datalist>
-				{#if workspaceRoots.length === 0}
-					<p>No workspace roots are available from this controller.</p>
-				{:else}
+				{#if workspaceRoots.length > 0}
 					<p>
-						Enter an existing directory under an allowed root. Roots appear as you type.
+						Any existing folder inside the workspace root. Each workspace gets its own
+						agent and chat.
 					</p>
 				{/if}
 				<label>
@@ -605,8 +729,14 @@
 					</div>
 				</section>
 			{:else}
-				<div class="conversation" aria-live="polite">
-					{#if messages.length === 0 && selectedLiveEvents.length === 0}
+				<div
+					bind:this={conversationElement}
+					class="conversation"
+					aria-live="polite"
+					onscroll={onConversationScroll}
+					onwheel={onConversationWheel}
+				>
+					{#if messages.length === 0 && selectedActivities.length === 0 && selectedLiveTurns.length === 0}
 						<section class="empty-chat">
 							<div>
 								<p class="eyebrow">Ready</p>
@@ -616,48 +746,40 @@
 						</section>
 					{/if}
 
-					{#each messages as message (message.id)}
-						<article
-							class:assistant={message.role === "assistant"}
-							class:tool={message.role === "tool"}
-							class:user={message.role === "user"}
-							class="message"
-						>
-							<div class="message-meta">
-								<span>{messageLabel(message)}</span><time datetime={message.createdAt}
-									>{messageTime(message.createdAt)}</time
-								>
-							</div>
-							{#if message.content !== ""}<div class="message-content">
-									{message.content}
-								</div>{/if}
-							{#if message.thinking}<details class="thinking-card">
-									<summary>Thinking</summary>
-									<div>{message.thinking}</div>
-								</details>{/if}
-							{#if message.toolCalls}<div class="tool-calls">
-									{#each message.toolCalls as call (call.id)}<details
-											class="activity-card"
-										>
-											<summary><span>{call.name}</span><small>Requested</small></summary
-											>
-											<pre>{formatJSON(call.arguments)}</pre>
-										</details>{/each}
-								</div>{/if}
-							{#if message.role === "tool"}<details class="tool-output">
-									<summary>{message.isError ? "Tool failed" : "Tool output"}</summary>
-									<pre>{message.content}</pre>
-								</details>{/if}
-						</article>
+					{#each transcriptItems as item (item.kind === "user" ? item.message.id : item.id)}
+						{#if item.kind === "user"}<article class="message user">
+								<div class="message-meta">
+									<span>You</span><time datetime={item.message.createdAt}
+										>{messageTime(item.message.createdAt)}</time
+									>
+								</div>
+								<div class="message-content">{item.message.content}</div>
+							</article>{:else}<article class="message assistant">
+								<div class="message-meta">
+									<span>Peen</span><time datetime={item.createdAt}
+										>{messageTime(item.createdAt)}</time
+									>
+								</div>
+								<ReplyBlocks blocks={item.blocks} />
+							</article>{/if}
 					{/each}
 
-					{#if selectedLiveThinking !== ""}<details
-							class="thinking-card live-thinking"
-							open
-						>
-							<summary>Thinking</summary>
-							<div>{selectedLiveThinking}</div>
-						</details>{/if}
+					{#each selectedLiveTurns as turn (turn.requestID)}
+						{#if turn.prompt !== undefined}<article class="message user">
+								<div class="message-meta"><span>You</span></div>
+								<div class="message-content">{turn.prompt}</div>
+							</article>{/if}
+						{#if turn.blocks.length > 0 || !turn.isFinished}<article
+								class="message assistant live"
+							>
+								<div class="message-meta">
+									<span>Peen</span>{#if !turn.isFinished}<small class="writing"
+											>Working</small
+										>{/if}
+								</div>
+								<ReplyBlocks blocks={turn.blocks.map(liveReplyBlock)} />
+							</article>{/if}
+					{/each}
 					{#each selectedActivities as activity (activity.id)}
 						{#if activity.tone === "error" || activity.reason}
 							<article
@@ -698,19 +820,23 @@
 							</details>
 						{/if}
 					{/each}
-					{#if selectedLiveText !== ""}<article class="message assistant draft">
-							<div class="message-meta"><span>Peen</span><small>Writing</small></div>
-							<div class="message-content">{selectedLiveText}</div>
-						</article>{/if}
 				</div>
 
 				<form class="composer" onsubmit={sendMessage}>
 					<div class="composer-controls">
 						<label
-							><span>Model</span><select bind:value={selectedModel}
-								><option value="">Session default</option
-								>{#each models as model (model.name)}<option value={model.name}
-										>{model.name}</option
+							><span>Model</span><select
+								bind:value={selectedModel}
+								disabled={selectedSession.activeTurn}
+								>{#each modelNames as name (name)}<option value={name}>{name}</option
+									>{/each}</select
+							></label
+						><label
+							><span>Reasoning</span><select
+								bind:value={selectedReasoningEffort}
+								disabled={selectedSession.activeTurn}
+								>{#each REASONING_EFFORTS as effort (effort)}<option value={effort}
+										>{effort}</option
 									>{/each}</select
 							></label
 						>{#if selectedSession.activeTurn}<p>
@@ -976,8 +1102,7 @@ height: 100dvh; padding: 1rem;
 	.composer-controls,
 	.composer-footer,
 	.session-facts,
-	.activity-card summary,
-	.tool-output summary {
+	.activity-card summary {
 		display: flex;
 		gap: 0.75rem;
 	}
@@ -987,8 +1112,7 @@ height: 100dvh; padding: 1rem;
 	.inspector-heading,
 	.message-meta,
 	.composer-footer,
-	.activity-card summary,
-	.tool-output summary {
+	.activity-card summary {
 		align-items: center;
 		justify-content: space-between;
 	}
@@ -1031,6 +1155,11 @@ height: 100dvh; padding: 1rem;
 		font-size: 0.76rem;
 		line-height: 1.4;
 		margin: 0.25rem 0 0;
+	}
+	.workspace-root {
+		color: #d6ff4f;
+		font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+		word-break: break-all;
 	}
 	.icon-button {
 		align-items: center;
@@ -1150,6 +1279,7 @@ height: 100dvh; padding: 1rem;
 		flex: 0 0 auto;
 	}
 	.conversation {
+		align-content: start;
 		display: grid;
 		flex: 1 1 auto;
 		gap: 1rem;
@@ -1195,10 +1325,6 @@ height: 100dvh; padding: 1rem;
 	.message.user {
 		border-color: rgb(214 255 79 / 24%);
 	}
-	.message.tool {
-		background: #1d1e23;
-		border-color: #35373e;
-	}
 	.message-meta {
 		color: #989ba4;
 		font-size: 0.72rem;
@@ -1212,36 +1338,19 @@ height: 100dvh; padding: 1rem;
 		font-weight: 500;
 		text-transform: none;
 	}
-	.message-content,
-	.thinking-card > div {
+	.message-content {
 		line-height: 1.6;
 		white-space: pre-wrap;
 		word-break: break-word;
 	}
-	.thinking-card,
-	.activity-card,
-	.tool-output {
+	.activity-card {
 		background: rgb(29 31 36 / 88%);
 		border: 1px solid #32353c;
 		border-radius: 0.7rem;
 		color: #c8cbd0;
 		font-size: 0.82rem;
-		padding: 0.65rem 0.75rem;
-	}
-	.thinking-card,
-	.tool-output,
-	.tool-calls {
-		margin-top: 0.75rem;
-	}
-	.live-thinking {
-		border-color: #5e6840;
-	}
-	.tool-calls {
-		display: grid;
-		gap: 0.5rem;
-	}
-	.activity-card {
 		margin: 0;
+		padding: 0.65rem 0.75rem;
 	}
 	.activity-card.success {
 		border-color: #3d694f;
@@ -1326,9 +1435,15 @@ height: 100dvh; padding: 1rem;
 		white-space: pre-wrap;
 		word-break: break-word;
 	}
-	.draft {
+	.message.live {
 		border-left: 2px solid #d6ff4f;
 		padding-left: 0.9rem;
+	}
+	.message.live > :global(* + *) {
+		margin-top: 0.6rem;
+	}
+	.writing {
+		color: #d6ff4f;
 	}
 	.composer {
 		backdrop-filter: blur(12px);

@@ -164,7 +164,7 @@ func (c *Controller) handleTurnCall(
 ) (any, bool, error) {
 	switch method {
 	case MethodAcquireTurn:
-		return served(callInput(ctx, c, payload, c.store.AcquireTurn))
+		return served(c.acquireTurn(ctx, payload))
 	case MethodAppendCheckpoint:
 		return served(c.appendCheckpoint(ctx, payload))
 	case MethodFinalizeTurn:
@@ -430,6 +430,32 @@ func (c *Controller) createOrResume(
 	}
 
 	return opened, nil
+}
+
+// acquireTurn starts a turn and publishes the events it opens with, such as
+// user_message.created, after they are written. They never pass through a
+// checkpoint, so without this a client would not see them until it reloaded.
+func (c *Controller) acquireTurn(
+	ctx context.Context,
+	payload json.RawMessage,
+) (any, error) {
+	request, err := decode[InputRequest[session.StartTurnInput]](payload)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := c.assertSession(request.SessionID); err != nil {
+		return nil, err
+	}
+
+	lease, err := c.store.AcquireTurn(ctx, request.SessionID, request.Input)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "acquire the session turn")
+	}
+
+	c.publish(ctx, request.Input.Events)
+
+	return lease, nil
 }
 
 func (c *Controller) appendCheckpoint(

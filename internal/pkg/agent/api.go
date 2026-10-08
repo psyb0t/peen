@@ -297,11 +297,12 @@ func messageRequestToTurnRequest(
 	}
 
 	input := TurnRequest{
-		Message:       request.Message,
-		Model:         optionalString(request.Model),
-		SessionID:     request.SessionID,
-		RequestID:     requestID,
-		SourceEventID: request.SourceEventID,
+		Message:         request.Message,
+		Model:           optionalString(request.Model),
+		ReasoningEffort: optionalString(request.ReasoningEffort),
+		SessionID:       request.SessionID,
+		RequestID:       requestID,
+		SourceEventID:   request.SourceEventID,
 	}
 	if request.SystemPrompt != nil {
 		mode, err := promptModeFromMessageRequest(request.SystemPrompt)
@@ -330,6 +331,14 @@ func validateMessageRequest(request MessageRequest) error {
 
 	if err := validateOptionalRequestValue(request.Model, "model"); err != nil {
 		return err
+	}
+
+	if request.ReasoningEffort == nil {
+		return nil
+	}
+
+	if !isRequestableReasoningEffort(*request.ReasoningEffort) {
+		return ctxerrors.Wrap(commerr.ErrValidationFailed, "reasoning effort")
 	}
 
 	return nil

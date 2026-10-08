@@ -98,11 +98,12 @@ type HelloAck struct {
 // carries the routing identity and the text, never a session the worker may
 // choose.
 type RunTurn struct {
-	RequestID    uuid.UUID `json:"requestId"`
-	Message      string    `json:"message"`
-	Model        string    `json:"model,omitempty"`
-	SystemPrompt string    `json:"systemPrompt,omitempty"`
-	PromptMode   string    `json:"promptMode,omitempty"`
+	RequestID       uuid.UUID `json:"requestId"`
+	Message         string    `json:"message"`
+	Model           string    `json:"model,omitempty"`
+	ReasoningEffort string    `json:"reasoningEffort,omitempty"`
+	SystemPrompt    string    `json:"systemPrompt,omitempty"`
+	PromptMode      string    `json:"promptMode,omitempty"`
 }
 
 // TurnResult is the worker's answer to a run_turn command.

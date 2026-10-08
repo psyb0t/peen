@@ -7,6 +7,9 @@
 		"forceConsistentCasingInFileNames": true,
 		"noEmit": true,
 		"noUncheckedIndexedAccess": true,
+		// svelte-exmarkdown 5.0.2 ships a Renderer.svelte.d.ts that imports
+		// itself, which fails declaration checking. Only .d.ts files are skipped.
+		"skipLibCheck": true,
 		"strict": true
 	}
 }

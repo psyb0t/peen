@@ -132,13 +132,14 @@ type turnOpening struct {
 }
 
 type preparedTurn struct {
-	opened         *session.OpenSessionResult
-	lease          session.Lease
-	modelReference string
-	model          ModelClient
-	prompt         elelem.Prompt
-	compactor      *compactor
-	origin         *TurnOrigin
+	opened          *session.OpenSessionResult
+	lease           session.Lease
+	modelReference  string
+	model           ModelClient
+	reasoningEffort elelem.ReasoningEffort
+	prompt          elelem.Prompt
+	compactor       *compactor
+	origin          *TurnOrigin
 
 	// publisher fans one turn's protocol events to every destination the mode
 	// needs. Both modes always include the transcript sink, so the durable
@@ -462,20 +463,21 @@ func (r *Runtime) prepareTurn(
 	}
 
 	prepared := &preparedTurn{
-		opened:         opening.opened,
-		lease:          lease,
-		modelReference: basis.modelReference,
-		model:          basis.model,
-		prompt:         opening.assembly.prompt,
-		origin:         input.Origin,
-		workspace:      basis.workspace,
-		contextHash:    basis.contextHash,
-		promptHash:     basis.promptHash,
-		turn:           turn,
-		eventBus:       r.eventBus,
-		pendingEvents:  opening.pendingEvents,
-		snapshot:       basis.snapshot,
-		explicitSkills: basis.explicitSkills,
+		opened:          opening.opened,
+		lease:           lease,
+		modelReference:  basis.modelReference,
+		model:           basis.model,
+		reasoningEffort: input.ReasoningEffort,
+		prompt:          opening.assembly.prompt,
+		origin:          input.Origin,
+		workspace:       basis.workspace,
+		contextHash:     basis.contextHash,
+		promptHash:      basis.promptHash,
+		turn:            turn,
+		eventBus:        r.eventBus,
+		pendingEvents:   opening.pendingEvents,
+		snapshot:        basis.snapshot,
+		explicitSkills:  basis.explicitSkills,
 	}
 
 	executor, generationID, err := r.openTurnExecutor(
@@ -982,19 +984,7 @@ func (r *Runtime) startTurn(
 		sink:              input.OnEvent,
 	}
 
-	messages := make([]session.MessageInput, 0, turnStartMessageCapacity)
-	if pendingEvents != "" {
-		messages = append(messages, session.MessageInput{
-			Role:      models.MessageRoleUser,
-			Content:   pendingEvents,
-			Workspace: workspace,
-		})
-	}
-
-	messages = append(messages, session.MessageInput{
-		Role:    models.MessageRoleUser,
-		Content: input.Message,
-	})
+	messages := turnStartMessages(pendingEvents, workspace, input.Message)
 
 	lease, err := r.store.AcquireTurn(
 		ctx,
@@ -1018,6 +1008,30 @@ func (r *Runtime) startTurn(
 	turn.checkpointedEvents = len(turn.events)
 
 	return &turn, lease, nil
+}
+
+// turnStartMessages returns the messages a turn opens with: session events
+// that arrived while the session was idle, marked as injected, then the
+// prompt that started the turn.
+func turnStartMessages(
+	pendingEvents string,
+	workspace string,
+	prompt string,
+) []session.MessageInput {
+	messages := make([]session.MessageInput, 0, turnStartMessageCapacity)
+	if pendingEvents != "" {
+		messages = append(messages, session.MessageInput{
+			Role:      models.MessageRoleUser,
+			Content:   pendingEvents,
+			Workspace: workspace,
+			Injected:  true,
+		})
+	}
+
+	return append(messages, session.MessageInput{
+		Role:    models.MessageRoleUser,
+		Content: prompt,
+	})
 }
 
 func newUserMessageEvent(
@@ -1494,6 +1508,10 @@ func (r *Runtime) runProvider(
 	// emits its own delta events: the adapter publishes content blocks and the
 	// transcript sink stores them under the names that went on the wire.
 	request = prepared.adapter.Bind(request)
+
+	if effort := turnReasoningEffort(ctx, prepared); effort != "" {
+		request = request.WithReasoningEffort(effort)
+	}
 
 	// Under drop-oldest no hook is installed at all, so Elelem applies its own
 	// whole-unit eviction. Installing one and calling DropOldestUnits from it
@@ -1979,6 +1997,7 @@ func (p *preparedTurn) onMessageInjection(
 		Role:      role,
 		Content:   injection.Content,
 		Workspace: p.workspace,
+		Injected:  true,
 	})
 
 	return p.turn.checkpoint(ctx)
@@ -2417,13 +2436,11 @@ func (t *runtimeTurn) pendingTranscript() pendingTranscript {
 
 // checkpoint makes everything produced since the last checkpoint durable.
 //
-// It runs at unit boundaries, a completed assistant message or a finished tool
-// call, rather than per streamed delta. A delta is only ever replayed as part
-// of the block it belongs to, and prompt reconstruction never concatenates
-// stored deltas, so committing each one separately would buy no recoverable
-// state and would serialize the stream behind the disk. What it does buy is
-// that a process killed mid-turn keeps every tool call and assistant message
-// the turn already produced, instead of losing all of them.
+// record calls it for every event, streamed deltas included. In a worker this
+// is also the live path: the controller publishes events to WebSocket clients
+// only after the checkpoint holding them is written, so a client never sees an
+// event the database does not hold. A process killed mid-turn therefore keeps
+// every tool call, assistant message, and delta the turn already produced.
 func (t *runtimeTurn) checkpoint(ctx context.Context) error {
 	if t.store == nil {
 		return nil

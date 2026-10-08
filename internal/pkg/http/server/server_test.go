@@ -73,6 +73,69 @@ func TestServerDoesNotServePrivateMetricsFromThePublicListener(t *testing.T) {
 	}
 }
 
+func TestSPAHandlerServesOnlyValidEmbeddedAssetNames(t *testing.T) {
+	t.Parallel()
+
+	handler, err := newSPAHandler()
+	require.NoError(t, err)
+
+	indexRequest := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodGet,
+		"/",
+		nil,
+	)
+	indexRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(indexRecorder, indexRequest)
+
+	require.Equal(t, http.StatusOK, indexRecorder.Code)
+	indexBody := indexRecorder.Body.String()
+	require.NotEmpty(t, indexBody)
+
+	assetRequest := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodGet,
+		"/_app/version.json",
+		nil,
+	)
+	assetRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(assetRecorder, assetRequest)
+
+	require.Equal(t, http.StatusOK, assetRecorder.Code)
+	assert.NotEmpty(t, assetRecorder.Body.String())
+	assert.NotEqual(t, indexBody, assetRecorder.Body.String())
+
+	testCases := []struct {
+		name        string
+		requestPath string
+	}{
+		{name: "dot path", requestPath: "/."},
+		{name: "traversal path", requestPath: "/../private"},
+		{name: "encoded traversal path", requestPath: "/%2e%2e/private"},
+		{name: "repeated separator", requestPath: "/_app//version.json"},
+		{name: "unknown route", requestPath: "/settings"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			request := httptest.NewRequestWithContext(
+				t.Context(),
+				http.MethodGet,
+				tc.requestPath,
+				nil,
+			)
+			recorder := httptest.NewRecorder()
+
+			handler.ServeHTTP(recorder, request)
+
+			assert.Equal(t, http.StatusOK, recorder.Code)
+			assert.Equal(t, indexBody, recorder.Body.String())
+		})
+	}
+}
+
 func assertUnauthorizedEnvelope(t *testing.T, recorder *httptest.ResponseRecorder) {
 	t.Helper()
 

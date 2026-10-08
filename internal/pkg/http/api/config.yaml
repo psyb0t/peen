@@ -3,7 +3,7 @@ generate:
   std-http-server: true
   strict-server: true
   models: true
-  embedded-spec: true
+  embedded-spec: false
 output: api.gen.go
 compatibility:
   always-prefix-enum-values: true
