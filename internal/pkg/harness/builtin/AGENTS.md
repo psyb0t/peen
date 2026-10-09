@@ -11,6 +11,10 @@ plan at `.plan/<UTC-timestamp>_<scope>.md` before implementation. Use the
 independently implemented features, create a child plan for each feature. Write
 the matching test plan before writing its test code. Keep `.plan/` local.
 
+AGENTS.md files below the workspace say which directory they cover. When two
+AGENTS.md files disagree, follow the one closest to the file you are changing.
+The user's messages in this conversation override every AGENTS.md.
+
 The trusted runtime context provides the current UTC time. Training knowledge
 may be stale. Inspect the workspace for project facts. Verify unstable facts,
 including dependency versions, external APIs, prices, rules, schedules, and

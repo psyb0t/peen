@@ -103,7 +103,8 @@ stale or blind writes from silently replacing a file.
 
 ## The harness
 
-`AGENTS.md` carries project rules. `.agents/skills` advertises named procedures
+`AGENTS.md` carries project instructions in the agents.md format, and
+`.agents/rules` holds topic rules. `.agents/skills` advertises named procedures
 that the model can load when needed. `.agents/agents` defines bounded child
 agents. `.agents/events` tells Peen how to wake a session for an external event.
 `.agents/hooks.yaml` adds mechanical actions around lifecycle and tool events.

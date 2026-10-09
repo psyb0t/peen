@@ -34,6 +34,14 @@ const (
 	// filename and rewriting it there would corrupt a real path.
 	homeDirectoryAlias      = "~"
 	homeDirectoryAliasSlash = "~/"
+
+	// maxNestedDirectories bounds the walk for AGENTS.md files below the
+	// workspace, which runs at the start of every turn.
+	maxNestedDirectories   = 10000
+	hiddenDirectoryPrefix  = "."
+	nodeModulesDirectory   = "node_modules"
+	vendorDirectory        = "vendor"
+	nestedWalkLimitMessage = "nested AGENTS.md search hit the directory limit"
 )
 
 // Resolver discovers the layered harness context for one workspace at a time.
@@ -131,6 +139,17 @@ func (r Resolver) Resolve(workspace string) (Snapshot, error) {
 				layer,
 			)
 		}
+	}
+
+	if err := state.discoverNestedInstructions(
+		resolvedWorkspace,
+		r.configRoot,
+		len(layers),
+	); err != nil {
+		return Snapshot{}, ctxerrors.Wrap(
+			err,
+			"discover nested instruction files",
+		)
 	}
 
 	snapshot, err := state.snapshot(r.configRoot, resolvedWorkspace)
@@ -482,11 +501,7 @@ func (s *resolutionState) discoverOptional(
 		return err
 	}
 
-	s.warnings = append(s.warnings, Warning{
-		Kind:   kind,
-		Source: source,
-		Reason: err.Error(),
-	})
+	s.warn(kind, source, err)
 
 	return nil
 }
@@ -542,6 +557,134 @@ func (s *resolutionState) discoverInstructions(
 	s.filesystemInstructions++
 
 	return nil
+}
+
+// discoverNestedInstructions loads every AGENTS.md below the workspace,
+// parents before children, after all layers. Each one is scoped to its own
+// directory, following the agents.md convention that the file closest to the
+// code being changed wins. Hidden directories, dependency trees, symlinked
+// directories, and the config directory, which is already its own layer, are
+// not searched. A file that cannot be used, and every file past a resource
+// limit, is reported as a warning instead of failing the turn, because a
+// large tree is not a broken workspace.
+func (s *resolutionState) discoverNestedInstructions(
+	workspace string,
+	configRoot string,
+	priority int,
+) error {
+	directories := 0
+
+	walkErr := filepath.WalkDir(
+		workspace,
+		func(path string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				s.warn(SourceKindInstruction, path, err)
+
+				return skipUnreadable(entry)
+			}
+
+			if !entry.IsDir() || path == workspace {
+				return nil
+			}
+
+			if path == configRoot || isSkippedNestedDirectory(entry.Name()) {
+				return fs.SkipDir
+			}
+
+			directories++
+			if directories > maxNestedDirectories {
+				s.warn(
+					SourceKindInstruction,
+					path,
+					ctxerrors.Wrap(ErrResourceLimit, nestedWalkLimitMessage),
+				)
+
+				return fs.SkipAll
+			}
+
+			return s.discoverNestedInstruction(workspace, path, priority)
+		},
+	)
+	if walkErr != nil {
+		return ctxerrors.Wrap(walkErr, "walk workspace for nested instructions")
+	}
+
+	return nil
+}
+
+func (s *resolutionState) discoverNestedInstruction(
+	workspace string,
+	directory string,
+	priority int,
+) error {
+	path := filepath.Join(directory, agentsFileName)
+
+	err := s.discoverOptional(
+		SourceKindInstruction,
+		path,
+		func() error {
+			return s.discoverScopedInstructions(workspace, directory, priority)
+		},
+	)
+	if errors.Is(err, ErrResourceLimit) {
+		s.warn(SourceKindInstruction, path, err)
+
+		return fs.SkipAll
+	}
+
+	if err != nil {
+		return ctxerrors.Wrap(err, "discover nested instruction file")
+	}
+
+	return nil
+}
+
+func (s *resolutionState) discoverScopedInstructions(
+	workspace string,
+	directory string,
+	priority int,
+) error {
+	before := len(s.instructions)
+
+	if err := s.discoverInstructions(directory, priority); err != nil {
+		return err
+	}
+
+	if len(s.instructions) == before {
+		return nil
+	}
+
+	scope, err := filepath.Rel(workspace, directory)
+	if err != nil {
+		return ctxerrors.Wrap(err, "scope nested instruction file")
+	}
+
+	s.instructions[before].Scope = filepath.ToSlash(scope)
+
+	return nil
+}
+
+func (s *resolutionState) warn(kind SourceKind, source string, err error) {
+	s.warnings = append(s.warnings, Warning{
+		Kind:   kind,
+		Source: source,
+		Reason: err.Error(),
+	})
+}
+
+// skipUnreadable keeps a walk going past a directory it could not read.
+func skipUnreadable(entry fs.DirEntry) error {
+	if entry != nil && entry.IsDir() {
+		return fs.SkipDir
+	}
+
+	return nil
+}
+
+func isSkippedNestedDirectory(name string) bool {
+	return strings.HasPrefix(name, hiddenDirectoryPrefix) ||
+		name == nodeModulesDirectory ||
+		name == vendorDirectory
 }
 
 // discoverRules loads compatible and Peen-native modular rule files after a

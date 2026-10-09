@@ -1,10 +1,11 @@
 # The harness
 
-The harness is everything Peen tells the model besides your message: rules, skills, named agents, event handlers, and hooks. You write it as plain files beside your code. Peen reads those files fresh at the start of every turn, so an edit takes effect on the next message without a restart.
+The harness is everything Peen tells the model besides your message: `AGENTS.md` instructions, rules, skills, named agents, event handlers, and hooks. You write it as plain files beside your code. Peen reads those files fresh at the start of every turn, so an edit takes effect on the next message without a restart.
 
 | Piece | File | What it does | Details |
 | --- | --- | --- | --- |
-| Rules | `AGENTS.md`, `.agents/rules/*.md`, `.claude/rules/*.md` | Always-on instructions in the system prompt | [Rules](rules.md) |
+| Instructions | `AGENTS.md` | The project's instructions file in the agents.md format, always in the system prompt | [AGENTS.md and rules](rules.md) |
+| Rules | `.agents/rules/*.md`, `.claude/rules/*.md` | One topic per file, always in the system prompt | [AGENTS.md and rules](rules.md) |
 | Skills | `.agents/skills/<name>/SKILL.md`, `.claude/skills/<name>/SKILL.md` | Named procedures the model loads when a task fits | [Skills](skills.md) |
 | Named agents | `.agents/agents/<name>.md` | Child agents with their own instructions and tool set | [Agents](agents.md) |
 | Event handlers | `.agents/events/<type>.md` | What to do when a session event arrives, and whether it starts a turn | [Session events](events.md) |
@@ -18,9 +19,9 @@ Peen builds the harness from layers. It reads them in this order, and each later
 2. `PEEN_CONFIG_DIR`, the trusted operator layer.
 3. Every directory from the filesystem root `/` down to the session's workspace, in that order.
 
-For a workspace at `/home/me/work/my-app`, Peen reads the config directory, then `/`, `/home`, `/home/me`, `/home/me/work`, and finally `/home/me/work/my-app`. Put rules that apply to every project in `/home/me/work/AGENTS.md` and project rules in `/home/me/work/my-app/AGENTS.md`. Missing files and directories are normal and cost nothing. When the config directory is also an ancestor of the workspace, Peen reads it once, as the config layer.
+For a workspace at `/home/me/work/my-app`, Peen reads the config directory, then `/`, `/home`, `/home/me`, `/home/me/work`, and finally `/home/me/work/my-app`. Put instructions that apply to every project in `/home/me/work/AGENTS.md` and project instructions in `/home/me/work/my-app/AGENTS.md`. Missing files and directories are normal and cost nothing. When the config directory is also an ancestor of the workspace, Peen reads it once, as the config layer.
 
-Layers stop at the workspace. Peen does not read `AGENTS.md` files in subdirectories below the workspace, and it does not load a rule because the model touched a file in some directory. Open a subdirectory as its own workspace when it needs its own rules, or use the [hook recipe](hooks.md#example-hand-the-model-a-rule-once) to hand the model a rule the first time it changes a matching file.
+Layers stop at the workspace. Below it, Peen reads only `AGENTS.md` files, each scoped to its own directory, after every layer. Rules, skills, agents, event handlers, and hooks below the workspace are not read, and nothing loads because the model touched a file. To hand the model a rule the first time it changes a matching file, use the [hook recipe](hooks.md#example-hand-the-model-a-rule-once). [AGENTS.md and rules](rules.md#agentsmd) covers nested `AGENTS.md` files.
 
 Inside one layer Peen reads, in this order:
 
@@ -37,7 +38,7 @@ Directory entries are sorted bytewise, so the order is stable. The `.claude/` pa
 
 ## How layers combine
 
-- Rules always add. Every rule file from every layer becomes its own block in the system prompt, broad layers first.
+- `AGENTS.md` files and rules always add. Each file from every layer becomes its own block in the system prompt, broad layers first, then the `AGENTS.md` files below the workspace.
 - Skills, named agents, and event handlers replace by name. A later layer's `reviewer` agent replaces an earlier `reviewer` as a whole. Inside one layer, `.agents/skills/x` wins over `.claude/skills/x`. You can replace the embedded `planning` and `freshness` skills and the `default` agent the same way.
 - Hook groups always add, in layer order. Hooks from `PEEN_CONFIG_DIR` always run. Hooks from the workspace and its ancestors only run when `PEEN_ENABLE_WORKSPACE_HOOKS=true`.
 
@@ -52,7 +53,7 @@ Each turn stores the exact harness it used as a context snapshot, with a manifes
 The system prompt for a root turn is assembled in this order:
 
 1. The base prompt: Peen's embedded prompt, or `PEEN_CONFIG_DIR/SYSTEM.md` when present, followed by `APPEND_SYSTEM.md` when present. Peen reads these two files once at startup. A message can append to or replace this base for one turn with `systemPrompt`.
-2. Every rule block, in layer order.
+2. Every `AGENTS.md` and rule block, in layer order, then each `AGENTS.md` below the workspace with a line naming the directory it covers.
 3. The root agent's instructions, from the agent named by `PEEN_AGENT` (default `default`).
 4. The skill catalogue: one line per skill with its name, description, and source path.
 5. The named-agent catalogue: one line per agent with its name, description, allowed tools, and source path.
@@ -77,7 +78,7 @@ Size limits are hard errors and fail the turn, because Peen cannot safely contin
 | Limit | Value |
 | --- | --- |
 | Harness files in total | 256 |
-| Rule and instruction files | 64 |
+| `AGENTS.md` and rule files | 64 |
 | Skills | 64 |
 | Named agents | 64 |
 | Event handlers | 64 |
@@ -87,3 +88,5 @@ Size limits are hard errors and fail the turn, because Peen cannot safely contin
 | All files together | 1 MiB |
 
 An unreadable layer directory also fails the turn. Symlinks are resolved and only regular files are read.
+
+`AGENTS.md` files below the workspace are the exception. Peen searches at most 10,000 directories there, and a nested file that goes over a limit, or a directory it cannot read, is skipped with a warning while the turn runs with the files that fit.

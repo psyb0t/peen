@@ -77,11 +77,12 @@ ID and `GET /v1/workspace-roots` lists the roots it may offer. Send later turns
 through the global WebSocket with that ID in `metadata.sessionId`. [The API
 reference](http-api.md) has the exact frame shape.
 
-## 4. Put project rules beside the project
+## 4. Put project instructions beside the project
 
-Start with an `AGENTS.md` at the workspace root. Write the things an agent
-needs to know every time: how to build, where tests live, what it must not
-touch, and local conventions. Add the optional `.agents` directory as the work
+Start with an `AGENTS.md` at the workspace root, the instructions file in the
+[agents.md](https://agents.md) format. Write the things an agent needs to know
+every time: how to build, where tests live, what it must not touch, and local
+conventions. Add the optional `.agents` directory as the work
 gets more specific:
 
 ```text
@@ -100,7 +101,9 @@ workspace/
 
 Peen also reads these files in every parent directory of the workspace, so
 `~/work/AGENTS.md` applies to every project under `~/work` and the project's
-own `AGENTS.md` adds to it. Put topic rules that must apply to every turn in
+own `AGENTS.md` adds to it. An `AGENTS.md` in a subdirectory of the workspace
+covers that directory, and the closest one wins. Put topic rules that must
+apply to every turn in
 `.claude/rules/*.md` or `.agents/rules/*.md`. Skills give the agent named
 procedures. Every turn sees a skill's name and description, then the model
 decides whether an ordinary task matches and loads it with `use_skill`. Put a

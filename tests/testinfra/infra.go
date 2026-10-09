@@ -49,7 +49,9 @@ const (
 	appFixtureAgentPath        = "/tmp/peen-test-default.md"
 	appFixtureFileMode         = 0o644
 	appFixtureDirectoryMode    = 0o755
-	appRootInstructions        = "Follow the request and use available tools."
+	// ConfigInstructions is the AGENTS.md the app container's config
+	// directory holds.
+	ConfigInstructions = "Follow the request and use available tools."
 	//nolint:lll // Fixture content is byte exact and has no trailing newline.
 	appAgentDocument    = "---\nname: default\ndescription: API integration test agent\n---\nFollow the request and return the result."
 	appBootstrapCommand = `mkdir -p /tmp/peen/.agents/agents /tmp/peen-state
@@ -260,7 +262,7 @@ func appContainerRequest(
 		WorkingDir: appWorkingDirectory,
 		Files: []testcontainers.ContainerFile{
 			{
-				Reader:            strings.NewReader(appRootInstructions),
+				Reader:            strings.NewReader(ConfigInstructions),
 				ContainerFilePath: appFixtureInstructionsPath,
 				FileMode:          appFixtureFileMode,
 			},

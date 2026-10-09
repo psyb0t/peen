@@ -2,6 +2,7 @@ package harness
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"sort"
 	"strings"
@@ -19,6 +20,11 @@ const (
 	agentCatalogueSource     = "source: "
 
 	promptBlockExtraCapacity = 3
+
+	// nestedInstructionHeader introduces an AGENTS.md from below the
+	// workspace. Both placeholders are the file's directory relative to the
+	// workspace.
+	nestedInstructionHeader = "Instructions from %[1]s/AGENTS.md. They apply to files under %[1]s/ and take precedence over AGENTS.md files higher up for those files.\n\n" //nolint:lll // One prompt sentence.
 )
 
 // SourceKind identifies one type of discovered harness file.
@@ -40,6 +46,11 @@ type Instruction struct {
 	Priority int
 	Content  string
 	Hash     string
+
+	// Scope is the directory, relative to the workspace, that a nested
+	// AGENTS.md covers. It is empty for every file outside the workspace
+	// tree and for the workspace's own AGENTS.md.
+	Scope string
 }
 
 // Skill is the catalogue entry exposed before a skill is activated.
@@ -335,12 +346,7 @@ func (s Snapshot) PromptBlocks(
 
 	blocks := make([]PromptBlock, 0, blockCapacity)
 	for _, instruction := range s.instructions {
-		blocks = append(blocks, PromptBlock{
-			Kind:    instruction.kind(),
-			Source:  instruction.Source,
-			Content: instruction.Content,
-			Hash:    instruction.Hash,
-		})
+		blocks = append(blocks, instructionBlock(instruction))
 	}
 
 	if rootAgent != "" {
@@ -395,6 +401,28 @@ func (s Snapshot) warningBlock() (PromptBlock, bool) {
 		Content: rendered,
 		Hash:    hashString(rendered),
 	}, true
+}
+
+// instructionBlock renders one instruction. A nested AGENTS.md is prefixed
+// with the part of the workspace it covers, because the model cannot apply
+// the closest file's instructions without knowing where each file sits.
+func instructionBlock(instruction Instruction) PromptBlock {
+	block := PromptBlock{
+		Kind:    instruction.kind(),
+		Source:  instruction.Source,
+		Content: instruction.Content,
+		Hash:    instruction.Hash,
+	}
+
+	if instruction.Scope == "" {
+		return block
+	}
+
+	block.Content = fmt.Sprintf(nestedInstructionHeader, instruction.Scope) +
+		instruction.Content
+	block.Hash = hashString(block.Content)
+
+	return block
 }
 
 func (i Instruction) kind() SourceKind {

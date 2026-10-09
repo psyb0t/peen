@@ -112,14 +112,16 @@ the API reference.
 
 ## Teach it the project
 
-Put always-on project rules in `AGENTS.md`. Add named procedures under
+Put always-on project instructions in `AGENTS.md` and topic rules in
+`.agents/rules/<name>.md`. Add named procedures under
 `.agents/skills/<name>/SKILL.md`, bounded child-agent definitions under
 `.agents/agents/`, external-event handlers under `.agents/events/`, and
 mechanical guards in `.agents/hooks.yaml`.
 
 Peen resolves the configuration directory first, then every filesystem layer
 from root to the active workspace, at the start of every turn. A layer closer
-to the workspace is more specific. Nothing below the workspace is read. A skill
+to the workspace is more specific. Below the workspace, only `AGENTS.md` files
+are read, each scoped to its own directory, and the closest one wins. A skill
 description is present in context; the model loads the full skill only when it
 chooses to use it. Hooks are different: they are mechanical and can inject,
 deny, run a direct command, or emit a session notice.
@@ -129,7 +131,7 @@ deny, run a direct command, or emit a session notice.
 - [Setup, providers, WebSocket, and REST](references/setup.md)
 - [Configuration](../../../docs/configuration.md)
 - [The harness](../../../docs/harness.md)
-- [Rules](../../../docs/rules.md)
+- [AGENTS.md and rules](../../../docs/rules.md)
 - [Skills](../../../docs/skills.md)
 - [Named agents](../../../docs/agents.md)
 - [Session events](../../../docs/events.md)

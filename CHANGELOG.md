@@ -4,6 +4,14 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.15.0 (2026-10-09)
+
+`AGENTS.md` now follows the [agents.md](https://agents.md) format: a file in a subdirectory of the workspace covers that directory, and the closest one wins. No configuration or API migration is needed. A workspace that has `AGENTS.md` files in its subdirectories now sends them to the model.
+
+- Reads `AGENTS.md` files below the workspace at the start of every turn, after every layer, parents before children. Each one starts with a line naming the directory it covers. Peen skips hidden directories, `node_modules`, `vendor`, symlinked directories, and a config directory inside the workspace, and searches at most 10,000 directories. A nested file that is empty, unreadable, or past a harness limit is skipped with a warning instead of failing the turn.
+- Tells the model, in Peen's own operating instructions, that the `AGENTS.md` closest to the file being changed wins and that the user's chat messages override every `AGENTS.md`.
+- Documents `AGENTS.md` as the project's instructions file and rules as separate topic files. `docs/rules.md` is now "AGENTS.md and rules", and the README, harness guide, getting-started guide, and architecture overview use the same split.
+
 ## v0.14.2 (2026-10-09)
 
 Fast commands keep their output, and a session's first turn no longer fails at random while its worker starts. No configuration or API migration is needed.

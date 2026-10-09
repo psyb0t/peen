@@ -11,7 +11,7 @@ _peen goes in vageen_
 Peen puts a coding agent in a real working directory and keeps the whole job
 alive after the first response. Connect a client over WebSocket, give it a
 task, and it can read code, edit files, run commands, use skills, launch child
-agents, and follow the rules sitting beside the project.
+agents, and follow the `AGENTS.md` and rules sitting beside the project.
 
 Every conversation, tool call, agent event, context snapshot, compaction, and
 provider exchange lands in SQLite. Model records keep the request and response,
@@ -161,6 +161,7 @@ adds project-specific instructions:
 ```text
 workspace/
   AGENTS.md
+  some/subdirectory/AGENTS.md
   .claude/
     rules/<rule-name>.md
     skills/<skill-name>/SKILL.md
@@ -174,7 +175,9 @@ workspace/
 
 Peen reads these files from the configuration directory and from every directory between `/` and the workspace, at the start of every turn. Edit one and the next message sees it. A broken file is skipped with a warning in the chat, and everything else keeps working. [The harness guide](docs/harness.md) has the layer order and limits.
 
-**Rules.** `AGENTS.md` and every `.md` file in `.agents/rules/` or `.claude/rules/` go into the system prompt on every turn. Use them for build commands, conventions, and things the agent must not touch. Rules from every layer add up, so `~/work/AGENTS.md` covers all your projects and `~/work/my-app/AGENTS.md` adds to it. [Rules](docs/rules.md)
+**AGENTS.md.** The project's instructions file, in the [agents.md](https://agents.md) format other coding agents read too: build commands, conventions, and things the agent must not touch. It goes into the system prompt on every turn. Files from every layer add up, so `~/work/AGENTS.md` covers all your projects and `~/work/my-app/AGENTS.md` adds to it. An `AGENTS.md` below the workspace covers its own directory, and the closest one wins. [AGENTS.md and rules](docs/rules.md)
+
+**Rules.** Topic files in `.agents/rules/` or `.claude/rules/`, one subject each, such as `testing.md` or `go.md`. They also go into the system prompt on every turn and add up across layers. [AGENTS.md and rules](docs/rules.md#rules)
 
 **Skills.** A skill is a directory with a `SKILL.md`: YAML frontmatter with a `name` and `description`, then the procedure. The model sees every skill's name and description each turn and loads the full text with `use_skill` when a task fits. Write `:skill-name` in a message to force one. [Skills](docs/skills.md)
 
@@ -326,7 +329,7 @@ openclaw skills install @psyb0t/peen
 | Start from zero | [Getting started](docs/getting-started.md) |
 | Configure providers, limits, and logs | [Configuration](docs/configuration.md) |
 | Understand how Peen reads project files | [The harness](docs/harness.md) |
-| Give the agent standing project rules | [Rules](docs/rules.md) |
+| Give the agent project instructions and rules | [AGENTS.md and rules](docs/rules.md) |
 | Write named procedures the agent loads on demand | [Skills](docs/skills.md) |
 | Define child agents for contained jobs | [Named agents](docs/agents.md) |
 | React to background jobs, child agents, and outside systems | [Session events](docs/events.md) |

@@ -12,6 +12,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,6 +49,11 @@ const (
 	apiTestActiveTurnMessage    = "hold this active turn"
 	apiTestQueuedMessage        = "queue this message for the active turn"
 	apiTestQueuedPageLimit      = 4
+
+	apiTestNestedInstructionsFile = "service/AGENTS.md"
+	apiTestNestedInstructions     = "Nested service instructions."
+	apiTestNestedScopeLine        = "Instructions from service/AGENTS.md. They apply to files under service/" //nolint:lll // One prompt sentence.
+	apiTestNestedMessage          = "prove nested AGENTS.md reaches the model"
 )
 
 var integrationInfra *testinfra.Infra
@@ -279,6 +285,32 @@ func TestProductionImageRestartsWithDurableStateAndFreshHarness(t *testing.T) {
 	))
 	_ = sendAPIWebSocketMessage(t, apiTestReloadMessage)
 	assert.Contains(t, integrationInfra.LastSystemPrompt(), apiTestUpdatedRules)
+}
+
+// An AGENTS.md in a subdirectory of the workspace reaches the model request,
+// introduced by the directory it covers.
+func TestProductionImageSendsNestedInstructionsWithTheirScope(t *testing.T) {
+	require.NoError(t, integrationInfra.WriteWorkspaceFile(
+		t.Context(),
+		apiTestNestedInstructionsFile,
+		[]byte(apiTestNestedInstructions),
+	))
+
+	_ = sendAPIWebSocketMessage(t, apiTestNestedMessage)
+
+	prompt := integrationInfra.LastSystemPrompt()
+	scopeAt := strings.Index(prompt, apiTestNestedScopeLine)
+	contentAt := strings.Index(prompt, apiTestNestedInstructions)
+
+	require.NotEqual(t, -1, scopeAt, "the nested file names its directory")
+	require.NotEqual(t, -1, contentAt, "the nested file reaches the model")
+	assert.Less(t, scopeAt, contentAt)
+	assert.Equal(
+		t,
+		1,
+		strings.Count(prompt, testinfra.ConfigInstructions),
+		"the config directory inside the workspace is read once",
+	)
 }
 
 func TestAPICancelsActiveTurn(t *testing.T) {
