@@ -56,8 +56,7 @@ const (
 )
 
 // writeChildHarnessHooks installs a hooks document in the configuration
-// layer, which is the trusted layer that runs without EnableWorkspaceHooks.
-// The runtime resolves the harness per turn, so writing it after the fixture
+// layer. The runtime resolves the harness per turn, so writing it after the fixture
 // is built is what that turn sees.
 func writeChildHarnessHooks(
 	t *testing.T,

@@ -128,7 +128,6 @@ func runtimeOptions(
 		MaxConcurrentTools:   options.MaxConcurrentTools,
 		ToolTimeout:          options.ToolTimeout,
 		MaxToolResultTokens:  options.MaxToolResultTokens,
-		EnableWorkspaceHooks: options.EnableWorkspaceHooks,
 		HookCommandTimeout:   options.HookCommandTimeout,
 		MaxHookCommandOutput: options.MaxHookCommandOutput,
 

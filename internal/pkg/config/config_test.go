@@ -173,7 +173,6 @@ func TestParseUsesFixedEnvironmentBindings(t *testing.T) {
 	t.Setenv("PEEN_MAX_MESSAGE_BYTES", "131072")
 	t.Setenv("PEEN_MAX_SYSTEM_PROMPT_BYTES", "32768")
 	t.Setenv("PEEN_MAX_STORED_MESSAGE_BYTES", "524288")
-	t.Setenv("PEEN_ENABLE_WORKSPACE_HOOKS", "true")
 	t.Setenv("PEEN_HOOK_COMMAND_TIMEOUT", "20s")
 	t.Setenv("PEEN_MAX_HOOK_COMMAND_OUTPUT", "8192")
 
@@ -195,7 +194,6 @@ func TestParseUsesFixedEnvironmentBindings(t *testing.T) {
 	assert.Equal(t, 131072, config.MaxMessageBytes)
 	assert.Equal(t, 32768, config.MaxSystemPromptBytes)
 	assert.Equal(t, 524288, config.MaxStoredMessageBytes)
-	assert.True(t, config.EnableWorkspaceHooks)
 	assert.Equal(t, 20*time.Second, config.HookCommandTimeout)
 	assert.Equal(t, 8192, config.MaxHookCommandOutput)
 

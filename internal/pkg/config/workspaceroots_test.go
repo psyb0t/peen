@@ -141,3 +141,39 @@ func TestValidateRefusesTheRemovedWorkspaceRootsList(t *testing.T) {
 		})
 	}
 }
+
+// Workspace hooks always run now. A deployment that turned them off was relying
+// on that as a guard, so startup stops instead of quietly running them.
+func TestValidateRefusesTurningWorkspaceHooksOff(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name    string
+		value   string
+		wantErr bool
+	}{
+		{name: "unset", value: "", wantErr: false},
+		{name: "true", value: "true", wantErr: false},
+		{name: "false", value: "false", wantErr: true},
+		{name: "zero", value: "0", wantErr: true},
+		{name: "not a boolean", value: "sometimes", wantErr: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := Config{
+				RemovedWorkspaceHooksSwitch: tc.value,
+			}.validateWorkspaceHooks()
+			if !tc.wantErr {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, ErrInvalidConfig)
+			assert.Contains(t, err.Error(), "PEEN_ENABLE_WORKSPACE_HOOKS")
+		})
+	}
+}

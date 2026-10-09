@@ -49,7 +49,9 @@ func (p *testPublisher) PublishContext(
 	return notice, nil
 }
 
-func TestRunnerAppliesConfigHooksThenEnabledWorkspaceHooks(t *testing.T) {
+// Workspace hooks run whenever a workspace layer declares them, after the
+// config layer's. There is no switch: a workspace without hooks.yaml has none.
+func TestRunnerAppliesConfigHooksThenWorkspaceHooks(t *testing.T) {
 	t.Parallel()
 
 	snapshot, workspace := testSnapshot(t, `version: 1
@@ -81,24 +83,14 @@ pre_tool_use:
 		Input: json.RawMessage(`{"expectedSha256":"abc"}`),
 	}
 
-	configOnly, err := New(Options{Snapshot: snapshot, Workspace: workspace})
+	runner, err := New(Options{Snapshot: snapshot, Workspace: workspace})
 	require.NoError(t, err)
-	configOutcome, err := configOnly.Run(context.Background(), invocation)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"config write rule"}, configOutcome.Injections)
-
-	withWorkspace, err := New(Options{
-		Snapshot:             snapshot,
-		Workspace:            workspace,
-		EnableWorkspaceHooks: true,
-	})
-	require.NoError(t, err)
-	workspaceOutcome, err := withWorkspace.Run(context.Background(), invocation)
+	outcome, err := runner.Run(context.Background(), invocation)
 	require.NoError(t, err)
 	assert.Equal(t, []string{
 		"config write rule",
 		"workspace write rule",
-	}, workspaceOutcome.Injections)
+	}, outcome.Injections)
 }
 
 func TestRunnerPassesFullEventToCommandAndHonorsItsDecision(t *testing.T) {

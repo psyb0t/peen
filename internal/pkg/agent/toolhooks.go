@@ -64,7 +64,6 @@ func newToolHookRuntime(
 	agentRunID *uuid.UUID,
 	executor *tools.JobExecutor,
 	sessionEvents elelem.MessageInjector,
-	enableWorkspaceHooks bool,
 	commandTimeoutDuration time.Duration,
 	maxCommandOutput int,
 	publisher hooks.EventPublisher,
@@ -76,14 +75,13 @@ func newToolHookRuntime(
 	}
 
 	runner, err := hooks.New(hooks.Options{
-		Snapshot:             snapshot,
-		Workspace:            workspace,
-		EnableWorkspaceHooks: enableWorkspaceHooks,
-		CommandTimeout:       commandTimeoutDuration,
-		MaxCommandOutput:     maxCommandOutput,
-		Publisher:            publisher,
-		StateRoot:            hookStateRoot,
-		ContextTokenCounter:  contextTokenCounter,
+		Snapshot:            snapshot,
+		Workspace:           workspace,
+		CommandTimeout:      commandTimeoutDuration,
+		MaxCommandOutput:    maxCommandOutput,
+		Publisher:           publisher,
+		StateRoot:           hookStateRoot,
+		ContextTokenCounter: contextTokenCounter,
 	})
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create tool hook runner")
@@ -116,7 +114,6 @@ func (r *Runtime) newToolHookRuntime(
 		nil,
 		prepared.executor,
 		prepared.injectSessionEvents,
-		r.enableWorkspaceHooks,
 		r.hookCommandTimeout,
 		r.maxHookCommandOutput,
 		r.durableEventPublisher(),
@@ -138,13 +135,12 @@ func (r *Runtime) appendPreUserHookContext(
 	systemPrompt string,
 ) (string, error) {
 	runner, err := hooks.New(hooks.Options{
-		Snapshot:             snapshot,
-		Workspace:            workspace,
-		EnableWorkspaceHooks: r.enableWorkspaceHooks,
-		CommandTimeout:       r.hookCommandTimeout,
-		MaxCommandOutput:     r.maxHookCommandOutput,
-		Publisher:            r.durableEventPublisher(),
-		StateRoot:            r.hookStateRoot,
+		Snapshot:         snapshot,
+		Workspace:        workspace,
+		CommandTimeout:   r.hookCommandTimeout,
+		MaxCommandOutput: r.maxHookCommandOutput,
+		Publisher:        r.durableEventPublisher(),
+		StateRoot:        r.hookStateRoot,
 	})
 	if err != nil {
 		return "", ctxerrors.Wrap(err, "create pre-user-message hook runner")

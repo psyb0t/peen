@@ -185,7 +185,7 @@ Peen reads these files from the configuration directory and from every directory
 
 **Session events.** When a background command finishes, a child agent ends, a hook reports something, or an outside system posts to `/v1/session/notices`, Peen records an event and hands it to the model at the next turn or tool boundary. A handler in `.agents/events/<type>.md` can make an event start a turn on an idle session. [Session events](docs/events.md)
 
-**Hooks.** `.agents/hooks.yaml` runs actions at 38 points in a turn: before and after each message, turn, compaction, and tool call. An action can block the operation, run a command, add context for the model, or publish an event. Workspace hooks only run with `PEEN_ENABLE_WORKSPACE_HOOKS=true`. [Hooks](docs/hooks.md)
+**Hooks.** `.agents/hooks.yaml` runs actions at 38 points in a turn: before and after each message, turn, compaction, and tool call. An action can block the operation, run a command, add context for the model, or publish an event. [Hooks](docs/hooks.md)
 
 ## See what happened
 

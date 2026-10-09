@@ -4,6 +4,13 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.16.0 (2026-10-09)
+
+Hooks from every layer now always run, and tool cards in the control surface show what each call acted on. Remove `PEEN_ENABLE_WORKSPACE_HOOKS` from your configuration before you upgrade.
+
+- Breaking: removes `PEEN_ENABLE_WORKSPACE_HOOKS`. Hooks from every layer now run, the workspace's included, and a workspace that should run no hooks has no `.agents/hooks.yaml`. Peen refuses to start while the variable is set to anything other than `true`, because a deployment that set it to `false` relied on it to keep workspace hooks from running. Migrate by removing the variable, and delete `.agents/hooks.yaml` from any workspace whose hooks must not run. The Go `pkg/peen` option `EnableWorkspaceHooks` is removed too.
+- Shows what each tool call acted on next to its name in the control surface, such as `use_skill: release-notes`, `run_command: make test`, or `read_file: README.md`, so a card says what happened without being opened.
+
 ## v0.15.2 (2026-10-09)
 
 Session events now wake a session after its first turn, so a `job.exited` handler can react when an app the agent started crashes. No configuration or API migration is needed.

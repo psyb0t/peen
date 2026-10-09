@@ -74,7 +74,6 @@ type Runtime struct {
 	maxConcurrentTools   int
 	toolTimeout          time.Duration
 	maxToolResultTokens  int
-	enableWorkspaceHooks bool
 	hookCommandTimeout   time.Duration
 	maxHookCommandOutput int
 	hookStateRoot        string
@@ -234,7 +233,6 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 		maxConcurrentTools:   options.MaxConcurrentTools,
 		toolTimeout:          options.ToolTimeout,
 		maxToolResultTokens:  options.MaxToolResultTokens,
-		enableWorkspaceHooks: options.EnableWorkspaceHooks,
 		hookCommandTimeout:   options.HookCommandTimeout,
 		maxHookCommandOutput: options.MaxHookCommandOutput,
 		hookStateRoot:        options.HookStateRoot,

@@ -587,7 +587,6 @@ func (r *Runtime) bindChildHooks(
 		&run.ID,
 		deps.executor,
 		nil,
-		r.enableWorkspaceHooks,
 		r.hookCommandTimeout,
 		r.maxHookCommandOutput,
 		r.durableEventPublisher(),

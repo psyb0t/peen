@@ -69,7 +69,6 @@ func logValidatedConfig(
 		"max_concurrent_tools", config.MaxConcurrentTools,
 		"tool_timeout", config.ToolTimeout,
 		"max_tool_result_tokens", config.MaxToolResultTokens,
-		"enable_workspace_hooks", config.EnableWorkspaceHooks,
 		"hook_command_timeout", config.HookCommandTimeout,
 		"max_hook_command_output", config.MaxHookCommandOutput,
 		"tool_max_list_entries", config.ToolMaxListEntries,

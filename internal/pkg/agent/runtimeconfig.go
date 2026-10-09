@@ -53,7 +53,6 @@ func RuntimeOptionsFromConfig(
 		MaxConcurrentTools:   deployment.MaxConcurrentTools,
 		ToolTimeout:          deployment.ToolTimeout,
 		MaxToolResultTokens:  deployment.MaxToolResultTokens,
-		EnableWorkspaceHooks: deployment.EnableWorkspaceHooks,
 		HookCommandTimeout:   deployment.HookCommandTimeout,
 		MaxHookCommandOutput: deployment.MaxHookCommandOutput,
 		HookStateRoot:        hooks.DefaultStateRoot(deployment.StateDirectory),

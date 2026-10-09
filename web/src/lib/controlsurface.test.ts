@@ -237,10 +237,12 @@ describe("control surface", () => {
 			"Inspect the workspace before changing it.",
 		);
 
-		const toolCard = (await screen.findByText("read_file")).closest("details");
-		expect(toolCard?.querySelector("summary")?.textContent).toContain("Done");
+		const toolCard = (await screen.findByText("read_file:")).closest("details");
+		const summary = toolCard?.querySelector("summary")?.textContent;
+		expect(summary).toContain("Done");
+		expect(summary).toContain("README.md");
 		expect(screen.queryByText("Tool result")).toBeNull();
-		await fireEvent.click(screen.getByText("read_file"));
+		await fireEvent.click(screen.getByText("read_file:"));
 		expect(toolCard?.open).toBe(true);
 		expect(toolCard?.textContent).toContain("Arguments");
 		expect(toolCard?.textContent).toContain('"path": "README.md"');
@@ -435,11 +437,12 @@ describe("control surface", () => {
 
 		await screen.findByText("make a script");
 		await screen.findByText("plan the script");
-		const writeCard = (await screen.findByText("write_file")).closest("details");
+		const writeCard = (await screen.findByText("write_file:")).closest("details");
+		expect(writeCard?.querySelector(".tool-subject")?.textContent).toBe("run.sh");
 		expect(writeCard?.querySelector("summary")?.textContent).toContain("Done");
 		expect(writeCard?.textContent).toContain('"path": "run.sh"');
 		expect(writeCard?.textContent).toContain('{"created":true}');
-		const emphasized = await screen.findByText("run.sh");
+		const emphasized = await screen.findByText("run.sh", { selector: "strong" });
 		expect(emphasized.tagName).toBe("STRONG");
 		expect(screen.queryByText("content_block_delta")).toBeNull();
 		expect(screen.queryByText("content_block_start")).toBeNull();

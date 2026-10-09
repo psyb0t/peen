@@ -40,15 +40,14 @@ const (
 
 // Runner executes one turn's immutable, resolved hook list.
 type Runner struct {
-	hooks                []harness.Hook
-	workspace            string
-	enableWorkspaceHooks bool
-	commandTimeout       time.Duration
-	maxCommandOutput     int
-	publisher            EventPublisher
-	runCommand           CommandRunner
-	stateRoot            string
-	contextTokenCounter  ContextTokenCounter
+	hooks               []harness.Hook
+	workspace           string
+	commandTimeout      time.Duration
+	maxCommandOutput    int
+	publisher           EventPublisher
+	runCommand          CommandRunner
+	stateRoot           string
+	contextTokenCounter ContextTokenCounter
 }
 
 // New validates execution bounds and captures a snapshot's hook list.
@@ -85,15 +84,14 @@ func New(options Options) (Runner, error) {
 	}
 
 	return Runner{
-		hooks:                options.Snapshot.Hooks(),
-		workspace:            filepath.Clean(options.Workspace),
-		enableWorkspaceHooks: options.EnableWorkspaceHooks,
-		commandTimeout:       options.CommandTimeout,
-		maxCommandOutput:     options.MaxCommandOutput,
-		publisher:            options.Publisher,
-		runCommand:           options.RunCommand,
-		stateRoot:            filepath.Clean(options.StateRoot),
-		contextTokenCounter:  options.ContextTokenCounter,
+		hooks:               options.Snapshot.Hooks(),
+		workspace:           filepath.Clean(options.Workspace),
+		commandTimeout:      options.CommandTimeout,
+		maxCommandOutput:    options.MaxCommandOutput,
+		publisher:           options.Publisher,
+		runCommand:          options.RunCommand,
+		stateRoot:           filepath.Clean(options.StateRoot),
+		contextTokenCounter: options.ContextTokenCounter,
 	}, nil
 }
 
@@ -144,8 +142,7 @@ func (r Runner) Run(
 	}()
 
 	for _, hook := range r.hooks {
-		if hook.Event != invocation.Event ||
-			(!hook.ConfigLayer && !r.enableWorkspaceHooks) {
+		if hook.Event != invocation.Event {
 			continue
 		}
 

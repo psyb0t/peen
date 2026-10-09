@@ -6,7 +6,7 @@ A hook runs at a fixed point in a turn and does something mechanical: block a to
 
 Hooks live in `.agents/hooks.yaml` in any [harness layer](harness.md#where-peen-looks). Put trusted, deployment-wide hooks in `PEEN_CONFIG_DIR/.agents/hooks.yaml` and project hooks in `<workspace>/.agents/hooks.yaml`. Every layer's groups are kept and run in layer order. A later layer adds to earlier ones and never replaces them.
 
-Hooks under `PEEN_CONFIG_DIR` always run. Hooks from the workspace and its parent directories are read, validated, and recorded in the turn's context snapshot, but they only run when `PEEN_ENABLE_WORKSPACE_HOOKS=true`. Turn that on only for workspaces you trust, because a hook command runs with Peen's own access.
+Every layer's hooks run, the workspace's included. There is no switch. A workspace that should run no hooks has no `.agents/hooks.yaml`. A hook command runs with Peen's own access, so only open workspaces whose hooks you trust.
 
 Peen re-reads `hooks.yaml` at the start of every turn, so an edit applies to the next message.
 
@@ -213,7 +213,6 @@ A deny or failure on a post event cannot undo the tool, which has already run. P
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PEEN_ENABLE_WORKSPACE_HOOKS` | `false` | Run hooks from the workspace and its parent directories. |
 | `PEEN_HOOK_COMMAND_TIMEOUT` | `30s` | Time limit for one `command` action. `timeout_seconds` overrides it per action. The whole tool call stays bounded by `PEEN_TOOL_TIMEOUT`. |
 | `PEEN_MAX_HOOK_COMMAND_OUTPUT` | `65536` | Maximum stdout or stderr from one command. |
 
@@ -346,7 +345,7 @@ find "$state" -maxdepth 1 -name 'rule-*.delivered' -delete
 
 The first `.go` write is denied and the model reads the rule as the tool result. It writes again with the rule in mind, the marker exists, and the write goes through. The forget script clears every marker, so a compaction that lands between a denial and the model's retry delivers the rule once more. Keep the context budget comfortably above the size of your rule files so one write does not trigger a compaction on its own.
 
-The scripts need `jq`. Keep each rule file within `PEEN_MAX_HOOK_COMMAND_OUTPUT`, because the rule travels as the command's output. A `post_compact` hook only runs in `summarize` compaction mode. With workspace hooks, `PEEN_ENABLE_WORKSPACE_HOOKS=true` must be set.
+The scripts need `jq`. Keep each rule file within `PEEN_MAX_HOOK_COMMAND_OUTPUT`, because the rule travels as the command's output. A `post_compact` hook only runs in `summarize` compaction mode.
 
 ## Logging
 

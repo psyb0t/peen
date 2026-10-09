@@ -80,6 +80,12 @@ type Config struct {
 	// instead of silently confining sessions to the working directory.
 	RemovedWorkspaceRootsJSON string `env:"PEEN_WORKSPACE_ROOTS"`
 
+	// RemovedWorkspaceHooksSwitch catches PEEN_ENABLE_WORKSPACE_HOOKS, which
+	// this release removed: workspace hooks always run. A deployment that set
+	// it to false relied on it as a guard, so startup stops for it instead of
+	// quietly running those hooks.
+	RemovedWorkspaceHooksSwitch string `env:"PEEN_ENABLE_WORKSPACE_HOOKS"`
+
 	// ExecutionProfilesJSON defines the execution profiles a client may name,
 	// as a JSON array. Every worker capability lives here: image, mounts,
 	// network, Docker socket, and privilege escalation. None of it ever comes
@@ -147,7 +153,6 @@ type Config struct {
 	MaxConcurrentTools   int           `default:"4"    env:"PEEN_MAX_CONCURRENT_TOOLS"`     //nolint:lll // Immutable env tag.
 	ToolTimeout          time.Duration `default:"15m"  env:"PEEN_TOOL_TIMEOUT"`             //nolint:lll // Immutable env tag.
 	MaxToolResultTokens  int           `default:"8192" env:"PEEN_MAX_TOOL_RESULT_TOKENS"`   //nolint:lll // Immutable env tag.
-	EnableWorkspaceHooks bool          `default:"false" env:"PEEN_ENABLE_WORKSPACE_HOOKS"`  //nolint:lll // Immutable env tag.
 	HookCommandTimeout   time.Duration `default:"30s" env:"PEEN_HOOK_COMMAND_TIMEOUT"`      //nolint:lll // Immutable env tag.
 	MaxHookCommandOutput int           `default:"65536" env:"PEEN_MAX_HOOK_COMMAND_OUTPUT"` //nolint:lll // Immutable env tag.
 
@@ -261,6 +266,7 @@ func (c Config) validate(requireStateDirectory bool) error {
 		c.validateAgentRunLimits,
 		c.validateMessageLimits,
 		c.validateWorkspaceRoot,
+		c.validateWorkspaceHooks,
 	}
 	for _, validate := range validators {
 		if err := validate(); err != nil {
@@ -713,6 +719,24 @@ func (c Config) validateWorkspaceRoot() error {
 	}
 
 	return nil
+}
+
+// validateWorkspaceHooks accepts the removed switch only when it is unset or
+// true, the two values under which workspace hooks already ran.
+func (c Config) validateWorkspaceHooks() error {
+	value := strings.TrimSpace(c.RemovedWorkspaceHooksSwitch)
+	if value == "" {
+		return nil
+	}
+
+	if enabled, err := strconv.ParseBool(value); err == nil && enabled {
+		return nil
+	}
+
+	return ctxerrors.Wrap(
+		ErrInvalidConfig,
+		"PEEN_ENABLE_WORKSPACE_HOOKS was removed and workspace hooks always run; unset it, and delete .agents/hooks.yaml from any workspace whose hooks must not run", //nolint:lll // One operator message.
+	)
 }
 
 // APIKey resolves only the environment variable selected by the operator.

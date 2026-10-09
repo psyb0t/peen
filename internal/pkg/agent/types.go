@@ -321,9 +321,6 @@ type RuntimeOptions struct {
 	ToolTimeout time.Duration
 	// MaxToolResultTokens bounds one tool result before it enters context.
 	MaxToolResultTokens int
-	// EnableWorkspaceHooks opts into executable hook actions found in workspace
-	// layers. Config-directory hooks always run.
-	EnableWorkspaceHooks bool
 	// HookCommandTimeout bounds one executable hook action. Zero takes the
 	// hook package default.
 	HookCommandTimeout time.Duration

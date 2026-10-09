@@ -45,15 +45,14 @@ type ContextTokenCounter func(context.Context, Invocation) (int, error)
 
 // Options defines the execution policy for one turn's resolved hook list.
 type Options struct {
-	Snapshot             harness.Snapshot
-	Workspace            string
-	EnableWorkspaceHooks bool
-	CommandTimeout       time.Duration
-	MaxCommandOutput     int
-	Publisher            EventPublisher
-	RunCommand           CommandRunner
-	StateRoot            string
-	ContextTokenCounter  ContextTokenCounter
+	Snapshot            harness.Snapshot
+	Workspace           string
+	CommandTimeout      time.Duration
+	MaxCommandOutput    int
+	Publisher           EventPublisher
+	RunCommand          CommandRunner
+	StateRoot           string
+	ContextTokenCounter ContextTokenCounter
 }
 
 // Invocation is one full lifecycle occurrence available to hook matching and

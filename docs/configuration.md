@@ -340,7 +340,6 @@ the host.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PEEN_ENABLE_WORKSPACE_HOOKS` | `false` | Allows executable actions from workspace `.agents/hooks.yaml` layers. Hooks under `PEEN_CONFIG_DIR` always run. |
 | `PEEN_HOOK_COMMAND_TIMEOUT` | `30s` | Bound on one `command` hook action. Must not exceed `PEEN_TOOL_TIMEOUT`. |
 | `PEEN_MAX_HOOK_COMMAND_OUTPUT` | `65536` | Maximum stdout or stderr captured from one hook command. |
 

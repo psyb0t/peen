@@ -40,7 +40,7 @@ Directory entries are sorted bytewise, so the order is stable. The `.claude/` pa
 
 - `AGENTS.md` files and rules always add. Each file from every layer becomes its own block in the system prompt, broad layers first, then the `AGENTS.md` files below the workspace.
 - Skills, named agents, and event handlers replace by name. A later layer's `reviewer` agent replaces an earlier `reviewer` as a whole. Inside one layer, `.agents/skills/x` wins over `.claude/skills/x`. You can replace the embedded `planning` and `freshness` skills and the `default` agent the same way.
-- Hook groups always add, in layer order. Hooks from `PEEN_CONFIG_DIR` always run. Hooks from the workspace and its ancestors only run when `PEEN_ENABLE_WORKSPACE_HOOKS=true`.
+- Hook groups always add, in layer order, and every layer's hooks run.
 
 ## When it is read
 

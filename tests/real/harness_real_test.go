@@ -800,7 +800,6 @@ func realHarnessEnvironment(
 		"PEEN_UPSTREAMS":                 upstreams,
 		"PEEN_DEFAULT_MODEL":             defaultModel,
 		"PEEN_API_TOKEN":                 apiToken,
-		"PEEN_ENABLE_WORKSPACE_HOOKS":    "true",
 		"PEEN_TURN_TIMEOUT":              realHarnessTestTimeout.String(),
 		"PEEN_LOG_DIRECTORY":             fixture.auditDirectory,
 		"PEEN_LOG_RETENTION_DAYS":        "14",

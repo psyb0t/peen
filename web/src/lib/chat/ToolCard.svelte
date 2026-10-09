@@ -1,7 +1,10 @@
 <script lang="ts">
 	import type { ToolCallView, ToolStatus } from "$lib/chat/transcript";
+	import { toolSubject } from "$lib/chat/toolsubject";
 
 	let { call }: { call: ToolCallView } = $props();
+
+	const subject = $derived(toolSubject(call.name, call.arguments));
 
 	const STATUS_LABELS: Record<ToolStatus, string> = {
 		done: "Done",
@@ -18,7 +21,12 @@
 	data-status={call.status}
 >
 	<summary>
-		<span class="tool-name">{call.name}</span>
+		<span class="tool-name"
+			>{call.name}{#if subject !== ""}:{/if}</span
+		>
+		{#if subject !== ""}
+			<span class="tool-subject" title={subject}>{subject}</span>
+		{/if}
 		<span class="tool-status">{STATUS_LABELS[call.status]}</span>
 	</summary>
 	<div class="tool-body">
@@ -57,6 +65,14 @@
 	.tool-name {
 		font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 		font-weight: 650;
+	}
+	.tool-subject {
+		color: #e6edf3;
+		font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.tool-status {
 		color: #8fd6a8;

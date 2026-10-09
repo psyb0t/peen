@@ -107,6 +107,5 @@ workspace/
 `AGENTS.md` gives the model standing project instructions. Skills are
 on-demand procedures. Named agents handle bounded delegated work. Event
 handlers tell Peen how to process an external notice. Hooks enforce mechanical
-behavior around lifecycle and tool events. Workspace hook commands require
-`PEEN_ENABLE_WORKSPACE_HOOKS=true`, and should only be enabled for trusted
-workspaces.
+behavior around lifecycle and tool events. Hooks from every layer run, so only
+open workspaces whose hooks you trust.
