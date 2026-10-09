@@ -27,6 +27,12 @@ const (
 	wakeTestPoll        = 10 * time.Millisecond
 	wakeTestTimeout     = 5 * time.Second
 
+	wakeTestJobEventType       = "job.exited"
+	wakeTestJobHandlerDocument = "---\ntype: job.exited\ndelivery: wake\n---\nA background job ended. Say why it stopped."
+	wakeTestCrashCommand       = "sleep 0.3; echo fatal >&2; exit 1"
+	wakeTestCrashPurpose       = "start the app in the background"
+	wakeTestCrashCallID        = "call-crash"
+
 	wakeTestHandlerDocument = `---
 type: app.error
 delivery: wake
@@ -342,6 +348,52 @@ func TestRunMessageRecordsTheTurnOrigin(t *testing.T) {
 			assert.True(t, message.Injected, "a woken prompt is not typed")
 		}
 	}
+}
+
+// A background job that ends after its turn wakes the session when a handler
+// asks for it, so an app that crashes gets looked at with nobody watching.
+func TestBackgroundJobExitWakesTheSession(t *testing.T) {
+	arguments, err := json.Marshal(map[string]any{
+		"command":    wakeTestCrashCommand,
+		"purpose":    wakeTestCrashPurpose,
+		"background": true,
+	})
+	require.NoError(t, err)
+
+	fixture := newRuntimeFixture(t, elelemtest.NewScriptedDriver(
+		elelemtest.Text("session open"),
+		elelemtest.ToolCall(wakeTestCrashCallID, toolNameRunCommand, string(arguments)),
+		elelemtest.Text("started"),
+		elelemtest.Text(wakeTestReply),
+	))
+	writeRuntimeFile(
+		t,
+		filepath.Join(
+			fixture.configDirectory,
+			".agents",
+			"events",
+			wakeTestJobEventType+".md",
+		),
+		wakeTestJobHandlerDocument,
+	)
+
+	sessionID := openWakeSession(t, fixture)
+
+	_, err = fixture.runtime.Run(context.Background(), TurnRequest{
+		SessionID: &sessionID,
+		Message:   wakeTestCrashPurpose,
+	})
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		messages, listErr := fixture.store.ListMessages(
+			context.Background(),
+			sessionID,
+			session.ListMessagesOptions{Order: session.PageOrderAscending},
+		)
+
+		return listErr == nil && containsContent(messages, wakeTestReply)
+	}, wakeTestTimeout, wakeTestPoll, "the crashed job woke the session")
 }
 
 // wokenTurnStartedPayload returns the newest turn.started payload that carries

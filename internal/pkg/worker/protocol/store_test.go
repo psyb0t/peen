@@ -498,6 +498,37 @@ func TestWorkerStoreRejectsAnUndecodableAnswer(t *testing.T) {
 	assert.Nil(t, page)
 }
 
+// Finalizing a turn ends it on the worker too, the same as the controller's
+// own store. A worker that still counted its finished turn as running would
+// treat the session as busy forever, so no event could ever wake it.
+func TestWorkerStoreFinalizingATurnEndsItLocally(t *testing.T) {
+	ctx := context.Background()
+	sessionID := uuid.New()
+	turnID := uuid.New()
+
+	store, controller := newStoreHarness(t, func(frame Frame) Frame {
+		if frame.Method == string(MethodAcquireTurn) {
+			return resultWith(
+				t,
+				session.Lease{SessionID: sessionID, TurnID: turnID},
+			)
+		}
+
+		return resultWith(t, struct{}{})
+	})
+
+	lease, err := store.AcquireTurn(ctx, sessionID, session.StartTurnInput{})
+	require.NoError(t, err)
+	controller.awaitCall(t)
+	require.True(t, store.IsActive(sessionID))
+
+	require.NoError(t, store.FinalizeTurn(ctx, lease, session.FinalizeTurnInput{}))
+	frame := controller.awaitCall(t)
+	assert.Equal(t, string(MethodFinalizeTurn), frame.Method)
+
+	assert.False(t, store.IsActive(sessionID), "the finished turn still counts")
+}
+
 // The lease and its cancellation live in the worker's own memory, because
 // cancellation has to reach a running goroutine rather than a row. Acquiring
 // records the session as active; cancelling marks it and reports that it

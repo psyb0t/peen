@@ -4,6 +4,12 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.15.2 (2026-10-09)
+
+Session events now wake a session after its first turn, so a `job.exited` handler can react when an app the agent started crashes. No configuration or API migration is needed.
+
+- Fixes session events never waking a session after its first turn when the session runs in a worker, which is every session a controller serves. The worker kept counting its finished turn as running, so every wake fell back to a queued delivery. A `job.exited` handler with `delivery: wake`, for example, never ran when the app a background job started crashed after its turn.
+
 ## v0.15.1 (2026-10-09)
 
 A turn that a session event wakes now runs in the session's worker and shows up live in the chat. No configuration or API migration is needed.

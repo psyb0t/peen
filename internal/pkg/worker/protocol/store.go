@@ -185,11 +185,17 @@ func (s *Store) AppendCheckpoint(
 	)
 }
 
+// FinalizeTurn writes the turn's terminal state and ends it locally, matching
+// the controller's store, which releases its lease on finalize. Nothing else
+// in a worker releases a finished turn, so without this the session would
+// look busy here forever and no event could wake it.
 func (s *Store) FinalizeTurn(
 	ctx context.Context,
 	lease session.Lease,
 	input session.FinalizeTurnInput,
 ) error {
+	defer s.dropLocalTurn(lease)
+
 	return callVoid(
 		ctx,
 		s,
@@ -204,16 +210,7 @@ func (s *Store) FinalizeTurn(
 // ReleaseTurn drops the local lease and waits for the controller to drop its
 // own, so the next accepted message is not refused as busy.
 func (s *Store) ReleaseTurn(lease session.Lease) {
-	s.activeMutex.Lock()
-	active, held := s.active[lease.SessionID]
-
-	if held && active.turnID == lease.TurnID {
-		delete(s.active, lease.SessionID)
-	}
-
-	s.activeMutex.Unlock()
-
-	if !held {
+	if !s.dropLocalTurn(lease) {
 		return
 	}
 
@@ -233,6 +230,20 @@ func (s *Store) ReleaseTurn(lease session.Lease) {
 			"err", err,
 		)
 	}
+}
+
+// dropLocalTurn forgets lease's turn when it is still the one recorded for
+// its session, and reports whether the session had a turn recorded at all.
+func (s *Store) dropLocalTurn(lease session.Lease) bool {
+	s.activeMutex.Lock()
+	defer s.activeMutex.Unlock()
+
+	active, held := s.active[lease.SessionID]
+	if held && active.turnID == lease.TurnID {
+		delete(s.active, lease.SessionID)
+	}
+
+	return held
 }
 
 // RegisterCancellation attaches this process's cancellation to a live lease.
