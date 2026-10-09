@@ -4,6 +4,13 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.14.2 (2026-10-09)
+
+Fast commands keep their output, and a session's first turn no longer fails at random while its worker starts. No configuration or API migration is needed.
+
+- Fixes `run_command` losing all output from a command that finished before Peen recorded its start, which a worker does over its socket. A quick `echo` came back with empty `stdout`, and a failure such as exit code 126 came back with empty `stderr`. Peen now reads output from the moment the process starts and records it once the start is recorded.
+- Fixes a session's first turn sometimes failing with "the worker disconnected before it could run work". The controller treated a worker as ready once it approved the registration, before it recorded the connection, so a launch that looked for the worker in that gap failed.
+
 ## v0.14.1 (2026-10-09)
 
 Hook input conditions work again, commands stop reporting their result twice, and the control surface groups a conversation by turn. No configuration or API migration is needed. A handler that listened for `hook.action_failed` never fired, so point it at `hook.action.failed`.

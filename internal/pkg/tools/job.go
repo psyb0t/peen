@@ -330,9 +330,16 @@ func (r *JobRegistry) Start(
 	}
 
 	job := r.newJob(process, input)
-
 	persistCtx := context.WithoutCancel(ctx)
+	recorded := make(chan struct{})
+
+	startJobStreams(persistCtx, r, job, recorded)
+
 	if err := r.observeStarted(persistCtx, job.Snapshot()); err != nil {
+		// The failure is set before the readers are released, so output
+		// from a job that was never recorded is never recorded either.
+		job.setPersistenceFailure(err)
+		close(recorded)
 		job.requestKill(persistCtx)
 
 		if waitErr := job.process.Wait(); waitErr != nil {
@@ -346,7 +353,7 @@ func (r *JobRegistry) Start(
 		return nil, ctxerrors.Wrap(err, "persist started job")
 	}
 
-	startJobStreams(persistCtx, r, job)
+	close(recorded)
 
 	r.mu.Lock()
 	r.jobs[job.ID] = job
@@ -403,40 +410,75 @@ func (j *Job) Release() {
 
 // startJobStreams registers commander's Stream synchronously, in the
 // caller's own goroutine, before anything else touches the process:
-// commander starts streaming from the moment Stream is called, not from
-// process start, so a process that exits fast (echo, printf, true) can
-// finish and have its output discarded before a subscriber deferred to
-// another goroutine ever registers. This mirrors commander's own
-// documented usage. The two reader goroutines it spawns drain into job's
-// ring buffers and are tracked by job.streamDone.
-func startJobStreams(ctx context.Context, registry *JobRegistry, job *Job) {
+// commander discards every line written before Stream is called, so a
+// process that exits fast (echo, printf, true) loses its output to any
+// subscriber registered later, including one that waits for the job's start
+// to be recorded first. The two reader goroutines it spawns hold lines until
+// recorded closes, then drain them into job's ring buffers in order. They
+// are tracked by job.streamDone.
+func startJobStreams(
+	ctx context.Context,
+	registry *JobRegistry,
+	job *Job,
+	recorded <-chan struct{},
+) {
 	stdoutCh := make(chan string, jobStreamChannelBuffer)
 	stderrCh := make(chan string, jobStreamChannelBuffer)
 	job.process.Stream(stdoutCh, stderrCh)
 
 	job.streamDone.Go(func() {
-		defer recoverAndLog(ctx, "job stdout reader")
-
-		for line := range stdoutCh {
-			registry.recordOutput(ctx, job, JobOutputRecord{
-				Stream:    JobStreamStdout,
-				Content:   line,
-				CreatedAt: time.Now().UTC(),
-			})
-		}
+		relayJobStream(ctx, registry, job, JobStreamStdout, stdoutCh, recorded)
 	})
 
 	job.streamDone.Go(func() {
-		defer recoverAndLog(ctx, "job stderr reader")
-
-		for line := range stderrCh {
-			registry.recordOutput(ctx, job, JobOutputRecord{
-				Stream:    JobStreamStderr,
-				Content:   line,
-				CreatedAt: time.Now().UTC(),
-			})
-		}
+		relayJobStream(ctx, registry, job, JobStreamStderr, stderrCh, recorded)
 	})
+}
+
+// relayJobStream records one stream's lines once the job's start is recorded.
+// Lines that arrive earlier are held rather than left in the channel, because
+// commander drops a subscriber whose channel stays full past its send timeout.
+func relayJobStream(
+	ctx context.Context,
+	registry *JobRegistry,
+	job *Job,
+	stream JobStream,
+	lines <-chan string,
+	recorded <-chan struct{},
+) {
+	defer recoverAndLog(ctx, "job output reader")
+
+	held := make([]JobOutputRecord, 0)
+
+	for line := range lines {
+		held = append(held, JobOutputRecord{
+			Stream:    stream,
+			Content:   line,
+			CreatedAt: time.Now().UTC(),
+		})
+
+		select {
+		case <-recorded:
+			held = registry.recordOutputs(ctx, job, held)
+		default:
+		}
+	}
+
+	<-recorded
+	registry.recordOutputs(ctx, job, held)
+}
+
+// recordOutputs records held lines in order and returns the emptied slice.
+func (r *JobRegistry) recordOutputs(
+	ctx context.Context,
+	job *Job,
+	held []JobOutputRecord,
+) []JobOutputRecord {
+	for _, record := range held {
+		r.recordOutput(ctx, job, record)
+	}
+
+	return held[:0]
 }
 
 func (r *JobRegistry) recordOutput(

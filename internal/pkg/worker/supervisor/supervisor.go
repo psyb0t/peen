@@ -474,8 +474,6 @@ func (s *Supervisor) AcceptWorker(
 		)
 	}
 
-	s.markReady(hello.SessionID, hello.GenerationID)
-
 	return protocol.HelloAck{
 		SessionID: stored.ID,
 		Workspace: stored.Workspace,
@@ -483,8 +481,10 @@ func (s *Supervisor) AcceptWorker(
 	}, nil
 }
 
-// markReady releases the launch that is waiting for this generation.
-func (s *Supervisor) markReady(sessionID, generationID uuid.UUID) {
+// WorkerConnected releases the launch that is waiting for this generation.
+// The listener calls it only after the worker is installed, so the launch
+// always finds the connection it was released for.
+func (s *Supervisor) WorkerConnected(sessionID, generationID uuid.UUID) {
 	s.mutex.Lock()
 	held, found := s.sessions[sessionID]
 	s.mutex.Unlock()

@@ -32,6 +32,11 @@ const (
 // that generation, and that credential hash.
 type Registrar interface {
 	AcceptWorker(ctx context.Context, hello Hello) (HelloAck, error)
+
+	// WorkerConnected reports an accepted worker once Connected returns it
+	// and its hello ack is sent. AcceptWorker runs before the listener
+	// installs the worker, so it cannot be the readiness signal.
+	WorkerConnected(sessionID, generationID uuid.UUID)
 }
 
 // Listener is one session's private worker socket.
@@ -226,6 +231,8 @@ func (l *Listener) register(
 	if err != nil {
 		return nil, nil, err
 	}
+
+	l.registrar.WorkerConnected(hello.SessionID, hello.GenerationID)
 
 	return registered, conn, nil
 }

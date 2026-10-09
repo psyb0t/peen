@@ -21,7 +21,7 @@ and `REF` picks a tag or branch:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/psyb0t/peen/main/install.sh |
-  PREFIX=/usr/local/bin REF=v0.14.1 bash
+  PREFIX=/usr/local/bin REF=v0.14.2 bash
 ```
 
 It needs `git` and `docker` and refuses to start without them. Doing the same

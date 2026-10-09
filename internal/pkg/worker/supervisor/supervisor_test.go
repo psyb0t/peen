@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,6 +28,7 @@ const (
 		"1111111111111111111111111111111111111111111111111111111111111111"
 	testSocketRootMode os.FileMode = 0o700
 	testWrittenMessage             = "written through the worker protocol"
+	testRelaunchCount              = 200
 )
 
 // fakeWorker is a worker that dials its controller in process. It proves the
@@ -71,9 +73,13 @@ type fakeLauncher struct {
 	workers []*fakeWorker
 	// connect false leaves the worker unconnected, so a test can watch a
 	// launch that never registers.
-	connect  bool
-	launched int
-	t        *testing.T
+	connect bool
+	// background registers the worker after Launch returns, the way a real
+	// child process does, instead of before it.
+	background bool
+	launched   int
+	mutex      sync.Mutex
+	t          *testing.T
 }
 
 func (l *fakeLauncher) Kind() worker.Kind {
@@ -91,15 +97,44 @@ func (l *fakeLauncher) Launch(
 		return &fakeProcess{}, nil
 	}
 
-	built := &fakeWorker{document: request.Document}
+	process := &fakeProcess{}
 
-	connection, err := protocol.Dial(ctx, request.Document, built)
+	if !l.background {
+		if err := l.register(ctx, request.Document, process); err != nil {
+			return nil, err
+		}
+
+		return process, nil
+	}
+
+	go func() {
+		if err := l.register(ctx, request.Document, process); err != nil {
+			l.t.Logf("fake worker failed to register: %v", err)
+		}
+	}()
+
+	return process, nil
+}
+
+// register dials the controller as the worker and serves the connection.
+func (l *fakeLauncher) register(
+	ctx context.Context,
+	document worker.LaunchDocument,
+	process *fakeProcess,
+) error {
+	built := &fakeWorker{document: document}
+
+	connection, err := protocol.Dial(ctx, document, built)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	built.connection = connection
+	process.attach(connection)
+
+	l.mutex.Lock()
 	l.workers = append(l.workers, built)
+	l.mutex.Unlock()
 
 	serveCtx := context.WithoutCancel(ctx)
 
@@ -109,11 +144,19 @@ func (l *fakeLauncher) Launch(
 		}
 	}()
 
-	return &fakeProcess{connection: connection}, nil
+	return nil
 }
 
 type fakeProcess struct {
+	mutex      sync.Mutex
 	connection *protocol.Connection
+}
+
+func (p *fakeProcess) attach(connection *protocol.Connection) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
+	p.connection = connection
 }
 
 func (p *fakeProcess) Describe() worker.Descriptor {
@@ -121,6 +164,9 @@ func (p *fakeProcess) Describe() worker.Descriptor {
 }
 
 func (p *fakeProcess) Stop(context.Context) error {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+
 	if p.connection != nil {
 		p.connection.Close()
 	}
@@ -263,6 +309,38 @@ func TestSupervisorRecordsAGenerationThenMarksItReady(t *testing.T) {
 
 	assert.NotEmpty(t, current.CredentialHash)
 	assert.NotEqual(t, issued, current.CredentialHash)
+}
+
+// A real worker process registers after Launch has returned. Every such launch
+// must come up ready, however soon after its registration the supervisor looks
+// for the connection.
+func TestSupervisorReadiesAWorkerThatRegistersAfterLaunchReturns(t *testing.T) {
+	fixture := newFixture(t, true)
+	fixture.launcher.background = true
+
+	for attempt := range testRelaunchCount {
+		registered, err := fixture.supervisor.Ensure(
+			t.Context(),
+			supervisor.EnsureRequest{
+				SessionID:   fixture.sessionID,
+				Workspace:   fixture.workspace,
+				ProfileName: testProfileNative,
+			},
+		)
+		require.NoError(t, err, "launch %d", attempt)
+		require.NotNil(t, registered, "launch %d", attempt)
+
+		current, err := fixture.store.CurrentWorkerGeneration(
+			t.Context(),
+			fixture.sessionID,
+		)
+		require.NoError(t, err)
+		assert.Equal(t, string(worker.StateReady), current.State)
+
+		require.NoError(t, fixture.supervisor.Stop(t.Context(), fixture.sessionID))
+	}
+
+	assert.Equal(t, testRelaunchCount, fixture.launcher.launched)
 }
 
 // A session keeps one worker across turns rather than launching another.

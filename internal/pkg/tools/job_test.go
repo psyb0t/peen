@@ -22,7 +22,70 @@ const (
 	jobTestGrace          = 300 * time.Millisecond
 	jobTestEventuallyWait = 5 * time.Second
 	jobTestEventuallyTick = 5 * time.Millisecond
+	// jobTestSlowStart outlasts a command that prints and exits at once, the
+	// way a worker's start write over its socket does.
+	jobTestSlowStart     = 200 * time.Millisecond
+	jobTestOutputCommand = "printf 'first\\nsecond\\n'; echo problem >&2"
+	jobTestReadLines     = 10
 )
+
+// slowStartObserver records job output only after a deliberately slow start
+// write, and notes any output that arrives before the start is recorded.
+type slowStartObserver struct {
+	startErr error
+
+	mu                sync.Mutex
+	started           bool
+	outputBeforeStart bool
+	outputs           []JobOutputRecord
+}
+
+func (o *slowStartObserver) JobStarted(context.Context, JobSnapshot) error {
+	time.Sleep(jobTestSlowStart)
+
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	o.started = o.startErr == nil
+
+	return o.startErr
+}
+
+func (o *slowStartObserver) JobOutput(
+	_ context.Context,
+	_ JobSnapshot,
+	record JobOutputRecord,
+) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	if !o.started {
+		o.outputBeforeStart = true
+	}
+
+	o.outputs = append(o.outputs, record)
+
+	return nil
+}
+
+func (o *slowStartObserver) JobSignal(
+	context.Context,
+	JobSnapshot,
+	JobSignal,
+) error {
+	return nil
+}
+
+func (o *slowStartObserver) JobFinished(context.Context, JobSnapshot) error {
+	return nil
+}
+
+func (o *slowStartObserver) recorded() ([]JobOutputRecord, bool) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	return append([]JobOutputRecord(nil), o.outputs...), o.outputBeforeStart
+}
 
 // stubPublisher records every notice it is asked to publish, so tests can
 // assert on completion events without a real event bus.
@@ -200,6 +263,67 @@ func TestJobRegistry_PublishesJobExited(t *testing.T) {
 	assert.Equal(t, job.ID, data.JobID)
 	assert.Equal(t, commandExitCodeNonZero, data.ExitCode)
 	assert.GreaterOrEqual(t, data.DurationMs, int64(0))
+}
+
+// A command that prints and exits before its start is recorded keeps every
+// line, in order, and none of it is recorded ahead of the start.
+func TestJobRegistry_KeepsOutputWrittenBeforeTheStartIsRecorded(t *testing.T) {
+	t.Parallel()
+
+	observer := &slowStartObserver{}
+	registry := newTestRegistry(t, nil)
+	registry.SetObserver(observer)
+
+	job, err := registry.Start(context.Background(), StartJobInput{
+		Command:   jobTestOutputCommand,
+		Directory: t.TempDir(),
+		Purpose:   jobTestPurpose,
+	})
+	require.NoError(t, err)
+
+	select {
+	case <-job.Done():
+	case <-time.After(jobTestEventuallyWait):
+		t.Fatal("job never exited")
+	}
+
+	stdout, _, _ := job.stdout.Read(0, jobTestReadLines)
+	stderr, _, _ := job.stderr.Read(0, jobTestReadLines)
+
+	assert.Equal(t, []string{"first", "second"}, stdout)
+	assert.Equal(t, []string{"problem"}, stderr)
+
+	outputs, outputBeforeStart := observer.recorded()
+
+	assert.Len(t, outputs, len(stdout)+len(stderr))
+	assert.False(t, outputBeforeStart, "output was recorded before its job")
+}
+
+// A job whose start cannot be recorded never records its output either.
+func TestJobRegistry_FailedStartRecordsNoOutput(t *testing.T) {
+	t.Parallel()
+
+	observer := &slowStartObserver{startErr: commerr.ErrConflict}
+	registry := newTestRegistry(t, nil)
+	registry.SetObserver(observer)
+
+	_, err := registry.Start(context.Background(), StartJobInput{
+		Command:   jobTestOutputCommand,
+		Directory: t.TempDir(),
+		Purpose:   jobTestPurpose,
+	})
+	require.ErrorIs(t, err, commerr.ErrConflict)
+
+	assert.Never(
+		t,
+		func() bool {
+			outputs, _ := observer.recorded()
+
+			return len(outputs) > 0
+		},
+		jobTestSlowStart,
+		jobTestEventuallyTick,
+	)
 }
 
 func TestJobRegistry_AwaitedJobPublishesOnlyAfterRelease(t *testing.T) {
