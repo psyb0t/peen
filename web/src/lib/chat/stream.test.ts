@@ -175,6 +175,22 @@ describe("live stream reducer", () => {
 		},
 	);
 
+	it("records which event started a turn", () => {
+		const turns = fold([
+			event("user_message.created", { message: "fix CI" }),
+			event("turn.started", { originEventType: "ci.build.failed" }),
+		]);
+
+		expect(turns[0]?.originEventType).toBe("ci.build.failed");
+		expect(turns[0]?.prompt).toBe("fix CI");
+	});
+
+	it("leaves a typed turn without an origin", () => {
+		const turns = fold([event("turn.started", { model: "aigate/model" })]);
+
+		expect(turns[0]?.originEventType).toBeUndefined();
+	});
+
 	it("keeps another session's turn under its own session id", () => {
 		const turns = fold([
 			event(

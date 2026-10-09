@@ -168,6 +168,15 @@ func TestRuntimeRunsAndListsMessages(t *testing.T) {
 	)
 	assert.False(t, page.HasMore)
 	assert.Equal(t, int32(10), page.Limit)
+
+	// Each request and its response share a turn, and the two turns differ.
+	require.Len(t, page.Items, 4)
+	for _, item := range page.Items {
+		require.NotNil(t, item.TurnId)
+	}
+	assert.Equal(t, *page.Items[0].TurnId, *page.Items[1].TurnId)
+	assert.Equal(t, *page.Items[2].TurnId, *page.Items[3].TurnId)
+	assert.NotEqual(t, *page.Items[0].TurnId, *page.Items[2].TurnId)
 }
 
 func TestRuntimeReadsDirectCompactionLinksAndParents(t *testing.T) {

@@ -4,6 +4,18 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.14.1 (2026-10-09)
+
+Hook input conditions work again, commands stop reporting their result twice, and the control surface groups a conversation by turn. No configuration or API migration is needed. A handler that listened for `hook.action_failed` never fired, so point it at `hook.action.failed`.
+
+- Fixes hook `input` conditions being dropped when Peen loaded the harness, so a group or action that matched on tool input, such as `match.input./command.regex`, ran on every call of that tool. A `deny` guarding one dangerous command blocked every command instead.
+- Fixes every `run_command` call also publishing a `job.exited` session event, even when the command finished inside the call. The model got each result twice, once as the tool result and once as a background update, and the chat showed a background update after every command. Only a command that is still running when its call returns, because it ran in the background or outlived its timeout, now publishes a completion event.
+- Fixes `emit_event` hook actions without `data`, and hook commands that print `"data": null`, failing instead of publishing an event with no payload.
+- Fixes the hook failure event never being published. Its type, `hook.action_failed`, broke the event type rules, so every publish was rejected. It is now `hook.action.failed`.
+- Adds `turnId` to stored messages, and the control surface now groups a conversation by turn. A background update delivered at the start of a turn shows at the start of that turn's reply instead of at the end of the previous one, and a turn an event handler started gets its own reply instead of running into the one before it.
+- Marks the instructions an event handler starts a turn with as `injected`, so the chat shows them as a background update instead of as a message you typed.
+- Documents in `docs/hooks.md` that the agent can edit or delete workspace hook files with its own tools, so a guard you rely on belongs in `PEEN_CONFIG_DIR` with sessions on a Docker profile.
+
 ## v0.14.0 (2026-10-08)
 
 The control surface now streams replies as they are written, renders them as Markdown, shows each tool call as one card, and lets you pick the model and reasoning level for each turn. A controller has one workspace root, and every project inside it opens as its own workspace. Deployments that set `PEEN_WORKSPACE_ROOTS` must switch to `PEEN_WORKSPACE_ROOT`.

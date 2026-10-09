@@ -130,6 +130,27 @@ func TestPublishEventWakesAnIdleSessionWithAHandler(t *testing.T) {
 		containsContent(messages, sessionEventsOpenTag),
 		"the event reached the turn as quoted data",
 	)
+
+	// Nobody typed the handler's instruction, so it is stored as injected,
+	// while the session's own opening prompt stays a person's message.
+	for _, message := range messages.Items {
+		if message.Role != models.MessageRoleUser {
+			continue
+		}
+
+		isHandlerInstruction := strings.Contains(
+			message.Content,
+			wakeTestInstruction,
+		)
+		isEventReport := strings.Contains(message.Content, sessionEventsOpenTag)
+		assert.Equal(
+			t,
+			isHandlerInstruction || isEventReport,
+			message.Injected,
+			"user message %q",
+			message.Content,
+		)
+	}
 }
 
 // Pointing a webhook at Peen must not start spending money before anyone has

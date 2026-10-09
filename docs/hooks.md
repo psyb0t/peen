@@ -32,7 +32,7 @@ pre_tool_use:
 - A group has an optional `name`, an optional `match`, and a non-empty, ordered `actions` list.
 - An action has an optional `name`, a `type`, an optional `when` matcher, an optional `on_failure`, and the fields its type needs.
 
-Give groups and actions a `name`. It shows up in logs and in `hook.action_failed` events. A missing group name becomes `<event>-<position>` and a missing action name becomes `<type>-<position>`.
+Give groups and actions a `name`. It shows up in logs and in `hook.action.failed` events. A missing group name becomes `<event>-<position>` and a missing action name becomes `<type>-<position>`.
 
 The YAML is strict. Unknown fields, unknown events, empty action lists, invalid regular expressions, a second YAML document, or a version other than `1` make the whole file invalid. Peen then skips that file, keeps valid hooks from other layers, and reports a `harness.warning` that names the file and the reason.
 
@@ -203,7 +203,7 @@ A `deny`, from a `deny` action or a command's decision, always stops the operati
 Any other failure follows `on_failure`. Without it:
 
 - On pre events, `session_start`, and `turn_start`, a failed action denies the operation.
-- On post and failure events, Peen logs a warning, publishes a `hook.action_failed` session event with `{event, hook_name, action, action_type, source}`, and carries on.
+- On post and failure events, Peen logs a warning, publishes a `hook.action.failed` session event with `{event, hook_name, action, action_type, source}`, and carries on.
 
 Set `on_failure: deny` or `on_failure: continue` on an action to choose. A failed `post_compact` action is only logged, because the summary is already stored.
 
@@ -220,6 +220,8 @@ A deny or failure on a post event cannot undo the tool, which has already run. P
 At most 256 hook groups across all layers.
 
 Hooks are not a sandbox. A hook command has the same filesystem and process access as Peen. Treat config-directory hooks as deployment code.
+
+A workspace hook is a file the agent can edit or delete with its own file tools. A model that keeps getting denied may remove `.agents/hooks.yaml` to get past the block. A guard you rely on belongs in `PEEN_CONFIG_DIR`, with sessions on a [Docker execution profile](configuration.md#execution-profiles), which mounts the configuration directory read-only into the worker. On the `native` profile the agent has the same access to the configuration directory as Peen itself.
 
 ## Examples
 

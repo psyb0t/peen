@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -75,9 +76,20 @@ func newTestJobExecutorWithLimits(
 ) *JobExecutor {
 	t.Helper()
 
+	return newTestJobExecutorWithPublisher(t, nil, limits, generationIDs...)
+}
+
+func newTestJobExecutorWithPublisher(
+	t *testing.T,
+	publisher EventPublisher,
+	limits Limits,
+	generationIDs ...uuid.UUID,
+) *JobExecutor {
+	t.Helper()
+
 	executor := newTestExecutorWithLimits(t, limits)
 
-	registry, err := NewJobRegistry(uuid.New(), nil, limits)
+	registry, err := NewJobRegistry(uuid.New(), publisher, limits)
 	require.NoError(t, err)
 
 	jobExecutor, err := NewJobExecutor(
@@ -368,6 +380,68 @@ func TestRunCommand_StillRunningWhenBoundExpires(t *testing.T) {
 		return !processAlive(t, out.PID)
 	}, commandEventuallyWait, commandEventuallyTick,
 		"killed job must eventually die")
+}
+
+// A job's completion event is for work that outlived its run_command call.
+// A command that finishes inside the call already reports its result there,
+// so publishing an event too would hand the model the same news twice.
+func TestRunCommand_PublishesCompletionOnlyForJobsThatOutliveTheCall(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	testCases := []struct {
+		name       string
+		input      RunCommandInput
+		wantEvents int
+	}{
+		{
+			name:       "finishes within the wait",
+			input:      RunCommandInput{Command: "true"},
+			wantEvents: 0,
+		},
+		{
+			name: "still running when the wait ends",
+			input: RunCommandInput{
+				Command:        "sleep 2",
+				TimeoutSeconds: commandWaitSeconds,
+			},
+			wantEvents: 1,
+		},
+		{
+			name:       "started in the background",
+			input:      RunCommandInput{Command: "true", Background: true},
+			wantEvents: 1,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			publisher := &stubPublisher{}
+			executor := newTestJobExecutorWithPublisher(t, publisher, Limits{})
+
+			input := tc.input
+			input.Purpose = commandTestPurpose
+			out, err := executor.RunCommand(context.Background(), input)
+			require.NoError(t, err)
+
+			job, ok := executor.jobs.Get(out.JobID)
+			require.True(t, ok)
+			select {
+			case <-job.Done():
+			case <-time.After(commandEventuallyWait):
+				t.Fatal("job never finished")
+			}
+
+			notices := publisher.all()
+			require.Len(t, notices, tc.wantEvents)
+			for _, notice := range notices {
+				assert.Equal(t, events.TypeJobExited, notice.Type)
+			}
+		})
+	}
 }
 
 func TestRunCommand_Background_ReturnsImmediately(t *testing.T) {

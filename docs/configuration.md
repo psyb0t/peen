@@ -400,8 +400,9 @@ line to SQLite before it enters a bounded live ring buffer. The buffer is only
 for the active tool call. REST output replay, job metadata, and signal history
 come from SQLite and survive reconnects and restarts. On shutdown, Peen stops
 every running job gracefully, waits a grace period, then kills its process
-group; no job silently outlives the process. A finished job publishes a
-`job.exited`, `job.signalled`, or `job.failed` [session event](events.md).
+group; no job silently outlives the process. A job that finishes after its
+`run_command` call returned publishes a `job.exited`, `job.signalled`, or
+`job.failed` [session event](events.md).
 
 ## Agent run observability
 

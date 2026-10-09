@@ -6,9 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
 	"path"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
@@ -26,19 +28,29 @@ const (
 	hostToolsToolNameRunCommand = "run_command"
 
 	// hostToolsMessageCount is one user message, three assistant/tool round
-	// pairs, the injected job.exited event, and the final assistant answer.
-	//
-	// The event message is not incidental: run_command starts a supervised
-	// job, the job publishes job.exited when it finishes, and the next tool
-	// boundary delivers that to the model as a durable user message. Its
-	// presence here is the proof that the event bus and the job registry are
-	// actually wired to each other through a real turn.
-	hostToolsMessageCount = 9
+	// pairs, and the final assistant answer. The command finishes inside its
+	// own run_command call, so no job.exited event follows it: the tool
+	// result already carries the outcome.
+	hostToolsMessageCount = 8
 
 	// hostToolsJobEventMarker is the framing every delivered event carries.
 	hostToolsJobEventMarker = "<session-events"
 	// hostToolsJobExitedType is the event a finished job publishes.
 	hostToolsJobExitedType = "job.exited"
+
+	sessionNoticesPath = sessionPath + "/notices"
+
+	backgroundJobUserMessage    = "run the scripted background job sequence"
+	backgroundJobFollowUp       = "what finished while you were away"
+	backgroundJobFixtureFile    = "background-job-fixture.txt"
+	backgroundJobFixtureContent = "background job fixture\n"
+	backgroundJobFixtureEdited  = "background job fixture edited\n"
+	backgroundJobCommand        = "sleep 2 && echo background job done"
+	backgroundJobPurpose        = "outlive the one second wait"
+	backgroundJobWaitSeconds    = 1
+	backgroundJobFinalAnswer    = "background job started"
+	backgroundJobEventWait      = 15 * time.Second
+	backgroundJobEventPoll      = 200 * time.Millisecond
 
 	hostToolsPageLimit    = 3
 	hostToolsCommandRanBy = "host-tools-command-ran"
@@ -133,6 +145,80 @@ func TestAPIHostToolsProductionWiring(t *testing.T) {
 		commandFileName:    hostToolsCommandFileFail,
 		finalAnswer:        hostToolsFinalAnswerFail,
 	})
+}
+
+// A command still running when its run_command call returns finishes as a
+// background job. Its job.exited event goes through the real job registry and
+// event bus, is stored as a session notice, and opens the next turn as an
+// injected update.
+func TestAPIBackgroundJobPublishesItsCompletion(t *testing.T) {
+	t.Cleanup(integrationInfra.DisableScriptedToolTurn)
+
+	fixturePath := hostToolsContainerPath(backgroundJobFixtureFile)
+	seedContainerFile(t, fixturePath, backgroundJobFixtureContent)
+
+	integrationInfra.EnableScriptedToolTurn(testinfra.ScriptedToolTurn{
+		UserMessage:       backgroundJobUserMessage,
+		ReadFileArguments: map[string]any{"path": fixturePath},
+		EditFileArguments: map[string]any{
+			"path": fixturePath,
+			"edits": []map[string]any{{
+				"old": backgroundJobFixtureContent,
+				"new": backgroundJobFixtureEdited,
+			}},
+		},
+		RunCommandArguments: map[string]any{
+			"command":        backgroundJobCommand,
+			"purpose":        backgroundJobPurpose,
+			"timeoutSeconds": backgroundJobWaitSeconds,
+		},
+		FinalAnswer: backgroundJobFinalAnswer,
+	})
+
+	result := sendAPIWebSocketMessage(t, backgroundJobUserMessage)
+	integrationInfra.DisableScriptedToolTurn()
+
+	require.Eventually(t, func() bool {
+		return hasNoticeOfType(t, result.sessionID, hostToolsJobExitedType)
+	}, backgroundJobEventWait, backgroundJobEventPoll,
+		"the background job published job.exited")
+
+	sendAPIWebSocketMessage(t, backgroundJobFollowUp)
+
+	messages := collectAllMessages(t, result.sessionID)
+	delivered := false
+	for _, message := range messages {
+		if message.Injected == nil || !*message.Injected {
+			continue
+		}
+		if strings.Contains(message.Content, hostToolsJobEventMarker) &&
+			strings.Contains(message.Content, hostToolsJobExitedType) {
+			delivered = true
+		}
+	}
+	assert.True(t, delivered, "the next turn opened with the job.exited update")
+}
+
+func hasNoticeOfType(t *testing.T, sessionID uuid.UUID, noticeType string) bool {
+	t.Helper()
+
+	response := apiRequest(
+		t,
+		http.MethodGet,
+		sessionNoticesPath,
+		nil,
+		withHeader(authenticatedHeaders(), headerSessionID, sessionID.String()),
+	)
+	requireAPIStatus(t, response, http.StatusOK)
+
+	page := decodeResponse[api.SessionNoticePage](t, response)
+	for _, notice := range page.Notices {
+		if notice.Type == noticeType {
+			return true
+		}
+	}
+
+	return false
 }
 
 // runHostToolsScenario seeds the scenario's fixture file, scripts the
@@ -332,16 +418,13 @@ func assertHostToolsTranscript(
 		hostToolsToolNameRunCommand, testinfra.ScriptedCallIDRunCommand, false,
 	)
 
-	// The job started by run_command finished, published job.exited, and the
-	// next tool boundary delivered it as quoted data.
-	delivered := messages[7]
-	assert.Equal(t, api.MessageRoleUser, delivered.Role)
-	assert.Contains(t, delivered.Content, hostToolsJobEventMarker)
-	assert.Contains(t, delivered.Content, hostToolsJobExitedType)
-	require.NotNil(t, delivered.Injected, "delivered events are marked as injected")
-	assert.True(t, *delivered.Injected)
+	// The command finished inside its call, so the model was not told the
+	// same result a second time as a session event.
+	for _, message := range messages {
+		assert.NotContains(t, message.Content, hostToolsJobEventMarker)
+	}
 
-	final := messages[8]
+	final := messages[7]
 	assert.Equal(t, api.MessageRoleAssistant, final.Role)
 	assert.Equal(t, finalAnswer, final.Content)
 }

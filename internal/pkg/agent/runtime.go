@@ -984,7 +984,12 @@ func (r *Runtime) startTurn(
 		sink:              input.OnEvent,
 	}
 
-	messages := turnStartMessages(pendingEvents, workspace, input.Message)
+	messages := turnStartMessages(
+		pendingEvents,
+		workspace,
+		input.Message,
+		input.Origin != nil,
+	)
 
 	lease, err := r.store.AcquireTurn(
 		ctx,
@@ -1013,10 +1018,14 @@ func (r *Runtime) startTurn(
 // turnStartMessages returns the messages a turn opens with: session events
 // that arrived while the session was idle, marked as injected, then the
 // prompt that started the turn.
+// turnStartMessages builds the messages a turn opens with. A turn started by
+// an event handler opens with the handler's instructions rather than anything
+// a person typed, so that prompt is stored as injected too.
 func turnStartMessages(
 	pendingEvents string,
 	workspace string,
 	prompt string,
+	isPromptInjected bool,
 ) []session.MessageInput {
 	messages := make([]session.MessageInput, 0, turnStartMessageCapacity)
 	if pendingEvents != "" {
@@ -1029,8 +1038,9 @@ func turnStartMessages(
 	}
 
 	return append(messages, session.MessageInput{
-		Role:    models.MessageRoleUser,
-		Content: prompt,
+		Role:     models.MessageRoleUser,
+		Content:  prompt,
+		Injected: isPromptInjected,
 	})
 }
 

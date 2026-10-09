@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import type { components } from "$lib/api/generated";
+import type { LiveTurn } from "$lib/chat/stream";
 
-import { groupTranscript, liveReplyBlock } from "./transcript";
+import { groupTranscript, liveReplyBlock, liveReplyBlocks } from "./transcript";
 
 type Message = components["schemas"]["Message"];
 
@@ -112,6 +113,92 @@ describe("groupTranscript", () => {
 				{ kind: "text", text: "Noted." },
 			],
 		});
+	});
+});
+
+describe("groupTranscript turns", () => {
+	const firstTurn = "11111111-1111-4111-8111-111111111111";
+	const secondTurn = "22222222-2222-4222-8222-222222222222";
+	const wakeTurn = "33333333-3333-4333-8333-333333333333";
+
+	it("shows an update stored before a prompt at the start of that prompt's reply", () => {
+		const prompt = message({ content: "first", role: "user", turnId: firstTurn });
+		const answer = message({ content: "one", role: "assistant", turnId: firstTurn });
+		const update = message({
+			content: "job finished",
+			injected: true,
+			role: "user",
+			turnId: secondTurn,
+		});
+		const next = message({ content: "second", role: "user", turnId: secondTurn });
+		const reply = message({ content: "two", role: "assistant", turnId: secondTurn });
+
+		const items = groupTranscript([prompt, answer, update, next, reply]);
+
+		expect(items.map((item) => item.kind)).toEqual(["user", "reply", "user", "reply"]);
+		expect(items[1]).toMatchObject({ blocks: [{ kind: "text", text: "one" }] });
+		expect(items[3]).toMatchObject({
+			blocks: [
+				{ kind: "injected", text: "job finished" },
+				{ kind: "text", text: "two" },
+			],
+		});
+	});
+
+	it("gives a turn an event started its own reply, opened by the handler's instructions", () => {
+		const prompt = message({ content: "hi", role: "user", turnId: firstTurn });
+		const answer = message({ content: "hello", role: "assistant", turnId: firstTurn });
+		const events = message({
+			content: "<session-events>",
+			injected: true,
+			role: "user",
+			turnId: wakeTurn,
+		});
+		const instructions = message({
+			content: "CI failed, fix it",
+			injected: true,
+			role: "user",
+			turnId: wakeTurn,
+		});
+		const fix = message({ content: "fixed", role: "assistant", turnId: wakeTurn });
+
+		const items = groupTranscript([prompt, answer, events, instructions, fix]);
+
+		expect(items.map((item) => item.kind)).toEqual(["user", "reply", "reply"]);
+		expect(items[2]).toMatchObject({
+			blocks: [
+				{ kind: "injected", text: "<session-events>" },
+				{ kind: "injected", text: "CI failed, fix it" },
+				{ kind: "text", text: "fixed" },
+			],
+		});
+	});
+});
+
+describe("liveReplyBlocks", () => {
+	const liveTurn: LiveTurn = {
+		blocks: [{ key: "k", kind: "text", text: "working" }],
+		isFinished: false,
+		originEventType: undefined,
+		prompt: "typed by a person",
+		requestID: "r",
+		sessionID: "s",
+		slots: new Map(),
+	};
+
+	it("leaves a typed prompt out of the reply", () => {
+		expect(liveReplyBlocks(liveTurn)).toEqual([
+			{ key: "k", kind: "text", text: "working" },
+		]);
+	});
+
+	it("opens an event-started reply with the handler's instructions", () => {
+		const woken = { ...liveTurn, originEventType: "ci.build.failed", prompt: "fix CI" };
+
+		expect(liveReplyBlocks(woken)).toMatchObject([
+			{ kind: "injected", text: "fix CI" },
+			{ kind: "text", text: "working" },
+		]);
 	});
 });
 

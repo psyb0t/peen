@@ -71,6 +71,9 @@ export type LiveBlock = LiveProseBlock | LiveToolBlock;
 export interface LiveTurn {
 	blocks: LiveBlock[];
 	isFinished: boolean;
+	// originEventType names the event that started the turn. Such a turn's
+	// prompt is the event handler's instructions, not something a person typed.
+	originEventType: string | undefined;
 	prompt: string | undefined;
 	requestID: string;
 	sessionID: string;
@@ -127,7 +130,10 @@ function nextTurn(
 				prompt: stringField(event.data, "message"),
 			};
 		case EVENT_TYPE_TURN_STARTED:
-			return current ?? emptyTurn(sessionID, requestID);
+			return {
+				...(current ?? emptyTurn(sessionID, requestID)),
+				originEventType: stringField(event.data, "originEventType"),
+			};
 		case EVENT_TYPE_CONTENT_BLOCK_START:
 			return startBlock(current ?? emptyTurn(sessionID, requestID), event.data);
 		case EVENT_TYPE_CONTENT_BLOCK_DELTA:
@@ -145,6 +151,7 @@ function emptyTurn(sessionID: string, requestID: string): LiveTurn {
 	return {
 		blocks: [],
 		isFinished: false,
+		originEventType: undefined,
 		prompt: undefined,
 		requestID,
 		sessionID,

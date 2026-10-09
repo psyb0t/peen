@@ -83,6 +83,9 @@ pre_tool_use:
 	assert.Equal(t, "**/*.go", firstWrite.Match.Path)
 	assert.Equal(t, []string{".go"}, firstWrite.Match.Extensions)
 	assert.Equal(t, "internal", firstWrite.Match.Root)
+	require.Contains(t, firstWrite.Match.Input, "/expectedSha256")
+	require.NotNil(t, firstWrite.Match.Input["/expectedSha256"].Exists)
+	assert.True(t, *firstWrite.Match.Input["/expectedSha256"].Exists)
 	require.Len(t, firstWrite.Actions, 3)
 	assert.Equal(t, HookActionInject, firstWrite.Actions[0].Type)
 	assert.Equal(t, "go-rule", firstWrite.Actions[0].Name)
@@ -217,6 +220,46 @@ pre_tool_use:
 `)
 	second := resolveFixture(t, fixture)
 	assert.NotEqual(t, first.Hash(), second.Hash())
+}
+
+// A hook's input conditions must survive the copies Snapshot.Hooks returns.
+// Losing them turns a narrow matcher into one that matches every call.
+func TestHooksKeepInputConditionsAcrossCopies(t *testing.T) {
+	t.Parallel()
+
+	fixture := newResolverFixture(t)
+	fixture.writeHook(t, fixture.configRoot, `version: 1
+pre_tool_use:
+  - name: no-rm-rf
+    match:
+      tool: run_command
+      input:
+        /command:
+          regex: "rm -rf"
+    actions:
+      - name: block
+        type: deny
+        reason: Blocked.
+        when:
+          input:
+            /purpose:
+              equals: cleanup
+`)
+
+	snapshot := resolveFixture(t, fixture)
+	hooks := snapshot.Hooks()
+	require.Len(t, hooks, 1)
+
+	condition, found := hooks[0].Match.Input["/command"]
+	require.True(t, found)
+	assert.Equal(t, "rm -rf", condition.Regex)
+
+	when, found := hooks[0].Actions[0].When.Input["/purpose"]
+	require.True(t, found)
+	assert.Equal(t, "cleanup", when.Equals)
+
+	hooks[0].Match.Input["/command"] = HookInputMatch{Regex: "mutated"}
+	assert.Equal(t, "rm -rf", snapshot.Hooks()[0].Match.Input["/command"].Regex)
 }
 
 func TestResolverBoundsHookGroups(t *testing.T) {

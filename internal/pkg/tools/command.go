@@ -68,6 +68,7 @@ func (e *JobExecutor) RunCommand(
 		TurnID:             e.turnID,
 		WorkerGenerationID: e.workerGenerationID,
 		ToolCallID:         toolCallIDFromContext(ctx),
+		Awaited:            !input.Background,
 	})
 	if err != nil {
 		return RunCommandOutput{}, err
@@ -84,7 +85,8 @@ func (e *JobExecutor) RunCommand(
 
 // waitForJob blocks until job leaves the running state or bound elapses,
 // whichever comes first. Neither outcome kills job: the bound only ends
-// this call's wait.
+// this call's wait. A job still running when the wait ends is released, so
+// its completion reaches the session as an event instead of this result.
 func waitForJob(ctx context.Context, job *Job, bound time.Duration) {
 	waitCtx, cancel := context.WithTimeout(ctx, bound)
 	defer cancel()
@@ -92,6 +94,7 @@ func waitForJob(ctx context.Context, job *Job, bound time.Duration) {
 	select {
 	case <-job.Done():
 	case <-waitCtx.Done():
+		job.Release()
 	}
 }
 

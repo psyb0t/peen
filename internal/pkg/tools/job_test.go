@@ -202,6 +202,59 @@ func TestJobRegistry_PublishesJobExited(t *testing.T) {
 	assert.GreaterOrEqual(t, data.DurationMs, int64(0))
 }
 
+func TestJobRegistry_AwaitedJobPublishesOnlyAfterRelease(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name          string
+		releaseFirst  bool
+		releaseAfter  bool
+		wantPublished int
+	}{
+		{name: "finished while awaited", wantPublished: 0},
+		{name: "released while running", releaseFirst: true, wantPublished: 1},
+		{name: "released after finishing", releaseAfter: true, wantPublished: 0},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			publisher := &stubPublisher{}
+			registry := newTestRegistry(t, publisher)
+
+			command := "true"
+			if tc.releaseFirst {
+				command = "sleep 1"
+			}
+
+			job, err := registry.Start(context.Background(), StartJobInput{
+				Command:   command,
+				Directory: t.TempDir(),
+				Purpose:   jobTestPurpose,
+				Awaited:   true,
+			})
+			require.NoError(t, err)
+
+			if tc.releaseFirst {
+				job.Release()
+			}
+
+			select {
+			case <-job.Done():
+			case <-time.After(jobTestEventuallyWait):
+				t.Fatal("job never exited")
+			}
+
+			if tc.releaseAfter {
+				job.Release()
+			}
+
+			assert.Len(t, publisher.all(), tc.wantPublished)
+		})
+	}
+}
+
 func TestJobRegistry_PublishesJobSignalled(t *testing.T) {
 	t.Parallel()
 

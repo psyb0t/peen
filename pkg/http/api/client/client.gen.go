@@ -1056,7 +1056,7 @@ type Message struct {
 	Id           openapi_types.UUID  `json:"id"`
 	Incomplete   *bool               `json:"incomplete,omitempty"`
 
-	// Injected True when Peen added this message to the conversation itself, such as a report of session events delivered during a turn, rather than a person or the model writing it.
+	// Injected True when Peen added this message to the conversation itself, such as a report of session events delivered during a turn or the instructions of an event handler that started a turn, rather than a person or the model writing it.
 	Injected   *bool              `json:"injected,omitempty"`
 	IsError    *bool              `json:"isError,omitempty"`
 	Model      *string            `json:"model,omitempty"`
@@ -1065,7 +1065,10 @@ type Message struct {
 	Thinking   *string            `json:"thinking,omitempty"`
 	ToolCallId *string            `json:"toolCallId,omitempty"`
 	ToolCalls  *[]MessageToolCall `json:"toolCalls,omitempty"`
-	Workspace  string             `json:"workspace"`
+
+	// TurnId The turn that wrote this message. Messages that share it belong to one turn.
+	TurnId    *openapi_types.UUID `json:"turnId,omitempty"`
+	Workspace string              `json:"workspace"`
 }
 
 // MessageRole defines model for Message.Role.

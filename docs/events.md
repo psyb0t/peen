@@ -6,9 +6,9 @@ A session event, also called a notice, is a record of something that happened ou
 
 | Source | Event types | When |
 | --- | --- | --- |
-| Background jobs | `job.exited`, `job.signalled`, `job.failed` | A command started by `run_command` ends. |
+| Background jobs | `job.exited`, `job.signalled`, `job.failed` | A command ends after its `run_command` call has already returned, because it ran in the background or outlived its timeout. |
 | Child agents | `agent.finished`, `agent.failed` | A `launch_agent` run ends. A cancelled run counts as `agent.failed`. |
-| Hooks | any type you choose, plus `hook.action_failed` | An `emit_event` action runs, a hook command prints `events`, or a post-event hook action fails. See [Hooks](hooks.md). |
+| Hooks | any type you choose, plus `hook.action.failed` | An `emit_event` action runs, a hook command prints `events`, or a post-event hook action fails. See [Hooks](hooks.md). |
 | Outside callers | any type except `job.*` and `agent.*` | Something calls `POST /v1/session/notices`. |
 
 An event has a `type`, a one-line `summary`, an optional JSON object `data`, and a `delivery` mode, `queue` or `wake`. Peen adds the `source`, an ID, and a timestamp. Examples:
@@ -24,7 +24,7 @@ Event types are lowercase dotted names of 1 to 8 parts, up to 128 characters. Ea
 
 `run_command` takes `command`, `purpose`, and optionally `directory`, `timeoutSeconds`, and `background`. A command that finishes within its timeout returns its exit code and output normally. A command still running when the timeout passes is not killed. Peen leaves it running as a job and returns a job handle with the output so far. `background: true` returns the handle right away.
 
-Jobs belong to the session, not the turn. The agent can check them later with `list_jobs`, `read_job_output`, `wait_job`, and `signal_job`, and every output line is stored in SQLite. When a job ends, Peen publishes a `job.*` event, so the agent learns the result at its next tool boundary or next turn without polling. On shutdown Peen stops every job, so none outlives the process. The API exposes jobs under `GET /v1/session/jobs`.
+Jobs belong to the session, not the turn. The agent can check them later with `list_jobs`, `read_job_output`, `wait_job`, and `signal_job`, and every output line is stored in SQLite. When a background job ends, Peen publishes a `job.*` event, so the agent learns the result at its next tool boundary or next turn without polling. A command that finishes inside its own `run_command` call publishes no event, because the tool result already reports it. On shutdown Peen stops every job, so none outlives the process. The API exposes jobs under `GET /v1/session/jobs`.
 
 ## How the model receives events
 

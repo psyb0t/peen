@@ -35,6 +35,15 @@ func (p *testPublisher) PublishContext(
 		return events.Notice{}, p.err
 	}
 
+	// The production publisher rejects these, so the test double does too.
+	if err := events.ValidateType(notice.Type); err != nil {
+		return events.Notice{}, err
+	}
+
+	if err := events.ValidateData(notice.Data); err != nil {
+		return events.Notice{}, err
+	}
+
 	p.notices = append(p.notices, notice)
 
 	return notice, nil
@@ -256,6 +265,46 @@ pre_tool_use:
 	})
 	require.ErrorIs(t, err, events.ErrInvalidData)
 	assert.Empty(t, publisher.notices)
+}
+
+// data is optional on both an emit_event action and a command's events, so an
+// event without it publishes with no payload instead of failing the action.
+func TestRunnerPublishesEventsWithoutData(t *testing.T) {
+	t.Parallel()
+
+	snapshot, workspace := testSnapshot(t, `version: 1
+post_tool_use:
+  - actions:
+      - type: emit_event
+        event_type: repo.script.changed
+        summary: A script changed.
+      - type: command
+        command: reporter
+`, "")
+	publisher := &testPublisher{}
+	runner, err := New(Options{
+		Snapshot:  snapshot,
+		Workspace: workspace,
+		Publisher: publisher,
+		RunCommand: func(context.Context, CommandInput) ([]byte, error) {
+			return []byte(
+				`{"events":[{"type":"hook.checked","summary":"ok","data":null}]}`,
+			), nil
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = runner.Run(context.Background(), Invocation{
+		Event:     harness.HookEventPostToolUse,
+		SessionID: uuid.New(),
+	})
+	require.NoError(t, err)
+
+	require.Len(t, publisher.notices, 2)
+	assert.Equal(t, "repo.script.changed", publisher.notices[0].Type)
+	assert.Empty(t, publisher.notices[0].Data)
+	assert.Equal(t, "hook.checked", publisher.notices[1].Type)
+	assert.Empty(t, publisher.notices[1].Data)
 }
 
 func TestRunnerRejectsPreActionWhenTokenEstimateFails(t *testing.T) {

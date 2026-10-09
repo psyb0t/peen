@@ -1178,8 +1178,15 @@ components:
           type: boolean
           description: >-
             True when Peen added this message to the conversation itself, such as
-            a report of session events delivered during a turn, rather than a
+            a report of session events delivered during a turn or the
+            instructions of an event handler that started a turn, rather than a
             person or the model writing it.
+        turnId:
+          type: string
+          format: uuid
+          description: >-
+            The turn that wrote this message. Messages that share it belong to
+            one turn.
         compactionId:
           type: [string, 'null']
           format: uuid

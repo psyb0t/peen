@@ -537,8 +537,10 @@ func cloneHookMatch(match HookMatch) HookMatch {
 		return match
 	}
 
-	match.Input = make(map[string]HookInputMatch, len(match.Input))
-	for pointer, condition := range match.Input {
+	original := match.Input
+	match.Input = make(map[string]HookInputMatch, len(original))
+
+	for pointer, condition := range original {
 		if condition.Exists != nil {
 			exists := *condition.Exists
 			condition.Exists = &exists

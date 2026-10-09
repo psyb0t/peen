@@ -3,7 +3,7 @@
 
 	import { activities, isActivityEvent, type AgentActivity } from "$lib/chat/activity";
 	import ReplyBlocks from "$lib/chat/ReplyBlocks.svelte";
-	import { groupTranscript, liveReplyBlock } from "$lib/chat/transcript";
+	import { groupTranscript, liveReplyBlocks } from "$lib/chat/transcript";
 	import {
 		applyStreamEvent,
 		isTurnTerminalEvent,
@@ -765,7 +765,9 @@
 					{/each}
 
 					{#each selectedLiveTurns as turn (turn.requestID)}
-						{#if turn.prompt !== undefined}<article class="message user">
+						{#if turn.prompt !== undefined && turn.originEventType === undefined}<article
+								class="message user"
+							>
 								<div class="message-meta"><span>You</span></div>
 								<div class="message-content">{turn.prompt}</div>
 							</article>{/if}
@@ -777,7 +779,7 @@
 											>Working</small
 										>{/if}
 								</div>
-								<ReplyBlocks blocks={turn.blocks.map(liveReplyBlock)} />
+								<ReplyBlocks blocks={liveReplyBlocks(turn)} />
 							</article>{/if}
 					{/each}
 					{#each selectedActivities as activity (activity.id)}

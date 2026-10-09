@@ -153,7 +153,7 @@ A turn emits Peen's own events (`user_message.created`, `turn.started`, `tool.us
 
 Block indexes count up from zero within one turn and start over in the next, so a client keys blocks by `requestId` and `index`. A `tool_result` block answers the `tool_use` block whose `id` equals its `tool_use_id`. To render a live reply, fold the blocks of a turn in arrival order: append `text_delta` and `thinking_delta` text to their block, and attach each tool result to its call. When `turn.completed`, `turn.failed`, or `turn.cancelled` arrives, the turn's messages are durable and `GET /v1/messages` returns them. The embedded control surface does exactly this and then replaces the live reply with the stored messages.
 
-A stored message with `injected: true` was added by Peen, not typed by a person or written by the model. Delivered session events are the common case: they arrive as a user-role message the agent reads as data.
+A stored message with `injected: true` was added by Peen, not typed by a person or written by the model. Delivered session events are the common case: they arrive as a user-role message the agent reads as data. The instructions an event handler starts a turn with are injected too. Every stored message also carries the `turnId` of the turn that wrote it, so a client can group a conversation by turn. Session events delivered at the start of a turn are stored ahead of that turn's prompt.
 
 Successful submissions finish with `message.completed`. Its data is
 `{"queued": false}` when the turn finished or `{"queued": true}` when the

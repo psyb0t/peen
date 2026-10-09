@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math"
 
+	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
@@ -127,6 +128,11 @@ func applyMessageOptionalFields(
 	if stored.Injected {
 		injected := true
 		message.Injected = &injected
+	}
+
+	if stored.TurnID != uuid.Nil {
+		turnID := stored.TurnID
+		message.TurnId = &turnID
 	}
 
 	if stored.ModelID != "" {

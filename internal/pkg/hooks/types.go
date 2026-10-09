@@ -16,7 +16,7 @@ const (
 	defaultCommandOutput   = 64 * 1024
 	commandDecisionAllow   = "allow"
 	commandDecisionDeny    = "deny"
-	hookFailureEventType   = "hook.action_failed"
+	hookFailureEventType   = "hook.action.failed"
 	hookFailureEventSource = "hooks"
 )
 

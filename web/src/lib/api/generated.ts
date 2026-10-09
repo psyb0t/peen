@@ -578,8 +578,13 @@ export interface components {
 			toolCallId?: string | null;
 			isError?: boolean;
 			incomplete?: boolean;
-			/** @description True when Peen added this message to the conversation itself, such as a report of session events delivered during a turn, rather than a person or the model writing it. */
+			/** @description True when Peen added this message to the conversation itself, such as a report of session events delivered during a turn or the instructions of an event handler that started a turn, rather than a person or the model writing it. */
 			injected?: boolean;
+			/**
+			 * Format: uuid
+			 * @description The turn that wrote this message. Messages that share it belong to one turn.
+			 */
+			turnId?: string;
 			/** Format: uuid */
 			compactionId?: string | null;
 			/** Format: date-time */

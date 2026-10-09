@@ -106,6 +106,10 @@ type Job struct {
 	exitCode       int
 	failureDetail  string
 	persistenceErr error
+	// awaited is true while a caller waits to report this job's result
+	// itself. A job that finishes while awaited publishes no completion
+	// event, because the caller's own result already carries it.
+	awaited bool
 }
 
 // JobSnapshot is one point-in-time, race-free view of a job.
@@ -293,6 +297,9 @@ type StartJobInput struct {
 	TurnID             uuid.UUID
 	WorkerGenerationID string
 	ToolCallID         string
+	// Awaited starts the job with a caller waiting on it. The caller calls
+	// Release when it stops waiting while the job still runs.
+	Awaited bool
 }
 
 // Start launches one process through commander and registers it. The
@@ -377,6 +384,20 @@ func (r *JobRegistry) newJob(
 		done:               make(chan struct{}),
 		state:              JobStateRunning,
 		exitCode:           unknownExitCode,
+		awaited:            input.Awaited,
+	}
+}
+
+// Release ends a caller's wait on a job that is still running. The job then
+// publishes its completion event like any background job. Release does
+// nothing once the job has finished, because the caller already holds its
+// final result.
+func (j *Job) Release() {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	if j.state == JobStateRunning {
+		j.awaited = false
 	}
 }
 
@@ -592,6 +613,7 @@ func (r *JobRegistry) finalize(ctx context.Context, job *Job, waitErr error) {
 	job.endedAt = endedAt
 	job.exitCode = exitCode
 	job.failureDetail = failureDetail
+	awaited := job.awaited
 	job.mu.Unlock()
 
 	snapshot := job.Snapshot()
@@ -608,7 +630,10 @@ func (r *JobRegistry) finalize(ctx context.Context, job *Job, waitErr error) {
 
 	// Publish before closing done: a caller unblocked by Done must always
 	// find the completion event already published, never racing it.
-	r.publish(ctx, job, state, exitCode, endedAt)
+	if !awaited {
+		r.publish(ctx, job, state, exitCode, endedAt)
+	}
+
 	r.recordJobMetrics(job, state, exitCode, endedAt)
 
 	close(job.done)

@@ -29,6 +29,7 @@ const (
 	jsonPointerEscape = "~"
 	jsonPointerSlash  = "~1"
 	jsonPointerTilde  = "~0"
+	jsonNullLiteral   = "null"
 
 	hookStateDirectoryName = "hook-state"
 	hookStateDirectoryMode = 0o700
@@ -575,6 +576,12 @@ func (r Runner) publishEvent(
 
 	if err := events.ValidateType(event.Type); err != nil {
 		return ctxerrors.Wrap(err, "validate hook event type")
+	}
+
+	// An action without data, or a command that printed "data": null,
+	// carries no payload rather than an invalid one.
+	if string(bytes.TrimSpace(event.Data)) == jsonNullLiteral {
+		event.Data = nil
 	}
 
 	if err := events.ValidateData(event.Data); err != nil {
