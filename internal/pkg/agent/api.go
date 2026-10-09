@@ -303,6 +303,7 @@ func messageRequestToTurnRequest(
 		SessionID:       request.SessionID,
 		RequestID:       requestID,
 		SourceEventID:   request.SourceEventID,
+		Origin:          request.Origin,
 	}
 	if request.SystemPrompt != nil {
 		mode, err := promptModeFromMessageRequest(request.SystemPrompt)

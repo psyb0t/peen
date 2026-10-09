@@ -252,6 +252,49 @@ func (r *Runtime) wakeHandler(
 	return handler, true, nil
 }
 
+// WakeRunner runs a turn a session event started. A controller sets one that
+// sends the turn to the session's worker, so a woken turn runs under the
+// session's execution profile and streams to clients like any other turn.
+type WakeRunner func(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	request MessageRequest,
+) error
+
+// SetWakeRunner routes woken turns through runner instead of this runtime.
+// Without one, the runtime runs woken turns itself, which is right only when
+// it is the process that runs the session's turns.
+func (r *Runtime) SetWakeRunner(runner WakeRunner) {
+	r.wakeRunnerMutex.Lock()
+	defer r.wakeRunnerMutex.Unlock()
+
+	r.wakeRunner = runner
+}
+
+func (r *Runtime) currentWakeRunner() WakeRunner {
+	r.wakeRunnerMutex.RLock()
+	defer r.wakeRunnerMutex.RUnlock()
+
+	if r.wakeRunner != nil {
+		return r.wakeRunner
+	}
+
+	return r.runWakeTurn
+}
+
+// runWakeTurn runs a woken turn in this runtime.
+func (r *Runtime) runWakeTurn(
+	ctx context.Context,
+	_ uuid.UUID,
+	request MessageRequest,
+) error {
+	if _, err := r.RunMessage(ctx, request, uuid.New(), nil); err != nil {
+		return ctxerrors.Wrap(err, "run the woken turn")
+	}
+
+	return nil
+}
+
 // startWakeTurn runs the handler's instruction as a turn of its own. The
 // context is detached because the caller that published the event, an HTTP
 // request that is about to return 202, must not cancel the work it started.
@@ -262,6 +305,7 @@ func (r *Runtime) startWakeTurn(
 ) {
 	sessionID := notice.SessionID
 	detached := context.WithoutCancel(ctx)
+	runner := r.currentWakeRunner()
 
 	go func() {
 		defer func() {
@@ -281,7 +325,7 @@ func (r *Runtime) startWakeTurn(
 			"session_id", sessionID.String(),
 		)
 
-		if _, err := r.Run(detached, TurnRequest{
+		if err := runner(detached, sessionID, MessageRequest{
 			SessionID: &sessionID,
 			Message:   wakeMessage(handler),
 			Origin: &TurnOrigin{

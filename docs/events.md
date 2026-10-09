@@ -59,6 +59,8 @@ A new event starts a turn right away only when all of these hold:
 
 When any of them fails, the event stays queued and is delivered at the next turn or tool boundary instead. Without a handler an event never starts a turn, whatever its `delivery` says.
 
+A woken turn runs in the session's worker under the session's execution profile, the same as a turn a client sends, and streams to every client watching the session.
+
 An event handler is a Markdown file named after the event type:
 
 ```markdown

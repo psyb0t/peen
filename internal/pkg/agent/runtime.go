@@ -82,6 +82,11 @@ type Runtime struct {
 	metrics              *metrics.Metrics
 	wakes                *wakeLimiter
 
+	// wakeRunnerMutex guards wakeRunner, which the controller sets after the
+	// runtime is built and events may already be arriving.
+	wakeRunnerMutex sync.RWMutex
+	wakeRunner      WakeRunner
+
 	// jobsMutex guards jobs. A job registry is per SESSION, not per turn,
 	// because a command started in one turn must still be visible, readable
 	// and killable in a later one.

@@ -28,6 +28,7 @@ const (
 	routedAnswer      = "the worker answered"
 	routedMessage     = "do the work"
 	routedEventType   = "message.delta"
+	routedEventOrigin = "ci.build.failed"
 	socketRootMode    = 0o700
 	routingReadyWait  = 5 * time.Second
 	routingStopWait   = 2 * time.Second
@@ -343,6 +344,7 @@ func TestRouterStartsAWorkerAndRunsTheTurnInIt(t *testing.T) {
 	assert.Equal(t, requestID, turns[0].RequestID)
 	assert.Empty(t, turns[0].Model)
 	assert.Empty(t, turns[0].ReasoningEffort)
+	assert.Nil(t, turns[0].Origin, "a person's message carries no origin")
 }
 
 // The per-turn model and reasoning level travel to the worker unchanged.
@@ -368,6 +370,28 @@ func TestRouterCarriesTheTurnSettingsToTheWorker(t *testing.T) {
 	require.Len(t, turns, 1)
 	assert.Equal(t, model, turns[0].Model)
 	assert.Equal(t, effort, turns[0].ReasoningEffort)
+}
+
+// A turn an event started reaches the worker with its origin, so the worker
+// records it as woken rather than as something a person typed.
+func TestRouterCarriesTheTurnOriginToTheWorker(t *testing.T) {
+	fixture := newRoutingFixture(t)
+
+	origin := agent.TurnOrigin{EventID: uuid.New(), EventType: routedEventOrigin}
+	_, err := fixture.router.RunSessionMessage(
+		t.Context(),
+		fixture.sessionID,
+		agent.MessageRequest{Message: routedMessage, Origin: &origin},
+		uuid.New(),
+	)
+	require.NoError(t, err)
+
+	require.Len(t, fixture.launcher.workers, 1)
+	turns := fixture.launcher.workers[0].turns
+	require.Len(t, turns, 1)
+	require.NotNil(t, turns[0].Origin)
+	assert.Equal(t, origin.EventID, turns[0].Origin.EventID)
+	assert.Equal(t, origin.EventType, turns[0].Origin.EventType)
 }
 
 // TestRouterSignalsAJobInTheSessionWorker carries a job signal to the process

@@ -4,6 +4,12 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.15.1 (2026-10-09)
+
+A turn that a session event wakes now runs in the session's worker and shows up live in the chat. No configuration or API migration is needed.
+
+- Fixes a turn that a session event woke running inside the controller instead of the session's worker. It ignored the session's execution profile, so a session on a Docker profile ran its woken turn outside the container, and none of the turn reached WebSocket clients, so the chat showed nothing until the page reloaded. A woken turn now goes to the session's worker like a turn a client sends, and streams live.
+
 ## v0.15.0 (2026-10-09)
 
 `AGENTS.md` now follows the [agents.md](https://agents.md) format: a file in a subdirectory of the workspace covers that directory, and the closest one wins. No configuration or API migration is needed. A workspace that has `AGENTS.md` files in its subdirectories now sends them to the model.

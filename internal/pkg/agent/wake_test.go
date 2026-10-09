@@ -247,6 +247,103 @@ func TestPublishEventRecordsTheOriginatingEventOnTheWokenTurn(t *testing.T) {
 	assert.Equal(t, wakeTestHandlerType, payload.OriginEventType)
 }
 
+// A controller runs no model loop of its own. With a wake runner set, the
+// woken turn goes to that runner, which sends it to the session's worker, and
+// the runtime that published the event runs nothing itself.
+func TestPublishEventHandsTheWakeTurnToTheWakeRunner(t *testing.T) {
+	fixture := newRuntimeFixture(t, elelemtest.NewScriptedDriver(
+		elelemtest.Text("session open"),
+	))
+	writeWakeHandler(t, fixture.configDirectory, wakeTestHandlerDocument)
+
+	sessionID := openWakeSession(t, fixture)
+
+	type wakeCall struct {
+		sessionID uuid.UUID
+		request   MessageRequest
+	}
+
+	calls := make(chan wakeCall, 1)
+	fixture.runtime.SetWakeRunner(func(
+		_ context.Context,
+		woken uuid.UUID,
+		request MessageRequest,
+	) error {
+		calls <- wakeCall{sessionID: woken, request: request}
+
+		return nil
+	})
+
+	published, err := fixture.runtime.PublishEvent(
+		context.Background(),
+		wakeTestNotice(sessionID),
+	)
+	require.NoError(t, err)
+
+	var call wakeCall
+
+	select {
+	case call = <-calls:
+	case <-time.After(wakeTestTimeout):
+		t.Fatal("the wake never reached the wake runner")
+	}
+
+	assert.Equal(t, sessionID, call.sessionID)
+	require.NotNil(t, call.request.SessionID)
+	assert.Equal(t, sessionID, *call.request.SessionID)
+	assert.Contains(t, call.request.Message, wakeTestInstruction)
+	require.NotNil(t, call.request.Origin)
+	assert.Equal(t, published.ID, call.request.Origin.EventID)
+	assert.Equal(t, wakeTestHandlerType, call.request.Origin.EventType)
+
+	assert.Empty(
+		t,
+		wokenTurnStartedPayload(t, fixture, sessionID).OriginEventID,
+		"the publishing runtime must not run the woken turn itself",
+	)
+}
+
+// A message that carries an origin runs as a woken turn: the turn records the
+// event it came from and stores its prompt as injected.
+func TestRunMessageRecordsTheTurnOrigin(t *testing.T) {
+	fixture := newRuntimeFixture(t, elelemtest.NewScriptedDriver(
+		elelemtest.Text("session open"),
+		elelemtest.Text(wakeTestReply),
+	))
+
+	sessionID := openWakeSession(t, fixture)
+	origin := TurnOrigin{EventID: uuid.New(), EventType: wakeTestHandlerType}
+
+	_, err := fixture.runtime.RunMessage(
+		context.Background(),
+		MessageRequest{
+			SessionID: &sessionID,
+			Message:   wakeTestInstruction,
+			Origin:    &origin,
+		},
+		uuid.New(),
+		nil,
+	)
+	require.NoError(t, err)
+
+	payload := wokenTurnStartedPayload(t, fixture, sessionID)
+	assert.Equal(t, origin.EventID.String(), payload.OriginEventID)
+	assert.Equal(t, wakeTestHandlerType, payload.OriginEventType)
+
+	messages, err := fixture.store.ListMessages(
+		context.Background(),
+		sessionID,
+		session.ListMessagesOptions{Order: session.PageOrderAscending},
+	)
+	require.NoError(t, err)
+
+	for _, message := range messages.Items {
+		if message.Content == wakeTestInstruction {
+			assert.True(t, message.Injected, "a woken prompt is not typed")
+		}
+	}
+}
+
 // wokenTurnStartedPayload returns the newest turn.started payload that carries
 // an origin, which is the wake-started turn rather than the one that opened
 // the session.

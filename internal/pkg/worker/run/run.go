@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
@@ -441,13 +442,27 @@ func (h *commandHandler) runTurn(
 		)
 	}
 
-	sessionID := h.runtime.SessionID()
+	message := turnMessage(h.runtime.SessionID(), request)
 
+	result, err := h.runtime.RunMessage(ctx, message, request.RequestID, nil)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "run the session turn")
+	}
+
+	return protocol.TurnResult{Text: result.Text, Queued: result.Queued}, nil
+}
+
+// turnMessage turns a run_turn command into this worker's session turn.
+func turnMessage(
+	sessionID uuid.UUID,
+	request protocol.RunTurn,
+) agent.MessageRequest {
 	message := agent.MessageRequest{
 		SessionID:    &sessionID,
 		Message:      request.Message,
 		SystemPrompt: systemPrompt(request),
 	}
+
 	if request.Model != "" {
 		message.Model = &request.Model
 	}
@@ -456,12 +471,14 @@ func (h *commandHandler) runTurn(
 		message.ReasoningEffort = &request.ReasoningEffort
 	}
 
-	result, err := h.runtime.RunMessage(ctx, message, request.RequestID, nil)
-	if err != nil {
-		return nil, ctxerrors.Wrap(err, "run the session turn")
+	if request.Origin != nil {
+		message.Origin = &agent.TurnOrigin{
+			EventID:   request.Origin.EventID,
+			EventType: request.Origin.EventType,
+		}
 	}
 
-	return protocol.TurnResult{Text: result.Text, Queued: result.Queued}, nil
+	return message
 }
 
 func systemPrompt(request protocol.RunTurn) *agent.MessageSystemPrompt {

@@ -152,6 +152,11 @@ type MessageRequest struct {
 	SessionID *uuid.UUID `json:"-"`
 
 	SourceEventID uuid.UUID `json:"-"`
+
+	// Origin is set only for a turn a session event started. Like SessionID
+	// it never comes from a message body, so a client cannot pass its own
+	// message off as a woken turn.
+	Origin *TurnOrigin `json:"-"`
 }
 
 // MessageSystemPrompt is one non-persistent prompt override for a turn.

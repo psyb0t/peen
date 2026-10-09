@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/agent"
@@ -219,6 +220,25 @@ func (s *ControlCore) openCore(
 	if err != nil {
 		return nil, errors.Join(err, closeState(ctx, assembled.Handle))
 	}
+
+	// The controller runs no model loop of its own, so a turn an event wakes
+	// goes to the session's worker like a turn a client sends.
+	assembled.Runtime.SetWakeRunner(func(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		request agent.MessageRequest,
+	) error {
+		if _, err := turns.RunSessionMessage(
+			ctx,
+			sessionID,
+			request,
+			uuid.New(),
+		); err != nil {
+			return ctxerrors.Wrap(err, "run the woken turn in its worker")
+		}
+
+		return nil
+	})
 
 	return &control.Core{
 		Config:    config,

@@ -94,6 +94,7 @@ func (r *TurnRouter) RunSessionMessage(
 		ReasoningEffort: optionalString(request.ReasoningEffort),
 		SystemPrompt:    promptContent(request),
 		PromptMode:      promptMode(request),
+		Origin:          turnOrigin(request),
 	})
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "run the turn in the session worker")
@@ -182,4 +183,15 @@ func promptMode(request agent.MessageRequest) string {
 	}
 
 	return string(request.SystemPrompt.Mode)
+}
+
+func turnOrigin(request agent.MessageRequest) *protocol.TurnOrigin {
+	if request.Origin == nil {
+		return nil
+	}
+
+	return &protocol.TurnOrigin{
+		EventID:   request.Origin.EventID,
+		EventType: request.Origin.EventType,
+	}
 }

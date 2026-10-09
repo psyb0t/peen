@@ -28,6 +28,11 @@ const (
 	// the test concludes it really is waiting.
 	testReadyGracePeriod = 50 * time.Millisecond
 	testWaitTimeout      = 5 * time.Second
+
+	testTurnMessage   = "do the work"
+	testTurnModel     = "provider/model"
+	testTurnEffort    = "high"
+	testWakeEventType = "ci.build.failed"
 )
 
 func TestReadLaunchDocumentAcceptsAControllerIssuedDocument(t *testing.T) {
@@ -127,6 +132,73 @@ func TestRunRefusesWithoutALaunchDocument(t *testing.T) {
 		},
 	})
 	require.ErrorIs(t, err, commerr.ErrRequiredFieldNotSet)
+}
+
+// A run_turn command becomes the session's turn with every setting it named,
+// and a turn an event started keeps that origin.
+func TestTurnMessageCarriesTheCommandSettings(t *testing.T) {
+	t.Parallel()
+
+	sessionID := uuid.New()
+	origin := protocol.TurnOrigin{
+		EventID:   uuid.New(),
+		EventType: testWakeEventType,
+	}
+
+	testCases := []struct {
+		name    string
+		request protocol.RunTurn
+	}{
+		{
+			name:    "a person's message",
+			request: protocol.RunTurn{Message: testTurnMessage},
+		},
+		{
+			name: "a woken turn with settings",
+			request: protocol.RunTurn{
+				Message:         testTurnMessage,
+				Model:           testTurnModel,
+				ReasoningEffort: testTurnEffort,
+				Origin:          &origin,
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			message := turnMessage(sessionID, tc.request)
+
+			require.NotNil(t, message.SessionID)
+			assert.Equal(t, sessionID, *message.SessionID)
+			assert.Equal(t, tc.request.Message, message.Message)
+			assert.Equal(t, tc.request.Model, optionalValue(message.Model))
+			assert.Equal(
+				t,
+				tc.request.ReasoningEffort,
+				optionalValue(message.ReasoningEffort),
+			)
+
+			if tc.request.Origin == nil {
+				assert.Nil(t, message.Origin)
+
+				return
+			}
+
+			require.NotNil(t, message.Origin)
+			assert.Equal(t, tc.request.Origin.EventID, message.Origin.EventID)
+			assert.Equal(t, tc.request.Origin.EventType, message.Origin.EventType)
+		})
+	}
+}
+
+func optionalValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+
+	return *value
 }
 
 // Durable traffic goes worker to controller, never the other way. A controller

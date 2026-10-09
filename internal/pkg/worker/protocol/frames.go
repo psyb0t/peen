@@ -104,6 +104,17 @@ type RunTurn struct {
 	ReasoningEffort string    `json:"reasoningEffort,omitempty"`
 	SystemPrompt    string    `json:"systemPrompt,omitempty"`
 	PromptMode      string    `json:"promptMode,omitempty"`
+
+	// Origin is set only for a turn a session event started. The worker runs
+	// it as a woken turn, so its prompt is stored as injected rather than as
+	// something a person typed.
+	Origin *TurnOrigin `json:"origin,omitempty"`
+}
+
+// TurnOrigin names the session event that started a turn.
+type TurnOrigin struct {
+	EventID   uuid.UUID `json:"eventId"`
+	EventType string    `json:"eventType"`
 }
 
 // TurnResult is the worker's answer to a run_turn command.
