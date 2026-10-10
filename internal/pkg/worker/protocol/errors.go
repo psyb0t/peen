@@ -32,9 +32,8 @@ const (
 	CodeCancelled        Code = "cancelled"
 	CodeNotImplemented   Code = "not_implemented"
 
-	CodeRunningTurnSettingsChange  Code = "running_turn_settings_change"
-	CodeRunningTurnSkillActivation Code = "running_turn_skill_activation"
-	CodeUserMessageQueueFull       Code = "user_message_queue_full"
+	CodeRunningTurnSettingsChange Code = "running_turn_settings_change"
+	CodeUserMessageQueueFull      Code = "user_message_queue_full"
 )
 
 // Error is one failure as it crosses the socket.
@@ -76,11 +75,6 @@ var detailedFailures = []detailedFailure{
 	{
 		code:   CodeRunningTurnSettingsChange,
 		detail: session.ErrRunningTurnSettingsChange,
-		class:  commerr.ErrValidationFailed,
-	},
-	{
-		code:   CodeRunningTurnSkillActivation,
-		detail: session.ErrRunningTurnSkillActivation,
 		class:  commerr.ErrValidationFailed,
 	},
 	{

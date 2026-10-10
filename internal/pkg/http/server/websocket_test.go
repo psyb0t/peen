@@ -376,18 +376,6 @@ func TestWebSocketMessageFailureFor(t *testing.T) {
 			),
 		},
 		{
-			name: "running turn skill activation",
-			err: errors.Join(
-				commerr.ErrValidationFailed,
-				session.ErrRunningTurnSkillActivation,
-			),
-			want: newWebSocketMessageFailure(
-				aichteeteapee.ErrorCodeValidationFailed,
-				session.ErrRunningTurnSkillActivation.Error(),
-				"",
-			),
-		},
-		{
 			name: "cancelled turn",
 			err:  commerr.ErrCancelled,
 			want: newWebSocketMessageFailure(

@@ -318,7 +318,12 @@ func TestRuntimeRejectsFullActiveUserMessageQueue(t *testing.T) {
 	assert.Equal(t, queuedUserMessageText, requests[1].Messages[len(requests[1].Messages)-1].Text())
 }
 
-func TestRuntimeRejectsExplicitSkillReferenceInAnActiveTurnQueue(t *testing.T) {
+// A skill named in a message sent during a running turn cannot join that
+// turn's fixed prompt, so the message queues as written and the model decides
+// whether to load the skill with use_skill once it arrives.
+func TestRuntimeQueuesAnExplicitSkillReferenceInAnActiveTurnAsPlainText(t *testing.T) {
+	const skillMessage = ":planning make a plan"
+
 	driver := elelemtest.NewScriptedDriver(
 		elelemtest.ToolCall(
 			runtimeToolCallID,
@@ -329,15 +334,19 @@ func TestRuntimeRejectsExplicitSkillReferenceInAnActiveTurnQueue(t *testing.T) {
 	)
 	fixture := newRuntimeFixture(t, driver)
 
-	var queueErr error
+	var (
+		queued   *TurnResult
+		queueErr error
+	)
+
 	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
 		Message:   queuedUserMessageInitial,
 		Workspace: fixture.workspace,
 		OnEvent: func(event Event) error {
 			if event.Type == EventTypeToolUse {
-				_, queueErr = fixture.runtime.Run(
+				queued, queueErr = fixture.runtime.Run(
 					context.Background(),
-					TurnRequest{Message: ":planning make a plan"},
+					TurnRequest{Message: skillMessage},
 				)
 			}
 
@@ -345,17 +354,20 @@ func TestRuntimeRejectsExplicitSkillReferenceInAnActiveTurnQueue(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	require.ErrorIs(t, queueErr, commerr.ErrValidationFailed)
-	require.ErrorIs(t, queueErr, session.ErrRunningTurnSkillActivation)
+	require.NoError(t, queueErr)
+	require.NotNil(t, queued)
+	assert.True(t, queued.Queued)
 	assert.Equal(t, queuedUserMessageFinal, result.Text)
 
 	requests := driver.Requests()
 	require.Len(t, requests, 2)
-	assert.NotContains(
+	assert.Equal(
 		t,
+		skillMessage,
 		requests[1].Messages[len(requests[1].Messages)-1].Text(),
-		":planning",
 	)
+	assert.Equal(t, elelem.RoleSystem, requests[1].Messages[0].Role)
+	assert.Equal(t, requests[0].Messages[0].Text(), requests[1].Messages[0].Text())
 }
 
 func TestRuntimeIgnoresActiveTurnWorkspaceOverride(t *testing.T) {

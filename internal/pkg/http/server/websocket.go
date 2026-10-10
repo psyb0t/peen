@@ -628,22 +628,15 @@ func webSocketMessageFailureFor(err error) webSocketMessageFailure {
 // the turn it would have joined. It is invalid input, not a busy session, and
 // its sentinel text is written for the sender, so the client shows it as is.
 func runningTurnFailureFor(err error) (webSocketMessageFailure, bool) {
-	for _, refusal := range []error{
-		session.ErrRunningTurnSettingsChange,
-		session.ErrRunningTurnSkillActivation,
-	} {
-		if !errors.Is(err, refusal) {
-			continue
-		}
-
-		return newWebSocketMessageFailure(
-			aichteeteapee.ErrorCodeValidationFailed,
-			refusal.Error(),
-			"",
-		), true
+	if !errors.Is(err, session.ErrRunningTurnSettingsChange) {
+		return webSocketMessageFailure{}, false
 	}
 
-	return webSocketMessageFailure{}, false
+	return newWebSocketMessageFailure(
+		aichteeteapee.ErrorCodeValidationFailed,
+		session.ErrRunningTurnSettingsChange.Error(),
+		"",
+	), true
 }
 
 func harnessConfigurationFailureFor(

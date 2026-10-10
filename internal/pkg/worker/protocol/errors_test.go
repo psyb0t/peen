@@ -29,11 +29,6 @@ func TestErrorKeepsADetailedFailureAcrossTheWire(t *testing.T) {
 			detail:   session.ErrRunningTurnSettingsChange,
 			wantCode: CodeRunningTurnSettingsChange,
 		},
-		{
-			name:     "running turn skill activation",
-			detail:   session.ErrRunningTurnSkillActivation,
-			wantCode: CodeRunningTurnSkillActivation,
-		},
 	}
 
 	for _, tc := range testCases {

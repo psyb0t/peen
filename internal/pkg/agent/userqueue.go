@@ -360,16 +360,6 @@ func (r *Runtime) queueActiveUserMessage(
 		)
 	}
 
-	if len(explicitSkillNames(input.Message)) > 0 {
-		return nil, true, ctxerrors.Wrap(
-			errors.Join(
-				commerr.ErrValidationFailed,
-				session.ErrRunningTurnSkillActivation,
-			),
-			"queue active user message",
-		)
-	}
-
 	if queue.changesRunningTurn(input) {
 		return nil, true, ctxerrors.Wrap(
 			errors.Join(

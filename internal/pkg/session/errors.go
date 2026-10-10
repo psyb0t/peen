@@ -20,11 +20,4 @@ var (
 	ErrRunningTurnSettingsChange = errors.New(
 		"a message sent during a running turn cannot change its model, reasoning, or system prompt", //nolint:lll // One user-facing sentence.
 	)
-	// ErrRunningTurnSkillActivation reports a message sent while a turn runs
-	// that explicitly names a skill. Skills are resolved when a turn starts,
-	// so a queued message cannot add one. It is always joined with
-	// commerr.ErrValidationFailed.
-	ErrRunningTurnSkillActivation = errors.New(
-		"a message sent during a running turn cannot explicitly activate a skill", //nolint:lll // One user-facing sentence.
-	)
 )

@@ -77,7 +77,7 @@ Write `:skill-name` at the start of a message or after whitespace to require tha
 
 The name must end at the end of the message, whitespace, or one of `, . ; ! ? ) ] }`. Peen checks the name before the turn opens. An unknown or invalid skill fails the message with `message.failed` and no model call is made. A known skill has its whole `SKILL.md` placed in the system prompt, for the root agent and every child agent of that turn. Your message is stored exactly as you typed it.
 
-A message queued into a turn that is already running cannot force a skill, because that turn's prompt is already fixed.
+A message sent while a turn is running joins that turn's queue as written. The turn's prompt is already fixed, so a `:skill-name` in it does not force the skill. The model receives the message after the current step and loads the skill with `use_skill`, the same way it loads any skill from the catalogue.
 
 ## When skills load
 

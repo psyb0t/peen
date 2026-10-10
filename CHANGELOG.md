@@ -4,6 +4,12 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.17.1 (2026-10-10)
+
+A message sent during a running turn may now name a skill with `:name`. No configuration or API migration is needed.
+
+- Fixes a message sent during a running turn being refused with `VALIDATION_FAILED` when it named a skill with `:name`. It is now queued as written. The model receives it after the current step and loads the skill with `use_skill`, because the running turn's prompt is already fixed. The default system prompt now tells the model that only a `:name` in the message that started the turn is already active.
+
 ## v0.17.0 (2026-10-10)
 
 Messages sent close together now run in the order they were sent, and a message sent during a turn shows as queued until the model receives it. Event wakes and the `session_start` hook now work as documented, and the documentation matches the code. Before you upgrade, keep `POST /v1/session/notices` summaries and data within the event size limits, remove any hook that emits `job.*` or `agent.*` events, and treat a missing `sessionId`, `requestId`, or `turnId` in hook command input as not applicable.
