@@ -4,6 +4,13 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.18.2 (2026-10-10)
+
+Peen now exits when it cannot start instead of hanging. No configuration or API migration is needed.
+
+- Fixes Peen staying up forever after a startup failure, such as an invalid `PEEN_LOG_RETENTION` or an unknown name in `PEEN_DISABLED_CORE_SKILLS`. It logged the error but never exited and never became ready, so a container restart policy never kicked in. Peen now exits with a non-zero status. Peen updates its Servicepack framework to v1.10.0, which carries the fix.
+- Changes the development CPU cap to come from Servicepack v1.10.0 instead of Peen's own Makefile. `DEV_CPUS` works as before, and `DEV_CPU_LIMIT_ARGS=` turns the cap off.
+
 ## v0.18.1 (2026-10-10)
 
 `run_command` no longer loses the output of commands that finish quickly, and several v0.18.0 skill, event, and control surface problems are fixed. No configuration or API migration is needed.

@@ -138,7 +138,8 @@ const (
 	// provider.
 	executionFormsGeneralPurposeInstructions = "Carry out the user's request within the resolved instructions and tool"
 
-	executionFormsRefusalTimeout = 20 * time.Second
+	executionFormsRefusalTimeout  = 20 * time.Second
+	executionFormsRefusalExitCode = 1
 
 	executionFormsRetentionNotDayMessage = "PEEN_LOG_RETENTION must be a " +
 		"positive whole number of days (a multiple of 24h), got 36h0m0s"
@@ -287,7 +288,7 @@ func TestExecutionFormsRefuseToStartOnInvalidSelection(t *testing.T) {
 				environment:     tc.environment,
 			})
 
-			output := awaitRefusal(t, process, tc.wantMessages)
+			output := awaitRefusal(t, process)
 			for _, message := range tc.wantMessages {
 				assert.Contains(t, output, message)
 			}
@@ -344,16 +345,13 @@ func removeCustomDefaultAgent(t *testing.T, state processState) {
 	)))
 }
 
-// awaitRefusal waits until the process has reported every wanted message or
-// exited, checks it never became ready, stops it, and returns its output.
-//
-// It does not require the process to exit on its own: after a service fails
-// its startup the process can stay up waiting for readiness, so the refusal
-// is the logged failure plus the readiness endpoint never answering.
+// awaitRefusal waits for a process that was given an invalid selection to exit
+// on its own within executionFormsRefusalTimeout, requires the non-zero exit
+// status, and returns its output. A process that hangs fails the test; nothing
+// interrupts it. While it runs, /ready must never answer 200.
 func awaitRefusal(
 	t *testing.T,
 	process *runningPeen,
-	wantMessages []string,
 ) string {
 	t.Helper()
 
@@ -363,41 +361,40 @@ func awaitRefusal(
 		}
 	})
 
-	exited := false
+	timeout := time.After(executionFormsRefusalTimeout)
+	for {
+		assertNotReady(t, process)
 
-	require.Eventually(t, func() bool {
 		select {
-		case <-process.done:
-			exited = true
+		case waitErr := <-process.done:
+			process.stopped = true
+			assertRefusalExit(t, waitErr)
 
-			return true
-		default:
+			return process.output.String()
+		case <-timeout:
+			require.Fail(
+				t,
+				"Peen did not exit on its own after refusing to start",
+				"%s",
+				process.output.String(),
+			)
+		case <-time.After(executionFormsPollInterval):
 		}
-
-		output := process.output.String()
-		for _, message := range wantMessages {
-			if !strings.Contains(output, message) {
-				return false
-			}
-		}
-
-		return true
-	}, executionFormsRefusalTimeout, executionFormsPollInterval,
-		"Peen did not refuse to start with the wanted messages")
-
-	if !exited {
-		assertNeverReady(t, process)
-		interruptAndWait(t, process)
 	}
-	process.stopped = true
-
-	return process.output.String()
 }
 
-func assertNeverReady(t *testing.T, process *runningPeen) {
+func assertRefusalExit(t *testing.T, waitErr error) {
 	t.Helper()
 
-	client := &http.Client{Timeout: executionFormsStartupTimeout}
+	var exitErr *exec.ExitError
+	require.ErrorAs(t, waitErr, &exitErr)
+	assert.Equal(t, executionFormsRefusalExitCode, exitErr.ExitCode())
+}
+
+func assertNotReady(t *testing.T, process *runningPeen) {
+	t.Helper()
+
+	client := &http.Client{Timeout: executionFormsPollInterval}
 	response, err := client.Get(process.baseURL + executionFormsReadyPath)
 	if err != nil {
 		return
@@ -405,21 +402,6 @@ func assertNeverReady(t *testing.T, process *runningPeen) {
 
 	assert.NoError(t, response.Body.Close())
 	assert.NotEqual(t, http.StatusOK, response.StatusCode)
-}
-
-// interruptAndWait stops a process that refused to start. Its exit status is
-// not checked, because the refusal is what the test already asserted.
-func interruptAndWait(t *testing.T, process *runningPeen) {
-	t.Helper()
-
-	require.NoError(t, process.command.Process.Signal(os.Interrupt))
-
-	select {
-	case <-process.done:
-	case <-time.After(executionFormsShutdownTimeout):
-		require.NoError(t, process.command.Process.Kill())
-		<-process.done
-	}
 }
 
 func buildSourceForm(t *testing.T, repository string) string {

@@ -7,35 +7,8 @@
 MIN_TEST_COVERAGE := 80
 TEST_TIMEOUT := 30m
 
-# Dev container runs leave two CPU threads free for the rest of the machine.
-# --cpus is a hard quota on the container, and Go 1.25 and later size their
-# thread pool from it. Override per run, for example `make lint DEV_CPUS=4`.
-# Containers that tests start themselves are not covered by this limit.
-DEV_CPUS_RESERVED := 2
-DEV_CPUS ?= $(shell cores=$$(nproc); \
-	limit=$$((cores - $(DEV_CPUS_RESERVED))); \
-	if [ "$$limit" -lt 1 ]; then limit=1; fi; echo "$$limit")
-DEV_CPU_LIMIT_ARGS := --cpus=$(DEV_CPUS)
-DEV_RUN_DIND_EXTRA_ARGS := $(DEV_CPU_LIMIT_ARGS)
-
 # Include servicepack framework commands
 include Makefile.servicepack
-
-# Servicepack's DEV_RUN has no extra-arguments hook, so it is redefined here
-# with the same flags plus the CPU limit above.
-DEV_RUN := docker run --rm --init \
-	--user $(UID):$(GID) \
-	$(DEV_CPU_LIMIT_ARGS) \
-	-e HOME=/tmp \
-	-e GOPATH=/tmp/go \
-	-e GOCACHE=/tmp/go-cache \
-	-e GOMODCACHE=/tmp/go-mod-cache \
-	-e PKG \
-	-e MODULE \
-	-e TOOL \
-	-v "$(CURDIR):/work" \
-	-w /work \
-	$(DEV_IMAGE)
 
 # Custom targets below this line
 # Note: Override warnings are expected and can be ignored
