@@ -1029,7 +1029,7 @@ github.com/psyb0t/aichteeteapee/serbewr
 github.com/psyb0t/aichteeteapee/serbewr/dabluvee-es
 github.com/psyb0t/aichteeteapee/serbewr/dabluvee-es/wshub
 github.com/psyb0t/aichteeteapee/serbewr/middleware
-# github.com/psyb0t/commander v0.5.8
+# github.com/psyb0t/commander v0.5.9
 ## explicit; go 1.26
 github.com/psyb0t/commander
 # github.com/psyb0t/common-go v0.7.1

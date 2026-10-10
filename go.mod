@@ -1,6 +1,6 @@
 module github.com/psyb0t/peen
 
-go 1.26.6
+go 1.26.9
 
 require (
 	github.com/getkin/kin-openapi v0.149.0
@@ -8,12 +8,13 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/moby/moby/api v1.55.0
+	github.com/moby/moby/client v0.5.0
 	github.com/oapi-codegen/runtime v1.7.0
 	github.com/prometheus/client_golang v1.12.1
 	github.com/prometheus/client_model v0.2.0
 	github.com/prometheus/common v0.32.1
 	github.com/psyb0t/aichteeteapee v1.14.0
-	github.com/psyb0t/commander v0.5.8
+	github.com/psyb0t/commander v0.5.9
 	github.com/psyb0t/common-go v0.7.1
 	github.com/psyb0t/ctxerrors v0.7.1
 	github.com/psyb0t/ctxscope v1.0.3
@@ -202,7 +203,6 @@ require (
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/go-archive v0.3.3 // indirect
-	github.com/moby/moby/client v0.5.0 // indirect
 	github.com/moby/patternmatcher v0.6.1 // indirect
 	github.com/moby/sys/sequential v0.7.0 // indirect
 	github.com/moby/sys/user v0.4.1 // indirect

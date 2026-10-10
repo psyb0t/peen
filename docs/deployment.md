@@ -21,7 +21,7 @@ and `REF` picks a tag or branch:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/psyb0t/peen/main/install.sh |
-  PREFIX=/usr/local/bin REF=v0.16.0 bash
+  PREFIX=/usr/local/bin REF=v0.16.1 bash
 ```
 
 It needs `git` and `docker` and refuses to start without them. Doing the same
@@ -55,7 +55,7 @@ The target warns when `PREFIX` is not on your `PATH`.
 make build
 ```
 
-This runs a pinned `golang:1.26.6-alpine` Docker image to produce a static,
+This runs a pinned `golang:1.26.9-alpine` Docker image to produce a static,
 `CGO_ENABLED=0` Linux binary at `./build/peen`. No local Go toolchain is
 required.
 

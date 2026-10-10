@@ -4,6 +4,13 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.16.1 (2026-10-10)
+
+Rebuilds Peen with Go 1.26.9 to fix reachable standard library vulnerabilities, and stops `run_command` from losing stderr. No configuration or API migration is needed.
+
+- Builds with Go 1.26.9, which fixes twelve standard library vulnerabilities that `govulncheck` reports as reachable from Peen: HTTP/2 server crashes and memory and CPU exhaustion, HTTP/1 connection desynchronization after `CONNECT`, unbounded `Range` and MIME header parsing in `net/http`, `net/textproto`, and `mime/multipart`, malformed ECH handling in `crypto/tls`, and escaping bugs in `html/template` (GO-2026-6599, GO-2026-6600, GO-2026-6603, GO-2026-6605, GO-2026-6607 through GO-2026-6613, and GO-2026-6617). Images up to v0.16.0 were built with Go 1.26.6. `go.mod` now requires Go 1.26.9.
+- Fixes `run_command` and background jobs sometimes losing a command's stderr when the command wrote to stdout and exited quickly, for example `printf 'ok\n'; echo failed >&2`. The stderr lines still queued when stdout closed were dropped. Peen now uses commander v0.5.9, which delivers both streams until each one closes.
+
 ## v0.16.0 (2026-10-09)
 
 Hooks from every layer now always run, and tool cards in the control surface show what each call acted on. Remove `PEEN_ENABLE_WORKSPACE_HOOKS` from your configuration before you upgrade.

@@ -5,3 +5,8 @@ CLAUDE.md
 .test
 git-update.sh
 .research_files
+.testing/
+.agent_notes/
+.env
+.env.*
+.telemetry/

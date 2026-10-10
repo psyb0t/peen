@@ -27,7 +27,9 @@ func (p *process) Stream(stdout, stderr chan<- string) {
 
 // discardInternalOutput continuously drains internal channels
 // to prevent blocking
-// Only sends to user channels if they exist, otherwise discards everything
+// Only sends to user channels if they exist, otherwise discards everything.
+// It forwards until both internal channels are closed, so lines from one
+// stream are never lost because the other stream reached EOF first.
 func (p *process) discardInternalOutput() {
 	slog.Debug("starting output discard goroutine")
 
@@ -41,7 +43,13 @@ func (p *process) discardInternalOutput() {
 	stdoutCount := 0
 	stderrCount := 0
 
-	for {
+	// A closed channel is replaced by nil, which never receives in a select,
+	// so the loop waits on the open stream instead of spinning on the closed
+	// one.
+	internalStdout := p.internalStdout
+	internalStderr := p.internalStderr
+
+	for internalStdout != nil || internalStderr != nil {
 		select {
 		case <-p.doneCh:
 			slog.Debug("output discard goroutine stopping",
@@ -51,25 +59,28 @@ func (p *process) discardInternalOutput() {
 
 			return
 
-		case line, ok := <-p.internalStdout:
+		case line, ok := <-internalStdout:
 			if !ok {
-				slog.Debug("stdout channel closed, draining stderr",
+				slog.Debug("stdout channel closed",
 					"stdoutLines", stdoutCount,
 				)
-				p.drainStderr()
 
-				return
+				internalStdout = nil
+
+				continue
 			}
 
 			stdoutCount++
 
 			p.broadcastToStdout(line)
 
-		case line, ok := <-p.internalStderr:
+		case line, ok := <-internalStderr:
 			if !ok {
 				slog.Debug("stderr channel closed",
 					"stderrLines", stderrCount,
 				)
+
+				internalStderr = nil
 
 				continue
 			}
@@ -77,20 +88,6 @@ func (p *process) discardInternalOutput() {
 			stderrCount++
 
 			p.broadcastToStderr(line)
-		}
-	}
-}
-
-// drainStderr drains remaining stderr after stdout closes
-func (p *process) drainStderr() {
-	for {
-		select {
-		case <-p.doneCh:
-			return
-		case _, ok := <-p.internalStderr:
-			if !ok {
-				return
-			}
 		}
 	}
 }

@@ -2,6 +2,14 @@
 
 All notable changes per release. Versions follow [semver](https://semver.org).
 
+## v0.5.9 (2026-10-10)
+
+Fixes `Stream` losing output when one of a process's streams closes before the other.
+
+- Stderr lines still queued when stdout reached end of file were read and dropped instead of reaching `Stream` subscribers. A command that wrote both streams and exited quickly, such as `printf 'ok\n'; echo failed >&2`, could report no stderr at all.
+- When stderr closed first, the output loop kept receiving from the closed channel and spun at full CPU until stdout closed. It now waits on the open stream only.
+- Added a `.gitleaks.toml` secret-scanning config and ignored local `.env` files.
+
 ## v0.5.8 — 2026-08-08
 
 Repository infrastructure only. No library code changed.

@@ -679,8 +679,8 @@ github.com/prometheus/procfs v0.7.3 h1:4jVXhlkAyzOScmCkXBTOLRLTz8EeU+eyjrwB/EPq0
 github.com/prometheus/procfs v0.7.3/go.mod h1:cz+aTbrPOrUb4q7XlbU9ygM+/jj0fzG6c1xBZuNvfVA=
 github.com/psyb0t/aichteeteapee v1.14.0 h1:ESfcEhHQ/2T7h1j8v8vAFFnlRm/f+onyTBP1Hvhg0iw=
 github.com/psyb0t/aichteeteapee v1.14.0/go.mod h1:qPVpUlHAwaz2v7vrx6I9jPHIleW4U4mX/a01/xIlVic=
-github.com/psyb0t/commander v0.5.8 h1:5X/o821nMNhL1iq8xIWpC9rREEWzFE/7YYL/r/Y6s6A=
-github.com/psyb0t/commander v0.5.8/go.mod h1:PAPacbBpuEXBiL8Ulq/hCahxoCQB7aMFNAtnMmfWq1Y=
+github.com/psyb0t/commander v0.5.9 h1:dPNM5yOVwu/BYrh86w5IZfEPO85GMKUjVlH9vYA84eE=
+github.com/psyb0t/commander v0.5.9/go.mod h1:PAPacbBpuEXBiL8Ulq/hCahxoCQB7aMFNAtnMmfWq1Y=
 github.com/psyb0t/common-go v0.7.1 h1:MWIoiuKexIrwGgrIgVDzKM6dMvLZgxR6VAxXl3P7yuQ=
 github.com/psyb0t/common-go v0.7.1/go.mod h1:7s7cpcw15jncTK4rPXkVIyUnpfx6w0UFYcb88krN+XU=
 github.com/psyb0t/ctxerrors v0.7.1 h1:x2CM3MggPk/W3IswfLxeDvNuVeOt11rbrYuKc14lEjQ=
