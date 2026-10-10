@@ -1,5 +1,5 @@
 ---
-name: default
+name: general-purpose
 description: General-purpose agent for coding and other repository tasks.
 ---
 

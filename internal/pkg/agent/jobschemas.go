@@ -66,7 +66,8 @@ const readJobOutputSchema = `{
 const waitJobDescription = `Block until one job exits, up to a bound.
 Returns the job's final state and exit code plus whatever output arrived while
 waiting, continuing from the cursors you pass.
-The bound limits how long YOU wait, never how long the job may run. When it
+timeout is a Go duration string such as "30s", "5m", or "1h30m"; empty uses the
+default. It limits how long YOU wait, never how long the job may run. When it
 elapses first, running is true and the job is still going; call again or leave
 it and carry on with something else.
 found is false when the job ID is not one of this session's jobs.`
@@ -79,9 +80,9 @@ const waitJobSchema = `{
       "format": "uuid",
       "description": "The job to wait for."
     },
-    "timeoutSeconds": {
-      "type": "integer",
-      "description": "How long to wait. 0 uses the configured default."
+    "timeout": {
+      "type": "string",
+      "description": "Go duration to wait, like \"30s\" or \"5m\"."
     },
     "stdoutCursor": {
       "type": "integer",

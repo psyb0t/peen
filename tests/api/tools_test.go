@@ -34,7 +34,7 @@ const (
 	hostToolsMessageCount = 8
 
 	// hostToolsJobEventMarker is the framing every delivered event carries.
-	hostToolsJobEventMarker = "<session-events"
+	hostToolsJobEventMarker = "<events>"
 	// hostToolsJobExitedType is the event a finished job publishes.
 	hostToolsJobExitedType = "job.exited"
 
@@ -47,7 +47,7 @@ const (
 	backgroundJobFixtureEdited  = "background job fixture edited\n"
 	backgroundJobCommand        = "sleep 2 && echo background job done"
 	backgroundJobPurpose        = "outlive the one second wait"
-	backgroundJobWaitSeconds    = 1
+	backgroundJobWaitTimeout    = "1s"
 	backgroundJobFinalAnswer    = "background job started"
 	backgroundJobEventWait      = 15 * time.Second
 	backgroundJobEventPoll      = 200 * time.Millisecond
@@ -168,9 +168,9 @@ func TestAPIBackgroundJobPublishesItsCompletion(t *testing.T) {
 			}},
 		},
 		RunCommandArguments: map[string]any{
-			"command":        backgroundJobCommand,
-			"purpose":        backgroundJobPurpose,
-			"timeoutSeconds": backgroundJobWaitSeconds,
+			"command": backgroundJobCommand,
+			"purpose": backgroundJobPurpose,
+			"timeout": backgroundJobWaitTimeout,
 		},
 		FinalAnswer: backgroundJobFinalAnswer,
 	})

@@ -44,6 +44,9 @@ const (
 	apiTestWebSocketReasoningMessage   = "think about this websocket message"
 	apiTestWebSocketReasoningEffort    = "high"
 
+	apiTestWebSocketSkillMessage        = "plan this with :core:planning"
+	apiTestWebSocketUnknownSkillMessage = "run :no-such-skill on this"
+
 	apiTestWebSocketOrderedWorkspacePrefix = "admission-order-"
 	apiTestWebSocketOrderedFixtureFile     = "README.md"
 	apiTestWebSocketOrderedFixture         = "a workspace no test has opened yet"
@@ -270,6 +273,50 @@ func TestAPIWebSocketCarriesTheTurnReasoningEffort(t *testing.T) {
 		failure := awaitAPIWebSocketFailure(t, connection)
 		assert.Equal(t, string(aichteeteapee.ErrorCodeValidationFailed), failure.Code)
 	})
+}
+
+// A skill named in a message reaches the model as its own message after the
+// typed one. The typed message is stored as typed, and the skill is stored as
+// an injected message of kind skill.
+func TestAPIWebSocketStoresANamedSkillAsAnInjectedMessage(t *testing.T) {
+	result := sendAPIWebSocketMessage(t, apiTestWebSocketSkillMessage)
+
+	messages := collectAllMessages(t, result.sessionID)
+	require.GreaterOrEqual(t, len(messages), 3)
+
+	typed := messages[len(messages)-3]
+	assert.Equal(t, apiTestWebSocketSkillMessage, typed.Content)
+	assert.Nil(t, typed.Injected)
+	assert.Nil(t, typed.InjectedKind)
+
+	skill := messages[len(messages)-2]
+	require.NotNil(t, skill.Injected)
+	assert.True(t, *skill.Injected)
+	require.NotNil(t, skill.InjectedKind)
+	assert.Equal(t, api.MessageInjectedKindSkill, *skill.InjectedKind)
+	assert.Equal(t, api.MessageRoleUser, skill.Role)
+	assert.Contains(t, skill.Content, "<skill>\n<name>core:planning</name>")
+}
+
+func TestAPIWebSocketRefusesAnUnknownSkill(t *testing.T) {
+	connection := dialAPIWebSocket(t, nil)
+	t.Cleanup(func() { require.NoError(t, connection.Close()) })
+
+	require.NoError(t, writeAPIWebSocketMessage(
+		t,
+		connection,
+		apiTestWebSocketUnknownSkillMessage,
+	))
+
+	failure := awaitAPIWebSocketFailure(t, connection)
+	assert.Equal(t, string(aichteeteapee.ErrorCodeValidationFailed), failure.Code)
+	assert.Contains(
+		t,
+		failure.Message,
+		`unknown skill "no-such-skill" in :no-such-skill; available skills: `,
+	)
+	assert.Contains(t, failure.Message, "core:planning")
+	assert.NotContains(t, failure.Message, ".go:")
 }
 
 func createAPIWebSocketSession(t *testing.T, message string) uuid.UUID {

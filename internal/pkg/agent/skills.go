@@ -2,9 +2,11 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/harness"
@@ -28,13 +30,27 @@ type useSkillOutput struct {
 	Directory string `json:"directory"`
 	Hash      string `json:"hash"`
 	Content   string `json:"content"`
+
+	// ReferencedSkills are the skills the loaded skill names with :name,
+	// and the skills those name in turn, depth first in reference order.
+	// A skill the conversation already holds is left out.
+	ReferencedSkills []referencedSkillOutput `json:"referencedSkills,omitempty"`
+}
+
+// referencedSkillOutput is one skill that came along with a requested one.
+type referencedSkillOutput struct {
+	Name      string `json:"name"`
+	Directory string `json:"directory"`
+	Content   string `json:"content"`
 }
 
 // skillHostTools registers the use_skill tool over one turn's resolved
 // harness snapshot. Split from hostToolSet, like jobHostTools, to keep that
-// builder under the function-length bound.
+// builder under the function-length bound. The ledger records the skills the
+// conversation holds; a nil ledger tracks nothing.
 func skillHostTools(
 	snapshot harness.Snapshot,
+	ledger *skillLedger,
 	onPostRun elelem.MessageInjector,
 ) []elelem.Tool {
 	return []elelem.Tool{
@@ -42,7 +58,7 @@ func skillHostTools(
 			toolNameUseSkill,
 			useSkillDescription,
 			useSkillSchema,
-			useSkillHandler(snapshot),
+			useSkillHandler(snapshot, ledger),
 			onPostRun,
 		),
 	}
@@ -51,8 +67,13 @@ func skillHostTools(
 // useSkillHandler closes over the turn's already-resolved snapshot, so this
 // call and any repeat call for the same name in the same turn return
 // identical content without re-resolving the harness.
+//
+// The requested skill is always returned in full. The skills it references
+// come along unless the conversation already holds them, and everything
+// returned is recorded so a later :name does not deliver it twice.
 func useSkillHandler(
 	snapshot harness.Snapshot,
+	ledger *skillLedger,
 ) func(context.Context, useSkillInput) (useSkillOutput, error) {
 	return func(
 		ctx context.Context,
@@ -67,20 +88,68 @@ func useSkillHandler(
 			)
 		}
 
+		referenced, err := referencedSkills(snapshot, ledger, activated)
+		if err != nil {
+			return useSkillOutput{}, err
+		}
+
 		ctxscope.GetLogger(ctx).Info(
 			"skill activated",
 			"skill_name", activated.Name,
 			"skill_hash", activated.Hash,
 			"skill_source", activated.Source,
+			"referenced_skills", len(referenced),
 		)
 
 		return useSkillOutput{
-			Name:      activated.Name,
-			Directory: activated.Directory,
-			Hash:      activated.Hash,
-			Content:   activated.Content,
+			Name:             activated.Name,
+			Directory:        activated.Directory,
+			Hash:             activated.Hash,
+			Content:          activated.Content,
+			ReferencedSkills: referenced,
 		}, nil
 	}
+}
+
+// referencedSkills expands the skills activated names and records them with
+// activated itself in the ledger.
+func referencedSkills(
+	snapshot harness.Snapshot,
+	ledger *skillLedger,
+	activated harness.ActivatedSkill,
+) ([]referencedSkillOutput, error) {
+	held := ledger.held()
+	delete(held, activated.Name)
+
+	deliveries, err := snapshot.ExpandSkills([]string{activated.Name}, held)
+	if err != nil {
+		return nil, ctxerrors.Wrap(
+			errors.Join(commerr.ErrValidationFailed, err),
+			"expand skill references",
+		)
+	}
+
+	referenced := make([]referencedSkillOutput, 0, len(deliveries))
+
+	for _, delivery := range deliveries {
+		ledger.record(delivery.Skill.Name)
+
+		if delivery.Skill.Name == activated.Name {
+			continue
+		}
+
+		referenced = append(referenced, referencedSkillOutput{
+			Name:      delivery.Skill.Name,
+			Directory: delivery.Skill.Directory,
+			Content:   delivery.Skill.Content,
+		})
+	}
+
+	if len(referenced) == 0 {
+		return nil, nil
+	}
+
+	return referenced, nil
 }
 
 // unknownSkillError names the currently effective skills so the model can

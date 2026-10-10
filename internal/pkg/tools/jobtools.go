@@ -142,7 +142,7 @@ func (e *JobExecutor) WaitJob(
 		return WaitJobOutput{JobID: input.JobID}, nil
 	}
 
-	bound, err := e.resolveWaitJobTimeout(input.TimeoutSeconds)
+	bound, err := e.resolveWaitJobTimeout(input.Timeout)
 	if err != nil {
 		return WaitJobOutput{}, err
 	}
@@ -152,22 +152,22 @@ func (e *JobExecutor) WaitJob(
 	return jobWaitOutput(job, input), nil
 }
 
+// resolveWaitJobTimeout maps the requested Go duration string onto a bounded
+// wait. Empty takes the configured default; anything above the configured
+// maximum is clamped down to it.
 func (e *JobExecutor) resolveWaitJobTimeout(
-	seconds int,
+	raw string,
 ) (time.Duration, error) {
-	if seconds < 0 {
-		return 0, ctxerrors.Wrap(
-			commerr.ErrValidationFailed,
-			"timeout seconds must not be negative",
-		)
-	}
-
 	limits := e.Limits()
-	if seconds == 0 {
+	if raw == "" {
 		return limits.WaitJobTimeout, nil
 	}
 
-	bound := time.Duration(seconds) * time.Second
+	bound, err := parseToolTimeout(raw)
+	if err != nil {
+		return 0, err
+	}
+
 	if bound > limits.MaxWaitJobTimeout {
 		return limits.MaxWaitJobTimeout, nil
 	}
@@ -197,6 +197,7 @@ func jobWaitOutput(job *Job, input WaitJobInput) WaitJobOutput {
 		State:              snapshot.State,
 		ExitCode:           snapshot.ExitCode,
 		DurationMs:         durationMs,
+		Duration:           millisecondsDuration(durationMs),
 		Stdout:             strings.Join(stdoutLines, "\n"),
 		Stderr:             strings.Join(stderrLines, "\n"),
 		NextStdoutCursor:   nextStdout,

@@ -117,15 +117,21 @@ the message with `VALIDATION_FAILED`. Neither setting is sticky.
 `metadata.sessionId` is required on every client message. It routes the work to an existing session and is not an authorization grant. `data.workspace` is rejected. A client learns a session ID from `POST /v1/sessions/open`, not from a special first socket frame.
 
 Write a standalone `:skill-name` at the start of a message or after whitespace
-to require that exact resolved skill for the turn. Peen validates the name
-before it opens a turn or contacts a provider. The full `SKILL.md` reaches the
-root and any child agents. An unknown name produces `message.failed`; the user
-message remains unchanged. Without this syntax, the model sees the skill
-catalogue and decides whether to load a matching procedure with `use_skill`.
+to hand that exact resolved skill to the model. A core skill is `:core:name`.
+Peen validates every name before it opens a turn or contacts a provider. Each
+skill reaches the model as its own user message right after your message, as a
+`<skill>` block with the skill's name, description, absolute directory, and
+full `SKILL.md`. It is not part of the system prompt, and a child agent only
+gets it when the parent names it in the `launch_agent` task. A skill that names
+other skills with `:name` brings them too, and each skill is delivered at most
+once per conversation. An unknown name produces `message.failed` with
+`VALIDATION_FAILED`, and nothing is stored. Without this syntax, the model sees
+the skill catalogue and decides whether to load a matching procedure with
+`use_skill`. See [Skills](skills.md#forcing-a-skill).
 
-Peen admits the messages for one session in the order it receives them, from every connected client. The first starts a turn, and every `message.send` that arrives while that turn runs or is still starting, for example while the session's worker boots, joins the turn's FIFO user-message queue. A queued message may repeat the running turn's `model` and `reasoningEffort`, but it cannot change them or set a `systemPrompt`, because those settings belong to the running turn, and that refusal answers `message.failed` with `VALIDATION_FAILED`. A queued message that names a skill with `:name` is queued as written. The running prompt is fixed, so the skill is not forced; the model sees the reference and loads the skill with `use_skill`. The live queue holds at most `PEEN_MAX_QUEUED_USER_MESSAGES` messages, 16 by default, and a message past that answers `USER_MESSAGE_QUEUE_FULL`. Queueing never interrupts an in-flight provider request.
+Peen admits the messages for one session in the order it receives them, from every connected client. The first starts a turn, and every `message.send` that arrives while that turn runs or is still starting, for example while the session's worker boots, joins the turn's FIFO user-message queue. A queued message may repeat the running turn's `model` and `reasoningEffort`, but it cannot change them or set a `systemPrompt`, because those settings belong to the running turn, and that refusal answers `message.failed` with `VALIDATION_FAILED`. A queued message that names a skill with `:name` is resolved when Peen accepts it. An unknown name refuses that message with `VALIDATION_FAILED` and queues nothing. Otherwise the message and its skill messages are queued together, and they reach the model together. The live queue holds at most `PEEN_MAX_QUEUED_USER_MESSAGES` messages, 16 by default, counting each skill message, and a message that does not fit answers `USER_MESSAGE_QUEUE_FULL`. Queueing never interrupts an in-flight provider request.
 
-A queued message gets its own request ID. Peen acknowledges it with `message.completed` `{"queued": true}` and emits `user_message.created` and then `user_message.queued`, both carrying that message's own `requestId`. When the running turn's current model round ends, after the current tool call finishes, Peen hands the queued message to the model and emits `user_message.delivered` with that same `requestId` and `{"message": "<text>"}` to every connected client. Queued messages are delivered in the order they were sent. The queue lives in the worker's memory until delivery. If the turn ends without a `user_message.delivered` for your message's `requestId`, for example after a restart or a cancellation, the message never reached the model, so resend it.
+A queued message gets its own request ID. Peen acknowledges it with `message.completed` `{"queued": true}` and emits `user_message.created` and then `user_message.queued`, both carrying that message's own `requestId`. When the running turn's current model round ends, after the current tool call finishes, Peen hands the queued message to the model and emits `user_message.delivered` with that same `requestId` and `{"message": "<text>"}` to every connected client. Queued messages are delivered in the order they were sent, and `user_message.delivered` fires once per message however many skill messages follow it. Each skill message that follows is announced with a `skill.injected` frame under the running turn's `requestId`. The queue lives in the worker's memory until delivery. If the turn ends without a `user_message.delivered` for your message's `requestId`, for example after a restart or a cancellation, the message never reached the model, so resend it.
 
 Every accepted `message.send` first emits a durable `user_message.created`
 frame. Every server frame is a JSON object with `id`, `type`, `data`,
@@ -156,7 +162,7 @@ A turn emits Peen's own [protocol events](#protocol-event-types) plus the model'
 
 Block indexes count up from zero within one turn and start over in the next, so a client keys blocks by `requestId` and `index`. A `tool_result` block answers the `tool_use` block whose `id` equals its `tool_use_id`. To render a live reply, fold the blocks of a turn in arrival order: append `text_delta` and `thinking_delta` text to their block, and attach each tool result to its call. When `turn.completed`, `turn.failed`, or `turn.cancelled` arrives, the turn's messages are durable and `GET /v1/messages` returns them. The embedded control surface does exactly this and then replaces the live reply with the stored messages.
 
-A stored message with `injected: true` was added by Peen, not typed by a person or written by the model. Delivered session events are the common case: they arrive as a user-role message the agent reads as data. The instructions an event handler starts a turn with are injected too. Every stored message also carries the `turnId` of the turn that wrote it, so a client can group a conversation by turn. Session events delivered at the start of a turn are stored ahead of that turn's prompt.
+A stored message with `injected: true` was added by Peen, not typed by a person or written by the model. Delivered session events are the common case: they arrive as a user-role message the agent reads as data. The instructions an event handler starts a turn with are injected too. A skill a user invoked with `:name` is stored as its own injected user message right after the message that named it, with `injectedKind: "skill"`; the note that a skill is already loaded has the same kind. The typed message itself is stored as typed and is not injected. Every stored message also carries the `turnId` of the turn that wrote it, so a client can group a conversation by turn. Session events delivered at the start of a turn are stored ahead of that turn's prompt.
 
 ### Protocol event types
 
@@ -167,7 +173,8 @@ A protocol event is a durable record of one step of a turn. Each one goes out li
 | `user_message.created` | `{message, sourceEventId?}` | Peen accepted a `message.send`. |
 | `user_message.queued` | `{message, sourceEventId?}` | The message joined the running turn's queue. |
 | `user_message.delivered` | `{message, sourceEventId?}` | A queued message reached the model. It carries the queued message's own `requestId`. |
-| `harness.warning` | `{warnings: [{kind, source, reason}]}` | Peen ignored invalid optional harness files. See below. |
+| `skill.injected` | `{name, content}` | A skill message reached the model right after the user message that named it. `content` is the whole message, and `name` is the resolved skill name. The note that a skill is already loaded uses the same event. It follows `user_message.created` at the start of a turn and `user_message.delivered` for a queued message. |
+| `harness.warning` | `{warnings: [{kind, source, reason}]}` | Peen ignored invalid optional harness files, or a skill names a skill that does not exist. See below. |
 | `turn.started` | `{sessionId, model, workspace, originEventId?, originEventType?}` | The turn started. `originEventId` and `originEventType` name the session event that woke it, when one did. |
 | `session.events` | `{notices, dropped}` | Session events were handed to the model. See [Session events](events.md#how-the-model-receives-events). |
 | `tool.use` | `{callId, name, arguments}` | The model asked for a tool call. |
@@ -347,7 +354,7 @@ Reads details for one existing session. `X-Session-ID` is required.
   "messageCount": 12,
   "completedTurnCount": 4,
   "activeTurn": false,
-  "agent": "default",
+  "agent": "core:general-purpose",
   "model": "aigate/your-model-id",
   "workspace": "/home/me/work/my-app",
   "executionProfile": "native"

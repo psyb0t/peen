@@ -255,7 +255,21 @@ func TestLaunchAgentNamedAgentReturnsFinalResponse(t *testing.T) {
 	assert.Equal(t, turn.WorkerGenerationID, storedRun.WorkerGenerationID)
 }
 
-func TestLaunchAgentCarriesExplicitSkillIntoChildPrompt(t *testing.T) {
+const launchAgentSkillTask = "review the workspace with :review-rules"
+
+func TestLaunchAgentDescriptionTellsTheParentToNameSkillsInTheTask(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	assert.Contains(t, launchAgentDescription, ":name")
+	assert.Contains(t, launchAgentDescription, "skill")
+	assert.Contains(t, launchAgentDescription, "unknown")
+}
+
+// A skill the user named on the parent reaches the child only when the parent
+// names it in the task, so a child's system prompt never carries a skill.
+func TestLaunchAgentDoesNotCopyTheUsersSkillIntoTheChild(t *testing.T) {
 	driver := elelemtest.NewScriptedDriver(
 		elelemtest.ToolCall(
 			launchAgentCallID,
@@ -273,17 +287,11 @@ func TestLaunchAgentCarriesExplicitSkillIntoChildPrompt(t *testing.T) {
 			launchAgentChildName: launchAgentChildAgentFile,
 		},
 	})
-	writeRuntimeFile(
+	writeSkillFile(
 		t,
-		filepath.Join(
-			fixture.workspace,
-			".agents",
-			"skills",
-			runtimeTestExplicitSkillName,
-			"SKILL.md",
-		),
-		"---\nname: review-rules\ndescription: Review rules.\n---\n"+
-			runtimeTestWorkspaceSkillInstructions,
+		fixture,
+		runtimeTestExplicitSkillName,
+		runtimeTestWorkspaceSkillInstructions,
 	)
 
 	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
@@ -294,9 +302,86 @@ func TestLaunchAgentCarriesExplicitSkillIntoChildPrompt(t *testing.T) {
 
 	requests := driver.Requests()
 	require.Len(t, requests, 3)
-	assert.Contains(
+	assert.NotContains(
 		t,
 		requests[1].Messages[0].Text(),
+		runtimeTestWorkspaceSkillInstructions,
+	)
+	assert.Equal(
+		t,
+		[]string{"review the workspace"},
+		tailTexts(requests[1].Messages, 1),
+	)
+
+	query := repositories.Use(fixture.handle.GormDB)
+	storedRun, err := query.AgentRun.WithContext(context.Background()).
+		Where(query.AgentRun.SessionID.Eq(result.SessionID)).
+		First()
+	require.NoError(t, err)
+	assert.NotContains(
+		t,
+		storedRun.SystemPrompt,
+		runtimeTestWorkspaceSkillInstructions,
+	)
+}
+
+// The task is treated like a user message: a :name in it brings the skill as
+// its own message right after the task, in the child's first request and in
+// the child's stored transcript.
+func TestLaunchAgentTaskSkillReferenceFollowsTheTaskInTheChildRequest(
+	t *testing.T,
+) {
+	driver := elelemtest.NewScriptedDriver(
+		elelemtest.ToolCall(
+			launchAgentCallID,
+			toolNameLaunchAgent,
+			launchAgentArguments(t, launchAgentInput{
+				Task:  launchAgentSkillTask,
+				Agent: launchAgentChildName,
+			}),
+		),
+		elelemtest.Text("child finished"),
+		elelemtest.Text("done"),
+	)
+	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
+		AgentFiles: map[string]string{
+			launchAgentChildName: launchAgentChildAgentFile,
+		},
+	})
+	writeSkillFile(
+		t,
+		fixture,
+		runtimeTestExplicitSkillName,
+		runtimeTestWorkspaceSkillInstructions,
+	)
+
+	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
+		Message:   "launch the reviewer",
+		Workspace: fixture.workspace,
+	})
+	require.NoError(t, err)
+
+	skillMessage := expectedSkillMessage(
+		t,
+		fixture,
+		runtimeTestExplicitSkillName,
+	)
+
+	requests := driver.Requests()
+	require.Len(t, requests, 3)
+	assert.Equal(
+		t,
+		[]string{launchAgentSkillTask, skillMessage},
+		tailTexts(requests[1].Messages, 2),
+	)
+	assert.NotContains(
+		t,
+		requests[1].Messages[0].Text(),
+		runtimeTestWorkspaceSkillInstructions,
+	)
+	assert.NotContains(
+		t,
+		requests[0].Messages[0].Text(),
 		runtimeTestWorkspaceSkillInstructions,
 	)
 
@@ -305,11 +390,72 @@ func TestLaunchAgentCarriesExplicitSkillIntoChildPrompt(t *testing.T) {
 		Where(query.AgentRun.SessionID.Eq(result.SessionID)).
 		First()
 	require.NoError(t, err)
-	assert.Contains(
+	assert.NotContains(
 		t,
 		storedRun.SystemPrompt,
 		runtimeTestWorkspaceSkillInstructions,
 	)
+
+	transcript, err := fixture.store.ListAgentRunMessages(
+		context.Background(),
+		result.SessionID,
+		storedRun.ID,
+		session.ListAgentRunMessagesOptions{Limit: session.MaximumPageLimit},
+	)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(transcript.Items), 3)
+	assert.Equal(t, launchAgentSkillTask, transcript.Items[0].Content)
+	assert.Equal(t, skillMessage, transcript.Items[1].Content)
+}
+
+// A skill the child's task names is checked before the child exists. An
+// unknown name fails the launch_agent call and lists the effective skills.
+func TestLaunchAgentUnknownTaskSkillFailsTheCall(t *testing.T) {
+	driver := elelemtest.NewScriptedDriver(
+		elelemtest.ToolCall(
+			launchAgentCallID,
+			toolNameLaunchAgent,
+			launchAgentArguments(t, launchAgentInput{
+				Task:  "review with :ghost-skill",
+				Agent: launchAgentChildName,
+			}),
+		),
+		elelemtest.Text("done"),
+	)
+	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
+		AgentFiles: map[string]string{
+			launchAgentChildName: launchAgentChildAgentFile,
+		},
+	})
+	writeSkillFile(
+		t,
+		fixture,
+		runtimeTestExplicitSkillName,
+		runtimeTestWorkspaceSkillInstructions,
+	)
+
+	events := make([]Event, 0)
+	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
+		Message:   "launch the reviewer",
+		Workspace: fixture.workspace,
+		OnEvent:   collectEvents(&events),
+	})
+	require.NoError(t, err, "an unknown skill is a tool error, not a turn failure")
+	assert.Equal(t, "done", result.Text)
+
+	toolResult := toolResultPayload{}
+	require.NoError(t, json.Unmarshal(
+		decodeEventPayload(t, events, EventTypeToolResult),
+		&toolResult,
+	))
+	assert.True(t, toolResult.IsError)
+	assert.Contains(
+		t,
+		toolResult.Content,
+		`unknown skill "ghost-skill" in :ghost-skill; available skills: `,
+	)
+	assert.Contains(t, toolResult.Content, runtimeTestExplicitSkillName)
+	assert.Len(t, driver.Requests(), 2, "the child never ran")
 }
 
 func TestLaunchAgentAllowedToolsExcludeWrites(t *testing.T) {
@@ -491,6 +637,175 @@ func TestLaunchAgentUnknownAgentListsEffectiveNames(t *testing.T) {
 	assert.True(t, toolResult.IsError)
 	assert.Contains(t, toolResult.Content, "not found")
 	assert.Contains(t, toolResult.Content, launchAgentChildName)
+}
+
+const launchAgentCustomGeneralPurposeFile = "---\nname: general-purpose\ndescription: custom general purpose\n---\nCustom body."
+
+// launchAgentToolResult runs one turn whose model launches the named agent
+// and returns the launch_agent tool result.
+func launchAgentToolResult(
+	t *testing.T,
+	agentName string,
+	options launchAgentFixtureOptions,
+) toolResultPayload {
+	t.Helper()
+
+	driver := elelemtest.NewScriptedDriver(
+		elelemtest.ToolCall(
+			launchAgentCallID,
+			toolNameLaunchAgent,
+			launchAgentArguments(t, launchAgentInput{
+				Task:  "say hi",
+				Agent: agentName,
+			}),
+		),
+		elelemtest.Text("child says hi"),
+		elelemtest.Text("done"),
+	)
+	fixture := newLaunchAgentFixture(t, driver, options)
+
+	events := make([]Event, 0)
+	_, err := fixture.runtime.Run(context.Background(), TurnRequest{
+		Message:   "launch the agent",
+		Workspace: fixture.workspace,
+		OnEvent:   collectEvents(&events),
+	})
+	require.NoError(t, err)
+
+	toolResult := toolResultPayload{}
+	require.NoError(t, json.Unmarshal(
+		decodeEventPayload(t, events, EventTypeToolResult),
+		&toolResult,
+	))
+
+	return toolResult
+}
+
+func TestLaunchAgentResolvesCoreAndCustomNames(t *testing.T) {
+	testCases := []struct {
+		name      string
+		agent     string
+		files     map[string]string
+		wantAgent string
+	}{
+		{
+			name:      "core name",
+			agent:     "core:general-purpose",
+			wantAgent: "core:general-purpose",
+		},
+		{
+			name:      "plain name falls back to the core agent",
+			agent:     "general-purpose",
+			wantAgent: "core:general-purpose",
+		},
+		{
+			name:      "plain name prefers the custom agent",
+			agent:     "general-purpose",
+			files:     map[string]string{"general-purpose": launchAgentCustomGeneralPurposeFile},
+			wantAgent: "general-purpose",
+		},
+		{
+			name:      "core name ignores the custom agent",
+			agent:     "core:general-purpose",
+			files:     map[string]string{"general-purpose": launchAgentCustomGeneralPurposeFile},
+			wantAgent: "core:general-purpose",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := launchAgentToolResult(
+				t,
+				tc.agent,
+				launchAgentFixtureOptions{AgentFiles: tc.files},
+			)
+
+			require.False(t, result.IsError, result.Content)
+			assert.Equal(
+				t,
+				tc.wantAgent,
+				decodeLaunchAgentOutput(t, result.Content).Name,
+			)
+		})
+	}
+}
+
+func TestWorkspaceOnlyRootAgentStartsAndRunsATurn(t *testing.T) {
+	const workspaceRoot = "workspace-root"
+
+	driver := elelemtest.NewScriptedDriver(elelemtest.Text("done"))
+	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
+		Customize: func(options *RuntimeOptions) {
+			options.RootAgent = workspaceRoot
+
+			// Startup sees only the core agents and the config directory.
+			resolver, err := harness.NewResolver(
+				options.ConfigDirectory,
+				harness.Limits{},
+			)
+			require.NoError(t, err)
+			require.NoError(t, resolver.CheckRootAgent(workspaceRoot))
+		},
+	})
+
+	writeRuntimeFile(
+		t,
+		filepath.Join(
+			fixture.workspace,
+			".agents",
+			"agents",
+			workspaceRoot+".md",
+		),
+		"---\nname: workspace-root\ndescription: workspace root\n---\nWorkspace root rules.",
+	)
+
+	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
+		Message:   "hello",
+		Workspace: fixture.workspace,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "done", result.Text)
+	assert.Contains(
+		t,
+		driver.Requests()[0].Messages[0].Text(),
+		"Workspace root rules.",
+	)
+}
+
+func TestLaunchAgentRefusesADisabledCoreAgent(t *testing.T) {
+	for _, agentName := range []string{
+		"core:general-purpose",
+		"general-purpose",
+	} {
+		t.Run(agentName, func(t *testing.T) {
+			result := launchAgentToolResult(
+				t,
+				agentName,
+				launchAgentFixtureOptions{
+					Customize: func(options *RuntimeOptions) {
+						resolver, err := harness.NewResolver(
+							options.ConfigDirectory,
+							harness.Limits{},
+							harness.WithDisabledCoreAgents(
+								[]string{"general-purpose"},
+							),
+						)
+						require.NoError(t, err)
+
+						options.Resolver = resolver
+					},
+				},
+			)
+
+			assert.True(t, result.IsError)
+			assert.Contains(t, result.Content, "not found")
+			assert.Contains(
+				t,
+				result.Content,
+				"available agents: "+runtimeTestAgentName,
+			)
+		})
+	}
 }
 
 func TestLaunchAgentOversizedAdHocInstructionsRejected(t *testing.T) {

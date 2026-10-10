@@ -21,7 +21,7 @@ import (
 const (
 	commandExitCodeNonZero   = 7
 	commandTestPurpose       = "test command"
-	commandWaitSeconds       = 1
+	commandWaitTimeout       = "1s"
 	commandWaitSlack         = 4 * time.Second
 	commandOverflowBytes     = 100000
 	commandEventuallyWait    = 5 * time.Second
@@ -169,6 +169,51 @@ func runCommandRetryingRace(
 	return out
 }
 
+func TestResolveCommandTimeout(t *testing.T) {
+	t.Parallel()
+
+	executor := newTestJobExecutor(t)
+	limits := executor.Limits()
+
+	testCases := []struct {
+		name    string
+		timeout string
+		want    time.Duration
+	}{
+		{name: "empty uses the default", timeout: "", want: limits.CommandTimeout},
+		{name: "minutes and seconds", timeout: "1m30s", want: 90 * time.Second},
+		{name: "seconds", timeout: "90s", want: 90 * time.Second},
+		{name: "above the maximum is clamped", timeout: "999h", want: limits.MaxCommandTimeout},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := executor.resolveCommandTimeout(tc.timeout)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestResolveCommandTimeout_RejectsInvalidDurations(t *testing.T) {
+	t.Parallel()
+
+	executor := newTestJobExecutor(t)
+
+	for _, timeout := range []string{"-1s", "0", "0s", "90", "soon", "1d", " "} {
+		t.Run(timeout, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := executor.resolveCommandTimeout(timeout)
+
+			require.ErrorIs(t, err, commerr.ErrValidationFailed)
+		})
+	}
+}
+
 func TestRunCommand_ValidationErrors(t *testing.T) {
 	t.Parallel()
 
@@ -194,9 +239,33 @@ func TestRunCommand_ValidationErrors(t *testing.T) {
 		{
 			name: "negative timeout",
 			input: RunCommandInput{
-				Purpose:        commandTestPurpose,
-				Command:        "true",
-				TimeoutSeconds: -1,
+				Purpose: commandTestPurpose,
+				Command: "true",
+				Timeout: "-1s",
+			},
+		},
+		{
+			name: "zero timeout",
+			input: RunCommandInput{
+				Purpose: commandTestPurpose,
+				Command: "true",
+				Timeout: "0s",
+			},
+		},
+		{
+			name: "unparsable timeout",
+			input: RunCommandInput{
+				Purpose: commandTestPurpose,
+				Command: "true",
+				Timeout: "soon",
+			},
+		},
+		{
+			name: "timeout without a unit",
+			input: RunCommandInput{
+				Purpose: commandTestPurpose,
+				Command: "true",
+				Timeout: "90",
 			},
 		},
 		{
@@ -355,9 +424,9 @@ func TestRunCommand_StillRunningWhenBoundExpires(t *testing.T) {
 
 	started := time.Now()
 	out, err := executor.RunCommand(context.Background(), RunCommandInput{
-		Purpose:        commandTestPurpose,
-		Command:        "sleep 5",
-		TimeoutSeconds: commandWaitSeconds,
+		Purpose: commandTestPurpose,
+		Command: "sleep 5",
+		Timeout: commandWaitTimeout,
 	})
 	elapsed := time.Since(started)
 
@@ -403,8 +472,8 @@ func TestRunCommand_PublishesCompletionOnlyForJobsThatOutliveTheCall(
 		{
 			name: "still running when the wait ends",
 			input: RunCommandInput{
-				Command:        "sleep 2",
-				TimeoutSeconds: commandWaitSeconds,
+				Command: "sleep 2",
+				Timeout: commandWaitTimeout,
 			},
 			wantEvents: 1,
 		},
@@ -481,9 +550,9 @@ func TestRunCommand_JobSurvivesTurnCancellation(t *testing.T) {
 	turnCtx, cancel := context.WithCancel(context.Background())
 
 	out, err := executor.RunCommand(turnCtx, RunCommandInput{
-		Purpose:        commandTestPurpose,
-		Command:        "sleep 5",
-		TimeoutSeconds: commandWaitSeconds,
+		Purpose: commandTestPurpose,
+		Command: "sleep 5",
+		Timeout: commandWaitTimeout,
 	})
 	require.NoError(t, err)
 	require.True(t, out.Running)
@@ -520,9 +589,9 @@ func TestRunCommand_JobSurvivesTurnCompletingNormally(t *testing.T) {
 	turnCtx := context.Background()
 
 	out, err := executor.RunCommand(turnCtx, RunCommandInput{
-		Purpose:        commandTestPurpose,
-		Command:        "sleep 5",
-		TimeoutSeconds: commandWaitSeconds,
+		Purpose: commandTestPurpose,
+		Command: "sleep 5",
+		Timeout: commandWaitTimeout,
 	})
 	require.NoError(t, err)
 	require.True(t, out.Running)

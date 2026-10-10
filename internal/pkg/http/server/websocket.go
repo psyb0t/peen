@@ -583,6 +583,10 @@ func webSocketMessageFailureFor(err error) webSocketMessageFailure {
 		return failure
 	}
 
+	if failure, found := unknownSkillFailureFor(err); found {
+		return failure
+	}
+
 	switch {
 	case errors.Is(err, commerr.ErrNotFound):
 		return newWebSocketMessageFailure(
@@ -635,6 +639,22 @@ func runningTurnFailureFor(err error) (webSocketMessageFailure, bool) {
 	return newWebSocketMessageFailure(
 		aichteeteapee.ErrorCodeValidationFailed,
 		session.ErrRunningTurnSettingsChange.Error(),
+		"",
+	), true
+}
+
+// unknownSkillFailureFor reports a message that named a skill that does not
+// exist. The error's message is written for the sender and holds no source
+// location, so the client shows it as is.
+func unknownSkillFailureFor(err error) (webSocketMessageFailure, bool) {
+	var unknown *harness.UnknownSkillError
+	if !errors.As(err, &unknown) {
+		return webSocketMessageFailure{}, false
+	}
+
+	return newWebSocketMessageFailure(
+		aichteeteapee.ErrorCodeValidationFailed,
+		unknown.Message,
 		"",
 	), true
 }

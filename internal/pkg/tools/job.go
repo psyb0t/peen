@@ -70,10 +70,17 @@ type JobObserver interface {
 }
 
 // jobEventData is the structured payload carried by every job.* notice.
+// Duration is DurationMs rendered as a Go duration string.
 type jobEventData struct {
 	JobID      uuid.UUID `json:"jobId"`
 	ExitCode   int       `json:"exitCode"`
 	DurationMs int64     `json:"durationMs"`
+	Duration   string    `json:"duration"`
+}
+
+// millisecondsDuration renders a millisecond count as a Go duration string.
+func millisecondsDuration(milliseconds int64) string {
+	return (time.Duration(milliseconds) * time.Millisecond).String()
 }
 
 // Job is one supervised process: what started it, its host process, and its
@@ -818,10 +825,13 @@ func (r *JobRegistry) publish(
 
 	eventType, summary := jobCompletionEvent(job, state, exitCode)
 
+	durationMs := endedAt.Sub(job.StartedAt).Milliseconds()
+
 	data, err := json.Marshal(jobEventData{
 		JobID:      job.ID,
 		ExitCode:   exitCode,
-		DurationMs: endedAt.Sub(job.StartedAt).Milliseconds(),
+		DurationMs: durationMs,
+		Duration:   millisecondsDuration(durationMs),
 	})
 	if err != nil {
 		ctxscope.GetLogger(ctx).Warn(

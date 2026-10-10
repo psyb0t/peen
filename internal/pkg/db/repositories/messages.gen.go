@@ -46,6 +46,7 @@ func newMessage(db *gorm.DB, opts ...gen.DOOption) message {
 	_message.IsError = field.NewBool(tableName, "is_error")
 	_message.Incomplete = field.NewBool(tableName, "incomplete")
 	_message.Injected = field.NewBool(tableName, "injected")
+	_message.InjectedKind = field.NewString(tableName, "injected_kind")
 	_message.CreatedAt = field.NewTime(tableName, "created_at")
 
 	_message.fillFieldMap()
@@ -72,6 +73,7 @@ type message struct {
 	IsError       field.Bool
 	Incomplete    field.Bool
 	Injected      field.Bool
+	InjectedKind  field.String
 	CreatedAt     field.Time
 
 	fieldMap map[string]field.Expr
@@ -104,6 +106,7 @@ func (m *message) updateTableName(table string) *message {
 	m.IsError = field.NewBool(table, "is_error")
 	m.Incomplete = field.NewBool(table, "incomplete")
 	m.Injected = field.NewBool(table, "injected")
+	m.InjectedKind = field.NewString(table, "injected_kind")
 	m.CreatedAt = field.NewTime(table, "created_at")
 
 	m.fillFieldMap()
@@ -121,7 +124,7 @@ func (m *message) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (m *message) fillFieldMap() {
-	m.fieldMap = make(map[string]field.Expr, 16)
+	m.fieldMap = make(map[string]field.Expr, 17)
 	m.fieldMap["id"] = m.ID
 	m.fieldMap["session_id"] = m.SessionID
 	m.fieldMap["turn_id"] = m.TurnID
@@ -137,6 +140,7 @@ func (m *message) fillFieldMap() {
 	m.fieldMap["is_error"] = m.IsError
 	m.fieldMap["incomplete"] = m.Incomplete
 	m.fieldMap["injected"] = m.Injected
+	m.fieldMap["injected_kind"] = m.InjectedKind
 	m.fieldMap["created_at"] = m.CreatedAt
 }
 

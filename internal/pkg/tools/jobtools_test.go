@@ -220,6 +220,11 @@ func TestWaitJob_ReturnsOnceJobExits(t *testing.T) {
 	assert.Equal(t, JobStateExited, out.State)
 	assert.Equal(t, 3, out.ExitCode)
 	assert.GreaterOrEqual(t, out.DurationMs, int64(0))
+	assert.Equal(
+		t,
+		(time.Duration(out.DurationMs) * time.Millisecond).String(),
+		out.Duration,
+	)
 }
 
 func TestWaitJob_BoundExpiresJobStillRunning(t *testing.T) {
@@ -235,8 +240,8 @@ func TestWaitJob_BoundExpiresJobStillRunning(t *testing.T) {
 	require.NoError(t, err)
 
 	out, err := executor.WaitJob(context.Background(), WaitJobInput{
-		JobID:          started.JobID,
-		TimeoutSeconds: 1,
+		JobID:   started.JobID,
+		Timeout: "1s",
 	})
 	require.NoError(t, err)
 
@@ -248,7 +253,7 @@ func TestWaitJob_BoundExpiresJobStillRunning(t *testing.T) {
 	require.True(t, ok)
 }
 
-func TestWaitJob_RejectsNegativeTimeout(t *testing.T) {
+func TestWaitJob_RejectsInvalidTimeout(t *testing.T) {
 	t.Parallel()
 
 	executor := newTestJobExecutor(t)
@@ -259,11 +264,45 @@ func TestWaitJob_RejectsNegativeTimeout(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	_, err = executor.WaitJob(context.Background(), WaitJobInput{
-		JobID:          started.JobID,
-		TimeoutSeconds: -1,
-	})
-	require.ErrorIs(t, err, commerr.ErrValidationFailed)
+	for _, timeout := range []string{"-1s", "0s", "10", "soon"} {
+		t.Run(timeout, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := executor.WaitJob(context.Background(), WaitJobInput{
+				JobID:   started.JobID,
+				Timeout: timeout,
+			})
+			require.ErrorIs(t, err, commerr.ErrValidationFailed)
+		})
+	}
+}
+
+func TestResolveWaitJobTimeout(t *testing.T) {
+	t.Parallel()
+
+	executor := newTestJobExecutor(t)
+	limits := executor.Limits()
+
+	testCases := []struct {
+		name    string
+		timeout string
+		want    time.Duration
+	}{
+		{name: "empty uses the default", timeout: "", want: limits.WaitJobTimeout},
+		{name: "minutes and seconds", timeout: "1m30s", want: 90 * time.Second},
+		{name: "above the maximum is clamped", timeout: "999h", want: limits.MaxWaitJobTimeout},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := executor.resolveWaitJobTimeout(tc.timeout)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
 }
 
 func TestSignalJob_UnknownJobIdempotent(t *testing.T) {

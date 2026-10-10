@@ -13,7 +13,7 @@ the full reference; the example file is the commented starting point.
 
 `LOG_LEVEL`, `LOG_FORMAT`, and `LOG_ADD_SOURCE` control application logging.
 Peen adds a JSON audit sink configured by `PEEN_LOG_DIRECTORY` and
-`PEEN_LOG_RETENTION_DAYS`.
+`PEEN_LOG_RETENTION`.
 
 | Variable | Default | Values |
 | --- | --- | --- |
@@ -41,7 +41,9 @@ worker profiles. Bare-process users change directory before launching Peen.
 | `PEEN_WORKER_IMAGE` | empty | Overrides the image for every Docker profile. Empty uses each profile's own `image`, and a profile without one runs the image published alongside this build. Set it to run a worker from a local build. |
 | `PEEN_HOST_USERNAME` | empty | Host account name for a Docker controller started with numeric `--user` IDs. Set together with `PEEN_HOST_HOME`. |
 | `PEEN_HOST_HOME` | empty | Absolute host home for a Docker controller started with numeric `--user` IDs. Set together with `PEEN_HOST_USERNAME`. |
-| `PEEN_AGENT` | `default` | Root agent name. `default` is embedded and may be replaced by `.agents/agents/default.md`. |
+| `PEEN_AGENT` | `core:general-purpose` | Root agent. A plain name picks a custom agent first and a core agent second, and `core:<name>` picks only the core one. Startup fails when a `core:` name is unknown or disabled, and when the value is the old `default` with no `default.md` agent under `PEEN_CONFIG_DIR`. Any other plain name is resolved at each turn. See [Agents](agents.md). |
+| `PEEN_DISABLED_CORE_SKILLS` | empty | Comma-separated core skills to remove, without the `core:` prefix, or `all`. The core skills are `freshness` and `planning`. An unknown name stops startup. See [core and custom skills and agents](harness.md#core-and-custom-skills-and-agents). |
+| `PEEN_DISABLED_CORE_AGENTS` | empty | Comma-separated core agents to remove, without the `core:` prefix, or `all`. The only core agent is `general-purpose`. An unknown name stops startup, and so does a `PEEN_AGENT` that names a disabled core agent. |
 | `PEEN_UPSTREAMS` | required, JSON | Named provider list. See [providers](#providers). |
 | `PEEN_DEFAULT_MODEL` | required | Qualified `provider/model` for the root agent and, unless overridden, compaction. |
 | `PEEN_COMPACTION_MODEL` | `PEEN_DEFAULT_MODEL` | Qualified `provider/model` used only for the summarization call. See [compaction](#compaction). |
@@ -246,7 +248,7 @@ audit sink retains debug-and-above records in the active UTC-day file,
 `PEEN_LOG_DIRECTORY/YYYYMMDD-000000.log`. When `PEEN_LOG_DIRECTORY` is empty,
 the directory defaults to `PEEN_STATE_DIR/logs`; set a path to override it. Keep
 it out of `PEEN_CONFIG_DIR`, which every worker can read.
-`PEEN_LOG_RETENTION_DAYS=14` keeps at most 14 daily files. The directory and
+`PEEN_LOG_RETENTION` is a Go duration (default `336h`) and keeps that many days of daily files, so `336h` keeps at most 14 files. Go durations have no day unit, so write days as hours: `168h` is 7 days, `720h` is 30 days. The value must be a positive whole number of days, a multiple of `24h`, because files are per UTC day. Startup fails on anything else, and it also fails while the removed `PEEN_LOG_RETENTION_DAYS` is set. The directory and
 files are created as `0700` and `0600` respectively.
 
 [ctxscope](https://github.com/psyb0t/ctxscope) carries request, session, turn,
@@ -330,7 +332,7 @@ the host.
 | `PEEN_COMPACTION_TIMEOUT` | `2m` | Bound on the separate summarization call. |
 | `PEEN_TURN_TIMEOUT` | `10m` | Bound on one turn. |
 | `PEEN_MAX_CONCURRENT_TURNS` | `16` | Global cap on turns running at once, across every session in the process. |
-| `PEEN_MAX_QUEUED_USER_MESSAGES` | `16` | Messages sent while a turn is running wait until the model's current round ends, at most this many per turn. Each one is reported with `user_message.queued` and then `user_message.delivered`. See [queued messages](http-api.md#send-and-watch-turns-over-websocket). |
+| `PEEN_MAX_QUEUED_USER_MESSAGES` | `16` | Messages sent while a turn is running wait until the model's current round ends, at most this many per turn. A skill message that follows a queued message takes a slot too. Each one is reported with `user_message.queued` and then `user_message.delivered`. See [queued messages](http-api.md#send-and-watch-turns-over-websocket). |
 
 ### Compaction
 
@@ -419,11 +421,11 @@ changed.
 
 `run_command` never kills a process merely because a wait bound elapsed. A
 command that exits within `PEEN_TOOL_COMMAND_TIMEOUT` (or a caller-requested
-bound up to `PEEN_TOOL_MAX_COMMAND_TIMEOUT`) returns its exit status and
+`timeout` up to `PEEN_TOOL_MAX_COMMAND_TIMEOUT`) returns its exit status and
 output normally. A command still running when the bound expires is left
 running, and the tool returns a job handle plus the output captured so far.
 An explicit `background` argument skips the wait and returns the handle
-immediately.
+immediately. `run_command` and `wait_job` take `timeout` as a Go duration string such as `"90s"`, `"5m"`, or `"1h30m"`. Leaving it out uses the default, and `0s`, negative values, and bare numbers are rejected.
 
 Jobs are session-scoped, not turn-scoped: a command started in one turn stays
 listable, readable, and signalable from a later turn, and cancelling the turn

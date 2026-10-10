@@ -209,17 +209,18 @@ type RemovePathOutput struct {
 
 // RunCommandInput executes one shell command immediately, no approval step.
 // Purpose is required: one short line saying why the agent is running this,
-// stored with the resulting job. TimeoutSeconds bounds how long this call
-// WAITS for the command, never how long the command may run; a command still
-// running when the bound elapses is left running and reported as a job
+// stored with the resulting job. Timeout is a Go duration string such as "90s"
+// or "1h30m" that bounds how long this call WAITS for the command, never how
+// long the command may run; empty takes the configured default. A command
+// still running when the bound elapses is left running and reported as a job
 // handle. Background skips the wait entirely and returns the handle at once.
 type RunCommandInput struct {
-	Command        string            `json:"command"`
-	Directory      string            `json:"directory"`
-	Environment    map[string]string `json:"environment"`
-	Purpose        string            `json:"purpose"`
-	TimeoutSeconds int               `json:"timeoutSeconds"`
-	Background     bool              `json:"background"`
+	Command     string            `json:"command"`
+	Directory   string            `json:"directory"`
+	Environment map[string]string `json:"environment"`
+	Purpose     string            `json:"purpose"`
+	Timeout     string            `json:"timeout"`
+	Background  bool              `json:"background"`
 }
 
 // RunCommandOutput reports the job this call started and whatever its wait
@@ -346,17 +347,20 @@ type ReadJobOutputOutput struct {
 }
 
 // WaitJobInput blocks for one job to leave the running state, up to a bound.
-// StdoutCursor and StderrCursor windowed exactly as in ReadJobOutputInput.
+// Timeout is a Go duration string such as "30s"; empty takes the configured
+// default. StdoutCursor and StderrCursor windowed exactly as in
+// ReadJobOutputInput.
 type WaitJobInput struct {
-	JobID          uuid.UUID `json:"jobId"`
-	TimeoutSeconds int       `json:"timeoutSeconds"`
-	StdoutCursor   int       `json:"stdoutCursor"`
-	StderrCursor   int       `json:"stderrCursor"`
+	JobID        uuid.UUID `json:"jobId"`
+	Timeout      string    `json:"timeout"`
+	StdoutCursor int       `json:"stdoutCursor"`
+	StderrCursor int       `json:"stderrCursor"`
 }
 
 // WaitJobOutput reports the job's status once wait_job returns, plus
 // whatever output arrived during the wait. Found is false when JobID is not
 // a job in this session; Running is true when the bound elapsed first.
+// Duration is DurationMs rendered as a Go duration string.
 type WaitJobOutput struct {
 	JobID              uuid.UUID `json:"jobId"`
 	Found              bool      `json:"found"`
@@ -364,6 +368,7 @@ type WaitJobOutput struct {
 	State              JobState  `json:"state"`
 	ExitCode           int       `json:"exitCode"`
 	DurationMs         int64     `json:"durationMs"`
+	Duration           string    `json:"duration"`
 	Stdout             string    `json:"stdout"`
 	Stderr             string    `json:"stderr"`
 	NextStdoutCursor   int       `json:"nextStdoutCursor"`

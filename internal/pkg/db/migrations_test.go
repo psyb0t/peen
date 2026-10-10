@@ -15,7 +15,7 @@ import (
 
 // sqliteMigrationCount is every migration in the sequence. Migrating down by
 // this many steps returns an opened database to an empty schema.
-const sqliteMigrationCount = 15
+const sqliteMigrationCount = 16
 
 // These tests do not call t.Parallel. Opening the store installs the generated
 // repositories as a package default, which is process-global state.
@@ -54,6 +54,7 @@ func TestSQLiteSchemaUsesOnlyWorkerTerminology(t *testing.T) {
 		{table: "agent_runs", column: "worker_generation_id"},
 		{table: "sessions", column: "execution_profile"},
 		{table: "messages", column: "injected"},
+		{table: "messages", column: "injected_kind"},
 	}
 
 	for _, tc := range testCases {

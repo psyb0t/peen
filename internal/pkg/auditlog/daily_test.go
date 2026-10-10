@@ -15,7 +15,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const auditLogTestRetentionDays = 14
+const (
+	auditLogTestRetentionDays = 14
+	auditLogTestRetention     = auditLogTestRetentionDays * 24 * time.Hour
+)
 
 func TestNewDailyHandlerRequiresDirectoryOrStateDirectory(t *testing.T) {
 	_, err := NewDailyHandler(Config{})
@@ -60,8 +63,8 @@ func TestDailyHandlerDoesNotLogOnSuccessfulWrite(t *testing.T) {
 func TestDailyHandlerRotatesAndRetainsConfiguredDays(t *testing.T) {
 	directory := t.TempDir()
 	handler, err := NewDailyHandler(Config{
-		Directory:     directory,
-		RetentionDays: auditLogTestRetentionDays,
+		Directory: directory,
+		Retention: auditLogTestRetention,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, handler.Close()) })
@@ -93,8 +96,56 @@ func TestDailyHandlerRotatesAndRetainsConfiguredDays(t *testing.T) {
 	assert.Equal(t, "turn.started", line["audit_event"])
 }
 
-func TestNewDailyHandlerRejectsNegativeRetention(t *testing.T) {
-	_, err := NewDailyHandler(Config{Directory: t.TempDir(), RetentionDays: -1})
+func TestNewDailyHandlerRejectsInvalidRetention(t *testing.T) {
+	testCases := []struct {
+		name      string
+		retention time.Duration
+	}{
+		{name: "negative", retention: -time.Hour},
+		{name: "not a whole number of days", retention: 36 * time.Hour},
+		{name: "shorter than a day", retention: time.Hour},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewDailyHandler(Config{
+				Directory: t.TempDir(),
+				Retention: tc.retention,
+			})
+
+			require.ErrorIs(t, err, commerr.ErrValidationFailed)
+		})
+	}
+}
+
+func TestDailyHandlerRetentionKeepsRetentionDividedByDayFiles(t *testing.T) {
+	directory := t.TempDir()
+	handler, err := NewDailyHandler(Config{
+		Directory: directory,
+		Retention: 48 * time.Hour,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, handler.Close()) })
+
+	firstDay := time.Now().UTC()
+	for dayOffset := range 4 {
+		when := firstDay.AddDate(0, 0, dayOffset)
+		record := slog.NewRecord(when, slog.LevelInfo, "audit event", 0)
+		require.NoError(t, handler.Handle(context.Background(), record))
+	}
+
+	entries, err := os.ReadDir(directory)
+	require.NoError(t, err)
+	assert.Len(t, entries, 2)
+}
+
+func TestNewDailyHandlerRejectsRemovedRetentionDaysVariable(t *testing.T) {
+	_, err := NewDailyHandler(Config{
+		Directory:            t.TempDir(),
+		RemovedRetentionDays: "14",
+	})
 
 	require.ErrorIs(t, err, commerr.ErrValidationFailed)
+	assert.Contains(t, err.Error(), "PEEN_LOG_RETENTION")
+	assert.Contains(t, err.Error(), "336h")
 }

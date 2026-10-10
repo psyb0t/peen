@@ -3,6 +3,7 @@ package harness
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,7 +29,7 @@ pre_tool_use:
         args: ["--strict"]
         environment:
           CHECK_MODE: strict
-        timeout_seconds: 30
+        timeout: 30s
       - type: emit_event
         event_type: hook.write.checked
         summary: Go write checked
@@ -94,6 +95,11 @@ pre_tool_use:
 	assert.Equal(t, "scripts/check-go", firstWrite.Actions[1].Command)
 	assert.Equal(t, []string{"--strict"}, firstWrite.Actions[1].Args)
 	assert.Equal(t, "strict", firstWrite.Actions[1].Environment["CHECK_MODE"])
+	assert.Equal(t, "30s", firstWrite.Actions[1].Timeout)
+
+	timeout, err := firstWrite.Actions[1].CommandTimeout()
+	require.NoError(t, err)
+	assert.Equal(t, 30*time.Second, timeout)
 	assert.Equal(t, "hook.write.checked", firstWrite.Actions[2].EventType)
 	assert.Equal(t, "go", firstWrite.Actions[2].Data["language"])
 	assert.Equal(t, "post_read_file-1", hooks[0].Name)
@@ -158,13 +164,53 @@ pre_tool_use:
 `,
 		},
 		{
-			name: "invalid command timeout",
+			name: "negative command timeout",
 			document: `version: 1
 pre_tool_use:
   - actions:
       - type: command
         command: check
-        timeout_seconds: -1
+        timeout: -1s
+`,
+		},
+		{
+			name: "zero command timeout",
+			document: `version: 1
+pre_tool_use:
+  - actions:
+      - type: command
+        command: check
+        timeout: 0s
+`,
+		},
+		{
+			name: "unparsable command timeout",
+			document: `version: 1
+pre_tool_use:
+  - actions:
+      - type: command
+        command: check
+        timeout: soon
+`,
+		},
+		{
+			name: "command timeout without a unit",
+			document: `version: 1
+pre_tool_use:
+  - actions:
+      - type: command
+        command: check
+        timeout: 30
+`,
+		},
+		{
+			name: "retired timeout_seconds field",
+			document: `version: 1
+pre_tool_use:
+  - actions:
+      - type: command
+        command: check
+        timeout_seconds: 30
 `,
 		},
 		{
@@ -214,6 +260,29 @@ pre_tool_use:
 			assert.Equal(t, SourceKindHook, snapshot.Warnings()[0].Kind)
 		})
 	}
+}
+
+func TestRetiredHookTimeoutSecondsWarningNamesTimeout(t *testing.T) {
+	t.Parallel()
+
+	fixture := newResolverFixture(t)
+	fixture.writeHook(t, fixture.configRoot, `version: 1
+pre_tool_use:
+  - actions:
+      - type: command
+        command: check
+        timeout_seconds: 30
+`)
+
+	resolver, err := NewResolver(fixture.configRoot, Limits{})
+	require.NoError(t, err)
+
+	snapshot, resolveErr := resolver.Resolve(fixture.workspace)
+	require.NoError(t, resolveErr)
+	require.Len(t, snapshot.Warnings(), 1)
+	assert.Empty(t, snapshot.Hooks())
+	assert.Contains(t, snapshot.Warnings()[0].Reason, "timeout_seconds")
+	assert.Contains(t, snapshot.Warnings()[0].Reason, "use timeout")
 }
 
 func TestHookChangeChangesSnapshotHashAndSnapshotRemainsImmutable(t *testing.T) {

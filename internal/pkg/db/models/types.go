@@ -5,6 +5,10 @@ type (
 	TurnState string
 	// MessageRole identifies a transcript message source.
 	MessageRole string
+	// InjectedKind says what an injected message is, so a client can show it
+	// as more than an unlabelled update. It is empty for a message that is
+	// injected without a more specific kind.
+	InjectedKind string
 	// AgentRunState is the durable lifecycle state of one child-agent run.
 	AgentRunState string
 	// AgentRunDefinition records whether a child is stored or inline.
@@ -37,6 +41,9 @@ const (
 	MessageRoleUser      MessageRole = "user"
 	MessageRoleAssistant MessageRole = "assistant"
 	MessageRoleTool      MessageRole = "tool"
+
+	InjectedKindNone  InjectedKind = ""
+	InjectedKindSkill InjectedKind = "skill"
 
 	AgentRunStateRunning     AgentRunState = "running"
 	AgentRunStateCompleted   AgentRunState = "completed"

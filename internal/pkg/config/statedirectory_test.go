@@ -27,7 +27,7 @@ func stateTestConfig() config.Config {
 		ConfigDirectory:        stateTestConfigDirectory,
 		StateDirectory:         stateTestStateDirectory,
 		WorkingDirectory:       stateTestWorkspace,
-		Agent:                  "default",
+		Agent:                  "core:general-purpose",
 		UpstreamsJSON:          stateTestUpstreamsJSON,
 		DefaultModel:           stateTestModelReference,
 		MaxContextTokens:       stateTestContextTokens,

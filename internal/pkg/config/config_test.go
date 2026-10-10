@@ -80,6 +80,49 @@ func TestConfigValidate(t *testing.T) {
 			wantErr: ErrInvalidConfig,
 		},
 		{
+			name: "disabled core skills and agents",
+			mutate: func(config *Config) {
+				config.DisabledCoreSkills = " planning , freshness "
+				config.DisabledCoreAgents = "all"
+				config.Agent = "reviewer"
+			},
+		},
+		{
+			name: "unknown disabled core skill",
+			mutate: func(config *Config) {
+				config.DisabledCoreSkills = "planning,bogus"
+			},
+			wantErr: ErrInvalidConfig,
+		},
+		{
+			name: "unknown disabled core agent",
+			mutate: func(config *Config) {
+				config.DisabledCoreAgents = "default"
+			},
+			wantErr: ErrInvalidConfig,
+		},
+		{
+			name: "root agent names an unknown core agent",
+			mutate: func(config *Config) {
+				config.Agent = "core:bogus"
+			},
+			wantErr: ErrInvalidConfig,
+		},
+		{
+			name: "root agent names a disabled core agent",
+			mutate: func(config *Config) {
+				config.DisabledCoreAgents = "general-purpose"
+			},
+			wantErr: ErrInvalidConfig,
+		},
+		{
+			name: "root agent names a core agent disabled by all",
+			mutate: func(config *Config) {
+				config.DisabledCoreAgents = "all"
+			},
+			wantErr: ErrInvalidConfig,
+		},
+		{
 			name:    "unknown compaction mode",
 			mutate:  func(config *Config) { config.CompactionMode = "unknown" },
 			wantErr: ErrInvalidConfig,
@@ -203,6 +246,78 @@ func TestParseUsesFixedEnvironmentBindings(t *testing.T) {
 	assert.Empty(t, upstreams[0].APIKey())
 }
 
+func TestParseDefaultsRootAgentToTheCoreAgent(t *testing.T) {
+	t.Setenv("PEEN_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+	t.Setenv("PEEN_STATE_DIR", filepath.Join(t.TempDir(), "state"))
+	t.Setenv("PEEN_UPSTREAMS", `[{"name":"aigate","type":"openai"}]`)
+	t.Setenv("PEEN_DEFAULT_MODEL", testQualifiedModel)
+
+	config, err := Parse()
+
+	require.NoError(t, err)
+	assert.Equal(t, "core:general-purpose", config.Agent)
+	assert.Empty(t, config.DisabledCoreSkills)
+	assert.Empty(t, config.DisabledCoreAgents)
+}
+
+func TestParseReadsDisabledCoreSettings(t *testing.T) {
+	t.Setenv("PEEN_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+	t.Setenv("PEEN_STATE_DIR", filepath.Join(t.TempDir(), "state"))
+	t.Setenv("PEEN_UPSTREAMS", `[{"name":"aigate","type":"openai"}]`)
+	t.Setenv("PEEN_DEFAULT_MODEL", testQualifiedModel)
+	t.Setenv("PEEN_AGENT", "reviewer")
+	t.Setenv("PEEN_DISABLED_CORE_SKILLS", " planning , freshness ")
+	t.Setenv("PEEN_DISABLED_CORE_AGENTS", "all")
+
+	config, err := Parse()
+	require.NoError(t, err)
+
+	skills, err := config.DisabledCoreSkillNames()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"freshness", "planning"}, skills)
+
+	agents, err := config.DisabledCoreAgentNames()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"general-purpose"}, agents)
+}
+
+func TestParseRejectsUnknownDisabledCoreNamesNamingTheEntry(t *testing.T) {
+	t.Setenv("PEEN_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+	t.Setenv("PEEN_STATE_DIR", filepath.Join(t.TempDir(), "state"))
+	t.Setenv("PEEN_UPSTREAMS", `[{"name":"aigate","type":"openai"}]`)
+	t.Setenv("PEEN_DEFAULT_MODEL", testQualifiedModel)
+	t.Setenv("PEEN_DISABLED_CORE_SKILLS", "planning,bogus")
+
+	_, err := Parse()
+	require.ErrorIs(t, err, ErrInvalidConfig)
+	assert.Contains(t, err.Error(), "PEEN_DISABLED_CORE_SKILLS")
+	assert.Contains(t, err.Error(), "bogus")
+	assert.Contains(t, err.Error(), "freshness, planning")
+
+	t.Setenv("PEEN_DISABLED_CORE_SKILLS", "")
+	t.Setenv("PEEN_DISABLED_CORE_AGENTS", "default")
+
+	_, err = Parse()
+	require.ErrorIs(t, err, ErrInvalidConfig)
+	assert.Contains(t, err.Error(), "PEEN_DISABLED_CORE_AGENTS")
+	assert.Contains(t, err.Error(), "default")
+	assert.Contains(t, err.Error(), "general-purpose")
+}
+
+func TestParseRefusesRootAgentDisabledAsCore(t *testing.T) {
+	t.Setenv("PEEN_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+	t.Setenv("PEEN_STATE_DIR", filepath.Join(t.TempDir(), "state"))
+	t.Setenv("PEEN_UPSTREAMS", `[{"name":"aigate","type":"openai"}]`)
+	t.Setenv("PEEN_DEFAULT_MODEL", testQualifiedModel)
+	t.Setenv("PEEN_DISABLED_CORE_AGENTS", "all")
+
+	_, err := Parse()
+
+	require.ErrorIs(t, err, ErrInvalidConfig)
+	assert.Contains(t, err.Error(), "core:general-purpose")
+	assert.Contains(t, err.Error(), "PEEN_DISABLED_CORE_AGENTS")
+}
+
 func TestParseDefaultsWorkingDirectoryToProcessDirectory(t *testing.T) {
 	workingDirectory := t.TempDir()
 	t.Chdir(workingDirectory)
@@ -225,7 +340,7 @@ func testConfig(t *testing.T) Config {
 		ConfigDirectory:        filepath.Join(t.TempDir(), "config"),
 		StateDirectory:         filepath.Join(t.TempDir(), "state"),
 		WorkingDirectory:       filepath.Join(t.TempDir(), "workspace"),
-		Agent:                  "default",
+		Agent:                  "core:general-purpose",
 		UpstreamsJSON:          `[{"name":"aigate","type":"openai"}]`,
 		DefaultModel:           testQualifiedModel,
 		MaxContextTokens:       8192,

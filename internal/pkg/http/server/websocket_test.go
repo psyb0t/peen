@@ -411,6 +411,21 @@ func TestWebSocketMessageFailureFor(t *testing.T) {
 			want: harnessConfigurationFailure(webSocketInvalidSkillReason),
 		},
 		{
+			name: "unknown skill reference",
+			err: ctxerrors.Wrap(
+				errors.Join(
+					commerr.ErrValidationFailed,
+					harness.NewUnknownSkillError("x", []string{"a", "core:planning"}),
+				),
+				"resolve skill",
+			),
+			want: newWebSocketMessageFailure(
+				aichteeteapee.ErrorCodeValidationFailed,
+				`unknown skill "x" in :x; available skills: a, core:planning`,
+				"",
+			),
+		},
+		{
 			name: "unknown failure",
 			err:  ctxerrors.New("unexpected"),
 			want: newWebSocketMessageFailure(

@@ -212,6 +212,7 @@ func workerEnvironmentReserved(key string) bool {
 		"PEEN_HOST_USERNAME",
 		"PEEN_HOST_HOME",
 		"PEEN_LOG_DIRECTORY",
+		"PEEN_LOG_RETENTION",
 		"PEEN_LOG_RETENTION_DAYS",
 		"DOCKER_HOST",
 		"HOME",

@@ -277,6 +277,62 @@ describe("live stream reducer", () => {
 		expect(before).toEqual(snapshot);
 	});
 
+	describe("skill messages", () => {
+		const skillContent = "<skill>\n<name>planning</name>\n\nSteps.\n</skill>";
+
+		it("adds a skill block to the turn the skill message belongs to", () => {
+			const turns = fold([
+				event("user_message.created", { message: "plan :planning" }),
+				event("skill.injected", { content: skillContent, name: "planning" }),
+				blockStart(0, { type: "text" }),
+			]);
+
+			expect(turns).toHaveLength(1);
+			expect(turns[0]?.blocks).toMatchObject([
+				{ kind: "skill", name: "planning", text: skillContent },
+				{ kind: "text" },
+			]);
+		});
+
+		it("gives each skill block of a turn its own key", () => {
+			const turns = fold([
+				event("skill.injected", { content: "a", name: "alpha" }),
+				event("skill.injected", { content: "b", name: "bravo" }),
+			]);
+
+			const keys = turns[0]?.blocks.map((block) => block.key) ?? [];
+			expect(new Set(keys).size).toBe(2);
+		});
+
+		it("puts the skill of a delivered queued message after its user block", () => {
+			const turns = fold([
+				event("user_message.created", { message: "go" }, firstRequestID),
+				event("turn.started", {}, firstRequestID),
+				blockStart(0, { type: "text" }, firstRequestID),
+				event("user_message.created", { message: "then :planning" }, secondRequestID),
+				event("user_message.queued", { message: "then :planning" }, secondRequestID),
+				event("user_message.delivered", { message: "then :planning" }, secondRequestID),
+				event(
+					"skill.injected",
+					{ content: skillContent, name: "planning" },
+					firstRequestID,
+				),
+			]);
+
+			const running = turns.find((turn) => turn.requestID === firstRequestID);
+			expect(running?.blocks).toMatchObject([
+				{ kind: "text" },
+				{ kind: "user", text: "then :planning" },
+				{ kind: "skill", name: "planning", text: skillContent },
+			]);
+		});
+
+		it("ignores a skill event without a name or content", () => {
+			expect(fold([event("skill.injected", {})])).toEqual([]);
+			expect(fold([event("skill.injected", { name: "planning" })])).toEqual([]);
+		});
+	});
+
 	describe("queued messages", () => {
 		const runningTurn = [
 			event("user_message.created", { message: "inspect" }),

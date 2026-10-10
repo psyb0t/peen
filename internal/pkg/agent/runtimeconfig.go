@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/peen/internal/pkg/config"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/harness"
@@ -107,6 +108,28 @@ func adHocInstructionBytes(deployment config.Config) int {
 // resolver and anything derived from them cannot disagree.
 func HarnessLimits() harness.Limits {
 	return harness.DefaultLimits()
+}
+
+// HarnessOptions maps the deployment's disabled core skills and agents onto
+// the harness resolver. The controller and every worker build their resolver
+// from it, so both see the same skills and agents.
+func HarnessOptions(
+	deployment config.Config,
+) ([]harness.ResolverOption, error) {
+	skills, err := deployment.DisabledCoreSkillNames()
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "read disabled core skills")
+	}
+
+	agents, err := deployment.DisabledCoreAgentNames()
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "read disabled core agents")
+	}
+
+	return []harness.ResolverOption{
+		harness.WithDisabledCoreSkills(skills),
+		harness.WithDisabledCoreAgents(agents),
+	}, nil
 }
 
 // ConfiguredToolLimits maps the deployment's tool bounds onto the tool package.

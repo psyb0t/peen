@@ -126,6 +126,12 @@ type preparedChildLaunch struct {
 	systemPrompt     string
 	allowedToolsJSON string
 	registry         *AgentRunRegistry
+
+	// skills are the messages that follow the task, and skillLedger records
+	// every skill the child's conversation holds. The child's conversation
+	// starts with none, whatever the parent has loaded.
+	skills      []skillMessage
+	skillLedger *skillLedger
 }
 
 // launchAgentDeps is everything one turn's launch_agent tool needs to run a
@@ -138,7 +144,6 @@ type launchAgentDeps struct {
 	runtime            *Runtime
 	executor           *tools.JobExecutor
 	snapshot           harness.Snapshot
-	explicitSkills     []string
 	model              ModelClient
 	modelReference     string
 	workerGenerationID string
@@ -223,7 +228,6 @@ func (r *Runtime) prepareChildLaunch(
 		deps.snapshot,
 		definition.instructions,
 		deps.executor.Workspace(),
-		deps.explicitSkills,
 	)
 	if err != nil {
 		return preparedChildLaunch{}, ctxerrors.Wrap(
@@ -242,13 +246,39 @@ func (r *Runtime) prepareChildLaunch(
 		return preparedChildLaunch{}, err
 	}
 
+	skills, ledger, err := childTaskSkills(ctx, deps.snapshot, input.Task)
+	if err != nil {
+		return preparedChildLaunch{}, err
+	}
+
 	return preparedChildLaunch{
 		definition:       definition,
 		depth:            depth,
 		systemPrompt:     systemPrompt,
 		allowedToolsJSON: allowedToolsJSON,
 		registry:         registry,
+		skills:           skills,
+		skillLedger:      ledger,
 	}, nil
+}
+
+// childTaskSkills resolves the :name references in a child's task. The child's
+// conversation starts with an empty ledger, whatever the parent has loaded.
+func childTaskSkills(
+	ctx context.Context,
+	snapshot harness.Snapshot,
+	task string,
+) ([]skillMessage, *skillLedger, error) {
+	ledger := newSkillLedger()
+
+	skills, err := buildSkillMessages(ctx, snapshot, ledger, task)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	ledger.recordMessages(skills)
+
+	return skills, ledger, nil
 }
 
 func (r *Runtime) executeChildLaunch(
@@ -280,7 +310,7 @@ func (r *Runtime) executeChildLaunch(
 
 	// The task is the child's first durable message, so its transcript is
 	// complete from the request onward rather than from the first answer.
-	if err := sink.seedTask(runCtx, input.Task); err != nil {
+	if err := sink.seedTask(runCtx, input.Task, prepared.skills); err != nil {
 		return r.finishAgentRun(ctx, prepared.registry, sink, run, nil, err)
 	}
 
@@ -304,11 +334,9 @@ func (r *Runtime) executeChildLaunch(
 	response, runErr := r.runChildAgent(
 		runCtx,
 		deps,
-		prepared.definition,
+		prepared,
 		input.Task,
 		run,
-		prepared.depth,
-		prepared.systemPrompt,
 		sink,
 	)
 
@@ -524,14 +552,8 @@ func (r *Runtime) childSystemPrompt(
 	snapshot harness.Snapshot,
 	childInstructions string,
 	workspace string,
-	explicitSkillSets ...[]string,
 ) (string, error) {
-	var explicitSkills []string
-	if len(explicitSkillSets) > 0 {
-		explicitSkills = explicitSkillSets[0]
-	}
-
-	blocks, err := snapshot.PromptBlocks("", explicitSkills...)
+	blocks, err := snapshot.PromptBlocks("")
 	if err != nil {
 		return "", ctxerrors.Wrap(err, "resolve child prompt blocks")
 	}
@@ -613,6 +635,21 @@ func (r *Runtime) bindChildHooks(
 	return childCompactor, nil
 }
 
+// childPrompt is the child's first request: its system prompt, the task, and
+// the skill messages that follow the task.
+func childPrompt(
+	systemPrompt string,
+	task string,
+	skills []skillMessage,
+) elelem.Prompt {
+	prompt := elelem.NewPrompt().WithSystem(systemPrompt).UserText(task)
+	for _, skill := range skills {
+		prompt = prompt.UserText(skill.text)
+	}
+
+	return prompt
+}
+
 // runChildAgent builds and runs one independent child conversation. Its event
 // sink persists every observable callback before publishing the live tail.
 //
@@ -620,17 +657,19 @@ func (r *Runtime) bindChildHooks(
 func (r *Runtime) runChildAgent(
 	runCtx context.Context,
 	deps *launchAgentDeps,
-	definition childDefinition,
+	launch preparedChildLaunch,
 	task string,
 	run *AgentRun,
-	depth int,
-	systemPrompt string,
 	sink *agentRunSink,
 ) (*elelem.Response, error) {
+	depth := launch.depth
+	systemPrompt := launch.systemPrompt
+
 	childToolSet, err := r.agentToolSet(
 		deps,
+		launch.skillLedger,
 		nil,
-		definition.allowedTools,
+		launch.definition.allowedTools,
 		depth,
 	)
 	if err != nil {
@@ -690,7 +729,7 @@ func (r *Runtime) runChildAgent(
 
 	request := elelem.NewRequest(deps.model.Client).
 		WithModel(deps.model.Model).
-		WithPrompt(elelem.NewPrompt().WithSystem(systemPrompt).UserText(task)).
+		WithPrompt(childPrompt(systemPrompt, task, launch.skills)).
 		WithTools(childToolSet).
 		WithAutoToolCalls().
 		WithMaxRounds(r.agentLimits.MaxChildTurns).
@@ -765,6 +804,7 @@ func (r *Runtime) runChildAgent(
 
 func (r *Runtime) agentToolSet(
 	deps *launchAgentDeps,
+	skills *skillLedger,
 	onPostRun elelem.MessageInjector,
 	allowedTools []string,
 	depth int,
@@ -773,6 +813,7 @@ func (r *Runtime) agentToolSet(
 		deps.executor,
 		onPostRun,
 		deps.snapshot,
+		skills,
 		r.metrics,
 	)
 	if depth < r.agentLimits.MaxDepth {
@@ -1052,12 +1093,27 @@ func newAgentRunSink(
 
 // seedTask records the child's task as the first durable user message, so the
 // child transcript begins with the request the way a session transcript begins
-// with the user's.
-func (s *agentRunSink) seedTask(ctx context.Context, task string) error {
-	return s.persistMessages(ctx, session.AgentRunMessageInput{
+// with the user's. The skill messages that follow the task come right after
+// it, in the order the child sees them.
+func (s *agentRunSink) seedTask(
+	ctx context.Context,
+	task string,
+	skills []skillMessage,
+) error {
+	inputs := make([]session.AgentRunMessageInput, 0, len(skills)+1)
+	inputs = append(inputs, session.AgentRunMessageInput{
 		Role:    models.MessageRoleUser,
 		Content: task,
 	})
+
+	for _, skill := range skills {
+		inputs = append(inputs, session.AgentRunMessageInput{
+			Role:    models.MessageRoleUser,
+			Content: skill.text,
+		})
+	}
+
+	return s.persistMessages(ctx, inputs...)
 }
 
 func (s *agentRunSink) emit(

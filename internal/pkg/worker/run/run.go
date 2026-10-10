@@ -231,9 +231,15 @@ func buildRuntime(
 		return nil, ctxerrors.Wrap(err, "discover the worker provider models")
 	}
 
+	harnessOptions, err := agent.HarnessOptions(deployment)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "load the worker harness options")
+	}
+
 	resolver, err := harness.NewResolver(
 		deployment.ConfigDirectory,
 		agent.HarnessLimits(),
+		harnessOptions...,
 	)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create the worker harness resolver")

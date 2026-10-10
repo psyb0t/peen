@@ -622,10 +622,13 @@ func (r *AgentRunRegistry) publish(
 
 	eventType, summary := agentCompletionEvent(run, state)
 
+	durationMs := endedAt.Sub(run.StartedAt).Milliseconds()
+
 	data, err := json.Marshal(agentEventData{
 		RunID:      run.ID,
 		AgentName:  run.Name,
-		DurationMs: endedAt.Sub(run.StartedAt).Milliseconds(),
+		DurationMs: durationMs,
+		Duration:   (time.Duration(durationMs) * time.Millisecond).String(),
 	})
 	if err != nil {
 		ctxscope.GetLogger(ctx).Warn(
@@ -655,10 +658,12 @@ func (r *AgentRunRegistry) publish(
 }
 
 // agentEventData is the structured payload carried by every agent.* notice.
+// Duration is DurationMs rendered as a Go duration string.
 type agentEventData struct {
 	RunID      uuid.UUID `json:"runId"`
 	AgentName  string    `json:"agentName"`
 	DurationMs int64     `json:"durationMs"`
+	Duration   string    `json:"duration"`
 }
 
 // agentCompletionEvent maps a terminal run state onto its event type and a

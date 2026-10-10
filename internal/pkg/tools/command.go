@@ -50,7 +50,7 @@ func (e *JobExecutor) RunCommand(
 		return RunCommandOutput{}, err
 	}
 
-	waitBound, err := e.resolveCommandTimeout(input.TimeoutSeconds)
+	waitBound, err := e.resolveCommandTimeout(input.Timeout)
 	if err != nil {
 		return RunCommandOutput{}, err
 	}
@@ -143,27 +143,48 @@ func (e *JobExecutor) resolveCommandDirectory(
 	return resolved, nil
 }
 
-// resolveCommandTimeout maps the requested seconds onto a bounded wait
-// duration. Zero takes the configured default; anything above the
+// resolveCommandTimeout maps the requested Go duration string onto a bounded
+// wait duration. Empty takes the configured default; anything above the
 // configured maximum is clamped down to it.
 func (e *JobExecutor) resolveCommandTimeout(
-	seconds int,
+	raw string,
 ) (time.Duration, error) {
-	if seconds < 0 {
-		return 0, ctxerrors.Wrap(
-			commerr.ErrValidationFailed,
-			"timeout seconds must not be negative",
-		)
-	}
-
 	limits := e.Limits()
-	if seconds == 0 {
+	if raw == "" {
 		return limits.CommandTimeout, nil
 	}
 
-	timeout := time.Duration(seconds) * time.Second
+	timeout, err := parseToolTimeout(raw)
+	if err != nil {
+		return 0, err
+	}
+
 	if timeout > limits.MaxCommandTimeout {
 		return limits.MaxCommandTimeout, nil
+	}
+
+	return timeout, nil
+}
+
+// parseToolTimeout parses a non-empty timeout argument as a Go duration and
+// requires it to be positive.
+func parseToolTimeout(raw string) (time.Duration, error) {
+	timeout, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, ctxerrors.Wrapf(
+			commerr.ErrValidationFailed,
+			"timeout %q must be a Go duration such as 90s, 5m, or 1h30m: %v",
+			raw,
+			err,
+		)
+	}
+
+	if timeout <= 0 {
+		return 0, ctxerrors.Wrapf(
+			commerr.ErrValidationFailed,
+			"timeout %q must be positive",
+			raw,
+		)
 	}
 
 	return timeout, nil

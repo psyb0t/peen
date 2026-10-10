@@ -330,9 +330,13 @@ func (r Runner) runCommandAction(
 		return actionResult{}, err
 	}
 
-	timeout := r.commandTimeout
-	if action.TimeoutSeconds > 0 {
-		timeout = time.Duration(action.TimeoutSeconds) * time.Second
+	timeout, err := action.CommandTimeout()
+	if err != nil {
+		return actionResult{}, ctxerrors.Wrap(err, "resolve command timeout")
+	}
+
+	if timeout == 0 {
+		timeout = r.commandTimeout
 	}
 
 	commandCtx, cancel := context.WithTimeout(ctx, timeout)

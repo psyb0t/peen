@@ -38,6 +38,19 @@ func TestWorkerEnvironmentCarriesRuntimeAndProviderConfiguration(t *testing.T) {
 	assert.NotContains(t, environment, "PEEN_WORKER_UID")
 }
 
+func TestWorkerEnvironmentCarriesDisabledCoreSettings(t *testing.T) {
+	t.Setenv("PEEN_AGENT", "reviewer")
+	t.Setenv("PEEN_DISABLED_CORE_SKILLS", "planning")
+	t.Setenv("PEEN_DISABLED_CORE_AGENTS", "all")
+
+	environment, err := testConfig(t).WorkerEnvironment()
+	require.NoError(t, err)
+
+	assert.Equal(t, "reviewer", environment["PEEN_AGENT"])
+	assert.Equal(t, "planning", environment["PEEN_DISABLED_CORE_SKILLS"])
+	assert.Equal(t, "all", environment["PEEN_DISABLED_CORE_AGENTS"])
+}
+
 func TestWorkerEnvironmentRefusesAReservedProviderCredentialKey(t *testing.T) {
 	t.Setenv("PEEN_STATE_DIR", "/controller/state")
 
@@ -47,6 +60,25 @@ func TestWorkerEnvironmentRefusesAReservedProviderCredentialKey(t *testing.T) {
 	_, err := config.WorkerEnvironment()
 
 	require.ErrorIs(t, err, ErrInvalidConfig)
+}
+
+func TestWorkerEnvironmentReservesAuditLogRetentionKeys(t *testing.T) {
+	for _, key := range []string{
+		"PEEN_LOG_RETENTION",
+		"PEEN_LOG_RETENTION_DAYS",
+	} {
+		t.Run(key, func(t *testing.T) {
+			t.Setenv(key, "present")
+
+			config := testConfig(t)
+			config.UpstreamsJSON = `[{"name":"aigate","type":"openai","apiKeyEnv":"` +
+				key + `"}]`
+
+			_, err := config.WorkerEnvironment()
+
+			require.ErrorIs(t, err, ErrInvalidConfig)
+		})
+	}
 }
 
 func TestConfigValidateDockerHostIdentity(t *testing.T) {

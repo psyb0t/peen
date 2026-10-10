@@ -33,6 +33,7 @@ describe("agent activity", () => {
 		["user_message.delivered", { message: "hello" }],
 		["message.completed", { queued: false }],
 		["session.events", { notices: [] }],
+		["skill.injected", { content: "<skill>", name: "planning" }],
 		["agent.run.text.delta", { text: "child text" }],
 		["agent.run.thinking.delta", { text: "child thought" }],
 		["agent.run.assistant.message", { content: "child reply" }],

@@ -24,8 +24,12 @@ const (
 	wakeTestHandlerType = "app.error"
 	wakeTestInstruction = "Read the error report and find the failing code."
 	wakeTestReply       = "looked at it"
-	wakeTestPoll        = 10 * time.Millisecond
-	wakeTestTimeout     = 5 * time.Second
+
+	wakeTestWrappedInstruction = "<handler>\n<event>app.error</event>\n\n" +
+		wakeTestInstruction + "\n</handler>"
+
+	wakeTestPoll    = 10 * time.Millisecond
+	wakeTestTimeout = 5 * time.Second
 
 	wakeTestJobEventType       = "job.exited"
 	wakeTestJobHandlerDocument = "---\ntype: job.exited\ndelivery: wake\n---\nA background job ended. Say why it stopped."
@@ -138,10 +142,19 @@ func TestPublishEventWakesAnIdleSessionWithAHandler(t *testing.T) {
 	)
 
 	// Nobody typed the handler's instruction, so it is stored as injected,
-	// while the session's own opening prompt stays a person's message.
+	// in its tag, while the session's own opening prompt stays a person's
+	// message.
+	storedWake := false
+
 	for _, message := range messages.Items {
 		if message.Role != models.MessageRoleUser {
 			continue
+		}
+
+		if message.Content == wakeTestWrappedInstruction {
+			storedWake = true
+
+			assert.True(t, message.Injected, "the wake message is injected")
 		}
 
 		isHandlerInstruction := strings.Contains(
@@ -157,6 +170,8 @@ func TestPublishEventWakesAnIdleSessionWithAHandler(t *testing.T) {
 			message.Content,
 		)
 	}
+
+	assert.True(t, storedWake, "the tagged wake message is stored")
 }
 
 // Pointing a webhook at Peen must not start spending money before anyone has
@@ -604,12 +619,21 @@ func TestWakeLimiterZeroDisablesTheBound(t *testing.T) {
 func TestWakeMessageNamesTheHandlerAgent(t *testing.T) {
 	t.Parallel()
 
-	withoutAgent := wakeMessage(newWakeHandler(""))
-	assert.Equal(t, wakeTestInstruction, withoutAgent)
+	withoutAgent, err := wakeMessage(newWakeHandler(""))
+	require.NoError(t, err)
+	assert.Equal(t, wakeTestWrappedInstruction, withoutAgent)
 
-	withAgent := wakeMessage(newWakeHandler("incident-responder"))
-	assert.Contains(t, withAgent, wakeTestInstruction)
-	assert.Contains(t, withAgent, "incident-responder")
+	withAgent, err := wakeMessage(newWakeHandler("incident-responder"))
+	require.NoError(t, err)
+	assert.Equal(
+		t,
+		"<handler>\n<event>app.error</event>\n"+
+			"<agent>incident-responder</agent>\n\n"+
+			wakeTestInstruction+"\n\n"+
+			"Handle this as the incident-responder agent would.\n"+
+			"</handler>",
+		withAgent,
+	)
 }
 
 func newWakeHandler(agent string) harness.EventHandler {

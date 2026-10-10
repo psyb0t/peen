@@ -17,6 +17,11 @@ Specify the child in exactly one of two ways:
   An ad-hoc definition is never written to disk; it lives for this one run
   only and is bounded in size.
 Supplying both, or neither, is a validation failure.
+The task is treated like a user message. A skill the child needs is named in
+the task with :name, such as ":planning" or ":core:planning", and it reaches
+the child as its own message right after the task, together with the skills
+it names. The child does not receive a skill you only loaded yourself. A task
+that names an unknown skill fails this call and lists the available skills.
 The child shares this session, its working directory, the same resolved
 rules and tools, and the same model. It cannot select its own credentials,
 provider, or model, and runs with a bounded turn budget and a bounded

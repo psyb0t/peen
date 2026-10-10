@@ -20,6 +20,11 @@
 				<summary>Background update</summary>
 				<pre>{block.text}</pre>
 			</details>
+		{:else if block.kind === "skill"}
+			<details class="note-card skill">
+				<summary>skill: {block.name}</summary>
+				<pre>{block.text}</pre>
+			</details>
 		{:else if block.kind === "tool"}
 			<ToolCard call={block} />
 		{/if}
@@ -41,6 +46,9 @@
 	}
 	.note-card.thinking {
 		border-color: #5e6840;
+	}
+	.note-card.skill {
+		border-color: #46607a;
 	}
 	summary {
 		cursor: pointer;

@@ -17,8 +17,6 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/tools"
 )
 
-const hookContextLead = "Configured hook context:\n"
-
 type userMessageHookPayload struct {
 	Message   string `json:"message"`
 	Workspace string `json:"workspace"`
@@ -164,7 +162,11 @@ func (r *Runtime) appendPreUserHookContext(
 		return "", ctxerrors.Wrap(err, "run pre-user-message hooks")
 	}
 
-	return appendHookContext(systemPrompt, outcome.Injections), nil
+	return appendHookContext(
+		systemPrompt,
+		harness.HookEventPreUserMessage,
+		outcome.Injections,
+	)
 }
 
 func (p *preparedTurn) runLifecycleHook(
@@ -186,9 +188,12 @@ func (p *preparedTurn) runLifecycleHook(
 		return nil
 	}
 
-	p.prompt = p.prompt.AppendSystem(
-		hookContextLead + strings.Join(outcome.Injections, "\n\n"),
-	)
+	block, err := renderHookContext(event, "", outcome.Injections)
+	if err != nil {
+		return ctxerrors.Wrap(err, "render lifecycle hook context")
+	}
+
+	p.prompt = p.prompt.AppendSystem(block)
 
 	promptHash, err := runtime.savePromptSnapshot(
 		ctx,
@@ -288,18 +293,21 @@ func turnStopHookInput(
 	}
 }
 
-func appendHookContext(systemPrompt string, messages []string) string {
+func appendHookContext(
+	systemPrompt string,
+	event harness.HookEvent,
+	messages []string,
+) (string, error) {
 	if len(messages) == 0 {
-		return systemPrompt
+		return systemPrompt, nil
 	}
 
-	return strings.Join(
-		[]string{
-			systemPrompt,
-			hookContextLead + strings.Join(messages, "\n\n"),
-		},
-		systemSectionGap,
-	)
+	block, err := renderHookContext(event, "", messages)
+	if err != nil {
+		return "", ctxerrors.Wrap(err, "render hook context")
+	}
+
+	return strings.Join([]string{systemPrompt, block}, systemSectionGap), nil
 }
 
 func lifecycleInjectsBeforeModel(event harness.HookEvent) bool {
@@ -371,7 +379,22 @@ func (h *toolHookRuntime) run(
 			return nil
 		}
 
-		h.add(event.CallID, outcome.Injections)
+		if len(outcome.Injections) == 0 {
+			continue
+		}
+
+		block, renderErr := renderHookContext(
+			hookEvent,
+			event.Tool.Name,
+			outcome.Injections,
+		)
+		if renderErr != nil {
+			h.deny(event, hookFailureMessage(renderErr))
+
+			return nil
+		}
+
+		h.add(event.CallID, []string{block})
 	}
 
 	return nil
@@ -789,10 +812,12 @@ func (h *toolHookRuntime) messageInjection(
 		return sessionMessage, nil
 	}
 
-	content := hookContextLead + strings.Join(configuredMessages, "\n\n")
+	blocks := configuredMessages
 	if sessionMessage != nil {
-		content += "\n\n" + sessionMessage.Content
+		blocks = append(blocks, sessionMessage.Content)
 	}
+
+	content := strings.Join(blocks, hookContextTextSeparator)
 
 	return &elelem.MessageInjection{
 		Type:    elelem.RoleUser,

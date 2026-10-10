@@ -38,7 +38,7 @@ func main() {
 
 	runtime, err := peen.New(peen.Options{
 		ConfigDirectory: "/var/lib/peen", // must already exist
-		RootAgent:       "default",
+		RootAgent:       "core:general-purpose",
 		Models: map[string]peen.ModelClient{
 			modelReference: {
 				Client: elelem.New(driver),

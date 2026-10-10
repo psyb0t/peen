@@ -125,10 +125,7 @@ func applyMessageOptionalFields(
 		message.IsError = &isError
 	}
 
-	if stored.Injected {
-		injected := true
-		message.Injected = &injected
-	}
+	applyMessageInjection(message, stored)
 
 	if stored.TurnID != uuid.Nil {
 		turnID := stored.TurnID
@@ -153,6 +150,20 @@ func applyMessageOptionalFields(
 
 	if len(toolCalls) > 0 {
 		message.ToolCalls = &toolCalls
+	}
+}
+
+// applyMessageInjection marks a message Peen added to the conversation and,
+// when it has one, says what kind of injection it is.
+func applyMessageInjection(message *api.Message, stored *models.Message) {
+	if stored.Injected {
+		injected := true
+		message.Injected = &injected
+	}
+
+	if stored.InjectedKind != models.InjectedKindNone {
+		kind := api.MessageInjectedKind(stored.InjectedKind)
+		message.InjectedKind = &kind
 	}
 }
 

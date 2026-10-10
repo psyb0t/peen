@@ -24,8 +24,11 @@ type Message struct {
 	Incomplete    bool
 	// Injected marks a message the harness added to the conversation, such as
 	// delivered session events, rather than one a person typed.
-	Injected  bool
-	CreatedAt time.Time
+	Injected bool
+	// InjectedKind labels an injected message, such as a skill a user
+	// invoked. It is empty for any other message.
+	InjectedKind InjectedKind
+	CreatedAt    time.Time
 }
 
 // TableName pins the schema-owned messages table name.

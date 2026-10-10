@@ -9,15 +9,19 @@ import (
 )
 
 const (
-	skillCatalogueEmpty      = "No skills are available."
-	skillCatalogueTitle      = "Available skills:\n"
-	skillCatalogueItem       = "- "
-	skillCatalogueIn         = " ("
-	skillCatalogueEnd        = ")\n"
-	agentCatalogueEmpty      = "No named agents are available."
-	agentCatalogueTitle      = "Available named agents:\n"
-	agentCatalogueToolsLabel = "allowed tools: "
-	agentCatalogueSource     = "source: "
+	skillCatalogueEmpty         = "No skills are available."
+	skillCatalogueTitle         = "Available skills:\n"
+	skillCatalogueCoreHeading   = "Core skills (address as core:<name>):\n"
+	skillCatalogueCustomHeading = "Custom skills (defined by you, no prefix):\n"
+	skillCatalogueItem          = "- "
+	skillCatalogueIn            = " ("
+	skillCatalogueEnd           = ")\n"
+	agentCatalogueEmpty         = "No named agents are available."
+	agentCatalogueTitle         = "Available named agents:\n"
+	agentCatalogueCoreHeading   = "Core agents (address as core:<name>):\n"
+	agentCatalogueCustomHeading = "Custom agents (defined by you, no prefix):\n"
+	agentCatalogueToolsLabel    = "allowed tools: "
+	agentCatalogueSource        = "source: "
 
 	promptBlockExtraCapacity = 3
 
@@ -177,6 +181,8 @@ type HookMatch struct {
 
 // HookAction is one ordered operation in a hook group. Command is an
 // executable path or name, never shell source; Args are passed verbatim.
+// Timeout is a Go duration string such as "30s" bounding one command action;
+// empty takes the runner's default.
 //
 //nolint:tagalign // Preserve the YAML-first tag convention.
 type HookAction struct {
@@ -188,9 +194,12 @@ type HookAction struct {
 	Environment map[string]string `yaml:"environment" json:"environment,omitempty"` //nolint:lll // Immutable schema tags.
 	//nolint:tagliatelle // YAML uses the public snake_case schema.
 	WorkingDir string `yaml:"working_dir" json:"workingDir,omitempty"`
-	//nolint:tagliatelle,lll // YAML uses the public snake_case schema.
-	TimeoutSeconds int    `yaml:"timeout_seconds" json:"timeoutSeconds,omitempty"`
-	Message        string `yaml:"message" json:"message,omitempty"`
+	Timeout    string `yaml:"timeout" json:"timeout,omitempty"`
+	// RemovedTimeoutSeconds only detects the removed timeout_seconds field so
+	// the hooks file fails with a message naming timeout.
+	//nolint:tagliatelle // YAML uses the public snake_case schema.
+	RemovedTimeoutSeconds any    `yaml:"timeout_seconds" json:"-"`
+	Message               string `yaml:"message" json:"message,omitempty"`
 	//nolint:tagliatelle // YAML uses the public snake_case schema.
 	EventType string         `yaml:"event_type" json:"eventType,omitempty"`
 	Summary   string         `yaml:"summary" json:"summary,omitempty"`
@@ -259,6 +268,9 @@ type Snapshot struct {
 	manifest      []ManifestEntry
 	warnings      []Warning
 	skillContents map[string]string
+
+	// skillBudget bounds the skill content one ExpandSkills call may return.
+	skillBudget int64
 }
 
 func (s Snapshot) ConfigRoot() string {
@@ -304,27 +316,35 @@ func (s Snapshot) Warnings() []Warning {
 	return append([]Warning(nil), s.warnings...)
 }
 
+// ActivateSkill resolves a skill by name. A plain name finds the custom skill
+// first and the core skill second. A name with the core prefix finds only the
+// core skill.
 func (s Snapshot) ActivateSkill(name string) (ActivatedSkill, error) {
-	for _, skill := range s.skills {
-		if skill.Name == name {
-			return ActivatedSkill{
-				Skill:   cloneSkill(skill),
-				Content: s.skillContents[name],
-			}, nil
+	for _, address := range lookupAddresses(name) {
+		for _, skill := range s.skills {
+			if skill.Name == address {
+				return ActivatedSkill{
+					Skill:   cloneSkill(skill),
+					Content: s.skillContents[address],
+				}, nil
+			}
 		}
 	}
 
 	return ActivatedSkill{}, ErrSkillNotFound
 }
 
+// Agent resolves an agent by name with the same rules as ActivateSkill.
 func (s Snapshot) Agent(name string) (Agent, error) {
-	for _, agent := range s.agents {
-		if agent.Name == name {
-			return agent, nil
+	for _, address := range lookupAddresses(name) {
+		for _, agent := range s.agents {
+			if agent.Name == address {
+				return agent, nil
+			}
 		}
 	}
 
-	return Agent{}, ErrAgentNotFound
+	return Agent{}, missingAgentError(name)
 }
 
 func (s Snapshot) EventHandler(eventType string) (EventHandler, error) {
@@ -337,12 +357,9 @@ func (s Snapshot) EventHandler(eventType string) (EventHandler, error) {
 	return EventHandler{}, ErrEventHandlerNotFound
 }
 
-func (s Snapshot) PromptBlocks(
-	rootAgent string,
-	explicitSkillNames ...string,
-) ([]PromptBlock, error) {
+func (s Snapshot) PromptBlocks(rootAgent string) ([]PromptBlock, error) {
 	blockCapacity := len(s.instructions) + promptBlockExtraCapacity +
-		len(explicitSkillNames) + len(s.warnings)
+		len(s.warnings)
 
 	blocks := make([]PromptBlock, 0, blockCapacity)
 	for _, instruction := range s.instructions {
@@ -367,15 +384,6 @@ func (s Snapshot) PromptBlocks(
 	blocks = append(blocks, s.skillCatalogueBlock(), s.agentCatalogueBlock())
 	if warningBlock, ok := s.warningBlock(); ok {
 		blocks = append(blocks, warningBlock)
-	}
-
-	for _, name := range uniqueSkillNames(explicitSkillNames) {
-		activated, err := s.ActivateSkill(name)
-		if err != nil {
-			return nil, err
-		}
-
-		blocks = append(blocks, activatedSkillBlock(activated))
 	}
 
 	return blocks, nil
@@ -433,22 +441,6 @@ func (i Instruction) kind() SourceKind {
 	return i.Kind
 }
 
-func uniqueSkillNames(names []string) []string {
-	unique := make([]string, 0, len(names))
-	seen := make(map[string]struct{}, len(names))
-
-	for _, name := range names {
-		if _, exists := seen[name]; exists {
-			continue
-		}
-
-		seen[name] = struct{}{}
-		unique = append(unique, name)
-	}
-
-	return unique
-}
-
 func (s Snapshot) skillCatalogueBlock() PromptBlock {
 	content := renderSkillCatalogue(s.skills)
 
@@ -466,20 +458,6 @@ func (s Snapshot) agentCatalogueBlock() PromptBlock {
 	return PromptBlock{
 		Kind:    SourceKindAgent,
 		Name:    "catalogue",
-		Content: content,
-		Hash:    hashString(content),
-	}
-}
-
-func activatedSkillBlock(skill ActivatedSkill) PromptBlock {
-	content := "The user explicitly activated skill \"" + skill.Name +
-		"\" for this turn. Apply its complete instructions below.\n\n" +
-		skill.Content
-
-	return PromptBlock{
-		Kind:    SourceKindSkill,
-		Name:    skill.Name,
-		Source:  skill.Source,
 		Content: content,
 		Hash:    hashString(content),
 	}
@@ -612,6 +590,9 @@ func cloneHookValue(value any) any {
 	return cloned
 }
 
+// renderSkillCatalogue lists core skills first and custom skills second, each
+// group under its own heading and sorted by name. An empty group has no
+// heading.
 func renderSkillCatalogue(skills []Skill) string {
 	if len(skills) == 0 {
 		return skillCatalogueEmpty
@@ -622,10 +603,44 @@ func renderSkillCatalogue(skills []Skill) string {
 		return cloned[left].Name < cloned[right].Name
 	})
 
+	core, custom := partitionSkills(cloned)
+
 	var builder strings.Builder
 	builder.WriteString(skillCatalogueTitle)
+	writeSkillGroup(&builder, skillCatalogueCoreHeading, core)
+	writeSkillGroup(&builder, skillCatalogueCustomHeading, custom)
 
-	for _, skill := range cloned {
+	return builder.String()
+}
+
+func partitionSkills(skills []Skill) ([]Skill, []Skill) {
+	var core, custom []Skill
+
+	for _, skill := range skills {
+		if isCoreName(skill.Name) {
+			core = append(core, skill)
+
+			continue
+		}
+
+		custom = append(custom, skill)
+	}
+
+	return core, custom
+}
+
+func writeSkillGroup(
+	builder *strings.Builder,
+	heading string,
+	skills []Skill,
+) {
+	if len(skills) == 0 {
+		return
+	}
+
+	builder.WriteString(heading)
+
+	for _, skill := range skills {
 		builder.WriteString(skillCatalogueItem)
 		builder.WriteString(skill.Name)
 		builder.WriteString(": ")
@@ -634,10 +649,10 @@ func renderSkillCatalogue(skills []Skill) string {
 		builder.WriteString(skill.Source)
 		builder.WriteString(skillCatalogueEnd)
 	}
-
-	return builder.String()
 }
 
+// renderAgentCatalogue lists core agents first and custom agents second with
+// the same grouping rules as renderSkillCatalogue.
 func renderAgentCatalogue(agents []Agent) string {
 	if len(agents) == 0 {
 		return agentCatalogueEmpty
@@ -648,10 +663,44 @@ func renderAgentCatalogue(agents []Agent) string {
 		return cloned[left].Name < cloned[right].Name
 	})
 
+	core, custom := partitionAgents(cloned)
+
 	var builder strings.Builder
 	builder.WriteString(agentCatalogueTitle)
+	writeAgentGroup(&builder, agentCatalogueCoreHeading, core)
+	writeAgentGroup(&builder, agentCatalogueCustomHeading, custom)
 
-	for _, agent := range cloned {
+	return builder.String()
+}
+
+func partitionAgents(agents []Agent) ([]Agent, []Agent) {
+	var core, custom []Agent
+
+	for _, agent := range agents {
+		if isCoreName(agent.Name) {
+			core = append(core, agent)
+
+			continue
+		}
+
+		custom = append(custom, agent)
+	}
+
+	return core, custom
+}
+
+func writeAgentGroup(
+	builder *strings.Builder,
+	heading string,
+	agents []Agent,
+) {
+	if len(agents) == 0 {
+		return
+	}
+
+	builder.WriteString(heading)
+
+	for _, agent := range agents {
 		builder.WriteString(skillCatalogueItem)
 		builder.WriteString(agent.Name)
 		builder.WriteString(": ")
@@ -664,6 +713,4 @@ func renderAgentCatalogue(agents []Agent) string {
 		builder.WriteString(agent.Source)
 		builder.WriteString(skillCatalogueEnd)
 	}
-
-	return builder.String()
 }

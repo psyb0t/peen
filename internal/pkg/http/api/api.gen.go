@@ -318,6 +318,21 @@ func (e JobSignalResponseState) Valid() bool {
 	}
 }
 
+// Defines values for MessageInjectedKind.
+const (
+	MessageInjectedKindSkill MessageInjectedKind = "skill"
+)
+
+// Valid indicates whether the value is a known member of the MessageInjectedKind enum.
+func (e MessageInjectedKind) Valid() bool {
+	switch e {
+	case MessageInjectedKindSkill:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MessageRole.
 const (
 	MessageRoleAssistant MessageRole = "assistant"
@@ -1057,19 +1072,25 @@ type Message struct {
 	Incomplete   *bool               `json:"incomplete,omitempty"`
 
 	// Injected True when Peen added this message to the conversation itself, such as a report of session events delivered during a turn or the instructions of an event handler that started a turn, rather than a person or the model writing it.
-	Injected   *bool              `json:"injected,omitempty"`
-	IsError    *bool              `json:"isError,omitempty"`
-	Model      *string            `json:"model,omitempty"`
-	Role       MessageRole        `json:"role"`
-	Sequence   int64              `json:"sequence"`
-	Thinking   *string            `json:"thinking,omitempty"`
-	ToolCallId *string            `json:"toolCallId,omitempty"`
-	ToolCalls  *[]MessageToolCall `json:"toolCalls,omitempty"`
+	Injected *bool `json:"injected,omitempty"`
+
+	// InjectedKind What an injected message is, when it is more than a generic update. `skill` marks a skill the user invoked with `:name`, delivered as its own message after the message that named it, or the note that the skill was already loaded. Absent for every other message.
+	InjectedKind *MessageInjectedKind `json:"injectedKind,omitempty"`
+	IsError      *bool                `json:"isError,omitempty"`
+	Model        *string              `json:"model,omitempty"`
+	Role         MessageRole          `json:"role"`
+	Sequence     int64                `json:"sequence"`
+	Thinking     *string              `json:"thinking,omitempty"`
+	ToolCallId   *string              `json:"toolCallId,omitempty"`
+	ToolCalls    *[]MessageToolCall   `json:"toolCalls,omitempty"`
 
 	// TurnId The turn that wrote this message. Messages that share it belong to one turn.
 	TurnId    *openapi_types.UUID `json:"turnId,omitempty"`
 	Workspace string              `json:"workspace"`
 }
+
+// MessageInjectedKind What an injected message is, when it is more than a generic update. `skill` marks a skill the user invoked with `:name`, delivered as its own message after the message that named it, or the note that the skill was already loaded. Absent for every other message.
+type MessageInjectedKind string
 
 // MessageRole defines model for Message.Role.
 type MessageRole string

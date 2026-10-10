@@ -47,6 +47,10 @@ type AssembleOptions struct {
 	// harness package defaults.
 	HarnessLimits harness.Limits
 
+	// HarnessOptions adjusts the harness resolver, for example to disable
+	// core skills and agents.
+	HarnessOptions []harness.ResolverOption
+
 	// StoreOptions carries the store's own bounds and its clock and ID seams.
 	StoreOptions session.Options
 }
@@ -76,6 +80,21 @@ func Assemble(
 		)
 	}
 
+	resolver, err := harness.NewResolver(
+		options.Runtime.ConfigDirectory,
+		options.HarnessLimits,
+		options.HarnessOptions...,
+	)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "create harness resolver")
+	}
+
+	// Checked before the database opens so a misnamed root agent fails startup
+	// without touching durable state.
+	if err := resolver.CheckRootAgent(options.Runtime.RootAgent); err != nil {
+		return nil, ctxerrors.Wrap(err, "resolve the configured root agent")
+	}
+
 	handle, err := db.Open(ctx, db.Config{
 		Directory: options.StateDirectory,
 		Metrics:   options.Runtime.Metrics,
@@ -84,7 +103,7 @@ func Assemble(
 		return nil, ctxerrors.Wrap(err, "open durable state")
 	}
 
-	assembled, err := assembleOver(ctx, handle, options)
+	assembled, err := assembleOver(ctx, handle, resolver, options)
 	if err != nil {
 		return nil, closeHandleAfter(ctx, handle, err)
 	}
@@ -95,16 +114,9 @@ func Assemble(
 func assembleOver(
 	ctx context.Context,
 	handle *db.Handle,
+	resolver harness.Resolver,
 	options AssembleOptions,
 ) (*Assembled, error) {
-	resolver, err := harness.NewResolver(
-		options.Runtime.ConfigDirectory,
-		options.HarnessLimits,
-	)
-	if err != nil {
-		return nil, ctxerrors.Wrap(err, "create harness resolver")
-	}
-
 	store, err := session.NewStore(handle, options.StoreOptions)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create session store")

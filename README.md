@@ -1,9 +1,11 @@
 # peen
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/psyb0t/peen.svg)](https://pkg.go.dev/github.com/psyb0t/peen)
 [![CI](https://github.com/psyb0t/peen/actions/workflows/pipeline.yml/badge.svg?branch=main)](https://github.com/psyb0t/peen/actions/workflows/pipeline.yml)
 [![coverage](https://raw.githubusercontent.com/psyb0t/peen/badges/coverage.svg)](https://github.com/psyb0t/peen/actions/workflows/pipeline.yml)
 [![version](https://raw.githubusercontent.com/psyb0t/peen/badges/version.svg)](https://github.com/psyb0t/peen/releases)
 [![license](https://raw.githubusercontent.com/psyb0t/peen/badges/license.svg)](LICENSE)
+[![imported by](https://raw.githubusercontent.com/psyb0t/peen/badges/importers.svg)](https://github.com/psyb0t/peen/blob/badges/importers.md)
 [![Docker Pulls](https://img.shields.io/docker/pulls/psyb0t/peen?style=flat-square)](https://hub.docker.com/r/psyb0t/peen)
 
 _peen goes in vageen_
@@ -182,9 +184,9 @@ Peen reads these files from the configuration directory and from every directory
 
 **Rules.** Topic files in `.agents/rules/` or `.claude/rules/`, one subject each, such as `testing.md` or `go.md`. They also go into the system prompt on every turn and add up across layers. [AGENTS.md and rules](docs/rules.md#rules)
 
-**Skills.** A skill is a directory with a `SKILL.md`: YAML frontmatter with a `name` and `description`, then the procedure. The model sees every skill's name and description each turn and loads the full text with `use_skill` when a task fits. Write `:skill-name` in a message to force one. [Skills](docs/skills.md)
+**Skills.** A skill is a directory with a `SKILL.md`: YAML frontmatter with a `name` and `description`, then the procedure. The model sees every skill's name and description each turn and loads the full text with `use_skill` when a task fits. Write `:skill-name` in a message and the skill arrives as its own message right after yours, also in a message sent while a turn runs. Peen ships two core skills, `core:planning` and `core:freshness`, and your own skills sit beside them. [Skills](docs/skills.md)
 
-**Named agents.** A file in `.agents/agents/` defines a child agent with its own instructions and an optional `allowed-tools` list. The main agent hands it a job with `launch_agent` and gets its final answer back. Every child run is stored and inspectable. [Named agents](docs/agents.md)
+**Named agents.** A file in `.agents/agents/` defines a child agent with its own instructions and an optional `allowed-tools` list. The main agent hands it a job with `launch_agent` and gets its final answer back. Every child run is stored and inspectable. Peen ships one core agent, `core:general-purpose`, which runs every turn unless `PEEN_AGENT` names another. [Named agents](docs/agents.md)
 
 **Session events.** When a background command finishes, a child agent ends, a hook reports something, or an outside system posts to `/v1/session/notices`, Peen records an event and hands it to the model at the next turn or tool boundary. A handler in `.agents/events/<type>.md` can make an event start a turn on an idle session. [Session events](docs/events.md)
 

@@ -81,16 +81,9 @@ func TestSnapshotContractAccessors(t *testing.T) {
 	assert.Contains(t, blocks[3].Content, "read_file")
 	assert.NotContains(t, blocks[3].Content, "agent instructions")
 
-	explicitBlocks, err := snapshot.PromptBlocks(
-		testAgentName,
-		testSkillName,
-		testSkillName,
-	)
-	require.NoError(t, err)
-	require.Len(t, explicitBlocks, 5)
-	assert.Equal(t, SourceKindSkill, explicitBlocks[4].Kind)
-	assert.Equal(t, testSkillName, explicitBlocks[4].Name)
-	assert.Contains(t, explicitBlocks[4].Content, "full skill content")
+	for _, block := range blocks {
+		assert.NotContains(t, block.Content, "full skill content")
+	}
 
 	_, err = snapshot.ActivateSkill("missing")
 	require.ErrorIs(t, err, ErrSkillNotFound)

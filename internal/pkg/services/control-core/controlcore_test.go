@@ -21,7 +21,7 @@ import (
 // These tests do not call t.Parallel. Opening the durable store installs the
 // generated repositories as a package default, which is process-global state.
 const (
-	coreTestAgentName       = "default"
+	coreTestAgentName       = "core:general-purpose"
 	coreTestModelID         = "test-model"
 	coreTestModelReference  = "scripted/" + coreTestModelID
 	coreTestUpstreamsJSON   = `[{"name":"scripted","type":"openai"}]`

@@ -273,10 +273,11 @@ the same access as the user running this service.
 State the purpose: one short line saying why you are running it. It is
 stored with the job so a later turn can tell what a running process is for.
 It runs in the current workspace unless directory is set.
-timeoutSeconds bounds how long THIS CALL WAITS, never how long the command
-may run. A command still running when the bound elapses is left running and
-you get a jobId back, with running true. That is how you start builds,
-servers, and long test runs. Use background true to skip the wait entirely.
+timeout is a Go duration string such as "90s", "5m", or "1h30m"; empty uses the
+default. It bounds how long THIS CALL WAITS, never how long the command may
+run. A command still running when the bound elapses is left running and you get
+a jobId back, with running true. That is how you start builds, servers, and
+long test runs. Use background true to skip the wait entirely.
 Follow a running job with read_job_output, block on it with wait_job, and
 stop it with signal_job. Clean up what you no longer need.
 stdout and stderr come back separately with the exit status. A non-zero exit
@@ -307,9 +308,9 @@ const runCommandSchema = `{
       "additionalProperties": {"type": "string"},
       "description": "Extra environment variables for this command only."
     },
-    "timeoutSeconds": {
-      "type": "integer",
-      "description": "How long to WAIT, not a kill bound. 0 uses the default."
+    "timeout": {
+      "type": "string",
+      "description": "Go duration to WAIT, like \"90s\" or \"5m\"."
     },
     "background": {
       "type": "boolean",

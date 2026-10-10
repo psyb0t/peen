@@ -96,6 +96,8 @@ func addWorkerCredentials(
 func workerRuntimeEnvironmentKey(key string) bool {
 	switch key {
 	case "PEEN_AGENT",
+		"PEEN_DISABLED_CORE_SKILLS",
+		"PEEN_DISABLED_CORE_AGENTS",
 		"PEEN_UPSTREAMS",
 		"PEEN_DEFAULT_MODEL",
 		"PEEN_COMPACTION_MODEL",
@@ -167,6 +169,7 @@ func workerEnvironmentReserved(key string) bool {
 		"PEEN_HOST_USERNAME",
 		"PEEN_HOST_HOME",
 		"PEEN_LOG_DIRECTORY",
+		"PEEN_LOG_RETENTION",
 		"PEEN_LOG_RETENTION_DAYS":
 		return true
 	}

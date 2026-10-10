@@ -8,6 +8,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
+	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -52,6 +53,38 @@ func TestErrorKeepsADetailedFailureAcrossTheWire(t *testing.T) {
 			require.ErrorIs(t, received, commerr.ErrValidationFailed)
 		})
 	}
+}
+
+// A message that names an unknown skill is refused as invalid input, and the
+// controller side still sees it as a validation failure.
+func TestErrorKeepsAnUnknownSkillReferenceAsAValidationFailure(t *testing.T) {
+	t.Parallel()
+
+	const wantMessage = `unknown skill "x" in :x; available skills: a, core:planning`
+
+	sent := ctxerrors.Wrap(
+		errors.Join(
+			commerr.ErrValidationFailed,
+			harness.NewUnknownSkillError("x", []string{"a", "core:planning"}),
+		),
+		"resolve skill",
+	)
+
+	encoded, err := json.Marshal(NewError(sent))
+	require.NoError(t, err)
+
+	decoded := Error{}
+	require.NoError(t, json.Unmarshal(encoded, &decoded))
+	assert.Equal(t, CodeUnknownSkill, decoded.Code)
+	assert.Equal(t, wantMessage, decoded.Message)
+
+	received := decoded.Unwrap()
+	require.ErrorIs(t, received, commerr.ErrValidationFailed)
+	require.ErrorIs(t, received, harness.ErrSkillNotFound)
+
+	var unknown *harness.UnknownSkillError
+	require.ErrorAs(t, received, &unknown)
+	assert.Equal(t, wantMessage, unknown.Message)
 }
 
 // A full queue is refused differently from a busy session, so the WebSocket

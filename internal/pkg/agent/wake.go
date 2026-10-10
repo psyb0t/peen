@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"runtime/debug"
-	"strings"
 	"sync"
 	"time"
 
@@ -18,8 +17,7 @@ import (
 )
 
 const (
-	wakeWindow           = time.Hour
-	wakeMessageSeparator = "\n\n"
+	wakeWindow = time.Hour
 
 	reasonNoHandler      = "no_handler"
 	reasonSessionBusy    = "session_busy"
@@ -325,9 +323,21 @@ func (r *Runtime) startWakeTurn(
 			"session_id", sessionID.String(),
 		)
 
+		message, err := wakeMessage(handler)
+		if err != nil {
+			ctxscope.GetLogger(detached).Error(
+				"event wake message could not be built",
+				"event_type", notice.Type,
+				"session_id", sessionID.String(),
+				"err", err,
+			)
+
+			return
+		}
+
 		if err := runner(detached, sessionID, MessageRequest{
 			SessionID: &sessionID,
-			Message:   wakeMessage(handler),
+			Message:   message,
 			Origin: &TurnOrigin{
 				EventID:   notice.ID,
 				EventType: notice.Type,
@@ -363,15 +373,10 @@ func wakeRequested(
 	}
 }
 
-// wakeMessage is the task the woken turn runs. The event itself is not pasted
-// here: it is already queued and the turn delivers it as quoted data before its
-// first model call, which keeps event text out of the instruction.
-func wakeMessage(handler harness.EventHandler) string {
-	instruction := strings.TrimSpace(handler.Instructions)
-	if handler.Agent == "" {
-		return instruction
-	}
-
-	return instruction + wakeMessageSeparator +
-		"Handle this as the " + handler.Agent + " agent would."
+// wakeMessage is the task the woken turn runs, wrapped in a handler
+// block. The event itself is not pasted here: it is already queued and the turn
+// delivers it as quoted data before its first model call, which keeps event
+// text out of the instruction.
+func wakeMessage(handler harness.EventHandler) (string, error) {
+	return renderEventHandler(handler)
 }

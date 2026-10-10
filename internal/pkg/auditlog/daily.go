@@ -19,11 +19,12 @@ import (
 )
 
 const (
-	defaultDirectory     = "logs"
-	defaultRetentionDays = 14
-	dailyFilenameLayout  = "20060102-150405.log"
-	directoryMode        = 0o700
-	fileMode             = 0o600
+	defaultDirectory    = "logs"
+	defaultRetention    = 14 * retentionDay
+	retentionDay        = 24 * time.Hour
+	dailyFilenameLayout = "20060102-150405.log"
+	directoryMode       = 0o700
+	fileMode            = 0o600
 )
 
 // Config controls the private rolling audit-log sink.
@@ -32,10 +33,15 @@ const (
 // under PEEN_CONFIG_DIR. Audit records carry session identifiers, harness
 // digests, and tool outcomes, and PEEN_CONFIG_DIR is mounted into every Docker
 // worker, so an audit directory there would be readable by every session.
+//
+// Retention is a Go duration and must be a positive whole number of days
+// because files are per UTC day. RemovedRetentionDays only detects the removed
+// PEEN_LOG_RETENTION_DAYS variable so startup can fail with a migration hint.
 type Config struct {
-	StateDirectory string `env:"PEEN_STATE_DIR"`
-	Directory      string `env:"PEEN_LOG_DIRECTORY"`
-	RetentionDays  int    `default:"14"             env:"PEEN_LOG_RETENTION_DAYS"` //nolint:lll // Immutable env tag.
+	StateDirectory       string        `env:"PEEN_STATE_DIR"`
+	Directory            string        `env:"PEEN_LOG_DIRECTORY"`
+	Retention            time.Duration `default:"336h"                env:"PEEN_LOG_RETENTION"` //nolint:lll // Immutable env tag.
+	RemovedRetentionDays string        `env:"PEEN_LOG_RETENTION_DAYS"`
 }
 
 // Configure reads audit-log settings and adds the durable sink beside stdout.
@@ -68,11 +74,11 @@ type DailyHandler struct {
 }
 
 type dailyState struct {
-	mu            sync.Mutex
-	directory     string
-	retentionDays int
-	file          *os.File
-	day           time.Time
+	mu        sync.Mutex
+	directory string
+	retention time.Duration
+	file      *os.File
+	day       time.Time
 }
 
 // NewDailyHandler creates today's file immediately so startup failures are
@@ -84,8 +90,8 @@ func NewDailyHandler(config Config) (*DailyHandler, error) {
 	}
 
 	handler := &DailyHandler{state: &dailyState{
-		directory:     filepath.Clean(config.Directory),
-		retentionDays: config.RetentionDays,
+		directory: filepath.Clean(config.Directory),
+		retention: config.Retention,
 	}}
 	if err := handler.state.rotate(time.Now().UTC()); err != nil {
 		return nil, err
@@ -172,14 +178,22 @@ func (c Config) withDefaults() Config {
 		c.Directory = filepath.Join(c.StateDirectory, defaultDirectory)
 	}
 
-	if c.RetentionDays == 0 {
-		c.RetentionDays = defaultRetentionDays
+	if c.Retention == 0 {
+		c.Retention = defaultRetention
 	}
 
 	return c
 }
 
 func (c Config) validate() error {
+	if strings.TrimSpace(c.RemovedRetentionDays) != "" {
+		return ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"PEEN_LOG_RETENTION_DAYS was removed, set PEEN_LOG_RETENTION "+
+				"to a Go duration instead (for example 336h for 14 days)",
+		)
+	}
+
 	if strings.TrimSpace(c.Directory) == "" {
 		return ctxerrors.Wrap(
 			commerr.ErrValidationFailed,
@@ -187,11 +201,12 @@ func (c Config) validate() error {
 		)
 	}
 
-	if c.RetentionDays <= 0 {
+	if c.Retention <= 0 || c.Retention%retentionDay != 0 {
 		return ctxerrors.Wrapf(
 			commerr.ErrValidationFailed,
-			"audit log retention days must be positive, got %d",
-			c.RetentionDays,
+			"PEEN_LOG_RETENTION must be a positive whole number of days "+
+				"(a multiple of 24h), got %s",
+			c.Retention,
 		)
 	}
 
@@ -266,7 +281,8 @@ func (s *dailyState) prune(day time.Time) error {
 		return ctxerrors.Wrap(err, "read audit log directory")
 	}
 
-	firstRetained := day.AddDate(0, 0, -(s.retentionDays - 1))
+	retentionDays := int(s.retention / retentionDay)
+	firstRetained := day.AddDate(0, 0, -(retentionDays - 1))
 
 	for _, entry := range entries {
 		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {

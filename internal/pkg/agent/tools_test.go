@@ -44,7 +44,7 @@ func newToolTestExecutor(t *testing.T) *tools.JobExecutor {
 func TestHostToolSetRegistersEveryTool(t *testing.T) {
 	t.Parallel()
 
-	set := hostToolSet(newToolTestExecutor(t), nil, harness.Snapshot{}, nil)
+	set := hostToolSet(newToolTestExecutor(t), nil, harness.Snapshot{}, nil, nil)
 
 	wantNames := []string{
 		toolNameListJobs,
@@ -84,7 +84,7 @@ func TestHostToolSetRegistersEveryTool(t *testing.T) {
 func TestRestrictToolSet(t *testing.T) {
 	t.Parallel()
 
-	base := hostToolSet(newToolTestExecutor(t), nil, harness.Snapshot{}, nil)
+	base := hostToolSet(newToolTestExecutor(t), nil, harness.Snapshot{}, nil, nil)
 	restricted, err := restrictToolSet(
 		base,
 		[]string{toolNameListFiles, toolNameReadFile},
@@ -118,7 +118,7 @@ func TestApplyPatchToolHandlerReturnsStructuredFailure(t *testing.T) {
 	t.Parallel()
 
 	executor := newToolTestExecutor(t)
-	tool, ok := hostToolSet(executor, nil, harness.Snapshot{}, nil).Get(toolNameApplyPatch)
+	tool, ok := hostToolSet(executor, nil, harness.Snapshot{}, nil, nil).Get(toolNameApplyPatch)
 	require.True(t, ok)
 
 	result, err := tool.Handler(context.Background(), elelem.ToolInput{
@@ -141,7 +141,7 @@ func TestApplyPatchToolHandlerReturnsStructuredFailure(t *testing.T) {
 func TestHostToolSchemasRejectUnknownFields(t *testing.T) {
 	t.Parallel()
 
-	set := hostToolSet(newToolTestExecutor(t), nil, harness.Snapshot{}, nil)
+	set := hostToolSet(newToolTestExecutor(t), nil, harness.Snapshot{}, nil, nil)
 
 	for _, tool := range set.Definitions() {
 		schema := map[string]any{}
@@ -157,6 +157,93 @@ func TestHostToolSchemasRejectUnknownFields(t *testing.T) {
 	}
 }
 
+// run_command and wait_job take a Go duration string as timeout. The retired
+// integer timeoutSeconds field must fail as an unknown field.
+func TestWaitTimeoutToolsTakeADurationString(t *testing.T) {
+	t.Parallel()
+
+	executor := newToolTestExecutor(t)
+	set := hostToolSet(executor, nil, harness.Snapshot{}, nil, nil)
+	jobID := uuid.New().String()
+
+	testCases := []struct {
+		name      string
+		tool      string
+		arguments string
+		wantError bool
+	}{
+		{
+			name:      "run_command timeout string",
+			tool:      toolNameRunCommand,
+			arguments: `{"command":"true","purpose":"check","timeout":"1m30s"}`,
+		},
+		{
+			name:      "run_command retired timeoutSeconds",
+			tool:      toolNameRunCommand,
+			arguments: `{"command":"true","purpose":"check","timeoutSeconds":5}`,
+			wantError: true,
+		},
+		{
+			name:      "run_command integer timeout",
+			tool:      toolNameRunCommand,
+			arguments: `{"command":"true","purpose":"check","timeout":5}`,
+			wantError: true,
+		},
+		{
+			name:      "wait_job timeout string",
+			tool:      toolNameWaitJob,
+			arguments: `{"jobId":"` + jobID + `","timeout":"5s"}`,
+		},
+		{
+			name:      "wait_job retired timeoutSeconds",
+			tool:      toolNameWaitJob,
+			arguments: `{"jobId":"` + jobID + `","timeoutSeconds":5}`,
+			wantError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			tool, ok := set.Get(tc.tool)
+			require.True(t, ok)
+
+			result, err := tool.Handler(context.Background(), elelem.ToolInput{
+				Name:      tc.tool,
+				CallID:    "call_1",
+				Arguments: json.RawMessage(tc.arguments),
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantError, result.IsError, result.Content)
+		})
+	}
+}
+
+func TestWaitTimeoutToolSchemasDeclareTimeoutAsAString(t *testing.T) {
+	t.Parallel()
+
+	set := hostToolSet(newToolTestExecutor(t), nil, harness.Snapshot{}, nil, nil)
+
+	for _, name := range []string{toolNameRunCommand, toolNameWaitJob} {
+		tool, ok := set.Get(name)
+		require.True(t, ok)
+
+		schema := struct {
+			Properties map[string]struct {
+				Type string `json:"type"`
+			} `json:"properties"`
+		}{}
+		require.NoError(t, json.Unmarshal(tool.ArgumentsSchema, &schema))
+
+		assert.Equal(t, "string", schema.Properties["timeout"].Type, name)
+		assert.NotContains(t, schema.Properties, "timeoutSeconds", name)
+	}
+
+	assert.Contains(t, runCommandDescription, "timeout is a Go duration string")
+	assert.NotContains(t, runCommandDescription, "timeoutSeconds")
+}
+
 func TestHostToolHandlerReturnsEncodedResult(t *testing.T) {
 	t.Parallel()
 
@@ -164,7 +251,7 @@ func TestHostToolHandlerReturnsEncodedResult(t *testing.T) {
 	path := filepath.Join(executor.Workspace(), toolTestFileName)
 	require.NoError(t, os.WriteFile(path, []byte(toolTestContent), 0o600))
 
-	tool, ok := hostToolSet(executor, nil, harness.Snapshot{}, nil).Get(toolNameReadFile)
+	tool, ok := hostToolSet(executor, nil, harness.Snapshot{}, nil, nil).Get(toolNameReadFile)
 	require.True(t, ok)
 
 	result, err := tool.Handler(context.Background(), elelem.ToolInput{
@@ -220,7 +307,7 @@ func TestHostToolHandlerReportsFailuresToTheModel(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			tool, ok := hostToolSet(executor, nil, harness.Snapshot{}, nil).Get(tc.tool)
+			tool, ok := hostToolSet(executor, nil, harness.Snapshot{}, nil, nil).Get(tc.tool)
 			require.True(t, ok)
 
 			result, err := tool.Handler(context.Background(), elelem.ToolInput{
@@ -249,7 +336,7 @@ func TestHostToolHandlerEndsTurnOnCancellation(t *testing.T) {
 
 	executor := newToolTestExecutor(t)
 
-	tool, ok := hostToolSet(executor, nil, harness.Snapshot{}, nil).Get(toolNameRunCommand)
+	tool, ok := hostToolSet(executor, nil, harness.Snapshot{}, nil, nil).Get(toolNameRunCommand)
 	require.True(t, ok)
 
 	ctx, cancel := context.WithCancel(context.Background())

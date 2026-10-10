@@ -16,7 +16,13 @@ my-app/
 
 Only `.agents/agents/<name>.md` is read. There is no `.claude/agents` path.
 
-Peen ships one agent, `default`. It is the root agent every turn runs as, unless `PEEN_AGENT` names another one. Define `.agents/agents/default.md` to replace its instructions for a workspace.
+Peen ships one core agent, `general-purpose`, addressed as `core:general-purpose`. It is the root agent every turn runs as, unless `PEEN_AGENT` names another one. Your agents are custom agents. They sit beside the core agent and never replace it, even when a custom agent is also named `general-purpose`.
+
+A plain name means the custom agent when one exists and the core agent otherwise. `core:<name>` always means the core agent. This holds for `PEEN_AGENT` and for the `agent` field of `launch_agent`. The `agent` field of an [event handler](events.md#waking-an-idle-session) is only text added to the wake message, so write whatever name you want the model to read.
+
+Startup fails when `PEEN_AGENT` is a `core:` name that does not exist or is disabled. The old embedded name `default` no longer exists: `PEEN_AGENT=default` fails with an error naming `core:general-purpose` unless a `default.md` agent exists in `PEEN_CONFIG_DIR`. Drop `PEEN_AGENT` or set it to `core:general-purpose`. Any other plain name is resolved at each turn, so an agent that only one workspace defines works for that workspace. A turn in a workspace without it fails.
+
+`PEEN_DISABLED_CORE_AGENTS` removes core agents. It takes a comma-separated list of core names without the prefix, or `all`. Unknown names stop startup. A disabled core agent is gone from the catalogue and from agent lookup. See [core and custom skills and agents](harness.md#core-and-custom-skills-and-agents).
 
 ## Format
 
@@ -48,10 +54,13 @@ An empty item or a repeated name makes the file invalid when Peen loads it. A mi
 
 ## How the main agent sees them
 
-Every turn the system prompt lists the named agents, sorted by name:
+Every turn the system prompt lists the named agents. Core agents come first under their `core:` names, then custom agents, each group sorted by name:
 
 ```text
 Available named agents:
+Core agents (address as core:<name>):
+- core:general-purpose: General-purpose agent for coding and other repository tasks. (allowed tools: ; source: embedded://agents/general-purpose.md)
+Custom agents (defined by you, no prefix):
 - reviewer: Reviews shell scripts for safety and style. Read-only. (allowed tools: list_files, search_text, read_file; source: /home/me/work/my-app/.agents/agents/reviewer.md)
 ```
 
@@ -84,11 +93,12 @@ A child shares the parent's session, workspace, rules, and model. Its system pro
 1. Peen's base prompt.
 2. Every `AGENTS.md` and rule block.
 3. The skill and named-agent catalogues, and any harness diagnostics.
-4. Any skill the user forced with `:skill-name` for this turn.
-5. The child's own instructions.
-6. The workspace path and runtime facts.
+4. The child's own instructions.
+5. The workspace path and runtime facts.
 
 It does not get the root agent's instructions or the message's `systemPrompt` override. It uses the harness snapshot of the turn that launched it. Session events are delivered to the root agent only, never to a child.
+
+A skill you forced on the parent turn with `:skill-name` does not reach the child. The parent hands a skill over by naming it in the `task`. The task is treated like a user message: each `:name` in it, and each skill those skills name, arrives as its own `<skill>` message right after the task, in the child's first request and in its stored transcript. An unknown name fails the `launch_agent` call with the list of skills that exist. See [Forcing a skill](skills.md#forcing-a-skill).
 
 ## Limits
 

@@ -65,6 +65,18 @@ const messages = [
 		workspace: "/workspace/catalog",
 	},
 	{
+		content:
+			"<skill>\n<name>planning</name>\n<description>Plan work.</description>\n" +
+			"<directory>/skills/planning</directory>\n\nPlan steps.\n</skill>",
+		createdAt: "2026-09-24T00:00:00Z",
+		id: "11111111-1111-4111-8111-111111111112",
+		injected: true,
+		injectedKind: "skill",
+		role: "user",
+		sequence: 2,
+		workspace: "/workspace/catalog",
+	},
+	{
 		content: "I found the first thing to fix.",
 		createdAt: "2026-09-24T00:00:01Z",
 		id: "33333333-3333-4333-8333-333333333333",
@@ -90,8 +102,7 @@ const messages = [
 		workspace: "/workspace/catalog",
 	},
 	{
-		content:
-			'<session-events count="1">\nA background job finished.\n</session-events>',
+		content: "<events>\nA background job finished.\n</events>",
 		createdAt: "2026-09-24T00:00:03Z",
 		id: "99999999-9999-4999-8999-999999999999",
 		injected: true,
@@ -235,6 +246,13 @@ describe("control surface", () => {
 
 		await screen.findByRole("heading", { name: "catalog" });
 		await screen.findByText("inspect the workspace");
+
+		const skillMarker = (await screen.findByText("skill: planning")).closest("details");
+		expect(skillMarker?.open).toBe(false);
+		expect(skillMarker?.closest("article")?.classList.contains("user")).toBe(false);
+		await fireEvent.click(screen.getByText("skill: planning"));
+		expect(skillMarker?.open).toBe(true);
+		expect(skillMarker?.textContent).toContain("Plan steps.");
 
 		const thinking = (await screen.findByText("Thinking")).closest("details");
 		expect(thinking?.open).toBe(false);

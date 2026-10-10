@@ -16,7 +16,8 @@ const (
 	embeddedAgentsSourcePrefix = embeddedSourcePrefix + "agents/"
 	embeddedFreshnessSkillName = "freshness"
 	embeddedPlanningSkillName  = "planning"
-	embeddedDefaultAgentName   = "default"
+
+	embeddedGeneralPurposeAgentName = "general-purpose"
 )
 
 type embeddedSkillAsset struct {
@@ -52,7 +53,7 @@ func embeddedSkillAssetFor(name string) embeddedSkillAsset {
 
 func embeddedAgentAssets() []embeddedAgentAsset {
 	return []embeddedAgentAsset{
-		embeddedAgentAssetFor(embeddedDefaultAgentName),
+		embeddedAgentAssetFor(embeddedGeneralPurposeAgentName),
 	}
 }
 
@@ -65,11 +66,12 @@ func embeddedAgentAssetFor(name string) embeddedAgentAsset {
 }
 
 // embeddedHarness holds the immutable base context that ships in every binary.
-// Filesystem layers may replace same-named skills and agents, but never remove
-// the baseline instruction block.
+// Its skills and agents are the core group. Filesystem layers add custom ones
+// beside them and never replace them, and nothing removes the baseline
+// instruction block.
 //
 //go:embed builtin/AGENTS.md
-//go:embed builtin/agents/default.md
+//go:embed builtin/agents/general-purpose.md
 //go:embed builtin/skills/freshness/SKILL.md
 //go:embed builtin/skills/planning/SKILL.md
 var embeddedHarness embed.FS

@@ -12,6 +12,7 @@ import (
 	"github.com/psyb0t/elelem/elelemtest"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
+	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -318,13 +319,60 @@ func TestRuntimeRejectsFullActiveUserMessageQueue(t *testing.T) {
 	assert.Equal(t, queuedUserMessageText, requests[1].Messages[len(requests[1].Messages)-1].Text())
 }
 
-// A skill named in a message sent during a running turn cannot join that
-// turn's fixed prompt, so the message queues as written and the model decides
-// whether to load the skill with use_skill once it arrives.
-func TestRuntimeQueuesAnExplicitSkillReferenceInAnActiveTurnAsPlainText(t *testing.T) {
-	const skillMessage = ":planning make a plan"
+const queuedSkillMessage = "when done, follow :review-rules"
 
-	driver := elelemtest.NewScriptedDriver(
+// queueDuringToolCall runs a turn that calls one tool and sends each message
+// in sent to the running turn at that call. It returns the turn result, every
+// event the first turn published, and each queued message's own outcome.
+func queueDuringToolCall(
+	t *testing.T,
+	fixture runtimeFixture,
+	sent []TurnRequest,
+	initial string,
+) (*TurnResult, []Event, []queueOutcome) {
+	t.Helper()
+
+	var (
+		events   []Event
+		outcomes []queueOutcome
+	)
+
+	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
+		Message:   initial,
+		Workspace: fixture.workspace,
+		OnEvent: func(event Event) error {
+			events = append(events, event)
+
+			if event.Type != EventTypeToolUse {
+				return nil
+			}
+
+			for _, request := range sent {
+				queued, queueErr := fixture.runtime.Run(
+					context.Background(),
+					request,
+				)
+				outcomes = append(outcomes, queueOutcome{
+					result: queued,
+					err:    queueErr,
+				})
+			}
+
+			return nil
+		},
+	})
+	require.NoError(t, err)
+
+	return result, events, outcomes
+}
+
+type queueOutcome struct {
+	result *TurnResult
+	err    error
+}
+
+func listFilesThenAnswerDriver() *elelemtest.ScriptedDriver {
+	return elelemtest.NewScriptedDriver(
 		elelemtest.ToolCall(
 			runtimeToolCallID,
 			toolNameListFiles,
@@ -332,42 +380,266 @@ func TestRuntimeQueuesAnExplicitSkillReferenceInAnActiveTurnAsPlainText(t *testi
 		),
 		elelemtest.Text(queuedUserMessageFinal),
 	)
-	fixture := newRuntimeFixture(t, driver)
+}
 
-	var (
-		queued   *TurnResult
-		queueErr error
+// A skill named in a message sent during a running turn reaches the model as
+// its own message right after that message, together with it, after the
+// current tool call.
+func TestRuntimeQueuedSkillReferenceDeliversTheSkillMessageWithTheUserMessage(
+	t *testing.T,
+) {
+	driver := listFilesThenAnswerDriver()
+	fixture := newRuntimeFixture(t, driver)
+	writeSkillFile(t, fixture, runtimeTestExplicitSkillName, skillTestBravoBody)
+
+	requestID := uuid.New()
+	result, events, outcomes := queueDuringToolCall(
+		t,
+		fixture,
+		[]TurnRequest{{Message: queuedSkillMessage, RequestID: requestID}},
+		queuedUserMessageInitial,
 	)
 
-	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
-		Message:   queuedUserMessageInitial,
-		Workspace: fixture.workspace,
-		OnEvent: func(event Event) error {
-			if event.Type == EventTypeToolUse {
-				queued, queueErr = fixture.runtime.Run(
-					context.Background(),
-					TurnRequest{Message: skillMessage},
-				)
-			}
-
-			return nil
-		},
-	})
-	require.NoError(t, err)
-	require.NoError(t, queueErr)
-	require.NotNil(t, queued)
-	assert.True(t, queued.Queued)
+	require.Len(t, outcomes, 1)
+	require.NoError(t, outcomes[0].err)
+	assert.True(t, outcomes[0].result.Queued)
 	assert.Equal(t, queuedUserMessageFinal, result.Text)
 
 	requests := driver.Requests()
 	require.Len(t, requests, 2)
 	assert.Equal(
 		t,
-		skillMessage,
-		requests[1].Messages[len(requests[1].Messages)-1].Text(),
+		[]string{
+			queuedSkillMessage,
+			expectedSkillMessage(t, fixture, runtimeTestExplicitSkillName),
+		},
+		tailTexts(requests[1].Messages, 2),
 	)
-	assert.Equal(t, elelem.RoleSystem, requests[1].Messages[0].Role)
 	assert.Equal(t, requests[0].Messages[0].Text(), requests[1].Messages[0].Text())
+	assert.NotContains(t, requests[1].Messages[0].Text(), skillTestBravoBody)
+
+	delivered := 0
+
+	for _, event := range events {
+		if event.Type != EventTypeUserMessageDelivered {
+			continue
+		}
+
+		delivered++
+
+		assert.Equal(t, requestID, event.RequestID)
+	}
+
+	assert.Equal(t, 1, delivered)
+	assert.Equal(
+		t,
+		[]string{
+			EventTypeUserMessageCreated,
+			EventTypeTurnStarted,
+			EventTypeToolUse,
+			EventTypeUserMessageCreated,
+			EventTypeUserMessageQueued,
+			EventTypeToolResult,
+			EventTypeUserMessageDelivered,
+			EventTypeSkillInjected,
+			EventTypeTurnCompleted,
+		},
+		harnessEventTypes(events),
+	)
+
+	stored, err := fixture.store.ListMessages(
+		context.Background(),
+		result.SessionID,
+		session.ListMessagesOptions{Order: session.PageOrderAscending},
+	)
+	require.NoError(t, err)
+	require.Len(t, stored.Items, 6)
+	assert.Equal(t, queuedSkillMessage, stored.Items[3].Content)
+	assert.False(t, stored.Items[3].Injected)
+	assert.Equal(
+		t,
+		expectedSkillMessage(t, fixture, runtimeTestExplicitSkillName),
+		stored.Items[4].Content,
+	)
+	assert.True(t, stored.Items[4].Injected)
+	assert.Equal(t, models.InjectedKindSkill, stored.Items[4].InjectedKind)
+}
+
+// The message is refused as invalid input, like at the start of a turn, and
+// leaves no trace: nothing queued, no event, nothing stored.
+func TestRuntimeQueuedUnknownSkillReferenceRefusesTheMessage(t *testing.T) {
+	driver := listFilesThenAnswerDriver()
+	fixture := newRuntimeFixture(t, driver)
+
+	result, events, outcomes := queueDuringToolCall(
+		t,
+		fixture,
+		[]TurnRequest{{Message: "then use :missing-skill"}},
+		queuedUserMessageInitial,
+	)
+
+	require.Len(t, outcomes, 1)
+	require.ErrorIs(t, outcomes[0].err, harness.ErrSkillNotFound)
+	require.ErrorIs(t, outcomes[0].err, commerr.ErrValidationFailed)
+	assert.Equal(t, queuedUserMessageFinal, result.Text)
+
+	for _, event := range events {
+		assert.NotEqual(t, EventTypeUserMessageQueued, event.Type)
+		assert.NotEqual(t, EventTypeUserMessageDelivered, event.Type)
+	}
+
+	requests := driver.Requests()
+	require.Len(t, requests, 2)
+	assert.Equal(t, len(requests[0].Messages)+2, len(requests[1].Messages))
+
+	stored, err := fixture.store.ListMessages(
+		context.Background(),
+		result.SessionID,
+		session.ListMessagesOptions{Order: session.PageOrderAscending},
+	)
+	require.NoError(t, err)
+	assert.Len(t, stored.Items, 4)
+}
+
+// Each skill message takes a queue slot, so a message that brings skills
+// leaves less room, and a message that no longer fits is refused whole.
+func TestRuntimeQueuedSkillMessagesCountAgainstTheQueueBound(t *testing.T) {
+	const queueBound = 2
+
+	driver := listFilesThenAnswerDriver()
+	fixture := newRuntimeFixtureWithOptions(
+		t,
+		driver,
+		func(options *RuntimeOptions) {
+			options.MaxQueuedUserMessages = queueBound
+		},
+	)
+	writeSkillFile(t, fixture, runtimeTestExplicitSkillName, skillTestBravoBody)
+
+	result, _, outcomes := queueDuringToolCall(
+		t,
+		fixture,
+		[]TurnRequest{
+			{Message: queuedSkillMessage},
+			{Message: queuedUserMessageText},
+		},
+		queuedUserMessageInitial,
+	)
+
+	require.Len(t, outcomes, 2)
+	require.NoError(t, outcomes[0].err)
+	require.ErrorIs(t, outcomes[1].err, elelem.ErrUserMessageQueueFull)
+	assert.Equal(t, queuedUserMessageFinal, result.Text)
+
+	requests := driver.Requests()
+	require.Len(t, requests, 2)
+	assert.Equal(
+		t,
+		[]string{
+			queuedSkillMessage,
+			expectedSkillMessage(t, fixture, runtimeTestExplicitSkillName),
+		},
+		tailTexts(requests[1].Messages, 2),
+	)
+}
+
+// A skill the turn's own first message already brought is not repeated by a
+// queued message that names it, and neither is one an earlier queued message
+// brought.
+func TestRuntimeQueuedSkillReferenceNotesASkillAlreadyLoaded(t *testing.T) {
+	driver := listFilesThenAnswerDriver()
+	fixture := newRuntimeFixture(t, driver)
+	writeSkillFile(t, fixture, runtimeTestExplicitSkillName, skillTestBravoBody)
+
+	const second = "and once more :review-rules"
+
+	_, _, outcomes := queueDuringToolCall(
+		t,
+		fixture,
+		[]TurnRequest{{Message: queuedSkillMessage}, {Message: second}},
+		runtimeTestExplicitSkillMessage,
+	)
+
+	require.Len(t, outcomes, 2)
+	require.NoError(t, outcomes[0].err)
+	require.NoError(t, outcomes[1].err)
+
+	requests := driver.Requests()
+	require.Len(t, requests, 2)
+
+	note := "<note>Skill review-rules is already loaded earlier in this " +
+		"conversation.</note>"
+	assert.Equal(
+		t,
+		[]string{queuedSkillMessage, note, second, note},
+		tailTexts(requests[1].Messages, 4),
+	)
+}
+
+func TestQueuedUserMessageCountAtEndMatchesSkillMessages(t *testing.T) {
+	t.Parallel()
+
+	skill := skillMessage{name: "x", text: "<skill>x</skill>"}
+	pending := []queuedUserMessage{
+		{message: "first", skills: []skillMessage{skill}},
+		{message: "second"},
+	}
+
+	transcript := func(texts ...string) []elelem.Message {
+		messages := make([]elelem.Message, 0, len(texts)+1)
+		messages = append(messages, elelem.Message{
+			Role:    elelem.RoleAssistant,
+			Content: elelem.Text("earlier"),
+		})
+
+		for _, text := range texts {
+			messages = append(messages, elelem.Message{
+				Role:    elelem.RoleUser,
+				Content: elelem.Text(text),
+			})
+		}
+
+		return messages
+	}
+
+	testCases := []struct {
+		name     string
+		messages []elelem.Message
+		want     int
+	}{
+		{
+			name:     "both delivered",
+			messages: transcript("first", skill.text, "second"),
+			want:     2,
+		},
+		{
+			name:     "only the first with its skill",
+			messages: transcript("first", skill.text),
+			want:     1,
+		},
+		{
+			name:     "a user message without its skill message",
+			messages: transcript("first"),
+			want:     0,
+		},
+		{
+			name:     "none delivered",
+			messages: transcript("something else"),
+			want:     0,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(
+				t,
+				tc.want,
+				queuedUserMessageCountAtEnd(tc.messages, pending),
+			)
+		})
+	}
 }
 
 func TestRuntimeIgnoresActiveTurnWorkspaceOverride(t *testing.T) {

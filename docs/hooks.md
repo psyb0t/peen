@@ -148,9 +148,22 @@ Stops the operation. On a tool event the model gets `reason` as the tool result,
 
 Gives the model extra context. Where it lands depends on the event:
 
-- `pre_user_message`, `session_start`, `post_user_message`, `turn_start`: appended to the system prompt under "Configured hook context".
-- tool events: a user-role message right after that tool's result.
+- `pre_user_message`, `session_start`, `post_user_message`, `turn_start`: appended to the system prompt as a `<hook>` block.
+- tool events: a user-role message right after that tool's result, as a `<hook>` block.
 - `turn_stop`, `turn_cancelled`, `pre_compact`, `post_compact`: dropped, because no model call follows.
+
+The model receives each event's injections as one block in the same shape as a [`<skill>` message](skills.md#forcing-a-skill): the event name, the tool name for a tool event, a blank line, then the injected text. When several hooks inject on the same event, their messages are joined with a blank line inside one block. This is the block for `post_tool_use` after a `run_command` call:
+
+```text
+<hook>
+<event>post_tool_use</event>
+<tool>run_command</tool>
+
+Run make test before you report this as done.
+</hook>
+```
+
+A lifecycle event such as `session_start` has no tool, so its block has no `<tool>` line. Peen escapes `<`, `>`, and `&` in the event and tool values so they cannot close the block early. The injected text is your own configuration and is sent as written. When session events are delivered with a tool result, their `<events>` block follows the `<hook>` block as a separate block. The default system prompt tells the model that a `<hook>` block holds trusted instructions from your configuration, while `<events>` content is data.
 
 ### `emit_event`
 
@@ -185,12 +198,12 @@ The published event's `source` is always `hooks`. A `summary` longer than `PEEN_
   environment:
     MODE: ci
   working_dir: .
-  timeout_seconds: 20
+  timeout: 20s
 ```
 
-Runs an executable. `command` is required. `args`, `environment`, `working_dir` (relative to the workspace), and `timeout_seconds` are optional. See [the command protocol](#the-command-protocol).
+Runs an executable. `command` is required. `args`, `environment`, `working_dir` (relative to the workspace), and `timeout` are optional. See [the command protocol](#the-command-protocol).
 
-`timeout_seconds` has no upper cap. A command on a tool event still stops with the tool call at `PEEN_TOOL_TIMEOUT`. A command on a lifecycle event is not inside a tool call, so only `PEEN_TURN_TIMEOUT` bounds it.
+`timeout` is a Go duration such as `20s`, `5m`, or `1h30m`. It must be positive. A hooks file with an unparsable, zero, or negative `timeout` is skipped with a warning. The old `timeout_seconds` field was removed and also makes the file invalid, with a warning that names `timeout`. `timeout` has no upper cap. A command on a tool event still stops with the tool call at `PEEN_TOOL_TIMEOUT`. A command on a lifecycle event is not inside a tool call, so only `PEEN_TURN_TIMEOUT` bounds it.
 
 ## The command protocol
 
@@ -276,7 +289,7 @@ These keys are snake_case, unlike the camelCase keys of other session events.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PEEN_HOOK_COMMAND_TIMEOUT` | `30s` | Time limit for one `command` action. `timeout_seconds` overrides it per action. The whole tool call stays bounded by `PEEN_TOOL_TIMEOUT`. |
+| `PEEN_HOOK_COMMAND_TIMEOUT` | `30s` | Time limit for one `command` action. `timeout` overrides it per action. The whole tool call stays bounded by `PEEN_TOOL_TIMEOUT`. |
 | `PEEN_MAX_HOOK_COMMAND_OUTPUT` | `65536` | Maximum stdout or stderr from one command. |
 
 At most 256 hook groups across all layers. Unlike an invalid file, which Peen skips, going over this limit fails every turn until you remove some groups. See [the harness limits](harness.md#mistakes-and-limits).
@@ -317,7 +330,7 @@ post_write_file:
         type: command
         command: /usr/local/go/bin/gofmt
         args: ["-l", "-w", "."]
-        timeout_seconds: 20
+        timeout: 20s
 ```
 
 ### Remind the model on every turn

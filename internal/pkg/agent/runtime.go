@@ -115,7 +115,6 @@ type turnBasis struct {
 	modelReference string
 	model          ModelClient
 	snapshot       harness.Snapshot
-	explicitSkills []string
 	systemPrompt   string
 	contextHash    string
 	promptHash     string
@@ -127,6 +126,11 @@ type promptAssembly struct {
 	prompt elelem.Prompt
 	plan   reconstructionPlan
 	active *models.Compaction
+
+	// skills are the messages that follow the turn's user message, and ledger
+	// records every skill the conversation now holds.
+	skills []skillMessage
+	ledger *skillLedger
 }
 
 // turnOpening bundles what opening a turn's prompt produced, including any
@@ -165,7 +169,7 @@ type preparedTurn struct {
 	eventBus           *events.Bus
 	pendingEvents      string
 	snapshot           harness.Snapshot
-	explicitSkills     []string
+	skillLedger        *skillLedger
 	toolHooks          *toolHookRuntime
 	userMessages       *activeUserMessageQueue
 }
@@ -469,6 +473,7 @@ func (r *Runtime) prepareTurn(
 		input,
 		basis.systemPrompt,
 		basis.storedSession,
+		basis.snapshot,
 	)
 	if err != nil {
 		return nil, err
@@ -494,7 +499,7 @@ func (r *Runtime) prepareTurn(
 		eventBus:        r.eventBus,
 		pendingEvents:   opening.pendingEvents,
 		snapshot:        basis.snapshot,
-		explicitSkills:  basis.explicitSkills,
+		skillLedger:     opening.assembly.ledger,
 	}
 
 	executor, generationID, err := r.openTurnExecutor(
@@ -570,7 +575,6 @@ func (r *Runtime) resolveTurnBasis(
 	}
 
 	snapshot,
-		explicitSkills,
 		systemPrompt,
 		contextHash,
 		promptHash,
@@ -589,7 +593,6 @@ func (r *Runtime) resolveTurnBasis(
 		modelReference: modelReference,
 		model:          model,
 		snapshot:       snapshot,
-		explicitSkills: explicitSkills,
 		systemPrompt:   systemPrompt,
 		contextHash:    contextHash,
 		promptHash:     promptHash,
@@ -600,10 +603,10 @@ func (r *Runtime) resolveContext(
 	ctx context.Context,
 	input TurnRequest,
 	workspace string,
-) (harness.Snapshot, []string, string, string, string, error) {
+) (harness.Snapshot, string, string, string, error) {
 	snapshot, err := r.resolver.Resolve(workspace)
 	if err != nil {
-		return harness.Snapshot{}, nil, "", "", "", ctxerrors.Wrap(
+		return harness.Snapshot{}, "", "", "", ctxerrors.Wrap(
 			err,
 			"resolve harness context",
 		)
@@ -618,13 +621,11 @@ func (r *Runtime) resolveContext(
 		)
 	}
 
-	explicitSkills, err := resolveTurnExplicitSkills(
-		ctx,
-		snapshot,
-		input.Message,
-	)
-	if err != nil {
-		return harness.Snapshot{}, nil, "", "", "", err
+	// A reference to a skill that does not exist refuses the message before
+	// anything is stored. The skill messages themselves are built once the
+	// session history says which skills the conversation already holds.
+	if err := requireKnownSkillReferences(snapshot, input.Message); err != nil {
+		return harness.Snapshot{}, "", "", "", err
 	}
 
 	systemPrompt, contextHash, promptHash, err := r.resolveSystemPrompt(
@@ -632,13 +633,12 @@ func (r *Runtime) resolveContext(
 		snapshot,
 		input,
 		workspace,
-		explicitSkills,
 	)
 	if err != nil {
-		return harness.Snapshot{}, nil, "", "", "", err
+		return harness.Snapshot{}, "", "", "", err
 	}
 
-	return snapshot, explicitSkills, systemPrompt, contextHash, promptHash, nil
+	return snapshot, systemPrompt, contextHash, promptHash, nil
 }
 
 func (r *Runtime) resolveSystemPrompt(
@@ -646,14 +646,8 @@ func (r *Runtime) resolveSystemPrompt(
 	snapshot harness.Snapshot,
 	input TurnRequest,
 	workspace string,
-	explicitSkills []string,
 ) (string, string, string, error) {
-	systemPrompt, err := r.systemPrompt(
-		snapshot,
-		input,
-		workspace,
-		explicitSkills,
-	)
+	systemPrompt, err := r.systemPrompt(snapshot, input, workspace)
 	if err != nil {
 		return "", "", "", ctxerrors.Wrap(err, "build system prompt")
 	}
@@ -687,6 +681,7 @@ func (r *Runtime) openPrompt(
 	input TurnRequest,
 	systemPrompt string,
 	stored *models.Session,
+	snapshot harness.Snapshot,
 ) (*session.OpenSessionResult, promptAssembly, error) {
 	firstTurn, err := r.isFirstTurn(ctx, stored.ID)
 	if err != nil {
@@ -714,10 +709,26 @@ func (r *Runtime) openPrompt(
 			ctxerrors.Wrap(err, "assemble persisted history")
 	}
 
+	ledger := newSkillLedger(deliveredSkillNames(history.Messages)...)
+
+	skills, err := buildSkillMessages(ctx, snapshot, ledger, input.Message)
+	if err != nil {
+		return nil, promptAssembly{}, err
+	}
+
+	ledger.recordMessages(skills)
+
+	prompt = prompt.UserText(input.Message)
+	for _, skill := range skills {
+		prompt = prompt.UserText(skill.text)
+	}
+
 	return opened, promptAssembly{
-		prompt: prompt.UserText(input.Message),
+		prompt: prompt,
 		plan:   plan,
 		active: history.Compaction,
+		skills: skills,
+		ledger: ledger,
 	}, nil
 }
 
@@ -799,7 +810,6 @@ func (r *Runtime) launchAgentDeps(prepared *preparedTurn) *launchAgentDeps {
 		runtime:            r,
 		executor:           prepared.executor,
 		snapshot:           prepared.snapshot,
-		explicitSkills:     prepared.explicitSkills,
 		model:              prepared.model,
 		modelReference:     prepared.modelReference,
 		workerGenerationID: prepared.workerGenerationID,
@@ -886,12 +896,14 @@ func (r *Runtime) openPromptWithEvents(
 	input TurnRequest,
 	systemPrompt string,
 	stored *models.Session,
+	snapshot harness.Snapshot,
 ) (turnOpening, error) {
 	opened, assembly, err := r.openPrompt(
 		ctx,
 		input,
 		systemPrompt,
 		stored,
+		snapshot,
 	)
 	if err != nil {
 		return turnOpening{}, ctxerrors.Wrap(err, "open prompt")
@@ -935,7 +947,7 @@ func (r *Runtime) openTurn(
 		input,
 		opening.opened.Session.ID,
 		workspace,
-		opening.pendingEvents,
+		opening,
 	)
 	if err != nil {
 		return nil, session.Lease{}, ctxerrors.Wrap(err, "start durable turn")
@@ -984,17 +996,17 @@ func (r *Runtime) startTurn(
 	input TurnRequest,
 	sessionID uuid.UUID,
 	workspace string,
-	pendingEvents string,
+	opening turnOpening,
 ) (*runtimeTurn, session.Lease, error) {
 	requestID := input.RequestID
 	if requestID == uuid.Nil {
 		requestID = uuid.New()
 	}
 
-	userMessageEvent, userMessageEventInput, err := newUserMessageEvent(
-		input.Message,
+	startEvents, startEventInputs, err := turnStartEvents(
+		input,
 		requestID,
-		input.SourceEventID,
+		opening.assembly.skills,
 	)
 	if err != nil {
 		return nil, session.Lease{}, err
@@ -1007,10 +1019,11 @@ func (r *Runtime) startTurn(
 	}
 
 	messages := turnStartMessages(
-		pendingEvents,
+		opening.pendingEvents,
 		workspace,
 		input.Message,
 		input.Origin != nil,
+		opening.assembly.skills,
 	)
 
 	lease, err := r.store.AcquireTurn(
@@ -1020,36 +1033,102 @@ func (r *Runtime) startTurn(
 			RequestID: requestID,
 			Workspace: workspace,
 			Messages:  messages,
-			Events:    []session.EventInput{userMessageEventInput},
+			Events:    startEventInputs,
 		},
 	)
 	if err != nil {
 		return nil, session.Lease{}, ctxerrors.Wrap(err, "acquire session turn")
 	}
 
-	// The user and pending-event messages went to AcquireTurn directly, not
-	// through turn.messages, so both checkpoint marks correctly start at zero.
+	// The user, skill, and pending-event messages went to AcquireTurn
+	// directly, not through turn.messages, so both checkpoint marks correctly
+	// start at zero.
 	turn.store = r.store
 	turn.lease = lease
-	turn.events = []Event{userMessageEvent}
+	turn.events = startEvents
 	turn.checkpointedEvents = len(turn.events)
 
 	return &turn, lease, nil
 }
 
-// turnStartMessages returns the messages a turn opens with: session events
+// turnStartEvents builds the events a turn opens with: the accepted user
+// message, then one skill.injected event per skill message that follows it.
+func turnStartEvents(
+	input TurnRequest,
+	requestID uuid.UUID,
+	skills []skillMessage,
+) ([]Event, []session.EventInput, error) {
+	userMessageEvent, userMessageEventInput, err := newUserMessageEvent(
+		input.Message,
+		requestID,
+		input.SourceEventID,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	events := make([]Event, 0, len(skills)+1)
+	inputs := make([]session.EventInput, 0, len(skills)+1)
+
+	events = append(events, userMessageEvent)
+	inputs = append(inputs, userMessageEventInput)
+
+	for _, skill := range skills {
+		event, eventInput, err := newSkillInjectedEvent(skill, requestID)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		events = append(events, event)
+		inputs = append(inputs, eventInput)
+	}
+
+	return events, inputs, nil
+}
+
+func newSkillInjectedEvent(
+	skill skillMessage,
+	requestID uuid.UUID,
+) (Event, session.EventInput, error) {
+	encoded, err := json.Marshal(skill.injectedPayload())
+	if err != nil {
+		return Event{}, session.EventInput{}, ctxerrors.Wrap(
+			err,
+			"marshal skill injected event",
+		)
+	}
+
+	event := Event{
+		Type:      EventTypeSkillInjected,
+		Payload:   encoded,
+		RequestID: requestID,
+	}
+
+	return event, session.EventInput{
+		RequestID:   requestID,
+		EventType:   event.Type,
+		PayloadJSON: string(encoded),
+	}, nil
+}
+
+// turnStartMessages builds the messages a turn opens with: session events
 // that arrived while the session was idle, marked as injected, then the
-// prompt that started the turn.
-// turnStartMessages builds the messages a turn opens with. A turn started by
-// an event handler opens with the handler's instructions rather than anything
-// a person typed, so that prompt is stored as injected too.
+// prompt that started the turn exactly as it was given, then one injected row
+// per skill message that follows it. A turn started by an event handler opens
+// with the handler's instructions rather than anything a person typed, so
+// that prompt is stored as injected too.
 func turnStartMessages(
 	pendingEvents string,
 	workspace string,
 	prompt string,
 	isPromptInjected bool,
+	skills []skillMessage,
 ) []session.MessageInput {
-	messages := make([]session.MessageInput, 0, turnStartMessageCapacity)
+	messages := make(
+		[]session.MessageInput,
+		0,
+		turnStartMessageCapacity+len(skills),
+	)
 	if pendingEvents != "" {
 		messages = append(messages, session.MessageInput{
 			Role:      models.MessageRoleUser,
@@ -1059,11 +1138,17 @@ func turnStartMessages(
 		})
 	}
 
-	return append(messages, session.MessageInput{
+	messages = append(messages, session.MessageInput{
 		Role:     models.MessageRoleUser,
 		Content:  prompt,
 		Injected: isPromptInjected,
 	})
+
+	for _, skill := range skills {
+		messages = append(messages, skill.storedInput(""))
+	}
+
+	return messages
 }
 
 func newUserMessageEvent(
@@ -1233,14 +1318,8 @@ func (r *Runtime) systemPrompt(
 	snapshot harness.Snapshot,
 	input TurnRequest,
 	workspace string,
-	explicitSkillSets ...[]string,
 ) (string, error) {
-	var explicitSkills []string
-	if len(explicitSkillSets) > 0 {
-		explicitSkills = explicitSkillSets[0]
-	}
-
-	blocks, err := snapshot.PromptBlocks(r.rootAgent, explicitSkills...)
+	blocks, err := snapshot.PromptBlocks(r.rootAgent)
 	if err != nil {
 		return "", ctxerrors.Wrap(err, "resolve prompt blocks")
 	}
@@ -1482,6 +1561,7 @@ func (r *Runtime) runProvider(
 
 	toolSet, err := r.agentToolSet(
 		r.launchAgentDeps(prepared),
+		prepared.skillLedger,
 		prepared.injectSessionEvents,
 		rootAgent.AllowedTools,
 		rootAgentDepth,

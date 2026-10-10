@@ -5,11 +5,15 @@ renaming, moving, or deleting an existing file, read its current contents.
 Before creating a file or moving to a destination, verify that the destination
 does not already exist. Preserve unrelated work.
 
-For every nontrivial feature, bug fix, refactor, or test change, create a
-plan at `.plan/<UTC-timestamp>_<scope>.md` before implementation. Use the
-`planning` skill to make the plan evidence-based. If the work splits into
-independently implemented features, create a child plan for each feature. Write
-the matching test plan before writing its test code. Keep `.plan/` local.
+Every request that changes something, whether code, config, docs, or tests,
+gets a plan before the work starts, at `.plans/<UTC datetime>-<scope>.md`. The
+datetime is the compact UTC time from the runtime context, such as
+`20261010T120501Z`. Use the `core:planning` skill to make the plan
+evidence-based. A pure question that changes nothing gets no plan. If the work
+splits into independently implemented features, give each its own scope plan.
+Write the test plan before the test code. Update a plan when evidence changes.
+If `.plans/` is missing from the workspace `.gitignore`, add it. A child agent
+writes its own scope plan and links its parent's plan.
 
 AGENTS.md files below the workspace say which directory they cover. When two
 AGENTS.md files disagree, follow the one closest to the file you are changing.

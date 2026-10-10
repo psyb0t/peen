@@ -29,6 +29,7 @@ const (
 	skillTestOtherBody = "Config only skill body."
 
 	skillTestUnknownName = "does-not-exist"
+	skillTestCoreName    = "planning"
 
 	skillTestDocumentFormat = "---\nname: %s\ndescription: %s\n---\n%s"
 
@@ -104,7 +105,7 @@ func TestUseSkillHandlerResolvesConfigRootSkill(t *testing.T) {
 	)
 	snapshot := fixture.resolve(t)
 
-	output, err := useSkillHandler(snapshot)(
+	output, err := useSkillHandler(snapshot, nil)(
 		context.Background(),
 		useSkillInput{Name: skillTestOtherName},
 	)
@@ -151,7 +152,7 @@ func TestUseSkillHandlerWorkspaceLayerReplacesConfigRootSkill(t *testing.T) {
 	)
 	snapshot := fixture.resolve(t)
 
-	output, err := useSkillHandler(snapshot)(
+	output, err := useSkillHandler(snapshot, nil)(
 		context.Background(),
 		useSkillInput{Name: skillTestSharedName},
 	)
@@ -214,7 +215,7 @@ func TestUseSkillHandlerReportsAnAbsoluteDirectory(t *testing.T) {
 		skillTestOtherBody,
 	)
 
-	output, err := useSkillHandler(fixture.resolve(t))(
+	output, err := useSkillHandler(fixture.resolve(t), nil)(
 		context.Background(),
 		useSkillInput{Name: skillTestOtherName},
 	)
@@ -252,7 +253,7 @@ func TestUseSkillHandlerDirectoryLocatesBundledFiles(t *testing.T) {
 		scriptBody,
 	)
 
-	output, err := useSkillHandler(fixture.resolve(t))(
+	output, err := useSkillHandler(fixture.resolve(t), nil)(
 		context.Background(),
 		useSkillInput{Name: skillTestOtherName},
 	)
@@ -281,7 +282,7 @@ func TestUseSkillHandlerUnknownNameListsEffectiveSkills(t *testing.T) {
 		{
 			name:          "only embedded skills are available",
 			withSkill:     false,
-			wantSubstring: "freshness",
+			wantSubstring: harness.CorePrefix + "freshness",
 		},
 	}
 
@@ -302,7 +303,7 @@ func TestUseSkillHandlerUnknownNameListsEffectiveSkills(t *testing.T) {
 
 			snapshot := fixture.resolve(t)
 
-			output, err := useSkillHandler(snapshot)(
+			output, err := useSkillHandler(snapshot, nil)(
 				context.Background(),
 				useSkillInput{Name: skillTestUnknownName},
 			)
@@ -312,6 +313,84 @@ func TestUseSkillHandlerUnknownNameListsEffectiveSkills(t *testing.T) {
 			assert.Equal(t, useSkillOutput{}, output)
 		})
 	}
+}
+
+func TestUseSkillHandlerResolvesCoreAndCustomSkillsOfOneName(t *testing.T) {
+	t.Parallel()
+
+	const (
+		coreName   = harness.CorePrefix + skillTestCoreName
+		customBody = "Custom planning body."
+	)
+
+	fixture := newSkillTestFixture(t)
+	fixture.writeSkill(
+		t,
+		fixture.workspace,
+		skillTestCoreName,
+		skillTestWorkspaceDesc,
+		customBody,
+	)
+	handler := useSkillHandler(fixture.resolve(t), nil)
+
+	plain, err := handler(
+		context.Background(),
+		useSkillInput{Name: skillTestCoreName},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, skillTestCoreName, plain.Name)
+	assert.Contains(t, plain.Content, customBody)
+
+	core, err := handler(
+		context.Background(),
+		useSkillInput{Name: coreName},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, coreName, core.Name)
+	assert.NotContains(t, core.Content, customBody)
+}
+
+func TestUseSkillHandlerPlainNameFallsBackToCoreSkill(t *testing.T) {
+	t.Parallel()
+
+	output, err := useSkillHandler(newSkillTestFixture(t).resolve(t), nil)(
+		context.Background(),
+		useSkillInput{Name: skillTestCoreName},
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, harness.CorePrefix+skillTestCoreName, output.Name)
+}
+
+func TestUseSkillHandlerRefusesADisabledCoreSkill(t *testing.T) {
+	t.Parallel()
+
+	fixture := newSkillTestFixture(t)
+	resolver, err := harness.NewResolver(
+		fixture.configRoot,
+		harness.Limits{},
+		harness.WithDisabledCoreSkills([]string{skillTestCoreName}),
+	)
+	require.NoError(t, err)
+
+	snapshot, err := resolver.Resolve(fixture.workspace)
+	require.NoError(t, err)
+
+	handler := useSkillHandler(snapshot, nil)
+
+	for _, name := range []string{
+		skillTestCoreName,
+		harness.CorePrefix + skillTestCoreName,
+	} {
+		_, err := handler(context.Background(), useSkillInput{Name: name})
+		require.ErrorIs(t, err, harness.ErrSkillNotFound, name)
+	}
+
+	_, err = handler(
+		context.Background(),
+		useSkillInput{Name: harness.CorePrefix + "freshness"},
+	)
+	require.NoError(t, err)
 }
 
 func TestUseSkillHandlerRepeatedCallReturnsIdenticalContent(t *testing.T) {
@@ -326,7 +405,7 @@ func TestUseSkillHandlerRepeatedCallReturnsIdenticalContent(t *testing.T) {
 		skillTestOtherBody,
 	)
 	snapshot := fixture.resolve(t)
-	handler := useSkillHandler(snapshot)
+	handler := useSkillHandler(snapshot, nil)
 
 	first, err := handler(
 		context.Background(),
@@ -358,7 +437,7 @@ func TestHostToolSetUseSkillEndToEnd(t *testing.T) {
 	)
 	snapshot := fixture.resolve(t)
 
-	set := hostToolSet(newToolTestExecutor(t), nil, snapshot, nil)
+	set := hostToolSet(newToolTestExecutor(t), nil, snapshot, nil, nil)
 
 	tool, ok := set.Get(toolNameUseSkill)
 	require.True(t, ok)
@@ -461,4 +540,121 @@ func TestRuntimeRunExecutesUseSkillAndPairsCallID(t *testing.T) {
 	toolMessage := messages.Items[2]
 	assert.Equal(t, skillTestCallID, toolMessage.ToolCallID)
 	assert.False(t, toolMessage.IsError)
+}
+
+// referencedSkillFixture writes four config skills: alpha names bravo and
+// delta, and bravo names charlie.
+func referencedSkillFixture(t *testing.T) harness.Snapshot {
+	t.Helper()
+
+	fixture := newSkillTestFixture(t)
+	bodies := map[string]string{
+		"ref-alpha":   "Alpha, with :ref-bravo and :ref-delta.",
+		"ref-bravo":   "Bravo, with :ref-charlie.",
+		"ref-charlie": "Charlie.",
+		"ref-delta":   "Delta.",
+	}
+
+	for name, body := range bodies {
+		fixture.writeSkill(t, fixture.configRoot, name, name+" skill", body)
+	}
+
+	return fixture.resolve(t)
+}
+
+func TestUseSkillDescriptionDocumentsReferencedSkills(t *testing.T) {
+	t.Parallel()
+
+	assert.Contains(t, useSkillDescription, "referencedSkills")
+	assert.Contains(t, useSkillDescription, ":name")
+	assert.Contains(t, useSkillDescription, "already")
+}
+
+func referencedNames(output useSkillOutput) []string {
+	names := make([]string, 0, len(output.ReferencedSkills))
+	for _, skill := range output.ReferencedSkills {
+		names = append(names, skill.Name)
+	}
+
+	return names
+}
+
+func TestUseSkillReturnsReferencedSkillsDepthFirst(t *testing.T) {
+	t.Parallel()
+
+	snapshot := referencedSkillFixture(t)
+
+	output, err := useSkillHandler(snapshot, newSkillLedger())(
+		context.Background(),
+		useSkillInput{Name: "ref-alpha"},
+	)
+	require.NoError(t, err)
+
+	assert.Equal(t, "ref-alpha", output.Name)
+	assert.Equal(
+		t,
+		[]string{"ref-bravo", "ref-charlie", "ref-delta"},
+		referencedNames(output),
+	)
+
+	for _, skill := range output.ReferencedSkills {
+		activated, err := snapshot.ActivateSkill(skill.Name)
+		require.NoError(t, err)
+		assert.Equal(t, activated.Content, skill.Content)
+		assert.Equal(t, activated.Directory, skill.Directory)
+	}
+}
+
+func TestUseSkillLeavesOutReferencedSkillsTheConversationHolds(t *testing.T) {
+	t.Parallel()
+
+	snapshot := referencedSkillFixture(t)
+
+	output, err := useSkillHandler(snapshot, newSkillLedger("ref-bravo"))(
+		context.Background(),
+		useSkillInput{Name: "ref-alpha"},
+	)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"ref-delta"}, referencedNames(output))
+}
+
+func TestUseSkillRecordsWhatItReturned(t *testing.T) {
+	t.Parallel()
+
+	ledger := newSkillLedger()
+	handler := useSkillHandler(referencedSkillFixture(t), ledger)
+
+	_, err := handler(context.Background(), useSkillInput{Name: "ref-alpha"})
+	require.NoError(t, err)
+
+	assert.Equal(
+		t,
+		map[string]struct{}{
+			"ref-alpha":   {},
+			"ref-bravo":   {},
+			"ref-charlie": {},
+			"ref-delta":   {},
+		},
+		ledger.held(),
+	)
+
+	again, err := handler(context.Background(), useSkillInput{Name: "ref-alpha"})
+	require.NoError(t, err)
+	assert.Contains(t, again.Content, "Alpha")
+	assert.Empty(t, again.ReferencedSkills)
+}
+
+func TestUseSkillWithoutReferencesOmitsTheReferencedSkillsField(t *testing.T) {
+	t.Parallel()
+
+	output, err := useSkillHandler(referencedSkillFixture(t), nil)(
+		context.Background(),
+		useSkillInput{Name: "ref-delta"},
+	)
+	require.NoError(t, err)
+
+	encoded, err := json.Marshal(output)
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "referencedSkills")
 }

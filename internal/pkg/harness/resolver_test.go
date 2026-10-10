@@ -152,8 +152,16 @@ func TestResolverIncludesEmbeddedBaseHarness(t *testing.T) {
 	assert.Equal(t, embeddedInstructionSource, instructions[0].Source)
 	assert.Equal(t, embeddedInstructionPriority, instructions[0].Priority)
 	assert.Contains(t, instructions[0].Content, "trusted runtime context")
-	assert.Equal(t, []string{"freshness", "planning"}, skillNames(snapshot.Skills()))
-	assert.Equal(t, []string{embeddedDefaultAgentName}, agentNames(snapshot.Agents()))
+	assert.Equal(
+		t,
+		[]string{CorePrefix + "freshness", CorePrefix + "planning"},
+		skillNames(snapshot.Skills()),
+	)
+	assert.Equal(
+		t,
+		[]string{CorePrefix + embeddedGeneralPurposeAgentName},
+		agentNames(snapshot.Agents()),
+	)
 
 	manifest := snapshot.Manifest()
 	require.Len(t, manifest, 4)
@@ -162,20 +170,21 @@ func TestResolverIncludesEmbeddedBaseHarness(t *testing.T) {
 	assert.Equal(t, embeddedSkillsSourcePrefix+"planning/SKILL.md", manifest[2].Source)
 	assert.Equal(
 		t,
-		embeddedAgentsSourcePrefix+embeddedDefaultAgentName+agentsFileExtension,
+		embeddedAgentsSourcePrefix+embeddedGeneralPurposeAgentName+
+			agentsFileExtension,
 		manifest[3].Source,
 	)
 }
 
-func TestResolverFilesystemDefaultAgentReplacesEmbeddedDefault(t *testing.T) {
+func TestResolverCustomAgentsDoNotCountAgainstCoreAgentBound(t *testing.T) {
 	t.Parallel()
 
 	fixture := newResolverFixture(t)
 	fixture.writeAgent(
 		t,
 		fixture.configRoot,
-		embeddedDefaultAgentName,
-		"configured default",
+		embeddedGeneralPurposeAgentName,
+		"configured",
 		testAgentBody,
 	)
 
@@ -186,20 +195,7 @@ func TestResolverFilesystemDefaultAgentReplacesEmbeddedDefault(t *testing.T) {
 	snapshot, err := resolver.Resolve(fixture.workspace)
 	require.NoError(t, err)
 
-	defaultAgent, err := snapshot.Agent(embeddedDefaultAgentName)
-	require.NoError(t, err)
-	assert.Equal(t, "configured default", defaultAgent.Description)
-	assert.Equal(t, testAgentBody, defaultAgent.Instructions)
-	assert.Equal(
-		t,
-		filepath.Join(
-			fixture.configRoot,
-			agentsDirectoryName,
-			agentsSubdirectory,
-			embeddedDefaultAgentName+agentsFileExtension,
-		),
-		defaultAgent.Source,
-	)
+	assert.Len(t, snapshot.Agents(), 2)
 }
 
 func TestResolverNamedAgentParsesAllowedTools(t *testing.T) {
@@ -228,7 +224,7 @@ Inspect only.`,
 	)
 }
 
-func TestResolverFilesystemSkillsReplaceEmbeddedDefinitions(t *testing.T) {
+func TestResolverLaterLayerSkillReplacesEarlierCustomSkill(t *testing.T) {
 	t.Parallel()
 
 	fixture := newResolverFixture(t)
@@ -371,7 +367,7 @@ func TestResolverProducesStableAndChangingHashes(t *testing.T) {
 	assert.Equal(t, first.Hash(), second.Hash())
 	assert.Equal(
 		t,
-		[]string{"alpha", "freshness", "planning", "zulu"},
+		[]string{"alpha", "core:freshness", "core:planning", "zulu"},
 		skillNames(second.Skills()),
 	)
 
@@ -387,8 +383,16 @@ func TestResolverHandlesMissingInputsAndCanonicalPaths(t *testing.T) {
 	empty := resolveFixture(t, fixture)
 	require.Len(t, empty.Instructions(), 1)
 	assert.Equal(t, embeddedInstructionSource, empty.Instructions()[0].Source)
-	assert.Equal(t, []string{"freshness", "planning"}, skillNames(empty.Skills()))
-	assert.Equal(t, []string{embeddedDefaultAgentName}, agentNames(empty.Agents()))
+	assert.Equal(
+		t,
+		[]string{"core:freshness", "core:planning"},
+		skillNames(empty.Skills()),
+	)
+	assert.Equal(
+		t,
+		[]string{"core:general-purpose"},
+		agentNames(empty.Agents()),
+	)
 
 	actualConfigRoot := filepath.Join(fixture.root, "actual-config")
 	actualWorkspace := filepath.Join(fixture.root, "actual-workspace")

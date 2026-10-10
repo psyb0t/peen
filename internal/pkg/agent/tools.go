@@ -52,12 +52,16 @@ func hostToolSet(
 	executor *tools.JobExecutor,
 	onPostRun elelem.MessageInjector,
 	snapshot harness.Snapshot,
+	skills *skillLedger,
 	collector *metrics.Metrics,
 ) *elelem.ToolSet {
 	registered := readOnlyHostTools(executor, onPostRun)
 	registered = append(registered, mutatingHostTools(executor, onPostRun)...)
 	registered = append(registered, jobHostTools(executor, onPostRun)...)
-	registered = append(registered, skillHostTools(snapshot, onPostRun)...)
+	registered = append(
+		registered,
+		skillHostTools(snapshot, skills, onPostRun)...,
+	)
 
 	return elelem.NewToolSet(instrumentTools(registered, collector)...)
 }

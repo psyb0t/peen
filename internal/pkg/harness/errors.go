@@ -14,8 +14,10 @@ var (
 	ErrInvalidHook          = errors.New("invalid hook configuration")
 	ErrResourceLimit        = errors.New("harness resource limit exceeded")
 	ErrSkillNotFound        = errors.New("skill not found")
+	ErrSkillContentTooLarge = errors.New("skill content too large")
 	ErrAgentNotFound        = errors.New("agent not found")
 	ErrEventHandlerNotFound = errors.New("event handler not found")
+	ErrUnknownCoreName      = errors.New("unknown core name")
 
 	// ErrUnsupportedHomeReference reports a "~user" path segment. Only the
 	// running user's own home directory can be expanded.

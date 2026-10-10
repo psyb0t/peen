@@ -1,12 +1,186 @@
 package agent
 
 import (
+	"context"
+	"path/filepath"
 	"testing"
 
+	"github.com/psyb0t/elelem"
+	"github.com/psyb0t/elelem/elelemtest"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+const (
+	hookInjectTestCallID  = "call-1"
+	hookInjectTestNote    = "check the diff"
+	hookInjectTestFile    = "readable.txt"
+	hookInjectTestSession = "<events>\nreport\n</events>"
+)
+
+func TestMessageInjectionKeepsHookContextAndSessionEventsSeparate(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	block, err := renderHookContext(
+		harness.HookEventPostToolUse,
+		"read_file",
+		[]string{hookInjectTestNote},
+	)
+	require.NoError(t, err)
+
+	runtime := &toolHookRuntime{
+		messages: map[string][]string{},
+		sessionEvents: func(
+			context.Context,
+			*elelem.ToolEvent,
+		) (*elelem.MessageInjection, error) {
+			return &elelem.MessageInjection{
+				Type:    elelem.RoleUser,
+				Content: hookInjectTestSession,
+			}, nil
+		},
+	}
+	runtime.add(hookInjectTestCallID, []string{block})
+
+	injection, err := runtime.messageInjection(
+		context.Background(),
+		&elelem.ToolEvent{CallID: hookInjectTestCallID},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, injection)
+
+	assert.Equal(t, elelem.RoleUser, injection.Type)
+	assert.Equal(
+		t,
+		"<hook>\n<event>post_tool_use</event>\n<tool>read_file</tool>\n\n"+
+			hookInjectTestNote+"\n</hook>\n\n"+hookInjectTestSession,
+		injection.Content,
+	)
+}
+
+func TestMessageInjectionWithOnlyHookContext(t *testing.T) {
+	t.Parallel()
+
+	block, err := renderHookContext(
+		harness.HookEventPostToolUse,
+		"read_file",
+		[]string{hookInjectTestNote},
+	)
+	require.NoError(t, err)
+
+	runtime := &toolHookRuntime{messages: map[string][]string{}}
+	runtime.add(hookInjectTestCallID, []string{block})
+
+	injection, err := runtime.messageInjection(
+		context.Background(),
+		&elelem.ToolEvent{CallID: hookInjectTestCallID},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, injection)
+	assert.Equal(t, block, injection.Content)
+}
+
+func TestAppendHookContextWrapsPreUserMessageInjections(t *testing.T) {
+	t.Parallel()
+
+	got, err := appendHookContext(
+		"system prompt",
+		harness.HookEventPreUserMessage,
+		[]string{hookInjectTestNote},
+	)
+	require.NoError(t, err)
+	assert.Equal(
+		t,
+		"system prompt"+systemSectionGap+
+			"<hook>\n<event>pre_user_message</event>\n\n"+
+			hookInjectTestNote+"\n</hook>",
+		got,
+	)
+
+	unchanged, err := appendHookContext(
+		"system prompt",
+		harness.HookEventPreUserMessage,
+		nil,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "system prompt", unchanged)
+}
+
+func TestToolEventInjectionReachesTheModelAsHookContext(t *testing.T) {
+	driver := elelemtest.NewScriptedDriver(
+		elelemtest.ToolCall(
+			hookInjectTestCallID,
+			toolNameReadFile,
+			runtimeToolArguments(t, hookInjectTestFile),
+		),
+		elelemtest.Text("done"),
+	)
+	fixture := newRuntimeFixture(t, driver)
+	writeRuntimeFile(
+		t,
+		filepath.Join(fixture.workspace, hookInjectTestFile),
+		"content",
+	)
+	writeChildHarnessHooks(t, fixture, `version: 1
+post_read_file:
+  - name: note
+    actions:
+      - type: inject
+        message: `+hookInjectTestNote+`
+`)
+
+	_, err := fixture.runtime.Run(context.Background(), TurnRequest{
+		Message:   "read it",
+		Workspace: fixture.workspace,
+	})
+	require.NoError(t, err)
+
+	requests := driver.Requests()
+	require.Len(t, requests, 2)
+
+	messages := requests[1].Messages
+	assert.Equal(
+		t,
+		"<hook>\n<event>post_read_file</event>\n<tool>read_file</tool>\n\n"+
+			hookInjectTestNote+"\n</hook>",
+		messages[len(messages)-1].Text(),
+	)
+}
+
+func TestSessionStartInjectionReachesTheModelAsHookContext(t *testing.T) {
+	driver := elelemtest.NewScriptedDriver(elelemtest.Text("done"))
+	fixture := newRuntimeFixture(t, driver)
+	writeChildHarnessHooks(t, fixture, `version: 1
+session_start:
+  - name: note
+    actions:
+      - type: inject
+        message: `+hookInjectTestNote+`
+`)
+
+	_, err := fixture.runtime.Run(context.Background(), TurnRequest{
+		Message:   "hello",
+		Workspace: fixture.workspace,
+	})
+	require.NoError(t, err)
+
+	requests := driver.Requests()
+	require.Len(t, requests, 1)
+	assert.Contains(
+		t,
+		requests[0].Messages[0].Text(),
+		"<hook>\n<event>session_start</event>\n\n"+
+			hookInjectTestNote+"\n</hook>",
+	)
+	assert.NotContains(
+		t,
+		requests[0].Messages[0].Text(),
+		"Configured hook context",
+	)
+}
 
 // Each tool maps its three lifecycle phases onto its own harness events. A
 // mapper that returned another tool's event, or the same event for two phases,

@@ -263,6 +263,11 @@ func TestJobRegistry_PublishesJobExited(t *testing.T) {
 	assert.Equal(t, job.ID, data.JobID)
 	assert.Equal(t, commandExitCodeNonZero, data.ExitCode)
 	assert.GreaterOrEqual(t, data.DurationMs, int64(0))
+	assert.Equal(
+		t,
+		(time.Duration(data.DurationMs) * time.Millisecond).String(),
+		data.Duration,
+	)
 }
 
 // A command that prints and exits before its start is recorded keeps every

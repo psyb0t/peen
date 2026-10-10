@@ -530,16 +530,16 @@ func newRealHarnessFixture(t *testing.T) realHarnessFixture {
 	assertRealHarnessSocketBudget(t, socketDirectory)
 
 	return realHarnessFixture{
-		configDirectory:    configDirectory,
-		stateDirectory:     stateDirectory,
-		socketDirectory:    socketDirectory,
-		workspaceRoot:      workspace,
-		workspace:          workspace,
-		service:            service,
-		implementation:     implementation,
-		testFile:           testFile,
-		notesFile:          notesFile,
-		auditDirectory:     auditDirectory,
+		configDirectory: configDirectory,
+		stateDirectory:  stateDirectory,
+		socketDirectory: socketDirectory,
+		workspaceRoot:   workspace,
+		workspace:       workspace,
+		service:         service,
+		implementation:  implementation,
+		testFile:        testFile,
+		notesFile:       notesFile,
+		auditDirectory:  auditDirectory,
 	}
 }
 
@@ -802,7 +802,7 @@ func realHarnessEnvironment(
 		"PEEN_API_TOKEN":                 apiToken,
 		"PEEN_TURN_TIMEOUT":              realHarnessTestTimeout.String(),
 		"PEEN_LOG_DIRECTORY":             fixture.auditDirectory,
-		"PEEN_LOG_RETENTION_DAYS":        "14",
+		"PEEN_LOG_RETENTION":             "336h",
 		"LOG_LEVEL":                      "debug",
 	} {
 		environment[name] = name + "=" + value

@@ -57,6 +57,7 @@ __pycache__
 
 # agent scratch and QA output, never part of a build
 .plan/
+.plans/
 .cover/
 .pnpm-store/
 web/.svelte-kit/

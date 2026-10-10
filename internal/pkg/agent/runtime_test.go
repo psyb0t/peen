@@ -240,14 +240,29 @@ func TestRuntimeExplicitSkillReferenceInjectsTheEffectiveSkill(t *testing.T) {
 
 	requests := driver.Requests()
 	require.Len(t, requests, 1)
+
+	// The workspace skill wins over the config skill of the same name, and it
+	// reaches the model as a message, not through the system prompt.
 	systemPrompt := requests[0].Messages[0].Text()
 	assert.Contains(t, systemPrompt, "Workspace review procedure.")
-	assert.Contains(t, systemPrompt, runtimeTestWorkspaceSkillInstructions)
+	assert.NotContains(t, systemPrompt, runtimeTestWorkspaceSkillInstructions)
 	assert.NotContains(t, systemPrompt, runtimeTestConfigSkillInstructions)
+
+	messages := requests[0].Messages
 	assert.Equal(
 		t,
 		runtimeTestExplicitSkillMessage,
-		requests[0].Messages[len(requests[0].Messages)-1].Text(),
+		messages[len(messages)-2].Text(),
+	)
+	assert.Contains(
+		t,
+		messages[len(messages)-1].Text(),
+		runtimeTestWorkspaceSkillInstructions,
+	)
+	assert.NotContains(
+		t,
+		messages[len(messages)-1].Text(),
+		runtimeTestConfigSkillInstructions,
 	)
 
 	query := repositories.Use(fixture.handle.GormDB)
@@ -261,7 +276,7 @@ func TestRuntimeExplicitSkillReferenceInjectsTheEffectiveSkill(t *testing.T) {
 		Where(query.ContextSnapshot.Hash.Eq(*turn.ContextSnapshotHash)).
 		First()
 	require.NoError(t, err)
-	assert.Contains(
+	assert.NotContains(
 		t,
 		contextSnapshot.ResolvedContent,
 		runtimeTestWorkspaceSkillInstructions,

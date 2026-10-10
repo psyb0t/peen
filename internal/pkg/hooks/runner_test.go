@@ -174,6 +174,55 @@ pre_tool_use:
 	assert.Equal(t, hookFailureEventSource, publisher.notices[0].Source)
 }
 
+// A command action's timeout is a Go duration that replaces the runner's
+// default bound for that action only.
+func TestRunnerBoundsACommandByItsTimeoutDuration(t *testing.T) {
+	t.Parallel()
+
+	const defaultBound = time.Hour
+
+	snapshot, workspace := testSnapshot(t, `version: 1
+pre_tool_use:
+  - match:
+      tool: read_file
+    actions:
+      - type: command
+        command: bounded
+        timeout: 2s
+      - type: command
+        command: default-bound
+`, "")
+
+	remaining := map[string]time.Duration{}
+
+	runner, err := New(Options{
+		Snapshot:       snapshot,
+		Workspace:      workspace,
+		CommandTimeout: defaultBound,
+		RunCommand: func(ctx context.Context, input CommandInput) ([]byte, error) {
+			deadline, ok := ctx.Deadline()
+			require.True(t, ok)
+
+			remaining[input.Command] = time.Until(deadline)
+
+			return nil, nil
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = runner.Run(context.Background(), Invocation{
+		Event: harness.HookEventPreToolUse,
+		Tool:  "read_file",
+		Paths: []string{filepath.Join(workspace, "readme.md")},
+		Input: json.RawMessage(`{"path":"readme.md"}`),
+	})
+	require.NoError(t, err)
+
+	assert.Greater(t, remaining["bounded"], time.Second)
+	assert.LessOrEqual(t, remaining["bounded"], 2*time.Second)
+	assert.Greater(t, remaining["default-bound"], 59*time.Minute)
+}
+
 func TestRunnerUsesStablePrivateStatePerSession(t *testing.T) {
 	t.Parallel()
 

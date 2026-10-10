@@ -111,8 +111,8 @@ apply to every turn in
 `.claude/rules/*.md` or `.agents/rules/*.md`. Skills give the agent named
 procedures. Every turn sees a skill's name and description, then the model
 decides whether an ordinary task matches and loads it with `use_skill`. Put a
-standalone `:skill-name` at the start of a message or after whitespace to
-require the effective skill by exact name. Named agents let it split off a
+standalone `:skill-name` at the start of a message or after whitespace to hand
+the model the effective skill by exact name, as a message after yours. Named agents let it split off a
 bounded job. Hooks are for mechanical checks and hard stops that an ordinary
 prompt should not be trusted to enforce. Each one has its own guide:
 [the harness](harness.md), [rules](rules.md), [skills](skills.md),

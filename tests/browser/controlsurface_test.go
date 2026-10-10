@@ -114,7 +114,7 @@ const (
 	browserStreamProtocolEvent           = "content_block_"
 	browserModelReference                = "integration/test-model"
 	browserMaxScreenshotEdge             = 512
-	browserImage                         = "psyb0t/stealthy-auto-browse@sha256:d481011eff9432a3afe7b03d06634eca1a1061f3ea1e17d99d0e18f7fcac425f"
+	browserImage                         = "psyb0t/stealthy-auto-browse@sha256:60ed29e9775b9af7d3a457f5d9d3fe0039f4cfe2fc98a405eedcb286dc44bbe1"
 	dockerSocketDestination              = "/var/run/docker.sock"
 	browserDiagnosticSocketConnect       = "socket.connect.start"
 	browserDiagnosticSocketOpen          = "socket.open"

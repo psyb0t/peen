@@ -6,6 +6,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
+	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -34,6 +35,7 @@ const (
 
 	CodeRunningTurnSettingsChange Code = "running_turn_settings_change"
 	CodeUserMessageQueueFull      Code = "user_message_queue_full"
+	CodeUnknownSkill              Code = "unknown_skill"
 )
 
 // Error is one failure as it crosses the socket.
@@ -89,6 +91,11 @@ var detailedFailures = []detailedFailure{
 // failure stays unknown rather than being forced into a class it does not
 // belong to.
 func codeFor(err error) Code {
+	var unknown *harness.UnknownSkillError
+	if errors.As(err, &unknown) {
+		return CodeUnknownSkill
+	}
+
 	for _, failure := range detailedFailures {
 		if errors.Is(err, failure.detail) {
 			return failure.code
@@ -110,6 +117,13 @@ func NewError(err error) *Error {
 		return nil
 	}
 
+	// An unknown skill carries a message written for the sender, without the
+	// wrap locations err.Error() adds, and the sender needs it intact.
+	var unknown *harness.UnknownSkillError
+	if errors.As(err, &unknown) {
+		return &Error{Code: CodeUnknownSkill, Message: unknown.Message}
+	}
+
 	return &Error{Code: codeFor(err), Message: err.Error()}
 }
 
@@ -119,6 +133,16 @@ func NewError(err error) *Error {
 func (e *Error) Unwrap() error {
 	if e == nil {
 		return nil
+	}
+
+	if e.Code == CodeUnknownSkill {
+		return ctxerrors.Wrap(
+			errors.Join(
+				commerr.ErrValidationFailed,
+				&harness.UnknownSkillError{Message: e.Message},
+			),
+			"unknown skill reference",
+		)
 	}
 
 	for _, failure := range detailedFailures {

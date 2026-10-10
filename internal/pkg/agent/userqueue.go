@@ -11,6 +11,7 @@ import (
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -26,6 +27,12 @@ type activeUserMessageQueue struct {
 	closed    bool
 	pending   []queuedUserMessage
 
+	// snapshot and skills resolve a :name in a queued message the way the
+	// turn's own first message was resolved. skills is the ledger of every
+	// skill the turn has already delivered.
+	snapshot harness.Snapshot
+	skills   *skillLedger
+
 	// modelReference, model, and reasoningEffort are the running turn's
 	// effective settings. A queued message may repeat them but not change
 	// them. They are fixed when the queue is registered, so reading them
@@ -39,6 +46,11 @@ type queuedUserMessage struct {
 	message       string
 	requestID     uuid.UUID
 	sourceEventID uuid.UUID
+
+	// skills are the messages queued right after message, one per skill the
+	// message names or the named skills reference, or a note when the
+	// conversation already holds the skill.
+	skills []skillMessage
 }
 
 type userMessagePayload struct {
@@ -60,6 +72,8 @@ func newActiveUserMessageQueue(
 		turn:           prepared.turn,
 		workspace:      prepared.workspace,
 		capacity:       capacity,
+		snapshot:       prepared.snapshot,
+		skills:         prepared.skillLedger,
 		modelReference: prepared.modelReference,
 		model:          prepared.model,
 		reasoningEffort: effectiveReasoningEffort(
@@ -118,7 +132,14 @@ func (q *activeUserMessageQueue) enqueue(
 		return ctxerrors.Wrap(commerr.ErrConflict, "active turn has completed")
 	}
 
-	if q.queue.Len() >= q.capacity {
+	// The skills are resolved now, against what the turn already holds, so an
+	// unknown name refuses the message before it leaves any trace.
+	skills, err := buildSkillMessages(ctx, q.snapshot, q.skills, input.Message)
+	if err != nil {
+		return err
+	}
+
+	if q.queue.Len()+1+len(skills) > q.capacity {
 		return ctxerrors.Wrap(
 			errors.Join(commerr.ErrConflict, elelem.ErrUserMessageQueueFull),
 			"queue active user message",
@@ -134,14 +155,15 @@ func (q *activeUserMessageQueue) enqueue(
 		return err
 	}
 
-	if err := q.queue.EnqueueText(input.Message); err != nil {
-		return ctxerrors.Wrap(err, "enqueue active user message")
+	if err := q.enqueueWithSkills(input.Message, skills); err != nil {
+		return err
 	}
 
 	q.pending = append(q.pending, queuedUserMessage{
 		message:       input.Message,
 		requestID:     input.RequestID,
 		sourceEventID: input.SourceEventID,
+		skills:        skills,
 	})
 
 	loggerContext := ctxscope.Set(
@@ -151,8 +173,30 @@ func (q *activeUserMessageQueue) enqueue(
 	ctxscope.GetLogger(loggerContext).Info(
 		"active turn user message queued",
 		"message_bytes", len(input.Message),
+		"skill_messages", len(skills),
 		"queued_depth", q.queue.Len(),
 	)
+
+	return nil
+}
+
+// enqueueWithSkills queues a user message and its skill messages together.
+// The caller has checked that they all fit, so none can be left behind.
+func (q *activeUserMessageQueue) enqueueWithSkills(
+	message string,
+	skills []skillMessage,
+) error {
+	if err := q.queue.EnqueueText(message); err != nil {
+		return ctxerrors.Wrap(err, "enqueue active user message")
+	}
+
+	for _, skill := range skills {
+		if err := q.queue.EnqueueText(skill.text); err != nil {
+			return ctxerrors.Wrap(err, "enqueue active skill message")
+		}
+	}
+
+	q.skills.recordMessages(skills)
 
 	return nil
 }
@@ -216,6 +260,10 @@ func (q *activeUserMessageQueue) checkpointDelivered(
 			Content:   message.message,
 			Workspace: q.workspace,
 		})
+
+		for _, skill := range message.skills {
+			inputs = append(inputs, skill.storedInput(q.workspace))
+		}
 	}
 
 	if err := q.turn.appendQueuedUserMessages(ctx, inputs); err != nil {
@@ -252,34 +300,75 @@ func (q *activeUserMessageQueue) emitDelivered(
 		return ctxerrors.Wrap(err, "emit delivered queued user message")
 	}
 
+	return q.emitSkillsDelivered(ctx, message)
+}
+
+// emitSkillsDelivered reports each skill message that reached the model with
+// a delivered user message. They go out under the running turn's request ID,
+// so a client adds them to the turn the message landed in.
+func (q *activeUserMessageQueue) emitSkillsDelivered(
+	ctx context.Context,
+	message queuedUserMessage,
+) error {
+	for _, skill := range message.skills {
+		if err := q.turn.emit(
+			ctx,
+			EventTypeSkillInjected,
+			skill.injectedPayload(),
+		); err != nil {
+			return ctxerrors.Wrap(err, "emit delivered skill message")
+		}
+	}
+
 	return nil
 }
 
+// queuedUserMessageCountAtEnd reports how many of the first pending messages
+// make up the end of the transcript, each one a user message followed by its
+// skill messages. Zero means none of them has reached the model yet.
 func queuedUserMessageCountAtEnd(
 	messages []elelem.Message,
 	pending []queuedUserMessage,
 ) int {
-	maximum := min(len(messages), len(pending))
-
-	for count := maximum; count > 0; count-- {
-		start := len(messages) - count
-		matched := true
-
-		for index := range count {
-			if messages[start+index].Role != elelem.RoleUser ||
-				messages[start+index].Text() != pending[index].message {
-				matched = false
-
-				break
-			}
+	for count := len(pending); count > 0; count-- {
+		expected := queuedMessageTexts(pending[:count])
+		if len(expected) > len(messages) {
+			continue
 		}
 
-		if matched {
+		if endsWithUserTexts(messages, expected) {
 			return count
 		}
 	}
 
 	return 0
+}
+
+func queuedMessageTexts(pending []queuedUserMessage) []string {
+	texts := make([]string, 0, len(pending))
+
+	for _, message := range pending {
+		texts = append(texts, message.message)
+
+		for _, skill := range message.skills {
+			texts = append(texts, skill.text)
+		}
+	}
+
+	return texts
+}
+
+func endsWithUserTexts(messages []elelem.Message, texts []string) bool {
+	start := len(messages) - len(texts)
+
+	for index, text := range texts {
+		message := messages[start+index]
+		if message.Role != elelem.RoleUser || message.Text() != text {
+			return false
+		}
+	}
+
+	return true
 }
 
 func (r *Runtime) registerActiveUserMessageQueue(

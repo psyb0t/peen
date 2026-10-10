@@ -5,6 +5,7 @@ import { isRecord, stringField } from "$lib/common/json";
 const EVENT_TYPE_USER_MESSAGE_CREATED = "user_message.created";
 const EVENT_TYPE_USER_MESSAGE_QUEUED = "user_message.queued";
 const EVENT_TYPE_USER_MESSAGE_DELIVERED = "user_message.delivered";
+const EVENT_TYPE_SKILL_INJECTED = "skill.injected";
 const EVENT_TYPE_TURN_STARTED = "turn.started";
 const EVENT_TYPE_CONTENT_BLOCK_START = "content_block_start";
 const EVENT_TYPE_CONTENT_BLOCK_DELTA = "content_block_delta";
@@ -68,7 +69,15 @@ export interface LiveUserBlock {
 	text: string;
 }
 
-export type LiveBlock = LiveProseBlock | LiveToolBlock | LiveUserBlock;
+/** A skill message, or the note that a skill is already loaded, that reached the model. */
+export interface LiveSkillBlock {
+	key: string;
+	kind: "skill";
+	name: string;
+	text: string;
+}
+
+export type LiveBlock = LiveProseBlock | LiveSkillBlock | LiveToolBlock | LiveUserBlock;
 
 /**
  * Where a message sent during a running turn stands. A queued message waits
@@ -152,6 +161,8 @@ function nextTurn(
 			};
 		case EVENT_TYPE_USER_MESSAGE_QUEUED:
 			return { ...(current ?? emptyTurn(sessionID, requestID)), queue: "queued" };
+		case EVENT_TYPE_SKILL_INJECTED:
+			return addSkillBlock(current, sessionID, requestID, event.data);
 		case EVENT_TYPE_TURN_STARTED:
 			return {
 				...(current ?? emptyTurn(sessionID, requestID)),
@@ -214,6 +225,34 @@ function deliverQueuedMessage(
 
 		return turn;
 	});
+}
+
+/**
+ * Adds a skill message to the turn it reached, after everything the turn has
+ * shown so far. An event without a name and content leaves the turn as it was.
+ */
+function addSkillBlock(
+	current: LiveTurn | undefined,
+	sessionID: string,
+	requestID: string,
+	data: unknown,
+): LiveTurn | undefined {
+	const name = stringField(data, "name");
+	const text = stringField(data, "content");
+	if (name === undefined || text === undefined) {
+		return current;
+	}
+
+	const turn = current ?? emptyTurn(sessionID, requestID);
+	const count = turn.blocks.filter((block) => block.kind === "skill").length;
+
+	return {
+		...turn,
+		blocks: [
+			...turn.blocks,
+			{ key: `${requestID}:skill:${count}`, kind: "skill", name, text },
+		],
+	};
 }
 
 function emptyTurn(sessionID: string, requestID: string): LiveTurn {

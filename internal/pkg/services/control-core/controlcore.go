@@ -176,10 +176,16 @@ func (s *ControlCore) openCore(
 		return nil, ctxerrors.Wrap(err, "load execution profiles")
 	}
 
+	harnessOptions, err := agent.HarnessOptions(config)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "load harness options")
+	}
+
 	assembled, err := agent.Assemble(ctx, agent.AssembleOptions{
 		Runtime:        runtimeOptions(config, models, metricRegistry),
 		StateDirectory: config.StateDirectory,
 		HarnessLimits:  harnessLimits(),
+		HarnessOptions: harnessOptions,
 		StoreOptions: session.Options{
 			MaxStoredMessageBytes: config.MaxStoredMessageBytes,
 		},

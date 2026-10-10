@@ -116,6 +116,96 @@ describe("groupTranscript", () => {
 	});
 });
 
+const skillText =
+	"<skill>\n<name>core:planning</name>\n<description>Plan work.</description>\n" +
+	"<directory>embedded://skills/planning</directory>\n\nSteps.\n</skill>";
+
+describe("groupTranscript skill messages", () => {
+	it("shows a stored skill message as a skill block in the reply, not as a prompt", () => {
+		const prompt = message({ content: "plan it :core:planning", role: "user" });
+		const skill = message({
+			content: skillText,
+			injected: true,
+			injectedKind: "skill",
+			role: "user",
+		});
+		const answer = message({ content: "Planned.", role: "assistant" });
+
+		const items = groupTranscript([prompt, skill, answer]);
+
+		expect(items.map((item) => item.kind)).toEqual(["user", "reply"]);
+		expect(items[0]).toEqual({ kind: "user", message: prompt });
+		expect(items[1]).toMatchObject({
+			blocks: [
+				{ key: skill.id, kind: "skill", name: "core:planning", text: skillText },
+				{ kind: "text", text: "Planned." },
+			],
+		});
+	});
+
+	it("names the skill of an already-loaded note", () => {
+		const prompt = message({ content: "again :planning", role: "user" });
+		const note = message({
+			content: noteText,
+			injected: true,
+			injectedKind: "skill",
+			role: "user",
+		});
+
+		expect(groupTranscript([prompt, note])[1]).toMatchObject({
+			blocks: [
+				{
+					kind: "skill",
+					name: "planning",
+					text: noteText,
+				},
+			],
+		});
+	});
+
+	it("keeps the skill of a message queued mid-turn after that message", () => {
+		const prompt = message({ content: "start", role: "user" });
+		const call = message({
+			role: "assistant",
+			toolCalls: [{ arguments: {}, id: "call-a", name: "list_files" }],
+		});
+		const result = message({ content: "ok", role: "tool", toolCallId: "call-a" });
+		const queued = message({ content: "then :core:planning", role: "user" });
+		const skill = message({
+			content: skillText,
+			injected: true,
+			injectedKind: "skill",
+			role: "user",
+		});
+		const answer = message({ content: "Done.", role: "assistant" });
+
+		const items = groupTranscript([prompt, call, result, queued, skill, answer]);
+
+		expect(items.map((item) => item.kind)).toEqual(["user", "reply", "user", "reply"]);
+		expect(items[2]).toEqual({ kind: "user", message: queued });
+		expect(items[3]).toMatchObject({
+			blocks: [
+				{ kind: "skill", name: "core:planning" },
+				{ kind: "text", text: "Done." },
+			],
+		});
+	});
+
+	it("falls back to a plain name for a skill row it cannot read a name from", () => {
+		const prompt = message({ content: "go", role: "user" });
+		const odd = message({
+			content: "free text",
+			injected: true,
+			injectedKind: "skill",
+			role: "user",
+		});
+
+		expect(groupTranscript([prompt, odd])[1]).toMatchObject({
+			blocks: [{ kind: "skill", name: "skill", text: "free text" }],
+		});
+	});
+});
+
 describe("groupTranscript turns", () => {
 	const firstTurn = "11111111-1111-4111-8111-111111111111";
 	const secondTurn = "22222222-2222-4222-8222-222222222222";
@@ -149,7 +239,7 @@ describe("groupTranscript turns", () => {
 		const prompt = message({ content: "hi", role: "user", turnId: firstTurn });
 		const answer = message({ content: "hello", role: "assistant", turnId: firstTurn });
 		const events = message({
-			content: "<session-events>",
+			content: "<events>",
 			injected: true,
 			role: "user",
 			turnId: wakeTurn,
@@ -167,10 +257,46 @@ describe("groupTranscript turns", () => {
 		expect(items.map((item) => item.kind)).toEqual(["user", "reply", "reply"]);
 		expect(items[2]).toMatchObject({
 			blocks: [
-				{ kind: "injected", text: "<session-events>" },
+				{ kind: "injected", text: "<events>" },
 				{ kind: "injected", text: "CI failed, fix it" },
 				{ kind: "text", text: "fixed" },
 			],
+		});
+	});
+});
+
+const noteText =
+	"<note>Skill planning is already loaded earlier in this conversation.</note>";
+
+const handlerText =
+	"<handler>\n<event>job.exited</event>\n<agent>reviewer</agent>\n\n" +
+	"Find the cause.\n</handler>";
+
+describe("handler wake messages", () => {
+	it("renders a stored wake message as an update without its tags", () => {
+		const woken = message({ content: handlerText, injected: true, role: "user" });
+		const answer = message({ content: "Looking.", role: "assistant" });
+
+		const items = groupTranscript([woken, answer]);
+
+		expect(items[0]).toMatchObject({
+			blocks: [
+				{ kind: "injected", text: "Event handler for job.exited\n\nFind the cause." },
+				{ kind: "text", text: "Looking." },
+			],
+		});
+	});
+
+	it("leaves other injected text alone", () => {
+		const note = message({
+			content: "<hook>\nx\n</hook>",
+			injected: true,
+			role: "user",
+		});
+		const answer = message({ content: "ok", role: "assistant" });
+
+		expect(groupTranscript([note, answer])[0]).toMatchObject({
+			blocks: [{ kind: "injected", text: "<hook>\nx\n</hook>" }, { kind: "text" }],
 		});
 	});
 });
@@ -204,6 +330,44 @@ describe("liveSegments", () => {
 			{
 				blocks: [
 					{ kind: "injected", text: "fix CI" },
+					{ kind: "text", text: "working" },
+				],
+				kind: "reply",
+			},
+		]);
+	});
+
+	it("shows a live handler wake message without its tags", () => {
+		const woken = {
+			...liveTurn,
+			originEventType: "job.exited",
+			prompt: handlerText,
+		};
+
+		expect(liveSegments(woken)).toMatchObject([
+			{
+				blocks: [
+					{ kind: "injected", text: "Event handler for job.exited\n\nFind the cause." },
+					{ kind: "text", text: "working" },
+				],
+				kind: "reply",
+			},
+		]);
+	});
+
+	it("keeps a live skill message in the reply as a skill block", () => {
+		const turn: LiveTurn = {
+			...liveTurn,
+			blocks: [
+				{ key: "s", kind: "skill", name: "core:planning", text: skillText },
+				{ key: "a", kind: "text", text: "working" },
+			],
+		};
+
+		expect(liveSegments(turn)).toMatchObject([
+			{
+				blocks: [
+					{ key: "s", kind: "skill", name: "core:planning", text: skillText },
 					{ kind: "text", text: "working" },
 				],
 				kind: "reply",

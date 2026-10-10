@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -46,8 +47,10 @@ const (
 
 // Resolver discovers the layered harness context for one workspace at a time.
 type Resolver struct {
-	configRoot string
-	limits     Limits
+	configRoot     string
+	limits         Limits
+	disabledSkills []string
+	disabledAgents []string
 }
 
 type resolutionState struct {
@@ -84,7 +87,24 @@ type manifestSnapshot struct {
 }
 
 // NewResolver builds a resolver whose config root is always the first layer.
-func NewResolver(configRoot string, limits Limits) (Resolver, error) {
+// Options may remove core skills and agents from every snapshot it builds.
+func NewResolver(
+	configRoot string,
+	limits Limits,
+	options ...ResolverOption,
+) (Resolver, error) {
+	settings := resolverSettings{}
+	for _, option := range options {
+		option(&settings)
+	}
+
+	if err := validateDisabledCore(settings); err != nil {
+		return Resolver{}, ctxerrors.Wrap(
+			joinOptionsError(err),
+			"validate disabled core names",
+		)
+	}
+
 	resolvedConfigRoot, err := canonicalDirectory(configRoot)
 	if err != nil {
 		return Resolver{}, ctxerrors.Wrap(
@@ -102,8 +122,10 @@ func NewResolver(configRoot string, limits Limits) (Resolver, error) {
 	}
 
 	return Resolver{
-		configRoot: resolvedConfigRoot,
-		limits:     resolvedLimits,
+		configRoot:     resolvedConfigRoot,
+		limits:         resolvedLimits,
+		disabledSkills: settings.disabledSkills,
+		disabledAgents: settings.disabledAgents,
 	}, nil
 }
 
@@ -123,7 +145,10 @@ func (r Resolver) Resolve(workspace string) (Snapshot, error) {
 	}
 
 	state := newResolutionState(r.limits)
-	if err := state.discoverEmbedded(); err != nil {
+	if err := state.discoverEmbedded(
+		r.disabledSkills,
+		r.disabledAgents,
+	); err != nil {
 		return Snapshot{}, ctxerrors.Wrap(err, "discover embedded harness")
 	}
 
@@ -292,7 +317,10 @@ func newResolutionState(limits Limits) *resolutionState {
 	}
 }
 
-func (s *resolutionState) discoverEmbedded() error {
+func (s *resolutionState) discoverEmbedded(
+	disabledSkills []string,
+	disabledAgents []string,
+) error {
 	instructions, err := embeddedHarnessAsset(embeddedInstructionAsset)
 	if err != nil {
 		return ctxerrors.Wrap(err, "read embedded instructions")
@@ -314,12 +342,20 @@ func (s *resolutionState) discoverEmbedded() error {
 	})
 
 	for _, asset := range embeddedSkillAssets() {
+		if slices.Contains(disabledSkills, asset.name) {
+			continue
+		}
+
 		if err := s.discoverEmbeddedSkill(asset); err != nil {
 			return err
 		}
 	}
 
 	for _, asset := range embeddedAgentAssets() {
+		if slices.Contains(disabledAgents, asset.name) {
+			continue
+		}
+
 		if err := s.discoverEmbeddedAgent(asset); err != nil {
 			return err
 		}
@@ -351,6 +387,7 @@ func (s *resolutionState) discoverEmbeddedSkill(
 	}
 
 	if err := s.registerSkill(
+		CorePrefix+asset.name,
 		metadata,
 		asset.source,
 		asset.directory,
@@ -394,8 +431,9 @@ func (s *resolutionState) discoverEmbeddedAgent(
 		)
 	}
 
-	s.agents[metadata.Name] = Agent{
-		Name:         metadata.Name,
+	address := CorePrefix + metadata.Name
+	s.agents[address] = Agent{
+		Name:         address,
 		Description:  metadata.Description,
 		Source:       asset.source,
 		Instructions: instructions,
@@ -887,10 +925,21 @@ func (s *resolutionState) discoverSkill(
 		)
 	}
 
-	return s.registerSkill(metadata, source, skillDirectory, content, true)
+	return s.registerSkill(
+		metadata.Name,
+		metadata,
+		source,
+		skillDirectory,
+		content,
+		true,
+	)
 }
 
+// registerSkill stores one skill under its address: the bare name for a
+// custom skill, the core-prefixed name for an embedded one. That keeps a
+// custom skill and a core skill of the same name side by side.
 func (s *resolutionState) registerSkill(
+	address string,
 	metadata skillFrontMatter,
 	source string,
 	directory string,
@@ -906,9 +955,9 @@ func (s *resolutionState) registerSkill(
 		s.filesystemSkills[metadata.Name] = struct{}{}
 	}
 
-	s.skills[metadata.Name] = discoveredSkill{
+	s.skills[address] = discoveredSkill{
 		skill: Skill{
-			Name:          metadata.Name,
+			Name:          address,
 			Description:   metadata.Description,
 			Source:        source,
 			Directory:     directory,
@@ -1349,6 +1398,8 @@ func (s *resolutionState) snapshot(
 	configRoot string,
 	workspace string,
 ) (Snapshot, error) {
+	s.warnUnknownSkillReferences()
+
 	skills, skillContents := resolvedSkills(s.skills)
 	agents := resolvedAgents(s.agents)
 	eventHandlers := resolvedEventHandlers(s.eventHandlers)
@@ -1388,7 +1439,40 @@ func (s *resolutionState) snapshot(
 		manifest:      append([]ManifestEntry(nil), manifest...),
 		warnings:      append([]Warning(nil), s.warnings...),
 		skillContents: skillContents,
+		skillBudget:   s.limits.MaxFileBytes,
 	}, nil
+}
+
+// warnUnknownSkillReferences reports every :name in a skill body that names no
+// skill in the final skill set, so a typo shows up when the harness loads and
+// not only when the skill is used.
+func (s *resolutionState) warnUnknownSkillReferences() {
+	resolved := Snapshot{skills: make([]Skill, 0, len(s.skills))}
+	contents := make(map[string]string, len(s.skills))
+
+	for _, name := range sortedMapKeys(s.skills) {
+		discovered := s.skills[name]
+		resolved.skills = append(resolved.skills, discovered.skill)
+		contents[name] = discovered.content
+	}
+
+	resolved.skillContents = contents
+
+	for _, skill := range resolved.skills {
+		for _, reference := range resolved.unknownSkillReferences(
+			contents[skill.Name],
+		) {
+			s.warn(
+				SourceKindSkill,
+				skill.Source,
+				ctxerrors.Wrapf(
+					ErrSkillNotFound,
+					"skill references unknown skill :%s",
+					reference,
+				),
+			)
+		}
+	}
 }
 
 func resolvedSkills(

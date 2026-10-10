@@ -15,6 +15,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/gonfiguration"
+	"github.com/psyb0t/peen/internal/pkg/harness"
 )
 
 // UpstreamType selects an Elelem driver implementation. It names the wire
@@ -62,7 +63,17 @@ type Config struct {
 	StateDirectory string `env:"PEEN_STATE_DIR"`
 
 	WorkingDirectory string
-	Agent            string `default:"default"              env:"PEEN_AGENT"`
+
+	// Agent is the root agent. A plain name picks a custom agent first and a
+	// core agent second; a core: name picks only the core agent.
+	Agent string `default:"core:general-purpose" env:"PEEN_AGENT"`
+
+	// DisabledCoreSkills and DisabledCoreAgents list the embedded skills and
+	// agents to remove, as comma-separated names without the core: prefix or
+	// "all". They stay strings so a worker, which reads the same variables,
+	// parses them with the same rules as the controller.
+	DisabledCoreSkills string `env:"PEEN_DISABLED_CORE_SKILLS"`
+	DisabledCoreAgents string `env:"PEEN_DISABLED_CORE_AGENTS"`
 
 	UpstreamsJSON   string `env:"PEEN_UPSTREAMS,required"`
 	DefaultModel    string `env:"PEEN_DEFAULT_MODEL,required"`
@@ -261,6 +272,7 @@ func (c Config) validate(requireStateDirectory bool) error {
 		func() error { return c.validateDirectories(requireStateDirectory) },
 		c.validateDockerHostIdentity,
 		c.validateRuntime,
+		c.validateCoreSelection,
 		c.validateMetricsListener,
 		c.validateUpstreamConfiguration,
 		c.validateAgentRunLimits,
@@ -272,6 +284,61 @@ func (c Config) validate(requireStateDirectory bool) error {
 		if err := validate(); err != nil {
 			return ctxerrors.Wrap(err, "validate Peen configuration")
 		}
+	}
+
+	return nil
+}
+
+// DisabledCoreSkillNames returns the core skills PEEN_DISABLED_CORE_SKILLS
+// removes, without the core: prefix.
+func (c Config) DisabledCoreSkillNames() ([]string, error) {
+	names, err := harness.ParseDisabledCoreSkills(c.DisabledCoreSkills)
+	if err != nil {
+		return nil, ctxerrors.Wrap(
+			errors.Join(ErrInvalidConfig, err),
+			"invalid PEEN_DISABLED_CORE_SKILLS",
+		)
+	}
+
+	return names, nil
+}
+
+// DisabledCoreAgentNames returns the core agents PEEN_DISABLED_CORE_AGENTS
+// removes, without the core: prefix.
+func (c Config) DisabledCoreAgentNames() ([]string, error) {
+	names, err := harness.ParseDisabledCoreAgents(c.DisabledCoreAgents)
+	if err != nil {
+		return nil, ctxerrors.Wrap(
+			errors.Join(ErrInvalidConfig, err),
+			"invalid PEEN_DISABLED_CORE_AGENTS",
+		)
+	}
+
+	return names, nil
+}
+
+// validateCoreSelection fails startup on an unknown disabled core name and on
+// a root agent that names a core agent which does not exist or is disabled.
+// A plain root agent name is left to the harness, because only the layers
+// know whether a custom agent has it.
+func (c Config) validateCoreSelection() error {
+	if _, err := c.DisabledCoreSkillNames(); err != nil {
+		return err
+	}
+
+	disabledAgents, err := c.DisabledCoreAgentNames()
+	if err != nil {
+		return err
+	}
+
+	if err := harness.ValidateCoreAgentReference(
+		strings.TrimSpace(c.Agent),
+		disabledAgents,
+	); err != nil {
+		return ctxerrors.Wrap(
+			errors.Join(ErrInvalidConfig, err),
+			"invalid PEEN_AGENT",
+		)
 	}
 
 	return nil

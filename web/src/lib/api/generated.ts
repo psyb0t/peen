@@ -581,6 +581,11 @@ export interface components {
 			/** @description True when Peen added this message to the conversation itself, such as a report of session events delivered during a turn or the instructions of an event handler that started a turn, rather than a person or the model writing it. */
 			injected?: boolean;
 			/**
+			 * @description What an injected message is, when it is more than a generic update. `skill` marks a skill the user invoked with `:name`, delivered as its own message after the message that named it, or the note that the skill was already loaded. Absent for every other message.
+			 * @enum {string}
+			 */
+			injectedKind?: "skill";
+			/**
 			 * Format: uuid
 			 * @description The turn that wrote this message. Messages that share it belong to one turn.
 			 */

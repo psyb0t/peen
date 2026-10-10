@@ -1,6 +1,18 @@
 import type { components } from "$lib/api/generated";
 import type { LiveBlock, LiveTurn, LiveUserBlock } from "$lib/chat/stream";
 
+import {
+	EVENT_HANDLER_AGENT_CLOSE,
+	EVENT_HANDLER_AGENT_OPEN,
+	EVENT_HANDLER_BODY_GAP,
+	EVENT_HANDLER_CLOSE,
+	EVENT_HANDLER_OPEN,
+	EVENT_HANDLER_TYPE_CLOSE,
+	INJECTED_KIND_SKILL,
+	SKILL_FALLBACK_NAME,
+	SKILL_MESSAGE_NAME_PATTERN,
+	SKILL_NOTE_NAME_PATTERN,
+} from "$lib/common/constants";
 import { formatJSON } from "$lib/common/json";
 
 type Message = components["schemas"]["Message"];
@@ -24,6 +36,7 @@ export type ReplyBlock =
 	| { key: string; kind: "text"; text: string }
 	| { key: string; kind: "thinking"; text: string }
 	| { key: string; kind: "injected"; text: string }
+	| { key: string; kind: "skill"; name: string; text: string }
 	| ToolCallView;
 
 export interface ReplyItem {
@@ -158,7 +171,69 @@ function attachLeading(
 }
 
 function injectedBlock(message: Message): ReplyBlock {
-	return { key: message.id, kind: "injected", text: message.content };
+	if (message.injectedKind === INJECTED_KIND_SKILL) {
+		return {
+			key: message.id,
+			kind: "skill",
+			name: skillName(message.content),
+			text: message.content,
+		};
+	}
+
+	return { key: message.id, kind: "injected", text: injectedText(message.content) };
+}
+
+/**
+ * Shows a handler wake message as plain text: the event type, then the
+ * instructions. Any other injected text is shown as stored.
+ */
+function injectedText(content: string): string {
+	if (
+		!content.startsWith(EVENT_HANDLER_OPEN) ||
+		!content.endsWith(EVENT_HANDLER_CLOSE)
+	) {
+		return content;
+	}
+
+	const typeEnd = content.indexOf(EVENT_HANDLER_TYPE_CLOSE);
+	if (typeEnd < 0) {
+		return content;
+	}
+
+	const type = content.slice(EVENT_HANDLER_OPEN.length, typeEnd);
+	let rest = content.slice(typeEnd + EVENT_HANDLER_TYPE_CLOSE.length);
+	if (rest.startsWith(EVENT_HANDLER_AGENT_OPEN)) {
+		const agentEnd = rest.indexOf(EVENT_HANDLER_AGENT_CLOSE);
+		if (agentEnd < 0) {
+			return content;
+		}
+		rest = rest.slice(agentEnd + EVENT_HANDLER_AGENT_CLOSE.length);
+	}
+	if (!rest.startsWith(EVENT_HANDLER_BODY_GAP)) {
+		return content;
+	}
+
+	const instructions = rest.slice(
+		EVENT_HANDLER_BODY_GAP.length,
+		rest.length - EVENT_HANDLER_CLOSE.length,
+	);
+
+	return `Event handler for ${unescapeElement(type)}\n\n${instructions}`;
+}
+
+function unescapeElement(value: string): string {
+	return value.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
+}
+
+/**
+ * Reads the skill a stored skill row is about: the name inside a skill
+ * message, or the name a note says is already loaded.
+ */
+function skillName(content: string): string {
+	const named =
+		SKILL_MESSAGE_NAME_PATTERN.exec(content) ?? SKILL_NOTE_NAME_PATTERN.exec(content);
+
+	return named?.[1] ?? SKILL_FALLBACK_NAME;
 }
 
 function appendAssistant(
@@ -235,7 +310,11 @@ export function liveSegments(turn: LiveTurn): LiveSegment[] {
 	let reply: ReplyBlock[] = [];
 
 	if (turn.originEventType !== undefined && turn.prompt !== undefined) {
-		reply.push({ key: LIVE_ORIGIN_PROMPT_KEY, kind: "injected", text: turn.prompt });
+		reply.push({
+			key: LIVE_ORIGIN_PROMPT_KEY,
+			kind: "injected",
+			text: injectedText(turn.prompt),
+		});
 	}
 
 	const closeReply = (): void => {

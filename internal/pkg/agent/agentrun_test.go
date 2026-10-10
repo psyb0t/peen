@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
@@ -246,6 +247,17 @@ func TestAgentRunRegistryFinishPublishesCompletionEvents(t *testing.T) {
 		require.NoError(t, json.Unmarshal(batch.Notices[0].Data, &data))
 		assert.Equal(t, run.ID, data.RunID)
 		assert.Equal(t, tc.name, data.AgentName)
+		assert.GreaterOrEqual(t, data.DurationMs, int64(0))
+		assert.Equal(
+			t,
+			(time.Duration(data.DurationMs) * time.Millisecond).String(),
+			data.Duration,
+		)
+
+		raw := map[string]any{}
+		require.NoError(t, json.Unmarshal(batch.Notices[0].Data, &raw))
+		assert.Contains(t, raw, "durationMs")
+		assert.Contains(t, raw, "duration")
 	}
 }
 

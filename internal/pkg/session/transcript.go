@@ -546,6 +546,7 @@ func (s *Store) newMessage(
 		IsError:       input.IsError,
 		Incomplete:    input.Incomplete,
 		Injected:      input.Injected,
+		InjectedKind:  input.InjectedKind,
 		CreatedAt:     s.now(),
 	}, nil
 }

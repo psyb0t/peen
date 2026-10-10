@@ -21,6 +21,12 @@ the one that actually won, so a bundled script is always the winning
 copy's.
 Calling this again for the same name in the same turn returns identical
 content.
+A skill can name other skills with :name in its text. The skills it names,
+and the skills those name in turn, come back with it in a referencedSkills
+array of name, directory, and content, in the order they are named. A
+referenced skill that was already delivered as a <skill> message, or loaded
+earlier in this turn, is left out, so an empty or missing array means there
+was nothing new to load.
 An unknown name is reported back with the currently effective skill names
 so you can correct it.`
 

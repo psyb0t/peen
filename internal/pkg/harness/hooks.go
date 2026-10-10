@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/peen/internal/pkg/events"
@@ -217,8 +218,43 @@ func validHookEvent(event HookEvent) bool {
 	}
 }
 
+// CommandTimeout parses Timeout as a Go duration. Empty returns zero, which
+// means the runner's default. A set value must be a positive duration.
+func (a HookAction) CommandTimeout() (time.Duration, error) {
+	if a.Timeout == "" {
+		return 0, nil
+	}
+
+	timeout, err := time.ParseDuration(a.Timeout)
+	if err != nil {
+		return 0, ctxerrors.Wrapf(
+			errors.Join(ErrInvalidHook, err),
+			"command timeout %q must be a Go duration such as 30s or 1m30s",
+			a.Timeout,
+		)
+	}
+
+	if timeout <= 0 {
+		return 0, ctxerrors.Wrapf(
+			ErrInvalidHook,
+			"command timeout %q must be positive",
+			a.Timeout,
+		)
+	}
+
+	return timeout, nil
+}
+
 //nolint:cyclop // Each action kind has distinct required configuration.
 func validateHookAction(action HookAction) error {
+	if action.RemovedTimeoutSeconds != nil {
+		return ctxerrors.Wrap(
+			ErrInvalidHook,
+			"timeout_seconds was removed, use timeout with a Go duration "+
+				"(for example timeout: 30s)",
+		)
+	}
+
 	if err := validateHookMatch(action.When); err != nil {
 		return ctxerrors.Wrap(err, "validate action matcher")
 	}
@@ -232,8 +268,8 @@ func validateHookAction(action HookAction) error {
 			)
 		}
 
-		if action.TimeoutSeconds < 0 {
-			return ctxerrors.Wrap(ErrInvalidHook, "command timeout is negative")
+		if _, err := action.CommandTimeout(); err != nil {
+			return err
 		}
 	case HookActionInject:
 		if strings.TrimSpace(action.Message) == "" {

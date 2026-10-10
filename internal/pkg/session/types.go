@@ -71,6 +71,7 @@ type MessageInput struct {
 	IsError       bool
 	Incomplete    bool
 	Injected      bool
+	InjectedKind  models.InjectedKind
 }
 
 // EventInput describes one exact internal or protocol event.
