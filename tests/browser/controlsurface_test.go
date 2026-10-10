@@ -129,6 +129,64 @@ const (
 	browserDiagnosticSocketEventReceived = "socket.event.received"
 )
 
+const (
+	browserSelectorSkillMarker         = "details.note-card.skill"
+	browserSelectorDetailsClosed       = ":not([open])"
+	browserSelectorDetailsOpen         = "[open]"
+	browserSelectorLiveReply           = "article.message.assistant.live "
+	browserSelectorLiveEventsSummary   = "aside.inspector details:nth-of-type(2) summary"
+	browserSelectorInspectorLiveEvents = "aside.inspector details:nth-of-type(2)"
+	browserSelectorDetailsToggle       = "button[aria-pressed]"
+
+	browserSkillWorkspaceName     = "browser-skill-stored"
+	browserLiveSkillWorkspaceName = "browser-skill-live"
+	browserHandlerWorkspaceName   = "browser-handler-wake"
+	browserWorkspaceKeepFile      = ".keep"
+	browserWorkspaceKeepContent   = "keep\n"
+	browserSkillMessage           = "plan this with :core:planning"
+	browserLiveSkillMessage       = "plan this live with :core:planning"
+	browserSkillMarkerLabel       = "skill: core:planning"
+	browserSkillNameTag           = "<name>core:planning</name>"
+	browserSkillCloseTag          = "</skill>"
+	browserSkillInjectedEvent     = "skill.injected"
+	browserCompletionPrefix       = "integration completion"
+	browserWorkingLabel           = "Working"
+	browserUpdateLabel            = "Background update"
+	browserHandlerEventType       = "browser.wake"
+	browserHandlerEventFile       = ".agents/events/" + browserHandlerEventType + ".md"
+	browserHandlerAgent           = "core:general-purpose"
+	browserHandlerInstructions    = "Report that the browser wake handler ran."
+	browserHandlerFile            = "---\ntype: " + browserHandlerEventType +
+		"\ndelivery: wake\nagent: " + browserHandlerAgent + "\n---\n" +
+		browserHandlerInstructions
+	browserHandlerUpdateText = browserUpdateLabel + "\nEvent handler for " +
+		browserHandlerEventType + "\n\n" + browserHandlerInstructions + "\n\n" +
+		"Handle this as the " + browserHandlerAgent + " agent would."
+	browserRawHandlerOpen  = "<handler>"
+	browserRawHandlerClose = "</handler>"
+	browserRawAgentOpen    = "<agent>"
+	browserNoticeSummary   = "an outside system needs the agent"
+	browserNoticeBody      = `{"type":"` + browserHandlerEventType +
+		`","summary":"` + browserNoticeSummary + `"}`
+	browserEventsUpdateText = browserUpdateLabel + "\nSession events\n\n" +
+		browserHandlerEventType + ": " + browserNoticeSummary
+	browserRawEventsOpen       = "<events>"
+	browserRawEventsClose      = "</events>"
+	browserRawEventOpen        = "<event>"
+	browserRawEventClose       = "</event>"
+	browserRawEventJSONKey     = `"summary"`
+	browserSelectorUpdateAt    = ".reply-blocks > details.note-card.injected:nth-child(%d)"
+	browserHandlerPosition     = 1
+	browserEventsPosition      = 2
+	browserSessionIDHeader     = "X-Session-ID"
+	browserSessionNoticesPath  = "/v1/session/notices"
+	browserBearerPrefix        = "Bearer "
+	browserScreenshotBaseName  = "control-surface"
+	browserSkillScreenshot     = "skill-marker"
+	browserLiveSkillScreenshot = "live-skill-marker"
+	browserHandlerScreenshot   = "handler-update"
+)
+
 var expectedBrowserDiagnostics = []string{
 	browserDiagnosticSocketConnect,
 	browserDiagnosticSocketOpen,
@@ -399,6 +457,372 @@ func TestControlSurfaceCompletesATurnInARealBrowser(t *testing.T) {
 	consoleLog := browserConsoleLog(t, ctx)
 	requireSafeBrowserDiagnostics(t, consoleLog)
 	requireScreenshot(t, ctx)
+}
+
+// A skill named in a message is stored as its own message. After a reload the
+// chat shows it as a collapsed "skill: name" marker that opens on a click.
+func TestControlSurfaceShowsAStoredSkillMessageAsAMarker(t *testing.T) {
+	ctx := t.Context()
+	prepareBrowserTest(t)
+
+	openBrowserWorkspace(t, ctx, browserSkillWorkspaceName)
+	sendBrowserMessage(t, ctx, browserSkillMessage)
+	waitForBrowserText(t, ctx, browserCompletionPrefix)
+
+	// A reload drops every live block, so the chat can only render the
+	// stored transcript.
+	openBrowserWorkspace(t, ctx, browserSkillWorkspaceName)
+	waitForBrowserText(t, ctx, browserSkillMarkerLabel)
+	requireSkillMarkerExpandsOnClick(t, ctx, "")
+	requireNamedScreenshot(t, ctx, browserSkillScreenshot)
+}
+
+// The skill message reaches the chat while the turn is still running, and the
+// skill.injected event behind it is not listed as activity.
+func TestControlSurfaceShowsALiveSkillMessageDuringATurn(t *testing.T) {
+	ctx := t.Context()
+	prepareBrowserTest(t)
+
+	openBrowserWorkspace(t, ctx, browserLiveSkillWorkspaceName)
+	hold := holdNextProviderCompletion(t)
+	sendBrowserMessage(t, ctx, browserLiveSkillMessage)
+	awaitProviderCompletionHold(t, hold)
+
+	browserAction(t, ctx, browserActionWaitForElement, map[string]any{
+		browserSelectorKey: browserSelectorLiveReply + browserSelectorSkillMarker,
+		browserTimeoutKey:  browserRequestTimeout.Seconds(),
+	})
+	require.Contains(
+		t,
+		browserText(t, ctx),
+		browserWorkingLabel,
+		"the skill marker must appear while the turn is still running",
+	)
+	requireSkillMarkerExpandsOnClick(t, ctx, browserSelectorLiveReply)
+	requireNamedScreenshot(t, ctx, browserLiveSkillScreenshot)
+
+	hold.Release()
+	waitForBrowserText(t, ctx, browserCompletionPrefix)
+	requireSkillInjectedOnlyInRawEvents(t, ctx)
+}
+
+// A turn an event handler started has no typed prompt. The chat shows the
+// handler's text as a background update, never the raw handler tags, both
+// while the turn runs and after a reload.
+func TestControlSurfaceShowsAHandlerStartedTurnAsABackgroundUpdate(t *testing.T) {
+	ctx := t.Context()
+	prepareBrowserTest(t)
+
+	workspace := browserTestWorkspace + "/" + browserHandlerWorkspaceName
+	require.NoError(t, integrationInfra.WriteWorkspaceFile(
+		ctx,
+		browserHandlerWorkspaceName+"/"+browserHandlerEventFile,
+		[]byte(browserHandlerFile),
+	))
+	openBrowserWorkspace(t, ctx, browserHandlerWorkspaceName)
+	sessionID := openBrowserAPISession(t, ctx, workspace)
+
+	hold := holdNextProviderCompletion(t)
+	postBrowserNotice(t, ctx, sessionID)
+	awaitProviderCompletionHold(t, hold)
+
+	waitForBrowserText(t, ctx, browserUpdateLabel)
+	requireHandlerUpdateWithoutRawTags(t, ctx, browserHandlerPosition)
+	requireNamedScreenshot(t, ctx, browserHandlerScreenshot)
+
+	hold.Release()
+	waitForBrowserText(t, ctx, browserCompletionPrefix)
+
+	openBrowserWorkspace(t, ctx, browserHandlerWorkspaceName)
+	waitForBrowserText(t, ctx, browserUpdateLabel)
+	requireHandlerUpdateWithoutRawTags(t, ctx, browserHandlerPosition)
+	requireEventsUpdateReadable(t, ctx, browserEventsPosition)
+}
+
+func prepareBrowserTest(t *testing.T) {
+	t.Helper()
+
+	t.Cleanup(func() {
+		reportBrowserFailureState(t)
+	})
+}
+
+// openBrowserWorkspace loads the control surface from scratch, connects with
+// the test token, and opens the workspace below the test root. The workspace
+// directory is created first, so opening it never fails on a missing path.
+func openBrowserWorkspace(t *testing.T, ctx context.Context, name string) {
+	t.Helper()
+
+	require.NoError(t, integrationInfra.WriteWorkspaceFile(
+		ctx,
+		name+"/"+browserWorkspaceKeepFile,
+		[]byte(browserWorkspaceKeepContent),
+	))
+
+	browserAction(t, ctx, browserActionGoto, map[string]any{
+		"url":               integrationInfra.APIURL("/"),
+		browserWaitUntilKey: browserWaitUntilDOM,
+	})
+	waitForBrowserText(t, ctx, browserMainHeading)
+	browserAction(t, ctx, browserActionFill, map[string]any{
+		browserSelectorKey: browserSelectorToken,
+		browserValueKey:    testinfra.TestAPIToken,
+	})
+	browserAction(t, ctx, browserActionClick, map[string]any{
+		browserSelectorKey: browserSelectorConnect,
+	})
+	browserAction(t, ctx, browserActionWaitForElement, map[string]any{
+		browserSelectorKey: browserSelectorSocketOpen,
+		browserTimeoutKey:  browserRequestTimeout.Seconds(),
+	})
+	browserAction(t, ctx, browserActionFill, map[string]any{
+		browserSelectorKey: browserSelectorWorkspace,
+		browserValueKey:    browserTestWorkspace + "/" + name,
+	})
+	browserAction(t, ctx, browserActionClick, map[string]any{
+		browserSelectorKey: browserSelectorOpen,
+	})
+	waitForBrowserText(t, ctx, browserModelReference)
+}
+
+func sendBrowserMessage(t *testing.T, ctx context.Context, text string) {
+	t.Helper()
+
+	browserAction(t, ctx, browserActionFill, map[string]any{
+		browserSelectorKey: browserSelectorMessage,
+		browserValueKey:    text,
+	})
+	browserAction(t, ctx, browserActionClick, map[string]any{
+		browserSelectorKey: browserSelectorSend,
+	})
+}
+
+func waitForBrowserText(t *testing.T, ctx context.Context, text string) {
+	t.Helper()
+
+	browserAction(t, ctx, browserActionWaitForText, map[string]any{
+		browserTextKey:    text,
+		browserTimeoutKey: browserRequestTimeout.Seconds(),
+	})
+}
+
+func waitForBrowserElement(t *testing.T, ctx context.Context, selector string) {
+	t.Helper()
+
+	browserAction(t, ctx, browserActionWaitForElement, map[string]any{
+		browserSelectorKey: selector,
+		browserTimeoutKey:  browserRequestTimeout.Seconds(),
+	})
+}
+
+func clickBrowserElement(t *testing.T, ctx context.Context, selector string) {
+	t.Helper()
+
+	browserAction(t, ctx, browserActionClick, map[string]any{
+		browserSelectorKey: selector,
+	})
+}
+
+// requireSkillMarkerExpandsOnClick checks that the one skill marker inside
+// scope starts closed with only its label showing, then shows the skill
+// content once it is clicked.
+func requireSkillMarkerExpandsOnClick(t *testing.T, ctx context.Context, scope string) {
+	t.Helper()
+
+	marker := scope + browserSelectorSkillMarker
+	waitForBrowserElement(t, ctx, marker+browserSelectorDetailsClosed)
+
+	collapsed := browserElement(t, ctx, marker)
+	require.Equal(t, browserSkillMarkerLabel, strings.TrimSpace(collapsed))
+
+	clickBrowserElement(t, ctx, marker+" summary")
+	waitForBrowserElement(t, ctx, marker+browserSelectorDetailsOpen)
+
+	expanded := browserElement(t, ctx, marker)
+	require.Contains(t, expanded, browserSkillMarkerLabel)
+	require.Contains(t, expanded, browserSkillNameTag)
+	require.Contains(t, expanded, browserSkillCloseTag)
+}
+
+// requireSkillInjectedOnlyInRawEvents checks that the chat lists no activity
+// for skill.injected, while the event itself did reach the browser and shows in
+// the inspector's raw event list.
+func requireSkillInjectedOnlyInRawEvents(t *testing.T, ctx context.Context) {
+	t.Helper()
+
+	require.NotContains(
+		t,
+		browserText(t, ctx),
+		browserSkillInjectedEvent,
+		"skill.injected must not be listed as activity",
+	)
+
+	clickBrowserElement(t, ctx, browserSelectorDetailsToggle)
+	clickBrowserElement(t, ctx, browserSelectorLiveEventsSummary)
+	rawEvents := browserElement(t, ctx, browserSelectorInspectorLiveEvents)
+	require.Contains(t, rawEvents, browserLiveEventsLabel)
+	require.Contains(
+		t,
+		rawEvents,
+		browserSkillInjectedEvent,
+		"the browser must have received the event for the check above to mean anything",
+	)
+}
+
+// requireHandlerUpdateWithoutRawTags opens the handler's background update,
+// which is the position-th block of the reply, and checks it shows exactly the
+// event type, the instructions, and the agent sentence, while the page never
+// shows the handler tags. The handler's text is the first block of the reply
+// while the turn is live and after a reload, because the turn stores it before
+// the events block the model receives after it.
+func requireHandlerUpdateWithoutRawTags(
+	t *testing.T,
+	ctx context.Context,
+	position int,
+) {
+	t.Helper()
+
+	update := fmt.Sprintf(browserSelectorUpdateAt, position)
+	waitForBrowserElement(t, ctx, update+browserSelectorDetailsClosed)
+	clickBrowserElement(t, ctx, update+" summary")
+	waitForBrowserElement(t, ctx, update+browserSelectorDetailsOpen)
+
+	require.Equal(
+		t,
+		browserHandlerUpdateText,
+		strings.TrimSpace(browserElement(t, ctx, update)),
+	)
+
+	page := browserText(t, ctx)
+	require.NotContains(t, page, browserRawHandlerOpen)
+	require.NotContains(t, page, browserRawHandlerClose)
+	require.NotContains(t, page, browserRawAgentOpen)
+}
+
+// requireEventsUpdateReadable opens the delivered events block, which is the
+// position-th block of the reply, and checks it lists the event as its type
+// and summary while the page never shows the events tags or the event JSON.
+func requireEventsUpdateReadable(
+	t *testing.T,
+	ctx context.Context,
+	position int,
+) {
+	t.Helper()
+
+	update := fmt.Sprintf(browserSelectorUpdateAt, position)
+	waitForBrowserElement(t, ctx, update+browserSelectorDetailsClosed)
+	clickBrowserElement(t, ctx, update+" summary")
+	waitForBrowserElement(t, ctx, update+browserSelectorDetailsOpen)
+
+	require.Equal(
+		t,
+		browserEventsUpdateText,
+		strings.TrimSpace(browserElement(t, ctx, update)),
+	)
+
+	page := browserText(t, ctx)
+	require.NotContains(t, page, browserRawEventsOpen)
+	require.NotContains(t, page, browserRawEventsClose)
+	require.NotContains(t, page, browserRawEventOpen)
+	require.NotContains(t, page, browserRawEventClose)
+	require.NotContains(t, page, browserRawEventJSONKey)
+}
+
+func holdNextProviderCompletion(t *testing.T) *testinfra.CompletionHold {
+	t.Helper()
+
+	hold, err := integrationInfra.HoldNextCompletion()
+	require.NoError(t, err)
+	t.Cleanup(hold.Release)
+
+	return hold
+}
+
+func awaitProviderCompletionHold(t *testing.T, hold *testinfra.CompletionHold) {
+	t.Helper()
+
+	select {
+	case <-hold.Observed:
+	case <-time.After(browserRequestTimeout):
+		t.Fatal("the provider never received the held completion request")
+	}
+}
+
+func openBrowserAPISession(t *testing.T, ctx context.Context, workspace string) string {
+	t.Helper()
+
+	body, err := json.Marshal(map[string]string{"workspace": workspace})
+	require.NoError(t, err)
+
+	response := browserAPIRequest(
+		t,
+		ctx,
+		browserSessionsOpenPath,
+		body,
+		"",
+	)
+	require.Equal(t, http.StatusOK, response.status, string(response.body))
+
+	opened := api.OpenedSession{}
+	require.NoError(t, json.Unmarshal(response.body, &opened))
+
+	return opened.Session.Id.String()
+}
+
+func postBrowserNotice(t *testing.T, ctx context.Context, sessionID string) {
+	t.Helper()
+
+	response := browserAPIRequest(
+		t,
+		ctx,
+		browserSessionNoticesPath,
+		[]byte(browserNoticeBody),
+		sessionID,
+	)
+	require.Equal(t, http.StatusAccepted, response.status, string(response.body))
+}
+
+type browserAPIResponse struct {
+	status int
+	body   []byte
+}
+
+// browserAPIRequest posts one JSON body to the controller as the test token. A
+// non-empty sessionID is sent as the session header.
+func browserAPIRequest(
+	t *testing.T,
+	ctx context.Context,
+	path string,
+	body []byte,
+	sessionID string,
+) browserAPIResponse {
+	t.Helper()
+
+	request, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodPost,
+		integrationInfra.APIURL(path),
+		bytes.NewReader(body),
+	)
+	require.NoError(t, err)
+	request.Header.Set(aichteeteapee.HeaderNameContentType, aichteeteapee.ContentTypeJSON)
+	request.Header.Set(
+		aichteeteapee.HeaderNameAuthorization,
+		browserBearerPrefix+testinfra.TestAPIToken,
+	)
+	if sessionID != "" {
+		request.Header.Set(browserSessionIDHeader, sessionID)
+	}
+
+	response, err := integrationInfra.HTTPClient().Do(request)
+	require.NoError(t, err)
+
+	data, readErr := io.ReadAll(response.Body)
+	closeErr := response.Body.Close()
+	require.NoError(t, readErr)
+	require.NoError(t, closeErr)
+
+	return browserAPIResponse{status: response.StatusCode, body: data}
 }
 
 func requireWorkspaceRootAvailable(t *testing.T, ctx context.Context) {
@@ -827,6 +1251,12 @@ func requireSafeBrowserDiagnostics(t *testing.T, entries []browserLog) {
 func requireScreenshot(t *testing.T, ctx context.Context) {
 	t.Helper()
 
+	requireNamedScreenshot(t, ctx, browserScreenshotBaseName)
+}
+
+func requireNamedScreenshot(t *testing.T, ctx context.Context, name string) {
+	t.Helper()
+
 	screenshot, err := stealthyBrowser.screenshot(ctx)
 	require.NoError(t, err)
 	require.NotEmpty(t, screenshot)
@@ -844,11 +1274,11 @@ func requireScreenshot(t *testing.T, ctx context.Context) {
 		require.NoError(t, statErr)
 		require.True(t, info.IsDir())
 
-		artifactDirectory, err = os.MkdirTemp(configuredRoot, "control-surface-")
+		artifactDirectory, err = os.MkdirTemp(configuredRoot, name+"-")
 		require.NoError(t, err)
 	}
 
-	artifactPath := filepath.Join(artifactDirectory, "control-surface.png")
+	artifactPath := filepath.Join(artifactDirectory, name+".png")
 	require.NoError(t, os.WriteFile(artifactPath, screenshot, 0o600))
 	t.Logf(
 		"browser screenshot path=%s dimensions=%dx%d",

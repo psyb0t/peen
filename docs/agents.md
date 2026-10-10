@@ -22,7 +22,7 @@ A plain name means the custom agent when one exists and the core agent otherwise
 
 Startup fails when `PEEN_AGENT` is a `core:` name that does not exist or is disabled. The old embedded name `default` no longer exists: `PEEN_AGENT=default` fails with an error naming `core:general-purpose` unless a `default.md` agent exists in `PEEN_CONFIG_DIR`. Drop `PEEN_AGENT` or set it to `core:general-purpose`. Any other plain name is resolved at each turn, so an agent that only one workspace defines works for that workspace. A turn in a workspace without it fails.
 
-`PEEN_DISABLED_CORE_AGENTS` removes core agents. It takes a comma-separated list of core names without the prefix, or `all`. Unknown names stop startup. A disabled core agent is gone from the catalogue and from agent lookup. See [core and custom skills and agents](harness.md#core-and-custom-skills-and-agents).
+`PEEN_DISABLED_CORE_AGENTS` removes core agents. It takes a comma-separated list of core names without the prefix, or `all`. Unknown names stop startup. A disabled core agent is gone from the catalogue and from agent lookup. Startup also fails when `PEEN_AGENT` is a `core:` name that is disabled, which includes the default `core:general-purpose`, while a plain `PEEN_AGENT` name passes startup and fails at a turn whose workspace defines no such custom agent. To disable `general-purpose`, set `PEEN_AGENT` to a custom agent. See [core and custom skills and agents](harness.md#core-and-custom-skills-and-agents).
 
 ## Format
 
@@ -98,7 +98,7 @@ A child shares the parent's session, workspace, rules, and model. Its system pro
 
 It does not get the root agent's instructions or the message's `systemPrompt` override. It uses the harness snapshot of the turn that launched it. Session events are delivered to the root agent only, never to a child.
 
-A skill you forced on the parent turn with `:skill-name` does not reach the child. The parent hands a skill over by naming it in the `task`. The task is treated like a user message: each `:name` in it, and each skill those skills name, arrives as its own `<skill>` message right after the task, in the child's first request and in its stored transcript. An unknown name fails the `launch_agent` call with the list of skills that exist. See [Forcing a skill](skills.md#forcing-a-skill).
+A skill you forced on the parent turn with `:skill-name` does not reach the child. The parent hands a skill over by naming it in the `task`. The task is treated like a user message: each `:name` in it, and each skill those skills name, arrives as its own `<skill>` message right after the task, in the child's first request and in its stored transcript. An unknown name fails the `launch_agent` call and lists up to 10 of the skills that exist. See [Forcing a skill](skills.md#forcing-a-skill).
 
 ## Limits
 

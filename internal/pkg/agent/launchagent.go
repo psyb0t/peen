@@ -394,8 +394,11 @@ func (r *Runtime) createChildAgentRun(
 			StartedAt:          run.StartedAt,
 		},
 	)
+	if err != nil {
+		return ctxerrors.Wrap(err, "create durable child agent")
+	}
 
-	return ctxerrors.Wrap(err, "create durable child agent")
+	return nil
 }
 
 func marshalAllowedTools(allowedTools []string) (string, error) {

@@ -14,7 +14,7 @@ require (
 	github.com/prometheus/client_model v0.2.0
 	github.com/prometheus/common v0.32.1
 	github.com/psyb0t/aichteeteapee v1.14.0
-	github.com/psyb0t/commander v0.5.9
+	github.com/psyb0t/commander v0.6.0
 	github.com/psyb0t/common-go v0.7.1
 	github.com/psyb0t/ctxerrors v0.7.1
 	github.com/psyb0t/ctxscope v1.0.3

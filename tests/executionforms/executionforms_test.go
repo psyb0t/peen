@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -127,6 +128,26 @@ const (
 	executionFormsToolPurposeKey             = "purpose"
 	executionFormsJSONPurpose                = "write the JSON command marker"
 	executionFormsPatchPurpose               = "write the patch command marker"
+
+	executionFormsAgentEnvironmentPrefix = "PEEN_AGENT="
+	executionFormsAgentUnsetMessage      = "confirm the default agent"
+	executionFormsCoreGeneralPurpose     = "core:general-purpose"
+
+	// executionFormsGeneralPurposeInstructions is the body of the embedded
+	// general-purpose agent. A turn with PEEN_AGENT unset must send it to the
+	// provider.
+	executionFormsGeneralPurposeInstructions = "Carry out the user's request within the resolved instructions and tool"
+
+	executionFormsRefusalTimeout = 20 * time.Second
+
+	executionFormsRetentionNotDayMessage = "PEEN_LOG_RETENTION must be a " +
+		"positive whole number of days (a multiple of 24h), got 36h0m0s"
+	executionFormsInvalidDisabledSkillsMessage = "invalid PEEN_DISABLED_CORE_SKILLS"
+	executionFormsValidCoreSkillsMessage       = "valid names are freshness, planning and all"
+	executionFormsInvalidDisabledAgentsMessage = "invalid PEEN_DISABLED_CORE_AGENTS"
+	executionFormsValidCoreAgentsMessage       = "valid names are general-purpose and all"
+	executionFormsInvalidAgentMessage          = "invalid PEEN_AGENT"
+	executionFormsDisabledCoreAgentMessage     = "is disabled by PEEN_DISABLED_CORE_AGENTS"
 )
 
 type executionForm struct {
@@ -137,10 +158,31 @@ type executionForm struct {
 type runningPeen struct {
 	command    *exec.Cmd
 	done       chan error
-	output     bytes.Buffer
+	output     lockedBuffer
 	baseURL    string
 	metricsURL string
 	stopped    bool
+}
+
+// lockedBuffer lets a test read the process output while the process still
+// writes it.
+type lockedBuffer struct {
+	mutex  sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(data []byte) (int, error) {
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
+
+	return b.buffer.Write(data)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mutex.Lock()
+	defer b.mutex.Unlock()
+
+	return b.buffer.String()
 }
 
 type processConfig struct {
@@ -153,6 +195,13 @@ type processConfig struct {
 	metricsAddress  string
 	provider        *testinfra.ProviderMock
 	apiToken        string
+
+	// unsetAgent leaves PEEN_AGENT out of the environment so the process
+	// uses its built-in default.
+	unsetAgent bool
+	// environment holds extra PEEN_ settings. They come last, so they win
+	// over the defaults peenEnvironment sets.
+	environment []string
 }
 
 func TestExecutionFormsExposeTheRestartSafeHTTPContract(t *testing.T) {
@@ -174,6 +223,202 @@ func TestExecutionFormsExposeTheRestartSafeHTTPContract(t *testing.T) {
 			runAuthenticatedFormScenario(t, binary)
 			runUnauthenticatedFormScenario(t, binary)
 		})
+	}
+}
+
+func TestExecutionFormsRefuseToStartOnInvalidSelection(t *testing.T) {
+	binary := buildSourceForm(t, executionFormsRepositoryRoot(t))
+
+	testCases := []struct {
+		name         string
+		environment  []string
+		wantMessages []string
+	}{
+		{
+			name:         "log retention that is not whole days",
+			environment:  []string{"PEEN_LOG_RETENTION=36h"},
+			wantMessages: []string{executionFormsRetentionNotDayMessage},
+		},
+		{
+			name:         "unknown disabled core skill",
+			environment:  []string{"PEEN_DISABLED_CORE_SKILLS=no-such-skill"},
+			wantMessages: []string{
+				executionFormsInvalidDisabledSkillsMessage,
+				executionFormsValidCoreSkillsMessage,
+			},
+		},
+		{
+			name:         "unknown disabled core agent",
+			environment:  []string{"PEEN_DISABLED_CORE_AGENTS=no-such-agent"},
+			wantMessages: []string{
+				executionFormsInvalidDisabledAgentsMessage,
+				executionFormsValidCoreAgentsMessage,
+			},
+		},
+		{
+			name: "root agent is a disabled core agent",
+			environment: []string{
+				"PEEN_AGENT=" + executionFormsCoreGeneralPurpose,
+				"PEEN_DISABLED_CORE_AGENTS=general-purpose",
+			},
+			wantMessages: []string{
+				executionFormsInvalidAgentMessage,
+				executionFormsDisabledCoreAgentMessage,
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := testinfra.NewProviderMock()
+			t.Cleanup(provider.Close)
+			state := newProcessState(t)
+
+			process := launchPeen(t, processConfig{
+				binary:          binary,
+				configDirectory: state.configDirectory,
+				stateDirectory:  state.stateDirectory,
+				workspace:       state.workspace,
+				workerSocketDir: state.workerSocketDir,
+				apiAddress:      reserveLoopbackAddress(t),
+				metricsAddress:  reserveLoopbackAddress(t),
+				provider:        provider,
+				apiToken:        executionFormsAPIToken,
+				environment:     tc.environment,
+			})
+
+			output := awaitRefusal(t, process, tc.wantMessages)
+			for _, message := range tc.wantMessages {
+				assert.Contains(t, output, message)
+			}
+		})
+	}
+}
+
+func TestExecutionFormsServeATurnWithTheDefaultAgent(t *testing.T) {
+	binary := buildSourceForm(t, executionFormsRepositoryRoot(t))
+	provider := testinfra.NewProviderMock()
+	t.Cleanup(provider.Close)
+	state := newProcessState(t)
+	removeCustomDefaultAgent(t, state)
+
+	process := startPeen(t, processConfig{
+		binary:          binary,
+		configDirectory: state.configDirectory,
+		stateDirectory:  state.stateDirectory,
+		workspace:       state.workspace,
+		workerSocketDir: state.workerSocketDir,
+		apiAddress:      reserveLoopbackAddress(t),
+		metricsAddress:  reserveLoopbackAddress(t),
+		provider:        provider,
+		apiToken:        executionFormsAPIToken,
+		unsetAgent:      true,
+	})
+	t.Cleanup(func() { process.stop(t) })
+
+	sendWebSocketTurn(
+		t,
+		process.baseURL,
+		executionFormsAPIToken,
+		state.workspace,
+		executionFormsAgentUnsetMessage,
+	)
+
+	assert.Contains(
+		t,
+		provider.LastSystemPrompt(),
+		executionFormsGeneralPurposeInstructions,
+	)
+}
+
+// removeCustomDefaultAgent deletes the config directory's custom default
+// agent, so "default" has no definition and core:general-purpose is the only
+// embedded agent.
+func removeCustomDefaultAgent(t *testing.T, state processState) {
+	t.Helper()
+
+	require.NoError(t, os.Remove(filepath.Join(
+		state.configDirectory,
+		executionFormsAgentsDirectory,
+		executionFormsAgentFile,
+	)))
+}
+
+// awaitRefusal waits until the process has reported every wanted message or
+// exited, checks it never became ready, stops it, and returns its output.
+//
+// It does not require the process to exit on its own: after a service fails
+// its startup the process can stay up waiting for readiness, so the refusal
+// is the logged failure plus the readiness endpoint never answering.
+func awaitRefusal(
+	t *testing.T,
+	process *runningPeen,
+	wantMessages []string,
+) string {
+	t.Helper()
+
+	t.Cleanup(func() {
+		if !process.stopped {
+			_ = process.command.Process.Kill()
+		}
+	})
+
+	exited := false
+
+	require.Eventually(t, func() bool {
+		select {
+		case <-process.done:
+			exited = true
+
+			return true
+		default:
+		}
+
+		output := process.output.String()
+		for _, message := range wantMessages {
+			if !strings.Contains(output, message) {
+				return false
+			}
+		}
+
+		return true
+	}, executionFormsRefusalTimeout, executionFormsPollInterval,
+		"Peen did not refuse to start with the wanted messages")
+
+	if !exited {
+		assertNeverReady(t, process)
+		interruptAndWait(t, process)
+	}
+	process.stopped = true
+
+	return process.output.String()
+}
+
+func assertNeverReady(t *testing.T, process *runningPeen) {
+	t.Helper()
+
+	client := &http.Client{Timeout: executionFormsStartupTimeout}
+	response, err := client.Get(process.baseURL + executionFormsReadyPath)
+	if err != nil {
+		return
+	}
+
+	assert.NoError(t, response.Body.Close())
+	assert.NotEqual(t, http.StatusOK, response.StatusCode)
+}
+
+// interruptAndWait stops a process that refused to start. Its exit status is
+// not checked, because the refusal is what the test already asserted.
+func interruptAndWait(t *testing.T, process *runningPeen) {
+	t.Helper()
+
+	require.NoError(t, process.command.Process.Signal(os.Interrupt))
+
+	select {
+	case <-process.done:
+	case <-time.After(executionFormsShutdownTimeout):
+		require.NoError(t, process.command.Process.Kill())
+		<-process.done
 	}
 }
 
@@ -419,6 +664,17 @@ func newProcessState(t *testing.T) processState {
 func startPeen(t *testing.T, config processConfig) *runningPeen {
 	t.Helper()
 
+	process := launchPeen(t, config)
+	awaitReady(t, process)
+
+	return process
+}
+
+// launchPeen starts the process without waiting for it to become ready, so
+// a test can also watch it refuse to start.
+func launchPeen(t *testing.T, config processConfig) *runningPeen {
+	t.Helper()
+
 	upstreams, err := json.Marshal([]map[string]string{{
 		executionFormsUpstreamNameKey: executionFormsUpstreamName,
 		executionFormsUpstreamTypeKey: executionFormsUpstreamProvider,
@@ -451,8 +707,6 @@ func startPeen(t *testing.T, config processConfig) *runningPeen {
 		}
 	})
 
-	awaitReady(t, process)
-
 	return process
 }
 
@@ -470,7 +724,6 @@ func peenEnvironment(config processConfig, upstreams string) []string {
 		"PEEN_CONFIG_DIR="+config.configDirectory,
 		"PEEN_STATE_DIR="+config.stateDirectory,
 		"PEEN_WORKER_SOCKET_DIR="+config.workerSocketDir,
-		"PEEN_AGENT="+executionFormsAgentName,
 		"PEEN_HTTP_LISTEN_ADDRESS="+config.apiAddress,
 		"PEEN_METRICS_LISTEN_ADDRESS="+config.metricsAddress,
 		"PEEN_UPSTREAMS="+upstreams,
@@ -478,7 +731,14 @@ func peenEnvironment(config processConfig, upstreams string) []string {
 		"PEEN_API_TOKEN="+config.apiToken,
 	)
 
-	return environment
+	if !config.unsetAgent {
+		environment = append(
+			environment,
+			executionFormsAgentEnvironmentPrefix+executionFormsAgentName,
+		)
+	}
+
+	return append(environment, config.environment...)
 }
 
 func (p *runningPeen) stop(t *testing.T) {

@@ -139,6 +139,140 @@ func TestDailyHandlerRetentionKeepsRetentionDividedByDayFiles(t *testing.T) {
 	assert.Len(t, entries, 2)
 }
 
+// seedAuditLogDays creates an empty audit file for each of the given days
+// before today, so a test can see which ones the handler prunes.
+func seedAuditLogDays(t *testing.T, directory string, daysAgo ...int) {
+	t.Helper()
+
+	require.NoError(t, os.MkdirAll(directory, directoryMode))
+
+	for _, count := range daysAgo {
+		day := utcDay(time.Now().UTC().AddDate(0, 0, -count))
+		path := filepath.Join(directory, day.Format(dailyFilenameLayout))
+		require.NoError(t, os.WriteFile(path, nil, fileMode))
+	}
+}
+
+func auditLogFileNames(t *testing.T, directory string) []string {
+	t.Helper()
+
+	entries, err := os.ReadDir(directory)
+	require.NoError(t, err)
+
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+
+	return names
+}
+
+func auditLogDayName(daysAgo int) string {
+	day := utcDay(time.Now().UTC().AddDate(0, 0, -daysAgo))
+
+	return day.Format(dailyFilenameLayout)
+}
+
+// configureAuditLog runs Configure with the given env and restores the
+// process logger afterwards. It must not run in parallel: it sets env vars and
+// stacks a sink on the default logger.
+func configureAuditLog(t *testing.T, env map[string]string) error {
+	t.Helper()
+
+	previousLogger := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+
+	t.Setenv("PEEN_LOG_RETENTION", "")
+	require.NoError(t, os.Unsetenv("PEEN_LOG_RETENTION"))
+
+	for key, value := range env {
+		t.Setenv(key, value)
+	}
+
+	return Configure()
+}
+
+func TestConfigureDefaultsToFourteenDaysOfRetention(t *testing.T) {
+	stateDirectory := t.TempDir()
+	directory := filepath.Join(stateDirectory, defaultDirectory)
+	seedAuditLogDays(t, directory, 13, 14)
+
+	err := configureAuditLog(t, map[string]string{
+		"PEEN_STATE_DIR": stateDirectory,
+	})
+	require.NoError(t, err)
+
+	names := auditLogFileNames(t, directory)
+	assert.Contains(t, names, auditLogDayName(13))
+	assert.NotContains(t, names, auditLogDayName(14))
+	assert.Contains(t, names, auditLogDayName(0))
+}
+
+func TestNewDailyHandlerTreatsZeroRetentionAsTheDefault(t *testing.T) {
+	directory := t.TempDir()
+	seedAuditLogDays(t, directory, 13, 14)
+
+	handler, err := NewDailyHandler(Config{Directory: directory, Retention: 0})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, handler.Close()) })
+
+	names := auditLogFileNames(t, directory)
+	assert.Contains(t, names, auditLogDayName(13))
+	assert.NotContains(t, names, auditLogDayName(14))
+}
+
+func TestConfigureReadsRetentionAsAGoDuration(t *testing.T) {
+	directory := t.TempDir()
+	seedAuditLogDays(t, directory, 1, 2, 3)
+
+	err := configureAuditLog(t, map[string]string{
+		"PEEN_LOG_DIRECTORY": directory,
+		"PEEN_LOG_RETENTION": "48h",
+	})
+	require.NoError(t, err)
+
+	assert.ElementsMatch(
+		t,
+		[]string{auditLogDayName(0), auditLogDayName(1)},
+		auditLogFileNames(t, directory),
+	)
+}
+
+func TestConfigureRejectsInvalidRetentionValues(t *testing.T) {
+	testCases := []struct {
+		name  string
+		value string
+	}{
+		{name: "not a duration", value: "two weeks"},
+		{name: "a bare number", value: "14"},
+		{name: "not a whole number of days", value: "36h"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			directory := t.TempDir()
+
+			err := configureAuditLog(t, map[string]string{
+				"PEEN_LOG_DIRECTORY": directory,
+				"PEEN_LOG_RETENTION": tc.value,
+			})
+
+			require.Error(t, err)
+			assert.Empty(t, auditLogFileNames(t, directory))
+		})
+	}
+}
+
+func TestConfigureNamesTheRetentionRuleForAPartialDay(t *testing.T) {
+	err := configureAuditLog(t, map[string]string{
+		"PEEN_LOG_DIRECTORY": t.TempDir(),
+		"PEEN_LOG_RETENTION": "36h",
+	})
+
+	require.ErrorIs(t, err, commerr.ErrValidationFailed)
+	assert.Contains(t, err.Error(), "a multiple of 24h")
+}
+
 func TestNewDailyHandlerRejectsRemovedRetentionDaysVariable(t *testing.T) {
 	_, err := NewDailyHandler(Config{
 		Directory:            t.TempDir(),

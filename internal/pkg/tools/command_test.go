@@ -29,15 +29,6 @@ const (
 	commandTinyOutputLines   = 4
 	commandOverflowLineCount = 40
 	commandBackgroundSeconds = 30
-
-	// commandRaceRetries and commandRaceBackoff bound and pace retries
-	// working around a confirmed upstream race in commander v0.5.8, not
-	// this package's own logic: see runCommandRetryingRace. Heavy
-	// concurrent forking (the full package test run, not just this file)
-	// can push the underlying race's loss rate close to total for a short
-	// window, so this needs real headroom, not just a couple of attempts.
-	commandRaceRetries = 40
-	commandRaceBackoff = 20 * time.Millisecond
 )
 
 func newTestExecutor(t *testing.T) *Executor {
@@ -130,43 +121,6 @@ func processAlive(t *testing.T, pid int) bool {
 	state := data[closeParen+2]
 
 	return state != 'Z'
-}
-
-// runCommandRetryingRace works around a confirmed upstream race in
-// commander v0.5.8 (not this package's code): commander's internal
-// discardInternalOutput goroutine selects between its own shutdown signal
-// and the last still-pending buffered output line(s) at process exit, and
-// Go's select picks among simultaneously ready cases at random, so a fast
-// command's captured output is lost non-deterministically, independent of
-// scheduling delay before the command even runs (verified with a minimal
-// reproduction using only commander, isolated from this package: see the
-// implementation report). raced reports whether a result looks like this
-// known symptom; the call is retried, bounded, until it does not.
-func runCommandRetryingRace(
-	t *testing.T,
-	executor *JobExecutor,
-	input RunCommandInput,
-	raced func(RunCommandOutput) bool,
-) RunCommandOutput {
-	t.Helper()
-
-	var out RunCommandOutput
-
-	for attempt := range commandRaceRetries {
-		if attempt > 0 {
-			time.Sleep(commandRaceBackoff)
-		}
-
-		result, err := executor.RunCommand(context.Background(), input)
-		require.NoError(t, err)
-
-		out = result
-		if !raced(result) {
-			return out
-		}
-	}
-
-	return out
 }
 
 func TestResolveCommandTimeout(t *testing.T) {
@@ -323,9 +277,8 @@ func TestRunCommand_ExitsInBound_ReturnsStatusNoJobLeftRunning(t *testing.T) {
 		Purpose: commandTestPurpose,
 		Command: "printf 'hello'",
 	}
-	out := runCommandRetryingRace(t, executor, input, func(o RunCommandOutput) bool {
-		return o.Stdout == ""
-	})
+	out, err := executor.RunCommand(context.Background(), input)
+	require.NoError(t, err)
 
 	assert.Equal(t, JobStateExited, out.State)
 	assert.False(t, out.Running)
@@ -351,9 +304,8 @@ func TestRunCommand_StderrCapturedSeparately(t *testing.T) {
 		Purpose: commandTestPurpose,
 		Command: "printf 'oops' 1>&2",
 	}
-	out := runCommandRetryingRace(t, executor, input, func(o RunCommandOutput) bool {
-		return o.Stderr == ""
-	})
+	out, err := executor.RunCommand(context.Background(), input)
+	require.NoError(t, err)
 
 	assert.Equal(t, 0, out.ExitCode)
 	assert.Empty(t, out.Stdout)
@@ -386,9 +338,8 @@ func TestRunCommand_ExplicitDirectory(t *testing.T) {
 		Command:   "pwd",
 		Directory: dir,
 	}
-	out := runCommandRetryingRace(t, executor, input, func(o RunCommandOutput) bool {
-		return o.Stdout == ""
-	})
+	out, err := executor.RunCommand(context.Background(), input)
+	require.NoError(t, err)
 
 	assert.Equal(t, 0, out.ExitCode)
 	assert.Equal(t, filepath.Clean(dir), out.Directory)
@@ -407,9 +358,8 @@ func TestRunCommand_EnvironmentVisibleToChild(t *testing.T) {
 			"FOO": "bar",
 		},
 	}
-	out := runCommandRetryingRace(t, executor, input, func(o RunCommandOutput) bool {
-		return o.Stdout == ""
-	})
+	out, err := executor.RunCommand(context.Background(), input)
+	require.NoError(t, err)
 
 	assert.Equal(t, "bar", out.Stdout)
 }
@@ -639,9 +589,8 @@ func TestRunCommand_StdoutOutputDroppedOverBound(t *testing.T) {
 			commandOverflowLineCount,
 		),
 	}
-	out := runCommandRetryingRace(t, executor, input, func(o RunCommandOutput) bool {
-		return o.StdoutDroppedLines == 0
-	})
+	out, err := executor.RunCommand(context.Background(), input)
+	require.NoError(t, err)
 
 	assert.Positive(t, out.StdoutDroppedLines)
 	assert.LessOrEqual(t, strings.Count(out.Stdout, "\n")+1, commandTinyOutputLines)
@@ -656,9 +605,8 @@ func TestRunCommand_BinaryOutput(t *testing.T) {
 		Purpose: commandTestPurpose,
 		Command: `printf 'A\000B'`,
 	}
-	out := runCommandRetryingRace(t, executor, input, func(o RunCommandOutput) bool {
-		return o.Stdout == ""
-	})
+	out, err := executor.RunCommand(context.Background(), input)
+	require.NoError(t, err)
 
 	assert.Equal(t, "A\x00B", out.Stdout)
 }

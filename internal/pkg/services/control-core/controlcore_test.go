@@ -8,11 +8,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/elelem/elelemtest"
+	"github.com/psyb0t/peen/internal/pkg/agent"
 	peenconfig "github.com/psyb0t/peen/internal/pkg/config"
 	"github.com/psyb0t/peen/internal/pkg/control"
+	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,6 +49,17 @@ type coreFixture struct {
 func newCoreFixture(t *testing.T) coreFixture {
 	t.Helper()
 
+	return newCoreFixtureWith(t, nil)
+}
+
+// newCoreFixtureWith is newCoreFixture with a hook that changes the
+// deployment configuration before it is validated.
+func newCoreFixtureWith(
+	t *testing.T,
+	mutate func(*peenconfig.Config),
+) coreFixture {
+	t.Helper()
+
 	root := t.TempDir()
 	configDirectory := filepath.Join(root, "config")
 	workspaceDirectory := filepath.Join(root, "workspace")
@@ -77,6 +91,10 @@ func newCoreFixture(t *testing.T) coreFixture {
 		HTTPListenAddress:      reserveLoopbackAddress(t),
 		MetricsListenAddress:   reserveLoopbackAddress(t),
 	}
+	if mutate != nil {
+		mutate(&config)
+	}
+
 	require.NoError(t, config.Validate())
 
 	driver := elelemtest.NewScriptedDriver(
@@ -231,6 +249,56 @@ func TestControlCoreAppliesTheConfiguredWorkspaceRoots(t *testing.T) {
 		[]string{fixture.config.WorkingDirectory},
 		core.Sessions.Roots(),
 	)
+}
+
+// The controller builds its harness resolver with the deployment's disabled
+// core sets, so a disabled core skill cannot be named in a message.
+func TestControlCoreAppliesTheDisabledCoreSkills(t *testing.T) {
+	testCases := []struct {
+		name     string
+		disabled string
+		wantErr  bool
+	}{
+		{name: "nothing disabled", disabled: ""},
+		{name: "planning disabled", disabled: "planning", wantErr: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := newCoreFixtureWith(t, func(config *peenconfig.Config) {
+				config.DisabledCoreSkills = tc.disabled
+			})
+			runCoreService(t, fixture)
+
+			core, err := fixture.handoff.Await(t.Context())
+			require.NoError(t, err)
+
+			opened, err := core.Store.OpenWorkspace(
+				t.Context(),
+				fixture.config.WorkingDirectory,
+				session.OpenSessionOptions{
+					RootAgent: coreTestAgentName,
+					ModelID:   coreTestModelReference,
+				},
+			)
+			require.NoError(t, err)
+
+			_, err = core.Runtime.Run(t.Context(), agent.TurnRequest{
+				SessionID: &opened.Session.ID,
+				Message:   "Plan this with :core:planning please.",
+				Workspace: fixture.config.WorkingDirectory,
+			})
+
+			if !tc.wantErr {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, harness.ErrSkillNotFound)
+			require.ErrorIs(t, err, commerr.ErrValidationFailed)
+		})
+	}
 }
 
 // Shutting down releases the published core, so a later controller in the same

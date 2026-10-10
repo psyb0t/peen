@@ -150,6 +150,10 @@ func (c *commander) Start(
 	slog.Debug("starting command", "name", name, "args", args)
 
 	proc := c.newProcess(execCtx.cmd, execCtx)
+	if options.StreamStdout != nil || options.StreamStderr != nil {
+		proc.Stream(options.StreamStdout, options.StreamStderr)
+	}
+
 	if err := proc.Start(); err != nil {
 		return nil, err
 	}
@@ -165,6 +169,7 @@ func (c *commander) newProcess(cmd *exec.Cmd, execCtx *executionContext) *proces
 		internalStderr: make(chan string),
 		doneCh:         make(chan struct{}),
 		waitCh:         make(chan struct{}),
+		outputDone:     make(chan struct{}),
 	}
 }
 

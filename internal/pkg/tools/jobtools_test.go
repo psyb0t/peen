@@ -17,6 +17,7 @@ const (
 	jobToolsEventuallyWait  = 5 * time.Second
 	jobToolsEventuallyTick  = 5 * time.Millisecond
 	jobToolsMaxOutputLines  = 3
+	jobToolsMaxOutputBytes  = 1024
 	jobToolsReadWindowLines = 2
 	jobToolsLineCount       = 20
 )
@@ -198,6 +199,26 @@ func TestWaitJob_UnknownJobNotFound(t *testing.T) {
 	assert.False(t, out.Found)
 }
 
+// TestWaitJob_InvalidTimeoutBeatsUnknownJob pins that the timeout is
+// validated before the job lookup, so a bad timeout is never accepted just
+// because the job ID names nothing.
+func TestWaitJob_InvalidTimeoutBeatsUnknownJob(t *testing.T) {
+	t.Parallel()
+
+	executor := newTestJobExecutor(t)
+
+	_, err := executor.WaitJob(context.Background(), WaitJobInput{
+		JobID:   uuid.New(),
+		Timeout: "soon",
+	})
+	require.ErrorIs(t, err, commerr.ErrValidationFailed)
+	assert.Contains(
+		t,
+		err.Error(),
+		`timeout "soon" must be a Go duration such as 90s, 5m, or 1h30m`,
+	)
+}
+
 func TestWaitJob_ReturnsOnceJobExits(t *testing.T) {
 	t.Parallel()
 
@@ -220,11 +241,28 @@ func TestWaitJob_ReturnsOnceJobExits(t *testing.T) {
 	assert.Equal(t, JobStateExited, out.State)
 	assert.Equal(t, 3, out.ExitCode)
 	assert.GreaterOrEqual(t, out.DurationMs, int64(0))
-	assert.Equal(
-		t,
-		(time.Duration(out.DurationMs) * time.Millisecond).String(),
-		out.Duration,
-	)
+	assert.NotEmpty(t, out.Duration)
+}
+
+// TestJobWaitOutput_DurationIsAGoDuration pins the duration text for a job
+// with fixed start and end times.
+func TestJobWaitOutput_DurationIsAGoDuration(t *testing.T) {
+	t.Parallel()
+
+	started := time.Date(2026, time.October, 10, 9, 0, 0, 0, time.UTC)
+	job := &Job{
+		ID:        uuid.New(),
+		StartedAt: started,
+		stdout:    newJobBuffer(jobToolsMaxOutputLines, jobToolsMaxOutputBytes),
+		stderr:    newJobBuffer(jobToolsMaxOutputLines, jobToolsMaxOutputBytes),
+		state:     JobStateExited,
+		endedAt:   started.Add(90 * time.Second),
+	}
+
+	out := jobWaitOutput(job, WaitJobInput{})
+
+	assert.Equal(t, int64(90000), out.DurationMs)
+	assert.Equal(t, "1m30s", out.Duration)
 }
 
 func TestWaitJob_BoundExpiresJobStillRunning(t *testing.T) {
@@ -264,15 +302,32 @@ func TestWaitJob_RejectsInvalidTimeout(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	for _, timeout := range []string{"-1s", "0s", "10", "soon"} {
-		t.Run(timeout, func(t *testing.T) {
+	testCases := []struct {
+		timeout string
+		message string
+	}{
+		{timeout: "-1s", message: `timeout "-1s" must be positive`},
+		{timeout: "0s", message: `timeout "0s" must be positive`},
+		{
+			timeout: "10",
+			message: `timeout "10" must be a Go duration such as 90s, 5m, or 1h30m`,
+		},
+		{
+			timeout: "soon",
+			message: `timeout "soon" must be a Go duration such as 90s, 5m, or 1h30m`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.timeout, func(t *testing.T) {
 			t.Parallel()
 
 			_, err := executor.WaitJob(context.Background(), WaitJobInput{
 				JobID:   started.JobID,
-				Timeout: timeout,
+				Timeout: tc.timeout,
 			})
 			require.ErrorIs(t, err, commerr.ErrValidationFailed)
+			assert.Contains(t, err.Error(), tc.message)
 		})
 	}
 }

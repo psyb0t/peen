@@ -644,8 +644,14 @@ func (i *Infra) ModelDiscoveryObserved() bool {
 // answer. UserMessage anchors the sequence in a durable transcript so old
 // tool results from an earlier test turn cannot change its first round. Set
 // exactly one of EditFileArguments and ApplyPatchArguments.
+//
+// Calls, when set, replaces that fixed sequence: the turn issues these tool
+// calls in order, then answers with FinalAnswer. A request whose transcript
+// lacks UserMessage, such as a child agent's, gets the default text
+// completion instead.
 type ScriptedToolTurn struct {
 	UserMessage         string
+	Calls               []ScriptedToolCall
 	ReadFileArguments   map[string]any
 	EditFileArguments   map[string]any
 	ApplyPatchArguments map[string]any
@@ -781,6 +787,8 @@ type openAIModelsMock struct {
 	completionCount atomic.Int64
 	holdMu          sync.Mutex
 	nextHold        *completionHold
+	requestsMu      sync.Mutex
+	requests        [][]ProviderMessage
 	scriptMu        sync.RWMutex
 	script          *ScriptedToolTurn
 	// promptMu guards both values recorded from the latest completion request.
@@ -885,6 +893,8 @@ type providerCompletionRequest struct {
 type providerCompletionMessage struct {
 	Role    string          `json:"role"`
 	Content json.RawMessage `json:"content"`
+	//nolint:tagliatelle // The OpenAI chat completions API defines this name.
+	ToolCallID string `json:"tool_call_id"`
 }
 
 // scriptedToolMessageCount returns the number of tool results after the
@@ -1015,6 +1025,7 @@ func (m *openAIModelsMock) handleCompletion(
 
 	m.recordSystemPrompt(completionRequest.systemPrompt())
 	m.recordReasoningEffort(completionRequest.ReasoningEffort)
+	m.recordRequest(completionRequest)
 
 	if !m.awaitCompletionRelease(request.Context()) {
 		return
@@ -1027,7 +1038,23 @@ func (m *openAIModelsMock) handleCompletion(
 		return
 	}
 
-	round, err := completionRequest.scriptedToolMessageCount(script.UserMessage)
+	m.writeScripted(writer, completionRequest, script)
+}
+
+// writeScripted answers a request under an active script: the issued Calls
+// when the script lists them, the fixed tool sequence otherwise.
+func (m *openAIModelsMock) writeScripted(
+	writer http.ResponseWriter,
+	request providerCompletionRequest,
+	script *ScriptedToolTurn,
+) {
+	if len(script.Calls) > 0 {
+		m.writeScriptedCalls(writer, request, script)
+
+		return
+	}
+
+	round, err := request.scriptedToolMessageCount(script.UserMessage)
 	if err != nil {
 		http.Error(
 			writer,

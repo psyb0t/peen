@@ -9,11 +9,19 @@ import {
 	EVENT_HANDLER_OPEN,
 	EVENT_HANDLER_TYPE_CLOSE,
 	INJECTED_KIND_SKILL,
+	SESSION_EVENT_CLOSE,
+	SESSION_EVENT_OPEN,
+	SESSION_EVENT_UNREADABLE,
+	SESSION_EVENTS_CLOSE,
+	SESSION_EVENTS_DROPPED_LABEL,
+	SESSION_EVENTS_DROPPED_LEAD,
+	SESSION_EVENTS_OPEN,
+	SESSION_EVENTS_TITLE,
 	SKILL_FALLBACK_NAME,
 	SKILL_MESSAGE_NAME_PATTERN,
 	SKILL_NOTE_NAME_PATTERN,
 } from "$lib/common/constants";
-import { formatJSON } from "$lib/common/json";
+import { formatJSON, stringField } from "$lib/common/json";
 
 type Message = components["schemas"]["Message"];
 
@@ -184,20 +192,28 @@ function injectedBlock(message: Message): ReplyBlock {
 }
 
 /**
- * Shows a handler wake message as plain text: the event type, then the
- * instructions. Any other injected text is shown as stored.
+ * Shows a handler wake message or a delivered events block as plain text.
+ * Any other injected text is shown as stored.
  */
 function injectedText(content: string): string {
+	return handlerText(content) ?? eventsText(content) ?? content;
+}
+
+/**
+ * Reads a handler wake message as the event type, then the instructions.
+ * Returns undefined for text that is not a well-formed handler block.
+ */
+function handlerText(content: string): string | undefined {
 	if (
 		!content.startsWith(EVENT_HANDLER_OPEN) ||
 		!content.endsWith(EVENT_HANDLER_CLOSE)
 	) {
-		return content;
+		return undefined;
 	}
 
 	const typeEnd = content.indexOf(EVENT_HANDLER_TYPE_CLOSE);
 	if (typeEnd < 0) {
-		return content;
+		return undefined;
 	}
 
 	const type = content.slice(EVENT_HANDLER_OPEN.length, typeEnd);
@@ -205,12 +221,12 @@ function injectedText(content: string): string {
 	if (rest.startsWith(EVENT_HANDLER_AGENT_OPEN)) {
 		const agentEnd = rest.indexOf(EVENT_HANDLER_AGENT_CLOSE);
 		if (agentEnd < 0) {
-			return content;
+			return undefined;
 		}
 		rest = rest.slice(agentEnd + EVENT_HANDLER_AGENT_CLOSE.length);
 	}
 	if (!rest.startsWith(EVENT_HANDLER_BODY_GAP)) {
-		return content;
+		return undefined;
 	}
 
 	const instructions = rest.slice(
@@ -219,6 +235,75 @@ function injectedText(content: string): string {
 	);
 
 	return `Event handler for ${unescapeElement(type)}\n\n${instructions}`;
+}
+
+/**
+ * Reads a delivered events block as a title, the count of dropped events when
+ * there is one, then each event's type and summary on its own line. The
+ * preamble written for the model is left out. Returns undefined for text that
+ * is not an events block or holds no event and no dropped count.
+ */
+function eventsText(content: string): string | undefined {
+	if (
+		!content.startsWith(SESSION_EVENTS_OPEN) ||
+		!content.endsWith(SESSION_EVENTS_CLOSE)
+	) {
+		return undefined;
+	}
+
+	const body = content.slice(
+		SESSION_EVENTS_OPEN.length,
+		content.length - SESSION_EVENTS_CLOSE.length,
+	);
+	const eventLines: string[] = [];
+	let dropped: string | undefined;
+
+	for (const line of body.split("\n")) {
+		if (line.startsWith(SESSION_EVENTS_DROPPED_LEAD)) {
+			dropped = line.slice(SESSION_EVENTS_DROPPED_LEAD.length);
+			continue;
+		}
+		if (line.startsWith(SESSION_EVENT_OPEN) && line.endsWith(SESSION_EVENT_CLOSE)) {
+			eventLines.push(
+				eventSummaryLine(
+					line.slice(
+						SESSION_EVENT_OPEN.length,
+						line.length - SESSION_EVENT_CLOSE.length,
+					),
+				),
+			);
+		}
+	}
+	if (dropped === undefined && eventLines.length === 0) {
+		return undefined;
+	}
+
+	const parts = [SESSION_EVENTS_TITLE];
+	if (dropped !== undefined) {
+		parts.push(`${SESSION_EVENTS_DROPPED_LABEL}${dropped}`);
+	}
+	if (eventLines.length > 0) {
+		parts.push(eventLines.join("\n"));
+	}
+
+	return parts.join("\n\n");
+}
+
+function eventSummaryLine(encoded: string): string {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(encoded);
+	} catch {
+		return SESSION_EVENT_UNREADABLE;
+	}
+
+	const type = stringField(parsed, "type");
+	if (type === undefined) {
+		return SESSION_EVENT_UNREADABLE;
+	}
+	const summary = stringField(parsed, "summary");
+
+	return summary ? `${type}: ${summary}` : type;
 }
 
 function unescapeElement(value: string): string {

@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -255,6 +257,57 @@ func TestLaunchAgentNamedAgentReturnsFinalResponse(t *testing.T) {
 	assert.Equal(t, turn.WorkerGenerationID, storedRun.WorkerGenerationID)
 }
 
+// A child launch that succeeds is not an error: nothing in the launch path
+// may log at error level, such as a wrap of a nil error. Swaps the process
+// default logger, so it must not run in parallel.
+func TestLaunchAgentSuccessfulLaunchLogsNoError(t *testing.T) {
+	var captured bytes.Buffer
+
+	previousLogger := slog.Default()
+
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&captured, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+
+	driver := elelemtest.NewScriptedDriver(
+		elelemtest.ToolCall(
+			launchAgentCallID,
+			toolNameLaunchAgent,
+			launchAgentArguments(t, launchAgentInput{
+				Task:  "say hi",
+				Agent: launchAgentChildName,
+			}),
+		),
+		elelemtest.Text("child says hi"),
+		elelemtest.Text("done"),
+	)
+	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
+		AgentFiles: map[string]string{
+			launchAgentChildName: launchAgentChildAgentFile,
+		},
+	})
+
+	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
+		Message:   "launch the child",
+		Workspace: fixture.workspace,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "done", result.Text)
+
+	decoder := json.NewDecoder(&captured)
+
+	for decoder.More() {
+		record := map[string]any{}
+		require.NoError(t, decoder.Decode(&record))
+		assert.NotEqual(
+			t,
+			slog.LevelError.String(),
+			record[slog.LevelKey],
+			"unexpected error record: %v",
+			record,
+		)
+	}
+}
+
 const launchAgentSkillTask = "review the workspace with :review-rules"
 
 func TestLaunchAgentDescriptionTellsTheParentToNameSkillsInTheTask(
@@ -403,9 +456,30 @@ func TestLaunchAgentTaskSkillReferenceFollowsTheTaskInTheChildRequest(
 		session.ListAgentRunMessagesOptions{Limit: session.MaximumPageLimit},
 	)
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(transcript.Items), 3)
-	assert.Equal(t, launchAgentSkillTask, transcript.Items[0].Content)
-	assert.Equal(t, skillMessage, transcript.Items[1].Content)
+	require.Len(t, transcript.Items, 3)
+
+	contents := make([]string, 0, len(transcript.Items))
+	roles := make([]models.MessageRole, 0, len(transcript.Items))
+
+	for _, item := range transcript.Items {
+		contents = append(contents, item.Content)
+		roles = append(roles, item.Role)
+	}
+
+	assert.Equal(
+		t,
+		[]string{launchAgentSkillTask, skillMessage, "child finished"},
+		contents,
+	)
+	assert.Equal(
+		t,
+		[]models.MessageRole{
+			models.MessageRoleUser,
+			models.MessageRoleUser,
+			models.MessageRoleAssistant,
+		},
+		roles,
+	)
 }
 
 // A skill the child's task names is checked before the child exists. An
@@ -728,6 +802,51 @@ func TestLaunchAgentResolvesCoreAndCustomNames(t *testing.T) {
 			)
 		})
 	}
+}
+
+// The child runs under the embedded agent's own instructions, and a custom
+// agent of the same plain name changes nothing for the core: name.
+func TestLaunchAgentCoreGeneralPurposeChildRunsOnTheEmbeddedInstructions(
+	t *testing.T,
+) {
+	const embeddedBody = "Carry out the user's request within the resolved"
+
+	driver := elelemtest.NewScriptedDriver(
+		elelemtest.ToolCall(
+			launchAgentCallID,
+			toolNameLaunchAgent,
+			launchAgentArguments(t, launchAgentInput{
+				Task:  "say hi",
+				Agent: "core:general-purpose",
+			}),
+		),
+		elelemtest.Text("child says hi"),
+		elelemtest.Text("done"),
+	)
+	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
+		AgentFiles: map[string]string{
+			"general-purpose": launchAgentCustomGeneralPurposeFile,
+		},
+	})
+
+	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
+		Message:   "launch the agent",
+		Workspace: fixture.workspace,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "done", result.Text)
+
+	requests := driver.Requests()
+	require.Len(t, requests, 3)
+
+	childSystem := requests[1].Messages[0].Text()
+	assert.Contains(t, childSystem, embeddedBody)
+	assert.NotContains(t, childSystem, "Custom body.")
+	assert.Equal(
+		t,
+		"say hi",
+		requests[1].Messages[len(requests[1].Messages)-1].Text(),
+	)
 }
 
 func TestWorkspaceOnlyRootAgentStartsAndRunsATurn(t *testing.T) {

@@ -263,11 +263,34 @@ func TestJobRegistry_PublishesJobExited(t *testing.T) {
 	assert.Equal(t, job.ID, data.JobID)
 	assert.Equal(t, commandExitCodeNonZero, data.ExitCode)
 	assert.GreaterOrEqual(t, data.DurationMs, int64(0))
-	assert.Equal(
-		t,
-		(time.Duration(data.DurationMs) * time.Millisecond).String(),
-		data.Duration,
+	assert.NotEmpty(t, data.Duration)
+}
+
+// TestJobRegistry_PublishCarriesAFixedDuration pins the duration text of a
+// job.exited notice for a known start and end time.
+func TestJobRegistry_PublishCarriesAFixedDuration(t *testing.T) {
+	t.Parallel()
+
+	publisher := &stubPublisher{}
+	registry := newTestRegistry(t, publisher)
+	started := time.Date(2026, time.October, 10, 9, 0, 0, 0, time.UTC)
+	job := &Job{ID: uuid.New(), Purpose: jobTestPurpose, StartedAt: started}
+
+	registry.publish(
+		context.Background(),
+		job,
+		JobStateExited,
+		0,
+		started.Add(90*time.Second),
 	)
+
+	notices := publisher.all()
+	require.Len(t, notices, 1)
+
+	var data jobEventData
+	require.NoError(t, json.Unmarshal(notices[0].Data, &data))
+	assert.Equal(t, int64(90000), data.DurationMs)
+	assert.Equal(t, "1m30s", data.Duration)
 }
 
 // A command that prints and exits before its start is recorded keeps every

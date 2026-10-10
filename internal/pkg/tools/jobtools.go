@@ -137,14 +137,14 @@ func (e *JobExecutor) WaitJob(
 	ctx context.Context,
 	input WaitJobInput,
 ) (WaitJobOutput, error) {
-	job, ok := e.jobs.Get(input.JobID)
-	if !ok {
-		return WaitJobOutput{JobID: input.JobID}, nil
-	}
-
 	bound, err := e.resolveWaitJobTimeout(input.Timeout)
 	if err != nil {
 		return WaitJobOutput{}, err
+	}
+
+	job, ok := e.jobs.Get(input.JobID)
+	if !ok {
+		return WaitJobOutput{JobID: input.JobID}, nil
 	}
 
 	waitForJob(ctx, job, bound)

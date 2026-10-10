@@ -50,7 +50,7 @@ return start(session)
 - Say what the code does or why it must be this way: a constraint, an invariant the types cannot express, a surprising behavior, an upstream workaround, a security boundary.
 - Delete comments that restate the next line, section dividers, commented-out code, and notes about what you chose not to do.
 - Doc comments on exported symbols describe behavior, errors, side effects, and invariants, not the symbol's name.
-- Comments follow `docs-and-prose.md`: plain words, no em dashes.
+- Comments follow `docs-and-prose.md`: plain, exact words.
 
 ## Lint suppressions
 

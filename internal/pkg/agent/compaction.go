@@ -146,6 +146,11 @@ type compactor struct {
 	// stale the moment it is built and has to be reread from the durable child
 	// transcript.
 	refresh planRefresher
+
+	// onCompacted, when set, receives the stored sequence of the last message
+	// each committed summary covers, so state derived from the replaced
+	// messages can follow them out of the transcript.
+	onCompacted func(throughSequence int64)
 }
 
 // planRefresher rereads a compactor's reconstruction plan and the chain head
@@ -528,8 +533,14 @@ func (c *compactor) commit(
 		return err
 	}
 
+	throughSequence := c.plan.Units[units-1].ToSequence
+
 	c.active = stored
 	c.plan.advance(units)
+
+	if c.onCompacted != nil {
+		c.onCompacted(throughSequence)
+	}
 
 	return nil
 }

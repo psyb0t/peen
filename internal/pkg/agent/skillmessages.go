@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -12,6 +13,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
+	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/session"
@@ -65,16 +67,69 @@ type skillInjectedPayload struct {
 // skillLedger records which skills a conversation already holds, so each is
 // delivered at most once. It is safe for concurrent use: a queued message and
 // a use_skill call can race inside one turn.
+//
+// The skills come from two places. The stored history holds the ones delivered
+// in earlier turns, and a compaction that summarizes part of that history
+// takes those skills away from the model, so the ledger forgets them with it.
+// The turn's own deliveries are never compacted and stay for the whole turn.
 type skillLedger struct {
-	mutex     sync.Mutex
-	delivered map[string]struct{}
+	mutex        sync.Mutex
+	history      []*models.Message
+	historyNames map[string]struct{}
+	delivered    map[string]struct{}
 }
 
 func newSkillLedger(names ...string) *skillLedger {
-	ledger := &skillLedger{delivered: make(map[string]struct{}, len(names))}
+	ledger := &skillLedger{
+		historyNames: map[string]struct{}{},
+		delivered:    make(map[string]struct{}, len(names)),
+	}
 	ledger.record(names...)
 
 	return ledger
+}
+
+// newSkillLedgerFromHistory builds the ledger of a turn that starts on top of
+// the stored history, which is what the model sees of earlier turns.
+func newSkillLedgerFromHistory(history []*models.Message) *skillLedger {
+	ledger := newSkillLedger()
+	ledger.history = history
+	ledger.historyNames = skillNameSet(history)
+
+	return ledger
+}
+
+func skillNameSet(history []*models.Message) map[string]struct{} {
+	names := deliveredSkillNames(history)
+	set := make(map[string]struct{}, len(names))
+
+	for _, name := range names {
+		set[name] = struct{}{}
+	}
+
+	return set
+}
+
+// forgetThrough drops the skills held only by stored messages up to and
+// including sequence, which a compaction has replaced with a summary.
+func (l *skillLedger) forgetThrough(sequence int64) {
+	if l == nil {
+		return
+	}
+
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	remaining := make([]*models.Message, 0, len(l.history))
+
+	for _, message := range l.history {
+		if message.Sequence > sequence {
+			remaining = append(remaining, message)
+		}
+	}
+
+	l.history = remaining
+	l.historyNames = skillNameSet(remaining)
 }
 
 // held returns a copy of the delivered names. A nil ledger holds nothing.
@@ -86,7 +141,10 @@ func (l *skillLedger) held() map[string]struct{} {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	return maps.Clone(l.delivered)
+	names := maps.Clone(l.historyNames)
+	maps.Copy(names, l.delivered)
+
+	return names
 }
 
 func (l *skillLedger) record(names ...string) {
@@ -111,20 +169,88 @@ func (l *skillLedger) recordMessages(messages []skillMessage) {
 	}
 }
 
-// deliveredSkillNames lists the skills the stored history already holds. Only
-// messages after the latest compaction are in the history, which is right: a
-// compacted skill message no longer reaches the model.
+// deliveredSkillNames lists the skills the stored history already holds: the
+// <skill> messages, and the skills the model loaded with use_skill, which
+// include the skills those named. Only messages after the latest compaction
+// are in the history, which is right: a compacted skill no longer reaches
+// the model.
 func deliveredSkillNames(history []*models.Message) []string {
 	names := make([]string, 0)
+	useSkillCalls := useSkillCallIDs(history)
 
 	for _, message := range history {
-		if message.InjectedKind != models.InjectedKindSkill {
+		switch {
+		case message.InjectedKind == models.InjectedKindSkill:
+			if name, found := skillMessageName(message.Content); found {
+				names = append(names, name)
+			}
+		case message.Role == models.MessageRoleTool:
+			names = append(
+				names,
+				useSkillResultNames(message, useSkillCalls)...,
+			)
+		}
+	}
+
+	return names
+}
+
+// useSkillCallIDs collects the IDs of the use_skill calls the history's
+// assistant messages made. A stored tool result carries only its call ID, so
+// the call is where the tool's name is known.
+func useSkillCallIDs(history []*models.Message) map[string]struct{} {
+	ids := make(map[string]struct{})
+
+	for _, message := range history {
+		if message.Role != models.MessageRoleAssistant {
 			continue
 		}
 
-		if name, found := skillMessageName(message.Content); found {
-			names = append(names, name)
+		var calls []elelem.ToolCall
+		if err := json.Unmarshal(
+			[]byte(message.ToolCallsJSON),
+			&calls,
+		); err != nil {
+			continue
 		}
+
+		for _, call := range calls {
+			if call.Name == toolNameUseSkill {
+				ids[call.ID] = struct{}{}
+			}
+		}
+	}
+
+	return ids
+}
+
+// useSkillResultNames reads the skills a stored use_skill result delivered.
+// A result that is an error, belongs to another tool, or is not a use_skill
+// output delivered nothing.
+func useSkillResultNames(
+	message *models.Message,
+	useSkillCalls map[string]struct{},
+) []string {
+	if _, found := useSkillCalls[message.ToolCallID]; !found {
+		return nil
+	}
+
+	if message.IsError {
+		return nil
+	}
+
+	var output useSkillOutput
+	if err := json.Unmarshal([]byte(message.Content), &output); err != nil {
+		return nil
+	}
+
+	names := make([]string, 0, len(output.ReferencedSkills)+1)
+	if output.Name != "" {
+		names = append(names, output.Name)
+	}
+
+	for _, referenced := range output.ReferencedSkills {
+		names = append(names, referenced.Name)
 	}
 
 	return names

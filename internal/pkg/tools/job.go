@@ -325,12 +325,16 @@ func (r *JobRegistry) Start(
 
 	execCtx := context.WithoutCancel(ctx)
 
+	stdoutCh := make(chan string, jobStreamChannelBuffer)
+	stderrCh := make(chan string, jobStreamChannelBuffer)
+
 	process, err := r.cmdr.Start(
 		execCtx,
 		shellPath,
 		[]string{shellFlag, input.Command},
 		commander.WithDir(input.Directory),
 		commander.WithEnv(input.Env),
+		commander.WithStream(stdoutCh, stderrCh),
 	)
 	if err != nil {
 		return nil, ctxerrors.Wrap(ErrCommandStartFailed, "launch command")
@@ -340,7 +344,7 @@ func (r *JobRegistry) Start(
 	persistCtx := context.WithoutCancel(ctx)
 	recorded := make(chan struct{})
 
-	startJobStreams(persistCtx, r, job, recorded)
+	startJobStreams(persistCtx, r, job, stdoutCh, stderrCh, recorded)
 
 	if err := r.observeStarted(persistCtx, job.Snapshot()); err != nil {
 		// The failure is set before the readers are released, so output
@@ -415,24 +419,19 @@ func (j *Job) Release() {
 	}
 }
 
-// startJobStreams registers commander's Stream synchronously, in the
-// caller's own goroutine, before anything else touches the process:
-// commander discards every line written before Stream is called, so a
-// process that exits fast (echo, printf, true) loses its output to any
-// subscriber registered later, including one that waits for the job's start
-// to be recorded first. The two reader goroutines it spawns hold lines until
-// recorded closes, then drain them into job's ring buffers in order. They
-// are tracked by job.streamDone.
+// startJobStreams spawns the two reader goroutines for the channels that
+// Start passed to commander.WithStream. WithStream subscribes before the
+// process starts, so a fast command (echo, printf, true) cannot write a line
+// before the subscription exists. The readers hold lines until recorded
+// closes, then drain them into job's ring buffers in order. They are tracked
+// by job.streamDone.
 func startJobStreams(
 	ctx context.Context,
 	registry *JobRegistry,
 	job *Job,
+	stdoutCh, stderrCh <-chan string,
 	recorded <-chan struct{},
 ) {
-	stdoutCh := make(chan string, jobStreamChannelBuffer)
-	stderrCh := make(chan string, jobStreamChannelBuffer)
-	job.process.Stream(stdoutCh, stderrCh)
-
 	job.streamDone.Go(func() {
 		relayJobStream(ctx, registry, job, JobStreamStdout, stdoutCh, recorded)
 	})

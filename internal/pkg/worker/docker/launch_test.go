@@ -175,7 +175,20 @@ func TestBuildCreateRequestRefusesControllerEnvironment(t *testing.T) {
 		"PEEN_API_TOKEN",
 		"PEEN_WORKER_UID",
 		"PEEN_DOCKER_SOCKET",
+		"PEEN_WORKER_IMAGE",
+		"PEEN_EXECUTION_PROFILES",
+		"PEEN_DEFAULT_EXECUTION_PROFILE",
+		"PEEN_WORKSPACE_ROOT",
+		"PEEN_HTTP_LISTEN_ADDRESS",
+		"PEEN_METRICS_LISTEN_ADDRESS",
+		"PEEN_HOST_USERNAME",
+		"PEEN_HOST_HOME",
+		"PEEN_LOG_DIRECTORY",
+		"PEEN_LOG_RETENTION",
+		"DOCKER_HOST",
 		"HOME",
+		"USER",
+		"LOGNAME",
 	} {
 		t.Run(key, func(t *testing.T) {
 			t.Parallel()
@@ -192,6 +205,28 @@ func TestBuildCreateRequestRefusesControllerEnvironment(t *testing.T) {
 			require.ErrorIs(t, err, commerr.ErrPermissionDenied)
 		})
 	}
+}
+
+func TestBuildCreateRequestCarriesTheHarnessSelectionEnvironment(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	create, err := docker.BuildCreateRequest(docker.LaunchSpec{
+		Document: testDocument(uuid.New()),
+		Profile:  sandboxProfile(),
+		Identity: testIdentity(),
+		RuntimeEnvironment: map[string]string{
+			"PEEN_AGENT":                "reviewer",
+			"PEEN_DISABLED_CORE_SKILLS": "planning",
+			"PEEN_DISABLED_CORE_AGENTS": "all",
+		},
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "reviewer", create.Env["PEEN_AGENT"])
+	assert.Equal(t, "planning", create.Env["PEEN_DISABLED_CORE_SKILLS"])
+	assert.Equal(t, "all", create.Env["PEEN_DISABLED_CORE_AGENTS"])
 }
 
 // The workspace, configuration, and session socket directory keep their literal

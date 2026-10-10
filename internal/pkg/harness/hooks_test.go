@@ -262,6 +262,62 @@ pre_tool_use:
 	}
 }
 
+func TestInvalidHookCommandTimeoutWarningNamesTheTimeout(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name    string
+		timeout string
+		want    string
+	}{
+		{
+			name:    "negative",
+			timeout: "-1s",
+			want:    `command timeout "-1s" must be positive`,
+		},
+		{
+			name:    "zero",
+			timeout: "0s",
+			want:    `command timeout "0s" must be positive`,
+		},
+		{
+			name:    "not a duration",
+			timeout: "soon",
+			want:    `command timeout "soon" must be a Go duration`,
+		},
+		{
+			name:    "no unit",
+			timeout: "30",
+			want:    `command timeout "30" must be a Go duration`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			fixture := newResolverFixture(t)
+			fixture.writeHook(t, fixture.configRoot, `version: 1
+pre_tool_use:
+  - actions:
+      - type: command
+        command: check
+        timeout: `+tc.timeout+`
+`)
+
+			resolver, err := NewResolver(fixture.configRoot, Limits{})
+			require.NoError(t, err)
+
+			snapshot, resolveErr := resolver.Resolve(fixture.workspace)
+			require.NoError(t, resolveErr)
+
+			require.Len(t, snapshot.Warnings(), 1)
+			assert.Empty(t, snapshot.Hooks())
+			assert.Contains(t, snapshot.Warnings()[0].Reason, tc.want)
+		})
+	}
+}
+
 func TestRetiredHookTimeoutSecondsWarningNamesTimeout(t *testing.T) {
 	t.Parallel()
 

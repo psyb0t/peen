@@ -41,7 +41,7 @@ One paragraph: what changed for a user, then what to do before upgrading, or "No
 
 - Conventional commit subjects, lowercase and imperative: `fix: keep stderr from fast commands`, `feat: add ...`, `docs: ...`, `test: ...`, `refactor: ...`, `chore: ...`. A breaking change uses `feat!:` or `fix!:`.
 - The subject says what changed for a user when there is a user-visible effect.
-- The body, when needed, says why, in plain sentences. No em dashes.
+- The body, when needed, says why, in plain sentences.
 - Never add `Closes #N`, `Fixes #N`, or another keyword that closes an issue unless the maintainer asked for that issue to be closed.
 - Text that speaks for the maintainer uses "I", never "we" or "the team".
 - Servicepack update commits keep the message the update tool writes.

@@ -709,7 +709,7 @@ func (r *Runtime) openPrompt(
 			ctxerrors.Wrap(err, "assemble persisted history")
 	}
 
-	ledger := newSkillLedger(deliveredSkillNames(history.Messages)...)
+	ledger := r.newTurnSkillLedger(history.Messages)
 
 	skills, err := buildSkillMessages(ctx, snapshot, ledger, input.Message)
 	if err != nil {
@@ -730,6 +730,23 @@ func (r *Runtime) openPrompt(
 		skills: skills,
 		ledger: ledger,
 	}, nil
+}
+
+// newTurnSkillLedger returns the skills a turn counts as already delivered.
+//
+// Under summarize the stored history is exactly what the model sees, minus
+// what a compaction replaced, so earlier deliveries count. Under drop-oldest
+// Peen stores no compaction and Elelem leaves old messages out of the request
+// on its own, so an earlier delivery may no longer reach the model. Only the
+// skills this turn delivers count there.
+func (r *Runtime) newTurnSkillLedger(
+	history []*models.Message,
+) *skillLedger {
+	if r.compactionMode != config.CompactionModeSummarize {
+		return newSkillLedger()
+	}
+
+	return newSkillLedgerFromHistory(history)
 }
 
 // workerGenerationReference renders a generation for a durable column. The
@@ -1111,12 +1128,13 @@ func newSkillInjectedEvent(
 	}, nil
 }
 
-// turnStartMessages builds the messages a turn opens with: session events
-// that arrived while the session was idle, marked as injected, then the
-// prompt that started the turn exactly as it was given, then one injected row
-// per skill message that follows it. A turn started by an event handler opens
-// with the handler's instructions rather than anything a person typed, so
-// that prompt is stored as injected too.
+// turnStartMessages builds the messages a turn opens with, in the order the
+// prompt hands them to the model: the prompt that started the turn exactly as
+// it was given, then one injected row per skill message that follows it, then
+// the session events that arrived while the session was idle, marked as
+// injected. A turn started by an event handler opens with the handler's
+// instructions rather than anything a person typed, so that prompt is stored
+// as injected too.
 func turnStartMessages(
 	pendingEvents string,
 	workspace string,
@@ -1129,14 +1147,6 @@ func turnStartMessages(
 		0,
 		turnStartMessageCapacity+len(skills),
 	)
-	if pendingEvents != "" {
-		messages = append(messages, session.MessageInput{
-			Role:      models.MessageRoleUser,
-			Content:   pendingEvents,
-			Workspace: workspace,
-			Injected:  true,
-		})
-	}
 
 	messages = append(messages, session.MessageInput{
 		Role:     models.MessageRoleUser,
@@ -1146,6 +1156,15 @@ func turnStartMessages(
 
 	for _, skill := range skills {
 		messages = append(messages, skill.storedInput(""))
+	}
+
+	if pendingEvents != "" {
+		messages = append(messages, session.MessageInput{
+			Role:      models.MessageRoleUser,
+			Content:   pendingEvents,
+			Workspace: workspace,
+			Injected:  true,
+		})
 	}
 
 	return messages
@@ -1784,6 +1803,8 @@ func (r *Runtime) newTurnCompactor(
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create turn compactor")
 	}
+
+	built.onCompacted = prepared.skillLedger.forgetThrough
 
 	return built, nil
 }

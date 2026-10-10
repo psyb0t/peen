@@ -51,6 +51,17 @@ func TestWorkerEnvironmentCarriesDisabledCoreSettings(t *testing.T) {
 	assert.Equal(t, "all", environment["PEEN_DISABLED_CORE_AGENTS"])
 }
 
+func TestWorkerEnvironmentDoesNotForwardAuditLogSettings(t *testing.T) {
+	t.Setenv("PEEN_LOG_RETENTION", "48h")
+	t.Setenv("PEEN_LOG_DIRECTORY", "/controller/logs")
+
+	environment, err := testConfig(t).WorkerEnvironment()
+	require.NoError(t, err)
+
+	assert.NotContains(t, environment, "PEEN_LOG_RETENTION")
+	assert.NotContains(t, environment, "PEEN_LOG_DIRECTORY")
+}
+
 func TestWorkerEnvironmentRefusesAReservedProviderCredentialKey(t *testing.T) {
 	t.Setenv("PEEN_STATE_DIR", "/controller/state")
 

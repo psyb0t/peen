@@ -45,6 +45,7 @@ Every operation is a Make target. Targets run Go, Node, and the linters inside t
 | `make build` | Build `build/peen`. |
 | `make test-unit` | Untagged Go tests without Docker access. The fast loop. |
 | `make test` / `make test-integration` | Untagged Go tests with Docker access, for tests that start containers. |
+| `make test-stress` | The fast command and job tests in `internal/pkg/tools`, repeated 200 times with GOMAXPROCS set to 1 and then 4, to catch output races. Tests that depend on timing are skipped. Run it after touching `internal/pkg/tools` job or command code or bumping commander. Not part of CI. |
 | `make test-api` | `tests/api` through production HTTP and WebSocket wiring in the real image. |
 | `make test-execution-forms` | Source and installed binary contracts. |
 | `make test-browser` | The control surface in a real browser against a test controller. |
@@ -54,7 +55,7 @@ Every operation is a Make target. Targets run Go, Node, and the linters inside t
 | `make web-lint`, `make web-check`, `make web-test` | ESLint and Prettier, svelte-check and tsc, Vitest for `web/`. |
 | `make test-real` | Opt-in live provider tests. Costs money. Never a routine check. |
 
-Pick the tier that can see your change. A change inside one package needs `make test-unit` while you work. A change to HTTP, WebSocket, or wiring needs `make test-api`. A control surface change needs the web targets, `make web-build`, and `make test-browser`. A Dockerfile or entrypoint change needs `make test-docker-worker-source`. Before you call any change done, run `make lint` and `make test-coverage`, which is what `pre-commit.sh` and CI run. The Make targets run without the race detector.
+Pick the tier that can see your change. A change inside one package needs `make test-unit` while you work. A change to HTTP, WebSocket, or wiring needs `make test-api`. A control surface change needs the web targets, `make web-build`, and `make test-browser`. A Dockerfile or entrypoint change needs `make test-docker-worker-source`. Before you call any change done, run `make lint` and `make test-coverage`, which is what `pre-commit.sh` and CI run. The Make targets run without the race detector. Dev container runs are capped with `--cpus` to all but two CPU threads, at least one; set `DEV_CPUS`, for example `make test-coverage DEV_CPUS=4`, to change the cap. `make run-dev` is not capped. Containers that tests start themselves are not capped.
 
 `make run-dev` runs this checkout as a local controller on `http://localhost:8080`, with state under the gitignored `data/peen/`.
 
@@ -91,7 +92,7 @@ Commit subjects use conventional commits in the imperative, lowercase: `fix: ...
 
 ## Prose
 
-Write plain, exact, active sentences. No em dashes or en dashes. No filler words such as leverage, utilize, robust, seamless, or crucial. Sentence-case headings. In Markdown, keep each paragraph on one source line. This applies to docs, comments, the CHANGELOG, commit messages, and these rule files. See `.agents/rules/docs-and-prose.md`.
+Write plain, exact, active sentences. No filler words such as leverage, utilize, robust, seamless, or crucial. Sentence-case headings. In Markdown, keep each paragraph on one source line. This applies to docs, comments, the CHANGELOG, commit messages, and these rule files. See `.agents/rules/docs-and-prose.md`.
 
 ## Rule files
 

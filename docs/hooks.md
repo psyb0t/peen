@@ -163,7 +163,7 @@ Run make test before you report this as done.
 </hook>
 ```
 
-A lifecycle event such as `session_start` has no tool, so its block has no `<tool>` line. Peen escapes `<`, `>`, and `&` in the event and tool values so they cannot close the block early. The injected text is your own configuration and is sent as written. When session events are delivered with a tool result, their `<events>` block follows the `<hook>` block as a separate block. The default system prompt tells the model that a `<hook>` block holds trusted instructions from your configuration, while `<events>` content is data.
+A lifecycle event such as `session_start` has no tool, so its block has no `<tool>` line. Peen escapes `<`, `>`, and `&` in the event and tool values so they cannot close the block early. The injected text is your own configuration and is sent as written. When session events are delivered with a tool result, their `<events>` block follows the `<hook>` block as a separate block. The default system prompt tells the model that a `<hook>` block holds trusted instructions from your configuration, while `<events>` content is data. Peen labels every `<hook>` block the same way, whatever layer it came from. A workspace `hooks.yaml` is a file the agent itself can change (see [Limits](#limits)), so put instructions that must stay trusted in `PEEN_CONFIG_DIR`.
 
 ### `emit_event`
 

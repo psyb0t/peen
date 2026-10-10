@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	commonsqlite "github.com/psyb0t/common-go/db/sqlite"
 	"github.com/psyb0t/peen/internal/pkg/db/migrations"
@@ -106,6 +107,92 @@ func TestSQLiteMigrationsAreReversible(t *testing.T) {
 		tableColumns(t, sqlDB, "turns"),
 		"worker_generation_id",
 	)
+}
+
+const (
+	insertLegacyMessage = `INSERT INTO messages
+		(id, session_id, turn_id, sequence, workspace, role, content, created_at)
+		VALUES (?, 'session', 'turn', 1, '/work', 'user', 'old row', ?)`
+
+	insertKindedMessage = `INSERT INTO messages
+		(id, session_id, turn_id, sequence, workspace, role, content,
+		 created_at, injected_kind)
+		VALUES (?, 'session', 'turn', ?, '/work', 'user', 'new row', ?, ?)`
+)
+
+// Migration 16 adds the injected kind. A message stored before it reads back
+// with an empty kind, and the column accepts only an empty kind or skill.
+func TestSQLiteMigration16DefaultsOldRowsAndChecksTheKind(t *testing.T) {
+	handle := openMigratedStore(t)
+	sqlDB := handle.SQLDB()
+	ctx := t.Context()
+
+	require.NoError(t, commonsqlite.MigrateDown(
+		sqlDB,
+		sqliteMigrationsPath,
+		1,
+		&migrations.SQLiteFS,
+	))
+	assert.NotContains(t, tableColumns(t, sqlDB, "messages"), "injected_kind")
+
+	now := time.Now().UTC()
+	require.NoError(t, execWithoutForeignKeys(
+		t,
+		sqlDB,
+		insertLegacyMessage,
+		"legacy",
+		now,
+	))
+
+	require.NoError(t, commonsqlite.MigrateUp(
+		sqlDB,
+		sqliteMigrationsPath,
+		&migrations.SQLiteFS,
+	))
+
+	kind := "unset"
+	require.NoError(t, sqlDB.QueryRowContext(
+		ctx,
+		"SELECT injected_kind FROM messages WHERE id = 'legacy'",
+	).Scan(&kind))
+	assert.Empty(t, kind)
+
+	require.NoError(t, execWithoutForeignKeys(
+		t, sqlDB, insertKindedMessage, "empty", 2, now, "",
+	))
+	require.NoError(t, execWithoutForeignKeys(
+		t, sqlDB, insertKindedMessage, "skill", 3, now, "skill",
+	))
+
+	err := execWithoutForeignKeys(
+		t, sqlDB, insertKindedMessage, "other", 4, now, "other",
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "CHECK constraint failed")
+}
+
+// execWithoutForeignKeys runs one statement on a connection that does not
+// enforce foreign keys, so a row can name a session and turn that do not
+// exist. The connection goes back to the pool before it returns.
+func execWithoutForeignKeys(
+	t *testing.T,
+	sqlDB *sql.DB,
+	query string,
+	args ...any,
+) error {
+	t.Helper()
+
+	conn, err := sqlDB.Conn(t.Context())
+	require.NoError(t, err)
+
+	defer func() { require.NoError(t, conn.Close()) }()
+
+	_, err = conn.ExecContext(t.Context(), "PRAGMA foreign_keys = OFF")
+	require.NoError(t, err)
+
+	_, err = conn.ExecContext(t.Context(), query, args...)
+
+	return err
 }
 
 // openMigratedStore opens a store in its own directory, which runs every

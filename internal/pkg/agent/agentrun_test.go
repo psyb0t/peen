@@ -248,17 +248,42 @@ func TestAgentRunRegistryFinishPublishesCompletionEvents(t *testing.T) {
 		assert.Equal(t, run.ID, data.RunID)
 		assert.Equal(t, tc.name, data.AgentName)
 		assert.GreaterOrEqual(t, data.DurationMs, int64(0))
-		assert.Equal(
-			t,
-			(time.Duration(data.DurationMs) * time.Millisecond).String(),
-			data.Duration,
-		)
+		assert.NotEmpty(t, data.Duration)
 
 		raw := map[string]any{}
 		require.NoError(t, json.Unmarshal(batch.Notices[0].Data, &raw))
 		assert.Contains(t, raw, "durationMs")
 		assert.Contains(t, raw, "duration")
 	}
+}
+
+// TestAgentRunPublishCarriesAFixedDuration pins the duration text of an
+// agent completion notice for a known start and end time.
+func TestAgentRunPublishCarriesAFixedDuration(t *testing.T) {
+	t.Parallel()
+
+	sessionID := uuid.New()
+	bus := events.NewBus(events.Options{})
+	registry, err := NewAgentRunRegistry(sessionID, bus, AgentRunLimits{})
+	require.NoError(t, err)
+
+	started := time.Date(2026, time.October, 10, 9, 0, 0, 0, time.UTC)
+	run := &AgentRun{ID: uuid.New(), Name: "fixed", StartedAt: started}
+
+	registry.publish(
+		context.Background(),
+		run,
+		AgentRunStateCompleted,
+		started.Add(90*time.Second),
+	)
+
+	batch := bus.Drain(sessionID)
+	require.Len(t, batch.Notices, 1)
+
+	var data agentEventData
+	require.NoError(t, json.Unmarshal(batch.Notices[0].Data, &data))
+	assert.Equal(t, int64(90000), data.DurationMs)
+	assert.Equal(t, "1m30s", data.Duration)
 }
 
 func TestAgentRunEventBufferOverflowReportsDropped(t *testing.T) {

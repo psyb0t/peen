@@ -1,5 +1,6 @@
 # Commander
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/psyb0t/commander.svg)](https://pkg.go.dev/github.com/psyb0t/commander)
 [![CI](https://github.com/psyb0t/commander/actions/workflows/pipeline.yml/badge.svg?branch=main)](https://github.com/psyb0t/commander/actions/workflows/pipeline.yml)
 [![coverage](https://raw.githubusercontent.com/psyb0t/commander/badges/coverage.svg)](https://github.com/psyb0t/commander/actions/workflows/pipeline.yml)
 [![version](https://raw.githubusercontent.com/psyb0t/commander/badges/version.svg)](https://github.com/psyb0t/commander/releases)
@@ -109,6 +110,9 @@ commander.WithEnv([]string{})
 
 // set working directory
 commander.WithDir("/path")
+
+// subscribe stdout/stderr channels before the process starts (Start only)
+commander.WithStream(stdout, stderr)
 ```
 
 ## Real-time Streaming
@@ -147,6 +151,34 @@ err = proc.Wait()
 Multiple listeners can subscribe to the same process — each
 call to `Stream()` adds a new broadcast subscriber. Pass `nil`
 for channels you don't care about.
+
+`Stream()` only sees lines read after you call it, and the
+process is already running by then. A fast command can print and
+exit first. To get every line, pass the channels to `Start` with
+`WithStream`, which subscribes before the process launches:
+
+```go
+stdout := make(chan string, 100)
+
+proc, err := cmd.Start(
+    ctx, "sh", []string{"-c", "echo hello"},
+    commander.WithStream(stdout, nil),
+)
+if err != nil {
+    log.Fatal(err)
+}
+
+go func() { _ = proc.Wait() }()
+
+for line := range stdout {
+    fmt.Println(line) // hello
+}
+```
+
+The channels are closed when the process is done. `Wait()`
+returns after the output is fully delivered, but waits at most
+2 seconds for it. A grandchild that inherited the pipes and
+outlives the process can otherwise hold them open forever.
 
 ## Process Control
 
@@ -356,6 +388,21 @@ stdout, stderr, err := cmd.Output(
 - `log/slog` — debug logging (configure however you want)
 - `github.com/psyb0t/ctxerrors` — error wrapping with context
 - `github.com/psyb0t/common-go` — common error types
+
+## Development
+
+Docker and Make are the only host requirements. Every target runs its Go commands in a container built from `Dockerfile.dev`, as your user, with the repo mounted at `/work`. Nothing is installed on the host. The library needs Go 1.26.9 or newer.
+
+- `make help` lists every target.
+- `make dev-image` builds the development image. The other targets build it when needed.
+- `make dep` tidies and vendors dependencies.
+- `make lint`, `make lint-fix` and `make format` check, fix and format the Go code.
+- `make test` runs the tests with the race detector.
+- `make test-coverage` runs them with a coverage floor of 85% (`MIN_TEST_COVERAGE`) and writes `coverage-percent.txt`.
+- `make sec` runs govulncheck and semgrep and writes `sec.sarif`.
+- `make all` runs `dep`, `lint-fix` and `test-coverage`.
+
+The containers use all host CPUs except two. Override with `DEV_CPUS=4`, change the reserve with `DEV_CPUS_RESERVED`, or pass extra `docker run` flags with `DEV_RUN_EXTRA_ARGS`.
 
 ## License
 

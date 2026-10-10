@@ -639,6 +639,62 @@ func TestCustomNamesCannotCarryTheCorePrefix(t *testing.T) {
 	)
 }
 
+func TestCustomNamesWithTheCorePrefixAreDroppedWithAWarningReason(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	fixture := newResolverFixture(t)
+	fixture.writeSkillDocument(
+		t,
+		fixture.workspace,
+		"core:extra",
+		skillDocument("core:extra", "spoof", testSkillBody),
+	)
+	fixture.writeAgentDocument(
+		t,
+		fixture.workspace,
+		"core:extra",
+		agentDocument("core:extra", "spoof", testAgentBody),
+	)
+
+	warnings := resolveWithOptions(t, fixture).Warnings()
+	require.Len(t, warnings, 2)
+
+	reasons := map[SourceKind]string{}
+
+	for _, warning := range warnings {
+		reasons[warning.Kind] = warning.Reason
+
+		assert.Contains(t, warning.Source, "core:extra")
+	}
+
+	assert.Contains(t, reasons[SourceKindSkill], "validate skill name")
+	assert.Contains(t, reasons[SourceKindAgent], "validate named agent name")
+}
+
+func TestUnknownDisabledCoreNameMessageIsExact(t *testing.T) {
+	t.Parallel()
+
+	_, err := ParseDisabledCoreSkills("bogus")
+	require.ErrorIs(t, err, ErrUnknownCoreName)
+	assert.Contains(
+		t,
+		err.Error(),
+		`core skill "bogus" does not exist, valid names are `+
+			`freshness, planning and all`,
+	)
+
+	_, err = ParseDisabledCoreAgents("bogus")
+	require.ErrorIs(t, err, ErrUnknownCoreName)
+	assert.Contains(
+		t,
+		err.Error(),
+		`core agent "bogus" does not exist, valid names are `+
+			`general-purpose and all`,
+	)
+}
+
 func TestCheckRootAgent(t *testing.T) {
 	t.Parallel()
 

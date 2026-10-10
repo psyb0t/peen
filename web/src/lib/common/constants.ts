@@ -30,5 +30,15 @@ export const EVENT_HANDLER_AGENT_OPEN = "<agent>";
 export const EVENT_HANDLER_AGENT_CLOSE = "</agent>\n";
 export const EVENT_HANDLER_BODY_GAP = "\n";
 export const EVENT_HANDLER_CLOSE = "\n</handler>";
+// Events delivered to a turn arrive as one block: a preamble for the model, an
+// optional line counting dropped events, then one JSON event per line.
+export const SESSION_EVENTS_OPEN = "<events>\n";
+export const SESSION_EVENTS_CLOSE = "</events>";
+export const SESSION_EVENT_OPEN = "<event>";
+export const SESSION_EVENT_CLOSE = "</event>";
+export const SESSION_EVENTS_DROPPED_LEAD = "Older events were dropped before these: ";
+export const SESSION_EVENTS_TITLE = "Session events";
+export const SESSION_EVENTS_DROPPED_LABEL = "Older events dropped: ";
+export const SESSION_EVENT_UNREADABLE = "unreadable event";
 export const SESSION_PAGE_LIMIT = 200;
 export const SESSION_DETAIL_LIMIT = 100;

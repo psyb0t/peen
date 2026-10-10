@@ -481,6 +481,15 @@ func TestRuntimeQueuedUnknownSkillReferenceRefusesTheMessage(t *testing.T) {
 	require.Len(t, outcomes, 1)
 	require.ErrorIs(t, outcomes[0].err, harness.ErrSkillNotFound)
 	require.ErrorIs(t, outcomes[0].err, commerr.ErrValidationFailed)
+
+	var unknown *harness.UnknownSkillError
+	require.ErrorAs(t, outcomes[0].err, &unknown)
+	assert.Equal(
+		t,
+		`unknown skill "missing-skill" in :missing-skill; `+
+			`available skills: core:freshness, core:planning`,
+		unknown.Message,
+	)
 	assert.Equal(t, queuedUserMessageFinal, result.Text)
 
 	for _, event := range events {

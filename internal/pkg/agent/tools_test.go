@@ -164,18 +164,37 @@ func TestWaitTimeoutToolsTakeADurationString(t *testing.T) {
 
 	executor := newToolTestExecutor(t)
 	set := hostToolSet(executor, nil, harness.Snapshot{}, nil, nil)
-	jobID := uuid.New().String()
+
+	started, err := executor.RunCommand(
+		context.Background(),
+		tools.RunCommandInput{
+			Purpose:    "wait target",
+			Command:    "echo done-output; exit 3",
+			Background: true,
+		},
+	)
+	require.NoError(t, err)
+
+	jobID := started.JobID.String()
 
 	testCases := []struct {
-		name      string
-		tool      string
-		arguments string
-		wantError bool
+		name         string
+		tool         string
+		arguments    string
+		wantError    bool
+		wantContains []string
 	}{
 		{
 			name:      "run_command timeout string",
 			tool:      toolNameRunCommand,
-			arguments: `{"command":"true","purpose":"check","timeout":"1m30s"}`,
+			arguments: `{"command":"echo hello","purpose":"check","timeout":"1m30s"}`,
+			wantContains: []string{
+				`"purpose":"check"`,
+				`"background":false`,
+				`"state":"exited"`,
+				`"exitCode":0`,
+				`"stdout":"hello"`,
+			},
 		},
 		{
 			name:      "run_command retired timeoutSeconds",
@@ -193,6 +212,13 @@ func TestWaitTimeoutToolsTakeADurationString(t *testing.T) {
 			name:      "wait_job timeout string",
 			tool:      toolNameWaitJob,
 			arguments: `{"jobId":"` + jobID + `","timeout":"5s"}`,
+			wantContains: []string{
+				`"found":true`,
+				`"running":false`,
+				`"state":"exited"`,
+				`"exitCode":3`,
+				`"stdout":"done-output"`,
+			},
 		},
 		{
 			name:      "wait_job retired timeoutSeconds",
@@ -216,6 +242,10 @@ func TestWaitTimeoutToolsTakeADurationString(t *testing.T) {
 			})
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantError, result.IsError, result.Content)
+
+			for _, want := range tc.wantContains {
+				assert.Contains(t, result.Content, want)
+			}
 		})
 	}
 }

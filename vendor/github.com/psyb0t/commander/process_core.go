@@ -6,14 +6,21 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	commonerrors "github.com/psyb0t/common-go/errors"
 	"github.com/psyb0t/ctxerrors"
 )
+
+// outputDrainTimeout bounds how long Wait waits for the output readers after
+// the process exits. A grandchild that inherited the pipes can keep them open
+// long after the process itself is gone.
+const outputDrainTimeout = 2 * time.Second
 
 type Process interface {
 	Start() error
@@ -48,6 +55,10 @@ type process struct {
 	waitCh         chan struct{}
 	stderrBuffer   []string
 	stderrMu       sync.Mutex
+	outputReaders  []*os.File
+	// outputDone closes once the readers and the forwarder have drained
+	// both streams and the stream channels are closed.
+	outputDone chan struct{}
 }
 
 // cmdWait ensures cmd.Wait() is only called once, even from multiple goroutines
@@ -80,6 +91,10 @@ func (p *process) Wait() error {
 
 	err := p.cmdWait()
 
+	// Let the readers drain what the process wrote before the deferred Stop
+	// closes doneCh. Bounded, because a grandchild may keep the pipes open.
+	p.waitForOutputDrain()
+
 	if p.cmd.Process == nil {
 		slog.Debug("process finished")
 	} else {
@@ -93,6 +108,19 @@ func (p *process) Wait() error {
 	slog.Debug("process completed successfully")
 
 	return nil
+}
+
+// waitForOutputDrain blocks until the output streams are fully drained or
+// outputDrainTimeout passes.
+func (p *process) waitForOutputDrain() {
+	timer := time.NewTimer(outputDrainTimeout)
+	defer timer.Stop()
+
+	select {
+	case <-p.outputDone:
+	case <-timer.C:
+		slog.Debug("output drain timed out, a descendant may hold the pipes open")
+	}
 }
 
 func (p *process) handleWaitError(err error) error {

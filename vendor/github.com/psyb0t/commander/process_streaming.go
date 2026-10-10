@@ -38,6 +38,7 @@ func (p *process) discardInternalOutput() {
 			"output discard goroutine finishing, closing stream channels",
 		)
 		p.closeStreamChannels()
+		close(p.outputDone)
 	}()
 
 	stdoutCount := 0

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"syscall"
 	"time"
 
@@ -18,27 +19,45 @@ const defaultStopTimeout = 3 * time.Second
 func (p *process) Start() error {
 	slog.Debug("creating process pipes for command")
 
-	stdout, err := p.cmd.StdoutPipe()
+	// The read ends are owned here. exec.Cmd.StdoutPipe/StderrPipe read ends are
+	// closed by cmd.Wait as soon as the child exits, which discards output the
+	// readers have not consumed yet.
+	stdout, stdoutWriter, err := os.Pipe()
 	if err != nil {
 		slog.Debug("failed to create stdout pipe", "error", err)
 
 		return ctxerrors.Wrap(err, "failed to get stdout pipe")
 	}
 
-	stderr, err := p.cmd.StderrPipe()
+	stderr, stderrWriter, err := os.Pipe()
 	if err != nil {
 		slog.Debug("failed to create stderr pipe", "error", err)
+
+		closePipeEnds(stdout, stdoutWriter)
 
 		return ctxerrors.Wrap(err, "failed to get stderr pipe")
 	}
 
+	p.cmd.Stdout = stdoutWriter
+	p.cmd.Stderr = stderrWriter
+
 	slog.Debug("starting process")
 
-	if err := p.cmd.Start(); err != nil {
-		slog.Debug("failed to start process", "error", err)
+	startErr := p.cmd.Start()
 
-		return ctxerrors.Wrap(err, "failed to start command")
+	// The child has its own copies of the write ends. Closing ours means the
+	// readers see EOF once the child and every grandchild holding them exit.
+	closePipeEnds(stdoutWriter, stderrWriter)
+
+	if startErr != nil {
+		slog.Debug("failed to start process", "error", startErr)
+
+		closePipeEnds(stdout, stderr)
+
+		return ctxerrors.Wrap(startErr, "failed to start command")
 	}
+
+	p.outputReaders = []*os.File{stdout, stderr}
 
 	if p.cmd.Process == nil {
 		slog.Debug("process started but no PID available")
@@ -55,6 +74,14 @@ func (p *process) Start() error {
 	slog.Debug("process initialization complete")
 
 	return nil
+}
+
+// closePipeEnds closes pipe ends, ignoring close errors: nothing can be done
+// about them and the data they guarded is already consumed or abandoned.
+func closePipeEnds(ends ...*os.File) {
+	for _, end := range ends {
+		_ = end.Close()
+	}
 }
 
 func (p *process) readStdout(stdout io.ReadCloser) {
@@ -145,6 +172,9 @@ func (p *process) cleanup() {
 	// Signal all goroutines to stop and close channels
 	slog.Debug("signaling all goroutines to stop")
 	close(p.doneCh)
+
+	// Unblocks any reader still waiting on a pipe a grandchild holds open
+	closePipeEnds(p.outputReaders...)
 
 	// Close stream channels
 	p.closeStreamChannels()

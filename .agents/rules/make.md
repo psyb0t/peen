@@ -10,6 +10,7 @@ Make is the only entry point for project operations. If an operation is supporte
 ## Running tools
 
 - Every Go, Node, and lint command runs in the dev image through `$(DEV_RUN)`: an ephemeral `docker run --rm` as your UID and GID, with `HOME=/tmp` and the checkout at `/work`. It has no Docker socket. Unit tests, lint, generation, and builds use it.
+- `DEV_RUN` and `DEV_RUN_DIND` carry `--cpus=$(DEV_CPUS)`, which defaults to all but two CPU threads and is at least 1. `run-dev` is Servicepack's and does not use them. Peen's `Makefile` sets it and redefines `DEV_RUN` after the Servicepack include, because Servicepack's `DEV_RUN` has no extra-arguments hook yet. Keep both definitions in step with Servicepack's flags.
 - `$(DEV_RUN_DIND)` adds the Docker socket, host networking, and the checkout at its real host path, for tests that start sibling containers. Use it only for the targets that need it.
 - A target that needs the dev image depends on `dev-image`.
 - Nothing installs or runs Go, pnpm, or linters on the host. The host needs Docker, Make, Git, and a shell.

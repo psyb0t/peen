@@ -43,6 +43,20 @@ delivery: wake
 ---
 Read the error report and find the failing code.`
 
+	// wakeTestSkillHandlerDocument names a skill in its body.
+	wakeTestSkillHandlerDocument = `---
+type: app.error
+delivery: wake
+---
+Follow :review-rules for this error.`
+
+	// wakeTestUnknownSkillHandlerDocument names a skill that does not exist.
+	wakeTestUnknownSkillHandlerDocument = `---
+type: app.error
+delivery: wake
+---
+Retry with :missing-skill later.`
+
 	// wakeTestQueueHandlerDocument declares the same type with no delivery of
 	// its own, so the notice's own mode decides.
 	wakeTestQueueHandlerDocument = `---
@@ -172,6 +186,91 @@ func TestPublishEventWakesAnIdleSessionWithAHandler(t *testing.T) {
 	}
 
 	assert.True(t, storedWake, "the tagged wake message is stored")
+}
+
+// The model receives the handler block, then the events block. The stored rows
+// must come in that order too, or a later turn replays them the other way
+// round.
+func TestPublishEventWakeStoresMessagesInTheOrderTheModelReceivesThem(
+	t *testing.T,
+) {
+	driver := elelemtest.NewScriptedDriver(
+		elelemtest.Text("session open"),
+		elelemtest.Text(wakeTestReply),
+	)
+	fixture := newRuntimeFixture(t, driver)
+	writeWakeHandler(t, fixture.configDirectory, wakeTestHandlerDocument)
+
+	sessionID := openWakeSession(t, fixture)
+
+	_, err := fixture.runtime.PublishEvent(
+		context.Background(),
+		wakeTestNotice(sessionID),
+	)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		messages, listErr := fixture.store.ListMessages(
+			context.Background(),
+			sessionID,
+			session.ListMessagesOptions{Order: session.PageOrderAscending},
+		)
+
+		return listErr == nil && containsContent(messages, wakeTestReply)
+	}, wakeTestTimeout, wakeTestPoll, "the woken turn ran and answered")
+
+	requests := driver.Requests()
+	require.Len(t, requests, 2)
+
+	// The request holds the system prompt, then the stored history, then the
+	// woken turn's own messages in the order the model gets them.
+	received := messageTexts(requests[1].Messages[1:])
+	require.Len(t, received, 4)
+
+	stored := make([]string, 0, len(received))
+
+	for _, row := range orderedMessages(t, fixture, sessionID) {
+		stored = append(stored, row.Content)
+	}
+
+	require.Len(t, stored, 5)
+	assert.Equal(t, received, stored[:4])
+	assert.Equal(t, wakeTestWrappedInstruction, stored[2])
+	assert.Contains(t, stored[3], sessionEventsOpenTag)
+}
+
+// The turn-start rows are stored in the order the prompt hands them to the
+// model: the message, the skills it names, then the events that waited.
+func TestTurnStartMessagesFollowTheOrderOfThePrompt(t *testing.T) {
+	t.Parallel()
+
+	skill := skillMessage{name: "alpha", text: "<skill>alpha</skill>"}
+
+	rows := turnStartMessages(
+		"<events>waiting</events>",
+		"",
+		"the message",
+		false,
+		[]skillMessage{skill},
+	)
+
+	contents := make([]string, 0, len(rows))
+	for _, row := range rows {
+		contents = append(contents, row.Content)
+	}
+
+	assert.Equal(
+		t,
+		[]string{
+			"the message",
+			"<skill>alpha</skill>",
+			"<events>waiting</events>",
+		},
+		contents,
+	)
+	assert.False(t, rows[0].Injected)
+	assert.True(t, rows[1].Injected)
+	assert.True(t, rows[2].Injected)
 }
 
 // Pointing a webhook at Peen must not start spending money before anyone has
@@ -614,6 +713,111 @@ func TestWakeLimiterZeroDisablesTheBound(t *testing.T) {
 	for range 100 {
 		require.True(t, limiter.allow(sessionID, now))
 	}
+}
+
+// runWakeCapturingError runs woken turns in the fixture's runtime and reports
+// each turn's result on the returned channel, because the runtime only logs a
+// failed woken turn.
+func runWakeCapturingError(t *testing.T, fixture runtimeFixture) chan error {
+	t.Helper()
+
+	results := make(chan error, 1)
+
+	fixture.runtime.SetWakeRunner(func(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		request MessageRequest,
+	) error {
+		err := fixture.runtime.runWakeTurn(ctx, sessionID, request)
+		results <- err
+
+		return err
+	})
+
+	return results
+}
+
+func waitForWakeResult(t *testing.T, results chan error) error {
+	t.Helper()
+
+	select {
+	case err := <-results:
+		return err
+	case <-time.After(wakeTestTimeout):
+		t.Fatal("the woken turn never finished")
+
+		return nil
+	}
+}
+
+// A handler body goes through the same path as a typed message, so a :name in
+// it delivers that skill right after the handler message.
+func TestPublishEventWakeDeliversASkillNamedInTheHandlerBody(t *testing.T) {
+	driver := elelemtest.NewScriptedDriver(
+		elelemtest.Text("session open"),
+		elelemtest.Text(wakeTestReply),
+	)
+	fixture := newRuntimeFixture(t, driver)
+	writeSkillFile(t, fixture, runtimeTestExplicitSkillName, skillTestBravoBody)
+	writeWakeHandler(
+		t,
+		fixture.configDirectory,
+		wakeTestSkillHandlerDocument,
+	)
+
+	sessionID := openWakeSession(t, fixture)
+	results := runWakeCapturingError(t, fixture)
+
+	_, err := fixture.runtime.PublishEvent(
+		context.Background(),
+		wakeTestNotice(sessionID),
+	)
+	require.NoError(t, err)
+	require.NoError(t, waitForWakeResult(t, results))
+
+	requests := driver.Requests()
+	require.Len(t, requests, 2)
+
+	tail := tailTexts(requests[1].Messages, 3)
+	assert.Contains(t, tail[0], "<handler>")
+	assert.Contains(t, tail[0], ":"+runtimeTestExplicitSkillName)
+	assert.Equal(
+		t,
+		expectedSkillMessage(t, fixture, runtimeTestExplicitSkillName),
+		tail[1],
+	)
+	assert.Contains(t, tail[2], sessionEventsOpenTag)
+}
+
+// An unknown name in a handler body fails the whole woken turn, as it fails a
+// typed message. Nothing reaches the model.
+func TestPublishEventWakeFailsWhenTheHandlerBodyNamesAnUnknownSkill(
+	t *testing.T,
+) {
+	driver := elelemtest.NewScriptedDriver(
+		elelemtest.Text("session open"),
+		elelemtest.Text("must not run"),
+	)
+	fixture := newRuntimeFixture(t, driver)
+	writeWakeHandler(
+		t,
+		fixture.configDirectory,
+		wakeTestUnknownSkillHandlerDocument,
+	)
+
+	sessionID := openWakeSession(t, fixture)
+	results := runWakeCapturingError(t, fixture)
+
+	_, err := fixture.runtime.PublishEvent(
+		context.Background(),
+		wakeTestNotice(sessionID),
+	)
+	require.NoError(t, err)
+
+	wakeErr := waitForWakeResult(t, results)
+	require.ErrorIs(t, wakeErr, harness.ErrSkillNotFound)
+	require.ErrorIs(t, wakeErr, commerr.ErrValidationFailed)
+	assert.Len(t, driver.Requests(), 1)
 }
 
 func TestWakeMessageNamesTheHandlerAgent(t *testing.T) {

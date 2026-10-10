@@ -35,7 +35,6 @@ Committed text describes the product. It never mentions a contributor's local ma
 
 These apply to every word a person reads: docs, the CHANGELOG, commit messages, code comments, API descriptions, error messages, and these rule files.
 
-- No em dashes or en dashes. End the sentence or use a comma.
 - Plain words. Not: leverage, utilize, robust, seamless, crucial, delve, enhance, foster, pivotal, showcase, underscore, landscape, realm, notably, facilitate. Use the ordinary word: use, help, important, strong.
 - Active voice with a named actor: "Peen refuses to start", not "startup is refused".
 - Say what the thing is or does. Cut "serves as", "in order to", "it is important to note", "not just X but Y", and lists of three padded for rhythm.
@@ -43,5 +42,3 @@ These apply to every word a person reads: docs, the CHANGELOG, commit messages, 
 - No promotional adjectives and no chatbot filler.
 - Straight quotes. No decorative emoji. No bold on every term.
 - One idea per sentence. If a reader has to reread it, split it.
-
-Before you finish, read the text once more looking only for em dashes and en dashes.

@@ -2,6 +2,20 @@
 
 All notable changes per release. Versions follow [semver](https://semver.org).
 
+## v0.6.0 (2026-10-10)
+
+Fixes output lost from fast commands and adds `WithStream`.
+
+- `Start` read output through `cmd.StdoutPipe` and `cmd.StderrPipe`, whose read ends `cmd.Wait` closes when the child exits. A command that exited quickly lost output the readers had not consumed yet, and `echo hello` in a loop lost the line about 85% of the time. Commander now creates the pipes itself and keeps the read ends until the streams are drained.
+- A deferred `Stop` at the end of `Wait` could close the stream channels and drop lines already read but not yet forwarded. `Wait` now waits for the streams to drain first, for at most 2 seconds, so a grandchild that keeps the pipes open cannot hang it.
+- Added the `WithStream(stdout, stderr chan<- string)` option. `Start` subscribes the channels before the process launches, so a `Stream` call right after `Start` can no longer miss a line. `Process.Stream` still works as before. `Run`, `Output` and `CombinedOutput` ignore the option.
+- The module now requires Go 1.26.9 (`go 1.26.9` in `go.mod`).
+- Every Make target runs in a pinned dev container built from `Dockerfile.dev`, so contributors need only Docker and Make. `make help` lists the targets, and `make test` now includes `TestCommander_ProcessGroupKilling` because the image has `ps`.
+- Added `make sec`, which runs govulncheck and semgrep and writes `sec.sarif`, plus `make format`. `govulncheck` is pinned as a `go tool` dependency.
+- `make test-coverage` still enforces 85% and now fails when no coverage is reported.
+- The CI pipeline moved to the shared `code-workflow.yml`, uploads the security scan to the Security tab, and publishes release notes when a tag is pushed.
+- Added `AGENTS.md` for contributors and the Go Reference badge to the README.
+
 ## v0.5.9 (2026-10-10)
 
 Fixes `Stream` losing output when one of a process's streams closes before the other.

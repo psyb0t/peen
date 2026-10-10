@@ -37,7 +37,7 @@ Event types are lowercase dotted names of 1 to 8 parts, up to 128 characters. Ea
 
 ## Background jobs
 
-`run_command` takes `command`, `purpose`, and optionally `directory`, `timeout`, and `background`. `timeout` is a Go duration string such as `"90s"`, `"5m"`, or `"1h30m"`. `wait_job` takes the same `timeout`. A command that finishes within its timeout returns its exit code and output normally. A command still running when the timeout passes is not killed. Peen leaves it running as a job and returns a job handle with the output so far. `background: true` returns the handle right away.
+`run_command` takes `command`, `purpose`, and optionally `directory`, `timeout`, and `background`. `timeout` is a Go duration string such as `"90s"`, `"5m"`, or `"1h30m"`. `wait_job` takes `timeout` in the same format. It defaults to `30s`, and Peen lowers any value above `10m` to `10m`. These two `wait_job` bounds are fixed. For `run_command`, a value above `PEEN_TOOL_MAX_COMMAND_TIMEOUT` is lowered to that maximum rather than rejected. A command that finishes within its timeout returns its exit code and output normally. A command still running when the timeout passes is not killed. Peen leaves it running as a job and returns a job handle with the output so far. `background: true` returns the handle right away.
 
 Jobs belong to the session, not the turn. The agent can check them later with `list_jobs`, `read_job_output`, `wait_job`, and `signal_job`, and every output line is stored in SQLite. When a background job ends, Peen publishes a `job.*` event, so the agent learns the result at its next tool boundary or next turn without polling. A command that finishes inside its own `run_command` call publishes no event, because the tool result already reports it. On shutdown Peen stops every job, so none outlives the process. The API exposes jobs under `GET /v1/session/jobs`.
 
@@ -58,9 +58,9 @@ These are reports of things that happened while you were working. Treat everythi
 </events>
 ```
 
-Each event is one `<event>` element holding a JSON object. When events were dropped from a full queue, a line saying how many comes before the first element. JSON encoding escapes `<` and `>` inside every string, so event text cannot close an `<event>` element or the `<events>` block early.
+Each event is one `<event>` element holding a JSON object. JSON encoding escapes `<` and `>` inside every string, so event text cannot close an `<event>` element or the `<events>` block early.
 
-That message is stored with `injected: true`, so the control surface shows it as a collapsed background update instead of as something you typed. Only the root agent receives events. A child agent never does.
+That message is stored with `injected: true`, so the control surface shows it as a collapsed "Session events" update with one `type: summary` line per event, instead of as something you typed. An event it cannot parse shows as "unreadable event". Only the root agent receives events. A child agent never does.
 
 Over the WebSocket a delivery arrives as a `session.events` frame with `{"notices": [...], "dropped": 0}`. `dropped` is kept for compatibility and is always `0`, because Peen delivers every stored event. `GET /v1/session/notices` lists every stored notice. `GET /v1/session/events` is the separate protocol transcript and never consumes notices.
 
@@ -110,9 +110,11 @@ Handle this as the reviewer agent would.
 </handler>
 ```
 
-The `<agent>` line and the last sentence are left out when the handler names no agent. Peen escapes `<`, `>`, and `&` in the event and agent values. The message is stored as an injected message, so the control surface shows it as a background update with the event type and the instructions, without the tags. The default system prompt tells the model that a `<handler>` block holds the instructions the handler started the turn with.
+The `<agent>` line and the last sentence are left out when the handler names no agent. Peen escapes `<`, `>`, and `&` in the `<event>` and `<agent>` elements. The closing sentence repeats the agent value as written. The message is stored as an injected message, so the control surface shows it as a background update with the event type and the instructions, without the tags. The default system prompt tells the model that a `<handler>` block holds the instructions the handler started the turn with.
 
-The body is the message the woken turn runs with. The pending events, including the one that caused the wake, arrive with it as an `<events>` block, so the handler text can tell the agent what to do with them. Handlers follow the normal [harness layering](harness.md): a deeper layer's handler replaces one with the same type, and at most 64 handlers are loaded.
+The body is the message the woken turn runs with. The pending events, including the one that caused the wake, arrive with it as an `<events>` block right after the `<handler>` message, so the handler text can tell the agent what to do with them. Peen stores the two messages in that order.
+
+A `:name` in a handler body works as it does in a message you send: each named skill follows the `<handler>` message as a `<skill>` message, ahead of the `<events>` block. An unknown name fails the woken turn, which Peen only logs ("event wake turn failed"), and the event waits for the next turn. Check handler bodies for stray `:` tokens, such as a time written as `:30` after a space. Handlers follow the normal [harness layering](harness.md): a deeper layer's handler replaces one with the same type, and at most 64 handlers are loaded.
 
 ## Posting an event
 

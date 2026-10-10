@@ -15,12 +15,17 @@ you need the full, current list.
 | Run static checks | `make lint` |
 | Run package tests | `make test-unit` |
 | Run mocked integration tests | `make test-integration` |
+| Repeat the fast command and job tests 200 times to catch output races | `make test-stress` |
 | Exercise production HTTP and WebSocket wiring | `make test-api` |
 | Exercise the embedded control surface in a real browser | `make test-browser` |
 | Exercise source and installed binaries | `make test-execution-forms` |
 | Build the binary | `make build` |
 | Build the production image | `make docker-build` |
 | Run this checkout's local controller | `make run-dev` |
+
+Make runs these targets in dev containers capped with `--cpus` to all but two CPU threads, and to at least one. Set `DEV_CPUS` to change the cap, for example `make test-coverage DEV_CPUS=4`. The cap does not apply to `make run-dev` or to containers that tests start themselves.
+
+`make test-stress` runs the fast command and job tests in `internal/pkg/tools` 200 times with `go test -cpu 1,4`, which sets `GOMAXPROCS` to 1 and then 4. It does not give the tests more CPUs than the `DEV_CPUS` cap allows. It skips the tests that depend on timing, and CI does not run it. Run it after changing job or command code in `internal/pkg/tools` or updating commander.
 
 `make run-dev` rebuilds the development image, runs Peen as the current host UID and GID, loads the gitignored `.env` through Docker, and uses the invoking directory as the workspace root, so a client may open it or any directory inside it. It uses Docker host networking so configured host and Tailnet services remain reachable, while Peen itself binds its API and browser control surface to `http://localhost:8080`. The default metrics listener is also host-loopback at `http://127.0.0.1:9090/metrics`. The target creates `data/peen/config` and `data/peen/state` in the Peen checkout on first use, and preserves state between runs. The config directory is read-only to the agent. Set `PEEN_DEV_HTTP_PORT` to use another loopback API port.
 

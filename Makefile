@@ -7,13 +7,40 @@
 MIN_TEST_COVERAGE := 80
 TEST_TIMEOUT := 30m
 
+# Dev container runs leave two CPU threads free for the rest of the machine.
+# --cpus is a hard quota on the container, and Go 1.25 and later size their
+# thread pool from it. Override per run, for example `make lint DEV_CPUS=4`.
+# Containers that tests start themselves are not covered by this limit.
+DEV_CPUS_RESERVED := 2
+DEV_CPUS ?= $(shell cores=$$(nproc); \
+	limit=$$((cores - $(DEV_CPUS_RESERVED))); \
+	if [ "$$limit" -lt 1 ]; then limit=1; fi; echo "$$limit")
+DEV_CPU_LIMIT_ARGS := --cpus=$(DEV_CPUS)
+DEV_RUN_DIND_EXTRA_ARGS := $(DEV_CPU_LIMIT_ARGS)
+
 # Include servicepack framework commands
 include Makefile.servicepack
+
+# Servicepack's DEV_RUN has no extra-arguments hook, so it is redefined here
+# with the same flags plus the CPU limit above.
+DEV_RUN := docker run --rm --init \
+	--user $(UID):$(GID) \
+	$(DEV_CPU_LIMIT_ARGS) \
+	-e HOME=/tmp \
+	-e GOPATH=/tmp/go \
+	-e GOCACHE=/tmp/go-cache \
+	-e GOMODCACHE=/tmp/go-mod-cache \
+	-e PKG \
+	-e MODULE \
+	-e TOOL \
+	-v "$(CURDIR):/work" \
+	-w /work \
+	$(DEV_IMAGE)
 
 # Custom targets below this line
 # Note: Override warnings are expected and can be ignored
 
-.PHONY: install test test-unit test-integration test-api test-browser \
+.PHONY: install test test-unit test-integration test-stress test-api test-browser \
 	test-execution-forms test-docker-worker test-docker-worker-source test-real \
 	web-generate web-build web-check web-lint web-lint-fix web-test web-pkg-lock \
 	web-pkg-add web-pkg-update web-pkg-upgrade web-pkg-remove
@@ -36,6 +63,9 @@ test-unit: dev-image ## Run unit tests without the race detector
 
 test-integration: dev-image ## Run integration tests without the race detector
 	@$(DEV_RUN_DIND) go test -count=1 -timeout=$(TEST_TIMEOUT) ./...
+
+test-stress: dev-image ## Repeat the fast command and job tests 200 times with GOMAXPROCS 1 and 4 to catch output races
+	@$(DEV_RUN) go test -count=200 -cpu 1,4 -timeout=$(TEST_TIMEOUT) -run 'Command|Job' -skip 'StillRunning|BoundExpires|JobSurvives|Escalates|FailedStart|IncrementalCursor|KeepsOutputWritten|OutliveTheCall|AwaitedJobPublishes' ./internal/pkg/tools/
 
 test-api: dev-image ## Run containerized API tests through production wiring
 	@$(DEV_RUN_DIND) go test -count=1 -tags=integration -timeout=$(TEST_TIMEOUT) ./tests/api
