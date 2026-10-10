@@ -28,30 +28,53 @@ pre_tool_use:
 ```
 
 - `version` is required and must be `1`.
-- Every other top-level key is an [event](#events), and its value is a list of groups.
+- Every other top-level key is a [hook event](#events), and its value is a list of groups.
 - A group has an optional `name`, an optional `match`, and a non-empty, ordered `actions` list.
 - An action has an optional `name`, a `type`, an optional `when` matcher, an optional `on_failure`, and the fields its type needs.
 
-Give groups and actions a `name`. It shows up in logs and in `hook.action.failed` events. A missing group name becomes `<event>-<position>` and a missing action name becomes `<type>-<position>`.
+Give groups and actions a `name`. It shows up in logs and in `hook.action.failed` events. A missing group name becomes `<event>-<position>` and a missing action name becomes `<type>-<position>`, where positions count from 1, such as `pre_tool_use-1` or `deny-2`.
 
-The YAML is strict. Unknown fields, unknown events, empty action lists, invalid regular expressions, a second YAML document, or a version other than `1` make the whole file invalid. Peen then skips that file, keeps valid hooks from other layers, and reports a `harness.warning` that names the file and the reason.
+The YAML is strict. Unknown fields, unknown events, empty action lists, invalid regular expressions, an `emit_event` action whose `event_type` starts with `job.` or `agent.`, a second YAML document, or a version other than `1` make the whole file invalid. Peen then skips that file, keeps valid hooks from other layers, and reports a `harness.warning` that names the file and the reason.
+
+Every action type shares one set of field names, so a field that belongs to another action type is not an unknown field. Peen accepts it and ignores it. A `type: deny` action with a `message` is valid, and the message does nothing.
 
 ## Events
+
+A hook event is a fixed point in a turn where hooks run, such as `pre_write_file`. It is not a [session event](events.md), which is a record Peen hands to the model. See [Terms](architecture.md#terms).
 
 ### Lifecycle events
 
 | Event | When it runs | Input |
 | --- | --- | --- |
 | `pre_user_message` | While Peen builds the prompt for a new turn, before the turn exists. | `{"message", "workspace", "model"}` |
-| `session_start` | On the first turn of a newly created session. | `{"created": true}` |
+| `session_start` | On the first turn a session ever runs, when the session has no earlier turns. | `{"created": true}` |
 | `post_user_message` | After the turn is prepared. | `{"message", "workspace", "model"}` |
 | `turn_start` | Right before `turn.started`. | `{"workspace", "model"}` |
-| `turn_stop` | After the turn completes. | `{"workspace", "model", "finishReason"}` |
+| `turn_stop` | After a turn finishes successfully, before `turn.completed`. | `{"workspace", "model", "finishReason"}` |
 | `turn_cancelled` | After the turn is cancelled. | `{"reason"}` |
 | `pre_compact` | Before Peen summarizes old history. | `{"workspace", "estimatedTokens", "budgetTokens", "round", "unitsCovered", "messagesCovered"}` |
 | `post_compact` | After the summary is stored. | Same as `pre_compact`, plus `summaryTokens` |
 
-The compaction events only run when `PEEN_COMPACTION_MODE=summarize`. A new session has no ID yet during `pre_user_message`, so an `emit_event` action belongs in `post_user_message` or later.
+The input fields mean:
+
+- `message`: the text of the user's message.
+- `workspace`: the session's absolute workspace path.
+- `model` on `pre_user_message` and `post_user_message`: the one-turn override the client sent in `data.model`. It is absent when the client sent none, which is the usual case.
+- `model` on `turn_start` and `turn_stop`: the qualified model the turn runs, such as `zai/glm-5.3`. It is always present.
+- `finishReason`: why the model's last response ended, as the provider reports it, such as `stop` or `length`.
+- `reason`: always `cancelled`.
+- `created`: always `true`.
+- `estimatedTokens`: Peen's estimate of the request that went over the budget.
+- `budgetTokens`: the token budget the request went over.
+- `round`: the model round within the turn where compaction started.
+- `unitsCovered` and `messagesCovered`: how many conversation units and stored messages the summary replaces.
+- `summaryTokens`: the size of the stored summary in tokens.
+
+A turn that fails or times out runs neither `turn_stop` nor `turn_cancelled`. A deny on `turn_stop` marks the turn failed even though the model already answered.
+
+The compaction events only run when `PEEN_COMPACTION_MODE=summarize`.
+
+An `emit_event` action needs a session. Every turn sent through the WebSocket has one, so it works on every hook event. If an action runs with no session, publishing fails. On `pre_` events, `session_start`, and `turn_start` that failure stops the turn unless the action sets `on_failure: continue`.
 
 ### Tool events
 
@@ -86,12 +109,20 @@ A group's `match`, and an action's `when`, decide whether it runs. Leave both ou
 | Field | Matches |
 | --- | --- |
 | `tool` | The exact tool name. |
-| `root` | Affected paths inside this directory, relative to the workspace or absolute. |
-| `path` | Affected paths matching this glob, relative to `root`. `*`, `**`, and `?` work. |
+| `root` | Affected paths inside this directory, relative to the workspace or absolute. Without `root`, the workspace is the base. |
+| `path` | Affected paths matching this glob, relative to `root`, or to the workspace when `root` is unset. `*`, `**`, and `?` work. |
 | `extensions` | Affected paths whose extension is in the list. Each entry starts with `.`, such as `.go`. `_test.go` is not an extension, so match it with `path`. |
 | `input` | A map from a JSON Pointer into the event input to a check: `exists: true`, `equals: <value>`, or `regex: <pattern>`. |
 
 The affected paths come from the tool's arguments: `path` for most file tools, `source` and `destination` for `move_path`, every file a patch touches for `apply_patch`, and `directory` for `run_command`. When `root`, `path`, or `extensions` is set, at least one affected path must match. Lifecycle events have no paths, so a path matcher never matches them, but `input` works on their payload.
+
+Only paths inside the base can match. Without `root`, a write to `/tmp/x.go` or any other path outside the workspace never matches `path` or `extensions`. Set `root: /` to match anywhere. `run_command` has an affected path only when the call sets `directory`, which it usually does not, so a guard on commands should use `match.tool` with `input` instead of a path matcher.
+
+`input` has a few edge cases:
+
+- A JSON Pointer walks objects only. It cannot index into an array, so `/paths/0` never exists.
+- `regex` runs against the value formatted as text. A string matches as written. A number, boolean, or object is formatted the way Go prints it, so match strings where you can.
+- `equals: null` counts as no check, and a matcher with no check makes the whole file invalid. Use `exists: false` to match a missing field.
 
 ## Actions
 
@@ -102,7 +133,7 @@ Actions in a group run one at a time, in order.
 ```yaml
 - name: no-vendor-edits
   type: deny
-  reason: Files under vendor/ are generated. Change go.mod and run make vendor.
+  reason: Files under vendor/ are generated. Change the dependency list and regenerate vendor/ instead.
 ```
 
 Stops the operation. On a tool event the model gets `reason` as the tool result, exactly as written, so the reason can carry Markdown or code. `reason` is required. A `deny` always denies, whatever `on_failure` says.
@@ -133,7 +164,16 @@ Gives the model extra context. Where it lands depends on the event:
   delivery: queue
 ```
 
-Publishes a [session event](events.md) with source `hooks`. `event_type` is required. `summary`, object-shaped `data`, and `delivery` (`queue`, the default, or `wake`) are optional.
+`type: emit_event` makes this action publish a [session event](events.md). Its fields:
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `event_type` | yes | The name of the session event, chosen by you, such as `repo.file.changed`. It becomes the event's `type` once published, and it is the file name a handler matches: `.agents/events/repo.file.changed.md`. It has 1 to 8 lowercase dotted parts, each starting with a letter and holding only letters and digits, up to 128 characters. It must not start with `job.` or `agent.`, which are reserved for Peen. It is not the action's `type`, which is always `emit_event` here. |
+| `summary` | no | One line the model reads, such as "A Go file changed." Empty is allowed. |
+| `data` | no | A YAML mapping, delivered to the model as JSON. |
+| `delivery` | no | `queue` or `wake`. It decides whether the event wakes an idle session only when the handler for this type sets no `delivery` of its own. See [waking an idle session](events.md#waking-an-idle-session). |
+
+The published event's `source` is always `hooks`. A `summary` longer than `PEEN_MAX_EVENT_SUMMARY_BYTES` or `data` larger than `PEEN_MAX_EVENT_DATA_BYTES` fails the action, and the normal [failure rules](#failures) apply.
 
 ### `command`
 
@@ -149,6 +189,8 @@ Publishes a [session event](events.md) with source `hooks`. `event_type` is requ
 ```
 
 Runs an executable. `command` is required. `args`, `environment`, `working_dir` (relative to the workspace), and `timeout_seconds` are optional. See [the command protocol](#the-command-protocol).
+
+`timeout_seconds` has no upper cap. A command on a tool event still stops with the tool call at `PEEN_TOOL_TIMEOUT`. A command on a lifecycle event is not inside a tool call, so only `PEEN_TURN_TIMEOUT` bounds it.
 
 ## The command protocol
 
@@ -173,7 +215,7 @@ Standard input is one JSON object:
 }
 ```
 
-Fields that do not apply are left out. `result` and `error` appear on post and failure events. `stateDirectory` is a private directory for this session that keeps its contents between hook runs. It is only present when the session exists. Peen creates it under its writable state, never under `PEEN_CONFIG_DIR`. `contextTokens` is Peen's estimate of the current context size, for local policy decisions.
+Fields that do not apply are left out. `sessionId`, `requestId`, and `turnId` are left out when there is no value, so `turnId` is absent on `pre_user_message`, which runs before the turn exists. `agentRunId`, `tool`, `callId`, `paths`, `input`, `result`, `error`, and `stateDirectory` are also left out when they do not apply. `result` and `error` appear on post and failure events. `stateDirectory` is a private directory for this session that keeps its contents between hook runs. It is only present when the session exists. Peen creates it under its writable state, never under `PEEN_CONFIG_DIR`. `contextTokens` is always present. It is Peen's estimate of the current context size, for local policy decisions, and may be `0`. The [identifiers](architecture.md#identifiers) section explains the ID fields.
 
 Standard output may be empty, plain text, or this JSON object:
 
@@ -189,25 +231,46 @@ Standard output may be empty, plain text, or this JSON object:
 ```
 
 - Empty output or output that is not JSON has no effect.
-- JSON output is read strictly. It must be an object with only `decision`, `reason`, `message`, and `events`. Any other field, or JSON that is not an object, fails the action.
-- `decision` is `allow`, `deny`, or empty. A `deny` without a `reason` uses "hook command denied operation".
-- `message` is injected the same way as an `inject` action.
-- Every `events` entry is published like an `emit_event` action, and its `data` must be a JSON object.
+- JSON output is read strictly. It must be an object with only `decision`, `reason`, `message`, and `events`. Any other field fails the action. Output that parses as JSON but is not an object, such as a bare number or string, also fails the action.
+- `decision` is `allow`, `deny`, or empty. `allow` and empty are the same. The action succeeds and the remaining actions still run. `allow` does not skip later checks, and no hook can override another hook's deny. A `deny` without a `reason` uses "hook command denied operation".
+- `message` is injected the same way as an `inject` action. On `deny`, `message` is ignored.
+- Each `events` entry has the same fields as an `emit_event` action, except that the event name is spelled `type` instead of `event_type`. Here `type` is the session event name, not an action kind. Its `data` must be a JSON object. An entry whose `type` starts with `job.` or `agent.`, or whose `summary` or `data` goes over the size limits, fails the action.
+- Peen publishes the `events` before it applies the decision, so they are published even when the decision is `deny`.
 
 The action fails when the command exits non-zero, runs past its timeout, or writes more than `PEEN_MAX_HOOK_COMMAND_OUTPUT` (64 KiB) to stdout or stderr.
 
 ## Failures
 
-A `deny`, from a `deny` action or a command's decision, always stops the operation.
+A `deny`, from a `deny` action or a command's decision, always stops the operation. What "the operation" is depends on the hook event:
+
+| Hook event | What a deny does |
+| --- | --- |
+| A tool's `pre_` event, `pre_tool_use` | Refuses the tool call. The model gets `reason` as the tool result. |
+| A tool's `post_` or `_failure` event, `post_tool_use`, `tool_use_failure` | Replaces the tool's result with an error. The tool has already run, so nothing is undone. |
+| `pre_user_message`, `session_start`, `post_user_message`, `turn_start` | Fails the turn before the model is called. |
+| `turn_stop` | Fails the turn, even though the model already answered. |
+| `turn_cancelled` | Nothing more. The turn is already cancelled. |
+| `pre_compact` | Stops the compaction, and the turn fails. |
+| `post_compact` | Peen only logs it, because the summary is already stored. |
 
 Any other failure follows `on_failure`. Without it:
 
-- On pre events, `session_start`, and `turn_start`, a failed action denies the operation.
-- On post and failure events, Peen logs a warning, publishes a `hook.action.failed` session event with `{event, hook_name, action, action_type, source}`, and carries on.
+- On every hook event whose name starts with `pre_` (including `pre_user_message` and `pre_compact`), and on `session_start` and `turn_start`, a failed action counts as a deny.
+- On every other hook event, Peen logs a warning, publishes a `hook.action.failed` session event, and carries on.
 
-Set `on_failure: deny` or `on_failure: continue` on an action to choose. A failed `post_compact` action is only logged, because the summary is already stored.
+Set `on_failure: deny` or `on_failure: continue` on an action to choose. A failure on a post event replaces the tool's result only when the action sets `on_failure: deny`.
 
-A deny or failure on a post event cannot undo the tool, which has already run. Peen replaces the tool's successful result with an error so the model knows something went wrong.
+A `hook.action.failed` event has the summary "Hook action failed after the operation." and this `data`:
+
+| Key | Meaning |
+| --- | --- |
+| `event` | The hook event the action ran on, such as `post_write_file`. |
+| `hook_name` | The group's name, or its `<event>-<position>` default. |
+| `action` | The action's name, or its `<type>-<position>` default. |
+| `action_type` | `deny`, `inject`, `emit_event`, or `command`. |
+| `source` | The path of the `hooks.yaml` file that holds the action. This is not the event's own top-level `source`, which is `hooks`. |
+
+These keys are snake_case, unlike the camelCase keys of other session events.
 
 ## Limits
 
@@ -216,7 +279,7 @@ A deny or failure on a post event cannot undo the tool, which has already run. P
 | `PEEN_HOOK_COMMAND_TIMEOUT` | `30s` | Time limit for one `command` action. `timeout_seconds` overrides it per action. The whole tool call stays bounded by `PEEN_TOOL_TIMEOUT`. |
 | `PEEN_MAX_HOOK_COMMAND_OUTPUT` | `65536` | Maximum stdout or stderr from one command. |
 
-At most 256 hook groups across all layers.
+At most 256 hook groups across all layers. Unlike an invalid file, which Peen skips, going over this limit fails every turn until you remove some groups. See [the harness limits](harness.md#mistakes-and-limits).
 
 Hooks are not a sandbox. A hook command has the same filesystem and process access as Peen. Treat config-directory hooks as deployment code.
 

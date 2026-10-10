@@ -2,9 +2,11 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem/elelemtest"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
@@ -96,6 +98,71 @@ func TestPublishSessionNoticeRoundTripsData(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, published.Data)
 	assert.Equal(t, data, *published.Data)
+}
+
+// The bus cuts or drops an oversized event silently, so the API must refuse
+// it up front instead of answering 202 for a notice that lost its content.
+func TestPublishSessionNoticeRejectsOversizedContent(t *testing.T) {
+	fixture := newRuntimeFixture(t, elelemtest.NewScriptedDriver(
+		elelemtest.Text("session open"),
+	))
+	sessionID := openWakeSession(t, fixture)
+	limits := fixture.eventBus.EventLimits()
+
+	oversizedData := map[string]any{
+		"blob": strings.Repeat("x", limits.MaxDataBytes),
+	}
+	exactSummary := apiNoticeRequest("app.error")
+	exactSummary.Summary = strings.Repeat("s", limits.MaxSummaryBytes)
+
+	testCases := []struct {
+		name    string
+		request api.SessionNoticeRequest
+		wantErr bool
+	}{
+		{
+			name: "summary one byte over the limit",
+			request: api.SessionNoticeRequest{
+				Type:    "app.error",
+				Summary: strings.Repeat("s", limits.MaxSummaryBytes+1),
+			},
+			wantErr: true,
+		},
+		{
+			name: "data over the limit",
+			request: api.SessionNoticeRequest{
+				Type:    "app.error",
+				Summary: "too much data",
+				Data:    &oversizedData,
+			},
+			wantErr: true,
+		},
+		{name: "summary exactly at the limit", request: exactSummary},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			pendingBefore := fixture.eventBus.Pending(sessionID)
+
+			published, err := fixture.runtime.PublishSessionNotice(
+				context.Background(),
+				sessionID,
+				tc.request,
+			)
+
+			if !tc.wantErr {
+				require.NoError(t, err)
+				assert.Len(t, published.Summary, limits.MaxSummaryBytes)
+
+				return
+			}
+
+			require.ErrorIs(t, err, commerr.ErrValidationFailed)
+			require.ErrorIs(t, err, events.ErrEventTooLarge)
+			assert.Nil(t, published)
+			assert.Equal(t, pendingBefore, fixture.eventBus.Pending(sessionID))
+		})
+	}
 }
 
 func TestPublishSessionNoticeRejectsUnknownDelivery(t *testing.T) {

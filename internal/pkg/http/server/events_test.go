@@ -103,6 +103,19 @@ func TestServerSessionEventEndpoints(t *testing.T) {
 			wantCode:   aichteeteapee.ErrorCodeValidationFailed,
 		},
 		{
+			name:   "maps an oversized notice to a client error",
+			method: http.MethodPost,
+			path:   noticesPath,
+			body:   validEventBody,
+			runtime: &testRuntime{
+				sessionID: sessionID,
+				eventsErr: (events.Limits{MaxSummaryBytes: 1}).
+					Validate("too long", nil),
+			},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   aichteeteapee.ErrorCodeValidationFailed,
+		},
+		{
 			name:   "publishes a notice to an unknown session",
 			method: http.MethodPost,
 			path:   noticesPath,

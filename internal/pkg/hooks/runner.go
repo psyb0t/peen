@@ -571,7 +571,9 @@ func (r Runner) publishEvent(
 		return ctxerrors.Wrap(err, "validate hook event delivery")
 	}
 
-	if err := events.ValidateType(event.Type); err != nil {
+	// A hook is outside input like a webhook: it must not forge the job and
+	// agent events Peen publishes itself.
+	if err := events.ValidateExternalType(event.Type); err != nil {
 		return ctxerrors.Wrap(err, "validate hook event type")
 	}
 
@@ -583,6 +585,12 @@ func (r Runner) publishEvent(
 
 	if err := events.ValidateData(event.Data); err != nil {
 		return ctxerrors.Wrap(err, "validate hook event data")
+	}
+
+	// The bus would cut the summary or drop the data without telling the hook
+	// author, so an oversized event fails the action here instead.
+	if err := r.eventLimits().Validate(event.Summary, event.Data); err != nil {
+		return ctxerrors.Wrap(err, "validate hook event size")
 	}
 
 	_, err = r.publisher.PublishContext(ctx, events.Notice{
@@ -598,6 +606,16 @@ func (r Runner) publishEvent(
 	}
 
 	return nil
+}
+
+// eventLimits returns the bounds the publisher enforces, or the package
+// defaults for a publisher that does not report any.
+func (r Runner) eventLimits() events.Limits {
+	if limited, ok := r.publisher.(events.LimitedPublisher); ok {
+		return limited.EventLimits()
+	}
+
+	return events.DefaultLimits()
 }
 
 func (r Runner) recordActionFailure(

@@ -74,6 +74,7 @@ exec /app/app run`
 	providerName              = "integration"
 	providerType              = "openai"
 	providerModel             = "test-model"
+	providerModelReference    = providerName + "/" + providerModel
 	providerModelsPath        = "/models"
 	providerModelsPathV1      = "/v1/models"
 	providerCompletionsPath   = "/chat/completions"
@@ -627,6 +628,12 @@ func (i *Infra) LastReasoningEffort() string {
 	return i.provider.reasoningEffort()
 }
 
+// DefaultModel returns the qualified model reference the production container
+// runs a turn on when a message names none.
+func (i *Infra) DefaultModel() string {
+	return providerModelReference
+}
+
 // ModelDiscoveryObserved reports whether the app called the configured models
 // endpoint during startup.
 func (i *Infra) ModelDiscoveryObserved() bool {
@@ -805,7 +812,7 @@ func (m *ProviderMock) BaseURL() string {
 
 // DefaultModel returns the qualified model reference accepted by the fixture.
 func (m *ProviderMock) DefaultModel() string {
-	return providerName + "/" + providerModel
+	return providerModelReference
 }
 
 // EnableScriptedToolTurn makes later completions issue the supplied tool
@@ -1380,7 +1387,7 @@ func appEnvironment(
 		"PEEN_HTTP_LISTEN_ADDRESS":    listenAddress,
 		"PEEN_METRICS_LISTEN_ADDRESS": metricsListenAddress,
 		"PEEN_UPSTREAMS":              string(upstreams),
-		"PEEN_DEFAULT_MODEL":          providerName + "/" + providerModel,
+		"PEEN_DEFAULT_MODEL":          providerModelReference,
 		"PEEN_API_TOKEN":              TestAPIToken,
 	}, nil
 }

@@ -63,6 +63,23 @@ func (r *Runtime) ListSessionNotices(
 	return &page, nil
 }
 
+// EventLimits lets hook runners refuse an oversized event instead of having
+// the bus cut it. It sits here rather than beside the type because the
+// publisher is only ever built when the runtime has a bus.
+func (p runtimeEventPublisher) EventLimits() events.Limits {
+	return p.runtime.eventLimits()
+}
+
+// eventLimits reports the bounds events are held to, falling back to the
+// defaults for a runtime with no bus, which rejects publishing anyway.
+func (r *Runtime) eventLimits() events.Limits {
+	if r.eventBus == nil {
+		return events.DefaultLimits()
+	}
+
+	return r.eventBus.EventLimits()
+}
+
 // PublishSessionNotice records an outside report against a session. The
 // reserved-prefix rule is applied here rather than on the bus, because Peen's
 // own producers legitimately publish job and agent types and only an external
@@ -84,6 +101,12 @@ func (r *Runtime) PublishSessionNotice(
 	data, err := publishedData(request.Data)
 	if err != nil {
 		return nil, err
+	}
+
+	// The bus cuts or drops oversized content to protect itself. An outside
+	// caller gets told instead of receiving a 202 for a notice that lost it.
+	if err := r.eventLimits().Validate(request.Summary, data); err != nil {
+		return nil, ctxerrors.Wrap(err, "validate published event size")
 	}
 
 	published, err := r.PublishEvent(ctx, events.Notice{

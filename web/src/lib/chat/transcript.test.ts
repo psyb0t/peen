@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { components } from "$lib/api/generated";
 import type { LiveTurn } from "$lib/chat/stream";
 
-import { groupTranscript, liveReplyBlock, liveReplyBlocks } from "./transcript";
+import { groupTranscript, liveReplyBlock, liveSegments } from "./transcript";
 
 type Message = components["schemas"]["Message"];
 
@@ -175,29 +175,56 @@ describe("groupTranscript turns", () => {
 	});
 });
 
-describe("liveReplyBlocks", () => {
+describe("liveSegments", () => {
 	const liveTurn: LiveTurn = {
 		blocks: [{ key: "k", kind: "text", text: "working" }],
 		isFinished: false,
 		originEventType: undefined,
 		prompt: "typed by a person",
+		queue: undefined,
 		requestID: "r",
 		sessionID: "s",
 		slots: new Map(),
 	};
 
 	it("leaves a typed prompt out of the reply", () => {
-		expect(liveReplyBlocks(liveTurn)).toEqual([
-			{ key: "k", kind: "text", text: "working" },
+		expect(liveSegments(liveTurn)).toEqual([
+			{
+				blocks: [{ key: "k", kind: "text", text: "working" }],
+				key: "r:0",
+				kind: "reply",
+			},
 		]);
 	});
 
 	it("opens an event-started reply with the handler's instructions", () => {
 		const woken = { ...liveTurn, originEventType: "ci.build.failed", prompt: "fix CI" };
 
-		expect(liveReplyBlocks(woken)).toMatchObject([
-			{ kind: "injected", text: "fix CI" },
-			{ kind: "text", text: "working" },
+		expect(liveSegments(woken)).toMatchObject([
+			{
+				blocks: [
+					{ kind: "injected", text: "fix CI" },
+					{ kind: "text", text: "working" },
+				],
+				kind: "reply",
+			},
+		]);
+	});
+
+	it("splits the reply around a message delivered mid-turn", () => {
+		const turn: LiveTurn = {
+			...liveTurn,
+			blocks: [
+				{ key: "a", kind: "text", text: "before" },
+				{ key: "u", kind: "user", text: "also check tests" },
+				{ key: "b", kind: "text", text: "after" },
+			],
+		};
+
+		expect(liveSegments(turn)).toMatchObject([
+			{ blocks: [{ text: "before" }], kind: "reply" },
+			{ key: "u", kind: "user", text: "also check tests" },
+			{ blocks: [{ text: "after" }], kind: "reply" },
 		]);
 	});
 });

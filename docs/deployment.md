@@ -21,7 +21,7 @@ and `REF` picks a tag or branch:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/psyb0t/peen/main/install.sh |
-  PREFIX=/usr/local/bin REF=v0.16.1 bash
+  PREFIX=/usr/local/bin REF=vX.Y.Z bash
 ```
 
 It needs `git` and `docker` and refuses to start without them. Doing the same
@@ -187,13 +187,14 @@ docker run --rm \
 ```
 
 The command overrides the example's placeholder directories with the literal
-host paths it mounts. `PEEN_HOST_USERNAME` and `PEEN_HOST_HOME` tell a
+host paths it mounts. A `-e` value wins over the same variable in
+`--env-file`, so editing the directories in `.env` has no effect here. `PEEN_HOST_USERNAME` and `PEEN_HOST_HOME` tell a
 controller running under numeric `--user` IDs how a Docker worker should name
 the recreated host account. `-w` selects the workspace root, and each project
 directory inside it opens as its own workspace. Change all three paths together
 when your projects live elsewhere.
 
-Two mount requirements matter here:
+Three mount requirements matter here:
 
 - Your own UID and GID own the created directories, so Peen can set `0700` on
   `PEEN_STATE_DIR` and `0600` on `peen.db`, and agent-written files remain
@@ -295,13 +296,26 @@ pass to `docker run` shape the controller, not its workers, so hardening the
 controller does not carry over. A worker's mounts, network, socket, and
 privileges come from `PEEN_EXECUTION_PROFILES` and nowhere else.
 
+A Docker worker calls the model provider itself. A profile without
+`allowNetwork: true` runs the worker with networking disabled, so it cannot
+reach a provider over the network.
+
 ### Isolation is the operator's job, not the image's
 
 The Ubuntu base and the non-root controller account are the only isolation Peen
 ships with by default. `run_command` and the file tools still have whatever
-access the selected worker UID has inside the container: everything under the
-mounted `PEEN_CONFIG_DIR` and workspace, plus network access unless you
-restrict it. Read the root README's [Security](../README.md#security)
-section, and add `--network`, `--cap-drop`, `--read-only` (with explicit
-writable mounts for the two directories above), or a seccomp/AppArmor
-profile as your deployment needs.
+access the selected worker UID has: everything under the mounted
+`PEEN_CONFIG_DIR` and workspace, plus network access unless you restrict it.
+Read the root README's [Security](../README.md#security) section. Where to
+harden depends on the session's profile:
+
+- On the `native` profile the agent runs inside the controller container, so
+  harden that container. Add `--network`, `--cap-drop`, `--read-only` (with
+  writable mounts for the state directory and the workspace root, and the
+  configuration directory mounted read-only), or a seccomp or AppArmor profile
+  as your deployment needs.
+- On a `docker` profile the agent runs in its own worker container, and
+  `docker run` flags affect only the controller. Harden the profile instead,
+  with `allowNetwork`, `mounts`, `allowDockerSocket`, and
+  `allowPrivilegeEscalation`. See
+  [execution profiles](configuration.md#execution-profiles).

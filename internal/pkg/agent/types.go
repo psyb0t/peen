@@ -29,6 +29,10 @@ const (
 	// EventTypeUserMessageQueued records an accepted message waiting for an
 	// active turn's next eligible provider round.
 	EventTypeUserMessageQueued = "user_message.queued"
+	// EventTypeUserMessageDelivered records a queued message reaching the
+	// model at the active turn's next provider round, under the request ID it
+	// was sent with.
+	EventTypeUserMessageDelivered = "user_message.delivered"
 	// EventTypeTextDelta carries one assistant text fragment.
 	EventTypeTextDelta = "text.delta"
 	// EventTypeThinkingDelta carries one assistant reasoning fragment.

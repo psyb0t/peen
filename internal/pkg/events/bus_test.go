@@ -1,11 +1,15 @@
 package events
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors/commerr"
@@ -217,6 +221,126 @@ func TestBusBoundsSummaryAndDropsOversizedData(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, published.Summary, summaryBound)
 	assert.Nil(t, published.Data, "oversized data is dropped, not truncated")
+}
+
+// A byte-offset cut through a multi-byte character leaves invalid UTF-8 in the
+// summary, which a model and a JSON encoder then mangle.
+func TestBusSummaryTruncationKeepsValidUTF8(t *testing.T) {
+	t.Parallel()
+
+	const summaryBound = 5
+
+	testCases := []struct {
+		name        string
+		summary     string
+		wantSummary string
+	}{
+		{
+			name:        "two byte characters cut back to a boundary",
+			summary:     strings.Repeat("é", 4),
+			wantSummary: strings.Repeat("é", 2),
+		},
+		{
+			name:        "four byte character straddling the limit is dropped",
+			summary:     "ab" + strings.Repeat("😀", 2),
+			wantSummary: "ab",
+		},
+		{
+			name:        "ascii is cut exactly at the limit",
+			summary:     strings.Repeat("x", summaryBound*2),
+			wantSummary: strings.Repeat("x", summaryBound),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			bus := NewBus(Options{MaxSummaryBytes: summaryBound})
+			notice := testNotice(uuid.New(), TypeJobExited)
+			notice.Summary = tc.summary
+
+			published, err := bus.Publish(notice)
+			require.NoError(t, err)
+
+			assert.True(t, utf8.ValidString(published.Summary))
+			assert.LessOrEqual(t, len(published.Summary), summaryBound)
+			assert.Equal(t, tc.wantSummary, published.Summary)
+		})
+	}
+}
+
+// Dropping data is a loss the operator needs to see, so it is logged with a
+// stable reason instead of vanishing.
+func TestBusWarnsWhenDroppingOversizedData(t *testing.T) {
+	var captured bytes.Buffer
+
+	originalLogger := slog.Default()
+
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&captured, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	})))
+	t.Cleanup(func() { slog.SetDefault(originalLogger) })
+
+	const dataBound = 8
+
+	bus := NewBus(Options{MaxDataBytes: dataBound})
+	session := uuid.New()
+	notice := testNotice(session, TypeJobExited)
+	notice.Data = json.RawMessage(`{"a":"aaaaaaaaaaaaaaaaaaaa"}`)
+
+	published, err := bus.PublishContext(context.Background(), notice)
+	require.NoError(t, err)
+	assert.Nil(t, published.Data)
+
+	var record map[string]any
+
+	require.NoError(t, json.Unmarshal(captured.Bytes(), &record))
+	assert.Equal(t, "WARN", record["level"])
+	assert.Equal(t, "event_data_too_large", record["reason"])
+	assert.Equal(t, TypeJobExited, record["event_type"])
+	assert.Equal(t, session.String(), record["session_id"])
+	assert.InDelta(t, float64(len(notice.Data)), record["size"], 0)
+	assert.InDelta(t, float64(dataBound), record["limit"], 0)
+}
+
+func TestLimitsValidate(t *testing.T) {
+	t.Parallel()
+
+	limits := Limits{MaxSummaryBytes: 4, MaxDataBytes: 8}
+
+	testCases := []struct {
+		name    string
+		summary string
+		data    json.RawMessage
+		wantErr bool
+	}{
+		{name: "within both", summary: "abcd", data: json.RawMessage(`{"a":1}`)},
+		{name: "no data", summary: "abcd"},
+		{name: "summary over", summary: "abcde", wantErr: true},
+		{
+			name:    "data over",
+			summary: "a",
+			data:    json.RawMessage(`{"a":12345}`),
+			wantErr: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := limits.Validate(tc.summary, tc.data)
+			if !tc.wantErr {
+				require.NoError(t, err)
+
+				return
+			}
+
+			require.ErrorIs(t, err, ErrEventTooLarge)
+			require.ErrorIs(t, err, commerr.ErrValidationFailed)
+		})
+	}
 }
 
 func TestBusSubscribeDeliversLiveEvents(t *testing.T) {

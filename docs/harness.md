@@ -68,7 +68,7 @@ The system prompt for a root turn is assembled in this order:
 An invalid optional file never breaks the turn. Peen skips that one file, keeps everything else, and reports it three ways:
 
 - a log line, `invalid optional harness configuration ignored`;
-- a durable `harness.warning` event before `turn.started`, with `{"warnings":[{"kind","source","reason"}]}`, which the control surface shows as a workspace configuration warning;
+- a durable `harness.warning` event before `turn.started`, with `{"warnings":[{"kind","source","reason"}]}`, which the control surface shows as a workspace configuration warning. `kind` is `instruction` (an `AGENTS.md`), `rule`, `skill`, `agent`, `event-handler`, or `hook`, and `source` is the file's path;
 - a diagnostics block in the system prompt, so the model knows the file was ignored.
 
 Typical reasons are an empty rule file, a skill whose `name` does not match its directory, unknown frontmatter keys, and an unknown hook event. A `:skill-name` that names an ignored skill still fails the message.

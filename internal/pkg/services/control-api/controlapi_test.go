@@ -190,7 +190,7 @@ func newTestCore(t *testing.T, config peenconfig.Config) *control.Core {
 	})
 	require.NoError(t, err)
 
-	turns, err := control.NewTurnRouter(sessions, workers)
+	turns, err := control.NewTurnRouter(sessions, workers, relay)
 	require.NoError(t, err)
 
 	return &control.Core{

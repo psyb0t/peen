@@ -82,13 +82,13 @@ ${EDITOR:-vi} "$root/.env"
 
 The example has [AIGate](https://github.com/psyb0t/aigate) and Z.ai entries.
 Keep the provider you use, set its model ID, and put its key in the named
-environment variable. For an OpenAI-compatible
+environment variable. Delete the other entry together with its key variable,
+because Peen contacts every listed provider at startup and refuses to start
+when a named key variable is missing or empty. For an OpenAI-compatible
 [AIGate](https://github.com/psyb0t/aigate) setup, the important lines look like
 this:
 
 ```dotenv
-PEEN_CONFIG_DIR=/absolute/path/to/peen/config
-PEEN_STATE_DIR=/absolute/path/to/peen/state
 PEEN_UPSTREAMS=[{"name":"aigate","type":"openai","baseUrl":"https://aigate.example/v1","apiKeyEnv":"AIGATE_TOKEN"}]
 PEEN_DEFAULT_MODEL=aigate/your-model-id
 PEEN_COMPACTION_MODEL=aigate/your-model-id
@@ -96,7 +96,7 @@ AIGATE_TOKEN=your-token-here
 PEEN_API_TOKEN=
 ```
 
-Set the provider URL, model IDs, and the named API-key environment variable in `$root/.env`. `PEEN_CONFIG_DIR` and `PEEN_STATE_DIR` are separate on purpose. Workers get the first one read-only and never get the second. Peen refuses to start if one sits inside the other.
+Set the provider URL, model IDs, and the named API-key environment variable in `$root/.env`. Leave `PEEN_CONFIG_DIR` and `PEEN_STATE_DIR` in that file as they are. The `docker run` command below sets both with `-e`, which overrides `.env`. The two directories are separate on purpose. Workers get the first one read-only and never get the second. Peen refuses to start if one sits inside the other.
 
 The file is a Docker `--env-file`, so leave the JSON unquoted. For a server outside your own machine, set `PEEN_API_TOKEN` to a real secret before starting it.
 
@@ -128,7 +128,7 @@ audit logs, and worker sockets and workers never receive it. `workspace_root` is
 
 Open `http://localhost:8080` after Peen starts. If `PEEN_API_TOKEN` is set, enter it in the connection form. The browser keeps it in page memory only. It does not put the token in a URL or browser storage.
 
-The sidebar shows the workspace root. Type a workspace inside it, such as `$HOME/work/my-app`, and open the chat. Peen returns its existing session when that directory was opened before, otherwise it creates the one durable session for that workspace. Open `$HOME/work/other-app` for a second project with its own agent. The composer shows the model and reasoning level the next turn will use, starting from the session's model, and you can change either for that turn before you send the work. Replies stream in as the model writes them, rendered as Markdown, with each tool call shown as one card next to its result.
+The sidebar shows the workspace root. Type a workspace inside it, such as `$HOME/work/my-app`, and open the chat. Peen returns its existing session when that directory was opened before, otherwise it creates the one durable session for that workspace. Open `$HOME/work/other-app` for a second project with its own agent. The composer shows the model and reasoning level the next turn will use, starting from the session's model, and you can change either for that turn before you send the work. The input box spans the full width. Enter sends, and Shift+Enter starts a new line. Your messages show as bubbles on the right. The agent's replies take the full width with no bubble, stream in as the model writes them, and render as Markdown, with each tool call shown as one card next to its result. A message you send while a turn is running shows "Queued. Lands after the current step." until the agent receives it.
 
 The socket receives the live feed for every session. The control surface keeps that global feed intact, but shows the selected session's events and durable records in its own tab. It also exposes cancellation, execution-profile changes, transcript messages, model runs, child agents, compactions, workers, jobs, and notices.
 
@@ -140,13 +140,16 @@ Give every provider a short local name. Models are then addressed as
 `provider/model`, for example `aigate/your-model-id` or `zai/glm-5.3`. Peen
 asks each configured provider which models it actually offers at startup. A
 misspelled or unavailable model fails early instead of burning a turn.
+[Configuration](docs/configuration.md#providers) describes every field of a
+provider entry.
 
 Each upstream also declares a `type`, which is the wire protocol it speaks
 rather than the vendor behind it. An OpenAI-compatible gateway is
 `type: "openai"` whoever runs it. The supported types are `openai`,
 `anthropic`, and `zai-coding`. `zai-coding` keeps Z.ai thinking state through
-tool rounds. A `message.send` can override
-the model and its reasoning level for that one task. Peen never guesses task difficulty or silently
+tool rounds. A message sent over the WebSocket (`message.send`, see the
+[API reference](docs/http-api.md#send-and-watch-turns-over-websocket)) can
+override the model and its reasoning level for that one task. Peen never guesses task difficulty or silently
 switches models behind your back.
 
 The full list of provider, context, tool, and event settings is in
@@ -210,8 +213,9 @@ reference](docs/http-api.md) has every request and response.
 
 The same binary is also a local control client. Each command talks to a running
 controller over the control API. None of them opens the database or starts a
-second supervisor: when nothing is listening they start `peen run` and wait for
-it to answer.
+second supervisor. The `session` commands start `peen run` when nothing is
+listening and wait for it to answer. `peen control status` never starts
+anything.
 
 ```bash
 peen control status
@@ -246,7 +250,8 @@ Peen writes structured logs to stdout and keeps daily audit files under
 `PEEN_STATE_DIR/logs` by default. The active workspace is a default, not a
 containment boundary. An absolute tool path can still point outside it. Long
 conversations either drop old request context or replace it with a stored
-summary. [Configuration](docs/configuration.md) covers all of this.
+summary, as [compaction](docs/configuration.md#compaction) explains.
+[Configuration](docs/configuration.md) covers the rest.
 
 ## Security
 
@@ -310,7 +315,7 @@ work over WebSocket, add workspace harness layers, and inspect durable state.
 It is documentation only. Installing it does not start a server, run a hook,
 or change a workspace.
 
-After the next Peen release and its matching `psyb0t/agents` marketplace entry:
+Install it from the `psyb0t/agents` marketplace:
 
 ```bash
 claude plugin marketplace add psyb0t/agents

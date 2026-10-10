@@ -59,9 +59,9 @@ type Options struct {
 // command stdin. Paths are canonical host paths chosen by the tool adapter.
 type Invocation struct {
 	Event      harness.HookEvent `json:"event"`
-	SessionID  uuid.UUID         `json:"sessionId,omitempty"`
-	RequestID  uuid.UUID         `json:"requestId,omitempty"`
-	TurnID     uuid.UUID         `json:"turnId,omitempty"`
+	SessionID  uuid.UUID         `json:"sessionId,omitzero"`
+	RequestID  uuid.UUID         `json:"requestId,omitzero"`
+	TurnID     uuid.UUID         `json:"turnId,omitzero"`
 	AgentRunID *uuid.UUID        `json:"agentRunId,omitempty"`
 	Tool       string            `json:"tool,omitempty"`
 	CallID     string            `json:"callId,omitempty"`

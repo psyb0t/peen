@@ -15,13 +15,19 @@ the full reference; the example file is the commented starting point.
 Peen adds a JSON audit sink configured by `PEEN_LOG_DIRECTORY` and
 `PEEN_LOG_RETENTION_DAYS`.
 
+| Variable | Default | Values |
+| --- | --- | --- |
+| `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, or `error`. |
+| `LOG_FORMAT` | `text` | `text` or `json`. `.env.example` sets `json`. |
+| `LOG_ADD_SOURCE` | `false` | `true` adds the source file and line to each record. |
+
 ## Start here
 
 These values decide where Peen keeps its state and which model handles a task.
-Start Peen from the directory the agent should work in. Docker users set that
-directory with `docker run --workdir` and must use a literal host path when
-they want Docker worker profiles. Bare-process users change directory before
-launching Peen.
+Start Peen from the directory that holds your projects (the workspace root), or
+set `PEEN_WORKSPACE_ROOT`. Docker users set that directory with
+`docker run --workdir` and must use a literal host path when they want Docker
+worker profiles. Bare-process users change directory before launching Peen.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -31,14 +37,14 @@ launching Peen.
 | `PEEN_EXECUTION_PROFILES` | one `native` profile | JSON array of runnable execution profiles a client may name. See [execution profiles](#execution-profiles). |
 | `PEEN_DEFAULT_EXECUTION_PROFILE` | `native` | Profile a session opened without naming one uses. |
 | `PEEN_WORKER_SOCKET_DIR` | `PEEN_STATE_DIR/workers` | Root holding one directory per session worker. A worker receives only its own. |
-| `PEEN_DOCKER_SOCKET` | `DOCKER_HOST`, else `/var/run/docker.sock` | Docker socket the controller uses to create worker containers. Absent means Docker profiles are refused. |
+| `PEEN_DOCKER_SOCKET` | `DOCKER_HOST` when it is a `unix://` address, else `/var/run/docker.sock` | Docker socket the controller uses to create worker containers. Absent means Docker profiles are refused. |
 | `PEEN_WORKER_IMAGE` | empty | Overrides the image for every Docker profile. Empty uses each profile's own `image`, and a profile without one runs the image published alongside this build. Set it to run a worker from a local build. |
 | `PEEN_HOST_USERNAME` | empty | Host account name for a Docker controller started with numeric `--user` IDs. Set together with `PEEN_HOST_HOME`. |
 | `PEEN_HOST_HOME` | empty | Absolute host home for a Docker controller started with numeric `--user` IDs. Set together with `PEEN_HOST_USERNAME`. |
 | `PEEN_AGENT` | `default` | Root agent name. `default` is embedded and may be replaced by `.agents/agents/default.md`. |
-| `PEEN_UPSTREAMS` | required, JSON | Named provider list. See [provider configuration](../README.md#provider-configuration). |
+| `PEEN_UPSTREAMS` | required, JSON | Named provider list. See [providers](#providers). |
 | `PEEN_DEFAULT_MODEL` | required | Qualified `provider/model` for the root agent and, unless overridden, compaction. |
-| `PEEN_COMPACTION_MODEL` | `PEEN_DEFAULT_MODEL` | Qualified `provider/model` used only for the summarization call. |
+| `PEEN_COMPACTION_MODEL` | `PEEN_DEFAULT_MODEL` | Qualified `provider/model` used only for the summarization call. See [compaction](#compaction). |
 | `PEEN_HTTP_LISTEN_ADDRESS` | `:8080` | Listener address. |
 | `PEEN_API_TOKEN` | empty | Bearer token. Empty disables authentication. |
 | `PEEN_METRICS_LISTEN_ADDRESS` | `127.0.0.1:9090` | Separate loopback-only Prometheus listener. See [metrics](#metrics). |
@@ -139,7 +145,8 @@ model's tools on the host after the operator asked for a container.
 ```bash
 PEEN_EXECUTION_PROFILES='[
   {"name":"native","kind":"native"},
-  {"name":"sandbox","kind":"docker"},
+  {"name":"sandbox","kind":"docker","allowNetwork":true,
+   "mounts":[{"source":"/srv/datasets","readOnly":true}]},
   {"name":"host-like","kind":"docker",
    "allowNetwork":true,"allowDockerSocket":true}
 ]'
@@ -151,11 +158,11 @@ PEEN_DEFAULT_EXECUTION_PROFILE=native
 | `name` | The name a client may send as `profile` when it opens a workspace. |
 | `kind` | `native` or `docker`. |
 | `image` | Docker only, optional. Any image reference the daemon can resolve. Empty runs the image published alongside this build. Overridden by `PEEN_WORKER_IMAGE` when that is set. |
-| `mounts` | Extra host paths the worker container gets, each with `readOnly`. |
-| `allowNetwork` | Docker only. False creates the container with networking disabled. |
+| `mounts` | Extra host paths the worker container gets. An array of `{"source": "<absolute host path>", "target": "<absolute path in the worker>", "readOnly": true or false}`. `target` is optional. Left out, the worker sees the path at its literal host path, like every other Peen mount. |
+| `allowNetwork` | Docker only. False creates the container with networking disabled. The worker calls the model provider itself, so a Docker profile needs `true` to reach a provider over the network. |
 | `allowDockerSocket` | Docker only. Mounts the host Docker socket into the worker. |
 | `allowPrivilegeEscalation` | Docker only. Gives the worker account passwordless sudo and removes the worker's `no-new-privileges` guard. Reported as a capability warning. |
-| `revision` | Records the profile definition version on every worker generation. |
+| `revision` | Integer, default `0`. Every worker generation records it. Bump it by hand when you change a profile, so the generation records show which definition each worker ran. Peen does not bump it or check it. |
 
 A Docker worker runs as the controller's own host UID, GID, and username, so
 files it writes in a mounted workspace keep host ownership. Peen refuses to start
@@ -262,6 +269,24 @@ definitions, child-agent runs, and compactions. ORM SQL statement previews are
 deliberately disabled because expanded statements can contain persisted
 sensitive content.
 
+## Providers
+
+`PEEN_UPSTREAMS` is a JSON array with one entry per provider. The docs call an entry an upstream or a provider, and the API calls its name `connectionName`. See [Terms](architecture.md#terms).
+
+```bash
+PEEN_UPSTREAMS=[{"name":"aigate","type":"openai","baseUrl":"https://aigate.example/v1","apiKeyEnv":"AIGATE_TOKEN"}]
+AIGATE_TOKEN=your-token-here
+```
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `name` | yes | Local name, the prefix in `name/model`, such as `aigate/your-model-id`. No `/`. Unique across entries. |
+| `type` | yes | Wire protocol: `openai`, `anthropic`, or `zai-coding`. |
+| `baseUrl` | no | API base URL. Left out, the protocol's own default endpoint is used. |
+| `apiKeyEnv` | no | Name of the environment variable that holds the key. Never put the key itself here. If set, that variable must be set and non-empty, or Peen refuses to start. |
+
+Peen asks every listed provider for its models at startup. Delete every entry you do not use, together with its key variable. An entry whose key variable is missing or empty stops Peen from starting. An entry with a placeholder key fails discovery. Peen logs a warning and offers none of its models, and startup fails if `PEEN_DEFAULT_MODEL` or `PEEN_COMPACTION_MODEL` names one of them.
+
 ## Model selection
 
 `PEEN_UPSTREAMS` accepts `openai`, `anthropic`, and `zai-coding` provider
@@ -272,7 +297,8 @@ model-specific thinking controls through
 [Elelem](https://github.com/psyb0t/elelem).
 
 Set `PEEN_DEFAULT_MODEL=zai/glm-5.3` for the default coding model and
-`PEEN_COMPACTION_MODEL=zai/glm-5.3-flash` for lightweight background work.
+`PEEN_COMPACTION_MODEL=zai/glm-5.3-flash` for the summarization call that
+[compaction](#compaction) makes.
 Model choice is per message. Peen does not classify requests or select a model
 automatically.
 
@@ -299,19 +325,28 @@ the host.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `PEEN_MAX_CONTEXT_TOKENS` | `32768` | [Elelem](https://github.com/psyb0t/elelem)'s request budget. Also the context size for a model whose driver publishes none; rejected at startup if larger than a published window. |
-| `PEEN_COMPACTION_MODE` | `drop-oldest` | `drop-oldest` or `summarize`. See [conversation limits](../README.md#things-worth-knowing). |
+| `PEEN_COMPACTION_MODE` | `drop-oldest` | `drop-oldest` or `summarize`. See [compaction](#compaction). |
 | `PEEN_COMPACTION_MAX_OUTPUT_TOKENS` | `2048` | Reserved space for a generated summary. Must be smaller than `PEEN_MAX_CONTEXT_TOKENS`, validated even when `drop-oldest` is active. |
 | `PEEN_COMPACTION_TIMEOUT` | `2m` | Bound on the separate summarization call. |
 | `PEEN_TURN_TIMEOUT` | `10m` | Bound on one turn. |
 | `PEEN_MAX_CONCURRENT_TURNS` | `16` | Global cap on turns running at once, across every session in the process. |
-| `PEEN_MAX_QUEUED_USER_MESSAGES` | `16` | Per active-turn cap for caller messages waiting for [Elelem](https://github.com/psyb0t/elelem)'s next provider round boundary. |
+| `PEEN_MAX_QUEUED_USER_MESSAGES` | `16` | Messages sent while a turn is running wait until the model's current round ends, at most this many per turn. Each one is reported with `user_message.queued` and then `user_message.delivered`. See [queued messages](http-api.md#send-and-watch-turns-over-websocket). |
+
+### Compaction
+
+A conversation grows until a request no longer fits in `PEEN_MAX_CONTEXT_TOKENS`. Compaction is what Peen does then, and `PEEN_COMPACTION_MODE` picks how:
+
+- `drop-oldest` leaves whole old conversation units out of the request and stores nothing. The transcript keeps every message.
+- `summarize` replaces an old completed part of the conversation with a summary made by `PEEN_COMPACTION_MODEL`, stores the summary, and never deletes transcript rows. `PEEN_COMPACTION_MAX_OUTPUT_TOKENS` reserves room for the summary, and `PEEN_COMPACTION_TIMEOUT` limits the call. An optional `COMPACTION.md` in `PEEN_CONFIG_DIR` replaces the built-in summarizer instructions. Only this mode runs the `pre_compact` and `post_compact` [hooks](hooks.md).
+
+Under `summarize` a child agent compacts its own transcript into its own stored summaries, separate from the session's. `GET /v1/session/compactions` and `GET /v1/session/agents/{agentRunId}/compactions` read them. Peen validates the summary settings in both modes, so switching modes cannot expose a setting startup already accepted.
 
 ## Message size bounds
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PEEN_MAX_MESSAGE_BYTES` | `262144` | Bounds the `message` field in a `message.send` WebSocket event. |
-| `PEEN_MAX_SYSTEM_PROMPT_BYTES` | `65536` | Bounds `systemPrompt.content`. |
+| `PEEN_MAX_MESSAGE_BYTES` | `262144` | Bounds the `message` field in a `message.send` WebSocket frame. |
+| `PEEN_MAX_SYSTEM_PROMPT_BYTES` | `65536` | Bounds the optional [`systemPrompt.content`](http-api.md#send-and-watch-turns-over-websocket) field of a `message.send` frame. |
 | `PEEN_MAX_STORED_MESSAGE_BYTES` | `1048576` | Bounds any stored message row of any role, since an assistant or tool message is not bounded by a caller-facing setting. |
 
 ## Tool execution limits
@@ -346,14 +381,16 @@ the host.
 See [hook configuration](hooks.md) for the file format, matching rules, event
 order, and execution policy.
 
-## Session notices and delivery limits
+## Session notices
+
+Background jobs, child agents, hooks, and outside callers report what happened through session notices, also called [session events](events.md). Peen hands them to the model at the next turn or tool boundary, or starts a turn when an event handler allows a wake.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `PEEN_MAX_PENDING_EVENTS` | `256` | Per-session cap on the in-memory copy of pending notices. The oldest copy is dropped and counted in metrics. Delivery to the model reads stored notices from SQLite, so this cap never drops what the model receives. |
-| `PEEN_MAX_EVENT_SUMMARY_BYTES` | `4096` | Bounds `summary` on a notice. |
-| `PEEN_MAX_EVENT_DATA_BYTES` | `65536` | Bounds `data` on a notice. |
-| `PEEN_MAX_EVENT_WAKES_PER_HOUR` | `60` | Per-session cap on turns started by a wake. An event over the cap stays queued for the next turn or tool boundary. |
+| `PEEN_MAX_EVENT_SUMMARY_BYTES` | `4096` | Largest `summary` on a notice. `POST /v1/session/notices` rejects a longer one with `400 VALIDATION_FAILED`, and a hook that emits one fails its action. Peen shortens its own `job.*` and `agent.*` summaries to fit, without splitting a character. |
+| `PEEN_MAX_EVENT_DATA_BYTES` | `65536` | Largest encoded `data` on a notice. `POST /v1/session/notices` rejects larger data with `400 VALIDATION_FAILED`, and a hook that emits it fails its action. Peen leaves over-size data out of its own `job.*` and `agent.*` events. |
+| `PEEN_MAX_EVENT_WAKES_PER_HOUR` | `60` | Per-session cap on turns started by a wake. An event over the cap stays queued for the next turn or tool boundary. `0` removes the cap. Peen keeps the count in memory, so it starts over when Peen restarts. |
 
 See [session events](events.md) for event types, delivery, wakes, and event handlers.
 
@@ -364,8 +401,8 @@ See [session events](events.md) for event types, delivery, wakes, and event hand
 | `PEEN_MAX_CHILD_AGENT_DEPTH` | `5` | How many `launch_agent` calls may nest. A child at that depth does not receive `launch_agent`. |
 | `PEEN_MAX_CHILD_AGENT_TURNS` | `16` | Tool rounds one child conversation may run. |
 | `PEEN_MAX_CONCURRENT_AGENT_RUNS` | `4` | Agent runs one session may have in flight at once. |
-| `PEEN_MAX_AGENT_RUN_EVENT_COUNT` | `2000` | Events kept in a run's in-memory follow buffer. |
-| `PEEN_MAX_AGENT_RUN_EVENT_BYTES` | `65536` | Byte cap on that same buffer. |
+| `PEEN_MAX_AGENT_RUN_EVENT_COUNT` | `2000` | How many of a running child's recent events Peen keeps in memory for clients following it live. SQLite keeps every event regardless. |
+| `PEEN_MAX_AGENT_RUN_EVENT_BYTES` | `65536` | Byte cap on that same in-memory list. |
 | `PEEN_MAX_ADHOC_AGENT_INSTRUCTION_BYTES` | `65536` | Size cap on an inline `agentDefinition.instructions` string. |
 
 ## Harness layering
@@ -377,10 +414,6 @@ timezone, operating system, CPU architecture, logical CPU count, and Go
 runtime as trusted runtime context. The embedded freshness guidance tells the
 model to inspect local project facts and verify external facts that may have
 changed.
-
-## Session notices
-
-Background jobs, child agents, hooks, and outside callers report what happened through session notices. Peen hands them to the model at the next turn or tool boundary, or starts a turn when an event handler asks for a wake. See [session events](events.md).
 
 ## Process jobs
 

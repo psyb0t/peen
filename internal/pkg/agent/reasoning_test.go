@@ -8,6 +8,7 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/elelem/elelemtest"
+	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -148,6 +149,14 @@ func TestRuntimeRejectsTurnSettingsInAnActiveTurnQueue(t *testing.T) {
 				ReasoningEffort: elelem.ReasoningEffortHigh,
 			},
 		},
+		{
+			name: "system prompt",
+			request: TurnRequest{
+				Message:          "queued",
+				SystemPrompt:     "answer briefly",
+				SystemPromptMode: PromptModeAppend,
+			},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -178,7 +187,8 @@ func TestRuntimeRejectsTurnSettingsInAnActiveTurnQueue(t *testing.T) {
 				},
 			})
 			require.NoError(t, err)
-			require.ErrorIs(t, queueErr, commerr.ErrConflict)
+			require.ErrorIs(t, queueErr, commerr.ErrValidationFailed)
+			require.ErrorIs(t, queueErr, session.ErrRunningTurnSettingsChange)
 
 			requests := driver.Requests()
 			require.Len(t, requests, 2)

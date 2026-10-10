@@ -219,15 +219,18 @@ func parseEventHandlerDocument(
 		)
 	}
 
-	normalizedDelivery, err := events.ValidateDelivery(metadata.Delivery)
-	if err != nil {
+	// An omitted delivery stays empty rather than defaulting to queue: the wake
+	// decision reads empty as "the event's own delivery decides".
+	if metadata.Delivery == "" {
+		return metadata, body, nil
+	}
+
+	if _, err := events.ValidateDelivery(metadata.Delivery); err != nil {
 		return eventHandlerFrontMatter{}, "", ctxerrors.Wrap(
 			ErrInvalidEventHandler,
 			"validate event handler delivery",
 		)
 	}
-
-	metadata.Delivery = normalizedDelivery
 
 	return metadata, body, nil
 }

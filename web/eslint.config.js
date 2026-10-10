@@ -10,6 +10,8 @@ const browserGlobals = {
 	btoa: "readonly",
 	crypto: "readonly",
 	HTMLDivElement: "readonly",
+	HTMLTextAreaElement: "readonly",
+	KeyboardEvent: "readonly",
 	SubmitEvent: "readonly",
 	TextEncoder: "readonly",
 	URL: "readonly",

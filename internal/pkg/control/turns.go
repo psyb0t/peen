@@ -8,7 +8,9 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/agent"
+	"github.com/psyb0t/peen/internal/pkg/db/models"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
+	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/worker/protocol"
 )
 
@@ -26,6 +28,18 @@ type WorkerSupervisor interface {
 	Current(sessionID uuid.UUID) (*protocol.Worker, bool)
 }
 
+// AdmissionWatcher reports when a session's worker admits a message.
+//
+// It is an interface so the router depends on hearing about admission rather
+// than on how worker events reach the controller.
+type AdmissionWatcher interface {
+	WatchAdmission(
+		sessionID uuid.UUID,
+		requestID uuid.UUID,
+		admitted func(),
+	) func()
+}
+
 // TurnRouter sends one accepted client message to its session's worker.
 //
 // This is the join between the public control surface and the private worker
@@ -33,42 +47,109 @@ type WorkerSupervisor interface {
 // operator-selected profile that session runs under, makes sure a worker for
 // that profile is live, then hands the turn over. The controller never runs the
 // model loop itself.
+//
+// Messages for one session reach its worker one at a time, in the order they
+// were received. Each waits only until the worker has admitted the one before
+// it, by starting a turn for it or queueing it, never for a whole turn.
 type TurnRouter struct {
-	registry *Registry
-	workers  WorkerSupervisor
+	registry        *Registry
+	workers         WorkerSupervisor
+	admissionEvents AdmissionWatcher
+	admissions      *session.AdmissionGate
 }
 
 // NewTurnRouter binds the session registry to the worker supervisor.
+// admissionEvents must observe the events the supervisor's workers publish,
+// or each message would hold its session until its whole turn ended.
 func NewTurnRouter(
 	registry *Registry,
 	workers WorkerSupervisor,
+	admissionEvents AdmissionWatcher,
 ) (*TurnRouter, error) {
-	if registry == nil || workers == nil {
+	if registry == nil || workers == nil || admissionEvents == nil {
 		return nil, ctxerrors.Wrap(
 			commerr.ErrRequiredFieldNotSet,
 			"turn router dependency",
 		)
 	}
 
-	return &TurnRouter{registry: registry, workers: workers}, nil
+	return &TurnRouter{
+		registry:        registry,
+		workers:         workers,
+		admissionEvents: admissionEvents,
+		admissions:      session.NewAdmissionGate(),
+	}, nil
 }
 
-// RunSessionMessage runs one turn in the session's worker.
-//
-// The session is loaded first, so a message naming a session that does not
-// exist fails before any worker is started. The profile comes from the stored
-// session rather than the request: naming a profile is an operator decision
-// recorded at open or reconfigure time, never something a message carries.
+// ReserveSessionMessage takes a message's place in its session's admission
+// line without waiting. A caller that runs the message on another goroutine
+// reserves first, so messages are admitted in the order it received them
+// rather than the order its goroutines run in. The reservation must reach
+// RunReservedSessionMessage or be released.
+func (r *TurnRouter) ReserveSessionMessage(
+	sessionID uuid.UUID,
+) *session.AdmissionTicket {
+	return r.admissions.Reserve(sessionID)
+}
+
+// RunSessionMessage runs one message in the session's worker, reserving its
+// place in the session's admission line on entry.
 func (r *TurnRouter) RunSessionMessage(
 	ctx context.Context,
 	sessionID uuid.UUID,
 	request agent.MessageRequest,
 	requestID uuid.UUID,
 ) (*agent.MessageRunResult, error) {
-	stored, err := r.registry.store.Get(ctx, sessionID)
+	return r.RunReservedSessionMessage(
+		ctx,
+		r.ReserveSessionMessage(sessionID),
+		request,
+		requestID,
+	)
+}
+
+// RunReservedSessionMessage runs one message in its session's worker once its
+// reservation is admitted, and releases the reservation.
+//
+// The session is loaded first, so a message naming a session that does not
+// exist fails before any worker is started. The profile comes from the stored
+// session rather than the request: naming a profile is an operator decision
+// recorded at open or reconfigure time, never something a message carries.
+//
+// The reservation is held while the worker is ensured, so concurrent messages
+// cannot launch two workers for one session, and until the worker admits the
+// message. The worker reports admission through the message's
+// user_message.created event; a call that ends first, by failing or by
+// answering, releases it too.
+func (r *TurnRouter) RunReservedSessionMessage(
+	ctx context.Context,
+	reservation *session.AdmissionTicket,
+	request agent.MessageRequest,
+	requestID uuid.UUID,
+) (*agent.MessageRunResult, error) {
+	defer reservation.Release()
+
+	// The worker would mint a request ID for a message without one, and the
+	// router could then never recognise that message's admission.
+	if requestID == uuid.Nil {
+		requestID = uuid.New()
+	}
+
+	stored, err := r.registry.store.Get(ctx, reservation.SessionID())
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "load the routed session")
 	}
+
+	if err := reservation.Wait(ctx); err != nil {
+		return nil, ctxerrors.Wrap(err, "wait for the session to admit")
+	}
+
+	stopWatching := r.admissionEvents.WatchAdmission(
+		stored.ID,
+		requestID,
+		reservation.Release,
+	)
+	defer stopWatching()
 
 	live, err := r.workers.EnsureSessionWorker(
 		ctx,
@@ -80,6 +161,19 @@ func (r *TurnRouter) RunSessionMessage(
 		return nil, ctxerrors.Wrap(err, "ensure the session worker")
 	}
 
+	return runInWorker(ctx, live, stored, request, requestID)
+}
+
+// runInWorker hands one message to the session's live worker and waits for
+// its answer, which for a queued message comes at once and for a started turn
+// comes when the turn ends.
+func runInWorker(
+	ctx context.Context,
+	live *protocol.Worker,
+	stored *models.Session,
+	request agent.MessageRequest,
+	requestID uuid.UUID,
+) (*agent.MessageRunResult, error) {
 	ctxscope.GetLogger(ctx).Debug(
 		"routing a turn to the session worker",
 		"session_id", stored.ID.String(),

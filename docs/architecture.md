@@ -34,8 +34,8 @@ runs, or cancels work. It never accepts a user task or starts a turn. [The API
 reference](http-api.md) has the contract.
 
 [Aichteeteapee](https://github.com/psyb0t/aichteeteapee) supplies Peen's HTTP
-server, REST error envelope, and WShub WebSocket fan-out. Peen gives every
-socket its own server-controlled WShub identity. The server fans a session's
+server, REST error envelope, and WebSocket hub. Peen gives every socket its own
+server-controlled identity in that hub. The server fans a session's
 events to global sockets and to sockets filtered for that session.
 
 ## Control plane and workers
@@ -64,11 +64,15 @@ the supervisor acts on a stored container ID only when both labels still match.
 A Docker worker runs as the controller's own host UID, GID, and username. A
 native controller resolves that account from the operating system. A controller
 running in Docker with numeric `--user` IDs supplies `PEEN_HOST_USERNAME` and
-`PEEN_HOST_HOME` so a worker can recreate the same host account. A profile that
-sets `allowPrivilegeEscalation` starts its container as root just long enough
-for the image entrypoint to create that account, give it passwordless sudo, and
-drop to it. The agent is the host user either way. See [privilege
+`PEEN_HOST_HOME` so a worker can recreate the same host account. Every Docker
+worker container starts as root just long enough for the image entrypoint to
+create that account and drop to it. A profile that sets
+`allowPrivilegeEscalation` also gets a passwordless sudo rule for that account.
+The agent is the host user either way. See [privilege
 escalation](configuration.md#privilege-escalation).
+
+A Docker worker calls the model provider itself, so a Docker profile needs
+`allowNetwork: true` to reach a provider over the network.
 
 The controller passes each Docker worker the runtime configuration it needs to
 execute a turn, including provider definitions and named provider credentials.
@@ -158,11 +162,47 @@ accepting work before control-core cancels active turns, stops supervised jobs,
 stops every session worker, and closes SQLite. Workers stop after jobs so a
 container is not torn down under a process still running in it, and each stop is
 recorded, so no generation row outlives its worker claiming to be ready.
-`pkg/runner` remains the only signal and whole-process timeout owner.
+Servicepack alone handles the stop signal and the time limit on the whole
+shutdown.
 
 The services share one `control.Core` through a handoff in
 `internal/pkg/control`. A Servicepack factory takes no arguments, so it cannot
 receive a shared dependency directly.
+
+## Terms
+
+Several words in these docs name different things on different pages. This is
+what each one means.
+
+| Term | Meaning | Where it is defined |
+| --- | --- | --- |
+| hook point | A fixed point in a turn where hooks run, such as `pre_write_file` or `turn_start`. The top-level keys of `hooks.yaml` name hook points. The hooks page calls them hook events, and the command stdin field `event` holds one. | [Hooks](hooks.md#events) |
+| session event | A record of something that happened outside the model's own tool calls, such as `job.exited`, `agent.finished`, or a type a hook or outside caller chooses. Peen hands it to the model as data. The API calls it a notice (`/v1/session/notices`). | [Session events](events.md) |
+| protocol event | A durable transcript record of one step of a turn, such as `turn.started` or `tool.use`. `GET /v1/session/events` lists them, and each one also goes out live as a WebSocket frame. | [Protocol event types](http-api.md#protocol-event-types) |
+| WebSocket frame | One JSON message on the WebSocket, in either direction: a client's `message.send`, a protocol event, or a `message.completed` or `message.failed` reply. | [WebSocket](http-api.md#send-and-watch-turns-over-websocket) |
+| upstream | One entry in `PEEN_UPSTREAMS`. The docs also call it a provider, and the API calls its name `connectionName`. All three mean the same configured entry. A qualified model name is `<upstream name>/<model ID>`, such as `zai/glm-5.3`. | [Providers](configuration.md#providers) |
+
+The `agent.` prefix appears in two places. `agent.finished` and `agent.failed`
+are session events. `agent.run.started`, `agent.run.tool.use`, and the other
+`agent.run.*` names are protocol events of a child agent run.
+
+The field name `type` also means different things. On a hook action it is the
+action kind (`deny`, `inject`, `emit_event`, `command`). On a session event it
+is the event name, which an `emit_event` action spells `event_type`. On an
+upstream it is the wire protocol. On an event handler it is the session event
+type the handler answers.
+
+### Identifiers
+
+| Identifier | What it names | Who creates it | Where you see it |
+| --- | --- | --- | --- |
+| session ID | One session, which is one workspace's conversation. | Peen, the first time `POST /v1/sessions/open` opens that workspace. | `X-Session-ID`, frame `metadata.sessionId`, hook stdin `sessionId`. |
+| request ID | One accepted `message.send`, or one turn an event woke. | Peen, when it accepts the frame or starts the woken turn. | Frame `metadata.requestId`, turn records, hook stdin `requestId`. Every frame of one turn shares it. A queued message keeps its own. |
+| turn ID | One durable turn record. | Peen, when the turn starts. | `GET /v1/session/turns`, `turnId` on stored messages, protocol events, and jobs, hook stdin `turnId`. |
+| call ID | One tool call inside a turn. | The model provider. | `callId` on `tool.use` and `tool.result`, `id` and `tool_use_id` on content blocks, `toolCallId` on stored messages, hook stdin `callId`. |
+| agent run ID | One `launch_agent` child run. | Peen, when the child starts. | `GET /v1/session/agents/{agentRunId}`, `runId` in `agent.*` session event data, hook stdin `agentRunId`. |
+| worker generation ID | One run of a session's worker process. | Peen, when it starts the worker. | `GET /v1/session/workers`, `workerGenerationId` on turns, protocol events, and jobs. |
+| HTTP request ID | One HTTP call. It has no link to the request ID above. | The client in an `X-Request-ID` request header, or Peen when the client sends none or an invalid one. | The `X-Request-ID` response header and the logs for that call. |
 
 ## External building blocks
 

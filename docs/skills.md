@@ -69,13 +69,13 @@ Only the names and descriptions are in the prompt. The model calls `use_skill` w
 
 ## Forcing a skill
 
-Write `:skill-name` at the start of a message or after a space to require that skill for the turn:
+Write `:skill-name` at the start of a message or after whitespace to require that skill for the turn:
 
 ```text
 :release-notes write the notes for this week
 ```
 
-The name must end at the end of the message, a space, or one of `, . ; ! ? ) ] }`. Peen checks the name before the turn opens. An unknown or invalid skill fails the message with `message.failed` and no model call is made. A known skill has its whole `SKILL.md` placed in the system prompt, for the root agent and every child agent of that turn. Your message is stored exactly as you typed it.
+The name must end at the end of the message, whitespace, or one of `, . ; ! ? ) ] }`. Peen checks the name before the turn opens. An unknown or invalid skill fails the message with `message.failed` and no model call is made. A known skill has its whole `SKILL.md` placed in the system prompt, for the root agent and every child agent of that turn. Your message is stored exactly as you typed it.
 
 A message queued into a turn that is already running cannot force a skill, because that turn's prompt is already fixed.
 

@@ -216,7 +216,9 @@ func (s *ControlCore) openCore(
 		return nil, errors.Join(err, closeState(ctx, assembled.Handle))
 	}
 
-	turns, err := control.NewTurnRouter(sessions, workers)
+	// The router watches the same relay the workers publish through, which is
+	// how it learns each message was admitted and lets the next one in.
+	turns, err := control.NewTurnRouter(sessions, workers, relay)
 	if err != nil {
 		return nil, errors.Join(err, closeState(ctx, assembled.Handle))
 	}

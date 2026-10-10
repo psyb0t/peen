@@ -12,6 +12,9 @@ var (
 	// ErrInvalidData reports event data that cannot round-trip through Peen's
 	// object-shaped durable and HTTP contracts.
 	ErrInvalidData = errors.New("invalid event data")
+	// ErrEventTooLarge reports an event summary or data payload over the
+	// configured bound.
+	ErrEventTooLarge = errors.New("event is too large")
 	// ErrInvalidOptions reports an unusable bus configuration.
 	ErrInvalidOptions = errors.New("invalid event bus options")
 )

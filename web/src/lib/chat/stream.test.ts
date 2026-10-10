@@ -276,4 +276,67 @@ describe("live stream reducer", () => {
 
 		expect(before).toEqual(snapshot);
 	});
+
+	describe("queued messages", () => {
+		const runningTurn = [
+			event("user_message.created", { message: "inspect" }),
+			event("turn.started", {}),
+			blockStart(0, { id: "call-1", name: "list_files", type: "tool_use" }),
+		];
+		const queued = [
+			event("user_message.created", { message: "also check tests" }, secondRequestID),
+			event("user_message.queued", { message: "also check tests" }, secondRequestID),
+		];
+
+		it("marks a message sent during a running turn as queued", () => {
+			const turns = fold([...runningTurn, ...queued]);
+
+			expect(turns[1]).toMatchObject({
+				prompt: "also check tests",
+				queue: "queued",
+				requestID: secondRequestID,
+			});
+			expect(turns[0]?.queue).toBeUndefined();
+		});
+
+		it("moves a delivered message into the running turn after the tool result", () => {
+			const turns = fold([
+				...runningTurn,
+				...queued,
+				blockStart(1, { tool_use_id: "call-1", type: "tool_result" }),
+				event(
+					"user_message.delivered",
+					{ message: "also check tests" },
+					secondRequestID,
+				),
+				blockStart(2, { type: "text" }),
+				blockDelta(2, { text: "Checked.", type: "text_delta" }),
+			]);
+
+			expect(turns[1]).toMatchObject({ isFinished: true, queue: "delivered" });
+			expect(turns[0]?.blocks.map((block) => block.kind)).toEqual([
+				"tool",
+				"user",
+				"text",
+			]);
+			expect(turns[0]?.blocks[1]).toMatchObject({
+				kind: "user",
+				text: "also check tests",
+			});
+		});
+
+		it("keeps a delivered message as a plain bubble when no running turn is known", () => {
+			const turns = fold([
+				...queued,
+				event(
+					"user_message.delivered",
+					{ message: "also check tests" },
+					secondRequestID,
+				),
+			]);
+
+			expect(turns).toHaveLength(1);
+			expect(turns[0]).toMatchObject({ isFinished: true, queue: undefined });
+		});
+	});
 });

@@ -3,6 +3,8 @@ import type { PeenSocketEvent } from "$lib/ws/socket";
 import { isRecord, stringField } from "$lib/common/json";
 
 const EVENT_TYPE_USER_MESSAGE_CREATED = "user_message.created";
+const EVENT_TYPE_USER_MESSAGE_QUEUED = "user_message.queued";
+const EVENT_TYPE_USER_MESSAGE_DELIVERED = "user_message.delivered";
 const EVENT_TYPE_TURN_STARTED = "turn.started";
 const EVENT_TYPE_CONTENT_BLOCK_START = "content_block_start";
 const EVENT_TYPE_CONTENT_BLOCK_DELTA = "content_block_delta";
@@ -59,7 +61,21 @@ export interface LiveToolBlock {
 	toolUseID: string;
 }
 
-export type LiveBlock = LiveProseBlock | LiveToolBlock;
+/** A queued message from the user, at the point it reached the model. */
+export interface LiveUserBlock {
+	key: string;
+	kind: "user";
+	text: string;
+}
+
+export type LiveBlock = LiveProseBlock | LiveToolBlock | LiveUserBlock;
+
+/**
+ * Where a message sent during a running turn stands. A queued message waits
+ * for the running turn's next model round; once delivered, it lives on as a
+ * user block inside that turn.
+ */
+export type QueueState = "queued" | "delivered";
 
 /**
  * One turn's reply as it streams, rebuilt from essessey content blocks.
@@ -75,6 +91,7 @@ export interface LiveTurn {
 	// prompt is the event handler's instructions, not something a person typed.
 	originEventType: string | undefined;
 	prompt: string | undefined;
+	queue: QueueState | undefined;
 	requestID: string;
 	sessionID: string;
 	slots: ReadonlyMap<number, string>;
@@ -105,6 +122,10 @@ export function applyStreamEvent(
 		return turns;
 	}
 
+	if (event.type === EVENT_TYPE_USER_MESSAGE_DELIVERED) {
+		return deliverQueuedMessage(turns, sessionID, requestID);
+	}
+
 	const current = turns.find((turn) => turn.requestID === requestID);
 	const next = nextTurn(current, sessionID, requestID, event);
 	if (next === current) {
@@ -129,6 +150,8 @@ function nextTurn(
 				...(current ?? emptyTurn(sessionID, requestID)),
 				prompt: stringField(event.data, "message"),
 			};
+		case EVENT_TYPE_USER_MESSAGE_QUEUED:
+			return { ...(current ?? emptyTurn(sessionID, requestID)), queue: "queued" };
 		case EVENT_TYPE_TURN_STARTED:
 			return {
 				...(current ?? emptyTurn(sessionID, requestID)),
@@ -147,12 +170,59 @@ function nextTurn(
 	}
 }
 
+/**
+ * Moves a delivered message into the session's running turn as a user block,
+ * at the point the model received it. Without a known running turn, the
+ * message stays a plain bubble so it never disappears from the chat.
+ */
+function deliverQueuedMessage(
+	turns: LiveTurn[],
+	sessionID: string,
+	requestID: string,
+): LiveTurn[] {
+	const message = turns.find((turn) => turn.requestID === requestID);
+	if (message === undefined) {
+		return turns;
+	}
+
+	const running = turns.find(
+		(turn) =>
+			turn.sessionID === sessionID &&
+			turn.requestID !== requestID &&
+			turn.queue === undefined &&
+			!turn.isFinished,
+	);
+	if (running === undefined) {
+		return turns.map((turn) =>
+			turn === message ? { ...turn, isFinished: true, queue: undefined } : turn,
+		);
+	}
+
+	const block: LiveUserBlock = {
+		key: `${running.requestID}:user:${requestID}`,
+		kind: "user",
+		text: message.prompt ?? "",
+	};
+
+	return turns.map((turn) => {
+		if (turn === message) {
+			return { ...turn, isFinished: true, queue: "delivered" };
+		}
+		if (turn === running) {
+			return { ...turn, blocks: [...turn.blocks, block] };
+		}
+
+		return turn;
+	});
+}
+
 function emptyTurn(sessionID: string, requestID: string): LiveTurn {
 	return {
 		blocks: [],
 		isFinished: false,
 		originEventType: undefined,
 		prompt: undefined,
+		queue: undefined,
 		requestID,
 		sessionID,
 		slots: new Map(),

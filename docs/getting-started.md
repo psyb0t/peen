@@ -19,37 +19,39 @@ also exposes the same WebSocket and REST surfaces for another client.
 
 ## 1. Configure Peen
 
-Copy the example and edit the provider section:
+Create separate configuration, state, and workspace root directories, then
+download the example configuration and edit the provider section:
 
 ```bash
-cp .env.example .env
+root="$HOME/.local/share/peen"
+config="$root/config"
+state="$root/state"
+workspace_root="$HOME/work"
+mkdir -p "$config" "$state" "$workspace_root/my-app"
+curl -fsSLo "$root/.env" https://raw.githubusercontent.com/psyb0t/peen/main/.env.example
+${EDITOR:-vi} "$root/.env"
 ```
 
 `PEEN_UPSTREAMS` gives each provider a local name. Models use that name, such
 as `zai/glm-5.3` or `aigate/your-model-id`. Set the provider endpoint, the
 named key variable, and the two model variables. The default example includes
-both [AIGate](https://github.com/psyb0t/aigate) and Z.ai.
+both [AIGate](https://github.com/psyb0t/aigate) and Z.ai. Delete every entry
+you do not use, together with its key variable. Peen contacts every listed
+provider at startup, and refuses to start when a named key variable is missing
+or empty. [Providers](configuration.md#providers) describes each field.
 
 `.env` is Docker `--env-file` input. Its provider value is raw JSON, so do not
 source this file from Bash. Keep it out of version control.
 
 ## 2. Start it with one workspace
 
-Build the image, create separate configuration, state, and workspace root
-directories, then run the server. The controller and any Docker worker must see
-each host directory at the same literal path.
+Run the published image. The controller and any Docker worker must see each
+host directory at the same literal path.
 
 ```bash
-make docker-build
-root="$PWD"
-config="$root/data/peen/config"
-state="$root/data/peen/state"
-workspace_root="$root/workspaces"
-mkdir -p "$config" "$state" "$workspace_root/my-app"
-
 docker run --rm \
   --user "$(id -u):$(id -g)" \
-  --env-file .env \
+  --env-file "$root/.env" \
   -e PEEN_CONFIG_DIR="$config" \
   -e PEEN_STATE_DIR="$state" \
   -e PEEN_HOST_USERNAME="$(id -un)" \
@@ -59,14 +61,16 @@ docker run --rm \
   -v "$state:$state" \
   -v "$workspace_root:$workspace_root" \
   -w "$workspace_root" \
-  peen run
+  psyb0t/peen:latest
 ```
+
+To build the image from a checkout instead, see [Deployment](deployment.md#docker).
 
 `workspace_root` is the workspace root: the controller may open it or any directory inside it. Put the projects you want the agent to work on inside it, or point the variable at a directory that already holds them. Each project you open becomes a workspace with its own session. `config` holds the trusted harness layer. `state` holds SQLite, logs, and worker sockets. The Docker processes use your UID and GID, so agent writes keep host ownership. Peen resumes the same session on a later start with the same state directory and workspace. Do not mount your whole home directory because the agent has normal file and command access inside its container.
 
 ## 3. Open a workspace chat
 
-Visit `http://localhost:8080`. Enter `PEEN_API_TOKEN` when you set one. The sidebar shows the workspace root; type a project directory inside it, such as `.../workspaces/my-app`, and open the chat. The controller remains the authority. It rejects a missing, non-directory, or outside-root path with a clear error. The reply streams in as the model writes it, rendered as Markdown, with reasoning collapsed and each tool call shown as one card next to its result. The Details panel holds the full persisted record when you need it.
+Visit `http://localhost:8080`. Enter `PEEN_API_TOKEN` when you set one. The sidebar shows the workspace root; type a project directory inside it, such as `$HOME/work/my-app`, and open the chat. The controller remains the authority. It rejects a missing, non-directory, or outside-root path with a clear error. Type in the full-width input box. Enter sends, and Shift+Enter starts a new line. Your messages show as bubbles on the right. The reply takes the full width with no bubble and streams in as the model writes it, rendered as Markdown, with reasoning collapsed and each tool call shown as one card next to its result. A message you send while a turn is running shows "Queued. Lands after the current step." until the agent receives it. The Details panel holds the full persisted record when you need it.
 
 Opening the same directory again returns the same session, so this is also how
 you reattach after a restart. Every connected browser receives live events for

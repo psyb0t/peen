@@ -130,7 +130,7 @@ func TestDiscoverEventHandlersResolvesLayeredFiles(t *testing.T) {
 		assert.Equal(t, "app.error.fatal", snapshot.EventHandlers()[0].Type)
 	})
 
-	t.Run("optional agent and delivery default to queue", func(t *testing.T) {
+	t.Run("optional agent and delivery stay empty", func(t *testing.T) {
 		t.Parallel()
 
 		fixture := newResolverFixture(t)
@@ -143,7 +143,7 @@ func TestDiscoverEventHandlersResolvesLayeredFiles(t *testing.T) {
 		require.Len(t, snapshot.EventHandlers(), 1)
 		handler := snapshot.EventHandlers()[0]
 		assert.Empty(t, handler.Agent)
-		assert.Equal(t, events.DeliveryQueue, handler.Delivery)
+		assert.Empty(t, handler.Delivery, "an omitted delivery defers to the event's own")
 	})
 
 	t.Run("missing events directory is not an error", func(t *testing.T) {

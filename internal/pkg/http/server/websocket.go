@@ -158,7 +158,9 @@ func (s *Server) handleWebSocketMessage(
 		"event_type", string(event.Type),
 	)
 
-	go s.runWebSocketMessage(ctx, request, sessionID, requestID, event.ID)
+	reservation := s.deps.Turns.ReserveSessionMessage(sessionID)
+
+	go s.runWebSocketMessage(ctx, reservation, request, requestID, event.ID)
 
 	return nil
 }
@@ -267,11 +269,16 @@ func parseWebSocketSessionID(value string) (uuid.UUID, error) {
 
 func (s *Server) runWebSocketMessage(
 	ctx context.Context,
+	reservation *session.AdmissionTicket,
 	request agent.MessageRequest,
-	sessionID uuid.UUID,
 	requestID uuid.UUID,
 	triggeringEventID uuid.UUID,
 ) {
+	sessionID := reservation.SessionID()
+
+	// A panic before the router takes the reservation must still free the
+	// session for the messages behind this one. Releasing twice is harmless.
+	defer reservation.Release()
 	defer s.recoverWebSocketMessagePanic(
 		ctx,
 		sessionID,
@@ -286,9 +293,9 @@ func (s *Server) runWebSocketMessage(
 	// The turn runs in the session's worker. Its events reach this feed after
 	// the controller has written them, through the event relay, rather than
 	// through a second delivery path from here.
-	result, err := s.deps.Turns.RunSessionMessage(
+	result, err := s.deps.Turns.RunReservedSessionMessage(
 		ctx,
-		sessionID,
+		reservation,
 		request,
 		requestID,
 	)
@@ -572,6 +579,10 @@ func webSocketMessageFailureFor(err error) webSocketMessageFailure {
 		return failure
 	}
 
+	if failure, found := runningTurnFailureFor(err); found {
+		return failure
+	}
+
 	switch {
 	case errors.Is(err, commerr.ErrNotFound):
 		return newWebSocketMessageFailure(
@@ -611,6 +622,28 @@ func webSocketMessageFailureFor(err error) webSocketMessageFailure {
 			"",
 		)
 	}
+}
+
+// runningTurnFailureFor reports a message refused because it tried to change
+// the turn it would have joined. It is invalid input, not a busy session, and
+// its sentinel text is written for the sender, so the client shows it as is.
+func runningTurnFailureFor(err error) (webSocketMessageFailure, bool) {
+	for _, refusal := range []error{
+		session.ErrRunningTurnSettingsChange,
+		session.ErrRunningTurnSkillActivation,
+	} {
+		if !errors.Is(err, refusal) {
+			continue
+		}
+
+		return newWebSocketMessageFailure(
+			aichteeteapee.ErrorCodeValidationFailed,
+			refusal.Error(),
+			"",
+		), true
+	}
+
+	return webSocketMessageFailure{}, false
 }
 
 func harnessConfigurationFailureFor(

@@ -48,9 +48,6 @@ type Runtime struct {
 	baseSystemPrompt string
 	now              func() time.Time
 
-	sessionStartMutex   sync.Mutex
-	sessionStartPending bool
-
 	maxSystemPromptBytes  int
 	maxMessageBytes       int
 	maxQueuedUserMessages int
@@ -65,6 +62,12 @@ type Runtime struct {
 	// owns delivery only inside that request loop.
 	userMessageQueuesMutex sync.Mutex
 	userMessageQueues      map[uuid.UUID]*activeUserMessageQueue
+
+	// admissions makes "join the running turn's queue" and "start a turn and
+	// register its queue" one decision per session, so a message that
+	// arrives while a turn is starting waits and then queues instead of
+	// finding the lease taken and no queue yet.
+	admissions *session.AdmissionGate
 
 	compactionMode    config.CompactionMode
 	compactionOptions compactionOptions
@@ -218,13 +221,12 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 		baseSystemPrompt: options.BaseSystemPrompt,
 		now:              time.Now,
 
-		sessionStartPending: startup.created,
-
 		maxSystemPromptBytes:  options.MaxSystemPromptBytes,
 		maxMessageBytes:       options.MaxMessageBytes,
 		maxQueuedUserMessages: options.MaxQueuedUserMessages,
 		turnSlots:             newTurnSlots(options.MaxConcurrentTurns),
 		userMessageQueues:     map[uuid.UUID]*activeUserMessageQueue{},
+		admissions:            session.NewAdmissionGate(),
 
 		compactionMode:       compactionMode,
 		compactionOptions:    compaction,
@@ -251,7 +253,6 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 type startupSession struct {
 	id        uuid.UUID
 	workspace string
-	created   bool
 }
 
 // openStartupSession attaches a runtime to the one session it serves.
@@ -291,7 +292,6 @@ func openStartupSession(
 	return startupSession{
 		id:        opened.Session.ID,
 		workspace: opened.Session.Workspace,
-		created:   opened.Created,
 	}, nil
 }
 
@@ -323,7 +323,6 @@ func resumeStartupSession(
 	return startupSession{
 		id:        opened.Session.ID,
 		workspace: workspace,
-		created:   opened.Created,
 	}, nil
 }
 
@@ -343,6 +342,12 @@ func resolveRuntimeBaseSystemPrompt(options *RuntimeOptions) error {
 }
 
 // Run resolves context, records the turn, and runs the selected Elelem model.
+//
+// A message for a session whose turn is running or starting joins that turn's
+// queue and returns at once with Queued set. Messages for one session are
+// admitted one at a time, but only until each is admitted: a started turn lets
+// the next message in once its opening events are out and its queue accepts
+// messages, not when it ends.
 func (r *Runtime) Run(
 	ctx context.Context,
 	input TurnRequest,
@@ -350,6 +355,15 @@ func (r *Runtime) Run(
 	if err := r.validateTurnInput(input); err != nil {
 		return nil, err
 	}
+
+	releaseAdmission, err := r.admissions.Acquire(
+		ctx,
+		r.turnSessionID(input),
+	)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "admit the turn request")
+	}
+	defer releaseAdmission()
 
 	if result, handled, err := r.queueActiveUserMessage(ctx, input); handled {
 		return result, err
@@ -370,7 +384,7 @@ func (r *Runtime) Run(
 	// optional live sink from one source of truth.
 	prepared.attachPublisher(ctx)
 
-	return r.runLease(ctx, prepared)
+	return r.runLease(ctx, prepared, releaseAdmission)
 }
 
 // attachPublisher builds the turn's publisher over the sinks given, always
@@ -523,8 +537,6 @@ func (r *Runtime) prepareTurn(
 		); err != nil {
 			return nil, r.finalizeFailedTurn(ctx, prepared, err)
 		}
-
-		r.completeSessionStart()
 	}
 
 	if err := prepared.runLifecycleHook(
@@ -676,9 +688,16 @@ func (r *Runtime) openPrompt(
 	systemPrompt string,
 	stored *models.Session,
 ) (*session.OpenSessionResult, promptAssembly, error) {
+	firstTurn, err := r.isFirstTurn(ctx, stored.ID)
+	if err != nil {
+		return nil, promptAssembly{}, err
+	}
+
+	// Created means "this turn is the session's first", which is what
+	// session_start and TurnResult.Created report.
 	opened := &session.OpenSessionResult{
 		Session: stored,
-		Created: r.sessionStartIsPending(),
+		Created: firstTurn,
 	}
 
 	history, err := r.store.CompletedHistory(ctx, opened.Session.ID)
@@ -1140,18 +1159,27 @@ func (r *Runtime) resolveTurnSession(
 	return stored, nil
 }
 
-func (r *Runtime) sessionStartIsPending() bool {
-	r.sessionStartMutex.Lock()
-	defer r.sessionStartMutex.Unlock()
+// isFirstTurn reports whether the session has never started a turn.
+//
+// The controller creates the session row and the worker only resumes it, so
+// "who created the session" cannot decide session_start. Durable turn history
+// can, and it also survives a worker restart. The caller asks before it
+// records the turn that is about to run; a concurrent turn on the same session
+// is rejected by the lease, so only one of them can go on to run the hook.
+func (r *Runtime) isFirstTurn(
+	ctx context.Context,
+	sessionID uuid.UUID,
+) (bool, error) {
+	page, err := r.store.ListTurns(
+		ctx,
+		sessionID,
+		session.ListTurnsOptions{Limit: 1},
+	)
+	if err != nil {
+		return false, ctxerrors.Wrap(err, "list session turns")
+	}
 
-	return r.sessionStartPending
-}
-
-func (r *Runtime) completeSessionStart() {
-	r.sessionStartMutex.Lock()
-	defer r.sessionStartMutex.Unlock()
-
-	r.sessionStartPending = false
+	return len(page.Items) == 0, nil
 }
 
 // validateTurnInput rejects a request the runtime cannot run.
@@ -1328,9 +1356,16 @@ func (r *Runtime) savePromptSnapshot(
 	return promptHash, nil
 }
 
+// runLease runs a prepared turn to its end. It calls admitted once the turn
+// has published its opening events and registered its queue, which is the
+// point a further message for the session can be decided against it. A turn
+// that fails before then never calls it, so the caller's deferred release
+// lets the next message in only after this turn's queue is closed and nothing
+// can have joined it.
 func (r *Runtime) runLease(
 	ctx context.Context,
 	prepared *preparedTurn,
+	admitted func(),
 ) (*TurnResult, error) {
 	ctx = prepared.scopedContext(ctx)
 
@@ -1347,6 +1382,8 @@ func (r *Runtime) runLease(
 	if err := r.startLease(ctx, prepared); err != nil {
 		return nil, r.finalizeFailedTurn(ctx, prepared, err)
 	}
+
+	admitted()
 
 	response, err := r.runProvider(turnContext, prepared)
 	if err != nil {

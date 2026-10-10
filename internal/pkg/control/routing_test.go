@@ -275,13 +275,18 @@ func newRoutingFixture(t *testing.T) routingFixture {
 	launcher := &routedLauncher{t: t, workspace: root}
 	published := &publishedEvents{}
 
+	// The relay sits between the workers and the recorded feed exactly as it
+	// does in control-core, so the router hears about admission the same way.
+	relay := control.NewEventRelay()
+	relay.SetSink(published.PublishSessionEvents)
+
 	supervised, err := supervisor.New(supervisor.Options{
 		Store:    store,
 		Profiles: profiles,
 		Launchers: map[worker.Kind]worker.Launcher{
 			worker.KindNative: launcher,
 		},
-		Publisher:       published,
+		Publisher:       relay,
 		SocketRoot:      routingSocketRoot(t),
 		ConfigDirectory: t.TempDir(),
 		ReadyTimeout:    routingReadyWait,
@@ -306,7 +311,7 @@ func newRoutingFixture(t *testing.T) routingFixture {
 	opened, err := registry.Open(t.Context(), root, worker.ProfileNative)
 	require.NoError(t, err)
 
-	router, err := control.NewTurnRouter(registry, supervised)
+	router, err := control.NewTurnRouter(registry, supervised, relay)
 	require.NoError(t, err)
 
 	return routingFixture{

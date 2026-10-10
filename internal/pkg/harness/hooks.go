@@ -240,12 +240,20 @@ func validateHookAction(action HookAction) error {
 			return ctxerrors.Wrap(ErrInvalidHook, "inject action needs message")
 		}
 	case HookActionEmitEvent:
-		if err := events.ValidateType(action.EventType); err != nil {
-			return ctxerrors.Wrap(err, "validate emitted event type")
+		// ErrInvalidHook is joined so the resolver skips the file with a
+		// warning like every other bad field, instead of failing the layer.
+		if err := events.ValidateExternalType(action.EventType); err != nil {
+			return ctxerrors.Wrap(
+				errors.Join(ErrInvalidHook, err),
+				"validate emitted event type",
+			)
 		}
 
 		if _, err := events.ValidateDelivery(action.Delivery); err != nil {
-			return ctxerrors.Wrap(err, "validate emitted event delivery")
+			return ctxerrors.Wrap(
+				errors.Join(ErrInvalidHook, err),
+				"validate emitted event delivery",
+			)
 		}
 	case HookActionDeny:
 		if strings.TrimSpace(action.Reason) == "" {

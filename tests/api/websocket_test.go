@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/psyb0t/aichteeteapee"
 	dabluveees "github.com/psyb0t/aichteeteapee/serbewr/dabluvee-es"
+	"github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/tests/testinfra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,6 +33,7 @@ const (
 	apiTestWebSocketTurnStarted        = "turn.started"
 	apiTestWebSocketContentBlockDelta  = "content_block_delta"
 	apiTestWebSocketTurnCompleted      = "turn.completed"
+	apiTestWebSocketMessageDelivered   = "user_message.delivered"
 	apiTestWebSocketMetadataSessionID  = "sessionId"
 	apiTestWebSocketMetadataRequestID  = "requestId"
 	apiTestWebSocketReadTimeout        = 30 * time.Second
@@ -40,6 +43,12 @@ const (
 	apiTestWebSocketQueuedMessage      = "queue this websocket message"
 	apiTestWebSocketReasoningMessage   = "think about this websocket message"
 	apiTestWebSocketReasoningEffort    = "high"
+
+	apiTestWebSocketOrderedWorkspacePrefix = "admission-order-"
+	apiTestWebSocketOrderedFixtureFile     = "README.md"
+	apiTestWebSocketOrderedFixture         = "a workspace no test has opened yet"
+	apiTestWebSocketFirstOrderedMessage    = "run the first ordered message"
+	apiTestWebSocketSecondOrderedMessage   = "then answer the second ordered message"
 )
 
 type apiTestWebSocketResult struct {
@@ -56,6 +65,9 @@ type apiTestWebSocketObservation struct {
 	sessionID       uuid.UUID
 	requestID       uuid.UUID
 	agentEventTypes []string
+	// deliveredRequestIDs lists the request IDs of queued messages that
+	// reached the model before this completion arrived.
+	deliveredRequestIDs []uuid.UUID
 }
 
 func TestAPIWebSocketBroadcastsGlobalEventsAndQueues(t *testing.T) {
@@ -106,6 +118,13 @@ func TestAPIWebSocketBroadcastsGlobalEventsAndQueues(t *testing.T) {
 	assert.Equal(t, sessionID, firstCompleted.sessionID)
 	assert.NotEqual(t, uuid.Nil, firstCompleted.requestID)
 
+	// Every client sees the queued message land, under the request ID the
+	// sender got back, so any of them can mark it as delivered.
+	queuedRequestID := []uuid.UUID{secondQueued.requestID}
+	assert.Equal(t, queuedRequestID, firstCompleted.deliveredRequestIDs)
+	assert.Equal(t, queuedRequestID, secondCompleted.deliveredRequestIDs)
+	assert.Equal(t, queuedRequestID, observerCompleted.deliveredRequestIDs)
+
 	assertNoAPIWebSocketEvent(t, filteredOther)
 
 	messages := collectAllMessages(t, sessionID)
@@ -114,6 +133,78 @@ func TestAPIWebSocketBroadcastsGlobalEventsAndQueues(t *testing.T) {
 	assert.Contains(t, contents, apiTestWebSocketActiveMessage)
 	assert.Contains(t, contents, apiTestWebSocketQueuedMessage)
 	assert.False(t, getSession(t, sessionID).ActiveTurn)
+}
+
+// A control surface sends the selected model and reasoning with every message.
+// Two such messages sent back to back while the session's worker is still
+// starting must be admitted in the order they were sent: the first starts the
+// turn, the second joins that turn's queue, and neither is refused.
+func TestAPIWebSocketAdmitsMessagesInOrderWhileTheWorkerStarts(t *testing.T) {
+	directory := apiTestWebSocketOrderedWorkspacePrefix + uuid.NewString()
+	require.NoError(t, integrationInfra.WriteWorkspaceFile(
+		t.Context(),
+		path.Join(directory, apiTestWebSocketOrderedFixtureFile),
+		[]byte(apiTestWebSocketOrderedFixture),
+	))
+
+	sessionID := openAPIWorkspaceSessionAt(
+		t,
+		path.Join(testinfra.ContainerWorkingDirectory, directory),
+	)
+
+	connection := dialAPIWebSocket(t, &sessionID)
+	t.Cleanup(func() { require.NoError(t, connection.Close()) })
+
+	hold, err := integrationInfra.HoldNextCompletion()
+	require.NoError(t, err)
+	t.Cleanup(hold.Release)
+
+	for _, message := range []string{
+		apiTestWebSocketFirstOrderedMessage,
+		apiTestWebSocketSecondOrderedMessage,
+	} {
+		require.NoError(t, writeAPIWebSocketSessionMessage(
+			connection,
+			sessionID,
+			map[string]string{
+				"message":         message,
+				"model":           integrationInfra.DefaultModel(),
+				"reasoningEffort": apiTestWebSocketReasoningEffort,
+			},
+		))
+	}
+
+	// Reading a completion fails the test on any message.failed, so reaching
+	// each one also proves neither message was refused.
+	queued := awaitAPIWebSocketCompletion(t, connection, true)
+	awaitAPIWebSocketProviderHold(t, hold)
+	hold.Release()
+
+	completed := awaitAPIWebSocketCompletion(t, connection, false)
+	assert.NotEqual(t, queued.requestID, completed.requestID)
+	assert.Equal(
+		t,
+		[]uuid.UUID{queued.requestID},
+		completed.deliveredRequestIDs,
+	)
+
+	userMessages := make([]string, 0)
+	for _, message := range collectAllMessages(t, sessionID) {
+		if message.Role != api.MessageRoleUser {
+			continue
+		}
+
+		userMessages = append(userMessages, message.Content)
+	}
+
+	assert.Equal(
+		t,
+		[]string{
+			apiTestWebSocketFirstOrderedMessage,
+			apiTestWebSocketSecondOrderedMessage,
+		},
+		userMessages,
+	)
 }
 
 func TestAPIWebSocketRejectsUnauthenticatedAndRoutesToTheOpenedSession(
@@ -226,12 +317,24 @@ func writeAPIWebSocketMessageData(
 ) error {
 	t.Helper()
 
+	return writeAPIWebSocketSessionMessage(
+		connection,
+		openAPIWorkspaceSession(t),
+		data,
+	)
+}
+
+func writeAPIWebSocketSessionMessage(
+	connection *websocket.Conn,
+	sessionID uuid.UUID,
+	data map[string]string,
+) error {
 	event := dabluveees.NewEvent(
 		apiTestWebSocketMessageSend,
 		data,
 	).SetMetadata(
 		apiTestWebSocketSessionIDParameter,
-		openAPIWorkspaceSession(t).String(),
+		sessionID.String(),
 	)
 
 	return connection.WriteJSON(event)
@@ -244,8 +347,17 @@ func writeAPIWebSocketMessageData(
 func openAPIWorkspaceSession(t *testing.T) uuid.UUID {
 	t.Helper()
 
+	return openAPIWorkspaceSessionAt(t, testinfra.ContainerWorkingDirectory)
+}
+
+// openAPIWorkspaceSessionAt opens one workspace below the container's root.
+// A workspace no test has opened yet gets a session with no worker, which is
+// how a test sends messages while that worker is still starting.
+func openAPIWorkspaceSessionAt(t *testing.T, workspace string) uuid.UUID {
+	t.Helper()
+
 	body, err := json.Marshal(map[string]string{
-		"workspace": testinfra.ContainerWorkingDirectory,
+		"workspace": workspace,
 	})
 	require.NoError(t, err)
 
@@ -262,11 +374,7 @@ func openAPIWorkspaceSession(t *testing.T) uuid.UUID {
 	require.Equal(t, http.StatusOK, response.StatusCode)
 
 	opened := decodeResponse[apiTestOpenedSession](t, response)
-	require.Equal(
-		t,
-		testinfra.ContainerWorkingDirectory,
-		opened.Session.Workspace,
-	)
+	require.Equal(t, workspace, opened.Session.Workspace)
 
 	return opened.Session.ID
 }
@@ -354,6 +462,7 @@ func awaitAPIWebSocketCompletion(
 
 	deadline := time.Now().Add(apiTestWebSocketReadTimeout)
 	agentEventTypes := make([]string, 0)
+	deliveredRequestIDs := make([]uuid.UUID, 0)
 	for {
 		require.NoError(t, connection.SetReadDeadline(deadline))
 
@@ -367,17 +476,21 @@ func awaitAPIWebSocketCompletion(
 			if result.Queued == wantQueued {
 				sessionID, requestID := apiTestWebSocketMetadata(t, received)
 				return apiTestWebSocketObservation{
-					result:          result,
-					sessionID:       sessionID,
-					requestID:       requestID,
-					agentEventTypes: agentEventTypes,
+					result:              result,
+					sessionID:           sessionID,
+					requestID:           requestID,
+					agentEventTypes:     agentEventTypes,
+					deliveredRequestIDs: deliveredRequestIDs,
 				}
 			}
 		case apiTestWebSocketMessageFailed:
 			t.Fatalf("WebSocket message failed: %s", received.Data)
 		default:
-			_, _ = apiTestWebSocketMetadata(t, received)
+			_, requestID := apiTestWebSocketMetadata(t, received)
 			agentEventTypes = append(agentEventTypes, string(received.Type))
+			if received.Type == apiTestWebSocketMessageDelivered {
+				deliveredRequestIDs = append(deliveredRequestIDs, requestID)
+			}
 		}
 	}
 }

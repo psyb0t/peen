@@ -82,7 +82,7 @@ Exactly one of `agent` and `agentDefinition` must be present. Inline instruction
 A child shares the parent's session, workspace, rules, and model. Its system prompt is built in this order:
 
 1. Peen's base prompt.
-2. Every rule block.
+2. Every `AGENTS.md` and rule block.
 3. The skill and named-agent catalogues, and any harness diagnostics.
 4. Any skill the user forced with `:skill-name` for this turn.
 5. The child's own instructions.
@@ -105,4 +105,4 @@ At most 64 named agents across all layers. See [the harness limits](harness.md#m
 
 Every child run is stored in SQLite with its own messages, events, and compactions. The control surface lists runs in the details panel. The API has `GET /v1/session/agents`, `GET /v1/session/agents/{agentRunId}/messages`, `GET /v1/session/agents/{agentRunId}/events`, and `POST /v1/session/agents/{agentRunId}/cancel`. See the [API reference](http-api.md#get-v1sessionagents).
 
-When a child finishes, Peen publishes an `agent.finished` or `agent.failed` [session event](events.md) with the run ID, agent name, and duration.
+When a child finishes, Peen publishes an `agent.finished` or `agent.failed` [session event](events.md) with the run ID, agent name, and duration. It does this for every run, even though `launch_agent` already returned the child's answer to the parent. For the model the event repeats what it already knows. It exists as a durable record and as something an event handler can react to.

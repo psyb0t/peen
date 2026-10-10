@@ -25,10 +25,20 @@ type activeUserMessageQueue struct {
 	capacity  int
 	closed    bool
 	pending   []queuedUserMessage
+
+	// modelReference, model, and reasoningEffort are the running turn's
+	// effective settings. A queued message may repeat them but not change
+	// them. They are fixed when the queue is registered, so reading them
+	// needs no lock.
+	modelReference  string
+	model           ModelClient
+	reasoningEffort elelem.ReasoningEffort
 }
 
 type queuedUserMessage struct {
-	message string
+	message       string
+	requestID     uuid.UUID
+	sourceEventID uuid.UUID
 }
 
 type userMessagePayload struct {
@@ -37,8 +47,7 @@ type userMessagePayload struct {
 }
 
 func newActiveUserMessageQueue(
-	turn *runtimeTurn,
-	workspace string,
+	prepared *preparedTurn,
 	capacity int,
 ) (*activeUserMessageQueue, error) {
 	queue, err := elelem.NewUserMessageQueue(capacity)
@@ -47,11 +56,55 @@ func newActiveUserMessageQueue(
 	}
 
 	return &activeUserMessageQueue{
-		queue:     queue,
-		turn:      turn,
-		workspace: workspace,
-		capacity:  capacity,
+		queue:          queue,
+		turn:           prepared.turn,
+		workspace:      prepared.workspace,
+		capacity:       capacity,
+		modelReference: prepared.modelReference,
+		model:          prepared.model,
+		reasoningEffort: effectiveReasoningEffort(
+			prepared.reasoningEffort,
+			prepared.model,
+		),
 	}, nil
+}
+
+// changesRunningTurn reports whether a queued message asks the running turn to
+// run differently. An empty model or reasoning level asks for nothing. A value
+// that resolves to the running turn's own, such as the default model named in
+// full or a level the model fits to the same one, is no change either.
+func (q *activeUserMessageQueue) changesRunningTurn(input TurnRequest) bool {
+	if input.SystemPrompt != "" || input.SystemPromptMode != "" {
+		return true
+	}
+
+	if input.Model != "" && input.Model != q.modelReference {
+		return true
+	}
+
+	if input.ReasoningEffort == elelem.ReasoningEffortUnset {
+		return false
+	}
+
+	return effectiveReasoningEffort(input.ReasoningEffort, q.model) !=
+		q.reasoningEffort
+}
+
+// effectiveReasoningEffort is the level a model call on model actually
+// carries when requested is asked for.
+func effectiveReasoningEffort(
+	requested elelem.ReasoningEffort,
+	model ModelClient,
+) elelem.ReasoningEffort {
+	// The reason only explains a difference for a log line, which the turn
+	// itself writes when it fits the level for its model call.
+	effort, _ := fitReasoningEffort(
+		requested,
+		model.Model,
+		model.Client.Capabilities(model.Model),
+	)
+
+	return effort
 }
 
 func (q *activeUserMessageQueue) enqueue(
@@ -86,7 +139,9 @@ func (q *activeUserMessageQueue) enqueue(
 	}
 
 	q.pending = append(q.pending, queuedUserMessage{
-		message: input.Message,
+		message:       input.Message,
+		requestID:     input.RequestID,
+		sourceEventID: input.SourceEventID,
 	})
 
 	loggerContext := ctxscope.Set(
@@ -167,6 +222,36 @@ func (q *activeUserMessageQueue) checkpointDelivered(
 		return ctxerrors.Wrap(err, "checkpoint delivered queued user messages")
 	}
 
+	for _, message := range delivered {
+		if err := q.emitDelivered(ctx, message); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// emitDelivered reports one queued message reaching the model, under the
+// request ID it was sent with, so every client can mark it as landed.
+func (q *activeUserMessageQueue) emitDelivered(
+	ctx context.Context,
+	message queuedUserMessage,
+) error {
+	payload := userMessagePayload{Message: message.message}
+	if message.sourceEventID != uuid.Nil {
+		payload.SourceEventID = message.sourceEventID.String()
+	}
+
+	if err := q.turn.emitForRequest(
+		ctx,
+		EventTypeUserMessageDelivered,
+		payload,
+		message.requestID,
+		message.sourceEventID,
+	); err != nil {
+		return ctxerrors.Wrap(err, "emit delivered queued user message")
+	}
+
 	return nil
 }
 
@@ -201,8 +286,7 @@ func (r *Runtime) registerActiveUserMessageQueue(
 	prepared *preparedTurn,
 ) error {
 	queue, err := newActiveUserMessageQueue(
-		prepared.turn,
-		prepared.workspace,
+		prepared,
 		r.maxQueuedUserMessages,
 	)
 	if err != nil {
@@ -245,16 +329,17 @@ func (r *Runtime) closeActiveUserMessageQueue(prepared *preparedTurn) {
 }
 
 // queueActiveUserMessage accepts a plain caller message only when its target
-// session has a queue registered by the still-running turn. Event-triggered
-// turns remain on their isolated event path.
+// session has a queue registered by the still-running turn. The caller holds
+// the session's admission gate, so no turn can start or register its queue
+// between this lookup and the caller acting on its answer.
+//
+// Event-triggered turns never join a queue. One that finds a turn running is
+// refused as busy here, before it would hold the gate through a whole turn
+// preparation only to be refused by the lease.
 func (r *Runtime) queueActiveUserMessage(
 	ctx context.Context,
 	input TurnRequest,
 ) (*TurnResult, bool, error) {
-	if input.Origin != nil {
-		return nil, false, nil
-	}
-
 	// The queue is keyed by the session the request targets, not by the
 	// runtime's own, because a control surface runs many sessions at once and
 	// a message may only join the queue of the turn it belongs to.
@@ -268,18 +353,30 @@ func (r *Runtime) queueActiveUserMessage(
 		return nil, false, nil
 	}
 
-	if len(explicitSkillNames(input.Message)) > 0 {
+	if input.Origin != nil {
 		return nil, true, ctxerrors.Wrap(
-			commerr.ErrConflict,
-			"active turn cannot explicitly activate a skill",
+			session.ErrSessionBusy,
+			"an event cannot start a turn while one runs",
 		)
 	}
 
-	if input.Model != "" || input.ReasoningEffort != "" ||
-		input.SystemPrompt != "" || input.SystemPromptMode != "" {
+	if len(explicitSkillNames(input.Message)) > 0 {
 		return nil, true, ctxerrors.Wrap(
-			commerr.ErrConflict,
-			"active turn cannot change its model, reasoning, or prompt",
+			errors.Join(
+				commerr.ErrValidationFailed,
+				session.ErrRunningTurnSkillActivation,
+			),
+			"queue active user message",
+		)
+	}
+
+	if queue.changesRunningTurn(input) {
+		return nil, true, ctxerrors.Wrap(
+			errors.Join(
+				commerr.ErrValidationFailed,
+				session.ErrRunningTurnSettingsChange,
+			),
+			"queue active user message",
 		)
 	}
 

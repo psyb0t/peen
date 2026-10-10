@@ -62,36 +62,48 @@ local network.
 
 ## Start Peen
 
-From a Peen source checkout, copy `.env.example` to the gitignored `.env` and
-configure one provider. `PEEN_UPSTREAMS` is raw JSON for Docker, so do not
-source `.env` in Bash.
-
-Build the image, create a state directory and the single workspace you want
-the model to access, then run it:
+Create separate configuration, state, and workspace root directories, then
+download `.env.example` as `.env` and configure one provider. Delete the
+provider entries you do not use, together with their key variables.
+`PEEN_UPSTREAMS` is raw JSON for Docker, so do not source `.env` in Bash.
 
 ```bash
-make docker-build
-mkdir -p ./data/peen ./workspace
-sudo chown 10001:10001 ./data/peen ./workspace
+root="$HOME/.local/share/peen"
+config="$root/config"
+state="$root/state"
+workspace_root="$HOME/work"
+mkdir -p "$config" "$state" "$workspace_root/my-app"
+curl -fsSLo "$root/.env" https://raw.githubusercontent.com/psyb0t/peen/main/.env.example
 
 docker run --rm \
-  --env-file .env \
+  --user "$(id -u):$(id -g)" \
+  --env-file "$root/.env" \
+  -e PEEN_CONFIG_DIR="$config" \
+  -e PEEN_STATE_DIR="$state" \
+  -e PEEN_HOST_USERNAME="$(id -un)" \
+  -e PEEN_HOST_HOME="$HOME" \
   -p 8080:8080 \
-  -v "$(pwd)/data/peen:/data/peen" \
-  -v "$(pwd)/workspace:/workspace" \
-  peen run
+  -v "$config:$config" \
+  -v "$state:$state" \
+  -v "$workspace_root:$workspace_root" \
+  -w "$workspace_root" \
+  psyb0t/peen:latest
 ```
 
-`PEEN_CONFIG_DIR=/data/peen` holds SQLite, logs, and an optional trusted base
-harness. The container working directory `/workspace` is the default
-workspace root, and `PEEN_WORKSPACE_ROOT` sets a different one. A client may
-open the root or any directory inside it as a workspace. Both host directories
-must exist and be writable by UID and GID `10001` before launch.
+`PEEN_CONFIG_DIR` holds the optional trusted base harness, and every worker
+reads it read-only. `PEEN_STATE_DIR` holds SQLite, logs, and worker sockets,
+and no worker receives it. Peen refuses to start when one sits inside the
+other. Each directory is mounted at its literal host path. The working
+directory `-w "$workspace_root"` is the workspace root, and
+`PEEN_WORKSPACE_ROOT` sets a different one. A client may open the root or any
+directory inside it as a workspace. The container runs as the operator's UID
+and GID, so agent writes keep host ownership.
 
 ## Send and follow work
 
 Peen starts with no sessions. Open a workspace with
-`POST /v1/sessions/open` and a body of `{"workspace":"/workspace"}`. It returns
+`POST /v1/sessions/open` and a body of `{"workspace":"<workspace_root>/my-app"}`,
+using the absolute host path. It returns
 the durable session, creating it the first time that directory is opened and
 resuming it afterwards. Never invent a session ID: an unknown one is refused
 and starts no turn.

@@ -5,6 +5,8 @@ import (
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/elelem"
+	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
 // ErrWorkerRejected reports a registration the controller refused. A worker
@@ -29,6 +31,10 @@ const (
 	CodeLockHeld         Code = "lock_held"
 	CodeCancelled        Code = "cancelled"
 	CodeNotImplemented   Code = "not_implemented"
+
+	CodeRunningTurnSettingsChange  Code = "running_turn_settings_change"
+	CodeRunningTurnSkillActivation Code = "running_turn_skill_activation"
+	CodeUserMessageQueueFull       Code = "user_message_queue_full"
 )
 
 // Error is one failure as it crosses the socket.
@@ -53,10 +59,48 @@ var sentinels = map[Code]error{
 	CodeNotImplemented:   commerr.ErrNotImplemented,
 }
 
-// codeFor classifies an error for the wire. The order matters only in that
-// each check is exclusive in practice; an unrecognised failure stays unknown
-// rather than being forced into a class it does not belong to.
+// detailedFailure is a failure more specific than its shared class. The
+// controller tells a person exactly why their message was refused, so the
+// detail has to survive the socket rather than collapse into the class.
+type detailedFailure struct {
+	code   Code
+	detail error
+	class  error
+}
+
+// detailedFailures is checked before sentinels, because an error carrying a
+// detail also matches its class.
+//
+//nolint:gochecknoglobals // A lookup table both directions read.
+var detailedFailures = []detailedFailure{
+	{
+		code:   CodeRunningTurnSettingsChange,
+		detail: session.ErrRunningTurnSettingsChange,
+		class:  commerr.ErrValidationFailed,
+	},
+	{
+		code:   CodeRunningTurnSkillActivation,
+		detail: session.ErrRunningTurnSkillActivation,
+		class:  commerr.ErrValidationFailed,
+	},
+	{
+		code:   CodeUserMessageQueueFull,
+		detail: elelem.ErrUserMessageQueueFull,
+		class:  commerr.ErrConflict,
+	},
+}
+
+// codeFor classifies an error for the wire. A detailed failure wins over its
+// class. Otherwise each check is exclusive in practice; an unrecognised
+// failure stays unknown rather than being forced into a class it does not
+// belong to.
 func codeFor(err error) Code {
+	for _, failure := range detailedFailures {
+		if errors.Is(err, failure.detail) {
+			return failure.code
+		}
+	}
+
 	for code, sentinel := range sentinels {
 		if errors.Is(err, sentinel) {
 			return code
@@ -76,10 +120,20 @@ func NewError(err error) *Error {
 }
 
 // Unwrap rebuilds a Go error from a wire error, restoring the sentinel so
-// errors.Is still answers correctly on the worker side.
+// errors.Is still answers correctly on the receiving side. A detailed failure
+// comes back matching both its detail and its class.
 func (e *Error) Unwrap() error {
 	if e == nil {
 		return nil
+	}
+
+	for _, failure := range detailedFailures {
+		if failure.code == e.Code {
+			return ctxerrors.Wrap(
+				errors.Join(failure.class, failure.detail),
+				e.Message,
+			)
+		}
 	}
 
 	sentinel, found := sentinels[e.Code]

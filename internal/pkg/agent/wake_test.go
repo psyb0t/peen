@@ -200,6 +200,28 @@ func TestPublishEventQueueDeliveryNeverWakes(t *testing.T) {
 	}, time.Second, wakeTestPoll, "queue delivery starts no turn")
 }
 
+// A handler that declares no delivery of its own leaves the producer's mode in
+// force, so an event that asks for a wake starts a turn.
+func TestPublishEventWakeDeliveryWakesThroughAHandlerWithoutDelivery(t *testing.T) {
+	fixture := newRuntimeFixture(t, elelemtest.NewScriptedDriver(
+		elelemtest.Text("session open"),
+		elelemtest.Text(wakeTestReply),
+	))
+	writeWakeHandler(t, fixture.configDirectory, wakeTestQueueHandlerDocument)
+
+	sessionID := openWakeSession(t, fixture)
+
+	_, err := fixture.runtime.PublishEvent(
+		context.Background(),
+		wakeTestNotice(sessionID),
+	)
+	require.NoError(t, err)
+
+	assert.Eventually(t, func() bool {
+		return fixture.eventBus.Pending(sessionID) == 0
+	}, wakeTestTimeout, wakeTestPoll, "the event's own wake must start a turn")
+}
+
 // The deployment owns what a type means. A webhook posting error logs will not
 // set delivery itself, and the API defaults the field to queue, so a handler
 // declaring wake has to promote it or the setting can never fire.

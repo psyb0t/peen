@@ -15,6 +15,7 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/agent"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
+	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
 // Dependencies are the transport-neutral operations required by the API.
@@ -42,9 +43,18 @@ type Dependencies struct {
 // It is an interface so the HTTP layer depends on dispatching a turn rather
 // than on how a worker is found or launched.
 type TurnRouter interface {
-	RunSessionMessage(
+	// ReserveSessionMessage takes a message's place in its session's
+	// admission line without waiting. The WebSocket runs each message on its
+	// own goroutine, so it reserves while it still holds the receive order;
+	// otherwise two messages sent back to back could reach the worker in
+	// either order.
+	ReserveSessionMessage(sessionID uuid.UUID) *session.AdmissionTicket
+
+	// RunReservedSessionMessage runs the message once its reservation is
+	// admitted and always releases the reservation.
+	RunReservedSessionMessage(
 		ctx context.Context,
-		sessionID uuid.UUID,
+		reservation *session.AdmissionTicket,
 		request agent.MessageRequest,
 		requestID uuid.UUID,
 	) (*agent.MessageRunResult, error)

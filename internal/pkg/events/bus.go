@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
 )
 
@@ -16,6 +17,8 @@ const (
 	defaultMaxSummaryBytes      = 4096
 	defaultMaxDataBytes         = 64 * 1024
 	defaultSubscriberBuffer     = 32
+
+	reasonEventDataTooLarge = "event_data_too_large"
 )
 
 // Options bounds the bus. Zero fields take the package defaults.
@@ -60,6 +63,11 @@ type Bus struct {
 	options Options
 	metrics *metrics.Metrics
 
+	// scopelessContext carries the logging scope for Prepare and Publish,
+	// which take no context. Their callers hold none to pass, and the bus
+	// still has to log what it drops.
+	scopelessContext context.Context //nolint:containedctx // See above.
+
 	mutex       sync.Mutex
 	pending     map[uuid.UUID]*queue
 	subscribers map[uuid.UUID]map[uint64]chan Notice
@@ -74,10 +82,19 @@ type queue struct {
 // NewBus builds a bus with bounded per-session queues.
 func NewBus(options Options) *Bus {
 	return &Bus{
-		options:     options.withDefaults(),
-		metrics:     options.Metrics,
-		pending:     map[uuid.UUID]*queue{},
-		subscribers: map[uuid.UUID]map[uint64]chan Notice{},
+		options:          options.withDefaults(),
+		metrics:          options.Metrics,
+		scopelessContext: context.Background(),
+		pending:          map[uuid.UUID]*queue{},
+		subscribers:      map[uuid.UUID]map[uint64]chan Notice{},
+	}
+}
+
+// EventLimits reports the size bounds this bus applies.
+func (b *Bus) EventLimits() Limits {
+	return Limits{
+		MaxSummaryBytes: b.options.MaxSummaryBytes,
+		MaxDataBytes:    b.options.MaxDataBytes,
 	}
 }
 
@@ -89,7 +106,11 @@ func NewBus(options Options) *Bus {
 // A full queue drops its oldest event and counts the drop. A subscriber that is
 // not reading is skipped rather than waited on.
 func (b *Bus) Publish(notice Notice) (Notice, error) {
-	notice, err := b.Prepare(notice)
+	return b.publish(b.scopelessContext, notice)
+}
+
+func (b *Bus) publish(ctx context.Context, notice Notice) (Notice, error) {
+	notice, err := b.PrepareContext(ctx, notice)
 	if err != nil {
 		return Notice{}, err
 	}
@@ -105,13 +126,27 @@ func (b *Bus) Publish(notice Notice) (Notice, error) {
 
 // PublishContext lets a Bus satisfy Publisher. A Bus has no durable state, so
 // callers that need replay use Runtime's publisher instead.
-func (b *Bus) PublishContext(_ context.Context, notice Notice) (Notice, error) {
-	return b.Publish(notice)
+func (b *Bus) PublishContext(
+	ctx context.Context,
+	notice Notice,
+) (Notice, error) {
+	return b.publish(ctx, notice)
 }
 
 // Prepare validates and normalizes a notice without making it visible. Callers
 // that need persistence-before-publication use it before their durable write.
+// Its log lines carry no request scope; use PrepareContext when a context is
+// at hand.
 func (b *Bus) Prepare(notice Notice) (Notice, error) {
+	return b.PrepareContext(b.scopelessContext, notice)
+}
+
+// PrepareContext is Prepare with a context, so the warning for content the bus
+// has to cut carries the caller's request scope.
+func (b *Bus) PrepareContext(
+	ctx context.Context,
+	notice Notice,
+) (Notice, error) {
 	if notice.SessionID == uuid.Nil {
 		return Notice{}, ctxerrors.Wrap(
 			commerr.ErrValidationFailed,
@@ -129,7 +164,7 @@ func (b *Bus) Prepare(notice Notice) (Notice, error) {
 	}
 
 	notice.Delivery = delivery
-	b.applyDefaults(&notice)
+	b.applyDefaults(ctx, &notice)
 
 	if err := ValidateData(notice.Data); err != nil {
 		return Notice{}, err
@@ -138,7 +173,10 @@ func (b *Bus) Prepare(notice Notice) (Notice, error) {
 	return notice, nil
 }
 
-func (b *Bus) applyDefaults(notice *Notice) {
+// applyDefaults fills identity and time, then enforces the size bounds as a
+// safety net. Outside callers and hooks are rejected before they get here, so
+// what reaches the cut is Peen's own output (job and agent events).
+func (b *Bus) applyDefaults(ctx context.Context, notice *Notice) {
 	if notice.ID == uuid.Nil {
 		notice.ID = uuid.New()
 	}
@@ -147,13 +185,25 @@ func (b *Bus) applyDefaults(notice *Notice) {
 		notice.CreatedAt = time.Now().UTC()
 	}
 
-	if len(notice.Summary) > b.options.MaxSummaryBytes {
-		notice.Summary = notice.Summary[:b.options.MaxSummaryBytes]
+	notice.Summary = truncateToRuneBoundary(
+		notice.Summary,
+		b.options.MaxSummaryBytes,
+	)
+
+	if len(notice.Data) <= b.options.MaxDataBytes {
+		return
 	}
 
-	if len(notice.Data) > b.options.MaxDataBytes {
-		notice.Data = nil
-	}
+	ctxscope.GetLogger(ctx).Warn(
+		"event data dropped",
+		"reason", reasonEventDataTooLarge,
+		"event_type", notice.Type,
+		"session_id", notice.SessionID.String(),
+		"size", len(notice.Data),
+		"limit", b.options.MaxDataBytes,
+	)
+
+	notice.Data = nil
 }
 
 func (b *Bus) enqueue(notice Notice) {

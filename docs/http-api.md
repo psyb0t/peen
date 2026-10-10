@@ -9,10 +9,13 @@ The full REST contract is [api/api.yml](../api/api.yml) (OpenAPI 3.1). Peen's em
 
 Every operation is mounted under `/v1`. `Authorization: Bearer <token>` is
 required only when `PEEN_API_TOKEN` is set; see the root
-[README](../README.md#things-worth-knowing). Every REST success response
-carries `X-Session-ID` and `X-Request-ID` headers. Durable reads are addressed
-to a known session through `X-Session-ID`; clients learn the runtime's
-workspace session UUID from the global WebSocket feed. REST errors use one
+[README](../README.md#things-worth-knowing). Every response carries an
+`X-Request-ID` header. Every session-scoped success response (any route under
+`/v1/session` and `/v1/messages`, plus `POST /v1/sessions/open`) also carries
+`X-Session-ID`. Durable reads are addressed to a known session through
+`X-Session-ID`. Clients get a session ID from `POST /v1/sessions/open` or
+`GET /v1/sessions`. [Terms](architecture.md#terms) explains how the session
+ID, request ID, turn ID, and `X-Request-ID` differ. REST errors use one
 envelope:
 
 ```json
@@ -35,17 +38,16 @@ directory again, by any of its names, resumes the existing session instead of
 making a second one. `GET /v1/sessions` lists them, and takes no session header
 because it is how a client discovers them.
 
-`GET /v1/workspace-roots` returns the configured canonical roots that an
-authenticated client may offer before opening a session. The embedded control
-surface uses them as suggestions, while still allowing a user to type an
-existing child directory. The endpoint does not create a session. A rejected
-`POST /v1/sessions/open` still names no configured root.
+`GET /v1/workspace-roots` returns `{"roots": ["<PEEN_WORKSPACE_ROOT>"]}`,
+which today always holds one entry. An authenticated client may offer that
+root before opening a session. The embedded control surface uses it as a
+suggestion, while still allowing a user to type an existing child directory.
+The endpoint does not create a session.
 
-A workspace must be the configured `PEEN_WORKSPACE_ROOT` or sit inside it. The
-list from `GET /v1/workspace-roots` therefore holds that one root. Peen
-refuses a workspace outside it with `403 WORKSPACE_NOT_ALLOWED` and creates no
-session. The refusal names no root, so a caller cannot map the deployment's
-directory layout by probing it. A missing directory beneath an allowed root
+A workspace must be the configured `PEEN_WORKSPACE_ROOT` or sit inside it.
+Peen refuses a workspace outside it with `403 WORKSPACE_NOT_ALLOWED` and
+creates no session. An error from `POST /v1/sessions/open` never names the
+root, so a caller cannot map the deployment's directory layout by probing it. A missing directory beneath an allowed root
 returns `404 WORKSPACE_NOT_FOUND` with `workspace directory does not exist`, so
 a client can correct the path instead of receiving a generic server failure.
 
@@ -82,10 +84,10 @@ That routes the message, it does not authorize it. Peen loads the session
 before starting a turn, so an unknown session ID fails there and writes no turn
 record. The transport supplies the routed session, not the message body, so a
 message cannot redirect itself to another session. No REST endpoint accepts a
-user message. Peen gives each socket a server-controlled
-[Aichteeteapee WShub](https://github.com/psyb0t/aichteeteapee) identity, then
-fans each accepted session event to all global sockets and to sockets filtered
-for that session. The server retains WShub's default origin policy: an `Origin`
+user message. Peen gives each socket a server-controlled identity in its
+WebSocket hub (from [Aichteeteapee](https://github.com/psyb0t/aichteeteapee)),
+then fans each accepted session's frames to all global sockets and to sockets
+filtered for that session. The server keeps the hub's default origin policy: an `Origin`
 header must match the request host outside explicitly enabled local development
 mode.
 
@@ -108,7 +110,9 @@ The accepted client event is `message.send`. Its `data` is strict JSON:
 ```
 
 `systemPrompt.mode` is `append` for the default prompt plus the supplied text,
-or `replace` for the supplied text alone. Neither setting is sticky.
+or `replace` for the supplied text alone. Both `mode` and a non-empty
+`content` are required when `systemPrompt` is present. Leaving either out fails
+the message with `VALIDATION_FAILED`. Neither setting is sticky.
 `reasoningEffort` sets the reasoning level for this turn's model calls. Without it the model uses its own default. A level the model cannot take is fitted to it: a model without reasoning levels gets none, and a level outside the model's range runs at the nearest level it supports. The controller logs each change with the requested level, the level used, and a `reason`. Any other value fails the message with `VALIDATION_FAILED`.
 `metadata.sessionId` is required on every client message. It routes the work to an existing session and is not an authorization grant. `data.workspace` is rejected. A client learns a session ID from `POST /v1/sessions/open`, not from a special first socket frame.
 
@@ -119,18 +123,17 @@ root and any child agents. An unknown name produces `message.failed`; the user
 message remains unchanged. Without this syntax, the model sees the skill
 catalogue and decides whether to load a matching procedure with `use_skill`.
 
-When the session already has a running turn, a `message.send` with only a
-`message` joins that turn's FIFO user-message queue. A queued message cannot set
-`model`, `reasoningEffort`, or `systemPrompt`, because those settings belong to the running turn.
-It also cannot directly activate a skill, because the running prompt is fixed.
-The live queue is bounded by `PEEN_MAX_QUEUED_USER_MESSAGES`,
-defaults to 16, and does not interrupt an in-flight provider request. Queued
-delivery is process-local until the next provider round. Clients retry after a
-restart, cancellation, or an unfinished queue.
+Peen admits the messages for one session in the order it receives them, from every connected client. The first starts a turn, and every `message.send` that arrives while that turn runs or is still starting, for example while the session's worker boots, joins the turn's FIFO user-message queue. A queued message may repeat the running turn's `model` and `reasoningEffort`, but it cannot change them or set a `systemPrompt`, because those settings belong to the running turn. It also cannot directly activate a skill with `:name`, because the running prompt is fixed. Either refusal answers `message.failed` with `VALIDATION_FAILED`. The live queue holds at most `PEEN_MAX_QUEUED_USER_MESSAGES` messages, 16 by default, and a message past that answers `USER_MESSAGE_QUEUE_FULL`. Queueing never interrupts an in-flight provider request.
+
+A queued message gets its own request ID. Peen acknowledges it with `message.completed` `{"queued": true}` and emits `user_message.created` and then `user_message.queued`, both carrying that message's own `requestId`. When the running turn's current model round ends, after the current tool call finishes, Peen hands the queued message to the model and emits `user_message.delivered` with that same `requestId` and `{"message": "<text>"}` to every connected client. Queued messages are delivered in the order they were sent. The queue lives in the worker's memory until delivery. If the turn ends without a `user_message.delivered` for your message's `requestId`, for example after a restart or a cancellation, the message never reached the model, so resend it.
 
 Every accepted `message.send` first emits a durable `user_message.created`
-event. Every server frame is a Dabluvee event with `id`, `type`, `data`,
-`timestamp`, `metadata`, and `triggeredBy`. All session events carry `metadata.sessionId` and `metadata.requestId`; every event of one turn shares the same `requestId`:
+frame. Every server frame is a JSON object with `id`, `type`, `data`,
+`timestamp`, `metadata`, and `triggeredBy`, the same shape as the client frame
+above. `triggeredBy` is the `id` of the client frame that caused this frame.
+A frame from a turn an event woke has no client frame behind it and carries the
+all-zero UUID. A client frame is caused by nothing, so a client sends `null`.
+All session frames carry `metadata.sessionId` and `metadata.requestId`. Every frame of one turn shares the turn's `requestId`, except the `user_message.*` frames of a queued message, which carry that message's own:
 
 ```json
 {
@@ -143,7 +146,7 @@ event. Every server frame is a Dabluvee event with `id`, `type`, `data`,
 }
 ```
 
-A turn emits Peen's own events (`user_message.created`, `turn.started`, `tool.use`, `tool.result`, `session.events`, `harness.warning`, `provider.retry`, and one of `turn.completed`, `turn.failed`, or `turn.cancelled`) plus the model's reply as Anthropic-style content blocks:
+A turn emits Peen's own [protocol events](#protocol-event-types) plus the model's reply as Anthropic-style content blocks:
 
 | Event | `data` | Meaning |
 | --- | --- | --- |
@@ -155,11 +158,34 @@ Block indexes count up from zero within one turn and start over in the next, so 
 
 A stored message with `injected: true` was added by Peen, not typed by a person or written by the model. Delivered session events are the common case: they arrive as a user-role message the agent reads as data. The instructions an event handler starts a turn with are injected too. Every stored message also carries the `turnId` of the turn that wrote it, so a client can group a conversation by turn. Session events delivered at the start of a turn are stored ahead of that turn's prompt.
 
+### Protocol event types
+
+A protocol event is a durable record of one step of a turn. Each one goes out live as a frame and is listed later by [`GET /v1/session/events`](#get-v1sessionevents). It is not a [session event](events.md). See [Terms](architecture.md#terms).
+
+| Type | `data` | Meaning |
+| --- | --- | --- |
+| `user_message.created` | `{message, sourceEventId?}` | Peen accepted a `message.send`. |
+| `user_message.queued` | `{message, sourceEventId?}` | The message joined the running turn's queue. |
+| `user_message.delivered` | `{message, sourceEventId?}` | A queued message reached the model. It carries the queued message's own `requestId`. |
+| `harness.warning` | `{warnings: [{kind, source, reason}]}` | Peen ignored invalid optional harness files. See below. |
+| `turn.started` | `{sessionId, model, workspace, originEventId?, originEventType?}` | The turn started. `originEventId` and `originEventType` name the session event that woke it, when one did. |
+| `session.events` | `{notices, dropped}` | Session events were handed to the model. See [Session events](events.md#how-the-model-receives-events). |
+| `tool.use` | `{callId, name, arguments}` | The model asked for a tool call. |
+| `tool.result` | `{callId, name, content, isError}` | A tool call finished. |
+| `provider.retry` | `{attempt, reason, status, delayMs}` | Peen is retrying a failed provider request. |
+| `turn.completed` | `{model, text}` | The turn finished. `text` is the final answer. |
+| `turn.failed` | `{reason}` | The turn failed. |
+| `turn.cancelled` | `{reason}` | The turn was cancelled. |
+| `agent.run.*` | `{agentRunId, parentTurnId, parentAgentRunId?, event}` | A step of a child agent run. The names are `agent.run.started`, `.text.delta`, `.thinking.delta`, `.tool.use`, `.tool.result`, `.assistant.message`, `.message.injected`, `.provider.retry`, `.completed`, `.failed`, and `.cancelled`. `event` holds the step's own payload. These frames are not in `GET /v1/session/events`. Peen stores them with the run, and `GET /v1/session/agents/{agentRunId}/events` returns them. |
+
+`content_block_start`, `content_block_delta`, and `content_block_stop` carry the model's reply as shown above. `message.completed` and `message.failed` are replies to one client frame, described below, and are not stored.
+
 Successful submissions finish with `message.completed`. Its data is
 `{"queued": false}` when the turn finished or `{"queued": true}` when the
 message joined an active turn's queue. `queued: true` acknowledges only that
-submission; the existing turn processes the queued text at its next provider
-round boundary. `message.completed` closes the submission, not the socket.
+submission. The running turn hands the queued text to the model when its
+current model round ends, and `user_message.delivered` reports that.
+`message.completed` closes the submission, not the socket.
 An unsuccessful submission finishes with `message.failed`. Its safe payload is
 `{code, message, reason?}`. `reason` appears only for known safe categories.
 Unknown provider, worker, and tool errors never expose their wrapped details.
@@ -185,6 +211,30 @@ WebSocket subprotocols: `peen.v1` and
 unpadded URL-safe Base64 form. Peen selects `peen.v1` and authenticates the
 other value. Never place a bearer token in the URL. Use `wss://` in deployment.
 
+## POST /v1/sessions/open
+
+Opens the session for a workspace, creating it the first time that directory is opened. No session header. `profile` is optional and applies only when this call creates the session.
+
+```json
+{"workspace": "/home/me/work/my-app", "profile": "native"}
+```
+
+The response is the session, in the same shape as [`GET /v1/session`](#get-v1session), and whether this call created it:
+
+```json
+{"session": {"id": "uuid", "workspace": "/home/me/work/my-app", "executionProfile": "native", "...": "..."}, "created": true}
+```
+
+Use `session.id` as `metadata.sessionId` on the WebSocket and as `X-Session-ID` on REST calls.
+
+## GET /v1/sessions
+
+Lists every session. No session header. Query parameters are `limit` and `offset`.
+
+```json
+{"items": [{"id": "uuid", "workspace": "/home/me/work/my-app", "...": "..."}], "limit": 50, "offset": 0, "hasMore": false}
+```
+
 ## GET /v1/messages
 
 Lists stored conversation messages for one existing session.
@@ -206,6 +256,8 @@ Lists stored conversation messages for one existing session.
       "toolCallId": null,
       "isError": false,
       "incomplete": false,
+      "injected": false,
+      "turnId": "uuid",
       "compactionId": null,
       "createdAt": "..."
     }
@@ -296,7 +348,9 @@ Reads details for one existing session. `X-Session-ID` is required.
   "completedTurnCount": 4,
   "activeTurn": false,
   "agent": "default",
-  "model": "aigate/your-model-id"
+  "model": "aigate/your-model-id",
+  "workspace": "/home/me/work/my-app",
+  "executionProfile": "native"
 }
 ```
 
@@ -320,16 +374,17 @@ Lists durable protocol events recorded while Peen handled the session.
 `order` (`asc` or `desc`).
 
 ```json
-{"events": [{"id": "uuid", "sessionId": "uuid", "turnId": "uuid", "workerGenerationId": "uuid", "sequence": 1, "requestId": "uuid", "type": "tool_call", "payload": {}, "parentToolCallId": null, "createdAt": "..."}], "limit": 50, "offset": 0, "hasMore": false}
+{"events": [{"id": "uuid", "sessionId": "uuid", "turnId": "uuid", "workerGenerationId": "uuid", "sequence": 1, "requestId": "uuid", "type": "tool.use", "payload": {}, "parentToolCallId": null, "createdAt": "..."}], "limit": 50, "offset": 0, "hasMore": false}
 ```
 
 These are transcript protocol records, not a queue. Listing never consumes or
-alters them.
+alters them. The [protocol event types](#protocol-event-types) table lists
+every `type`.
 
 ## GET /v1/session/notices
 
-Lists durable notices received from outside Peen or emitted by its workers.
-`X-Session-ID` is required. Query parameters are `limit` and `offset`.
+Lists durable notices from any source in
+[Session events](events.md#where-events-come-from). `X-Session-ID` is required. Query parameters are `limit` and `offset`.
 
 ## POST /v1/session/notices
 
@@ -342,10 +397,16 @@ Records a notice from outside Peen, such as a webhook, CI run, or operator.
 
 `type` is a lowercase dotted name up to 128 characters. The `job.` and
 `agent.` prefixes are reserved for Peen's own producers and are rejected here.
-`delivery` is `queue` (default, delivered at the next turn or tool boundary)
-or `wake` (starts a turn immediately if the session is idle and
-`.agents/events/<type>.md` declares a handler; otherwise becomes `queue`).
-Notice content is untrusted. Peen quotes it as data for the model and never
+`summary` is required and must not be empty. A `summary` longer than
+`PEEN_MAX_EVENT_SUMMARY_BYTES` or `data` larger than `PEEN_MAX_EVENT_DATA_BYTES`
+is rejected with `400 VALIDATION_FAILED`. `delivery` is `queue` (default,
+delivered at the next turn or tool boundary) or `wake`. A notice starts a turn
+only when a handler for its type exists in some harness layer at
+`<layer>/.agents/events/<type>.md`. A handler that sets `delivery` decides on
+its own. A handler that leaves it out uses the notice's `delivery`. The other
+wake conditions, such as an idle session and the hourly wake cap, are in
+[waking an idle session](events.md#waking-an-idle-session). A notice that does
+not wake is queued. Notice content is untrusted. Peen quotes it as data for the model and never
 merges it into the system prompt.
 
 ## GET /v1/session/jobs

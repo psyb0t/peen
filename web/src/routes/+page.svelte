@@ -3,7 +3,7 @@
 
 	import { activities, isActivityEvent, type AgentActivity } from "$lib/chat/activity";
 	import ReplyBlocks from "$lib/chat/ReplyBlocks.svelte";
-	import { groupTranscript, liveReplyBlocks } from "$lib/chat/transcript";
+	import { groupTranscript, liveSegments } from "$lib/chat/transcript";
 	import {
 		applyStreamEvent,
 		isTurnTerminalEvent,
@@ -40,6 +40,7 @@
 
 	const EVENT_TYPE_MESSAGE_FAILED = "message.failed";
 	const PATH_SEPARATOR = "/";
+	const ENTER_KEY = "Enter";
 	// The conversation keeps following new output while the reader is within
 	// this distance of the bottom.
 	const FOLLOW_THRESHOLD_PX = 64;
@@ -110,6 +111,12 @@
 		activityEvents.filter((event) => isSelectedSession(event.metadata.sessionId)),
 	);
 	$: selectedLiveTurns = liveTurns.filter((turn) => isSelectedSession(turn.sessionID));
+	// The stored session's activeTurn only refreshes on reload, so a turn that is
+	// streaming right now also counts. A message sent then joins that turn's
+	// queue, and must not try to change its model or reasoning.
+	$: turnRunning =
+		selectedSession?.activeTurn === true ||
+		selectedLiveTurns.some((turn) => !turn.isFinished && turn.queue === undefined);
 	$: transcriptItems = groupTranscript(messages);
 	$: syncSelectedModel(selectedSession);
 	$: modelNames = modelOptions(models, selectedSession?.model);
@@ -415,6 +422,17 @@
 		}
 	}
 
+	// Enter sends and Shift+Enter keeps the newline. An Enter that confirms an
+	// IME composition belongs to the composition, not to the message.
+	function sendOnEnter(event: KeyboardEvent): void {
+		if (event.key !== ENTER_KEY || event.shiftKey || event.isComposing) {
+			return;
+		}
+
+		event.preventDefault();
+		(event.currentTarget as HTMLTextAreaElement).form?.requestSubmit();
+	}
+
 	async function sendMessage(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
 		if (selectedSessionID === "") {
@@ -428,10 +446,9 @@
 
 		// A message sent while a turn runs joins that turn, which keeps the
 		// model and reasoning level it started with.
-		const settings =
-			selectedSession?.activeTurn === true
-				? undefined
-				: { model: selectedModel, reasoningEffort: selectedReasoningEffort };
+		const settings = turnRunning
+			? undefined
+			: { model: selectedModel, reasoningEffort: selectedReasoningEffort };
 
 		logBrowserEvent("message.send.start", {
 			model: settings?.model,
@@ -699,13 +716,13 @@
 						<div class="session-facts">
 							<span>{selectedSession.model}</span><span
 								>{selectedSession.executionProfile ?? "controller default"}</span
-							>{#if selectedSession.activeTurn}<span class="working">Working</span>{/if}
+							>{#if turnRunning}<span class="working">Working</span>{/if}
 						</div>
 					</div>
 				{/if}
 				<div class="header-actions">
 					{#if selectedSession !== undefined}<button
-							disabled={!selectedSession.activeTurn}
+							disabled={!turnRunning}
 							onclick={() => void cancelSession()}
 							type="button">Stop</button
 						>{/if}
@@ -748,39 +765,37 @@
 
 					{#each transcriptItems as item (item.kind === "user" ? item.message.id : item.id)}
 						{#if item.kind === "user"}<article class="message user">
-								<div class="message-meta">
-									<span>You</span><time datetime={item.message.createdAt}
-										>{messageTime(item.message.createdAt)}</time
-									>
-								</div>
 								<div class="message-content">{item.message.content}</div>
+								<time class="message-time" datetime={item.message.createdAt}
+									>{messageTime(item.message.createdAt)}</time
+								>
 							</article>{:else}<article class="message assistant">
-								<div class="message-meta">
-									<span>Peen</span><time datetime={item.createdAt}
-										>{messageTime(item.createdAt)}</time
-									>
-								</div>
 								<ReplyBlocks blocks={item.blocks} />
 							</article>{/if}
 					{/each}
 
 					{#each selectedLiveTurns as turn (turn.requestID)}
-						{#if turn.prompt !== undefined && turn.originEventType === undefined}<article
-								class="message user"
-							>
-								<div class="message-meta"><span>You</span></div>
-								<div class="message-content">{turn.prompt}</div>
-							</article>{/if}
-						{#if turn.blocks.length > 0 || !turn.isFinished}<article
-								class="message assistant live"
-							>
-								<div class="message-meta">
-									<span>Peen</span>{#if !turn.isFinished}<small class="writing"
-											>Working</small
-										>{/if}
-								</div>
-								<ReplyBlocks blocks={liveReplyBlocks(turn)} />
-							</article>{/if}
+						{#if turn.queue !== "delivered"}
+							{#if turn.prompt !== undefined && turn.originEventType === undefined}<article
+									class="message user"
+									class:queued={turn.queue === "queued"}
+								>
+									<div class="message-content">{turn.prompt}</div>
+									{#if turn.queue === "queued"}<p class="queue-note">
+											Queued. Lands after the current step.
+										</p>{/if}
+								</article>{/if}
+							{#if turn.queue === undefined}
+								{#each liveSegments(turn) as segment (segment.key)}
+									{#if segment.kind === "user"}<article class="message user">
+											<div class="message-content">{segment.text}</div>
+										</article>{:else}<article class="message assistant live">
+											<ReplyBlocks blocks={segment.blocks} />
+										</article>{/if}
+								{/each}
+								{#if !turn.isFinished}<p class="writing">Working</p>{/if}
+							{/if}
+						{/if}
 					{/each}
 					{#each selectedActivities as activity (activity.id)}
 						{#if activity.tone === "error" || activity.reason}
@@ -829,25 +844,26 @@
 						<label
 							><span>Model</span><select
 								bind:value={selectedModel}
-								disabled={selectedSession.activeTurn}
+								disabled={turnRunning}
 								>{#each modelNames as name (name)}<option value={name}>{name}</option
 									>{/each}</select
 							></label
 						><label
 							><span>Reasoning</span><select
 								bind:value={selectedReasoningEffort}
-								disabled={selectedSession.activeTurn}
+								disabled={turnRunning}
 								>{#each REASONING_EFFORTS as effort (effort)}<option value={effort}
 										>{effort}</option
 									>{/each}</select
 							></label
-						>{#if selectedSession.activeTurn}<p>
-								Messages join the active turn’s queue.
+						>{#if turnRunning}<p>
+								Messages queue up and land after the current step.
 							</p>{/if}
 					</div>
 					<label class="composer-input"
 						><span class="sr-only">Message</span><textarea
 							bind:value={messageText}
+							onkeydown={sendOnEnter}
 							placeholder="Ask Peen to work on this workspace"
 							required
 							rows="3"></textarea></label
@@ -1100,7 +1116,6 @@ height: 100dvh; padding: 1rem;
 	.chat-header,
 	.header-actions,
 	.inspector-heading,
-	.message-meta,
 	.composer-controls,
 	.composer-footer,
 	.session-facts,
@@ -1112,7 +1127,6 @@ height: 100dvh; padding: 1rem;
 	.session-list-header,
 	.chat-header,
 	.inspector-heading,
-	.message-meta,
 	.composer-footer,
 	.activity-card summary {
 		align-items: center;
@@ -1309,36 +1323,40 @@ height: 100dvh; padding: 1rem;
 		line-height: 1.6;
 	}
 	.message {
-		background: rgb(34 35 41 / 82%);
-		border: 1px solid rgb(59 61 69 / 82%);
-		border-radius: 0.95rem;
-		box-shadow: 0 8px 24px rgb(0 0 0 / 10%);
-		justify-self: start;
-		max-width: min(100%, 44rem);
-		padding: 0.9rem 1rem;
+		min-width: 0;
 	}
+	/* The agent writes straight onto the page across the full width. Each block
+	   (prose, thinking, tool card) carries its own chrome. */
 	.message.assistant {
-		background: transparent;
-		border: 0;
-		border-radius: 0;
 		justify-self: stretch;
 		padding: 0.4rem 0;
 	}
+	/* Only the user's message is a bubble, on the right. */
 	.message.user {
-		border-color: rgb(214 255 79 / 24%);
+		background: rgb(214 255 79 / 8%);
+		border: 1px solid rgb(214 255 79 / 24%);
+		border-radius: 0.95rem;
+		justify-self: end;
+		max-width: 70%;
+		padding: 0.75rem 1rem;
 	}
-	.message-meta {
-		color: #989ba4;
-		font-size: 0.72rem;
+	.message.user.queued {
+		border-style: dashed;
+		opacity: 0.85;
+	}
+	.queue-note {
+		color: #d6ff4f;
+		font-size: 0.7rem;
 		font-weight: 700;
-		margin-bottom: 0.55rem;
-		text-transform: uppercase;
+		margin: 0.45rem 0 0;
+		text-align: right;
 	}
-	.message-meta time,
-	.message-meta small {
-		font-size: 0.72rem;
-		font-weight: 500;
-		text-transform: none;
+	.message-time {
+		color: #989ba4;
+		display: block;
+		font-size: 0.68rem;
+		margin-top: 0.4rem;
+		text-align: right;
 	}
 	.message-content {
 		line-height: 1.6;
@@ -1364,7 +1382,6 @@ height: 100dvh; padding: 1rem;
 		border-color: #79424d;
 	}
 	.diagnostic-card {
-		max-width: min(100%, 48rem);
 		padding: 0.9rem 1rem;
 	}
 	.diagnostic-card.warning {
@@ -1376,7 +1393,6 @@ height: 100dvh; padding: 1rem;
 		background: #2d1c22;
 		border-color: #8d4a58;
 		color: #ffdde3;
-		max-width: min(100%, 48rem);
 		padding: 0.9rem 1rem;
 	}
 	.activity-heading {
@@ -1437,15 +1453,21 @@ height: 100dvh; padding: 1rem;
 		white-space: pre-wrap;
 		word-break: break-word;
 	}
-	.message.live {
-		border-left: 2px solid #d6ff4f;
-		padding-left: 0.9rem;
-	}
 	.message.live > :global(* + *) {
 		margin-top: 0.6rem;
 	}
 	.writing {
+		animation: blink 1.2s steps(1) infinite;
 		color: #d6ff4f;
+		font-size: 0.72rem;
+		font-weight: 700;
+		margin: 0;
+		text-transform: uppercase;
+	}
+	@keyframes blink {
+		50% {
+			opacity: 0.45;
+		}
 	}
 	.composer {
 		backdrop-filter: blur(12px);
@@ -1455,10 +1477,6 @@ height: 100dvh; padding: 1rem;
 		padding: 1.25rem clamp(1.25rem, 5vw, 3.5rem);
 		position: relative;
 		width: 100%;
-	}
-	.composer > * {
-		margin: 0 auto;
-		max-width: 52rem;
 	}
 	.composer-input textarea {
 		background: #222329;

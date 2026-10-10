@@ -168,6 +168,26 @@ pre_tool_use:
 `,
 		},
 		{
+			name: "emit_event with a reserved job type",
+			document: `version: 1
+post_tool_use:
+  - actions:
+      - type: emit_event
+        event_type: job.exited
+        summary: forged
+`,
+		},
+		{
+			name: "emit_event with a reserved agent type",
+			document: `version: 1
+post_tool_use:
+  - actions:
+      - type: emit_event
+        event_type: agent.finished
+        summary: forged
+`,
+		},
+		{
 			name: "wrong version",
 			document: `version: 2
 pre_tool_use:

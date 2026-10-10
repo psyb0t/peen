@@ -8,6 +8,7 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/agent"
 	"github.com/psyb0t/peen/internal/pkg/http/api"
+	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
 // testSessionRegistry is the control-surface double the handler tests wire in.
@@ -151,13 +152,21 @@ type testTurnRouter struct {
 	signalErr error
 }
 
-func (r *testTurnRouter) RunSessionMessage(
-	ctx context.Context,
+func (r *testTurnRouter) ReserveSessionMessage(
 	sessionID uuid.UUID,
+) *session.AdmissionTicket {
+	return session.NewAdmissionGate().Reserve(sessionID)
+}
+
+func (r *testTurnRouter) RunReservedSessionMessage(
+	ctx context.Context,
+	reservation *session.AdmissionTicket,
 	request agent.MessageRequest,
 	requestID uuid.UUID,
 ) (*agent.MessageRunResult, error) {
-	r.sessions = append(r.sessions, sessionID)
+	defer reservation.Release()
+
+	r.sessions = append(r.sessions, reservation.SessionID())
 	if r.runErr != nil {
 		return nil, r.runErr
 	}

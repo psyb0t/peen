@@ -1,5 +1,5 @@
 import type { components } from "$lib/api/generated";
-import type { LiveBlock, LiveTurn } from "$lib/chat/stream";
+import type { LiveBlock, LiveTurn, LiveUserBlock } from "$lib/chat/stream";
 
 import { formatJSON } from "$lib/common/json";
 
@@ -221,25 +221,53 @@ function attachResult(
 
 const LIVE_ORIGIN_PROMPT_KEY = "origin-prompt";
 
+export type LiveSegment =
+	{ blocks: ReplyBlock[]; key: string; kind: "reply" } | LiveUserBlock;
+
 /**
- * Returns a streaming turn's reply blocks in the shape a stored reply uses.
- * A turn an event started opens with the handler's instructions, shown as an
- * update rather than as something a person typed.
+ * Splits a streaming turn into what the chat shows, in order: runs of reply
+ * blocks, broken by each message the user queued that reached the model
+ * mid-turn. A turn an event started opens with the handler's instructions,
+ * shown as an update rather than as something a person typed.
  */
-export function liveReplyBlocks(turn: LiveTurn): ReplyBlock[] {
-	const blocks = turn.blocks.map(liveReplyBlock);
-	if (turn.originEventType === undefined || turn.prompt === undefined) {
-		return blocks;
+export function liveSegments(turn: LiveTurn): LiveSegment[] {
+	const segments: LiveSegment[] = [];
+	let reply: ReplyBlock[] = [];
+
+	if (turn.originEventType !== undefined && turn.prompt !== undefined) {
+		reply.push({ key: LIVE_ORIGIN_PROMPT_KEY, kind: "injected", text: turn.prompt });
 	}
 
-	return [
-		{ key: LIVE_ORIGIN_PROMPT_KEY, kind: "injected", text: turn.prompt },
-		...blocks,
-	];
+	const closeReply = (): void => {
+		if (reply.length === 0) {
+			return;
+		}
+
+		segments.push({
+			blocks: reply,
+			key: `${turn.requestID}:${segments.length}`,
+			kind: "reply",
+		});
+		reply = [];
+	};
+
+	for (const block of turn.blocks) {
+		if (block.kind === "user") {
+			closeReply();
+			segments.push(block);
+			continue;
+		}
+
+		reply.push(liveReplyBlock(block));
+	}
+
+	closeReply();
+
+	return segments;
 }
 
 /** Converts a streaming block into the shape a stored reply uses. */
-export function liveReplyBlock(block: LiveBlock): ReplyBlock {
+export function liveReplyBlock(block: Exclude<LiveBlock, LiveUserBlock>): ReplyBlock {
 	if (block.kind !== "tool") {
 		return block;
 	}

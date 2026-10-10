@@ -3,7 +3,7 @@
 Peen puts two kinds of plain Markdown into the system prompt on every turn:
 
 - `AGENTS.md` is a project's instructions file, in the open [agents.md](https://agents.md) format that most coding agents read. It is the README for agents: how to build and test, where things live, what not to touch, and the project's conventions.
-- Rules are topic files in `.agents/rules/`, one subject per file, such as `testing.md` or `go.md`. Use them when one `AGENTS.md` would grow too long, or to keep a convention in its own file.
+- Rules are topic files in `.agents/rules/` or `.claude/rules/`, one subject per file, such as `testing.md` or `go.md`. Use them when one `AGENTS.md` would grow too long, or to keep a convention in its own file.
 
 If something only matters for one kind of task, make it a [skill](skills.md). If it must be enforced rather than requested, use a [hook](hooks.md).
 
@@ -42,7 +42,7 @@ When you open `/home/me/work/my-api`, the model gets `work/AGENTS.md`, then `my-
 
 When two `AGENTS.md` files disagree, the one closest to the file being changed wins, as the agents.md format specifies. Peen's own operating instructions tell the model this, and they tell it that your messages in the chat override every `AGENTS.md`.
 
-Below the workspace, Peen skips hidden directories such as `.git`, `node_modules`, `vendor`, and symlinked directories. It searches at most 10,000 directories.
+Below the workspace, Peen skips hidden directories (names starting with `.`, such as `.git`), `node_modules`, `vendor`, and symlinked directories. It searches at most 10,000 directories.
 
 ## Rules
 

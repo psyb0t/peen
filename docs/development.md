@@ -22,7 +22,7 @@ you need the full, current list.
 | Build the production image | `make docker-build` |
 | Run this checkout's local controller | `make run-dev` |
 
-`make run-dev` rebuilds the development image, runs Peen as the current host UID and GID, loads the gitignored `.env` through Docker, and uses the invoking directory as the literal agent workspace. It uses Docker host networking so configured host and Tailnet services remain reachable, while Peen itself binds its API and browser control surface to `http://localhost:8080`. The default metrics listener is also host-loopback at `http://127.0.0.1:9090/metrics`. The target creates `data/peen/config` and `data/peen/state` in the Peen checkout on first use, and preserves state between runs. The config directory is read-only to the agent. Set `PEEN_DEV_HTTP_PORT` to use another loopback API port.
+`make run-dev` rebuilds the development image, runs Peen as the current host UID and GID, loads the gitignored `.env` through Docker, and uses the invoking directory as the workspace root, so a client may open it or any directory inside it. It uses Docker host networking so configured host and Tailnet services remain reachable, while Peen itself binds its API and browser control surface to `http://localhost:8080`. The default metrics listener is also host-loopback at `http://127.0.0.1:9090/metrics`. The target creates `data/peen/config` and `data/peen/state` in the Peen checkout on first use, and preserves state between runs. The config directory is read-only to the agent. Set `PEEN_DEV_HTTP_PORT` to use another loopback API port.
 
 The target does not grant Docker socket access. Set `PEEN_DEV_DOCKER_SOCKET=1 make run-dev` only when testing a Docker execution profile. That grants the controller host-root-equivalent Docker authority.
 
@@ -50,7 +50,7 @@ mount or Docker socket.
 | Public API contract | `api/api.yml` |
 | Black-box API tests | `tests/api/` |
 
-Keep generated files generated. `api/api.gen.go`, repository `*.gen.go` files,
+Keep generated files generated. `internal/pkg/http/api/api.gen.go`, repository `*.gen.go` files,
 and service registration come from their generators. Change their source and
 run the matching generation target instead of patching generated output.
 

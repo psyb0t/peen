@@ -1,4 +1,11 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import Page from "../routes/+page.svelte";
@@ -255,10 +262,19 @@ describe("control surface", () => {
 			prompt.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING,
 		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 
+		// The user's message is a bare bubble and the agent writes straight onto
+		// the page, so neither carries a speaker label.
+		const promptMessage = prompt.closest("article");
+		const replyMessage = reply.closest("article");
+		expect(promptMessage).not.toBe(replyMessage);
+		expect(promptMessage?.classList.contains("user")).toBe(true);
+		expect(within(promptMessage as HTMLElement).queryByText("You")).toBeNull();
+		expect(within(replyMessage as HTMLElement).queryByText("Peen")).toBeNull();
+
 		const injectedLabel = await screen.findByText("Background update");
 		const injectedMessage = injectedLabel.closest("article");
 		expect(injectedMessage?.classList.contains("user")).toBe(false);
-		expect(screen.getAllByText("You")).toHaveLength(1);
+		expect(document.querySelectorAll("article.message.user")).toHaveLength(1);
 
 		const modelSelector = await screen.findByLabelText<HTMLSelectElement>("Model");
 		const names = Array.from(modelSelector.options, (option) => option.value);
@@ -296,6 +312,50 @@ describe("control surface", () => {
 		expect(sentMessageData(transport)).toEqual([
 			{ message: "first", model: "aigate/default", reasoningEffort: "medium" },
 			{ message: "second", model: "zai/glm-5.3", reasoningEffort: "xhigh" },
+		]);
+	});
+
+	it("leaves the model out of a message sent while a turn is streaming", async () => {
+		render(Page);
+		const transport = await connectAndOpenChat();
+
+		transport?.receive(
+			JSON.stringify({
+				data: { message: "run the build" },
+				id: "99999999-9999-4999-8999-000000000101",
+				metadata: {
+					requestId: "77777777-7777-4777-8777-777777777781",
+					sessionId: session.id,
+				},
+				timestamp: 1,
+				triggeredBy: null,
+				type: "user_message.created",
+			}),
+		);
+		await screen.findByText("run the build");
+
+		const messageInput = screen.getByLabelText<HTMLTextAreaElement>("Message");
+		await fireEvent.input(messageInput, { target: { value: "then run the tests" } });
+		await fireEvent.keyDown(messageInput, { key: "Enter" });
+
+		expect(sentMessageData(transport)).toEqual([{ message: "then run the tests" }]);
+	});
+
+	it("sends on Enter and keeps Shift+Enter for a new line", async () => {
+		render(Page);
+		const transport = await connectAndOpenChat();
+
+		const messageInput = screen.getByLabelText<HTMLTextAreaElement>("Message");
+		await fireEvent.input(messageInput, { target: { value: "first line" } });
+		await fireEvent.keyDown(messageInput, { key: "Enter", shiftKey: true });
+		expect(sentMessageData(transport)).toEqual([]);
+
+		await fireEvent.keyDown(messageInput, { key: "Enter", isComposing: true });
+		expect(sentMessageData(transport)).toEqual([]);
+
+		await fireEvent.keyDown(messageInput, { key: "Enter" });
+		expect(sentMessageData(transport)).toEqual([
+			{ message: "first line", model: "aigate/default", reasoningEffort: "medium" },
 		]);
 	});
 
@@ -446,5 +506,86 @@ describe("control surface", () => {
 		expect(emphasized.tagName).toBe("STRONG");
 		expect(screen.queryByText("content_block_delta")).toBeNull();
 		expect(screen.queryByText("content_block_start")).toBeNull();
+	});
+
+	it("shows a message sent mid-turn as queued until it lands in the running turn", async () => {
+		render(Page);
+		const transport = await connectAndOpenChat();
+
+		const runningRequestID = "77777777-7777-4777-8777-777777777771";
+		const queuedRequestID = "77777777-7777-4777-8777-777777777772";
+		let sequence = 0;
+		const send = (type: string, data: unknown, requestID: string): void => {
+			sequence += 1;
+			transport?.receive(
+				JSON.stringify({
+					data,
+					id: `99999999-9999-4999-8999-${String(sequence).padStart(12, "0")}`,
+					metadata: { requestId: requestID, sessionId: session.id },
+					timestamp: 1,
+					triggeredBy: null,
+					type,
+				}),
+			);
+		};
+
+		send("user_message.created", { message: "run the build" }, runningRequestID);
+		send("turn.started", {}, runningRequestID);
+		send(
+			"content_block_start",
+			{
+				content_block: { id: "call-build", name: "run_command", type: "tool_use" },
+				index: 0,
+				type: "content_block_start",
+			},
+			runningRequestID,
+		);
+		send("user_message.created", { message: "then run the tests" }, queuedRequestID);
+		send("user_message.queued", { message: "then run the tests" }, queuedRequestID);
+
+		const queuedNote = await screen.findByText("Queued. Lands after the current step.");
+		expect(queuedNote.closest("article")?.textContent).toContain("then run the tests");
+
+		send(
+			"content_block_start",
+			{
+				content_block: { tool_use_id: "call-build", type: "tool_result" },
+				index: 1,
+				type: "content_block_start",
+			},
+			runningRequestID,
+		);
+		send("user_message.delivered", { message: "then run the tests" }, queuedRequestID);
+		send(
+			"content_block_start",
+			{ content_block: { type: "text" }, index: 2, type: "content_block_start" },
+			runningRequestID,
+		);
+		send(
+			"content_block_delta",
+			{
+				delta: { text: "Tests pass.", type: "text_delta" },
+				index: 2,
+				type: "content_block_delta",
+			},
+			runningRequestID,
+		);
+
+		const reply = await screen.findByText("Tests pass.");
+		await waitFor(() => {
+			expect(screen.queryByText("Queued. Lands after the current step.")).toBeNull();
+		});
+		const delivered = screen.getAllByText("then run the tests");
+		expect(delivered).toHaveLength(1);
+		const deliveredMessage = delivered[0] as HTMLElement;
+		const buildCard = screen.getByText("run_command").closest("details") as HTMLElement;
+		expect(
+			buildCard.compareDocumentPosition(deliveredMessage) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+		expect(
+			deliveredMessage.compareDocumentPosition(reply) &
+				Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 	});
 });

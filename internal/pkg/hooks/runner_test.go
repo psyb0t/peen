@@ -259,6 +259,157 @@ pre_tool_use:
 	assert.Empty(t, publisher.notices)
 }
 
+// limitedTestPublisher reports bounds the way the runtime's publisher does.
+type limitedTestPublisher struct {
+	testPublisher
+
+	limits events.Limits
+}
+
+func (p *limitedTestPublisher) EventLimits() events.Limits {
+	return p.limits
+}
+
+func commandEventOutput(eventType, summary, data string) []byte {
+	encoded, err := json.Marshal(map[string]any{
+		"events": []map[string]any{{
+			"type":    eventType,
+			"summary": summary,
+			"data":    json.RawMessage(data),
+		}},
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	return encoded
+}
+
+// A hook that emits an event over the bound must fail instead of having the
+// bus cut the event silently, so the hook author sees the mistake.
+func TestRunnerFailsCommandEventsOverSizeLimits(t *testing.T) {
+	t.Parallel()
+
+	limits := events.DefaultLimits()
+	oversizedData := `{"blob":"` + strings.Repeat("x", limits.MaxDataBytes) + `"}`
+
+	testCases := []struct {
+		name    string
+		summary string
+		data    string
+	}{
+		{
+			name:    "summary over the default limit",
+			summary: strings.Repeat("s", limits.MaxSummaryBytes+1),
+			data:    "null",
+		},
+		{name: "data over the default limit", summary: "ok", data: oversizedData},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			snapshot, workspace := testSnapshot(t, `version: 1
+pre_tool_use:
+  - actions:
+      - type: command
+        command: noisy-hook
+`, "")
+			publisher := &testPublisher{}
+			runner, err := New(Options{
+				Snapshot:  snapshot,
+				Workspace: workspace,
+				Publisher: publisher,
+				RunCommand: func(context.Context, CommandInput) ([]byte, error) {
+					return commandEventOutput("hook.checked", tc.summary, tc.data), nil
+				},
+				MaxCommandOutput: limits.MaxDataBytes * 2,
+			})
+			require.NoError(t, err)
+
+			_, err = runner.Run(context.Background(), Invocation{
+				Event:     harness.HookEventPreToolUse,
+				SessionID: uuid.New(),
+			})
+			require.ErrorIs(t, err, events.ErrEventTooLarge)
+			assert.Empty(t, publisher.notices)
+		})
+	}
+}
+
+func TestRunnerFailsEmitEventActionOverPublisherLimit(t *testing.T) {
+	t.Parallel()
+
+	const summaryBound = 8
+
+	snapshot, workspace := testSnapshot(t, `version: 1
+pre_tool_use:
+  - actions:
+      - type: emit_event
+        event_type: repo.script.changed
+        summary: This summary is longer than the bound.
+`, "")
+	publisher := &limitedTestPublisher{
+		limits: events.Limits{MaxSummaryBytes: summaryBound, MaxDataBytes: 1024},
+	}
+	runner, err := New(Options{
+		Snapshot:  snapshot,
+		Workspace: workspace,
+		Publisher: publisher,
+	})
+	require.NoError(t, err)
+
+	_, err = runner.Run(context.Background(), Invocation{
+		Event:     harness.HookEventPreToolUse,
+		SessionID: uuid.New(),
+	})
+	require.ErrorIs(t, err, events.ErrEventTooLarge)
+	assert.Empty(t, publisher.notices)
+}
+
+// job.* and agent.* carry Peen's own guarantee that the thing happened, so a
+// hook command must not be able to forge them.
+func TestRunnerFailsCommandEventsWithReservedTypes(t *testing.T) {
+	t.Parallel()
+
+	for _, reservedType := range []string{
+		events.TypeJobExited,
+		events.TypeAgentFinished,
+		"job.whatever",
+	} {
+		t.Run(reservedType, func(t *testing.T) {
+			t.Parallel()
+
+			snapshot, workspace := testSnapshot(t, `version: 1
+pre_tool_use:
+  - actions:
+      - type: command
+        command: forger
+`, "")
+			publisher := &testPublisher{}
+			runner, err := New(Options{
+				Snapshot:  snapshot,
+				Workspace: workspace,
+				Publisher: publisher,
+				RunCommand: func(context.Context, CommandInput) ([]byte, error) {
+					return []byte(
+						`{"events":[{"type":"` + reservedType + `","summary":"x"}]}`,
+					), nil
+				},
+			})
+			require.NoError(t, err)
+
+			_, err = runner.Run(context.Background(), Invocation{
+				Event:     harness.HookEventPreToolUse,
+				SessionID: uuid.New(),
+			})
+			require.ErrorIs(t, err, events.ErrReservedType)
+			assert.Empty(t, publisher.notices)
+		})
+	}
+}
+
 // data is optional on both an emit_event action and a command's events, so an
 // event without it publishes with no payload instead of failing the action.
 func TestRunnerPublishesEventsWithoutData(t *testing.T) {

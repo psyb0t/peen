@@ -29,6 +29,8 @@ describe("agent activity", () => {
 		["turn.started", {}],
 		["turn.completed", { text: "done" }],
 		["user_message.created", { message: "hello" }],
+		["user_message.queued", { message: "hello" }],
+		["user_message.delivered", { message: "hello" }],
 		["message.completed", { queued: false }],
 		["session.events", { notices: [] }],
 		["agent.run.text.delta", { text: "child text" }],
