@@ -27,21 +27,21 @@ These values decide where Peen keeps its state and which model handles a task.
 Start Peen from the directory that holds your projects (the workspace root), or
 set `PEEN_WORKSPACE_ROOT`. Docker users set that directory with
 `docker run --workdir` and must use a literal host path when they want Docker
-worker profiles. Bare-process users change directory before launching Peen.
+agent spaces. Bare-process users change directory before launching Peen.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PEEN_CONFIG_DIR` | required, absolute | Global configuration and harness layer. Every worker receives it read-only. See [directories](#directories). |
-| `PEEN_STATE_DIR` | required, absolute | Controller-owned durable state: SQLite, audit logs, worker sockets. No worker receives it. See [directories](#directories). |
+| `PEEN_CONFIG_DIR` | required, absolute | Global configuration and harness layer. Every Docker worker receives it read-only. A `control` worker can write it. See [directories](#directories). |
+| `PEEN_STATE_DIR` | required, absolute | Controller-owned durable state: SQLite, audit logs, worker sockets. No Docker worker receives it. A `control` worker can read it. See [directories](#directories). |
 | `PEEN_WORKSPACE_ROOT` | process working directory | Absolute directory a client may open workspaces inside. See [workspace root](#workspace-root). |
-| `PEEN_EXECUTION_PROFILES` | one `native` profile | JSON array of runnable execution profiles a client may name. See [execution profiles](#execution-profiles). |
-| `PEEN_DEFAULT_EXECUTION_PROFILE` | `native` | Profile a session opened without naming one uses. |
+| `PEEN_DOCKER_PROFILES` | empty, so only the built-in `default` profile | JSON array of named Docker profiles. Each one is the agent space `docker:<name>`. See [where it runs](where-it-runs.md#docker-profiles). |
+| `PEEN_DEFAULT_AGENT_SPACE` | `docker:default` when the controller can reach a Docker socket, else `control` | Agent space a workspace opened without naming one uses: `control` or `docker:<profile>`. Startup fails when it is `control` and the controller can reach a Docker socket. See [the Docker socket rule](where-it-runs.md#the-docker-socket-rule). |
 | `PEEN_WORKER_SOCKET_DIR` | `PEEN_STATE_DIR/workers` | Root holding one directory per session worker. A worker receives only its own. |
-| `PEEN_DOCKER_SOCKET` | `DOCKER_HOST` when it is a `unix://` address, else `/var/run/docker.sock` | Docker socket the controller uses to create worker containers. Absent means Docker profiles are refused. |
-| `PEEN_WORKER_IMAGE` | empty | Overrides the image for every Docker profile. Empty uses each profile's own `image`, and a profile without one runs the image published alongside this build. Set it to run a worker from a local build. |
+| `PEEN_DOCKER_SOCKET` | empty | An extra Docker socket path to check. Peen also checks a `unix://` `DOCKER_HOST` and `/var/run/docker.sock`, uses the first socket where the Docker API answers to create worker containers, and refuses the `control` agent space when any of them, or a `tcp://` `DOCKER_HOST`, answers. See [the Docker socket rule](where-it-runs.md#the-docker-socket-rule). |
+| `PEEN_WORKER_IMAGE` | empty | Image for every Docker worker, replacing each profile's `image`. Empty uses each profile's own `image`, and a profile without one runs the image published alongside this build. Set it to run a worker from a local build. |
 | `PEEN_HOST_USERNAME` | empty | Host account name for a Docker controller started with numeric `--user` IDs. Set together with `PEEN_HOST_HOME`. |
 | `PEEN_HOST_HOME` | empty | Absolute host home for a Docker controller started with numeric `--user` IDs. Set together with `PEEN_HOST_USERNAME`. |
-| `PEEN_AGENT` | `core:general-purpose` | Root agent. A plain name picks a custom agent first and a core agent second, and `core:<name>` picks only the core one. Startup fails when a `core:` name is unknown or disabled, and when the value is the old `default` with no `default.md` agent under `PEEN_CONFIG_DIR`. Any other plain name is resolved at each turn. See [Agents](agents.md). |
+| `PEEN_AGENT` | `core:general-purpose` | Root agent. A plain name picks a custom agent first and a core agent second, and `core:<name>` picks only the core one. Startup fails when a `core:` name is unknown or disabled. Any plain name is resolved at each turn. See [Agents](agents.md). |
 | `PEEN_DISABLED_CORE_SKILLS` | empty | Comma-separated core skills to remove, without the `core:` prefix, or `all`. The core skills are `freshness` and `planning`. An unknown name stops startup. See [core and custom skills and agents](harness.md#core-and-custom-skills-and-agents). |
 | `PEEN_DISABLED_CORE_AGENTS` | empty | Comma-separated core agents to remove, without the `core:` prefix, or `all`. The only core agent is `general-purpose`. Startup fails on an unknown name, and when `PEEN_AGENT` is a `core:` name that is disabled, which includes the default `core:general-purpose`. A plain `PEEN_AGENT` name passes startup and fails at a turn whose workspace defines no such custom agent. To disable `general-purpose`, set `PEEN_AGENT` to a custom agent. |
 | `PEEN_UPSTREAMS` | required, JSON | Named provider list. See [providers](#providers). |
@@ -55,13 +55,9 @@ worker profiles. Bare-process users change directory before launching Peen.
 
 Peen keeps two directories apart, and refuses to start if they overlap.
 
-`PEEN_CONFIG_DIR` is the global configuration and harness layer: `AGENTS.md`,
-`.agents/`, and the optional `SYSTEM.md`, `APPEND_SYSTEM.md`, and
-`COMPACTION.md`. Every Docker worker receives this directory read-only, so
-anything inside it is readable by every session.
+`PEEN_CONFIG_DIR` is the global configuration and harness layer: `AGENTS.md`, `.agents/`, and the optional `SYSTEM.md`, `APPEND_SYSTEM.md`, and `COMPACTION.md`. Every Docker worker receives this directory read-only, so anything inside it is readable by every session. A `control` worker runs as the controller's user and can write it.
 
-`PEEN_STATE_DIR` is the controller's own durable state: `peen.db`, the audit
-logs, and the worker socket root. No worker receives it.
+`PEEN_STATE_DIR` is the controller's own durable state: `peen.db`, the audit logs, and the worker socket root. No Docker worker receives it. A `control` worker runs as the controller's user and can read it, every session's transcript included. See [where it runs](where-it-runs.md#agent-spaces).
 
 Peen refuses to start when the two are the same path, or when either sits inside
 the other. Without that rule, the read-only configuration mount would carry
@@ -94,24 +90,20 @@ With that root, a client can open `/srv/work/api` and `/srv/work/web` as two sep
 
 Leaving the variable unset uses the process working directory as the root. The Docker command in the README sets the working directory with `-w`, so there the mounted directory is the root.
 
-Peen refuses to start when the root is relative or missing, so a typo fails at startup rather than when a client first opens a workspace. It also refuses to start when the removed `PEEN_WORKSPACE_ROOTS` list is still set, and the error names `PEEN_WORKSPACE_ROOT` as its replacement.
+Peen refuses to start when the root is relative or missing, so a typo fails at startup rather than when a client first opens a workspace.
 
-## Execution profiles
+## Agent spaces
 
-A session's tools run under an operator-defined execution profile. A client
-names a profile when it opens a workspace and never sends execution arguments.
+A session's agent runs in an agent space: `control`, which runs it where Peen runs, or `docker:<profile>`, which runs it in its own container. A client names an agent space when it opens a workspace and never sends execution arguments. [Where it runs](where-it-runs.md) is the reference for both kinds, for every Docker profile option and its default, and for the rule that refuses `control` when the controller can reach a Docker socket. The settings are `PEEN_DOCKER_PROFILES` and `PEEN_DEFAULT_AGENT_SPACE` in the table above.
 
-`PEEN_EXECUTION_PROFILES` is a JSON array. Leaving it unset defines the single
-`native` profile, so a deployment that configures nothing runs tools on the host
-as it always has. `PEEN_DEFAULT_EXECUTION_PROFILE` names the profile a session
-opened without one uses, and defaults to `native`.
+Naming an agent space the deployment does not offer returns 403 and creates nothing, even when the workspace already has a session. Opening an existing session never changes the agent space it already runs in. Moving a session is `POST /v1/session/reconfigure`. See [choosing an agent space](where-it-runs.md#choosing-an-agent-space-for-a-workspace).
 
-A `native` profile runs the session worker as a child process of the controller,
-using the same installed Peen binary. A `docker` profile runs it in a sibling
-container named `peen-worker-<session-uuid>`.
+## Docker workers
+
+A `docker:<profile>` agent space runs the session worker in a sibling container named `peen-worker-<session-uuid>`. The `control` agent space runs it as a child process of the controller, using the same installed Peen binary.
 
 Peen picks the worker image in one order: `PEEN_WORKER_IMAGE` if it is set, then
-the profile's own `image`, then the image published alongside the running
+the Docker profile's own `image`, then the image published alongside the running
 controller. That last one is `psyb0t/peen` tagged with the controller's own build
 version, which is why a release runs the worker built beside it without anyone
 editing configuration. A digest cannot do that, because the digest does not
@@ -138,33 +130,7 @@ ran. A locally built image has no repository digest until it is pushed, and the
 generation then records none rather than the local image ID, which no registry
 could resolve.
 
-A Docker profile needs the controller to reach a Docker socket. Peen decides
-that at startup by checking `PEEN_DOCKER_SOCKET`, then a `unix://` `DOCKER_HOST`,
-then `/var/run/docker.sock`. Without one, a session on a Docker profile is
-refused. Peen never falls back to a native worker, because that would run the
-model's tools on the host after the operator asked for a container.
-
-```bash
-PEEN_EXECUTION_PROFILES='[
-  {"name":"native","kind":"native"},
-  {"name":"sandbox","kind":"docker","allowNetwork":true,
-   "mounts":[{"source":"/srv/datasets","readOnly":true}]},
-  {"name":"host-like","kind":"docker",
-   "allowNetwork":true,"allowDockerSocket":true}
-]'
-PEEN_DEFAULT_EXECUTION_PROFILE=native
-```
-
-| Field | Meaning |
-| --- | --- |
-| `name` | The name a client may send as `profile` when it opens a workspace. |
-| `kind` | `native` or `docker`. |
-| `image` | Docker only, optional. Any image reference the daemon can resolve. Empty runs the image published alongside this build. Overridden by `PEEN_WORKER_IMAGE` when that is set. |
-| `mounts` | Extra host paths the worker container gets. An array of `{"source": "<absolute host path>", "target": "<absolute path in the worker>", "readOnly": true or false}`. `target` is optional. Left out, the worker sees the path at its literal host path, like every other Peen mount. |
-| `allowNetwork` | Docker only. False creates the container with networking disabled. The worker calls the model provider itself, so a Docker profile needs `true` to reach a provider over the network. |
-| `allowDockerSocket` | Docker only. Mounts the host Docker socket into the worker. |
-| `allowPrivilegeEscalation` | Docker only. Gives the worker account passwordless sudo and removes the worker's `no-new-privileges` guard. Reported as a capability warning. |
-| `revision` | Integer, default `0`. Every worker generation records it. Bump it by hand when you change a profile, so the generation records show which definition each worker ran. Peen does not bump it or check it. |
+A Docker agent space needs the controller to reach a Docker socket. Peen decides that at startup, as [the Docker socket rule](where-it-runs.md#the-docker-socket-rule) describes. Without one, a session in a Docker agent space is refused. Peen never falls back to the `control` agent space, because that would run the model's tools next to Peen after the operator asked for a container. With one, Peen refuses to start when it cannot build the Docker worker launcher, because the Docker agent spaces are then the only ones offered.
 
 A Docker worker runs as the controller's own host UID, GID, and username, so
 files it writes in a mounted workspace keep host ownership. Peen refuses to start
@@ -173,23 +139,17 @@ path, the config directory read-only at its literal path, and the session's own
 socket directory writable, so a path in a transcript means the same thing inside
 and outside the container.
 
-A native controller reads its username and home from the operating system. A
+A controller on the host reads its username and home from the operating system. A
 controller itself running in Docker with `--user uid:gid` has no passwd entry
 for that host account, so set `PEEN_HOST_USERNAME` and `PEEN_HOST_HOME` together.
 Peen uses those values with the controller's numeric UID and GID to recreate the
 same account inside each worker. A partial pair or a relative home fails startup.
 
-A worker receives only the runtime configuration required to run a turn. This
-includes the provider definitions, model selection, limits, and the named
-provider credentials selected by `apiKeyEnv`. It never receives
-`PEEN_STATE_DIR`, the public `PEEN_API_TOKEN`, controller Docker authority, or
-the entrypoint's identity controls. The provider credential is available to the
-worker's agent process, so do not give a Docker profile a workspace containing
-secrets you would not expose to that process.
+A Docker worker receives only the runtime configuration required to run a turn. This includes the provider definitions, model selection, limits, and the named provider credentials selected by `apiKeyEnv`. It never receives `PEEN_STATE_DIR`, the public `PEEN_API_TOKEN`, controller Docker authority, or the entrypoint's identity controls. Commands the agent runs, in any agent space, start with an environment that has `PEEN_API_TOKEN` and every `apiKeyEnv` variable removed. They still run as the same user as the worker process that holds the provider credential, so treat that credential as reachable by the agent, and do not give a Docker profile a workspace containing secrets you would not expose to it. A hook `command` action gets only `PATH` and the variables its `environment` declares.
 
-### Privilege escalation
+### Sudo
 
-`allowPrivilegeEscalation` gives the agent working sudo inside its own container.
+`sudo: true` in a Docker profile gives the agent working sudo inside its own container.
 The image installs sudo but ships no sudoers rule, so sudo authorizes nobody
 until a profile asks for it.
 
@@ -198,15 +158,18 @@ creates or reconciles the controller host UID, GID, and username inside the
 image, then drops to that account with `setpriv` before the agent starts. This
 keeps both host file ownership and the host username correct inside a worker.
 
-For an escalating profile, the entrypoint also writes
+For a `sudo: true` profile, the entrypoint also writes
 `/etc/sudoers.d/peen-worker` for exactly that account. Other Docker profiles
-write no sudoers rule and receive Docker's `no-new-privileges` guard. A `native`
-profile cannot set the flag: there is no entrypoint to grant anything, so Peen
-refuses the profile at startup rather than accepting a promise it cannot keep.
+write no sudoers rule and receive Docker's `no-new-privileges` guard. The
+`control` agent space has no `sudo` option, because it has no entrypoint to grant anything.
 
-This is host-root-equivalent inside the container. Combined with `mounts`, it
-reaches whatever those mounts expose. It is a separate decision from
-`allowDockerSocket`, and neither implies the other.
+This is root inside the container. Combined with `mounts`, it reaches whatever
+those mounts expose. It is a separate decision from `docker: full`, and neither
+implies the other.
+
+### Docker access
+
+`docker: full` is a separate opt-in from the controller's own Docker authority. The controller's socket lets it create worker containers. This option also gives the worker its own access to the daemon, which is host root. Peen mounts the controller's socket at `/var/run/docker.sock` in the worker and adds the socket's owning group, read from the socket itself, to the worker's supplementary groups, so the worker reaches the daemon without running as root. Peen refuses to start while a profile sets `docker: full` and the socket is owned by group 0. See [Docker profiles](where-it-runs.md#docker-profiles).
 
 ### Worker sockets
 
@@ -223,24 +186,6 @@ start with the length it computed, so a deep state directory is fixed by naming
 a shorter `PEEN_WORKER_SOCKET_DIR` rather than by finding the limit when a client
 sends its first message.
 
-`allowDockerSocket` is a separate opt-in from the controller's own Docker
-authority. The controller's socket lets it create worker containers. This option
-additionally gives the worker its own access to the daemon, which is
-host-root-equivalent. Peen adds the socket's owning group to the worker's
-supplementary groups, read from the socket itself, so the worker reaches the
-daemon without running as root. A socket owned by group 0 is refused.
-
-Naming a profile the operator did not define returns 403 and creates no session.
-Opening an existing session never changes the profile it already runs under.
-
-Moving an existing session to another profile is a separate operation,
-`POST /v1/session/reconfigure`, and it requires a reason. Peen records every
-change in `session_profile_decisions` with the profile the session came from,
-the profile it moved to, the reason, and the time. A session with a turn in
-flight is refused until that turn ends. On success Peen stops the session's
-current worker, so the next turn starts a new generation under the new
-profile. `GET /v1/session/profile-decisions` reads that history back.
-
 ## Logging and audit trail
 
 `LOG_LEVEL` controls which structured application records go to stdout. The
@@ -248,7 +193,7 @@ audit sink retains debug-and-above records in the active UTC-day file,
 `PEEN_LOG_DIRECTORY/YYYYMMDD-000000.log`. When `PEEN_LOG_DIRECTORY` is empty,
 the directory defaults to `PEEN_STATE_DIR/logs`; set a path to override it. Keep
 it out of `PEEN_CONFIG_DIR`, which every worker can read.
-`PEEN_LOG_RETENTION` is a Go duration (default `336h`) and keeps that many days of daily files, so `336h` keeps at most 14 files. Go durations have no day unit, so write days as hours: `168h` is 7 days, `720h` is 30 days. The value must be a positive whole number of days, a multiple of `24h`, because files are per UTC day. `0` means the default. Startup fails on a negative value or one that is not a multiple of `24h`, and while `PEEN_LOG_RETENTION_DAYS` has a non-empty value. That variable was removed. The directory and
+`PEEN_LOG_RETENTION` is a Go duration (default `336h`) and keeps that many days of daily files, so `336h` keeps at most 14 files. Go durations have no day unit, so write days as hours: `168h` is 7 days, `720h` is 30 days. The value must be a positive whole number of days, a multiple of `24h`, because files are per UTC day. `0` means the default. Startup fails on a negative value or one that is not a multiple of `24h`. The directory and
 files are created as `0700` and `0600` respectively.
 
 [ctxscope](https://github.com/psyb0t/ctxscope) carries request, session, turn,
@@ -334,14 +279,14 @@ Every time setting is a Go duration such as `90s`, `10m`, or `1h30m`. A bare num
 | `PEEN_COMPACTION_TIMEOUT` | `2m` | Bound on the separate summarization call. |
 | `PEEN_TURN_TIMEOUT` | `10m` | Bound on one turn. |
 | `PEEN_MAX_CONCURRENT_TURNS` | `16` | Global cap on turns running at once, across every session in the process. |
-| `PEEN_MAX_QUEUED_USER_MESSAGES` | `16` | Messages sent while a turn is running wait until the model's current round ends. At most this many can wait at once, counting each skill message or already-loaded note that follows a queued message. A long turn can accept more in total, because delivery frees slots. Each one is reported with `user_message.queued` and then `user_message.delivered`. See [queued messages](http-api.md#send-and-watch-turns-over-websocket). |
+| `PEEN_MAX_QUEUED_USER_MESSAGES` | `16` | Messages sent while a turn is running wait until the model's current round ends. At most this many can wait at once, counting each skill message or already-loaded note that follows a queued message. A long turn can accept more in total, because delivery frees slots. Each one is reported with `userMessage.queued` and then `userMessage.delivered`. See [queued messages](http-api.md#send-and-watch-turns-over-websocket). |
 
 ### Compaction
 
 A conversation grows until a request no longer fits in `PEEN_MAX_CONTEXT_TOKENS`. Compaction is what Peen does then, and `PEEN_COMPACTION_MODE` picks how:
 
 - `drop-oldest` leaves whole old conversation units out of the request and stores nothing. The transcript keeps every message.
-- `summarize` replaces an old completed part of the conversation with a summary made by `PEEN_COMPACTION_MODEL`, stores the summary, and never deletes transcript rows. `PEEN_COMPACTION_MAX_OUTPUT_TOKENS` reserves room for the summary, and `PEEN_COMPACTION_TIMEOUT` limits the call. An optional `COMPACTION.md` in `PEEN_CONFIG_DIR` replaces the built-in summarizer instructions. Only this mode runs the `pre_compact` and `post_compact` [hooks](hooks.md).
+- `summarize` replaces an old completed part of the conversation with a summary made by `PEEN_COMPACTION_MODEL`, stores the summary, and never deletes transcript rows. `PEEN_COMPACTION_MAX_OUTPUT_TOKENS` reserves room for the summary, and `PEEN_COMPACTION_TIMEOUT` limits the call. An optional `COMPACTION.md` in `PEEN_CONFIG_DIR` replaces the built-in summarizer instructions. Only this mode runs the `preCompact` and `postCompact` [hooks](hooks.md).
 
 Under `summarize` a child agent compacts its own transcript into its own stored summaries, separate from the session's. `GET /v1/session/compactions` and `GET /v1/session/agents/{agentRunId}/compactions` read them. Peen validates the summary settings in both modes, so switching modes cannot expose a setting startup already accepted.
 
@@ -359,20 +304,20 @@ Under `summarize` a child agent compacts its own transcript into its own stored 
 | --- | --- | --- |
 | `PEEN_MAX_TOOL_ROUNDS` | `32` | Tool-call rounds allowed in one turn. |
 | `PEEN_MAX_CONCURRENT_TOOLS` | `4` | Tool calls one turn may run at once. |
-| `PEEN_TOOL_TIMEOUT` | `15m` | Bound on one tool call, including a `run_command` wait. |
+| `PEEN_TOOL_TIMEOUT` | `15m` | Bound on one tool call, including a `runCommand` wait. |
 | `PEEN_MAX_TOOL_RESULT_TOKENS` | `8192` | Bounds a tool result before it re-enters context. |
-| `PEEN_TOOL_MAX_LIST_ENTRIES` | `1000` | `list_files` entry cap. |
-| `PEEN_TOOL_MAX_LIST_DEPTH` | `16` | `list_files` recursion depth cap. |
-| `PEEN_TOOL_MAX_SEARCH_MATCHES` | `200` | `search_text` match cap. |
-| `PEEN_TOOL_MAX_SEARCH_FILE_BYTES` | `2097152` | Largest file `search_text` will scan. |
-| `PEEN_TOOL_MAX_READ_BYTES` | `262144` | `read_file` byte cap per call. |
-| `PEEN_TOOL_MAX_READ_LINES` | `2000` | `read_file` line cap per call. |
-| `PEEN_TOOL_MAX_WRITE_BYTES` | `4194304` | `write_file` size cap. |
-| `PEEN_TOOL_MAX_EDITS` | `64` | Replacements allowed in one `edit_file` call. |
-| `PEEN_TOOL_MAX_DIFF_BYTES` | `65536` | `edit_file` returned-diff cap. |
-| `PEEN_TOOL_MAX_REMOVE_ENTRIES` | `20000` | `remove_path` recursive entry cap. |
-| `PEEN_TOOL_MAX_COMMAND_OUTPUT_BYTES` | `65536` | `run_command` captured stdout/stderr cap. |
-| `PEEN_TOOL_COMMAND_TIMEOUT` | `2m` | Default `run_command` wait bound. The command is never killed when this elapses; a still-running command returns a job handle instead. |
+| `PEEN_TOOL_MAX_LIST_ENTRIES` | `1000` | `listFiles` entry cap. |
+| `PEEN_TOOL_MAX_LIST_DEPTH` | `16` | `listFiles` recursion depth cap. |
+| `PEEN_TOOL_MAX_SEARCH_MATCHES` | `200` | `searchText` match cap. |
+| `PEEN_TOOL_MAX_SEARCH_FILE_BYTES` | `2097152` | Largest file `searchText` will scan. |
+| `PEEN_TOOL_MAX_READ_BYTES` | `262144` | `readFile` byte cap per call. |
+| `PEEN_TOOL_MAX_READ_LINES` | `2000` | `readFile` line cap per call. |
+| `PEEN_TOOL_MAX_WRITE_BYTES` | `4194304` | `writeFile` size cap. |
+| `PEEN_TOOL_MAX_EDITS` | `64` | Replacements allowed in one `editFile` call. |
+| `PEEN_TOOL_MAX_DIFF_BYTES` | `65536` | `editFile` returned-diff cap. |
+| `PEEN_TOOL_MAX_REMOVE_ENTRIES` | `20000` | `removePath` recursive entry cap. |
+| `PEEN_TOOL_MAX_COMMAND_OUTPUT_BYTES` | `65536` | `runCommand` captured stdout/stderr cap. |
+| `PEEN_TOOL_COMMAND_TIMEOUT` | `2m` | Default `runCommand` wait bound. The command is never killed when this elapses; a still-running command returns a job handle instead. |
 | `PEEN_TOOL_MAX_COMMAND_TIMEOUT` | `15m` | Largest wait bound a call may request. Must not exceed `PEEN_TOOL_TIMEOUT`. |
 
 ## Hook execution limits
@@ -402,7 +347,7 @@ See [session events](events.md) for event types, delivery, wakes, and event hand
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PEEN_MAX_CHILD_AGENT_DEPTH` | `5` | How many `launch_agent` calls may nest. A child at that depth does not receive `launch_agent`. |
+| `PEEN_MAX_CHILD_AGENT_DEPTH` | `5` | How many `launchAgent` calls may nest. A child at that depth does not receive `launchAgent`. |
 | `PEEN_MAX_CHILD_AGENT_TURNS` | `16` | Tool rounds one child conversation may run. |
 | `PEEN_MAX_CONCURRENT_AGENT_RUNS` | `4` | Agent runs one session may have in flight at once. |
 | `PEEN_MAX_AGENT_RUN_EVENT_COUNT` | `2000` | How many of a running child's recent events Peen keeps in memory for clients following it live. SQLite keeps every event regardless. |
@@ -421,13 +366,13 @@ changed.
 
 ## Process jobs
 
-`run_command` never kills a process merely because a wait bound elapsed. A
+`runCommand` never kills a process merely because a wait bound elapsed. A
 command that exits within `PEEN_TOOL_COMMAND_TIMEOUT` (or a caller-requested
 `timeout` up to `PEEN_TOOL_MAX_COMMAND_TIMEOUT`) returns its exit status and
 output normally. A command still running when the bound expires is left
 running, and the tool returns a job handle plus the output captured so far.
 An explicit `background` argument skips the wait and returns the handle
-immediately. `run_command` and `wait_job` take `timeout` as a Go duration string such as `"90s"`, `"5m"`, or `"1h30m"`. Leaving it out uses the default, and `0s`, negative values, and bare numbers are rejected. For `run_command` the default is `PEEN_TOOL_COMMAND_TIMEOUT`, and a value above `PEEN_TOOL_MAX_COMMAND_TIMEOUT` is lowered to that maximum rather than rejected. For `wait_job` the default is `30s` and Peen lowers any value above `10m` to `10m`. These two `wait_job` bounds are fixed and no `PEEN_` variable changes them.
+immediately. `runCommand` and `waitJob` take `timeout` as a Go duration string such as `"90s"`, `"5m"`, or `"1h30m"`. Leaving it out uses the default, and `0s`, negative values, and bare numbers are rejected. For `runCommand` the default is `PEEN_TOOL_COMMAND_TIMEOUT`, and a value above `PEEN_TOOL_MAX_COMMAND_TIMEOUT` is lowered to that maximum rather than rejected. For `waitJob` the default is `30s` and Peen lowers any value above `10m` to `10m`. These two `waitJob` bounds are fixed and no `PEEN_` variable changes them.
 
 Jobs are session-scoped, not turn-scoped: a command started in one turn stays
 listable, readable, and signalable from a later turn, and cancelling the turn
@@ -437,12 +382,12 @@ for the active tool call. REST output replay, job metadata, and signal history
 come from SQLite and survive reconnects and restarts. On shutdown, Peen stops
 every running job gracefully, waits a grace period, then kills its process
 group; no job silently outlives the process. A job that finishes after its
-`run_command` call returned publishes a `job.exited`, `job.signalled`, or
+`runCommand` call returned publishes a `job.exited`, `job.signalled`, or
 `job.failed` [session event](events.md).
 
 ## Agent run observability
 
-Each `launch_agent` call creates an immutable SQLite run record and durable
+Each `launchAgent` call creates an immutable SQLite run record and durable
 event records. Use the session agent-run REST endpoints to inspect or cancel a
 run and to read its events after its parent turn has finished. Peen has no
 JSONL transcript mirror. SQLite is the sole durable replay store.

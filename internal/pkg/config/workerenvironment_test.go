@@ -76,7 +76,6 @@ func TestWorkerEnvironmentRefusesAReservedProviderCredentialKey(t *testing.T) {
 func TestWorkerEnvironmentReservesAuditLogRetentionKeys(t *testing.T) {
 	for _, key := range []string{
 		"PEEN_LOG_RETENTION",
-		"PEEN_LOG_RETENTION_DAYS",
 	} {
 		t.Run(key, func(t *testing.T) {
 			t.Setenv(key, "present")
@@ -102,7 +101,7 @@ func TestConfigValidateDockerHostIdentity(t *testing.T) {
 		wantErr  bool
 	}{
 		{
-			name: "both omitted for a native controller",
+			name: "both omitted for a host controller",
 		},
 		{
 			name:     "complete Docker controller identity",

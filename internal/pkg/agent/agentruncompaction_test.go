@@ -184,7 +184,7 @@ func writeChildCompactionInjectHook(t *testing.T, fixture runtimeFixture) {
 	t.Helper()
 
 	writeChildHarnessHooks(t, fixture, `version: 1
-post_read_file:
+postReadFile:
   - name: child-note
     actions:
       - type: inject
@@ -1075,12 +1075,12 @@ func writeChildCompactionHookScripts(
 	t.Helper()
 
 	writeChildHarnessHooks(t, fixture, `version: 1
-pre_compact:
+preCompact:
   - name: capture-pre
     actions:
       - type: command
         command: `+writeCaptureScript(t, root, "pre", preOutput)+`
-post_compact:
+postCompact:
   - name: capture-post
     actions:
       - type: command

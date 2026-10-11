@@ -38,7 +38,7 @@ const (
 	skillsTestUnknownText      = `unknown skill "no-such-skill" in ` +
 		`:no-such-skill; available skills: core:freshness, core:planning`
 
-	apiTestFrameUserMessageDelivered = "user_message.delivered"
+	apiTestFrameUserMessageDelivered = "userMessage.delivered"
 )
 
 type skillInjectedFrame struct {
@@ -58,7 +58,7 @@ func TestAPIQueuedSkillReachesTheModelAfterTheToolResult(t *testing.T) {
 	integrationInfra.EnableScriptedToolTurn(testinfra.ScriptedToolTurn{
 		UserMessage: skillsTestRunningMessage,
 		Calls: []testinfra.ScriptedToolCall{{
-			Name:      "read_file",
+			Name:      "readFile",
 			Arguments: map[string]any{"path": workspace.fixturePath},
 		}},
 		FinalAnswer: skillsTestFinalAnswer,
@@ -230,7 +230,7 @@ func TestAPIQueuedUnknownSkillIsRefusedAndStoresNothing(t *testing.T) {
 	failure := awaitAPIWebSocketFailure(t, queuer)
 	assert.Equal(
 		t,
-		string(aichteeteapee.ErrorCodeValidationFailed),
+		aichteeteapee.ErrorCodeValidationFailed,
 		failure.Code,
 	)
 	assert.Equal(t, skillsTestUnknownText, failure.Message)
@@ -278,7 +278,7 @@ func TestAPITurnStartUnknownSkillStoresNothing(t *testing.T) {
 	failure := awaitAPIWebSocketFailure(t, connection)
 	assert.Equal(
 		t,
-		string(aichteeteapee.ErrorCodeValidationFailed),
+		aichteeteapee.ErrorCodeValidationFailed,
 		failure.Code,
 	)
 	assert.Equal(t, skillsTestUnknownText, failure.Message)

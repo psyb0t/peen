@@ -2,9 +2,9 @@ import type { PeenSocketEvent } from "$lib/ws/socket";
 
 import { isRecord, stringField } from "$lib/common/json";
 
-const EVENT_TYPE_USER_MESSAGE_CREATED = "user_message.created";
-const EVENT_TYPE_USER_MESSAGE_QUEUED = "user_message.queued";
-const EVENT_TYPE_USER_MESSAGE_DELIVERED = "user_message.delivered";
+const EVENT_TYPE_USER_MESSAGE_CREATED = "userMessage.created";
+const EVENT_TYPE_USER_MESSAGE_QUEUED = "userMessage.queued";
+const EVENT_TYPE_USER_MESSAGE_DELIVERED = "userMessage.delivered";
 const EVENT_TYPE_SKILL_INJECTED = "skill.injected";
 const EVENT_TYPE_TURN_STARTED = "turn.started";
 const EVENT_TYPE_CONTENT_BLOCK_START = "content_block_start";

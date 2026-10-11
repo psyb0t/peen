@@ -6,20 +6,21 @@ import (
 	"github.com/google/uuid"
 )
 
-// WorkerGeneration is one live worker process for one session and one profile.
+// WorkerGeneration is one live worker process for one session and one agent
+// space.
 //
 // It is recorded before the worker launches, so a controller that dies
 // mid-launch still leaves a row an operator can reconcile. Replacing a dead
 // worker starts a new generation rather than reusing the old one, so every
 // turn can name the exact process that ran it.
 type WorkerGeneration struct {
-	ID              uuid.UUID
-	SessionID       uuid.UUID
-	Kind            string
-	Profile         string
-	ProfileRevision int64
-	State           string
-	Workspace       string
+	ID                 uuid.UUID
+	SessionID          uuid.UUID
+	Kind               string
+	AgentSpace         string
+	AgentSpaceRevision int64
+	State              string
+	Workspace          string
 
 	// CredentialHash verifies the worker's one-time launch credential. The raw
 	// credential is never stored, so a controller that reads its own database
@@ -31,7 +32,7 @@ type WorkerGeneration struct {
 	// its controller over.
 	SocketPath string
 
-	// ProcessID identifies a native worker. It is zero for a Docker worker.
+	// ProcessID identifies a control worker. It is zero for a Docker worker.
 	ProcessID int
 
 	// ContainerID and ImageDigest identify a Docker worker.

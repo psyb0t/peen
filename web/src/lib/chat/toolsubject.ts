@@ -1,19 +1,19 @@
 // The argument that says what each tool acted on, shown next to its name so a
-// card reads "use_skill: release-notes" without opening it.
+// card reads "useSkill: release-notes" without opening it.
 const SUBJECT_ARGUMENT: ReadonlyMap<string, string> = new Map([
-	["use_skill", "name"],
-	["run_command", "command"],
-	["launch_agent", "agent"],
-	["read_file", "path"],
-	["write_file", "path"],
-	["edit_file", "path"],
-	["list_files", "path"],
-	["search_text", "pattern"],
-	["remove_path", "path"],
-	["make_directory", "path"],
+	["useSkill", "name"],
+	["runCommand", "command"],
+	["launchAgent", "agent"],
+	["readFile", "path"],
+	["writeFile", "path"],
+	["editFile", "path"],
+	["listFiles", "path"],
+	["searchText", "pattern"],
+	["removePath", "path"],
+	["makeDirectory", "path"],
 ]);
 
-const MOVE_PATH = "move_path";
+const MOVE_PATH = "movePath";
 const MOVE_SEPARATOR = " → ";
 const MAX_SUBJECT_LENGTH = 80;
 const ELLIPSIS = "…";

@@ -50,7 +50,7 @@ const (
 
 // SocketGID reports the group that owns the Docker socket.
 //
-// A host-like profile mounts that socket into the worker, and the worker
+// A `docker: full` profile mounts that socket into the worker, and the worker
 // account needs this group to use it. Zero means the group could not be read,
 // which refuses such a profile rather than launching a worker that cannot use
 // the socket it was given.
@@ -145,6 +145,7 @@ type createHostConfig struct {
 	GroupAdd    []string `json:"GroupAdd"`
 	SecurityOpt []string `json:"SecurityOpt"`
 	AutoRemove  bool     `json:"AutoRemove"`
+	NetworkMode string   `json:"NetworkMode"`
 }
 
 //nolint:tagliatelle // The Docker Engine API defines these names.
@@ -192,10 +193,11 @@ func (c *daemonClient) CreateContainer(
 		OpenStdin:       true,
 		StdinOnce:       true,
 		AttachStdin:     true,
-		NetworkDisabled: request.NetworkDisabled,
+		NetworkDisabled: request.NetworkMode == worker.NetworkModeNone,
 		HostConfig: createHostConfig{
-			Binds:    bindList(request.Mounts),
-			GroupAdd: request.Groups,
+			Binds:       bindList(request.Mounts),
+			GroupAdd:    request.Groups,
+			NetworkMode: string(request.NetworkMode),
 		},
 	}
 

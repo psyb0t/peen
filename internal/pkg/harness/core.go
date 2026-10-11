@@ -20,10 +20,6 @@ const (
 	coreSkillKind = "skill"
 	coreAgentKind = "agent"
 
-	// legacyDefaultAgentName is the embedded agent's name before it became
-	// core:general-purpose. Only a custom agent can answer to it now.
-	legacyDefaultAgentName = "default"
-
 	disabledCoreAgentsSetting = "PEEN_DISABLED_CORE_AGENTS"
 	validNamesSeparator       = ", "
 )
@@ -206,33 +202,11 @@ func ValidateCoreAgentReference(name string, disabled []string) error {
 }
 
 // CheckRootAgent verifies at startup the root agent failures that no
-// workspace can fix: a core: name that is unknown or disabled, and the legacy
-// name "default" when the config layers define no custom default agent. Any
-// other plain name passes, because a workspace may define it. It resolves per
-// turn and fails then if no layer has it.
+// workspace can fix: a core: name that is unknown or disabled. Any plain name
+// passes, because a workspace may define it. It resolves per turn and fails
+// then if no layer has it.
 func (r Resolver) CheckRootAgent(name string) error {
-	if err := ValidateCoreAgentReference(name, r.disabledAgents); err != nil {
-		return err
-	}
-
-	if name != legacyDefaultAgentName {
-		return nil
-	}
-
-	snapshot, err := r.Resolve(r.configRoot)
-	if err != nil {
-		return ctxerrors.Wrap(err, "resolve the global harness")
-	}
-
-	if _, err := snapshot.Agent(name); err != nil {
-		return ctxerrors.Wrapf(
-			err,
-			"agent %q has no custom definition under the config directory",
-			name,
-		)
-	}
-
-	return nil
+	return ValidateCoreAgentReference(name, r.disabledAgents)
 }
 
 // lookupAddresses lists the addresses a name may resolve to, best first. A
@@ -257,20 +231,6 @@ func prefixedNames(names []string) []string {
 	}
 
 	return prefixed
-}
-
-func missingAgentError(name string) error {
-	if name != legacyDefaultAgentName {
-		return ErrAgentNotFound
-	}
-
-	return ctxerrors.Wrapf(
-		ErrAgentNotFound,
-		"agent %q is not defined; the embedded agent is now %s%s",
-		name,
-		CorePrefix,
-		embeddedGeneralPurposeAgentName,
-	)
 }
 
 func joinOptionsError(err error) error {

@@ -57,17 +57,17 @@ type Limits struct {
 	// buffer retains. MaxCommandOutputBytes bounds the same buffer's total
 	// bytes; whichever bound is hit first evicts the oldest lines.
 	MaxJobOutputLines int
-	// MaxReadJobOutputLines bounds one read_job_output/wait_job window,
+	// MaxReadJobOutputLines bounds one readJobOutput/waitJob window,
 	// independent of how much a job's ring buffer retains overall.
 	MaxReadJobOutputLines int
-	// WaitJobTimeout and MaxWaitJobTimeout bound wait_job the same way
-	// CommandTimeout and MaxCommandTimeout bound run_command's wait.
+	// WaitJobTimeout and MaxWaitJobTimeout bound waitJob the same way
+	// CommandTimeout and MaxCommandTimeout bound runCommand's wait.
 	WaitJobTimeout    time.Duration
 	MaxWaitJobTimeout time.Duration
-	// JobStopGracePeriod bounds how long signal_job's stop and the registry's
+	// JobStopGracePeriod bounds how long signalJob's stop and the registry's
 	// Shutdown wait after SIGTERM before escalating to SIGKILL.
 	JobStopGracePeriod time.Duration
-	// MaxListJobs bounds how many jobs list_jobs returns in one call.
+	// MaxListJobs bounds how many jobs listJobs returns in one call.
 	MaxListJobs int
 }
 

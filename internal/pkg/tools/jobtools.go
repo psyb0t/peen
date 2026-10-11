@@ -233,7 +233,7 @@ func (e *JobExecutor) SignalJob(
 
 	if snapshot.State == JobStateRunning {
 		ctxscope.GetLogger(ctx).Info(
-			"signal_job dispatched",
+			"signalJob dispatched",
 			"job_id", snapshot.ID,
 			"signal", signal,
 		)

@@ -10,10 +10,10 @@ import (
 )
 
 const testHookDocument = `version: 1
-pre_tool_use:
+preToolUse:
   - name: go-write-gate
     match:
-      tool: write_file
+      tool: writeFile
       path: "**/*.go"
       extensions: [".go"]
       root: internal
@@ -30,18 +30,18 @@ pre_tool_use:
         environment:
           CHECK_MODE: strict
         timeout: 30s
-      - type: emit_event
-        event_type: hook.write.checked
+      - type: emitEvent
+        eventType: hook.write.checked
         summary: Go write checked
         data:
           language: go
         delivery: queue
   - match:
-      tool: write_file
+      tool: writeFile
     actions:
       - type: deny
         reason: This fixture blocks writes.
-post_read_file:
+postReadFile:
   - actions:
       - type: inject
         message: File read complete.
@@ -55,9 +55,9 @@ func TestResolverDiscoversAdditiveLayeredHooks(t *testing.T) {
 	fixture := newResolverFixture(t)
 	fixture.writeHook(t, fixture.configRoot, testHookDocument)
 	fixture.writeHook(t, fixture.workspace, `version: 1
-pre_tool_use:
+preToolUse:
   - match:
-      tool: write_file
+      tool: writeFile
     actions:
       - type: inject
         message: Workspace hook.
@@ -80,7 +80,7 @@ pre_tool_use:
 
 	firstWrite := hooks[1]
 	assert.Equal(t, "go-write-gate", firstWrite.Name)
-	assert.Equal(t, "write_file", firstWrite.Match.Tool)
+	assert.Equal(t, "writeFile", firstWrite.Match.Tool)
 	assert.Equal(t, "**/*.go", firstWrite.Match.Path)
 	assert.Equal(t, []string{".go"}, firstWrite.Match.Extensions)
 	assert.Equal(t, "internal", firstWrite.Match.Root)
@@ -102,7 +102,7 @@ pre_tool_use:
 	assert.Equal(t, 30*time.Second, timeout)
 	assert.Equal(t, "hook.write.checked", firstWrite.Actions[2].EventType)
 	assert.Equal(t, "go", firstWrite.Actions[2].Data["language"])
-	assert.Equal(t, "post_read_file-1", hooks[0].Name)
+	assert.Equal(t, "postReadFile-1", hooks[0].Name)
 	assert.Equal(t, "inject-1", hooks[0].Actions[0].Name)
 
 	assert.Contains(t, manifestKinds(snapshot.Manifest()), SourceKindHook)
@@ -118,7 +118,7 @@ func TestResolverIgnoresMalformedOptionalHookDocuments(t *testing.T) {
 		{
 			name: "unknown event",
 			document: `version: 1
-unknown_event:
+unknownEvent:
   - actions:
       - type: inject
         message: no
@@ -127,7 +127,7 @@ unknown_event:
 		{
 			name: "event is not an action list",
 			document: `version: 1
-pre_tool_use:
+preToolUse:
   actions:
     - type: inject
       message: no
@@ -136,7 +136,7 @@ pre_tool_use:
 		{
 			name: "action has unknown field",
 			document: `version: 1
-pre_tool_use:
+preToolUse:
   - actions:
       - type: inject
         message: no
@@ -146,14 +146,14 @@ pre_tool_use:
 		{
 			name: "empty action list",
 			document: `version: 1
-pre_tool_use:
+preToolUse:
   - actions: []
 `,
 		},
 		{
 			name: "invalid action predicate",
 			document: `version: 1
-pre_tool_use:
+preToolUse:
   - actions:
       - type: inject
         message: no
@@ -166,7 +166,7 @@ pre_tool_use:
 		{
 			name: "negative command timeout",
 			document: `version: 1
-pre_tool_use:
+preToolUse:
   - actions:
       - type: command
         command: check
@@ -176,7 +176,7 @@ pre_tool_use:
 		{
 			name: "zero command timeout",
 			document: `version: 1
-pre_tool_use:
+preToolUse:
   - actions:
       - type: command
         command: check
@@ -186,7 +186,7 @@ pre_tool_use:
 		{
 			name: "unparsable command timeout",
 			document: `version: 1
-pre_tool_use:
+preToolUse:
   - actions:
       - type: command
         command: check
@@ -196,7 +196,7 @@ pre_tool_use:
 		{
 			name: "command timeout without a unit",
 			document: `version: 1
-pre_tool_use:
+preToolUse:
   - actions:
       - type: command
         command: check
@@ -204,39 +204,29 @@ pre_tool_use:
 `,
 		},
 		{
-			name: "retired timeout_seconds field",
+			name: "emitEvent with a reserved job type",
 			document: `version: 1
-pre_tool_use:
+postToolUse:
   - actions:
-      - type: command
-        command: check
-        timeout_seconds: 30
-`,
-		},
-		{
-			name: "emit_event with a reserved job type",
-			document: `version: 1
-post_tool_use:
-  - actions:
-      - type: emit_event
-        event_type: job.exited
+      - type: emitEvent
+        eventType: job.exited
         summary: forged
 `,
 		},
 		{
-			name: "emit_event with a reserved agent type",
+			name: "emitEvent with a reserved agent type",
 			document: `version: 1
-post_tool_use:
+postToolUse:
   - actions:
-      - type: emit_event
-        event_type: agent.finished
+      - type: emitEvent
+        eventType: agent.finished
         summary: forged
 `,
 		},
 		{
 			name: "wrong version",
 			document: `version: 2
-pre_tool_use:
+preToolUse:
   - actions:
       - type: inject
         message: no
@@ -298,7 +288,7 @@ func TestInvalidHookCommandTimeoutWarningNamesTheTimeout(t *testing.T) {
 
 			fixture := newResolverFixture(t)
 			fixture.writeHook(t, fixture.configRoot, `version: 1
-pre_tool_use:
+preToolUse:
   - actions:
       - type: command
         command: check
@@ -318,35 +308,12 @@ pre_tool_use:
 	}
 }
 
-func TestRetiredHookTimeoutSecondsWarningNamesTimeout(t *testing.T) {
-	t.Parallel()
-
-	fixture := newResolverFixture(t)
-	fixture.writeHook(t, fixture.configRoot, `version: 1
-pre_tool_use:
-  - actions:
-      - type: command
-        command: check
-        timeout_seconds: 30
-`)
-
-	resolver, err := NewResolver(fixture.configRoot, Limits{})
-	require.NoError(t, err)
-
-	snapshot, resolveErr := resolver.Resolve(fixture.workspace)
-	require.NoError(t, resolveErr)
-	require.Len(t, snapshot.Warnings(), 1)
-	assert.Empty(t, snapshot.Hooks())
-	assert.Contains(t, snapshot.Warnings()[0].Reason, "timeout_seconds")
-	assert.Contains(t, snapshot.Warnings()[0].Reason, "use timeout")
-}
-
 func TestHookChangeChangesSnapshotHashAndSnapshotRemainsImmutable(t *testing.T) {
 	t.Parallel()
 
 	fixture := newResolverFixture(t)
 	fixture.writeHook(t, fixture.configRoot, `version: 1
-pre_tool_use:
+preToolUse:
   - actions:
       - type: inject
         message: First.
@@ -358,7 +325,7 @@ pre_tool_use:
 	assert.Equal(t, "First.", first.Hooks()[0].Actions[0].Message)
 
 	fixture.writeHook(t, fixture.configRoot, `version: 1
-pre_tool_use:
+preToolUse:
   - actions:
       - type: inject
         message: Second.
@@ -374,10 +341,10 @@ func TestHooksKeepInputConditionsAcrossCopies(t *testing.T) {
 
 	fixture := newResolverFixture(t)
 	fixture.writeHook(t, fixture.configRoot, `version: 1
-pre_tool_use:
+preToolUse:
   - name: no-rm-rf
     match:
-      tool: run_command
+      tool: runCommand
       input:
         /command:
           regex: "rm -rf"
@@ -412,7 +379,7 @@ func TestResolverBoundsHookGroups(t *testing.T) {
 
 	fixture := newResolverFixture(t)
 	fixture.writeHook(t, fixture.configRoot, `version: 1
-pre_tool_use:
+preToolUse:
   - actions:
       - type: inject
         message: first

@@ -7,6 +7,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/http/api"
+	"github.com/psyb0t/peen/internal/pkg/worker"
 )
 
 // OpenSession resolves a workspace path to its durable session, creating that
@@ -28,15 +29,15 @@ func (s *Server) OpenSession(
 		}, nil
 	}
 
-	profile := ""
-	if request.Body.Profile != nil {
-		profile = *request.Body.Profile
+	agentSpace := ""
+	if request.Body.AgentSpace != nil {
+		agentSpace = *request.Body.AgentSpace
 	}
 
 	opened, err := s.deps.Sessions.OpenWorkspaceSession(
 		ctx,
 		request.Body.Workspace,
-		profile,
+		agentSpace,
 	)
 	if err != nil {
 		return openSessionFailure(err)
@@ -53,12 +54,21 @@ func (s *Server) OpenSession(
 
 // openSessionFailure maps an open failure onto its response. A workspace the
 // deployment does not expose is a 403 rather than a 404, so a client cannot
-// probe which directories exist by reading the status code.
+// probe which directories exist by reading the status code. An agent space the
+// deployment does not offer is also a 403, with its own code.
 //
 //nolint:ireturn // Generated strict handler response interface.
 func openSessionFailure(
 	err error,
 ) (api.OpenSessionResponseObject, error) {
+	if errors.Is(err, worker.ErrAgentSpaceNotAllowed) {
+		return api.OpenSession403JSONResponse{
+			ErrorForbiddenJSONResponse: api.ErrorForbiddenJSONResponse(
+				agentSpaceNotAllowedError(),
+			),
+		}, nil
+	}
+
 	if errors.Is(err, commerr.ErrPermissionDenied) {
 		return api.OpenSession403JSONResponse{
 			ErrorForbiddenJSONResponse: api.ErrorForbiddenJSONResponse(

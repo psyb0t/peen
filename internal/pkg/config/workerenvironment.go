@@ -25,7 +25,7 @@ const (
 //
 // A Docker worker is a separate process with an intentionally small
 // environment. It needs the same runtime limits, model selection, provider
-// definitions, and named provider credentials as a native worker, but it must
+// definitions, and named provider credentials as a control worker, but it must
 // not inherit controller-only paths or authority. The allowlist makes that
 // boundary visible and prevents a future PEEN_ control setting from quietly
 // becoming a worker capability.
@@ -160,17 +160,15 @@ func workerEnvironmentReserved(key string) bool {
 		environmentAPIToken,
 		"PEEN_DOCKER_SOCKET",
 		"PEEN_WORKER_IMAGE",
-		"PEEN_EXECUTION_PROFILES",
-		"PEEN_DEFAULT_EXECUTION_PROFILE",
+		envDockerProfiles,
+		envDefaultAgentSpace,
 		"PEEN_WORKSPACE_ROOT",
-		"PEEN_WORKSPACE_ROOTS",
 		"PEEN_HTTP_LISTEN_ADDRESS",
 		"PEEN_METRICS_LISTEN_ADDRESS",
 		"PEEN_HOST_USERNAME",
 		"PEEN_HOST_HOME",
 		"PEEN_LOG_DIRECTORY",
-		"PEEN_LOG_RETENTION",
-		"PEEN_LOG_RETENTION_DAYS":
+		"PEEN_LOG_RETENTION":
 		return true
 	}
 

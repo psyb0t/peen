@@ -35,13 +35,11 @@ const (
 // worker, so an audit directory there would be readable by every session.
 //
 // Retention is a Go duration and must be a positive whole number of days
-// because files are per UTC day. RemovedRetentionDays only detects the removed
-// PEEN_LOG_RETENTION_DAYS variable so startup can fail with a migration hint.
+// because files are per UTC day.
 type Config struct {
-	StateDirectory       string        `env:"PEEN_STATE_DIR"`
-	Directory            string        `env:"PEEN_LOG_DIRECTORY"`
-	Retention            time.Duration `default:"336h"                env:"PEEN_LOG_RETENTION"` //nolint:lll // Immutable env tag.
-	RemovedRetentionDays string        `env:"PEEN_LOG_RETENTION_DAYS"`
+	StateDirectory string        `env:"PEEN_STATE_DIR"`
+	Directory      string        `env:"PEEN_LOG_DIRECTORY"`
+	Retention      time.Duration `default:"336h"           env:"PEEN_LOG_RETENTION"` //nolint:lll // Immutable env tag.
 }
 
 // Configure reads audit-log settings and adds the durable sink beside stdout.
@@ -186,14 +184,6 @@ func (c Config) withDefaults() Config {
 }
 
 func (c Config) validate() error {
-	if strings.TrimSpace(c.RemovedRetentionDays) != "" {
-		return ctxerrors.Wrap(
-			commerr.ErrValidationFailed,
-			"PEEN_LOG_RETENTION_DAYS was removed, set PEEN_LOG_RETENTION "+
-				"to a Go duration instead (for example 336h for 14 days)",
-		)
-	}
-
 	if strings.TrimSpace(c.Directory) == "" {
 		return ctxerrors.Wrap(
 			commerr.ErrValidationFailed,

@@ -21,23 +21,23 @@ func TestRenderHookContext(t *testing.T) {
 		{
 			name:     "tool event names the tool",
 			event:    harness.HookEventPostToolUse,
-			tool:     "read_file",
+			tool:     "readFile",
 			messages: []string{"check the diff"},
-			want: "<hook>\n<event>post_tool_use</event>\n" +
-				"<tool>read_file</tool>\n\ncheck the diff\n</hook>",
+			want: "<hook>\n<event>postToolUse</event>\n" +
+				"<tool>readFile</tool>\n\ncheck the diff\n</hook>",
 		},
 		{
 			name:     "lifecycle event has no tool attribute",
 			event:    harness.HookEventSessionStart,
 			messages: []string{"project notes"},
-			want: "<hook>\n<event>session_start</event>\n\n" +
+			want: "<hook>\n<event>sessionStart</event>\n\n" +
 				"project notes\n</hook>",
 		},
 		{
 			name:     "several strings share one block",
 			event:    harness.HookEventPreUserMessage,
 			messages: []string{"first", "second"},
-			want: "<hook>\n<event>pre_user_message</event>\n\n" +
+			want: "<hook>\n<event>preUserMessage</event>\n\n" +
 				"first\n\nsecond\n</hook>",
 		},
 		{

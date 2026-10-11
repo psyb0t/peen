@@ -11,7 +11,7 @@ const (
 )
 
 // replacement records one applied edit as byte offsets into the original and
-// the rewritten content. edit_file collects these while it substitutes text,
+// the rewritten content. editFile collects these while it substitutes text,
 // so the diff is rendered from known ranges instead of being inferred.
 type replacement struct {
 	oldStart int

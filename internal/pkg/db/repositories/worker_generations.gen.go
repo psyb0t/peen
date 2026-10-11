@@ -31,8 +31,8 @@ func newWorkerGeneration(db *gorm.DB, opts ...gen.DOOption) workerGeneration {
 	_workerGeneration.ID = field.NewField(tableName, "id")
 	_workerGeneration.SessionID = field.NewField(tableName, "session_id")
 	_workerGeneration.Kind = field.NewString(tableName, "kind")
-	_workerGeneration.Profile = field.NewString(tableName, "profile")
-	_workerGeneration.ProfileRevision = field.NewInt64(tableName, "profile_revision")
+	_workerGeneration.AgentSpace = field.NewString(tableName, "agent_space")
+	_workerGeneration.AgentSpaceRevision = field.NewInt64(tableName, "agent_space_revision")
 	_workerGeneration.State = field.NewString(tableName, "state")
 	_workerGeneration.Workspace = field.NewString(tableName, "workspace")
 	_workerGeneration.CredentialHash = field.NewString(tableName, "credential_hash")
@@ -54,24 +54,24 @@ func newWorkerGeneration(db *gorm.DB, opts ...gen.DOOption) workerGeneration {
 type workerGeneration struct {
 	workerGenerationDo
 
-	ALL             field.Asterisk
-	ID              field.Field
-	SessionID       field.Field
-	Kind            field.String
-	Profile         field.String
-	ProfileRevision field.Int64
-	State           field.String
-	Workspace       field.String
-	CredentialHash  field.String
-	SocketPath      field.String
-	ProcessID       field.Int
-	ContainerID     field.String
-	ImageDigest     field.String
-	FailureDetail   field.String
-	ExitCode        field.Int
-	CreatedAt       field.Time
-	StartedAt       field.Time
-	EndedAt         field.Time
+	ALL                field.Asterisk
+	ID                 field.Field
+	SessionID          field.Field
+	Kind               field.String
+	AgentSpace         field.String
+	AgentSpaceRevision field.Int64
+	State              field.String
+	Workspace          field.String
+	CredentialHash     field.String
+	SocketPath         field.String
+	ProcessID          field.Int
+	ContainerID        field.String
+	ImageDigest        field.String
+	FailureDetail      field.String
+	ExitCode           field.Int
+	CreatedAt          field.Time
+	StartedAt          field.Time
+	EndedAt            field.Time
 
 	fieldMap map[string]field.Expr
 }
@@ -91,8 +91,8 @@ func (w *workerGeneration) updateTableName(table string) *workerGeneration {
 	w.ID = field.NewField(table, "id")
 	w.SessionID = field.NewField(table, "session_id")
 	w.Kind = field.NewString(table, "kind")
-	w.Profile = field.NewString(table, "profile")
-	w.ProfileRevision = field.NewInt64(table, "profile_revision")
+	w.AgentSpace = field.NewString(table, "agent_space")
+	w.AgentSpaceRevision = field.NewInt64(table, "agent_space_revision")
 	w.State = field.NewString(table, "state")
 	w.Workspace = field.NewString(table, "workspace")
 	w.CredentialHash = field.NewString(table, "credential_hash")
@@ -125,8 +125,8 @@ func (w *workerGeneration) fillFieldMap() {
 	w.fieldMap["id"] = w.ID
 	w.fieldMap["session_id"] = w.SessionID
 	w.fieldMap["kind"] = w.Kind
-	w.fieldMap["profile"] = w.Profile
-	w.fieldMap["profile_revision"] = w.ProfileRevision
+	w.fieldMap["agent_space"] = w.AgentSpace
+	w.fieldMap["agent_space_revision"] = w.AgentSpaceRevision
 	w.fieldMap["state"] = w.State
 	w.fieldMap["workspace"] = w.Workspace
 	w.fieldMap["credential_hash"] = w.CredentialHash

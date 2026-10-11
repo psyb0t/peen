@@ -14,11 +14,16 @@ Peen stores everything in one SQLite file, `peen.db` under `PEEN_STATE_DIR`, thr
 
 ## Changing the schema
 
-1. Add a migration pair under `migrations/sqlite/`: `<7-digit sequence>_<action>_<exact_table>_table[_details].up.sql` and the matching `.down.sql`, such as `0000015_alter_messages_table_add_injected`. The down file reverses the up file exactly.
-2. Never edit a migration that has been committed. Fix it with a new one.
+Before 1.0, each table has exactly one migration, `<7-digit sequence>_create_<exact_table>_table.up.sql`, and the matching `.down.sql` that drops the table and its indexes. Sequence numbers follow dependency order: a table comes after every table it references, and a table with no foreign keys may go anywhere before the tables that reference it. `sqliteTableOrder` in `internal/pkg/db/sqlite.go` reads that order from the file names, so a file that does not follow the pattern or skips a number fails the open.
+
+1. Edit the table's create migration and its down file directly. Do not add an alter migration. To add a table, add a create pair numbered after every table it references, and bump `sqliteMigrationCount` in `internal/pkg/db/migrations_test.go`. Inserting before the last table renumbers the later files.
+2. Update `internal/pkg/db/testdata/sqlite_schema.golden`, the pinned normalized schema. `TestSQLiteSchemaMatchesPinnedSchema` fails with the difference until the file matches, so the diff of that file is the review of the schema change.
 3. Update the model in `internal/pkg/db/models/`. Add a new model to `ApplyBasic` in `cmd/repogen/main.go`, in alphabetical order.
 4. Run `make generate`.
-5. Bump `sqliteMigrationCount` in `internal/pkg/db/migrations_test.go`. That test migrates every step down and back up.
+
+A database created before the edit does not match the new schema, and Peen does not migrate it. Stop Peen, delete `peen.db`, `peen.db-wal`, and `peen.db-shm` from your development state directory, and let Peen create it again. Open builds the schema the embedded migrations produce up to the recorded version in an in-memory database and compares it with the file's schema in the normalized form of `sqlite_schema.golden`. A different table set, column, default, constraint, or index refuses the open with an error that names the files to delete.
+
+After 1.0 the append-only rule returns: never edit a migration that has been committed, and add a new numbered pair `<7-digit sequence>_<action>_<exact_table>_table[_details].up.sql` with its `.down.sql` that reverses it exactly, such as an `alter` migration that adds a column. The pinned schema and `sqliteMigrationCount` then follow each added step.
 
 The migrations own the schema: types, defaults, `CHECK` constraints, foreign keys, and indexes. Peen never calls `AutoMigrate`. Models carry no schema tags. The only gorm tags allowed on a model are `column:` when the field name does not map to the column, `primaryKey` when gorm cannot infer the key, and `-` for a non-column field.
 

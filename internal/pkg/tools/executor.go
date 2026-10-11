@@ -3,6 +3,7 @@ package tools
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -26,6 +27,10 @@ type Executor struct {
 	workspace string
 	home      string
 	limits    Limits
+
+	// environment is the base environment of every command. Nil means the
+	// process environment.
+	environment []string
 
 	mutation sync.Mutex
 
@@ -72,7 +77,19 @@ func NewExecutor(options Options) (*Executor, error) {
 		home:      home,
 		limits:    limits,
 		observed:  map[string]observation{},
+
+		environment: slices.Clone(options.Environment),
 	}, nil
+}
+
+// commandBaseEnvironment is the environment a command starts from, before the
+// request's own additions.
+func (e *Executor) commandBaseEnvironment() []string {
+	if e.environment == nil {
+		return os.Environ()
+	}
+
+	return slices.Clone(e.environment)
 }
 
 // Workspace reports the default directory for this turn's tool calls.

@@ -4,8 +4,10 @@ package executionforms
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -21,6 +23,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	dabluveees "github.com/psyb0t/aichteeteapee/serbewr/dabluvee-es"
+	peenconfig "github.com/psyb0t/peen/internal/pkg/config"
 	"github.com/psyb0t/peen/tests/testinfra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -38,9 +41,16 @@ const (
 	executionFormsHeaderAuthorization = "Authorization"
 	executionFormsHeaderSessionID     = "X-Session-ID"
 
-	executionFormsBearerPrefix    = "Bearer "
-	executionFormsAgentName       = "default"
-	executionFormsAPIToken        = "EXAMPLE-DO-NOT-USE"
+	executionFormsBearerPrefix = "Bearer "
+	executionFormsAgentName    = "default"
+	executionFormsAPIToken     = "EXAMPLE-DO-NOT-USE"
+
+	// The refusal the socket rule prints when control is the default beside a
+	// reachable Docker daemon.
+	executionFormsDefaultSpaceSettingName = "PEEN_DEFAULT_AGENT_SPACE"
+	executionFormsControlDefaultSetting   = "PEEN_DEFAULT_AGENT_SPACE=control"
+	executionFormsHostRootMessage         = "host root"
+
 	executionFormsDirectoryMode   = 0o700
 	executionFormsFileMode        = 0o600
 	executionFormsStartupTimeout  = 30 * time.Second
@@ -53,7 +63,7 @@ const (
 	// startup budget here made the suite flake under `make test-coverage`,
 	// where the instrumented binary is slow enough that the read deadline
 	// expired mid-turn. The client then closed the connection, cancelling the
-	// controller's own run_turn call, which surfaced as a worker failure
+	// controller's own runTurn call, which surfaced as a worker failure
 	// rather than the client timeout it actually was.
 	executionFormsTurnTimeout = 3 * time.Minute
 
@@ -109,7 +119,7 @@ const (
 	executionFormsMessageKey                 = "message"
 	executionFormsWebSocketMetadataSessionID = "sessionId"
 	executionFormsWebSocketProtocol          = "peen.v1"
-	executionFormsWebSocketBearerPrefix      = "peen.bearer."
+	executionFormsWebSocketBearerPrefix      = "peen.bearer." //nolint:gosec // A subprotocol prefix, not a credential.
 	executionFormsWebSocketMessageSend       = "message.send"
 	executionFormsWebSocketCompleted         = "message.completed"
 	executionFormsWebSocketFailed            = "message.failed"
@@ -205,7 +215,65 @@ type processConfig struct {
 	environment []string
 }
 
+// dockerDaemonReachable asks the production rule whether a Docker daemon
+// answers for a controller started by this suite. The controller inherits this
+// process's environment without its PEEN_ settings, so the probe reads the same
+// candidates it does: a unix DOCKER_HOST, the default socket, and a tcp
+// DOCKER_HOST.
+func dockerDaemonReachable() bool {
+	return peenconfig.Config{}.HasDockerAuthority()
+}
+
+// requireNoDockerDaemon skips a test that needs the control agent space. A
+// controller that reaches a Docker daemon refuses control, whatever the
+// configuration says, so these tests run where none answers: make
+// test-execution-forms. TestExecutionFormsRefuseControlBesideADockerDaemon
+// covers the other case.
+func requireNoDockerDaemon(t *testing.T) {
+	t.Helper()
+
+	if dockerDaemonReachable() {
+		t.Skip("a Docker daemon answers here, so the controller refuses the " +
+			"control agent space; this test runs under make test-execution-forms")
+	}
+}
+
+// With a Docker daemon reachable, the controller must not offer control: a
+// control worker would hold the daemon and be host root. This is the contract
+// the tests that need control cannot check, so it runs only where a daemon
+// answers.
+func TestExecutionFormsRefuseControlBesideADockerDaemon(t *testing.T) {
+	if !dockerDaemonReachable() {
+		t.Skip("no Docker daemon answers here; the control agent space tests " +
+			"cover this environment")
+	}
+
+	binary := buildInstalledForm(t, executionFormsRepositoryRoot(t))
+	provider := testinfra.NewProviderMock()
+	t.Cleanup(provider.Close)
+	state := newProcessState(t)
+
+	process := launchPeen(t, processConfig{
+		binary:          binary,
+		configDirectory: state.configDirectory,
+		stateDirectory:  state.stateDirectory,
+		workspace:       state.workspace,
+		workerSocketDir: state.workerSocketDir,
+		apiAddress:      reserveLoopbackAddress(t),
+		metricsAddress:  reserveLoopbackAddress(t),
+		provider:        provider,
+		apiToken:        executionFormsAPIToken,
+		environment:     []string{executionFormsControlDefaultSetting},
+	})
+
+	output := awaitRefusal(t, process)
+	assert.Contains(t, output, executionFormsHostRootMessage)
+	assert.Contains(t, output, executionFormsDefaultSpaceSettingName)
+}
+
 func TestExecutionFormsExposeTheRestartSafeHTTPContract(t *testing.T) {
+	requireNoDockerDaemon(t)
+
 	repository := executionFormsRepositoryRoot(t)
 	forms := []executionForm{
 		{
@@ -241,16 +309,16 @@ func TestExecutionFormsRefuseToStartOnInvalidSelection(t *testing.T) {
 			wantMessages: []string{executionFormsRetentionNotDayMessage},
 		},
 		{
-			name:         "unknown disabled core skill",
-			environment:  []string{"PEEN_DISABLED_CORE_SKILLS=no-such-skill"},
+			name:        "unknown disabled core skill",
+			environment: []string{"PEEN_DISABLED_CORE_SKILLS=no-such-skill"},
 			wantMessages: []string{
 				executionFormsInvalidDisabledSkillsMessage,
 				executionFormsValidCoreSkillsMessage,
 			},
 		},
 		{
-			name:         "unknown disabled core agent",
-			environment:  []string{"PEEN_DISABLED_CORE_AGENTS=no-such-agent"},
+			name:        "unknown disabled core agent",
+			environment: []string{"PEEN_DISABLED_CORE_AGENTS=no-such-agent"},
 			wantMessages: []string{
 				executionFormsInvalidDisabledAgentsMessage,
 				executionFormsValidCoreAgentsMessage,
@@ -297,6 +365,8 @@ func TestExecutionFormsRefuseToStartOnInvalidSelection(t *testing.T) {
 }
 
 func TestExecutionFormsServeATurnWithTheDefaultAgent(t *testing.T) {
+	requireNoDockerDaemon(t)
+
 	binary := buildSourceForm(t, executionFormsRepositoryRoot(t))
 	provider := testinfra.NewProviderMock()
 	t.Cleanup(provider.Close)
@@ -395,13 +465,48 @@ func assertNotReady(t *testing.T, process *runningPeen) {
 	t.Helper()
 
 	client := &http.Client{Timeout: executionFormsPollInterval}
-	response, err := client.Get(process.baseURL + executionFormsReadyPath)
+	status, _, err := fetchURL(
+		t.Context(),
+		client,
+		process.baseURL+executionFormsReadyPath,
+	)
 	if err != nil {
 		return
 	}
 
-	assert.NoError(t, response.Body.Close())
-	assert.NotEqual(t, http.StatusOK, response.StatusCode)
+	assert.NotEqual(t, http.StatusOK, status)
+}
+
+// fetchURL sends one GET and returns the status code and the whole body, with
+// the response body closed.
+func fetchURL(
+	ctx context.Context,
+	client *http.Client,
+	target string,
+) (int, []byte, error) {
+	request, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		target,
+		nil,
+	)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	response, err := client.Do(request)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	body, readErr := io.ReadAll(response.Body)
+	closeErr := response.Body.Close()
+
+	if err := errors.Join(readErr, closeErr); err != nil {
+		return 0, nil, err
+	}
+
+	return response.StatusCode, body, nil
 }
 
 func buildSourceForm(t *testing.T, repository string) string {
@@ -669,7 +774,14 @@ func launchPeen(t *testing.T, config processConfig) *runningPeen {
 		metricsURL: "http://" + config.metricsAddress,
 		done:       make(chan error, 1),
 	}
-	process.command = exec.Command(config.binary, executionFormsRunCommand)
+	// The context never cancels, so the cleanup that stops Peen can still ask it
+	// to shut down gracefully instead of finding it already killed.
+	//nolint:gosec // The binary is the one this suite built or installed.
+	process.command = exec.CommandContext(
+		context.WithoutCancel(t.Context()),
+		config.binary,
+		executionFormsRunCommand,
+	)
 	process.command.Dir = config.workspace
 	process.command.Env = peenEnvironment(config, string(upstreams))
 	process.command.Stdout = &process.output
@@ -750,12 +862,13 @@ func awaitReady(t *testing.T, process *runningPeen) {
 	deadline := time.Now().Add(executionFormsStartupTimeout)
 	client := &http.Client{Timeout: executionFormsPollInterval}
 	for time.Now().Before(deadline) {
-		response, err := client.Get(process.baseURL + executionFormsReadyPath)
-		if err == nil {
-			closeErr := response.Body.Close()
-			if response.StatusCode == http.StatusOK && closeErr == nil {
-				return
-			}
+		status, _, err := fetchURL(
+			t.Context(),
+			client,
+			process.baseURL+executionFormsReadyPath,
+		)
+		if err == nil && status == http.StatusOK {
+			return
 		}
 
 		select {
@@ -827,7 +940,7 @@ func sendWebSocketTurn(
 		require.NoError(t, connection.SetReadDeadline(deadline))
 		event := dabluveees.Event{}
 		require.NoError(t, connection.ReadJSON(&event))
-		switch event.Type {
+		switch string(event.Type) {
 		case executionFormsWebSocketCompleted:
 			require.NotNil(t, event.Metadata)
 			sessionValue, found := event.Metadata.Get(
@@ -873,7 +986,8 @@ func openExecutionFormsSession(
 	body, err := json.Marshal(map[string]string{"workspace": workspace})
 	require.NoError(t, err)
 
-	request, err := http.NewRequest(
+	request, err := http.NewRequestWithContext(
+		t.Context(),
 		http.MethodPost,
 		baseURL+executionFormsAPIOpenSessionPath,
 		bytes.NewReader(body),
@@ -923,7 +1037,8 @@ func assertSessionHistory(
 ) {
 	t.Helper()
 
-	request, err := http.NewRequest(
+	request, err := http.NewRequestWithContext(
+		t.Context(),
 		http.MethodGet,
 		baseURL+executionFormsAPIMessagesPath,
 		nil,
@@ -948,7 +1063,8 @@ func assertSessionHistory(
 func assertPrivateMetrics(t *testing.T, process *runningPeen) {
 	t.Helper()
 
-	publicRequest, err := http.NewRequest(
+	publicRequest, err := http.NewRequestWithContext(
+		t.Context(),
 		http.MethodGet,
 		process.baseURL+executionFormsMetricsPath,
 		nil,
@@ -963,13 +1079,13 @@ func assertPrivateMetrics(t *testing.T, process *runningPeen) {
 	require.Equal(t, http.StatusNotFound, publicResponse.StatusCode)
 	require.NoError(t, publicResponse.Body.Close())
 
-	privateResponse, err := http.Get(process.metricsURL + executionFormsMetricsPath)
+	status, metricsBody, err := fetchURL(
+		t.Context(),
+		http.DefaultClient,
+		process.metricsURL+executionFormsMetricsPath,
+	)
 	require.NoError(t, err)
-	metricsBody, readErr := io.ReadAll(privateResponse.Body)
-	closeErr := privateResponse.Body.Close()
-	require.NoError(t, readErr)
-	require.NoError(t, closeErr)
-	require.Equal(t, http.StatusOK, privateResponse.StatusCode)
+	require.Equal(t, http.StatusOK, status)
 	assert.Contains(t, string(metricsBody), executionFormsMetricFamily)
 }
 

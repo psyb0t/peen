@@ -19,7 +19,7 @@ This file covers how to change Peen itself. The topic rules in `.agents/rules/` 
 | `internal/pkg/db/` | SQLite open, embedded migrations, gorm models, generated repositories. |
 | `internal/pkg/http/` | `api/` is generated server code. `server/` holds handlers, middleware, WebSocket, and the embedded web build in `server/web/dist`. |
 | `internal/pkg/control/` | Workspace policy and the session registry. |
-| `internal/pkg/worker/` | Controller to worker boundary: protocol, supervisor, native and Docker launchers, the worker command, worker logs. |
+| `internal/pkg/worker/` | Controller to worker boundary: protocol, supervisor, control and Docker launchers, agent spaces, the worker command, worker logs. |
 | `internal/pkg/events/`, `metrics/`, `auditlog/`, `config/` | Session events, Prometheus metrics, the JSON audit sink, and `PEEN_` configuration. |
 | `internal/pkg/services/` | Servicepack services `control-core` and `control-api`. `services.gen.go` is generated. |
 | `internal/pkg/service-manager/`, `pkg/runner/` | Servicepack-owned. |
@@ -99,6 +99,7 @@ Write plain, exact, active sentences. No filler words such as leverage, utilize,
 | File | Covers |
 | --- | --- |
 | `.agents/rules/go-style.md` | Control flow, naming, comments, line length, lint suppressions. |
+| `.agents/rules/naming.md` | camelCase for every name Peen owns: tools, hook events, session event types, YAML and JSON keys. What stays snake_case. |
 | `.agents/rules/go-errors.md` | ctxerrors wrapping, sentinels, commerr, error mapping. |
 | `.agents/rules/go-logging.md` | slog through ctxscope, levels, fields, what never gets logged. |
 | `.agents/rules/constants.md` | Named constants, typed enums, where they live, in Go and TypeScript. |

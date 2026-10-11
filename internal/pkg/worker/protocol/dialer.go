@@ -62,7 +62,7 @@ func register(
 		SessionID:    document.SessionID,
 		GenerationID: document.GenerationID,
 		Credential:   document.Credential,
-		Profile:      document.Profile,
+		AgentSpace:   document.AgentSpace,
 	})
 	if err != nil {
 		return HelloAck{}, ctxerrors.Wrap(err, "encode the worker hello")

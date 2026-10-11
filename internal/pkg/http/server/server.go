@@ -86,14 +86,14 @@ type SessionRegistry interface {
 	OpenWorkspaceSession(
 		ctx context.Context,
 		workspace string,
-		profile string,
+		agentSpace string,
 	) (api.OpenedSession, error)
 	ListSessions(
 		ctx context.Context,
 		params api.ListSessionsParams,
 	) (api.SessionPage, error)
 	WorkspaceRoots() api.WorkspaceRootList
-	ExecutionProfiles() api.ExecutionProfileList
+	AgentSpaces() api.AgentSpaceList
 	ListWorkerGenerations(
 		ctx context.Context,
 		sessionID uuid.UUID,
@@ -103,12 +103,12 @@ type SessionRegistry interface {
 		ctx context.Context,
 		sessionID uuid.UUID,
 		request api.ReconfigureSessionRequest,
-	) (api.SessionProfileDecision, error)
-	ListProfileDecisions(
+	) (api.SessionAgentSpaceDecision, error)
+	ListAgentSpaceDecisions(
 		ctx context.Context,
 		sessionID uuid.UUID,
-		params api.ListSessionProfileDecisionsParams,
-	) (api.SessionProfileDecisionPage, error)
+		params api.ListSessionAgentSpaceDecisionsParams,
+	) (api.SessionAgentSpaceDecisionPage, error)
 }
 
 // Server owns Peen's Serbewr listener and its generated OpenAPI handler.

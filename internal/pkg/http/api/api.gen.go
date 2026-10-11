@@ -138,18 +138,60 @@ func (e AgentRunMessageRole) Valid() bool {
 	}
 }
 
-// Defines values for ExecutionProfileKind.
+// Defines values for AgentSpaceDocker.
 const (
-	ExecutionProfileKindDocker ExecutionProfileKind = "docker"
-	ExecutionProfileKindNative ExecutionProfileKind = "native"
+	AgentSpaceDockerFull     AgentSpaceDocker = "full"
+	AgentSpaceDockerNone     AgentSpaceDocker = "none"
+	AgentSpaceDockerReadonly AgentSpaceDocker = "readonly"
 )
 
-// Valid indicates whether the value is a known member of the ExecutionProfileKind enum.
-func (e ExecutionProfileKind) Valid() bool {
+// Valid indicates whether the value is a known member of the AgentSpaceDocker enum.
+func (e AgentSpaceDocker) Valid() bool {
 	switch e {
-	case ExecutionProfileKindDocker:
+	case AgentSpaceDockerFull:
 		return true
-	case ExecutionProfileKindNative:
+	case AgentSpaceDockerNone:
+		return true
+	case AgentSpaceDockerReadonly:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentSpaceKind.
+const (
+	AgentSpaceKindControl AgentSpaceKind = "control"
+	AgentSpaceKindDocker  AgentSpaceKind = "docker"
+)
+
+// Valid indicates whether the value is a known member of the AgentSpaceKind enum.
+func (e AgentSpaceKind) Valid() bool {
+	switch e {
+	case AgentSpaceKindControl:
+		return true
+	case AgentSpaceKindDocker:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentSpaceNetwork.
+const (
+	AgentSpaceNetworkBridge AgentSpaceNetwork = "bridge"
+	AgentSpaceNetworkHost   AgentSpaceNetwork = "host"
+	AgentSpaceNetworkNone   AgentSpaceNetwork = "none"
+)
+
+// Valid indicates whether the value is a known member of the AgentSpaceNetwork enum.
+func (e AgentSpaceNetwork) Valid() bool {
+	switch e {
+	case AgentSpaceNetworkBridge:
+		return true
+	case AgentSpaceNetworkHost:
+		return true
+	case AgentSpaceNetworkNone:
 		return true
 	default:
 		return false
@@ -494,16 +536,16 @@ func (e TurnState) Valid() bool {
 
 // Defines values for WorkerGenerationKind.
 const (
-	WorkerGenerationKindDocker WorkerGenerationKind = "docker"
-	WorkerGenerationKindNative WorkerGenerationKind = "native"
+	WorkerGenerationKindControl WorkerGenerationKind = "control"
+	WorkerGenerationKindDocker  WorkerGenerationKind = "docker"
 )
 
 // Valid indicates whether the value is a known member of the WorkerGenerationKind enum.
 func (e WorkerGenerationKind) Valid() bool {
 	switch e {
-	case WorkerGenerationKindDocker:
+	case WorkerGenerationKindControl:
 		return true
-	case WorkerGenerationKindNative:
+	case WorkerGenerationKindDocker:
 		return true
 	default:
 		return false
@@ -860,6 +902,48 @@ type AgentRunPage struct {
 	Offset  int32      `json:"offset"`
 }
 
+// AgentSpace defines model for AgentSpace.
+type AgentSpace struct {
+	// CapabilityWarnings One operator-facing sentence for each risky grant this space makes. Empty for a space that grants nothing risky.
+	CapabilityWarnings []string `json:"capabilityWarnings"`
+
+	// Docker How much of the host Docker daemon the space reaches. `full` mounts the controller's Docker socket, which is host root. `readonly` is reserved, and the controller refuses to start with a profile that names it. Set only for kind docker.
+	Docker *AgentSpaceDocker `json:"docker,omitempty"`
+
+	// HostRootEquivalent True when this space grants access that is effectively host root, which is `docker: full`.
+	HostRootEquivalent bool           `json:"hostRootEquivalent"`
+	Kind               AgentSpaceKind `json:"kind"`
+
+	// Name What a client names to pick this agent space: `control` or `docker:<profile>`.
+	Name string `json:"name"`
+
+	// Network The network the space gives its worker. Set only for kind docker.
+	Network *AgentSpaceNetwork `json:"network,omitempty"`
+
+	// Profile The Docker profile behind the space. Set only for kind docker.
+	Profile  *string `json:"profile,omitempty"`
+	Revision int64   `json:"revision"`
+
+	// Sudo True when the agent may run commands as root inside the worker container. Set only for kind docker.
+	Sudo *bool `json:"sudo,omitempty"`
+}
+
+// AgentSpaceDocker How much of the host Docker daemon the space reaches. `full` mounts the controller's Docker socket, which is host root. `readonly` is reserved, and the controller refuses to start with a profile that names it. Set only for kind docker.
+type AgentSpaceDocker string
+
+// AgentSpaceKind defines model for AgentSpace.Kind.
+type AgentSpaceKind string
+
+// AgentSpaceNetwork The network the space gives its worker. Set only for kind docker.
+type AgentSpaceNetwork string
+
+// AgentSpaceList defines model for AgentSpaceList.
+type AgentSpaceList struct {
+	// Default The agent space a session opened without naming one uses.
+	Default string       `json:"default"`
+	Items   []AgentSpace `json:"items"`
+}
+
 // CancelResponse defines model for CancelResponse.
 type CancelResponse struct {
 	CancelRequested bool `json:"cancelRequested"`
@@ -915,32 +999,6 @@ type Error struct {
 	Code    string                  `json:"code"`
 	Details *map[string]interface{} `json:"details,omitempty"`
 	Message string                  `json:"message"`
-}
-
-// ExecutionProfile defines model for ExecutionProfile.
-type ExecutionProfile struct {
-	AllowDockerSocket        bool `json:"allowDockerSocket"`
-	AllowNetwork             bool `json:"allowNetwork"`
-	AllowPrivilegeEscalation bool `json:"allowPrivilegeEscalation"`
-
-	// CapabilityWarning Operator-facing warning for a host-root-equivalent profile. Empty for a profile that grants no such access.
-	CapabilityWarning *string `json:"capabilityWarning,omitempty"`
-
-	// HostRootEquivalent True when this profile grants access that is effectively host root, such as a writable Docker socket.
-	HostRootEquivalent bool                 `json:"hostRootEquivalent"`
-	Kind               ExecutionProfileKind `json:"kind"`
-	Name               string               `json:"name"`
-	Revision           int64                `json:"revision"`
-}
-
-// ExecutionProfileKind defines model for ExecutionProfile.Kind.
-type ExecutionProfileKind string
-
-// ExecutionProfileList defines model for ExecutionProfileList.
-type ExecutionProfileList struct {
-	// Default The profile a session opened without naming one uses.
-	Default string             `json:"default"`
-	Items   []ExecutionProfile `json:"items"`
 }
 
 // Job defines model for Job.
@@ -1224,8 +1282,8 @@ type ModelRunPage struct {
 
 // OpenSessionRequest defines model for OpenSessionRequest.
 type OpenSessionRequest struct {
-	// Profile Name of an operator-defined execution profile. Empty takes the deployment default. A name the operator did not define is refused with 403. This is the only environment choice a client makes: images, mounts, network, and capabilities come from deployment configuration alone. It applies only when this call creates the session; opening an existing session never changes its profile.
-	Profile *string `json:"profile,omitempty"`
+	// AgentSpace The agent space to run in, `control` or `docker:<profile>`. Empty takes the deployment default. A name the deployment does not offer is refused with 403. This is the only environment choice a client makes: images, mounts, network, and capabilities come from deployment configuration alone. It applies only when this call creates the session; opening an existing session never changes its agent space.
+	AgentSpace *string `json:"agentSpace,omitempty"`
 
 	// Workspace Absolute host path of the workspace directory. It is resolved through its symlinks and must fall under a configured workspace root.
 	Workspace string `json:"workspace"`
@@ -1247,28 +1305,48 @@ type PromptSnapshot struct {
 
 // ReconfigureSessionRequest defines model for ReconfigureSessionRequest.
 type ReconfigureSessionRequest struct {
-	// Profile The operator-defined profile to move this session to. An undefined name is refused. This is the only environment choice a client makes.
-	Profile string `json:"profile"`
+	// AgentSpace The agent space to move this session to, `control` or `docker:<profile>`. A space the deployment does not offer is refused. This is the only environment choice a client makes.
+	AgentSpace string `json:"agentSpace"`
 
-	// Reason Why the profile changed, kept in the durable decision history.
+	// Reason Why the agent space changed, kept in the durable decision history.
 	Reason string `json:"reason"`
 }
 
 // Session defines model for Session.
 type Session struct {
-	ActiveTurn         bool      `json:"activeTurn"`
-	Agent              string    `json:"agent"`
-	CompletedTurnCount int64     `json:"completedTurnCount"`
-	CreatedAt          time.Time `json:"createdAt"`
+	ActiveTurn bool   `json:"activeTurn"`
+	Agent      string `json:"agent"`
 
-	// ExecutionProfile The operator-defined profile this session's tools run under. Empty for a session recorded before profiles existed, which the controller reads as the deployment default.
-	ExecutionProfile *string            `json:"executionProfile,omitempty"`
-	Id               openapi_types.UUID `json:"id"`
-	LastMessageAt    *time.Time         `json:"lastMessageAt,omitempty"`
-	MessageCount     int64              `json:"messageCount"`
-	Model            string             `json:"model"`
-	UpdatedAt        time.Time          `json:"updatedAt"`
-	Workspace        string             `json:"workspace"`
+	// AgentSpace The agent space this session's tools run in, `control` or `docker:<profile>`.
+	AgentSpace         *string            `json:"agentSpace,omitempty"`
+	CompletedTurnCount int64              `json:"completedTurnCount"`
+	CreatedAt          time.Time          `json:"createdAt"`
+	Id                 openapi_types.UUID `json:"id"`
+	LastMessageAt      *time.Time         `json:"lastMessageAt,omitempty"`
+	MessageCount       int64              `json:"messageCount"`
+	Model              string             `json:"model"`
+	UpdatedAt          time.Time          `json:"updatedAt"`
+	Workspace          string             `json:"workspace"`
+}
+
+// SessionAgentSpaceDecision defines model for SessionAgentSpaceDecision.
+type SessionAgentSpaceDecision struct {
+	DecidedAt time.Time `json:"decidedAt"`
+
+	// FromAgentSpace The agent space the session ran in before this decision. Absent when the session had no recorded agent space.
+	FromAgentSpace *string            `json:"fromAgentSpace,omitempty"`
+	Id             openapi_types.UUID `json:"id"`
+	Reason         string             `json:"reason"`
+	SessionId      openapi_types.UUID `json:"sessionId"`
+	ToAgentSpace   string             `json:"toAgentSpace"`
+}
+
+// SessionAgentSpaceDecisionPage defines model for SessionAgentSpaceDecisionPage.
+type SessionAgentSpaceDecisionPage struct {
+	HasMore bool                        `json:"hasMore"`
+	Items   []SessionAgentSpaceDecision `json:"items"`
+	Limit   int32                       `json:"limit"`
+	Offset  int32                       `json:"offset"`
 }
 
 // SessionNotice defines model for SessionNotice.
@@ -1317,26 +1395,6 @@ type SessionPage struct {
 	Items   []Session `json:"items"`
 	Limit   int32     `json:"limit"`
 	Offset  int32     `json:"offset"`
-}
-
-// SessionProfileDecision defines model for SessionProfileDecision.
-type SessionProfileDecision struct {
-	DecidedAt time.Time `json:"decidedAt"`
-
-	// FromProfile The profile the session ran under before this decision. Absent when the session had no recorded profile.
-	FromProfile *string            `json:"fromProfile,omitempty"`
-	Id          openapi_types.UUID `json:"id"`
-	Reason      string             `json:"reason"`
-	SessionId   openapi_types.UUID `json:"sessionId"`
-	ToProfile   string             `json:"toProfile"`
-}
-
-// SessionProfileDecisionPage defines model for SessionProfileDecisionPage.
-type SessionProfileDecisionPage struct {
-	HasMore bool                     `json:"hasMore"`
-	Items   []SessionProfileDecision `json:"items"`
-	Limit   int32                    `json:"limit"`
-	Offset  int32                    `json:"offset"`
 }
 
 // TranscriptEvent defines model for TranscriptEvent.
@@ -1391,6 +1449,9 @@ type TurnPage struct {
 
 // WorkerGeneration defines model for WorkerGeneration.
 type WorkerGeneration struct {
+	AgentSpace         string `json:"agentSpace"`
+	AgentSpaceRevision int64  `json:"agentSpaceRevision"`
+
 	// ContainerId Set only for a Docker generation.
 	ContainerId *string    `json:"containerId,omitempty"`
 	CreatedAt   time.Time  `json:"createdAt"`
@@ -1401,14 +1462,12 @@ type WorkerGeneration struct {
 	Id            openapi_types.UUID `json:"id"`
 
 	// ImageDigest Immutable image identity for a Docker generation, never a moving tag.
-	ImageDigest     *string               `json:"imageDigest,omitempty"`
-	Kind            WorkerGenerationKind  `json:"kind"`
-	Profile         string                `json:"profile"`
-	ProfileRevision int64                 `json:"profileRevision"`
-	SessionId       openapi_types.UUID    `json:"sessionId"`
-	StartedAt       *time.Time            `json:"startedAt,omitempty"`
-	State           WorkerGenerationState `json:"state"`
-	Workspace       string                `json:"workspace"`
+	ImageDigest *string               `json:"imageDigest,omitempty"`
+	Kind        WorkerGenerationKind  `json:"kind"`
+	SessionId   openapi_types.UUID    `json:"sessionId"`
+	StartedAt   *time.Time            `json:"startedAt,omitempty"`
+	State       WorkerGenerationState `json:"state"`
+	Workspace   string                `json:"workspace"`
 }
 
 // WorkerGenerationKind defines model for WorkerGeneration.Kind.
@@ -1492,6 +1551,13 @@ type ListMessagesParamsOrder string
 
 // GetSessionParams defines parameters for GetSession.
 type GetSessionParams struct {
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// ListSessionAgentSpaceDecisionsParams defines parameters for ListSessionAgentSpaceDecisions.
+type ListSessionAgentSpaceDecisionsParams struct {
+	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
@@ -1643,13 +1709,6 @@ type PublishSessionNoticeParams struct {
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
-// ListSessionProfileDecisionsParams defines parameters for ListSessionProfileDecisions.
-type ListSessionProfileDecisionsParams struct {
-	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
-	XSessionID SessionIDRequired `json:"X-Session-ID"`
-}
-
 // GetSessionPromptSnapshotParams defines parameters for GetSessionPromptSnapshot.
 type GetSessionPromptSnapshotParams struct {
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
@@ -1694,9 +1753,9 @@ type OpenSessionJSONRequestBody = OpenSessionRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
-	// ListExecutionProfiles List the execution profiles a client may name
-	// (GET /execution-profiles)
-	ListExecutionProfiles(w http.ResponseWriter, r *http.Request)
+	// ListAgentSpaces List the agent spaces a client may name
+	// (GET /agent-spaces)
+	ListAgentSpaces(w http.ResponseWriter, r *http.Request)
 	// ListMessages List stored conversation messages
 	// (GET /messages)
 	ListMessages(w http.ResponseWriter, r *http.Request, params ListMessagesParams)
@@ -1706,6 +1765,9 @@ type ServerInterface interface {
 	// GetSession Read session details
 	// (GET /session)
 	GetSession(w http.ResponseWriter, r *http.Request, params GetSessionParams)
+	// ListSessionAgentSpaceDecisions List one session's agent space decision history
+	// (GET /session/agent-space-decisions)
+	ListSessionAgentSpaceDecisions(w http.ResponseWriter, r *http.Request, params ListSessionAgentSpaceDecisionsParams)
 	// ListSessionAgentRuns List the child agent runs this session has started
 	// (GET /session/agents)
 	ListSessionAgentRuns(w http.ResponseWriter, r *http.Request, params ListSessionAgentRunsParams)
@@ -1766,13 +1828,10 @@ type ServerInterface interface {
 	// PublishSessionNotice Report a durable notice to the session
 	// (POST /session/notices)
 	PublishSessionNotice(w http.ResponseWriter, r *http.Request, params PublishSessionNoticeParams)
-	// ListSessionProfileDecisions List one session's execution profile decision history
-	// (GET /session/profile-decisions)
-	ListSessionProfileDecisions(w http.ResponseWriter, r *http.Request, params ListSessionProfileDecisionsParams)
 	// GetSessionPromptSnapshot Read a prompt snapshot referenced by this session
 	// (GET /session/prompt-snapshots/{promptHash})
 	GetSessionPromptSnapshot(w http.ResponseWriter, r *http.Request, promptHash PromptHash, params GetSessionPromptSnapshotParams)
-	// ReconfigureSession Move an idle session to a different execution profile
+	// ReconfigureSession Move an idle session to a different agent space
 	// (POST /session/reconfigure)
 	ReconfigureSession(w http.ResponseWriter, r *http.Request, params ReconfigureSessionParams)
 	// ListSessionTurns List durable turns
@@ -1801,11 +1860,11 @@ type ServerInterfaceWrapper struct {
 
 type MiddlewareFunc func(http.Handler) http.Handler
 
-// ListExecutionProfiles operation middleware
-func (siw *ServerInterfaceWrapper) ListExecutionProfiles(w http.ResponseWriter, r *http.Request) {
+// ListAgentSpaces operation middleware
+func (siw *ServerInterfaceWrapper) ListAgentSpaces(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListExecutionProfiles(w, r)
+		siw.Handler.ListAgentSpaces(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1949,6 +2008,77 @@ func (siw *ServerInterfaceWrapper) GetSession(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetSession(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListSessionAgentSpaceDecisions operation middleware
+func (siw *ServerInterfaceWrapper) ListSessionAgentSpaceDecisions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSessionAgentSpaceDecisionsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Session-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
+		var XSessionID SessionIDRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
+			return
+		}
+
+		params.XSessionID = XSessionID
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSessionAgentSpaceDecisions(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3365,77 +3495,6 @@ func (siw *ServerInterfaceWrapper) PublishSessionNotice(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
-// ListSessionProfileDecisions operation middleware
-func (siw *ServerInterfaceWrapper) ListSessionProfileDecisions(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// Parameter object where we will unmarshal all parameters from the context
-	var params ListSessionProfileDecisionsParams
-
-	// ------------- Optional query parameter "limit" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
-		}
-		return
-	}
-
-	// ------------- Optional query parameter "offset" -------------
-
-	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
-	if err != nil {
-		var requiredError *runtime.RequiredParameterError
-		if errors.As(err, &requiredError) {
-			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
-		} else {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
-		}
-		return
-	}
-
-	headers := r.Header
-
-	// ------------- Required header parameter "X-Session-ID" -------------
-	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
-		var XSessionID SessionIDRequired
-		n := len(valueList)
-		if n != 1 {
-			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
-			return
-		}
-
-		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
-		if err != nil {
-			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
-			return
-		}
-
-		params.XSessionID = XSessionID
-
-	} else {
-		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
-		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ListSessionProfileDecisions(w, r, params)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 // GetSessionPromptSnapshot operation middleware
 func (siw *ServerInterfaceWrapper) GetSessionPromptSnapshot(w http.ResponseWriter, r *http.Request) {
 
@@ -3874,12 +3933,12 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/messages", wrapper.ListMessages)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/sessions", wrapper.ListSessions)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sessions/open", wrapper.OpenSession)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/execution-profiles", wrapper.ListExecutionProfiles)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/agent-spaces", wrapper.ListAgentSpaces)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/workspace-roots", wrapper.ListWorkspaceRoots)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/models", wrapper.ListModels)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/workers", wrapper.ListSessionWorkers)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/session/reconfigure", wrapper.ReconfigureSession)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/profile-decisions", wrapper.ListSessionProfileDecisions)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/agent-space-decisions", wrapper.ListSessionAgentSpaceDecisions)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session", wrapper.GetSession)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/session/cancel", wrapper.CancelSession)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/events", wrapper.ListSessionEvents)
@@ -3919,23 +3978,23 @@ type ErrorNotFoundJSONResponse Error
 
 type ErrorUnauthorizedJSONResponse Error
 
-type ListExecutionProfilesRequestObject struct {
+type ListAgentSpacesRequestObject struct {
 }
 
-type ListExecutionProfilesResponseObject interface {
-	VisitListExecutionProfilesResponse(w http.ResponseWriter) error
+type ListAgentSpacesResponseObject interface {
+	VisitListAgentSpacesResponse(w http.ResponseWriter) error
 }
 
-type ListExecutionProfiles200ResponseHeaders struct {
+type ListAgentSpaces200ResponseHeaders struct {
 	XRequestID openapi_types.UUID
 }
 
-type ListExecutionProfiles200JSONResponse struct {
-	Body    ExecutionProfileList
-	Headers ListExecutionProfiles200ResponseHeaders
+type ListAgentSpaces200JSONResponse struct {
+	Body    AgentSpaceList
+	Headers ListAgentSpaces200ResponseHeaders
 }
 
-func (response ListExecutionProfiles200JSONResponse) VisitListExecutionProfilesResponse(w http.ResponseWriter) error {
+func (response ListAgentSpaces200JSONResponse) VisitListAgentSpacesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -3948,9 +4007,9 @@ func (response ListExecutionProfiles200JSONResponse) VisitListExecutionProfilesR
 	return err
 }
 
-type ListExecutionProfiles401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+type ListAgentSpaces401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
 
-func (response ListExecutionProfiles401JSONResponse) VisitListExecutionProfilesResponse(w http.ResponseWriter) error {
+func (response ListAgentSpaces401JSONResponse) VisitListAgentSpacesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -3962,9 +4021,9 @@ func (response ListExecutionProfiles401JSONResponse) VisitListExecutionProfilesR
 	return err
 }
 
-type ListExecutionProfiles500JSONResponse struct{ ErrorInternalJSONResponse }
+type ListAgentSpaces500JSONResponse struct{ ErrorInternalJSONResponse }
 
-func (response ListExecutionProfiles500JSONResponse) VisitListExecutionProfilesResponse(w http.ResponseWriter) error {
+func (response ListAgentSpaces500JSONResponse) VisitListAgentSpacesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -4198,6 +4257,94 @@ func (response GetSession404JSONResponse) VisitGetSessionResponse(w http.Respons
 type GetSession500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response GetSession500JSONResponse) VisitGetSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionAgentSpaceDecisionsRequestObject struct {
+	Params ListSessionAgentSpaceDecisionsParams
+}
+
+type ListSessionAgentSpaceDecisionsResponseObject interface {
+	VisitListSessionAgentSpaceDecisionsResponse(w http.ResponseWriter) error
+}
+
+type ListSessionAgentSpaceDecisions200ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListSessionAgentSpaceDecisions200JSONResponse struct {
+	Body    SessionAgentSpaceDecisionPage
+	Headers ListSessionAgentSpaceDecisions200ResponseHeaders
+}
+
+func (response ListSessionAgentSpaceDecisions200JSONResponse) VisitListSessionAgentSpaceDecisionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionAgentSpaceDecisions400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response ListSessionAgentSpaceDecisions400JSONResponse) VisitListSessionAgentSpaceDecisionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionAgentSpaceDecisions401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response ListSessionAgentSpaceDecisions401JSONResponse) VisitListSessionAgentSpaceDecisionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionAgentSpaceDecisions404JSONResponse struct{ ErrorNotFoundJSONResponse }
+
+func (response ListSessionAgentSpaceDecisions404JSONResponse) VisitListSessionAgentSpaceDecisionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionAgentSpaceDecisions500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response ListSessionAgentSpaceDecisions500JSONResponse) VisitListSessionAgentSpaceDecisionsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -5984,94 +6131,6 @@ func (response PublishSessionNotice500JSONResponse) VisitPublishSessionNoticeRes
 	return err
 }
 
-type ListSessionProfileDecisionsRequestObject struct {
-	Params ListSessionProfileDecisionsParams
-}
-
-type ListSessionProfileDecisionsResponseObject interface {
-	VisitListSessionProfileDecisionsResponse(w http.ResponseWriter) error
-}
-
-type ListSessionProfileDecisions200ResponseHeaders struct {
-	XRequestID openapi_types.UUID
-	XSessionID openapi_types.UUID
-}
-
-type ListSessionProfileDecisions200JSONResponse struct {
-	Body    SessionProfileDecisionPage
-	Headers ListSessionProfileDecisions200ResponseHeaders
-}
-
-func (response ListSessionProfileDecisions200JSONResponse) VisitListSessionProfileDecisionsResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
-	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
-	w.WriteHeader(200)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ListSessionProfileDecisions400JSONResponse struct{ ErrorBadRequestJSONResponse }
-
-func (response ListSessionProfileDecisions400JSONResponse) VisitListSessionProfileDecisionsResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(400)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ListSessionProfileDecisions401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
-
-func (response ListSessionProfileDecisions401JSONResponse) VisitListSessionProfileDecisionsResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(401)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ListSessionProfileDecisions404JSONResponse struct{ ErrorNotFoundJSONResponse }
-
-func (response ListSessionProfileDecisions404JSONResponse) VisitListSessionProfileDecisionsResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(404)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
-type ListSessionProfileDecisions500JSONResponse struct{ ErrorInternalJSONResponse }
-
-func (response ListSessionProfileDecisions500JSONResponse) VisitListSessionProfileDecisionsResponse(w http.ResponseWriter) error {
-
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(500)
-	_, err := buf.WriteTo(w)
-	return err
-}
-
 type GetSessionPromptSnapshotRequestObject struct {
 	PromptHash PromptHash `json:"promptHash"`
 	Params     GetSessionPromptSnapshotParams
@@ -6176,7 +6235,7 @@ type ReconfigureSession200ResponseHeaders struct {
 }
 
 type ReconfigureSession200JSONResponse struct {
-	Body    SessionProfileDecision
+	Body    SessionAgentSpaceDecision
 	Headers ReconfigureSession200ResponseHeaders
 }
 
@@ -6687,9 +6746,9 @@ func (response ListWorkspaceRoots500JSONResponse) VisitListWorkspaceRootsRespons
 
 // StrictServerInterface represents all server handlers.
 type StrictServerInterface interface {
-	// ListExecutionProfiles List the execution profiles a client may name
-	// (GET /execution-profiles)
-	ListExecutionProfiles(ctx context.Context, request ListExecutionProfilesRequestObject) (ListExecutionProfilesResponseObject, error)
+	// ListAgentSpaces List the agent spaces a client may name
+	// (GET /agent-spaces)
+	ListAgentSpaces(ctx context.Context, request ListAgentSpacesRequestObject) (ListAgentSpacesResponseObject, error)
 	// ListMessages List stored conversation messages
 	// (GET /messages)
 	ListMessages(ctx context.Context, request ListMessagesRequestObject) (ListMessagesResponseObject, error)
@@ -6699,6 +6758,9 @@ type StrictServerInterface interface {
 	// GetSession Read session details
 	// (GET /session)
 	GetSession(ctx context.Context, request GetSessionRequestObject) (GetSessionResponseObject, error)
+	// ListSessionAgentSpaceDecisions List one session's agent space decision history
+	// (GET /session/agent-space-decisions)
+	ListSessionAgentSpaceDecisions(ctx context.Context, request ListSessionAgentSpaceDecisionsRequestObject) (ListSessionAgentSpaceDecisionsResponseObject, error)
 	// ListSessionAgentRuns List the child agent runs this session has started
 	// (GET /session/agents)
 	ListSessionAgentRuns(ctx context.Context, request ListSessionAgentRunsRequestObject) (ListSessionAgentRunsResponseObject, error)
@@ -6759,13 +6821,10 @@ type StrictServerInterface interface {
 	// PublishSessionNotice Report a durable notice to the session
 	// (POST /session/notices)
 	PublishSessionNotice(ctx context.Context, request PublishSessionNoticeRequestObject) (PublishSessionNoticeResponseObject, error)
-	// ListSessionProfileDecisions List one session's execution profile decision history
-	// (GET /session/profile-decisions)
-	ListSessionProfileDecisions(ctx context.Context, request ListSessionProfileDecisionsRequestObject) (ListSessionProfileDecisionsResponseObject, error)
 	// GetSessionPromptSnapshot Read a prompt snapshot referenced by this session
 	// (GET /session/prompt-snapshots/{promptHash})
 	GetSessionPromptSnapshot(ctx context.Context, request GetSessionPromptSnapshotRequestObject) (GetSessionPromptSnapshotResponseObject, error)
-	// ReconfigureSession Move an idle session to a different execution profile
+	// ReconfigureSession Move an idle session to a different agent space
 	// (POST /session/reconfigure)
 	ReconfigureSession(ctx context.Context, request ReconfigureSessionRequestObject) (ReconfigureSessionResponseObject, error)
 	// ListSessionTurns List durable turns
@@ -6824,23 +6883,23 @@ type strictHandler struct {
 	options     StrictHTTPServerOptions
 }
 
-// ListExecutionProfiles operation middleware
-func (sh *strictHandler) ListExecutionProfiles(w http.ResponseWriter, r *http.Request) {
-	var request ListExecutionProfilesRequestObject
+// ListAgentSpaces operation middleware
+func (sh *strictHandler) ListAgentSpaces(w http.ResponseWriter, r *http.Request) {
+	var request ListAgentSpacesRequestObject
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListExecutionProfiles(ctx, request.(ListExecutionProfilesRequestObject))
+		return sh.ssi.ListAgentSpaces(ctx, request.(ListAgentSpacesRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListExecutionProfiles")
+		handler = middleware(handler, "ListAgentSpaces")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListExecutionProfilesResponseObject); ok {
-		if err := validResponse.VisitListExecutionProfilesResponse(w); err != nil {
+	} else if validResponse, ok := response.(ListAgentSpacesResponseObject); ok {
+		if err := validResponse.VisitListAgentSpacesResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -6917,6 +6976,32 @@ func (sh *strictHandler) GetSession(w http.ResponseWriter, r *http.Request, para
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(GetSessionResponseObject); ok {
 		if err := validResponse.VisitGetSessionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListSessionAgentSpaceDecisions operation middleware
+func (sh *strictHandler) ListSessionAgentSpaceDecisions(w http.ResponseWriter, r *http.Request, params ListSessionAgentSpaceDecisionsParams) {
+	var request ListSessionAgentSpaceDecisionsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSessionAgentSpaceDecisions(ctx, request.(ListSessionAgentSpaceDecisionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSessionAgentSpaceDecisions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSessionAgentSpaceDecisionsResponseObject); ok {
+		if err := validResponse.VisitListSessionAgentSpaceDecisionsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -7464,32 +7549,6 @@ func (sh *strictHandler) PublishSessionNotice(w http.ResponseWriter, r *http.Req
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PublishSessionNoticeResponseObject); ok {
 		if err := validResponse.VisitPublishSessionNoticeResponse(w); err != nil {
-			sh.options.ResponseErrorHandlerFunc(w, r, err)
-		}
-	} else if response != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
-	}
-}
-
-// ListSessionProfileDecisions operation middleware
-func (sh *strictHandler) ListSessionProfileDecisions(w http.ResponseWriter, r *http.Request, params ListSessionProfileDecisionsParams) {
-	var request ListSessionProfileDecisionsRequestObject
-
-	request.Params = params
-
-	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.ListSessionProfileDecisions(ctx, request.(ListSessionProfileDecisionsRequestObject))
-	}
-	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "ListSessionProfileDecisions")
-	}
-
-	response, err := handler(r.Context(), w, r, request)
-
-	if err != nil {
-		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(ListSessionProfileDecisionsResponseObject); ok {
-		if err := validResponse.VisitListSessionProfileDecisionsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

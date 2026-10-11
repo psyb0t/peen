@@ -23,7 +23,7 @@ type WorkerSupervisor interface {
 		ctx context.Context,
 		sessionID uuid.UUID,
 		workspace string,
-		profileName string,
+		agentSpaceName string,
 	) (*protocol.Worker, error)
 	Current(sessionID uuid.UUID) (*protocol.Worker, bool)
 }
@@ -44,8 +44,8 @@ type AdmissionWatcher interface {
 //
 // This is the join between the public control surface and the private worker
 // protocol. The controller resolves which session the message is for and which
-// operator-selected profile that session runs under, makes sure a worker for
-// that profile is live, then hands the turn over. The controller never runs the
+// agent space that session runs in, makes sure a worker for that agent space
+// is live, then hands the turn over. The controller never runs the
 // model loop itself.
 //
 // Messages for one session reach its worker one at a time, in the order they
@@ -112,14 +112,14 @@ func (r *TurnRouter) RunSessionMessage(
 // reservation is admitted, and releases the reservation.
 //
 // The session is loaded first, so a message naming a session that does not
-// exist fails before any worker is started. The profile comes from the stored
-// session rather than the request: naming a profile is an operator decision
+// exist fails before any worker is started. The agent space comes from the
+// stored session rather than the request: the agent space is a decision
 // recorded at open or reconfigure time, never something a message carries.
 //
 // The reservation is held while the worker is ensured, so concurrent messages
 // cannot launch two workers for one session, and until the worker admits the
 // message. The worker reports admission through the message's
-// user_message.created event; a call that ends first, by failing or by
+// userMessage.created event; a call that ends first, by failing or by
 // answering, releases it too.
 func (r *TurnRouter) RunReservedSessionMessage(
 	ctx context.Context,
@@ -155,7 +155,7 @@ func (r *TurnRouter) RunReservedSessionMessage(
 		ctx,
 		stored.ID,
 		stored.Workspace,
-		stored.ExecutionProfile,
+		stored.AgentSpace,
 	)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "ensure the session worker")
@@ -178,7 +178,7 @@ func runInWorker(
 		"routing a turn to the session worker",
 		"session_id", stored.ID.String(),
 		"generation_id", live.GenerationID.String(),
-		"execution_profile", stored.ExecutionProfile,
+		"agent_space", stored.AgentSpace,
 	)
 
 	result, err := live.RunTurn(ctx, protocol.RunTurn{

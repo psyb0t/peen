@@ -252,7 +252,7 @@ func (r *Runtime) wakeHandler(
 
 // WakeRunner runs a turn a session event started. A controller sets one that
 // sends the turn to the session's worker, so a woken turn runs under the
-// session's execution profile and streams to clients like any other turn.
+// session's agent space and streams to clients like any other turn.
 type WakeRunner func(
 	ctx context.Context,
 	sessionID uuid.UUID,

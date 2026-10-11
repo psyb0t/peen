@@ -1,0 +1,465 @@
+table agent_run_compactions
+  column 0 id TEXT notnull=0 default=NULL pk=1
+  column 1 session_id TEXT notnull=1 default=NULL pk=0
+  column 2 agent_run_id TEXT notnull=1 default=NULL pk=0
+  column 3 from_message_id TEXT notnull=1 default=NULL pk=0
+  column 4 to_message_id TEXT notnull=1 default=NULL pk=0
+  column 5 from_sequence INTEGER notnull=1 default=NULL pk=0
+  column 6 to_sequence INTEGER notnull=1 default=NULL pk=0
+  column 7 direct_from_sequence INTEGER notnull=1 default=NULL pk=0
+  column 8 direct_to_sequence INTEGER notnull=1 default=NULL pk=0
+  column 9 summary TEXT notnull=1 default=NULL pk=0
+  column 10 source_message_count INTEGER notnull=1 default=NULL pk=0
+  column 11 input_token_count INTEGER notnull=1 default=NULL pk=0
+  column 12 summary_token_count INTEGER notnull=1 default=NULL pk=0
+  column 13 model_id TEXT notnull=1 default=NULL pk=0
+  column 14 prompt_hash TEXT notnull=1 default=NULL pk=0
+  column 15 created_at DATETIME notnull=1 default=NULL pk=0
+  column 16 supersedes_compaction_id TEXT notnull=0 default=NULL pk=0
+  CHECK (direct_from_sequence > 0)
+  CHECK (direct_to_sequence >= direct_from_sequence)
+  CHECK (from_sequence > 0)
+  CHECK (input_token_count >= 0)
+  CHECK (source_message_count > 0)
+  CHECK (summary_token_count >= 0)
+  CHECK (to_sequence >= from_sequence)
+  foreign key (agent_run_id,from_message_id) -> agent_run_messages(agent_run_id,id) update=NO ACTION delete=NO ACTION
+  foreign key (agent_run_id,supersedes_compaction_id) -> agent_run_compactions(agent_run_id,id) update=NO ACTION delete=NO ACTION
+  foreign key (agent_run_id,to_message_id) -> agent_run_messages(agent_run_id,id) update=NO ACTION delete=NO ACTION
+  foreign key (session_id) -> sessions(id) update=NO ACTION delete=NO ACTION
+  foreign key (session_id,agent_run_id) -> agent_runs(session_id,id) update=NO ACTION delete=NO ACTION
+  constraint origin=pk (id)
+  constraint origin=u (agent_run_id,id)
+  constraint origin=u (session_id,id)
+  constraint origin=u (supersedes_compaction_id)
+  index CREATE INDEX agent_run_compactions_run_created_at_id_index ON agent_run_compactions (agent_run_id,created_at,id)
+  index CREATE INDEX agent_run_compactions_session_run_index ON agent_run_compactions (session_id,agent_run_id)
+table agent_run_events
+  column 0 id TEXT notnull=0 default=NULL pk=1
+  column 1 session_id TEXT notnull=1 default=NULL pk=0
+  column 2 agent_run_id TEXT notnull=1 default=NULL pk=0
+  column 3 sequence INTEGER notnull=1 default=NULL pk=0
+  column 4 event_type TEXT notnull=1 default=NULL pk=0
+  column 5 payload_json TEXT notnull=1 default=NULL pk=0
+  column 6 created_at DATETIME notnull=1 default=NULL pk=0
+  CHECK (json_valid(payload_json))
+  CHECK (sequence > 0)
+  foreign key (session_id,agent_run_id) -> agent_runs(session_id,id) update=NO ACTION delete=NO ACTION
+  constraint origin=pk (id)
+  constraint origin=u (agent_run_id,sequence)
+  constraint origin=u (session_id,id)
+  index CREATE INDEX agent_run_events_run_sequence_id_index ON agent_run_events (agent_run_id,sequence ASC,id ASC)
+table agent_run_messages
+  column 0 id TEXT notnull=0 default=NULL pk=1
+  column 1 session_id TEXT notnull=1 default=NULL pk=0
+  column 2 agent_run_id TEXT notnull=1 default=NULL pk=0
+  column 3 sequence INTEGER notnull=1 default=NULL pk=0
+  column 4 role TEXT notnull=1 default=NULL pk=0
+  column 5 content TEXT notnull=1 default=NULL pk=0
+  column 6 model_id TEXT notnull=1 default='' pk=0
+  column 7 thinking TEXT notnull=1 default='' pk=0
+  column 8 tool_calls_json TEXT notnull=1 default='[]' pk=0
+  column 9 tool_call_id TEXT notnull=1 default='' pk=0
+  column 10 compaction_id TEXT notnull=0 default=NULL pk=0
+  column 11 is_error BOOLEAN notnull=1 default=FALSE pk=0
+  column 12 incomplete BOOLEAN notnull=1 default=FALSE pk=0
+  column 13 created_at DATETIME notnull=1 default=NULL pk=0
+  CHECK (json_valid(tool_calls_json))
+  CHECK (role IN ('user','assistant','tool'))
+  CHECK (sequence > 0)
+  foreign key (session_id) -> sessions(id) update=NO ACTION delete=NO ACTION
+  foreign key (session_id,agent_run_id) -> agent_runs(session_id,id) update=NO ACTION delete=NO ACTION
+  constraint origin=pk (id)
+  constraint origin=u (agent_run_id,id)
+  constraint origin=u (agent_run_id,sequence)
+  constraint origin=u (session_id,id)
+  index CREATE INDEX agent_run_messages_run_compaction_sequence_id_index ON agent_run_messages (agent_run_id,compaction_id,sequence,id)
+  index CREATE INDEX agent_run_messages_run_sequence_id_index ON agent_run_messages (agent_run_id,sequence,id)
+  index CREATE INDEX agent_run_messages_session_run_index ON agent_run_messages (session_id,agent_run_id)
+table agent_runs
+  column 0 id TEXT notnull=0 default=NULL pk=1
+  column 1 session_id TEXT notnull=1 default=NULL pk=0
+  column 2 parent_turn_id TEXT notnull=1 default=NULL pk=0
+  column 3 parent_agent_run_id TEXT notnull=0 default=NULL pk=0
+  column 4 parent_tool_call_id TEXT notnull=1 default='' pk=0
+  column 5 request_id TEXT notnull=1 default=NULL pk=0
+  column 6 name TEXT notnull=1 default=NULL pk=0
+  column 7 definition TEXT notnull=1 default=NULL pk=0
+  column 8 depth INTEGER notnull=1 default=NULL pk=0
+  column 9 workspace TEXT notnull=1 default=NULL pk=0
+  column 10 model_reference TEXT notnull=1 default=NULL pk=0
+  column 11 model_id TEXT notnull=1 default=NULL pk=0
+  column 12 task TEXT notnull=1 default=NULL pk=0
+  column 13 instructions TEXT notnull=1 default=NULL pk=0
+  column 14 allowed_tools_json TEXT notnull=1 default=NULL pk=0
+  column 15 system_prompt TEXT notnull=1 default=NULL pk=0
+  column 16 event_count INTEGER notnull=1 default=0 pk=0
+  column 17 cancel_requested BOOLEAN notnull=1 default=FALSE pk=0
+  column 18 state TEXT notnull=1 default=NULL pk=0
+  column 19 response_text TEXT notnull=1 default='' pk=0
+  column 20 response_thinking TEXT notnull=1 default='' pk=0
+  column 21 response_messages_json TEXT notnull=1 default='[]' pk=0
+  column 22 finish_reason TEXT notnull=1 default='' pk=0
+  column 23 prompt_token_count INTEGER notnull=1 default=0 pk=0
+  column 24 completion_token_count INTEGER notnull=1 default=0 pk=0
+  column 25 failure_classification TEXT notnull=1 default='' pk=0
+  column 26 failure_detail TEXT notnull=1 default='' pk=0
+  column 27 started_at DATETIME notnull=1 default=NULL pk=0
+  column 28 ended_at DATETIME notnull=0 default=NULL pk=0
+  column 29 worker_generation_id TEXT notnull=1 default='' pk=0
+  CHECK (completion_token_count >= 0)
+  CHECK (definition IN ('stored','ad-hoc'))
+  CHECK (depth > 0)
+  CHECK (event_count >= 0)
+  CHECK (json_valid(allowed_tools_json))
+  CHECK (json_valid(response_messages_json))
+  CHECK (prompt_token_count >= 0)
+  CHECK (state IN ('running','completed','failed','cancelled','interrupted'))
+  foreign key (session_id) -> sessions(id) update=NO ACTION delete=NO ACTION
+  foreign key (session_id,parent_agent_run_id) -> agent_runs(session_id,id) update=NO ACTION delete=NO ACTION
+  foreign key (session_id,parent_turn_id) -> turns(session_id,id) update=NO ACTION delete=NO ACTION
+  constraint origin=pk (id)
+  constraint origin=u (session_id,id)
+  index CREATE INDEX agent_runs_parent_agent_run_id_index ON agent_runs (parent_agent_run_id,started_at ASC,id ASC)
+  index CREATE INDEX agent_runs_session_started_at_id_index ON agent_runs (session_id,started_at DESC,id DESC)
+  index CREATE INDEX agent_runs_session_state_started_at_id_index ON agent_runs (session_id,state,started_at DESC,id DESC)
+  index CREATE INDEX agent_runs_worker_generation_id_index ON agent_runs (worker_generation_id) WHERE worker_generation_id <> ''
+table compactions
+  column 0 id TEXT notnull=0 default=NULL pk=1
+  column 1 session_id TEXT notnull=1 default=NULL pk=0
+  column 2 from_message_id TEXT notnull=1 default=NULL pk=0
+  column 3 to_message_id TEXT notnull=1 default=NULL pk=0
+  column 4 from_sequence INTEGER notnull=1 default=NULL pk=0
+  column 5 to_sequence INTEGER notnull=1 default=NULL pk=0
+  column 6 summary TEXT notnull=1 default=NULL pk=0
+  column 7 source_message_count INTEGER notnull=1 default=NULL pk=0
+  column 8 input_token_count INTEGER notnull=1 default=NULL pk=0
+  column 9 summary_token_count INTEGER notnull=1 default=NULL pk=0
+  column 10 model_id TEXT notnull=1 default=NULL pk=0
+  column 11 prompt_hash TEXT notnull=1 default=NULL pk=0
+  column 12 created_at DATETIME notnull=1 default=NULL pk=0
+  column 13 supersedes_compaction_id TEXT notnull=0 default=NULL pk=0
+  CHECK (from_sequence > 0)
+  CHECK (input_token_count >= 0)
+  CHECK (source_message_count > 0)
+  CHECK (summary_token_count >= 0)
+  CHECK (to_sequence >= from_sequence)
+  foreign key (session_id) -> sessions(id) update=NO ACTION delete=NO ACTION
+  foreign key (session_id,from_message_id) -> messages(session_id,id) update=NO ACTION delete=NO ACTION
+  foreign key (session_id,supersedes_compaction_id) -> compactions(session_id,id) update=NO ACTION delete=NO ACTION
+  foreign key (session_id,to_message_id) -> messages(session_id,id) update=NO ACTION delete=NO ACTION
+  constraint origin=pk (id)
+  constraint origin=u (session_id,id)
+  constraint origin=u (supersedes_compaction_id)
+  index CREATE INDEX compactions_session_to_sequence_id_index ON compactions (session_id,to_sequence DESC,id)
+table context_snapshots
+  column 0 hash TEXT notnull=0 default=NULL pk=1
+  column 1 manifest_json TEXT notnull=1 default=NULL pk=0
+  column 2 resolved_content TEXT notnull=1 default=NULL pk=0
+  column 3 created_at DATETIME notnull=1 default=NULL pk=0
+  CHECK (json_valid(manifest_json))
+  constraint origin=pk (hash)
+table events
+  column 0 id TEXT notnull=0 default=NULL pk=1
+  column 1 session_id TEXT notnull=1 default=NULL pk=0
+  column 2 turn_id TEXT notnull=1 default=NULL pk=0
+  column 3 sequence INTEGER notnull=1 default=NULL pk=0
+  column 4 request_id TEXT notnull=1 default=NULL pk=0
+  column 5 event_type TEXT notnull=1 default=NULL pk=0
+  column 6 payload_json TEXT notnull=1 default=NULL pk=0
+  column 7 parent_tool_call_id TEXT notnull=1 default='' pk=0
+  column 8 created_at DATETIME notnull=1 default=NULL pk=0
+  column 9 worker_generation_id TEXT notnull=1 default='' pk=0
+  CHECK (json_valid(payload_json))
+  CHECK (sequence > 0)
+  foreign key (session_id) -> sessions(id) update=NO ACTION delete=NO ACTION
+  foreign key (session_id,turn_id) -> turns(session_id,id) update=NO ACTION delete=NO ACTION
+  constraint origin=pk (id)
+  constraint origin=u (session_id,id)
+  constraint origin=u (session_id,sequence)
+  index CREATE INDEX events_session_sequence_id_index ON events (session_id,sequence,id)
+  index CREATE INDEX events_worker_generation_id_index ON events (worker_generation_id) WHERE worker_generation_id <> ''
+table job_output_lines
+  column 0 id TEXT notnull=0 default=NULL pk=1
+  column 1 session_id TEXT notnull=1 default=NULL pk=0
+  column 2 job_id TEXT notnull=1 default=NULL pk=0
+  column 3 sequence INTEGER notnull=1 default=NULL pk=0
+  column 4 stream TEXT notnull=1 default=NULL pk=0
+  column 5 content TEXT notnull=1 default=NULL pk=0
+  column 6 created_at DATETIME notnull=1 default=NULL pk=0
+  CHECK (sequence > 0)
+  CHECK (stream IN ('stdout','stderr'))
+  foreign key (session_id,job_id) -> jobs(session_id,id) update=NO ACTION delete=NO ACTION
+  constraint origin=pk (id)
+  constraint origin=u (job_id,sequence)
+  constraint origin=u (session_id,id)
+  index CREATE INDEX job_output_lines_job_sequence_id_index ON job_output_lines (job_id,sequence ASC,id ASC)
+table job_signal_requests
+  column 0 id TEXT notnull=0 default=NULL pk=1
+  column 1 session_id TEXT notnull=1 default=NULL pk=0
+  column 2 job_id TEXT notnull=1 default=NULL pk=0
+  column 3 signal TEXT notnull=1 default=NULL pk=0
+  column 4 accepted BOOLEAN notnull=1 default=NULL pk=0
+  column 5 state_at_request TEXT notnull=1 default=NULL pk=0
+  column 6 requested_at DATETIME notnull=1 default=NULL pk=0
+  CHECK (signal IN ('stop','kill'))
+  CHECK (state_at_request IN ('running','exited','signalled','failed','interrupted'))
+  foreign key (session_id,job_id) -> jobs(session_id,id) update=NO ACTION delete=NO ACTION
+  constraint origin=pk (id)
+  constraint origin=u (session_id,id)
+  index CREATE INDEX job_signal_requests_job_requested_at_id_index ON job_signal_requests (job_id,requested_at ASC,id ASC)
+table jobs
+  column 0 id TEXT notnull=0 default=NULL pk=1
+  column 1 session_id TEXT notnull=1 default=NULL pk=0
+  column 2 turn_id TEXT notnull=1 default=NULL pk=0
+  column 3 tool_call_id TEXT notnull=1 default='' pk=0
+  column 4 pid INTEGER notnull=1 default=NULL pk=0
+  column 5 purpose TEXT notnull=1 default=NULL pk=0
+  column 6 command TEXT notnull=1 default=NULL pk=0
+  column 7 directory TEXT notnull=1 default=NULL pk=0
+  column 8 state TEXT notnull=1 default=NULL pk=0
+  column 9 exit_code INTEGER notnull=1 default=-1 pk=0
+  column 10 failure_detail TEXT notnull=1 default='' pk=0
+  column 11 started_at DATETIME notnull=1 default=NULL pk=0
+  column 12 ended_at DATETIME notnull=0 default=NULL pk=0
+  column 13 worker_generation_id TEXT notnull=1 default='' pk=0
+  CHECK (pid > 0)
+  CHECK (state IN ('running','exited','signalled','failed','interrupted'))
+  foreign key (session_id) -> sessions(id) update=NO ACTION delete=NO ACTION
+  foreign key (session_id,turn_id) -> turns(session_id,id) update=NO ACTION delete=NO ACTION
+  constraint origin=pk (id)
+  constraint origin=u (session_id,id)
+  index CREATE INDEX jobs_session_started_at_id_index ON jobs (session_id,started_at DESC,id DESC)
+  index CREATE INDEX jobs_session_state_started_at_id_index ON jobs (session_id,state,started_at DESC,id DESC)
+  index CREATE INDEX jobs_worker_generation_id_index ON jobs (worker_generation_id) WHERE worker_generation_id <> ''
+table messages
+  column 0 id TEXT notnull=0 default=NULL pk=1
+  column 1 session_id TEXT notnull=1 default=NULL pk=0
+  column 2 turn_id TEXT notnull=1 default=NULL pk=0
+  column 3 sequence INTEGER notnull=1 default=NULL pk=0
+  column 4 workspace TEXT notnull=1 default=NULL pk=0
+  column 5 role TEXT notnull=1 default=NULL pk=0
+  column 6 content TEXT notnull=1 default=NULL pk=0
+  column 7 model_id TEXT notnull=1 default='' pk=0
+  column 8 thinking TEXT notnull=1 default='' pk=0
+  column 9 tool_calls_json TEXT notnull=1 default='[]' pk=0
+  column 10 tool_call_id TEXT notnull=1 default='' pk=0
+  column 11 is_error BOOLEAN notnull=1 default=FALSE pk=0
+  column 12 incomplete BOOLEAN notnull=1 default=FALSE pk=0
+  column 13 created_at DATETIME notnull=1 default=NULL pk=0
+  column 14 compaction_id TEXT notnull=0 default=NULL pk=0
+  column 15 injected BOOLEAN notnull=1 default=FALSE pk=0
+  column 16 injected_kind TEXT notnull=1 default='' pk=0
+  CHECK (injected_kind IN ('','skill'))
+  CHECK (json_valid(tool_calls_json))
+  CHECK (role IN ('user','assistant','tool'))
+  CHECK (sequence > 0)
+  foreign key (compaction_id) -> compactions(id) update=NO ACTION delete=NO ACTION
+  foreign key (session_id) -> sessions(id) update=NO ACTION delete=NO ACTION
+  foreign key (session_id,turn_id) -> turns(session_id,id) update=NO ACTION delete=NO ACTION
+  constraint origin=pk (id)
+  constraint origin=u (session_id,id)
+  constraint origin=u (session_id,sequence)
+  index CREATE INDEX messages_session_compaction_id_sequence_id_index ON messages (session_id,compaction_id,sequence,id)
+  index CREATE INDEX messages_session_sequence_id_index ON messages (session_id,sequence,id)
+  index CREATE INDEX messages_turn_sequence_id_index ON messages (turn_id,sequence,id)
+table model_calls
+  column 0 id TEXT notnull=0 default=NULL pk=1
+  column 1 session_id TEXT notnull=1 default=NULL pk=0
+  column 2 model_run_id TEXT notnull=1 default=NULL pk=0
+  column 3 round INTEGER notnull=1 default=NULL pk=0
+  column 4 request_messages_json TEXT notnull=1 default=NULL pk=0
+  column 5 request_tools_json TEXT notnull=1 default=NULL pk=0
+  column 6 state TEXT notnull=1 default=NULL pk=0
+  column 7 response_message_json TEXT notnull=1 default='null' pk=0
+  column 8 response_usage_json TEXT notnull=1 default='{}' pk=0
+  column 9 retry_attempts_json TEXT notnull=1 default='[]' pk=0
+  column 10 retry_attempt_count INTEGER notnull=1 default=0 pk=0
+  column 11 prompt_tokens INTEGER notnull=1 default=0 pk=0
+  column 12 completion_tokens INTEGER notnull=1 default=0 pk=0
+  column 13 total_tokens INTEGER notnull=1 default=0 pk=0
+  column 14 reasoning_tokens INTEGER notnull=1 default=0 pk=0
+  column 15 cache_read_tokens INTEGER notnull=1 default=0 pk=0
+  column 16 cache_write_tokens INTEGER notnull=1 default=0 pk=0
+  column 17 cache_write_long_ttl_tokens INTEGER notnull=1 default=0 pk=0
+  column 18 wasted_prompt_tokens INTEGER notnull=1 default=0 pk=0
+  column 19 wasted_completion_tokens INTEGER notnull=1 default=0 pk=0
+  column 20 wasted_total_tokens INTEGER notnull=1 default=0 pk=0
+  column 21 total_attempts INTEGER notnull=1 default=0 pk=0
+  column 22 response_model_id TEXT notnull=1 default='' pk=0
+  column 23 finish_reason TEXT notnull=1 default='' pk=0
+  column 24 response_cost_amount TEXT notnull=1 default='' pk=0
+  column 25 retry_cost_amount TEXT notnull=1 default='' pk=0
+  column 26 billed_cost_amount TEXT notnull=1 default='' pk=0
+  column 27 cost_known BOOLEAN notnull=1 default=FALSE pk=0
+  column 28 failure_classification TEXT notnull=1 default='' pk=0
+  column 29 failure_detail TEXT notnull=1 default='' pk=0
+  column 30 started_at DATETIME notnull=1 default=NULL pk=0
+  column 31 completed_at DATETIME notnull=0 default=NULL pk=0
+  CHECK (cache_read_tokens >= 0)
+  CHECK (cache_write_long_ttl_tokens >= 0)
+  CHECK (cache_write_tokens >= 0)
+  CHECK (completion_tokens >= 0)
+  CHECK (json_valid(request_messages_json))
+  CHECK (json_valid(request_tools_json))
+  CHECK (json_valid(response_message_json))
+  CHECK (json_valid(response_usage_json))
+  CHECK (json_valid(retry_attempts_json))
+  CHECK (prompt_tokens >= 0)
+  CHECK (reasoning_tokens >= 0)
+  CHECK (retry_attempt_count >= 0)
+  CHECK (round >= 0)
+  CHECK (state IN ('running','completed','failed','cancelled','interrupted'))
+  CHECK (total_attempts >= 0)
+  CHECK (total_tokens >= 0)
+  CHECK (wasted_completion_tokens >= 0)
+  CHECK (wasted_prompt_tokens >= 0)
+  CHECK (wasted_total_tokens >= 0)
+  foreign key (session_id) -> sessions(id) update=NO ACTION delete=NO ACTION
+  foreign key (session_id,model_run_id) -> model_runs(session_id,id) update=NO ACTION delete=NO ACTION
+  constraint origin=pk (id)
+  constraint origin=u (model_run_id,round)
+  constraint origin=u (session_id,id)
+  index CREATE INDEX model_calls_run_round_id_index ON model_calls (model_run_id,round ASC,id ASC)
+table model_runs
+  column 0 id TEXT notnull=0 default=NULL pk=1
+  column 1 session_id TEXT notnull=1 default=NULL pk=0
+  column 2 turn_id TEXT notnull=1 default=NULL pk=0
+  column 3 agent_run_id TEXT notnull=0 default=NULL pk=0
+  column 4 stage TEXT notnull=1 default=NULL pk=0
+  column 5 model_reference TEXT notnull=1 default=NULL pk=0
+  column 6 connection_name TEXT notnull=1 default=NULL pk=0
+  column 7 requested_model_id TEXT notnull=1 default=NULL pk=0
+  column 8 response_model_id TEXT notnull=1 default='' pk=0
+  column 9 request_settings_json TEXT notnull=1 default=NULL pk=0
+  column 10 state TEXT notnull=1 default=NULL pk=0
+  column 11 response_text TEXT notnull=1 default='' pk=0
+  column 12 response_thinking TEXT notnull=1 default='' pk=0
+  column 13 response_messages_json TEXT notnull=1 default='[]' pk=0
+  column 14 response_injections_json TEXT notnull=1 default='[]' pk=0
+  column 15 response_usage_json TEXT notnull=1 default='{}' pk=0
+  column 16 response_cost_amount TEXT notnull=1 default='' pk=0
+  column 17 retry_cost_amount TEXT notnull=1 default='' pk=0
+  column 18 billed_cost_amount TEXT notnull=1 default='' pk=0
+  column 19 cost_known BOOLEAN notnull=1 default=FALSE pk=0
+  column 20 finish_reason TEXT notnull=1 default='' pk=0
+  column 21 failure_classification TEXT notnull=1 default='' pk=0
+  column 22 failure_detail TEXT notnull=1 default='' pk=0
+  column 23 started_at DATETIME notnull=1 default=NULL pk=0
+  column 24 completed_at DATETIME notnull=0 default=NULL pk=0
+  CHECK (json_valid(request_settings_json))
+  CHECK (json_valid(response_injections_json))
+  CHECK (json_valid(response_messages_json))
+  CHECK (json_valid(response_usage_json))
+  CHECK (stage IN ('turn','child','compaction'))
+  CHECK (state IN ('running','completed','failed','cancelled','interrupted'))
+  foreign key (session_id) -> sessions(id) update=NO ACTION delete=NO ACTION
+  foreign key (session_id,agent_run_id) -> agent_runs(session_id,id) update=NO ACTION delete=NO ACTION
+  foreign key (session_id,turn_id) -> turns(session_id,id) update=NO ACTION delete=NO ACTION
+  constraint origin=pk (id)
+  constraint origin=u (session_id,id)
+  index CREATE INDEX model_runs_agent_run_started_at_id_index ON model_runs (agent_run_id,started_at ASC,id ASC)
+  index CREATE INDEX model_runs_session_started_at_id_index ON model_runs (session_id,started_at DESC,id DESC)
+  index CREATE INDEX model_runs_turn_started_at_id_index ON model_runs (turn_id,started_at ASC,id ASC)
+table prompt_snapshots
+  column 0 hash TEXT notnull=0 default=NULL pk=1
+  column 1 effective_prompt TEXT notnull=1 default=NULL pk=0
+  column 2 created_at DATETIME notnull=1 default=NULL pk=0
+  constraint origin=pk (hash)
+table session_agent_space_decisions
+  column 0 id TEXT notnull=0 default=NULL pk=1
+  column 1 session_id TEXT notnull=1 default=NULL pk=0
+  column 2 from_agent_space TEXT notnull=1 default='' pk=0
+  column 3 to_agent_space TEXT notnull=1 default=NULL pk=0
+  column 4 reason TEXT notnull=1 default=NULL pk=0
+  column 5 decided_at DATETIME notnull=1 default=NULL pk=0
+  foreign key (session_id) -> sessions(id) update=NO ACTION delete=NO ACTION
+  constraint origin=pk (id)
+  constraint origin=u (session_id,id)
+  index CREATE INDEX session_agent_space_decisions_session_decided_at_id_index ON session_agent_space_decisions (session_id,decided_at DESC,id DESC)
+table session_notices
+  column 0 id TEXT notnull=0 default=NULL pk=1
+  column 1 session_id TEXT notnull=1 default=NULL pk=0
+  column 2 sequence INTEGER notnull=1 default=NULL pk=0
+  column 3 type TEXT notnull=1 default=NULL pk=0
+  column 4 source TEXT notnull=1 default=NULL pk=0
+  column 5 summary TEXT notnull=1 default=NULL pk=0
+  column 6 data_json TEXT notnull=1 default='{}' pk=0
+  column 7 delivery TEXT notnull=1 default=NULL pk=0
+  column 8 state TEXT notnull=1 default=NULL pk=0
+  column 9 created_at DATETIME notnull=1 default=NULL pk=0
+  column 10 delivered_at DATETIME notnull=0 default=NULL pk=0
+  CHECK (delivery IN ('queue','wake'))
+  CHECK (json_valid(data_json))
+  CHECK (sequence > 0)
+  CHECK (state IN ('pending','delivered'))
+  foreign key (session_id) -> sessions(id) update=NO ACTION delete=NO ACTION
+  constraint origin=pk (id)
+  constraint origin=u (session_id,id)
+  constraint origin=u (session_id,sequence)
+  index CREATE INDEX session_notices_session_sequence_id_index ON session_notices (session_id,sequence,id)
+  index CREATE INDEX session_notices_session_state_sequence_id_index ON session_notices (session_id,state,sequence,id)
+table sessions
+  column 0 id TEXT notnull=0 default=NULL pk=1
+  column 1 created_at DATETIME notnull=1 default=NULL pk=0
+  column 2 updated_at DATETIME notnull=1 default=NULL pk=0
+  column 3 last_message_at DATETIME notnull=0 default=NULL pk=0
+  column 4 message_count INTEGER notnull=1 default=0 pk=0
+  column 5 completed_turn_count INTEGER notnull=1 default=0 pk=0
+  column 6 last_completed_sequence INTEGER notnull=1 default=0 pk=0
+  column 7 active_context_hash TEXT notnull=1 default='' pk=0
+  column 8 root_agent TEXT notnull=1 default=NULL pk=0
+  column 9 model_id TEXT notnull=1 default=NULL pk=0
+  column 10 workspace TEXT notnull=1 default='' pk=0
+  column 11 agent_space TEXT notnull=1 default='' pk=0
+  CHECK (completed_turn_count >= 0)
+  CHECK (last_completed_sequence >= 0)
+  CHECK (message_count >= 0)
+  constraint origin=pk (id)
+  index CREATE UNIQUE INDEX sessions_workspace_unique_index ON sessions (workspace) WHERE workspace <> ''
+table turns
+  column 0 id TEXT notnull=0 default=NULL pk=1
+  column 1 session_id TEXT notnull=1 default=NULL pk=0
+  column 2 request_id TEXT notnull=1 default=NULL pk=0
+  column 3 workspace TEXT notnull=1 default=NULL pk=0
+  column 4 state TEXT notnull=1 default=NULL pk=0
+  column 5 cancel_requested BOOLEAN notnull=1 default=FALSE pk=0
+  column 6 started_at DATETIME notnull=1 default=NULL pk=0
+  column 7 completed_at DATETIME notnull=0 default=NULL pk=0
+  column 8 failure_classification TEXT notnull=1 default='' pk=0
+  column 9 context_snapshot_hash TEXT notnull=0 default=NULL pk=0
+  column 10 prompt_snapshot_hash TEXT notnull=0 default=NULL pk=0
+  column 11 worker_generation_id TEXT notnull=1 default='' pk=0
+  CHECK (state IN ('running','completed','failed','cancelled','interrupted'))
+  foreign key (context_snapshot_hash) -> context_snapshots(hash) update=NO ACTION delete=NO ACTION
+  foreign key (prompt_snapshot_hash) -> prompt_snapshots(hash) update=NO ACTION delete=NO ACTION
+  foreign key (session_id) -> sessions(id) update=NO ACTION delete=NO ACTION
+  constraint origin=pk (id)
+  constraint origin=u (session_id,id)
+  index CREATE INDEX turns_session_state_id_index ON turns (session_id,state,id)
+  index CREATE INDEX turns_worker_generation_id_index ON turns (worker_generation_id) WHERE worker_generation_id <> ''
+table worker_generations
+  column 0 id TEXT notnull=0 default=NULL pk=1
+  column 1 session_id TEXT notnull=1 default=NULL pk=0
+  column 2 kind TEXT notnull=1 default=NULL pk=0
+  column 3 agent_space TEXT notnull=1 default=NULL pk=0
+  column 4 agent_space_revision INTEGER notnull=1 default=0 pk=0
+  column 5 state TEXT notnull=1 default=NULL pk=0
+  column 6 workspace TEXT notnull=1 default=NULL pk=0
+  column 7 credential_hash TEXT notnull=1 default='' pk=0
+  column 8 socket_path TEXT notnull=1 default='' pk=0
+  column 9 process_id INTEGER notnull=1 default=0 pk=0
+  column 10 container_id TEXT notnull=1 default='' pk=0
+  column 11 image_digest TEXT notnull=1 default='' pk=0
+  column 12 failure_detail TEXT notnull=1 default='' pk=0
+  column 13 exit_code INTEGER notnull=1 default=0 pk=0
+  column 14 created_at DATETIME notnull=1 default=NULL pk=0
+  column 15 started_at DATETIME notnull=0 default=NULL pk=0
+  column 16 ended_at DATETIME notnull=0 default=NULL pk=0
+  CHECK (kind IN ('control','docker'))
+  CHECK (state IN ('requested','starting','ready','stopping','stopped','failed'))
+  foreign key (session_id) -> sessions(id) update=NO ACTION delete=NO ACTION
+  constraint origin=pk (id)
+  constraint origin=u (session_id,id)
+  index CREATE INDEX worker_generations_session_created_at_id_index ON worker_generations (session_id,created_at DESC,id DESC)
+  index CREATE INDEX worker_generations_session_state_index ON worker_generations (session_id,state)

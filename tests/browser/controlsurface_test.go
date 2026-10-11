@@ -103,9 +103,9 @@ const (
 	browserFixtureCommandPurpose         = "confirm the browser fixture remains available"
 	browserMainHeading                   = "Code with a durable agent."
 	browserThinkingLabel                 = "Thinking"
-	browserToolReadFile                  = "read_file"
-	browserToolApplyPatch                = "apply_patch"
-	browserToolRunCommand                = "run_command"
+	browserToolReadFile                  = "readFile"
+	browserToolApplyPatch                = "applyPatch"
+	browserToolRunCommand                = "runCommand"
 	browserToolStatusDone                = "done"
 	browserToolStatusError               = "error"
 	browserToolArgumentsLabel            = "arguments"
@@ -187,20 +187,23 @@ const (
 	browserHandlerScreenshot   = "handler-update"
 )
 
-var expectedBrowserDiagnostics = []string{
-	browserDiagnosticSocketConnect,
-	browserDiagnosticSocketOpen,
-	browserDiagnosticControllerStart,
-	browserDiagnosticControllerComplete,
-	browserDiagnosticWorkspaceOpenStart,
-	browserDiagnosticWorkspaceOpenDone,
-	browserDiagnosticSessionLoadStart,
-	browserDiagnosticSessionLoadDone,
-	browserDiagnosticMessageSendStart,
-	browserDiagnosticSocketMessageSent,
-	browserDiagnosticSocketEventReceived,
+func expectedBrowserDiagnostics() []string {
+	return []string{
+		browserDiagnosticSocketConnect,
+		browserDiagnosticSocketOpen,
+		browserDiagnosticControllerStart,
+		browserDiagnosticControllerComplete,
+		browserDiagnosticWorkspaceOpenStart,
+		browserDiagnosticWorkspaceOpenDone,
+		browserDiagnosticSessionLoadStart,
+		browserDiagnosticSessionLoadDone,
+		browserDiagnosticMessageSendStart,
+		browserDiagnosticSocketMessageSent,
+		browserDiagnosticSocketEventReceived,
+	}
 }
 
+//nolint:gochecknoglobals // TestMain owns the shared infra and browser, and every test reads them.
 var (
 	integrationInfra *testinfra.Infra
 	stealthyBrowser  *browserClient
@@ -295,33 +298,33 @@ func TestControlSurfaceCompletesATurnInARealBrowser(t *testing.T) {
 	assertNoDockerSocketMount(t, browserContainer)
 
 	ctx := t.Context()
-	requireWorkspaceRootAvailable(t, ctx)
-	browserAction(t, ctx, browserActionConsoleLog, nil)
-	browserAction(t, ctx, browserActionNetworkLog, nil)
+	requireWorkspaceRootAvailable(ctx, t)
+	browserAction(ctx, t, browserActionConsoleLog, nil)
+	browserAction(ctx, t, browserActionNetworkLog, nil)
 	t.Cleanup(func() {
 		reportBrowserFailureState(t)
 	})
-	browserAction(t, ctx, browserActionGoto, map[string]any{
+	browserAction(ctx, t, browserActionGoto, map[string]any{
 		"url":               integrationInfra.APIURL("/"),
 		browserWaitUntilKey: browserWaitUntilDOM,
 	})
-	browserAction(t, ctx, browserActionWaitForText, map[string]any{
+	browserAction(ctx, t, browserActionWaitForText, map[string]any{
 		browserTextKey:    browserMainHeading,
 		browserTimeoutKey: browserRequestTimeout.Seconds(),
 	})
 
-	browserAction(t, ctx, browserActionFill, map[string]any{
+	browserAction(ctx, t, browserActionFill, map[string]any{
 		browserSelectorKey: browserSelectorToken,
 		browserValueKey:    testinfra.TestAPIToken,
 	})
-	browserAction(t, ctx, browserActionClick, map[string]any{
+	browserAction(ctx, t, browserActionClick, map[string]any{
 		browserSelectorKey: browserSelectorConnect,
 	})
-	browserAction(t, ctx, browserActionWaitForElement, map[string]any{
+	browserAction(ctx, t, browserActionWaitForElement, map[string]any{
 		browserSelectorKey: browserSelectorOpen,
 		browserTimeoutKey:  browserRequestTimeout.Seconds(),
 	})
-	browserAction(t, ctx, browserActionWaitForElement, map[string]any{
+	browserAction(ctx, t, browserActionWaitForElement, map[string]any{
 		browserSelectorKey: browserSelectorSocketOpen,
 		browserTimeoutKey:  browserRequestTimeout.Seconds(),
 	})
@@ -330,34 +333,34 @@ func TestControlSurfaceCompletesATurnInARealBrowser(t *testing.T) {
 		browserBrokenSkillFixture,
 		[]byte(browserBrokenSkillContent),
 	))
-	browserAction(t, ctx, browserActionFill, map[string]any{
+	browserAction(ctx, t, browserActionFill, map[string]any{
 		browserSelectorKey: browserSelectorWorkspace,
 		browserValueKey:    browserChildWorkspace,
 	})
-	browserAction(t, ctx, browserActionClick, map[string]any{
+	browserAction(ctx, t, browserActionClick, map[string]any{
 		browserSelectorKey: browserSelectorOpen,
 	})
-	browserAction(t, ctx, browserActionWaitForText, map[string]any{
+	browserAction(ctx, t, browserActionWaitForText, map[string]any{
 		browserTextKey:    browserModelReference,
 		browserTimeoutKey: browserRequestTimeout.Seconds(),
 	})
 
-	browserAction(t, ctx, browserActionFill, map[string]any{
+	browserAction(ctx, t, browserActionFill, map[string]any{
 		browserSelectorKey: browserSelectorMessage,
 		browserValueKey:    browserThinkingMessage,
 	})
-	browserAction(t, ctx, browserActionClick, map[string]any{
+	browserAction(ctx, t, browserActionClick, map[string]any{
 		browserSelectorKey: browserSelectorSend,
 	})
-	browserAction(t, ctx, browserActionWaitForText, map[string]any{
+	browserAction(ctx, t, browserActionWaitForText, map[string]any{
 		browserTextKey:    browserThinkingCompletion,
 		browserTimeoutKey: browserRequestTimeout.Seconds(),
 	})
-	browserAction(t, ctx, browserActionWaitForText, map[string]any{
+	browserAction(ctx, t, browserActionWaitForText, map[string]any{
 		browserTextKey:    browserHarnessWarningLabel,
 		browserTimeoutKey: browserRequestTimeout.Seconds(),
 	})
-	browserAction(t, ctx, browserActionWaitForText, map[string]any{
+	browserAction(ctx, t, browserActionWaitForText, map[string]any{
 		browserTextKey:    browserBrokenSkillWarningSource,
 		browserTimeoutKey: browserRequestTimeout.Seconds(),
 	})
@@ -383,38 +386,36 @@ func TestControlSurfaceCompletesATurnInARealBrowser(t *testing.T) {
 	})
 	t.Cleanup(integrationInfra.DisableScriptedToolTurn)
 
-	browserAction(t, ctx, browserActionFill, map[string]any{
+	browserAction(ctx, t, browserActionFill, map[string]any{
 		browserSelectorKey: browserSelectorMessage,
 		browserValueKey:    browserTestMessage,
 	})
-	browserAction(t, ctx, browserActionClick, map[string]any{
+	browserAction(ctx, t, browserActionClick, map[string]any{
 		browserSelectorKey: browserSelectorSend,
 	})
-	browserAction(t, ctx, browserActionWaitForText, map[string]any{
+	browserAction(ctx, t, browserActionWaitForText, map[string]any{
 		browserTextKey:    browserCompletionText,
 		browserTimeoutKey: browserRequestTimeout.Seconds(),
 	})
 	// CSS upper-cases the status labels, so card text is compared without case.
 	doneCard := strings.ToLower(
-		browserElement(t, ctx, browserSelectorToolCardDone),
+		browserElement(ctx, t, browserSelectorToolCardDone),
 	)
 	require.Contains(t, doneCard, browserToolStatusDone)
 
-	errorCard := strings.ToLower(
-		browserElement(t, ctx, browserSelectorToolCardError),
-	)
+	errorCard := browserElement(ctx, t, browserSelectorToolCardError)
 	require.Contains(t, errorCard, browserToolApplyPatch)
-	require.Contains(t, errorCard, browserToolStatusError)
+	require.Contains(t, strings.ToLower(errorCard), browserToolStatusError)
 
-	browserAction(t, ctx, browserActionClick, map[string]any{
+	browserAction(ctx, t, browserActionClick, map[string]any{
 		browserSelectorKey: browserSelectorToolCardErrorSummary,
 	})
 	expandedErrorCard := strings.ToLower(
-		browserElement(t, ctx, browserSelectorToolCardError),
+		browserElement(ctx, t, browserSelectorToolCardError),
 	)
 	require.Contains(t, expandedErrorCard, browserToolArgumentsLabel)
 
-	page := browserText(t, ctx)
+	page := browserText(ctx, t)
 	require.NotContains(t, page, browserOrphanToolResultName)
 	require.Contains(t, page, browserThinkingMessage)
 	require.Contains(t, page, browserThinkingCompletion)
@@ -435,15 +436,15 @@ func TestControlSurfaceCompletesATurnInARealBrowser(t *testing.T) {
 		"streamed content blocks must fold into the reply, not render as rows",
 	)
 
-	browserAction(t, ctx, browserActionClick, map[string]any{
+	browserAction(ctx, t, browserActionClick, map[string]any{
 		browserSelectorKey: "button[aria-pressed]",
 	})
 
-	details := browserElement(t, ctx, browserSelectorDetails)
+	details := browserElement(ctx, t, browserSelectorDetails)
 	require.Contains(t, details, browserLiveEventsLabel)
 	require.NotContains(t, details, browserLiveEventsLabel+"0)")
 
-	networkLog := browserNetworkLog(t, ctx)
+	networkLog := browserNetworkLog(ctx, t)
 	requireNetworkRequest(t, networkLog, http.MethodGet, browserModelsPath)
 	requireNetworkRequest(t, networkLog, http.MethodGet, browserWorkspaceRootsPath)
 	requireNetworkRequest(t, networkLog, http.MethodPost, browserSessionsOpenPath)
@@ -454,9 +455,9 @@ func TestControlSurfaceCompletesATurnInARealBrowser(t *testing.T) {
 	requireNetworkResponse(t, networkLog, browserSessionsOpenPath, http.StatusOK)
 	requireNoNetworkRequest(t, networkLog, http.MethodPost, browserMessagesPath)
 
-	consoleLog := browserConsoleLog(t, ctx)
+	consoleLog := browserConsoleLog(ctx, t)
 	requireSafeBrowserDiagnostics(t, consoleLog)
-	requireScreenshot(t, ctx)
+	requireScreenshot(ctx, t)
 }
 
 // A skill named in a message is stored as its own message. After a reload the
@@ -465,16 +466,16 @@ func TestControlSurfaceShowsAStoredSkillMessageAsAMarker(t *testing.T) {
 	ctx := t.Context()
 	prepareBrowserTest(t)
 
-	openBrowserWorkspace(t, ctx, browserSkillWorkspaceName)
-	sendBrowserMessage(t, ctx, browserSkillMessage)
-	waitForBrowserText(t, ctx, browserCompletionPrefix)
+	openBrowserWorkspace(ctx, t, browserSkillWorkspaceName)
+	sendBrowserMessage(ctx, t, browserSkillMessage)
+	waitForBrowserText(ctx, t, browserCompletionPrefix)
 
 	// A reload drops every live block, so the chat can only render the
 	// stored transcript.
-	openBrowserWorkspace(t, ctx, browserSkillWorkspaceName)
-	waitForBrowserText(t, ctx, browserSkillMarkerLabel)
-	requireSkillMarkerExpandsOnClick(t, ctx, "")
-	requireNamedScreenshot(t, ctx, browserSkillScreenshot)
+	openBrowserWorkspace(ctx, t, browserSkillWorkspaceName)
+	waitForBrowserText(ctx, t, browserSkillMarkerLabel)
+	requireSkillMarkerExpandsOnClick(ctx, t, "")
+	requireNamedScreenshot(ctx, t, browserSkillScreenshot)
 }
 
 // The skill message reaches the chat while the turn is still running, and the
@@ -483,27 +484,27 @@ func TestControlSurfaceShowsALiveSkillMessageDuringATurn(t *testing.T) {
 	ctx := t.Context()
 	prepareBrowserTest(t)
 
-	openBrowserWorkspace(t, ctx, browserLiveSkillWorkspaceName)
+	openBrowserWorkspace(ctx, t, browserLiveSkillWorkspaceName)
 	hold := holdNextProviderCompletion(t)
-	sendBrowserMessage(t, ctx, browserLiveSkillMessage)
+	sendBrowserMessage(ctx, t, browserLiveSkillMessage)
 	awaitProviderCompletionHold(t, hold)
 
-	browserAction(t, ctx, browserActionWaitForElement, map[string]any{
+	browserAction(ctx, t, browserActionWaitForElement, map[string]any{
 		browserSelectorKey: browserSelectorLiveReply + browserSelectorSkillMarker,
 		browserTimeoutKey:  browserRequestTimeout.Seconds(),
 	})
 	require.Contains(
 		t,
-		browserText(t, ctx),
+		browserText(ctx, t),
 		browserWorkingLabel,
 		"the skill marker must appear while the turn is still running",
 	)
-	requireSkillMarkerExpandsOnClick(t, ctx, browserSelectorLiveReply)
-	requireNamedScreenshot(t, ctx, browserLiveSkillScreenshot)
+	requireSkillMarkerExpandsOnClick(ctx, t, browserSelectorLiveReply)
+	requireNamedScreenshot(ctx, t, browserLiveSkillScreenshot)
 
 	hold.Release()
-	waitForBrowserText(t, ctx, browserCompletionPrefix)
-	requireSkillInjectedOnlyInRawEvents(t, ctx)
+	waitForBrowserText(ctx, t, browserCompletionPrefix)
+	requireSkillInjectedOnlyInRawEvents(ctx, t)
 }
 
 // A turn an event handler started has no typed prompt. The chat shows the
@@ -519,24 +520,24 @@ func TestControlSurfaceShowsAHandlerStartedTurnAsABackgroundUpdate(t *testing.T)
 		browserHandlerWorkspaceName+"/"+browserHandlerEventFile,
 		[]byte(browserHandlerFile),
 	))
-	openBrowserWorkspace(t, ctx, browserHandlerWorkspaceName)
-	sessionID := openBrowserAPISession(t, ctx, workspace)
+	openBrowserWorkspace(ctx, t, browserHandlerWorkspaceName)
+	sessionID := openBrowserAPISession(ctx, t, workspace)
 
 	hold := holdNextProviderCompletion(t)
-	postBrowserNotice(t, ctx, sessionID)
+	postBrowserNotice(ctx, t, sessionID)
 	awaitProviderCompletionHold(t, hold)
 
-	waitForBrowserText(t, ctx, browserUpdateLabel)
-	requireHandlerUpdateWithoutRawTags(t, ctx, browserHandlerPosition)
-	requireNamedScreenshot(t, ctx, browserHandlerScreenshot)
+	waitForBrowserText(ctx, t, browserUpdateLabel)
+	requireHandlerUpdateWithoutRawTags(ctx, t, browserHandlerPosition)
+	requireNamedScreenshot(ctx, t, browserHandlerScreenshot)
 
 	hold.Release()
-	waitForBrowserText(t, ctx, browserCompletionPrefix)
+	waitForBrowserText(ctx, t, browserCompletionPrefix)
 
-	openBrowserWorkspace(t, ctx, browserHandlerWorkspaceName)
-	waitForBrowserText(t, ctx, browserUpdateLabel)
-	requireHandlerUpdateWithoutRawTags(t, ctx, browserHandlerPosition)
-	requireEventsUpdateReadable(t, ctx, browserEventsPosition)
+	openBrowserWorkspace(ctx, t, browserHandlerWorkspaceName)
+	waitForBrowserText(ctx, t, browserUpdateLabel)
+	requireHandlerUpdateWithoutRawTags(ctx, t, browserHandlerPosition)
+	requireEventsUpdateReadable(ctx, t, browserEventsPosition)
 }
 
 func prepareBrowserTest(t *testing.T) {
@@ -550,7 +551,7 @@ func prepareBrowserTest(t *testing.T) {
 // openBrowserWorkspace loads the control surface from scratch, connects with
 // the test token, and opens the workspace below the test root. The workspace
 // directory is created first, so opening it never fails on a missing path.
-func openBrowserWorkspace(t *testing.T, ctx context.Context, name string) {
+func openBrowserWorkspace(ctx context.Context, t *testing.T, name string) {
 	t.Helper()
 
 	require.NoError(t, integrationInfra.WriteWorkspaceFile(
@@ -559,66 +560,66 @@ func openBrowserWorkspace(t *testing.T, ctx context.Context, name string) {
 		[]byte(browserWorkspaceKeepContent),
 	))
 
-	browserAction(t, ctx, browserActionGoto, map[string]any{
+	browserAction(ctx, t, browserActionGoto, map[string]any{
 		"url":               integrationInfra.APIURL("/"),
 		browserWaitUntilKey: browserWaitUntilDOM,
 	})
-	waitForBrowserText(t, ctx, browserMainHeading)
-	browserAction(t, ctx, browserActionFill, map[string]any{
+	waitForBrowserText(ctx, t, browserMainHeading)
+	browserAction(ctx, t, browserActionFill, map[string]any{
 		browserSelectorKey: browserSelectorToken,
 		browserValueKey:    testinfra.TestAPIToken,
 	})
-	browserAction(t, ctx, browserActionClick, map[string]any{
+	browserAction(ctx, t, browserActionClick, map[string]any{
 		browserSelectorKey: browserSelectorConnect,
 	})
-	browserAction(t, ctx, browserActionWaitForElement, map[string]any{
+	browserAction(ctx, t, browserActionWaitForElement, map[string]any{
 		browserSelectorKey: browserSelectorSocketOpen,
 		browserTimeoutKey:  browserRequestTimeout.Seconds(),
 	})
-	browserAction(t, ctx, browserActionFill, map[string]any{
+	browserAction(ctx, t, browserActionFill, map[string]any{
 		browserSelectorKey: browserSelectorWorkspace,
 		browserValueKey:    browserTestWorkspace + "/" + name,
 	})
-	browserAction(t, ctx, browserActionClick, map[string]any{
+	browserAction(ctx, t, browserActionClick, map[string]any{
 		browserSelectorKey: browserSelectorOpen,
 	})
-	waitForBrowserText(t, ctx, browserModelReference)
+	waitForBrowserText(ctx, t, browserModelReference)
 }
 
-func sendBrowserMessage(t *testing.T, ctx context.Context, text string) {
+func sendBrowserMessage(ctx context.Context, t *testing.T, text string) {
 	t.Helper()
 
-	browserAction(t, ctx, browserActionFill, map[string]any{
+	browserAction(ctx, t, browserActionFill, map[string]any{
 		browserSelectorKey: browserSelectorMessage,
 		browserValueKey:    text,
 	})
-	browserAction(t, ctx, browserActionClick, map[string]any{
+	browserAction(ctx, t, browserActionClick, map[string]any{
 		browserSelectorKey: browserSelectorSend,
 	})
 }
 
-func waitForBrowserText(t *testing.T, ctx context.Context, text string) {
+func waitForBrowserText(ctx context.Context, t *testing.T, text string) {
 	t.Helper()
 
-	browserAction(t, ctx, browserActionWaitForText, map[string]any{
+	browserAction(ctx, t, browserActionWaitForText, map[string]any{
 		browserTextKey:    text,
 		browserTimeoutKey: browserRequestTimeout.Seconds(),
 	})
 }
 
-func waitForBrowserElement(t *testing.T, ctx context.Context, selector string) {
+func waitForBrowserElement(ctx context.Context, t *testing.T, selector string) {
 	t.Helper()
 
-	browserAction(t, ctx, browserActionWaitForElement, map[string]any{
+	browserAction(ctx, t, browserActionWaitForElement, map[string]any{
 		browserSelectorKey: selector,
 		browserTimeoutKey:  browserRequestTimeout.Seconds(),
 	})
 }
 
-func clickBrowserElement(t *testing.T, ctx context.Context, selector string) {
+func clickBrowserElement(ctx context.Context, t *testing.T, selector string) {
 	t.Helper()
 
-	browserAction(t, ctx, browserActionClick, map[string]any{
+	browserAction(ctx, t, browserActionClick, map[string]any{
 		browserSelectorKey: selector,
 	})
 }
@@ -626,19 +627,19 @@ func clickBrowserElement(t *testing.T, ctx context.Context, selector string) {
 // requireSkillMarkerExpandsOnClick checks that the one skill marker inside
 // scope starts closed with only its label showing, then shows the skill
 // content once it is clicked.
-func requireSkillMarkerExpandsOnClick(t *testing.T, ctx context.Context, scope string) {
+func requireSkillMarkerExpandsOnClick(ctx context.Context, t *testing.T, scope string) {
 	t.Helper()
 
 	marker := scope + browserSelectorSkillMarker
-	waitForBrowserElement(t, ctx, marker+browserSelectorDetailsClosed)
+	waitForBrowserElement(ctx, t, marker+browserSelectorDetailsClosed)
 
-	collapsed := browserElement(t, ctx, marker)
+	collapsed := browserElement(ctx, t, marker)
 	require.Equal(t, browserSkillMarkerLabel, strings.TrimSpace(collapsed))
 
-	clickBrowserElement(t, ctx, marker+" summary")
-	waitForBrowserElement(t, ctx, marker+browserSelectorDetailsOpen)
+	clickBrowserElement(ctx, t, marker+" summary")
+	waitForBrowserElement(ctx, t, marker+browserSelectorDetailsOpen)
 
-	expanded := browserElement(t, ctx, marker)
+	expanded := browserElement(ctx, t, marker)
 	require.Contains(t, expanded, browserSkillMarkerLabel)
 	require.Contains(t, expanded, browserSkillNameTag)
 	require.Contains(t, expanded, browserSkillCloseTag)
@@ -647,19 +648,19 @@ func requireSkillMarkerExpandsOnClick(t *testing.T, ctx context.Context, scope s
 // requireSkillInjectedOnlyInRawEvents checks that the chat lists no activity
 // for skill.injected, while the event itself did reach the browser and shows in
 // the inspector's raw event list.
-func requireSkillInjectedOnlyInRawEvents(t *testing.T, ctx context.Context) {
+func requireSkillInjectedOnlyInRawEvents(ctx context.Context, t *testing.T) {
 	t.Helper()
 
 	require.NotContains(
 		t,
-		browserText(t, ctx),
+		browserText(ctx, t),
 		browserSkillInjectedEvent,
 		"skill.injected must not be listed as activity",
 	)
 
-	clickBrowserElement(t, ctx, browserSelectorDetailsToggle)
-	clickBrowserElement(t, ctx, browserSelectorLiveEventsSummary)
-	rawEvents := browserElement(t, ctx, browserSelectorInspectorLiveEvents)
+	clickBrowserElement(ctx, t, browserSelectorDetailsToggle)
+	clickBrowserElement(ctx, t, browserSelectorLiveEventsSummary)
+	rawEvents := browserElement(ctx, t, browserSelectorInspectorLiveEvents)
 	require.Contains(t, rawEvents, browserLiveEventsLabel)
 	require.Contains(
 		t,
@@ -676,24 +677,24 @@ func requireSkillInjectedOnlyInRawEvents(t *testing.T, ctx context.Context) {
 // while the turn is live and after a reload, because the turn stores it before
 // the events block the model receives after it.
 func requireHandlerUpdateWithoutRawTags(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	position int,
 ) {
 	t.Helper()
 
 	update := fmt.Sprintf(browserSelectorUpdateAt, position)
-	waitForBrowserElement(t, ctx, update+browserSelectorDetailsClosed)
-	clickBrowserElement(t, ctx, update+" summary")
-	waitForBrowserElement(t, ctx, update+browserSelectorDetailsOpen)
+	waitForBrowserElement(ctx, t, update+browserSelectorDetailsClosed)
+	clickBrowserElement(ctx, t, update+" summary")
+	waitForBrowserElement(ctx, t, update+browserSelectorDetailsOpen)
 
 	require.Equal(
 		t,
 		browserHandlerUpdateText,
-		strings.TrimSpace(browserElement(t, ctx, update)),
+		strings.TrimSpace(browserElement(ctx, t, update)),
 	)
 
-	page := browserText(t, ctx)
+	page := browserText(ctx, t)
 	require.NotContains(t, page, browserRawHandlerOpen)
 	require.NotContains(t, page, browserRawHandlerClose)
 	require.NotContains(t, page, browserRawAgentOpen)
@@ -703,24 +704,24 @@ func requireHandlerUpdateWithoutRawTags(
 // position-th block of the reply, and checks it lists the event as its type
 // and summary while the page never shows the events tags or the event JSON.
 func requireEventsUpdateReadable(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	position int,
 ) {
 	t.Helper()
 
 	update := fmt.Sprintf(browserSelectorUpdateAt, position)
-	waitForBrowserElement(t, ctx, update+browserSelectorDetailsClosed)
-	clickBrowserElement(t, ctx, update+" summary")
-	waitForBrowserElement(t, ctx, update+browserSelectorDetailsOpen)
+	waitForBrowserElement(ctx, t, update+browserSelectorDetailsClosed)
+	clickBrowserElement(ctx, t, update+" summary")
+	waitForBrowserElement(ctx, t, update+browserSelectorDetailsOpen)
 
 	require.Equal(
 		t,
 		browserEventsUpdateText,
-		strings.TrimSpace(browserElement(t, ctx, update)),
+		strings.TrimSpace(browserElement(ctx, t, update)),
 	)
 
-	page := browserText(t, ctx)
+	page := browserText(ctx, t)
 	require.NotContains(t, page, browserRawEventsOpen)
 	require.NotContains(t, page, browserRawEventsClose)
 	require.NotContains(t, page, browserRawEventOpen)
@@ -748,15 +749,15 @@ func awaitProviderCompletionHold(t *testing.T, hold *testinfra.CompletionHold) {
 	}
 }
 
-func openBrowserAPISession(t *testing.T, ctx context.Context, workspace string) string {
+func openBrowserAPISession(ctx context.Context, t *testing.T, workspace string) string {
 	t.Helper()
 
 	body, err := json.Marshal(map[string]string{"workspace": workspace})
 	require.NoError(t, err)
 
 	response := browserAPIRequest(
-		t,
 		ctx,
+		t,
 		browserSessionsOpenPath,
 		body,
 		"",
@@ -769,12 +770,12 @@ func openBrowserAPISession(t *testing.T, ctx context.Context, workspace string) 
 	return opened.Session.Id.String()
 }
 
-func postBrowserNotice(t *testing.T, ctx context.Context, sessionID string) {
+func postBrowserNotice(ctx context.Context, t *testing.T, sessionID string) {
 	t.Helper()
 
 	response := browserAPIRequest(
-		t,
 		ctx,
+		t,
 		browserSessionNoticesPath,
 		[]byte(browserNoticeBody),
 		sessionID,
@@ -790,8 +791,8 @@ type browserAPIResponse struct {
 // browserAPIRequest posts one JSON body to the controller as the test token. A
 // non-empty sessionID is sent as the session header.
 func browserAPIRequest(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	path string,
 	body []byte,
 	sessionID string,
@@ -825,7 +826,7 @@ func browserAPIRequest(
 	return browserAPIResponse{status: response.StatusCode, body: data}
 }
 
-func requireWorkspaceRootAvailable(t *testing.T, ctx context.Context) {
+func requireWorkspaceRootAvailable(ctx context.Context, t *testing.T) {
 	t.Helper()
 
 	request, err := http.NewRequestWithContext(
@@ -842,7 +843,7 @@ func requireWorkspaceRootAvailable(t *testing.T, ctx context.Context) {
 
 	response, err := integrationInfra.HTTPClient().Do(request)
 	require.NoError(t, err)
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	body, err := io.ReadAll(response.Body)
 	require.NoError(t, err)
@@ -882,6 +883,7 @@ func reportBrowserFailureState(t *testing.T) {
 	}
 }
 
+//nolint:ireturn // testcontainers hands the started container back as an interface.
 func startBrowser(ctx context.Context) (testcontainers.Container, *browserClient, error) {
 	address, err := reserveLoopbackAddress(ctx)
 	if err != nil {
@@ -1069,8 +1071,8 @@ func (c *browserClient) screenshot(ctx context.Context) ([]byte, error) {
 }
 
 func browserAction(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	action string,
 	parameters map[string]any,
 ) json.RawMessage {
@@ -1082,20 +1084,20 @@ func browserAction(
 	return data
 }
 
-func browserText(t *testing.T, ctx context.Context) string {
+func browserText(ctx context.Context, t *testing.T) string {
 	t.Helper()
 
-	data := browserAction(t, ctx, browserActionGetText, nil)
+	data := browserAction(ctx, t, browserActionGetText, nil)
 	result := browserTextResponse{}
 	require.NoError(t, json.Unmarshal(data, &result))
 
 	return result.Text
 }
 
-func browserElement(t *testing.T, ctx context.Context, selector string) string {
+func browserElement(ctx context.Context, t *testing.T, selector string) string {
 	t.Helper()
 
-	data := browserAction(t, ctx, browserActionGetElement, map[string]any{
+	data := browserAction(ctx, t, browserActionGetElement, map[string]any{
 		browserSelectorKey: selector,
 	})
 	result := browserElementResponse{}
@@ -1104,10 +1106,10 @@ func browserElement(t *testing.T, ctx context.Context, selector string) string {
 	return result.Text
 }
 
-func browserNetworkLog(t *testing.T, ctx context.Context) []browserLog {
+func browserNetworkLog(ctx context.Context, t *testing.T) []browserLog {
 	t.Helper()
 
-	data := browserAction(t, ctx, browserActionNetworkRead, nil)
+	data := browserAction(ctx, t, browserActionNetworkRead, nil)
 	result := browserLogResponse{}
 	require.NoError(t, json.Unmarshal(data, &result))
 	require.Equal(t, result.Count, len(result.Log))
@@ -1115,10 +1117,10 @@ func browserNetworkLog(t *testing.T, ctx context.Context) []browserLog {
 	return result.Log
 }
 
-func browserConsoleLog(t *testing.T, ctx context.Context) []browserLog {
+func browserConsoleLog(ctx context.Context, t *testing.T) []browserLog {
 	t.Helper()
 
-	data := browserAction(t, ctx, browserActionConsoleRead, nil)
+	data := browserAction(ctx, t, browserActionConsoleRead, nil)
 	result := browserLogResponse{}
 	require.NoError(t, json.Unmarshal(data, &result))
 	require.Equal(t, result.Count, len(result.Log))
@@ -1243,18 +1245,18 @@ func requireSafeBrowserDiagnostics(t *testing.T, entries []browserLog) {
 	}
 
 	require.Greater(t, seenDiagnostics, 0)
-	for _, event := range expectedBrowserDiagnostics {
+	for _, event := range expectedBrowserDiagnostics() {
 		require.Truef(t, seenEvents[event], "missing browser diagnostic %q", event)
 	}
 }
 
-func requireScreenshot(t *testing.T, ctx context.Context) {
+func requireScreenshot(ctx context.Context, t *testing.T) {
 	t.Helper()
 
-	requireNamedScreenshot(t, ctx, browserScreenshotBaseName)
+	requireNamedScreenshot(ctx, t, browserScreenshotBaseName)
 }
 
-func requireNamedScreenshot(t *testing.T, ctx context.Context, name string) {
+func requireNamedScreenshot(ctx context.Context, t *testing.T, name string) {
 	t.Helper()
 
 	screenshot, err := stealthyBrowser.screenshot(ctx)
@@ -1270,6 +1272,7 @@ func requireNamedScreenshot(t *testing.T, ctx context.Context, name string) {
 
 	artifactDirectory := t.TempDir()
 	if configuredRoot := os.Getenv(browserArtifactRootEnv); configuredRoot != "" {
+		//nolint:gosec // The root is the test operator's own artifact setting.
 		info, statErr := os.Stat(configuredRoot)
 		require.NoError(t, statErr)
 		require.True(t, info.IsDir())
@@ -1279,6 +1282,7 @@ func requireNamedScreenshot(t *testing.T, ctx context.Context, name string) {
 	}
 
 	artifactPath := filepath.Join(artifactDirectory, name+".png")
+	//nolint:gosec // The path sits under the operator's own artifact root.
 	require.NoError(t, os.WriteFile(artifactPath, screenshot, 0o600))
 	t.Logf(
 		"browser screenshot path=%s dimensions=%dx%d",

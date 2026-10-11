@@ -43,7 +43,7 @@ const (
 	// Process.Wait returns. See exitCodeFromWaitError.
 	exitCodeMarker = "(exit "
 
-	jobOperationRunCommand = "run_command"
+	jobOperationRunCommand = "runCommand"
 	jobOutputStdout        = "stdout"
 	jobOutputStderr        = "stderr"
 )
@@ -142,7 +142,7 @@ type JobSnapshot struct {
 }
 
 // Snapshot copies every field a caller outside this package may read,
-// so list_jobs, read_job_output, wait_job, and signal_job never touch a
+// so listJobs, readJobOutput, waitJob, and signalJob never touch a
 // Job's internal locks directly.
 func (j *Job) Snapshot() JobSnapshot {
 	j.mu.RLock()
@@ -968,12 +968,12 @@ func recoverAndLog(ctx context.Context, label string) {
 	)
 }
 
-// toolCallIDKey is the unexported context key run_command's caller uses to
+// toolCallIDKey is the unexported context key runCommand's caller uses to
 // attach the tool-call ID Elelem assigned to this invocation.
 type toolCallIDKey struct{}
 
 // ContextWithToolCallID attaches the tool-call ID that started this
-// invocation of run_command, so the resulting job records which specific
+// invocation of runCommand, so the resulting job records which specific
 // call started it. The tools package cannot learn this ID from the model's
 // JSON arguments; the caller must set it on ctx before invoking RunCommand.
 func ContextWithToolCallID(
@@ -992,8 +992,8 @@ func toolCallIDFromContext(ctx context.Context) string {
 }
 
 // JobExecutor extends Executor with the session-scoped job registry that
-// process-oriented tools need: run_command, list_jobs, read_job_output,
-// wait_job, and signal_job. It embeds Executor so every other host tool
+// process-oriented tools need: runCommand, listJobs, readJobOutput,
+// waitJob, and signalJob. It embeds Executor so every other host tool
 // method stays available unchanged on the same value; a caller can use a
 // JobExecutor everywhere it previously used a plain Executor.
 type JobExecutor struct {

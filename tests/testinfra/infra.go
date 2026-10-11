@@ -94,6 +94,14 @@ exec /app/app run`
 	// production container for API integration tests.
 	TestAPIToken = "EXAMPLE-DO-NOT-USE"
 
+	// TestProviderKey is the deliberately fake provider credential the
+	// controller holds in the variable named by the test provider's
+	// apiKeyEnv. A command the agent runs must never see it.
+	TestProviderKey = "EXAMPLE-PROVIDER-KEY-DO-NOT-USE"
+
+	// ProviderKeyEnvName is the variable that holds TestProviderKey.
+	ProviderKeyEnvName = "PEEN_TEST_PROVIDER_KEY"
+
 	// providerRoleSystem, providerRoleUser, providerRoleAssistant, and
 	// providerRoleTool are the transcript roles the OpenAI wire format uses
 	// for fixture messages. A scripted turn counts tool results to select its
@@ -104,10 +112,10 @@ exec /app/app run`
 	providerRoleTool      = "tool"
 
 	// These names match internal/pkg/agent/tools.go's registrations.
-	scriptedToolNameReadFile   = "read_file"
-	scriptedToolNameEditFile   = "edit_file"
-	scriptedToolNameApplyPatch = "apply_patch"
-	scriptedToolNameRunCommand = "run_command"
+	scriptedToolNameReadFile   = "readFile"
+	scriptedToolNameEditFile   = "editFile"
+	scriptedToolNameApplyPatch = "applyPatch"
+	scriptedToolNameRunCommand = "runCommand"
 
 	// These fixed call IDs let tests pair durable tool messages and SSE blocks.
 	ScriptedCallIDReadFile   = "call-scripted-read-file"
@@ -640,7 +648,7 @@ func (i *Infra) ModelDiscoveryObserved() bool {
 	return i.provider != nil && i.provider.modelsListed.Load()
 }
 
-// ScriptedToolTurn drives read_file, one mutation, run_command, and a final
+// ScriptedToolTurn drives readFile, one mutation, runCommand, and a final
 // answer. UserMessage anchors the sequence in a durable transcript so old
 // tool results from an earlier test turn cannot change its first round. Set
 // exactly one of EditFileArguments and ApplyPatchArguments.
@@ -1399,9 +1407,10 @@ func appEnvironment(
 	metricsListenAddress string,
 ) (map[string]string, error) {
 	upstreams, err := json.Marshal([]map[string]string{{
-		"name":    providerName,
-		"type":    providerType,
-		"baseUrl": providerBaseURL,
+		"name":      providerName,
+		"type":      providerType,
+		"baseUrl":   providerBaseURL,
+		"apiKeyEnv": ProviderKeyEnvName,
 	}})
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "marshal test provider configuration")
@@ -1416,6 +1425,7 @@ func appEnvironment(
 		"PEEN_UPSTREAMS":              string(upstreams),
 		"PEEN_DEFAULT_MODEL":          providerModelReference,
 		"PEEN_API_TOKEN":              TestAPIToken,
+		ProviderKeyEnvName:            TestProviderKey,
 	}, nil
 }
 

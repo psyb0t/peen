@@ -15,7 +15,6 @@ const (
 	testCoreGeneralPurpose   = CorePrefix + embeddedGeneralPurposeAgentName
 	testCustomPlanningBody   = "custom planning content"
 	testCustomAgentBody      = "custom general purpose instructions"
-	testLegacyDefaultAgent   = "default"
 	testUnknownCoreName      = "bogus"
 	testCustomReviewerAgent  = "reviewer"
 	testMissingAgentName     = "missing-agent"
@@ -338,13 +337,6 @@ func TestParseDisabledCoreSelection(t *testing.T) {
 			raw:   "all",
 			want:  []string{embeddedGeneralPurposeAgentName},
 		},
-		{
-			name:       "legacy default is not a core agent",
-			parse:      ParseDisabledCoreAgents,
-			raw:        testLegacyDefaultAgent,
-			wantErr:    true,
-			wantInText: []string{testLegacyDefaultAgent, embeddedGeneralPurposeAgentName, "all"},
-		},
 	}
 
 	for _, tc := range testCases {
@@ -584,29 +576,6 @@ func TestDisabledCoreAgentIsGone(t *testing.T) {
 	assert.Equal(t, agentCatalogueEmpty, renderAgentCatalogue(snapshot.Agents()))
 }
 
-func TestLegacyDefaultAgentNamesTheCoreAgent(t *testing.T) {
-	t.Parallel()
-
-	fixture := newResolverFixture(t)
-	snapshot := resolveWithOptions(t, fixture)
-
-	_, err := snapshot.Agent(testLegacyDefaultAgent)
-	require.ErrorIs(t, err, ErrAgentNotFound)
-	assert.Contains(t, err.Error(), testCoreGeneralPurpose)
-
-	fixture.writeAgent(
-		t,
-		fixture.configRoot,
-		testLegacyDefaultAgent,
-		"custom default",
-		testCustomAgentBody,
-	)
-
-	agent, err := resolveWithOptions(t, fixture).Agent(testLegacyDefaultAgent)
-	require.NoError(t, err)
-	assert.Equal(t, testLegacyDefaultAgent, agent.Name)
-}
-
 func TestCustomNamesCannotCarryTheCorePrefix(t *testing.T) {
 	t.Parallel()
 
@@ -723,26 +692,6 @@ func TestCheckRootAgent(t *testing.T) {
 			},
 		},
 		{
-			name:  "custom legacy default",
-			agent: testLegacyDefaultAgent,
-			setup: func(t *testing.T, fixture resolverFixture) {
-				t.Helper()
-				fixture.writeAgent(
-					t,
-					fixture.configRoot,
-					testLegacyDefaultAgent,
-					"custom",
-					testAgentBody,
-				)
-			},
-		},
-		{
-			name:     "legacy default without a custom agent",
-			agent:    testLegacyDefaultAgent,
-			wantErr:  true,
-			wantText: testCoreGeneralPurpose,
-		},
-		{
 			// A plain name may be defined only inside a workspace, which
 			// startup cannot see, so it resolves per turn instead.
 			name:  "plain name absent at startup",
@@ -802,7 +751,6 @@ func TestValidateCoreAgentReference(t *testing.T) {
 	t.Parallel()
 
 	require.NoError(t, ValidateCoreAgentReference(testCoreGeneralPurpose, nil))
-	require.NoError(t, ValidateCoreAgentReference(testLegacyDefaultAgent, nil))
 	require.NoError(t, ValidateCoreAgentReference(testMissingAgentName, nil))
 
 	err := ValidateCoreAgentReference(

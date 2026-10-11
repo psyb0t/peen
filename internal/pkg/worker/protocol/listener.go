@@ -395,7 +395,7 @@ func (w *Worker) SignalJob(
 	if err := json.Unmarshal(payload, &result); err != nil {
 		return SignalJobResult{}, ctxerrors.Wrap(
 			err,
-			"decode the signal_job result",
+			"decode the signalJob result",
 		)
 	}
 

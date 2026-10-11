@@ -1,6 +1,6 @@
 package agent
 
-// launch_agent runs a named or ad-hoc child agent on a task and returns its
+// launchAgent runs a named or ad-hoc child agent on a task and returns its
 // final response, sharing this turn's session, working directory, resolved
 // rules, tool registry, and model.
 
@@ -25,7 +25,7 @@ that names an unknown skill fails this call and lists the available skills.
 The child shares this session, its working directory, the same resolved
 rules and tools, and the same model. It cannot select its own credentials,
 provider, or model, and runs with a bounded turn budget and a bounded
-recursion depth, so it may itself call launch_agent up to that depth.
+recursion depth, so it may itself call launchAgent up to that depth.
 This call is synchronous: it blocks until the child finishes and returns
 its final answer. If this specific run is cancelled while running, the call
 still succeeds and reports that it was cancelled instead of ending your

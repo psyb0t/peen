@@ -128,9 +128,9 @@ add_supplementary_groups() {
 	log INFO "added the worker account to its supplementary groups"
 }
 
-# grant_sudo is reached only for a profile the operator marked
-# allowPrivilegeEscalation. Every other profile leaves the image's sudoers
-# untouched, so sudo has nothing to authorize.
+# grant_sudo is reached only for a Docker profile the operator marked
+# sudo: true. Every other profile leaves the image's sudoers untouched, so sudo
+# has nothing to authorize.
 grant_sudo() {
 	local username="$1"
 

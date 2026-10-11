@@ -25,9 +25,9 @@ type Core struct {
 	Handle    *db.Handle
 	Sessions  *Registry
 
-	// Profiles are the deployment's allowed execution profiles. The API reads
+	// AgentSpaces are the deployment's allowed agent spaces. The API reads
 	// them so a client can see what it may name.
-	Profiles *worker.ProfileSet
+	AgentSpaces *worker.AgentSpaceSet
 
 	// Workers supervises this controller's session workers. Shutdown stops
 	// them through it, so no worker outlives the controller that launched it.
@@ -47,7 +47,7 @@ type Core struct {
 
 func (c *Core) validate() error {
 	if c.Runtime == nil || c.Store == nil || c.Handle == nil ||
-		c.Sessions == nil || c.Profiles == nil || c.Metrics == nil ||
+		c.Sessions == nil || c.AgentSpaces == nil || c.Metrics == nil ||
 		c.Workers == nil || c.Turns == nil || c.Events == nil {
 		return ctxerrors.Wrap(commerr.ErrRequiredFieldNotSet, "control core")
 	}

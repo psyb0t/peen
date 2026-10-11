@@ -22,14 +22,14 @@ import (
 const (
 	hostToolsUserMessage = "run the scripted host tools sequence"
 
-	hostToolsToolNameReadFile   = "read_file"
-	hostToolsToolNameEditFile   = "edit_file"
-	hostToolsToolNameApplyPatch = "apply_patch"
-	hostToolsToolNameRunCommand = "run_command"
+	hostToolsToolNameReadFile   = "readFile"
+	hostToolsToolNameEditFile   = "editFile"
+	hostToolsToolNameApplyPatch = "applyPatch"
+	hostToolsToolNameRunCommand = "runCommand"
 
 	// hostToolsMessageCount is one user message, three assistant/tool round
 	// pairs, and the final assistant answer. The command finishes inside its
-	// own run_command call, so no job.exited event follows it: the tool
+	// own runCommand call, so no job.exited event follows it: the tool
 	// result already carries the outcome.
 	hostToolsMessageCount = 8
 
@@ -57,7 +57,7 @@ const (
 
 	// hostToolsFixtureHeredoc is the quoted heredoc delimiter used to seed a
 	// fixture file through the app container's own shell, as the app's own
-	// runtime user, so a later edit_file rename-replace lands on a file this
+	// runtime user, so a later editFile rename-replace lands on a file this
 	// process already owns rather than one dropped in by CopyToContainer
 	// (which extracts as root regardless of the container's configured
 	// user).
@@ -86,7 +86,7 @@ const (
 	hostToolsFinalAnswerFail = "host tools turn complete despite a failed edit"
 )
 
-// hostToolsScenario is one scripted read_file/edit_file/run_command/answer
+// hostToolsScenario is one scripted readFile/editFile/runCommand/answer
 // conversation, driven against its own fixture file so successful and
 // failing-edit runs never touch each other's state.
 type hostToolsScenario struct {
@@ -147,7 +147,7 @@ func TestAPIHostToolsProductionWiring(t *testing.T) {
 	})
 }
 
-// A command still running when its run_command call returns finishes as a
+// A command still running when its runCommand call returns finishes as a
 // background job. Its job.exited event goes through the real job registry and
 // event bus, is stored as a session notice, and opens the next turn as an
 // injected update.
@@ -222,8 +222,8 @@ func hasNoticeOfType(t *testing.T, sessionID uuid.UUID, noticeType string) bool 
 }
 
 // runHostToolsScenario seeds the scenario's fixture file, scripts the
-// provider mock to request read_file, edit_file, and run_command in order,
-// drives one turn over the requested transport, and confirms run_command
+// provider mock to request readFile, editFile, and runCommand in order,
+// drives one turn over the requested transport, and confirms runCommand
 // actually touched the workspace before returning.
 func runHostToolsScenario(
 	t *testing.T,
@@ -249,7 +249,7 @@ func runHostToolsScenario(
 		},
 		RunCommandArguments: map[string]any{
 			"command": "printf '" + hostToolsCommandRanBy + "' > " + commandPath,
-			// purpose is required: run_command records why a job was started
+			// purpose is required: runCommand records why a job was started
 			// so a later turn can tell what a running process is for.
 			"purpose": "write the marker file this test checks for",
 		},

@@ -73,6 +73,7 @@ type Runtime struct {
 	compactionOptions compactionOptions
 
 	toolLimits           tools.Limits
+	commandEnvironment   []string
 	maxToolRounds        int
 	maxConcurrentTools   int
 	toolTimeout          time.Duration
@@ -235,6 +236,7 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 		compactionMode:       compactionMode,
 		compactionOptions:    compaction,
 		toolLimits:           options.ToolLimits,
+		commandEnvironment:   options.CommandEnvironment,
 		maxToolRounds:        options.MaxToolRounds,
 		maxConcurrentTools:   options.MaxConcurrentTools,
 		toolTimeout:          options.ToolTimeout,
@@ -689,7 +691,7 @@ func (r *Runtime) openPrompt(
 	}
 
 	// Created means "this turn is the session's first", which is what
-	// session_start and TurnResult.Created report.
+	// sessionStart and TurnResult.Created report.
 	opened := &session.OpenSessionResult{
 		Session: stored,
 		Created: firstTurn,
@@ -780,8 +782,9 @@ func (r *Runtime) openTurnExecutor(
 	}
 
 	executor, err := tools.NewExecutor(tools.Options{
-		Workspace: basis.workspace,
-		Limits:    r.toolLimits,
+		Workspace:   basis.workspace,
+		Limits:      r.toolLimits,
+		Environment: r.commandEnvironment,
 	})
 	if err != nil {
 		return nil, uuid.Nil, ctxerrors.Wrap(err, "create the tool executor")
@@ -819,7 +822,7 @@ func (r *Runtime) openTurnExecutor(
 	return jobExecutor, r.workerGenerationID, nil
 }
 
-// launchAgentDeps bundles what this turn's launch_agent tool needs to run a
+// launchAgentDeps bundles what this turn's launchAgent tool needs to run a
 // child conversation sharing this turn's session, workspace, resolved
 // rules, tool registry, and model.
 func (r *Runtime) launchAgentDeps(prepared *preparedTurn) *launchAgentDeps {
@@ -1266,7 +1269,7 @@ func (r *Runtime) resolveTurnSession(
 // isFirstTurn reports whether the session has never started a turn.
 //
 // The controller creates the session row and the worker only resumes it, so
-// "who created the session" cannot decide session_start. Durable turn history
+// "who created the session" cannot decide sessionStart. Durable turn history
 // can, and it also survives a worker restart. The caller asks before it
 // records the turn that is about to run; a concurrent turn on the same session
 // is rejected by the lease, so only one of them can go on to run the hook.

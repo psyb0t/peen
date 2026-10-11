@@ -272,14 +272,3 @@ func TestConfigureNamesTheRetentionRuleForAPartialDay(t *testing.T) {
 	require.ErrorIs(t, err, commerr.ErrValidationFailed)
 	assert.Contains(t, err.Error(), "a multiple of 24h")
 }
-
-func TestNewDailyHandlerRejectsRemovedRetentionDaysVariable(t *testing.T) {
-	_, err := NewDailyHandler(Config{
-		Directory:            t.TempDir(),
-		RemovedRetentionDays: "14",
-	})
-
-	require.ErrorIs(t, err, commerr.ErrValidationFailed)
-	assert.Contains(t, err.Error(), "PEEN_LOG_RETENTION")
-	assert.Contains(t, err.Error(), "336h")
-}

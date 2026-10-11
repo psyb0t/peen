@@ -140,7 +140,7 @@ func TestEntrypointPassesThroughWhenNotRoot(t *testing.T) {
 		"touch",
 		marker,
 	)
-	// A privileged profile's variables are set here on purpose: a non-root
+	// A sudo profile's variables are set here on purpose: a non-root
 	// container must ignore them rather than act on them.
 	command.Env = append(
 		os.Environ(),
@@ -173,7 +173,7 @@ func TestEntrypointRefusesRootWithoutAnIdentity(t *testing.T) {
 }
 
 // The sudoers rule is written only behind the allow-sudo flag the launcher sets
-// for a privilege-escalation profile, and only for the worker's own account.
+// for a `sudo: true` profile, and only for the worker's own account.
 func TestEntrypointGrantsSudoOnlyWhenTheProfileAllowsIt(t *testing.T) {
 	t.Parallel()
 

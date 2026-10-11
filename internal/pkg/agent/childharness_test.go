@@ -274,7 +274,7 @@ func TestLaunchAgentChildPromptCarriesBaseSystemInstructions(t *testing.T) {
 // which tools it held, what it answered, what it was thinking, and how it
 // ended. The durable event stream has to carry the same run identity.
 //
-// The child here is restricted to read_file and produces both thinking and
+// The child here is restricted to readFile and produces both thinking and
 // text, so the tools, thinking, and response fields are all non-empty rather
 // than trivially equal to their zero values.
 func TestLaunchAgentChildRunIsFullyReplayable(t *testing.T) {
@@ -357,7 +357,7 @@ func TestLaunchAgentChildRunIsFullyReplayable(t *testing.T) {
 	assert.Equal(t, childHarnessReplayTask, stored.Task, "task")
 	assert.Equal(
 		t,
-		`["read_file"]`,
+		`["readFile"]`,
 		stored.AllowedToolsJSON,
 		"the child's restricted tool set is durable",
 	)
@@ -433,22 +433,22 @@ func TestLaunchAgentChildRunsGenericAndFileToolHooks(t *testing.T) {
 		childHarnessReadContent,
 	)
 	writeChildHarnessHooks(t, fixture, `version: 1
-pre_tool_use:
+preToolUse:
   - name: generic-pre
     actions:
       - type: inject
         message: `+childHarnessGenericPreMark+`
-pre_read_file:
+preReadFile:
   - name: file-pre
     actions:
       - type: inject
         message: `+childHarnessFilePreMark+`
-post_read_file:
+postReadFile:
   - name: file-success
     actions:
       - type: inject
         message: `+childHarnessFileSuccessMark+`
-post_tool_use:
+postToolUse:
   - name: generic-post
     actions:
       - type: inject
@@ -517,7 +517,7 @@ func TestLaunchAgentChildToolHookCommandReceivesRootRequestID(t *testing.T) {
 	))
 
 	writeChildHarnessHooks(t, fixture, `version: 1
-pre_read_file:
+preReadFile:
   - name: capture-invocation
     actions:
       - name: capture
@@ -590,12 +590,12 @@ func TestLaunchAgentChildRunsToolFailureHooks(t *testing.T) {
 	fixture := childHarnessFixture(t, driver)
 
 	writeChildHarnessHooks(t, fixture, `version: 1
-tool_use_failure:
+toolUseFailure:
   - name: generic-failure
     actions:
       - type: inject
         message: `+childHarnessGenericFailMark+`
-read_file_failure:
+readFileFailure:
   - name: file-failure
     actions:
       - type: inject
@@ -626,7 +626,7 @@ func TestLaunchAgentChildToolHookDenyStopsTheTool(t *testing.T) {
 	fixture := childHarnessFixture(t, driver)
 
 	writeChildHarnessHooks(t, fixture, `version: 1
-pre_write_file:
+preWriteFile:
   - name: block-writes
     actions:
       - type: deny
@@ -656,11 +656,11 @@ pre_write_file:
 // A child is neither a user message nor a new session, so the user-message and
 // session lifecycle hooks must not fire for it.
 //
-// turn_start, turn_stop, and turn_cancelled are parent-turn lifecycle events
+// turnStart, turnStop, and turnCancelled are parent-turn lifecycle events
 // rather than child-model-call events. They run from the turn's lease in
 // startLease, completeLease, and the cancellation path, all of which key on
 // the preparedTurn. A child is one model call inside that turn: it is launched
-// after turn_start already fired and it finishes before turn_stop fires, so
+// after turnStart already fired and it finishes before turnStop fires, so
 // firing them per child would report several turn starts for one turn.
 //
 // These events inject before the model, which lands them in the system prompt
@@ -671,27 +671,27 @@ func TestLaunchAgentChildDoesNotRunUserOrSessionLifecycleHooks(t *testing.T) {
 	fixture := childHarnessFixture(t, driver)
 
 	writeChildHarnessHooks(t, fixture, `version: 1
-session_start:
+sessionStart:
   - name: session-start
     actions:
       - type: inject
         message: `+childHarnessSessionStartMark+`
-pre_user_message:
+preUserMessage:
   - name: pre-user-message
     actions:
       - type: inject
         message: `+childHarnessPreUserMessageMark+`
-post_user_message:
+postUserMessage:
   - name: post-user-message
     actions:
       - type: inject
         message: `+childHarnessPostUserMessageMark+`
-turn_start:
+turnStart:
   - name: turn-start
     actions:
       - type: inject
         message: `+childHarnessTurnStartMark+`
-turn_stop:
+turnStop:
   - name: turn-stop
     actions:
       - type: inject

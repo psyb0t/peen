@@ -22,9 +22,10 @@ import (
 )
 
 const (
-	testProfileNative = worker.ProfileNative
-	testProfileDocker = worker.ProfileDockerSandbox
-	testDockerImage   = "psyb0t/peen@sha256:" +
+	testSpaceControl = worker.AgentSpaceControl
+	testSpaceDocker  = "docker:sandbox"
+	testSpaceUnknown = "docker:never-defined"
+	testDockerImage  = "psyb0t/peen@sha256:" +
 		"1111111111111111111111111111111111111111111111111111111111111111"
 	testSocketRootMode os.FileMode = 0o700
 	testWrittenMessage             = "written through the worker protocol"
@@ -207,38 +208,40 @@ func newFixture(t *testing.T, connect bool) fixture {
 		t.Context(),
 		t.TempDir(),
 		session.OpenSessionOptions{
-			RootAgent:        "peen",
-			ModelID:          "provider/model",
-			ExecutionProfile: testProfileNative,
+			RootAgent:  "peen",
+			ModelID:    "provider/model",
+			AgentSpace: testSpaceControl,
 		},
 	)
 	require.NoError(t, err)
 
-	profiles, err := worker.NewProfileSet(
-		[]worker.Profile{
-			{Name: testProfileNative, Kind: worker.KindNative, Revision: 1},
+	agentSpaces, err := worker.NewAgentSpaceSet(
+		[]worker.AgentSpace{
+			{Name: testSpaceControl, Kind: worker.KindControl, Revision: 1},
 			{
-				Name:     testProfileDocker,
+				Name:     testSpaceDocker,
 				Kind:     worker.KindDocker,
 				Revision: 2,
 				Image:    testDockerImage,
+				Docker:   worker.DockerAccessNone,
+				Network:  worker.NetworkModeBridge,
 			},
 		},
-		testProfileNative,
+		testSpaceControl,
 	)
 	require.NoError(t, err)
 
 	launcher := &fakeLauncher{
-		kind:    worker.KindNative,
+		kind:    worker.KindControl,
 		connect: connect,
 		t:       t,
 	}
 
 	supervised, err := supervisor.New(supervisor.Options{
-		Store:    store,
-		Profiles: profiles,
+		Store:       store,
+		AgentSpaces: agentSpaces,
 		Launchers: map[worker.Kind]worker.Launcher{
-			worker.KindNative: launcher,
+			worker.KindControl: launcher,
 		},
 		SocketRoot:      socketRoot(t),
 		ConfigDirectory: t.TempDir(),
@@ -266,9 +269,9 @@ func (f fixture) ensure(t *testing.T) *protocol.Worker {
 	registered, err := f.supervisor.Ensure(
 		t.Context(),
 		supervisor.EnsureRequest{
-			SessionID:   f.sessionID,
-			Workspace:   f.workspace,
-			ProfileName: testProfileNative,
+			SessionID:      f.sessionID,
+			Workspace:      f.workspace,
+			AgentSpaceName: testSpaceControl,
 		},
 	)
 	require.NoError(t, err)
@@ -299,8 +302,9 @@ func TestSupervisorRecordsAGenerationThenMarksItReady(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, string(worker.StateReady), current.State)
-	assert.Equal(t, testProfileNative, current.Profile)
-	assert.Equal(t, int64(1), current.ProfileRevision)
+	assert.Equal(t, testSpaceControl, current.AgentSpace)
+	assert.Equal(t, int64(1), current.AgentSpaceRevision)
+	assert.Equal(t, string(worker.KindControl), current.Kind)
 	assert.Equal(t, testProcessID, current.ProcessID)
 	require.NotNil(t, current.StartedAt)
 
@@ -322,9 +326,9 @@ func TestSupervisorReadiesAWorkerThatRegistersAfterLaunchReturns(t *testing.T) {
 		registered, err := fixture.supervisor.Ensure(
 			t.Context(),
 			supervisor.EnsureRequest{
-				SessionID:   fixture.sessionID,
-				Workspace:   fixture.workspace,
-				ProfileName: testProfileNative,
+				SessionID:      fixture.sessionID,
+				Workspace:      fixture.workspace,
+				AgentSpaceName: testSpaceControl,
 			},
 		)
 		require.NoError(t, err, "launch %d", attempt)
@@ -354,17 +358,17 @@ func TestSupervisorReusesOneWorkerPerSession(t *testing.T) {
 	assert.Equal(t, 1, fixture.launcher.launched)
 }
 
-// A Docker profile on a controller with no Docker socket is refused outright.
-// It never falls back to a native worker.
-func TestSupervisorRefusesADockerProfileWithoutDockerAuthority(t *testing.T) {
+// A Docker agent space on a controller with no Docker socket is refused
+// outright. It never falls back to a control worker.
+func TestSupervisorRefusesADockerSpaceWithoutDockerAuthority(t *testing.T) {
 	fixture := newFixture(t, true)
 
 	_, err := fixture.supervisor.Ensure(
 		t.Context(),
 		supervisor.EnsureRequest{
-			SessionID:   fixture.sessionID,
-			Workspace:   fixture.workspace,
-			ProfileName: testProfileDocker,
+			SessionID:      fixture.sessionID,
+			Workspace:      fixture.workspace,
+			AgentSpaceName: testSpaceDocker,
 		},
 	)
 
@@ -372,7 +376,7 @@ func TestSupervisorRefusesADockerProfileWithoutDockerAuthority(t *testing.T) {
 	assert.Zero(
 		t,
 		fixture.launcher.launched,
-		"a refused Docker profile must not launch a native worker instead",
+		"a refused Docker agent space must not launch a control worker instead",
 	)
 
 	_, err = fixture.store.CurrentWorkerGeneration(
@@ -383,20 +387,21 @@ func TestSupervisorRefusesADockerProfileWithoutDockerAuthority(t *testing.T) {
 		t,
 		err,
 		commerr.ErrNotFound,
-		"a refused profile must not record a generation",
+		"a refused agent space must not record a generation",
 	)
 }
 
-// A profile the operator never defined is refused before anything is recorded.
-func TestSupervisorRefusesAnUndefinedProfile(t *testing.T) {
+// An agent space the deployment never offered is refused before anything is
+// recorded.
+func TestSupervisorRefusesAnUndefinedAgentSpace(t *testing.T) {
 	fixture := newFixture(t, true)
 
 	_, err := fixture.supervisor.Ensure(
 		t.Context(),
 		supervisor.EnsureRequest{
-			SessionID:   fixture.sessionID,
-			Workspace:   fixture.workspace,
-			ProfileName: worker.ProfileDockerHostLike,
+			SessionID:      fixture.sessionID,
+			Workspace:      fixture.workspace,
+			AgentSpaceName: testSpaceUnknown,
 		},
 	)
 
@@ -411,9 +416,9 @@ func TestSupervisorFailsAGenerationThatNeverRegisters(t *testing.T) {
 	_, err := fixture.supervisor.Ensure(
 		t.Context(),
 		supervisor.EnsureRequest{
-			SessionID:   fixture.sessionID,
-			Workspace:   fixture.workspace,
-			ProfileName: testProfileNative,
+			SessionID:      fixture.sessionID,
+			Workspace:      fixture.workspace,
+			AgentSpaceName: testSpaceControl,
 		},
 	)
 	require.ErrorIs(t, err, worker.ErrWorkerLaunchFailed)

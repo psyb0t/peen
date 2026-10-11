@@ -17,22 +17,22 @@ import (
 )
 
 const (
-	toolNameListFiles     = "list_files"
-	toolNameSearchText    = "search_text"
-	toolNameReadFile      = "read_file"
-	toolNameWriteFile     = "write_file"
-	toolNameEditFile      = "edit_file"
-	toolNameApplyPatch    = "apply_patch"
-	toolNameMovePath      = "move_path"
-	toolNameMakeDirectory = "make_directory"
-	toolNameRemovePath    = "remove_path"
-	toolNameRunCommand    = "run_command"
-	toolNameListJobs      = "list_jobs"
-	toolNameReadJobOutput = "read_job_output"
-	toolNameWaitJob       = "wait_job"
-	toolNameSignalJob     = "signal_job"
-	toolNameUseSkill      = "use_skill"
-	toolNameLaunchAgent   = "launch_agent"
+	toolNameListFiles     = "listFiles"
+	toolNameSearchText    = "searchText"
+	toolNameReadFile      = "readFile"
+	toolNameWriteFile     = "writeFile"
+	toolNameEditFile      = "editFile"
+	toolNameApplyPatch    = "applyPatch"
+	toolNameMovePath      = "movePath"
+	toolNameMakeDirectory = "makeDirectory"
+	toolNameRemovePath    = "removePath"
+	toolNameRunCommand    = "runCommand"
+	toolNameListJobs      = "listJobs"
+	toolNameReadJobOutput = "readJobOutput"
+	toolNameWaitJob       = "waitJob"
+	toolNameSignalJob     = "signalJob"
+	toolNameUseSkill      = "useSkill"
+	toolNameLaunchAgent   = "launchAgent"
 
 	errorLocationMarker = " ["
 	unknownToolError    = "tool failed"
@@ -44,7 +44,7 @@ const (
 // adapter over it. snapshot is the turn's already-resolved harness context,
 // which backs the skill tools only.
 //
-// launch_agent is deliberately NOT registered here: it needs a
+// launchAgent is deliberately NOT registered here: it needs a
 // *launchAgentDeps that this function has no parameter for, and both of its
 // callers (Runtime.runProvider and Runtime.runChildAgent) already build one.
 // They add it with ToolSet.Add after calling this, via launchAgentTool.
@@ -361,10 +361,10 @@ func hostToolHandler[Input any, Output any](
 		ctx context.Context,
 		call elelem.ToolInput,
 	) (elelem.ToolResult, error) {
-		// run_command records which call started a job, and the tools package
+		// runCommand records which call started a job, and the tools package
 		// cannot learn the ID from the model's JSON arguments.
 		ctx = tools.ContextWithToolCallID(ctx, call.CallID)
-		// launch_agent records the same ID as the started run's parent tool
+		// launchAgent records the same ID as the started run's parent tool
 		// call, for internal transcript correlation.
 		ctx = contextWithParentToolCallID(ctx, call.CallID)
 

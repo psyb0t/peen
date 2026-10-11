@@ -33,7 +33,7 @@ const (
 
 	// agentEventSource identifies this package as the origin of agent.*
 	// events, matching tools.jobEventSource for job.* events.
-	agentEventSource = "agent.launch_agent"
+	agentEventSource = "agent.launchAgent"
 )
 
 // AgentRunDefinition names whether a run's child came from a stored agent
@@ -57,7 +57,7 @@ const (
 	AgentRunDefinitionAdHoc AgentRunDefinition = "ad-hoc"
 )
 
-// AgentRunState names the lifecycle stage of one launch_agent run. It is an
+// AgentRunState names the lifecycle stage of one launchAgent run. It is an
 // alias because it carries no behavior and crosses the JSON tool boundary as
 // a plain string.
 //
@@ -78,11 +78,11 @@ const (
 	AgentRunStateCancelled AgentRunState = "cancelled"
 )
 
-// AgentRunLimits bounds launch_agent work. Zero fields take the default.
+// AgentRunLimits bounds launchAgent work. Zero fields take the default.
 //
 //nolint:revive // See the comment on AgentRunDefinition above.
 type AgentRunLimits struct {
-	// MaxDepth bounds how many launch_agent calls may nest: the root turn is
+	// MaxDepth bounds how many launchAgent calls may nest: the root turn is
 	// depth 0, its first child is depth 1, and so on.
 	MaxDepth int
 	// MaxChildTurns bounds one child conversation's own tool rounds,
@@ -186,7 +186,7 @@ type AgentRunEvent struct {
 // events, mirroring tools' unexported jobBuffer in shape: bounded by BOTH
 // event count and total payload bytes, oldest dropped first. The tools
 // package owns process output buffering; this is the equivalent for a child
-// agent's own event stream, kept in this package because launch_agent events
+// agent's own event stream, kept in this package because launchAgent events
 // are never process output.
 type agentRunEventBuffer struct {
 	mu       sync.Mutex
@@ -305,7 +305,7 @@ func (b *agentRunEventBuffer) Stats() (int, int) {
 }
 
 // AgentRun is one execution of a named or ad-hoc child agent launched by
-// launch_agent. The identity fields are set once at creation and never
+// launchAgent. The identity fields are set once at creation and never
 // change; state and EndedAt are read and written through mu so a concurrent
 // reader never observes a torn update.
 //
@@ -441,7 +441,7 @@ func NewAgentRunRegistry(
 	}, nil
 }
 
-// StartAgentRunInput describes one launch_agent invocation about to run.
+// StartAgentRunInput describes one launchAgent invocation about to run.
 type StartAgentRunInput struct {
 	ID               uuid.UUID
 	ParentTurnID     uuid.UUID

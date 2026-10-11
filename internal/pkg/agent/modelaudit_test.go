@@ -155,7 +155,7 @@ func TestModelAuditRecorderPersistsRetryTokenAndCostBreakdown(t *testing.T) {
 		Round:    0,
 		Messages: requestMessages,
 		Tools: []elelem.Tool{{
-			Name:            "read_file",
+			Name:            "readFile",
 			Description:     "Read one file.",
 			ArgumentsSchema: json.RawMessage(`{"type":"object"}`),
 			StrictArguments: true,
@@ -263,7 +263,7 @@ func TestModelAuditRecorderPersistsRetryTokenAndCostBreakdown(t *testing.T) {
 	assert.Equal(t, "0.00027", call.BilledCostAmount)
 	assert.True(t, call.CostKnown)
 	assert.Contains(t, call.RequestMessagesJSON, "inspect the audit record")
-	assert.Contains(t, call.RequestToolsJSON, "read_file")
+	assert.Contains(t, call.RequestToolsJSON, "readFile")
 	assert.Contains(t, call.RetryAttemptsJSON, "provider rate limited")
 	assert.Contains(t, call.ResponseUsageJSON, "cacheWriteLongTtl")
 }

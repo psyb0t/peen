@@ -35,8 +35,8 @@ describe("groupTranscript", () => {
 			role: "assistant",
 			thinking: "look first",
 			toolCalls: [
-				{ arguments: { path: "a.md" }, id: "call-a", name: "read_file" },
-				{ arguments: { path: "b.md" }, id: "call-b", name: "read_file" },
+				{ arguments: { path: "a.md" }, id: "call-a", name: "readFile" },
+				{ arguments: { path: "b.md" }, id: "call-b", name: "readFile" },
 			],
 		});
 		const resultB = message({ content: "B", role: "tool", toolCallId: "call-b" });
@@ -57,11 +57,11 @@ describe("groupTranscript", () => {
 				{ kind: "thinking", text: "look first" },
 				{
 					kind: "tool",
-					name: "read_file",
+					name: "readFile",
 					result: "denied",
 					status: "error",
 				},
-				{ kind: "tool", name: "read_file", result: "B", status: "done" },
+				{ kind: "tool", name: "readFile", result: "B", status: "done" },
 				{ kind: "text", text: "Both read." },
 			],
 			id: call.id,
@@ -167,7 +167,7 @@ describe("groupTranscript skill messages", () => {
 		const prompt = message({ content: "start", role: "user" });
 		const call = message({
 			role: "assistant",
-			toolCalls: [{ arguments: {}, id: "call-a", name: "list_files" }],
+			toolCalls: [{ arguments: {}, id: "call-a", name: "listFiles" }],
 		});
 		const result = message({ content: "ok", role: "tool", toolCallId: "call-a" });
 		const queued = message({ content: "then :core:planning", role: "user" });
@@ -609,7 +609,7 @@ describe("liveReplyBlock", () => {
 				isError: false,
 				key: "k",
 				kind: "tool",
-				name: "write_file",
+				name: "writeFile",
 				result: undefined,
 				toolUseID: "call-write",
 			}),
@@ -617,7 +617,7 @@ describe("liveReplyBlock", () => {
 			arguments: '{\n  "path": "run.sh"\n}',
 			key: "k",
 			kind: "tool",
-			name: "write_file",
+			name: "writeFile",
 			result: undefined,
 			status: "running",
 		});
@@ -630,7 +630,7 @@ describe("liveReplyBlock", () => {
 				isError: true,
 				key: "k",
 				kind: "tool",
-				name: "write_file",
+				name: "writeFile",
 				result: "boom",
 				toolUseID: "call-write",
 			}),

@@ -1,6 +1,6 @@
 // Package docker launches a session worker as a psyb0t/peen sibling container.
 //
-// The container runs the same `peen worker` command a native worker runs, so a
+// The container runs the same `peen worker` command a control worker runs, so a
 // Docker worker is the same program in a different environment rather than a
 // remote tool backend.
 //
@@ -77,7 +77,7 @@ type CreateRequest struct {
 	User string
 
 	// Groups are supplementary group IDs the worker needs, such as the Docker
-	// socket's group when the profile mounts it.
+	// socket's group when the agent space mounts it.
 	Groups []string
 
 	// Env carries HOME, USER, LOGNAME, the configuration directory, and the
@@ -87,8 +87,8 @@ type CreateRequest struct {
 	// WorkingDirectory is the session workspace at its literal host path.
 	WorkingDirectory string
 
-	// NetworkDisabled asks the daemon for an isolated network.
-	NetworkDisabled bool
+	// NetworkMode is the network the agent space names: none, bridge, or host.
+	NetworkMode worker.NetworkMode
 
 	// NoNewPrivileges prevents a non-escalating worker from gaining privilege
 	// after the entrypoint has dropped to the host account.

@@ -26,7 +26,7 @@ func TestMessageInjectionKeepsHookContextAndSessionEventsSeparate(
 
 	block, err := renderHookContext(
 		harness.HookEventPostToolUse,
-		"read_file",
+		"readFile",
 		[]string{hookInjectTestNote},
 	)
 	require.NoError(t, err)
@@ -55,7 +55,7 @@ func TestMessageInjectionKeepsHookContextAndSessionEventsSeparate(
 	assert.Equal(t, elelem.RoleUser, injection.Type)
 	assert.Equal(
 		t,
-		"<hook>\n<event>post_tool_use</event>\n<tool>read_file</tool>\n\n"+
+		"<hook>\n<event>postToolUse</event>\n<tool>readFile</tool>\n\n"+
 			hookInjectTestNote+"\n</hook>\n\n"+hookInjectTestSession,
 		injection.Content,
 	)
@@ -66,7 +66,7 @@ func TestMessageInjectionWithOnlyHookContext(t *testing.T) {
 
 	block, err := renderHookContext(
 		harness.HookEventPostToolUse,
-		"read_file",
+		"readFile",
 		[]string{hookInjectTestNote},
 	)
 	require.NoError(t, err)
@@ -95,7 +95,7 @@ func TestAppendHookContextWrapsPreUserMessageInjections(t *testing.T) {
 	assert.Equal(
 		t,
 		"system prompt"+systemSectionGap+
-			"<hook>\n<event>pre_user_message</event>\n\n"+
+			"<hook>\n<event>preUserMessage</event>\n\n"+
 			hookInjectTestNote+"\n</hook>",
 		got,
 	)
@@ -125,7 +125,7 @@ func TestToolEventInjectionReachesTheModelAsHookContext(t *testing.T) {
 		"content",
 	)
 	writeChildHarnessHooks(t, fixture, `version: 1
-post_read_file:
+postReadFile:
   - name: note
     actions:
       - type: inject
@@ -144,7 +144,7 @@ post_read_file:
 	messages := requests[1].Messages
 	assert.Equal(
 		t,
-		"<hook>\n<event>post_read_file</event>\n<tool>read_file</tool>\n\n"+
+		"<hook>\n<event>postReadFile</event>\n<tool>readFile</tool>\n\n"+
 			hookInjectTestNote+"\n</hook>",
 		messages[len(messages)-1].Text(),
 	)
@@ -154,7 +154,7 @@ func TestSessionStartInjectionReachesTheModelAsHookContext(t *testing.T) {
 	driver := elelemtest.NewScriptedDriver(elelemtest.Text("done"))
 	fixture := newRuntimeFixture(t, driver)
 	writeChildHarnessHooks(t, fixture, `version: 1
-session_start:
+sessionStart:
   - name: note
     actions:
       - type: inject
@@ -172,7 +172,7 @@ session_start:
 	assert.Contains(
 		t,
 		requests[0].Messages[0].Text(),
-		"<hook>\n<event>session_start</event>\n\n"+
+		"<hook>\n<event>sessionStart</event>\n\n"+
 			hookInjectTestNote+"\n</hook>",
 	)
 	assert.NotContains(

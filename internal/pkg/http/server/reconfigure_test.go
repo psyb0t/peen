@@ -18,8 +18,13 @@ import (
 )
 
 const (
-	reconfigurePath      = apiBaseURL + "/session/reconfigure"
-	profileDecisionsPath = apiBaseURL + "/session/profile-decisions"
+	reconfigurePath         = apiBaseURL + "/session/reconfigure"
+	agentSpaceDecisionsPath = apiBaseURL + "/session/agent-space-decisions"
+	removedDecisionsPath    = apiBaseURL + "/session/profile-decisions"
+	agentSpacesPath         = apiBaseURL + "/agent-spaces"
+	removedSpacesPath       = apiBaseURL + "/execution-profiles"
+
+	testSealedSpace = "docker:sandbox"
 )
 
 func reconfigureRequest(t *testing.T, sessionID uuid.UUID, body string) *http.Request {
@@ -37,22 +42,22 @@ func reconfigureRequest(t *testing.T, sessionID uuid.UUID, body string) *http.Re
 	return request
 }
 
-// A reconfiguration passes the client's named profile and reason through
+// A reconfiguration passes the client's named agent space and reason through
 // unchanged, and answers with the recorded decision.
 func TestServerReconfigureSessionRecordsTheDecision(t *testing.T) {
 	t.Parallel()
 
 	sessionID := uuid.New()
-	fromProfile := "native"
+	fromAgentSpace := "control"
 
 	registry := &testSessionRegistry{
-		decision: api.SessionProfileDecision{
-			Id:          uuid.New(),
-			SessionId:   sessionID,
-			FromProfile: &fromProfile,
-			ToProfile:   "docker.sandbox",
-			Reason:      "moving to an isolated environment",
-			DecidedAt:   time.Now().UTC(),
+		decision: api.SessionAgentSpaceDecision{
+			Id:             uuid.New(),
+			SessionId:      sessionID,
+			FromAgentSpace: &fromAgentSpace,
+			ToAgentSpace:   testSealedSpace,
+			Reason:         "moving to an isolated environment",
+			DecidedAt:      time.Now().UTC(),
 		},
 	}
 
@@ -66,20 +71,20 @@ func TestServerReconfigureSessionRecordsTheDecision(t *testing.T) {
 	instance.testHandler.ServeHTTP(recorder, reconfigureRequest(
 		t,
 		sessionID,
-		`{"profile":"docker.sandbox","reason":"moving to an isolated environment"}`,
+		`{"agentSpace":"docker:sandbox","reason":"moving to an isolated environment"}`,
 	))
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 
-	decision := api.SessionProfileDecision{}
+	decision := api.SessionAgentSpaceDecision{}
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &decision))
 	assert.Equal(t, sessionID, decision.SessionId)
-	assert.Equal(t, "docker.sandbox", decision.ToProfile)
-	require.NotNil(t, decision.FromProfile)
-	assert.Equal(t, "native", *decision.FromProfile)
+	assert.Equal(t, testSealedSpace, decision.ToAgentSpace)
+	require.NotNil(t, decision.FromAgentSpace)
+	assert.Equal(t, "control", *decision.FromAgentSpace)
 
 	require.Len(t, registry.reconfigured, 1)
-	assert.Equal(t, "docker.sandbox", registry.reconfigured[0].Profile)
+	assert.Equal(t, testSealedSpace, registry.reconfigured[0].AgentSpace)
 	assert.Equal(
 		t,
 		"moving to an isolated environment",
@@ -87,9 +92,10 @@ func TestServerReconfigureSessionRecordsTheDecision(t *testing.T) {
 	)
 }
 
-// A profile the deployment does not define is refused, and the response names
-// no profile, so a client cannot enumerate the allowed set by probing.
-func TestServerReconfigureSessionRefusesAnUndefinedProfile(t *testing.T) {
+// An agent space the deployment does not offer is refused, and the response
+// names no agent space, so a client cannot enumerate the allowed set by
+// probing.
+func TestServerReconfigureSessionRefusesAnUndefinedAgentSpace(t *testing.T) {
 	t.Parallel()
 
 	sessionID := uuid.New()
@@ -99,8 +105,8 @@ func TestServerReconfigureSessionRefusesAnUndefinedProfile(t *testing.T) {
 		Sessions: &testSessionRegistry{
 			decisionErr: ctxerrors.Wrapf(
 				commerr.ErrPermissionDenied,
-				"execution profile %q is not allowed by this deployment",
-				"docker.host-like",
+				"agent space %q is not allowed by this deployment",
+				"docker:ops",
 			),
 		},
 	})
@@ -110,15 +116,16 @@ func TestServerReconfigureSessionRefusesAnUndefinedProfile(t *testing.T) {
 	instance.testHandler.ServeHTTP(recorder, reconfigureRequest(
 		t,
 		sessionID,
-		`{"profile":"docker.host-like","reason":"needs the host"}`,
+		`{"agentSpace":"docker:ops","reason":"needs the host"}`,
 	))
 
 	require.Equal(t, http.StatusForbidden, recorder.Code)
 
 	envelope := api.Error{}
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &envelope))
-	assert.Equal(t, ErrorCodeExecutionProfileNotAllowed, envelope.Code)
-	assert.NotContains(t, envelope.Message, "docker.host-like")
+	assert.Equal(t, ErrorCodeAgentSpaceNotAllowed, envelope.Code)
+	assert.Equal(t, "AGENT_SPACE_NOT_ALLOWED", envelope.Code)
+	assert.NotContains(t, envelope.Message, "docker:ops")
 }
 
 // A session with a turn in flight is a conflict rather than a bad request: the
@@ -143,7 +150,7 @@ func TestServerReconfigureSessionRefusesABusySession(t *testing.T) {
 	instance.testHandler.ServeHTTP(recorder, reconfigureRequest(
 		t,
 		sessionID,
-		`{"profile":"native","reason":"back to native"}`,
+		`{"agentSpace":"control","reason":"back to control"}`,
 	))
 
 	require.Equal(t, http.StatusConflict, recorder.Code)
@@ -164,28 +171,33 @@ func TestServerReconfigureSessionRejectsMalformedInput(t *testing.T) {
 		setHeader bool
 	}{
 		{
-			name:      "missing profile",
+			name:      "missing agent space",
 			body:      `{"reason":"why"}`,
 			setHeader: true,
 		},
 		{
 			name:      "missing reason",
-			body:      `{"profile":"native"}`,
+			body:      `{"agentSpace":"control"}`,
 			setHeader: true,
 		},
 		{
-			name:      "blank profile",
-			body:      `{"profile":"","reason":"why"}`,
+			name:      "blank agent space",
+			body:      `{"agentSpace":"","reason":"why"}`,
+			setHeader: true,
+		},
+		{
+			name:      "the removed profile field",
+			body:      `{"profile":"control","reason":"why"}`,
 			setHeader: true,
 		},
 		{
 			name:      "unknown field",
-			body:      `{"profile":"native","reason":"why","image":"evil:latest"}`,
+			body:      `{"agentSpace":"control","reason":"why","image":"evil:latest"}`,
 			setHeader: true,
 		},
 		{
 			name: "missing session header",
-			body: `{"profile":"native","reason":"why"}`,
+			body: `{"agentSpace":"control","reason":"why"}`,
 		},
 	}
 
@@ -232,8 +244,8 @@ func TestServerReconfigureSessionRejectsMalformedInput(t *testing.T) {
 }
 
 // The decision history is addressed by the session header, so one session
-// cannot read another's profile changes.
-func TestServerListSessionProfileDecisionsIsSessionScoped(t *testing.T) {
+// cannot read another's agent space changes.
+func TestServerListSessionAgentSpaceDecisionsIsSessionScoped(t *testing.T) {
 	t.Parallel()
 
 	sessionID := uuid.New()
@@ -242,13 +254,13 @@ func TestServerListSessionProfileDecisionsIsSessionScoped(t *testing.T) {
 	instance, err := newTestServer(Dependencies{
 		Runtime: newTestRuntime(sessionID),
 		Sessions: &testSessionRegistry{
-			decisionPage: api.SessionProfileDecisionPage{
-				Items: []api.SessionProfileDecision{{
-					Id:        decisionID,
-					SessionId: sessionID,
-					ToProfile: "docker.sandbox",
-					Reason:    "isolating the workspace",
-					DecidedAt: time.Now().UTC(),
+			decisionPage: api.SessionAgentSpaceDecisionPage{
+				Items: []api.SessionAgentSpaceDecision{{
+					Id:           decisionID,
+					SessionId:    sessionID,
+					ToAgentSpace: testSealedSpace,
+					Reason:       "isolating the workspace",
+					DecidedAt:    time.Now().UTC(),
 				}},
 				Limit: 50,
 			},
@@ -259,7 +271,7 @@ func TestServerListSessionProfileDecisionsIsSessionScoped(t *testing.T) {
 	request := httptest.NewRequestWithContext(
 		t.Context(),
 		http.MethodGet,
-		profileDecisionsPath,
+		agentSpaceDecisionsPath,
 		nil,
 	)
 	request.Header.Set(headerSessionID, sessionID.String())
@@ -269,14 +281,16 @@ func TestServerListSessionProfileDecisionsIsSessionScoped(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 
-	page := api.SessionProfileDecisionPage{}
+	page := api.SessionAgentSpaceDecisionPage{}
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &page))
 	require.Len(t, page.Items, 1)
 	assert.Equal(t, decisionID, page.Items[0].Id)
 	assert.Equal(t, sessionID, page.Items[0].SessionId)
 }
 
-func TestServerListSessionProfileDecisionsReportsAnUnknownSession(t *testing.T) {
+func TestServerListSessionAgentSpaceDecisionsReportsAnUnknownSession(
+	t *testing.T,
+) {
 	t.Parallel()
 
 	sessionID := uuid.New()
@@ -292,7 +306,7 @@ func TestServerListSessionProfileDecisionsReportsAnUnknownSession(t *testing.T) 
 	request := httptest.NewRequestWithContext(
 		t.Context(),
 		http.MethodGet,
-		profileDecisionsPath,
+		agentSpaceDecisionsPath,
 		nil,
 	)
 	request.Header.Set(headerSessionID, sessionID.String())
@@ -305,4 +319,91 @@ func TestServerListSessionProfileDecisionsReportsAnUnknownSession(t *testing.T) 
 	envelope := api.Error{}
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &envelope))
 	assert.Equal(t, ErrorCodeSessionNotFound, envelope.Code)
+}
+
+// The agent space list reaches the client with each Docker space's grants and
+// the warnings for its risky ones.
+func TestServerListAgentSpacesReportsTheGrants(t *testing.T) {
+	t.Parallel()
+
+	profile := "ops"
+	docker := api.AgentSpaceDockerFull
+	network := api.AgentSpaceNetworkHost
+	sudo := true
+
+	instance, err := newTestServer(Dependencies{
+		Runtime: newTestRuntime(uuid.New()),
+		Sessions: &testSessionRegistry{
+			agentSpaceList: api.AgentSpaceList{
+				Default: "docker:default",
+				Items: []api.AgentSpace{{
+					Name:               "docker:ops",
+					Kind:               api.AgentSpaceKindDocker,
+					Profile:            &profile,
+					Docker:             &docker,
+					Network:            &network,
+					Sudo:               &sudo,
+					HostRootEquivalent: true,
+					CapabilityWarnings: []string{"docker: full is host root"},
+				}},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	request := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodGet,
+		agentSpacesPath,
+		nil,
+	)
+
+	recorder := httptest.NewRecorder()
+	instance.testHandler.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+
+	list := api.AgentSpaceList{}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &list))
+	assert.Equal(t, "docker:default", list.Default)
+	require.Len(t, list.Items, 1)
+	assert.Equal(t, "docker:ops", list.Items[0].Name)
+	require.NotNil(t, list.Items[0].Docker)
+	assert.Equal(t, api.AgentSpaceDockerFull, *list.Items[0].Docker)
+	require.NotNil(t, list.Items[0].Network)
+	assert.Equal(t, api.AgentSpaceNetworkHost, *list.Items[0].Network)
+	assert.True(t, list.Items[0].HostRootEquivalent)
+	assert.Len(t, list.Items[0].CapabilityWarnings, 1)
+}
+
+// The old execution profile routes are gone, not aliased.
+func TestServerDoesNotServeTheRemovedProfileRoutes(t *testing.T) {
+	t.Parallel()
+
+	sessionID := uuid.New()
+
+	for _, path := range []string{removedSpacesPath, removedDecisionsPath} {
+		t.Run(path, func(t *testing.T) {
+			t.Parallel()
+
+			instance, err := newTestServer(Dependencies{
+				Runtime:  newTestRuntime(sessionID),
+				Sessions: &testSessionRegistry{},
+			})
+			require.NoError(t, err)
+
+			request := httptest.NewRequestWithContext(
+				t.Context(),
+				http.MethodGet,
+				path,
+				nil,
+			)
+			request.Header.Set(headerSessionID, sessionID.String())
+
+			recorder := httptest.NewRecorder()
+			instance.testHandler.ServeHTTP(recorder, request)
+
+			assert.Equal(t, http.StatusNotFound, recorder.Code)
+		})
+	}
 }

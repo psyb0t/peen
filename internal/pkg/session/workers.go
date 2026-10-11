@@ -25,13 +25,13 @@ const (
 // controller that dies mid-launch still leaves a row an operator can
 // reconcile.
 type CreateWorkerGenerationInput struct {
-	ID              uuid.UUID
-	Kind            string
-	Profile         string
-	ProfileRevision int64
-	State           string
-	Workspace       string
-	SocketPath      string
+	ID                 uuid.UUID
+	Kind               string
+	AgentSpace         string
+	AgentSpaceRevision int64
+	State              string
+	Workspace          string
+	SocketPath         string
 
 	// CredentialHash verifies the worker's launch credential. The raw
 	// credential is never stored.
@@ -63,16 +63,16 @@ func (s *Store) CreateWorkerGeneration(
 	}
 
 	generation := &models.WorkerGeneration{
-		ID:              input.ID,
-		SessionID:       sessionID,
-		Kind:            input.Kind,
-		Profile:         input.Profile,
-		ProfileRevision: input.ProfileRevision,
-		State:           input.State,
-		Workspace:       input.Workspace,
-		SocketPath:      input.SocketPath,
-		CredentialHash:  input.CredentialHash,
-		CreatedAt:       s.now(),
+		ID:                 input.ID,
+		SessionID:          sessionID,
+		Kind:               input.Kind,
+		AgentSpace:         input.AgentSpace,
+		AgentSpaceRevision: input.AgentSpaceRevision,
+		State:              input.State,
+		Workspace:          input.Workspace,
+		SocketPath:         input.SocketPath,
+		CredentialHash:     input.CredentialHash,
+		CreatedAt:          s.now(),
 	}
 
 	if err := s.query.WorkerGeneration.WithContext(ctx).
@@ -123,7 +123,7 @@ func (s *Store) UpdateWorkerGenerationState(
 	return nil
 }
 
-// RecordWorkerProcess stores the operating system identity of a native worker.
+// RecordWorkerProcess stores the operating system identity of a control worker.
 func (s *Store) RecordWorkerProcess(
 	ctx context.Context,
 	generationID uuid.UUID,
@@ -217,20 +217,20 @@ func (s *Store) GetWorkerGeneration(
 	return stored, nil
 }
 
-// ReconfigureExecutionProfile moves one idle session to a different execution
-// profile and records why.
+// ReconfigureAgentSpace moves one idle session to a different agent space and
+// records why.
 //
 // It refuses a session with a turn in flight, because changing the environment
-// under running work would leave that turn's tool calls attributed to a profile
-// that did not run them. The caller stops the session's worker afterwards so
-// the next turn starts a new generation under the new profile.
-func (s *Store) ReconfigureExecutionProfile(
+// under running work would leave that turn's tool calls attributed to an agent
+// space that did not run them. The caller stops the session's worker
+// afterwards so the next turn starts a new generation in the new agent space.
+func (s *Store) ReconfigureAgentSpace(
 	ctx context.Context,
 	sessionID uuid.UUID,
-	toProfile string,
+	toAgentSpace string,
 	reason string,
-) (*models.SessionProfileDecision, error) {
-	if err := validateReconfigureInput(toProfile, reason); err != nil {
+) (*models.SessionAgentSpaceDecision, error) {
+	if err := validateReconfigureInput(toAgentSpace, reason); err != nil {
 		return nil, err
 	}
 
@@ -246,13 +246,13 @@ func (s *Store) ReconfigureExecutionProfile(
 		)
 	}
 
-	decision := &models.SessionProfileDecision{
-		ID:          s.newID(),
-		SessionID:   sessionID,
-		FromProfile: stored.ExecutionProfile,
-		ToProfile:   toProfile,
-		Reason:      reason,
-		DecidedAt:   s.now(),
+	decision := &models.SessionAgentSpaceDecision{
+		ID:             s.newID(),
+		SessionID:      sessionID,
+		FromAgentSpace: stored.AgentSpace,
+		ToAgentSpace:   toAgentSpace,
+		Reason:         reason,
+		DecidedAt:      s.now(),
 	}
 
 	if err := s.query.Transaction(func(tx *repositories.Query) error {
@@ -260,23 +260,23 @@ func (s *Store) ReconfigureExecutionProfile(
 
 		result, err := session.WithContext(ctx).
 			Where(session.ID.Eq(sessionID)).
-			UpdateSimple(session.ExecutionProfile.Value(toProfile))
+			UpdateSimple(session.AgentSpace.Value(toAgentSpace))
 		if err != nil {
-			return ctxerrors.Wrap(err, "update session execution profile")
+			return ctxerrors.Wrap(err, "update session agent space")
 		}
 
 		if result.RowsAffected == 0 {
 			return ctxerrors.Wrap(commerr.ErrNotFound, "session")
 		}
 
-		if err := tx.SessionProfileDecision.WithContext(ctx).
+		if err := tx.SessionAgentSpaceDecision.WithContext(ctx).
 			Create(decision); err != nil {
-			return ctxerrors.Wrap(err, "record profile decision")
+			return ctxerrors.Wrap(err, "record agent space decision")
 		}
 
 		return nil
 	}); err != nil {
-		return nil, ctxerrors.Wrap(err, "reconfigure execution profile")
+		return nil, ctxerrors.Wrap(err, "reconfigure agent space")
 	}
 
 	return decision, nil
@@ -284,11 +284,11 @@ func (s *Store) ReconfigureExecutionProfile(
 
 // validateReconfigureInput refuses a change that would leave the history
 // unreadable: a decision with no target, or one with no stated reason.
-func validateReconfigureInput(toProfile string, reason string) error {
-	if toProfile == "" {
+func validateReconfigureInput(toAgentSpace string, reason string) error {
+	if toAgentSpace == "" {
 		return ctxerrors.Wrap(
 			commerr.ErrValidationFailed,
-			"reconfigure requires a target execution profile",
+			"reconfigure requires a target agent space",
 		)
 	}
 
@@ -302,15 +302,15 @@ func validateReconfigureInput(toProfile string, reason string) error {
 	return nil
 }
 
-// ListSessionProfileDecisions returns one session's profile decision history,
-// newest first.
+// ListSessionAgentSpaceDecisions returns one session's agent space decision
+// history, newest first.
 //
-//nolint:dupl // The generated SessionProfileDecision query has its own builder.
-func (s *Store) ListSessionProfileDecisions(
+//nolint:dupl // The generated decision query has its own builder.
+func (s *Store) ListSessionAgentSpaceDecisions(
 	ctx context.Context,
 	sessionID uuid.UUID,
-	options ListProfileDecisionsOptions,
-) (*ProfileDecisionPage, error) {
+	options ListAgentSpaceDecisionsOptions,
+) (*AgentSpaceDecisionPage, error) {
 	page, err := normalizeReadPage(options.Limit, options.Offset)
 	if err != nil {
 		return nil, err
@@ -319,28 +319,28 @@ func (s *Store) ListSessionProfileDecisions(
 	if _, err := s.findSession(ctx, sessionID); err != nil {
 		return nil, ctxerrors.Wrap(
 			err,
-			"find session for profile decision listing",
+			"find session for agent space decision listing",
 		)
 	}
 
-	decision := s.query.SessionProfileDecision
+	decision := s.query.SessionAgentSpaceDecision
 	query := decision.WithContext(ctx).
 		Where(decision.SessionID.Eq(sessionID)).
 		Order(decision.DecidedAt.Desc(), decision.ID.Desc())
 
 	items, hasMore, err := listReadPage(
 		page,
-		func(offset, limit int) ([]*models.SessionProfileDecision, error) {
+		func(offset, limit int) ([]*models.SessionAgentSpaceDecision, error) {
 			return query.Offset(offset).Limit(limit).Find()
 		},
-		"list session profile decisions",
-		"probe session profile decision page",
+		"list session agent space decisions",
+		"probe session agent space decision page",
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return &ProfileDecisionPage{
+	return &AgentSpaceDecisionPage{
 		Items:   items,
 		Limit:   page.limit,
 		Offset:  page.offset,

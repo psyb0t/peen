@@ -42,3 +42,12 @@ export const SESSION_EVENTS_DROPPED_LABEL = "Older events dropped: ";
 export const SESSION_EVENT_UNREADABLE = "unreadable event";
 export const SESSION_PAGE_LIMIT = 200;
 export const SESSION_DETAIL_LIMIT = 100;
+// An agent space is where a workspace's agent runs: `control`, or a Docker
+// profile. The label next to each one lists what it grants.
+export const AGENT_SPACE_KIND_CONTROL = "control";
+export const AGENT_SPACE_CONTROL_NOTE = "runs where Peen runs";
+export const AGENT_SPACE_HOST_ROOT_NOTE = "host root";
+export const AGENT_SPACE_SUDO_ON = "yes";
+export const AGENT_SPACE_SUDO_OFF = "no";
+export const DOCKER_ACCESS_FULL = "full";
+export const AGENT_SPACE_DEFAULT_OPTION = "Controller default";

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { afterUpdate, onMount } from "svelte";
 
+	import { agentSpaceLabel } from "$lib/agentspace";
 	import { activities, isActivityEvent, type AgentActivity } from "$lib/chat/activity";
 	import ReplyBlocks from "$lib/chat/ReplyBlocks.svelte";
 	import { groupTranscript, liveSegments } from "$lib/chat/transcript";
@@ -23,6 +24,7 @@
 		type BrowserLogOperation,
 	} from "$lib/browser/log";
 	import {
+		AGENT_SPACE_DEFAULT_OPTION,
 		DEFAULT_REASONING_EFFORT,
 		MAX_LIVE_EVENTS,
 		REASONING_EFFORTS,
@@ -46,7 +48,7 @@
 	const FOLLOW_THRESHOLD_PX = 64;
 
 	type Session = components["schemas"]["Session"];
-	type ExecutionProfile = components["schemas"]["ExecutionProfile"];
+	type AgentSpace = components["schemas"]["AgentSpace"];
 	type Model = components["schemas"]["Model"];
 	type Message = components["schemas"]["Message"];
 	type TranscriptEvent = components["schemas"]["TranscriptEvent"];
@@ -57,7 +59,7 @@
 	type WorkerGeneration = components["schemas"]["WorkerGeneration"];
 	type Job = components["schemas"]["Job"];
 	type Turn = components["schemas"]["Turn"];
-	type SessionProfileDecision = components["schemas"]["SessionProfileDecision"];
+	type SessionAgentSpaceDecision = components["schemas"]["SessionAgentSpaceDecision"];
 
 	let apiToken = "";
 	let api: PeenAPI | undefined;
@@ -68,8 +70,8 @@
 	let showInspector = false;
 
 	let workspace = "";
-	let workspaceProfile = "";
-	let reconfigureProfile = "";
+	let workspaceAgentSpace = "";
+	let reconfigureAgentSpace = "";
 	let reconfigureReason = "";
 	let selectedSessionID = "";
 	let selectedModel = "";
@@ -81,7 +83,8 @@
 
 	let sessions: Session[] = [];
 	let workspaceRoots: string[] = [];
-	let profiles: ExecutionProfile[] = [];
+	let agentSpaces: AgentSpace[] = [];
+	let defaultAgentSpace = "";
 	let models: Model[] = [];
 	let selectedSession: Session | undefined;
 	let messages: Message[] = [];
@@ -93,7 +96,7 @@
 	let workers: WorkerGeneration[] = [];
 	let jobs: Job[] = [];
 	let turns: Turn[] = [];
-	let profileDecisions: SessionProfileDecision[] = [];
+	let agentSpaceDecisions: SessionAgentSpaceDecision[] = [];
 	// liveEvents is the raw socket feed for the Details panel. Activity cards
 	// read their own list, so a burst of streamed deltas cannot push a failure
 	// or warning out of the capped feed before the chat shows it.
@@ -227,20 +230,21 @@
 		try {
 			loading = true;
 			const connected = controller();
-			const [sessionPage, rootList, profileList, modelList] = await Promise.all([
+			const [sessionPage, rootList, agentSpaceList, modelList] = await Promise.all([
 				requireData(
 					connected.GET("/sessions", {
 						params: { query: { limit: SESSION_PAGE_LIMIT, offset: 0 } },
 					}),
 				),
 				requireData(connected.GET("/workspace-roots")),
-				requireData(connected.GET("/execution-profiles")),
+				requireData(connected.GET("/agent-spaces")),
 				requireData(connected.GET("/models")),
 			]);
 
 			sessions = sessionPage.items;
 			workspaceRoots = rootList.roots;
-			profiles = profileList.items;
+			agentSpaces = agentSpaceList.items;
+			defaultAgentSpace = agentSpaceList.default;
 			models = modelList.models;
 			if (workspace === "") {
 				workspace = workspaceRoots[0] ?? "";
@@ -299,7 +303,7 @@
 				controller().POST("/sessions/open", {
 					body: {
 						workspace: workspace.trim(),
-						...(workspaceProfile === "" ? {} : { profile: workspaceProfile }),
+						...(workspaceAgentSpace === "" ? {} : { agentSpace: workspaceAgentSpace }),
 					},
 				}),
 			);
@@ -380,7 +384,7 @@
 				requireData(connected.GET("/session/jobs", { params: pageParams })),
 				requireData(connected.GET("/session/turns", { params: pageParams })),
 				requireData(
-					connected.GET("/session/profile-decisions", { params: pageParams }),
+					connected.GET("/session/agent-space-decisions", { params: pageParams }),
 				),
 			]);
 
@@ -405,7 +409,7 @@
 			workers = workerPage.items;
 			jobs = jobPage.jobs;
 			turns = turnPage.turns;
-			profileDecisions = decisionPage.items;
+			agentSpaceDecisions = decisionPage.items;
 			logBrowserEvent("session.load.complete", {
 				count: messages.length,
 				duration_ms: elapsed(),
@@ -494,18 +498,15 @@
 
 	async function reconfigureSession(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
-		if (selectedSessionID === "" || reconfigureProfile === "") {
-			showError(
-				"session.reconfigure",
-				"Select a session and an execution profile first.",
-			);
+		if (selectedSessionID === "" || reconfigureAgentSpace === "") {
+			showError("session.reconfigure", "Select a session and an agent space first.");
 
 			return;
 		}
 		if (reconfigureReason.trim() === "") {
 			showError(
 				"session.reconfigure",
-				"State why this session needs a different profile.",
+				"State why this session needs a different agent space.",
 			);
 
 			return;
@@ -518,7 +519,10 @@
 		try {
 			await requireData(
 				controller().POST("/session/reconfigure", {
-					body: { profile: reconfigureProfile, reason: reconfigureReason.trim() },
+					body: {
+						agentSpace: reconfigureAgentSpace,
+						reason: reconfigureReason.trim(),
+					},
 					params: { header: sessionHeaders() },
 				}),
 			);
@@ -656,11 +660,15 @@
 					</p>
 				{/if}
 				<label>
-					Execution profile
-					<select bind:value={workspaceProfile}>
-						<option value="">Controller default</option>
-						{#each profiles as profile (profile.name)}
-							<option value={profile.name}>{profile.name} ({profile.kind})</option>
+					Agent space
+					<select bind:value={workspaceAgentSpace}>
+						<option value=""
+							>{AGENT_SPACE_DEFAULT_OPTION}{defaultAgentSpace === ""
+								? ""
+								: ` (${defaultAgentSpace})`}</option
+						>
+						{#each agentSpaces as agentSpace (agentSpace.name)}
+							<option value={agentSpace.name}>{agentSpaceLabel(agentSpace)}</option>
 						{/each}
 					</select>
 				</label>
@@ -715,7 +723,7 @@
 						<h1>{workspaceName(selectedSession.workspace)}</h1>
 						<div class="session-facts">
 							<span>{selectedSession.model}</span><span
-								>{selectedSession.executionProfile ?? "controller default"}</span
+								>{selectedSession.agentSpace || AGENT_SPACE_DEFAULT_OPTION}</span
 							>{#if turnRunning}<span class="working">Working</span>{/if}
 						</div>
 					</div>
@@ -930,26 +938,26 @@
 						<pre>{formatJSON(jobs)}</pre>
 					</details>
 					<details>
-						<summary>Profile decisions ({profileDecisions.length})</summary>
-						<pre>{formatJSON(profileDecisions)}</pre>
+						<summary>Agent space decisions ({agentSpaceDecisions.length})</summary>
+						<pre>{formatJSON(agentSpaceDecisions)}</pre>
 					</details>
 					<details>
 						<summary>Notices ({notices.length})</summary>
 						<pre>{formatJSON(notices)}</pre>
 					</details>
 					<form class="reconfigure" onsubmit={reconfigureSession}>
-						<h3>Change execution profile</h3>
+						<h3>Change agent space</h3>
 						<label
-							>Profile<select bind:value={reconfigureProfile}
-								><option value="">Choose a profile</option
-								>{#each profiles as profile (profile.name)}<option value={profile.name}
-										>{profile.name} ({profile.kind})</option
+							>Agent space<select bind:value={reconfigureAgentSpace}
+								><option value="">Choose an agent space</option
+								>{#each agentSpaces as agentSpace (agentSpace.name)}<option
+										value={agentSpace.name}>{agentSpaceLabel(agentSpace)}</option
 									>{/each}</select
 							></label
 						>
 						<label>Reason<input bind:value={reconfigureReason} required /></label>
 						<button disabled={selectedSession.activeTurn} type="submit"
-							>Save profile</button
+							>Save agent space</button
 						>
 					</form>
 				{/if}

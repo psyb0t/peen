@@ -1,6 +1,6 @@
 package agent
 
-// use_skill loads one effective skill's SKILL.md content in full. Agent
+// useSkill loads one effective skill's SKILL.md content in full. Agent
 // Skills progressive disclosure means the system prompt only ever carries
 // the bounded catalogue of names and descriptions; this tool is the one way
 // the model pays for a skill's full body, and only for skills it activates.
@@ -11,10 +11,10 @@ name and a short description. Call this with one of those exact names to
 load its full SKILL.md content, its source directory, and a content hash.
 The returned directory is an absolute path to that skill's own directory.
 It may contain sibling files its SKILL.md references, commonly references/
-and scripts/. Those are not preloaded: read them yourself with read_file
+and scripts/. Those are not preloaded: read them yourself with readFile
 once you know they exist, so each read shows up as its own ordinary tool
 call.
-To run a bundled script, pass that directory as run_command's directory so
+To run a bundled script, pass that directory as runCommand's directory so
 the script runs from its own location and can find its neighbours. Skills
 in different layers can share a name, and you always get the directory of
 the one that actually won, so a bundled script is always the winning

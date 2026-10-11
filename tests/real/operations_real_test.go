@@ -18,16 +18,15 @@ import (
 const (
 	realOperationsReconfigurePath = realHarnessSessionPath + "/reconfigure"
 	realOperationsDecisionsPath   = realHarnessSessionPath +
-		"/profile-decisions"
+		"/agent-space-decisions"
 	realOperationsCompactionsPath = realHarnessSessionPath + "/compactions"
 
-	realOperationsPrimaryProfile   = "native"
-	realOperationsSecondaryProfile = "native-alt"
-	realOperationsUnknownProfile   = "does-not-exist"
-	realOperationsReason           = "real suite profile move"
-
-	realOperationsProfiles = `[{"name":"native","kind":"native"},` +
-		`{"name":"native-alt","kind":"native"}]`
+	// The suite's controller reaches no Docker socket, so the control agent
+	// space is the only one it can run. Moving a session to it again is still
+	// a real move: it records a decision and replaces the worker.
+	realOperationsAgentSpace        = "control"
+	realOperationsUnknownAgentSpace = "docker:does-not-exist"
+	realOperationsReason            = "real suite agent space move"
 
 	// realOperationsCompactionContextTokens has to clear the system prompt plus
 	// one full tool result, so the first large turn completes, while leaving
@@ -54,23 +53,23 @@ const (
 	// so that older turn is the one carrying a full tool result, not a bare
 	// reply.
 	realOperationsSmallMessage = "Reply with exactly OK. Make no tool calls."
-	realOperationsLargeMessage = "Call read_file on NOTES.md, then reply with " +
+	realOperationsLargeMessage = "Call readFile on NOTES.md, then reply with " +
 		"one sentence about what it contains."
 
-	realOperationsSignalTask = "Call run_command with exactly `sleep 300` " +
+	realOperationsSignalTask = "Call runCommand with exactly `sleep 300` " +
 		"and report what happened. Make no other tool call."
 
 	realOperationsSignalTimeout = 3 * time.Minute
 )
 
-// TestRealHarnessReconfiguresAnIdleSessionsProfile covers the execution profile
+// TestRealHarnessReconfiguresAnIdleSessionsAgentSpace covers the agent space
 // move, which had unit coverage and no end-to-end test in any suite.
 //
 // The move is what an operator reaches for when a session needs a different
 // environment, and it has to stop the session's current worker so the next turn
 // starts a fresh generation. A decision recorded without that restart would
-// attribute later turns to a profile that never ran them.
-func TestRealHarnessReconfiguresAnIdleSessionsProfile(t *testing.T) {
+// attribute later turns to an agent space that never ran them.
+func TestRealHarnessReconfiguresAnIdleSessionsAgentSpace(t *testing.T) {
 	configured := realConfig(t)
 	upstreams, err := configured.Upstreams()
 	require.NoError(t, err)
@@ -85,10 +84,7 @@ func TestRealHarnessReconfiguresAnIdleSessionsProfile(t *testing.T) {
 		fixture,
 		string(encodedUpstreams),
 		configured.DefaultModel,
-		map[string]string{
-			"PEEN_EXECUTION_PROFILES":        realOperationsProfiles,
-			"PEEN_DEFAULT_EXECUTION_PROFILE": realOperationsPrimaryProfile,
-		},
+		nil,
 	)
 	t.Cleanup(func() { process.stop(t) })
 
@@ -107,23 +103,23 @@ func TestRealHarnessReconfiguresAnIdleSessionsProfile(t *testing.T) {
 		t,
 		process,
 		sessionID,
-		realOperationsSecondaryProfile,
+		realOperationsAgentSpace,
 		http.StatusOK,
 	)
 	require.NotNil(t, decision)
 	assert.Equal(t, sessionID, decision.SessionId)
-	assert.Equal(t, realOperationsSecondaryProfile, decision.ToProfile)
+	assert.Equal(t, realOperationsAgentSpace, decision.ToAgentSpace)
 	assert.Equal(t, realOperationsReason, decision.Reason)
-	require.NotNil(t, decision.FromProfile)
-	assert.Equal(t, realOperationsPrimaryProfile, *decision.FromProfile)
+	require.NotNil(t, decision.FromAgentSpace)
+	assert.Equal(t, realOperationsAgentSpace, *decision.FromAgentSpace)
 
-	// An undefined profile is refused, and refusing it must not disturb the
-	// profile the session already moved to.
+	// An undefined agent space is refused, and refusing it must not disturb
+	// the agent space the session already moved to.
 	reconfigureRealHarnessSession(
 		t,
 		process,
 		sessionID,
-		realOperationsUnknownProfile,
+		realOperationsUnknownAgentSpace,
 		http.StatusForbidden,
 	)
 
@@ -137,10 +133,10 @@ func TestRealHarnessReconfiguresAnIdleSessionsProfile(t *testing.T) {
 	)
 	require.Len(t, generations.Items, 2, "the move must start a new generation")
 
-	// The page is newest first, so the profile change shows as the newer row
-	// running under the new profile while the old one is stopped.
-	assert.Equal(t, realOperationsSecondaryProfile, generations.Items[0].Profile)
-	assert.Equal(t, realOperationsPrimaryProfile, generations.Items[1].Profile)
+	// The page is newest first, so the move shows as the newer row while the
+	// old one is stopped.
+	assert.Equal(t, realOperationsAgentSpace, generations.Items[0].AgentSpace)
+	assert.Equal(t, realOperationsAgentSpace, generations.Items[1].AgentSpace)
 	assert.Equal(t, first, generations.Items[1].Id.String())
 	assert.Equal(
 		t,
@@ -148,7 +144,7 @@ func TestRealHarnessReconfiguresAnIdleSessionsProfile(t *testing.T) {
 		generations.Items[1].State,
 	)
 
-	decisions := getRealHarnessJSON[api.SessionProfileDecisionPage](
+	decisions := getRealHarnessJSON[api.SessionAgentSpaceDecisionPage](
 		t,
 		process.baseURL+realOperationsDecisionsPath+"?limit=50",
 		process.apiToken,
@@ -157,8 +153,8 @@ func TestRealHarnessReconfiguresAnIdleSessionsProfile(t *testing.T) {
 	require.NotEmpty(t, decisions.Items)
 	assert.Equal(
 		t,
-		realOperationsSecondaryProfile,
-		decisions.Items[0].ToProfile,
+		realOperationsAgentSpace,
+		decisions.Items[0].ToAgentSpace,
 	)
 }
 
@@ -344,24 +340,25 @@ func runRealHarnessTurn(
 	))
 }
 
-// reconfigureRealHarnessSession moves a session to a profile and checks the
-// status. It returns the decision only for an accepted move.
+// reconfigureRealHarnessSession moves a session to an agent space and checks
+// the status. It returns the decision only for an accepted move.
 func reconfigureRealHarnessSession(
 	t *testing.T,
 	process *runningRealHarnessPeen,
 	sessionID uuid.UUID,
-	profile string,
+	agentSpace string,
 	wantStatus int,
-) *api.SessionProfileDecision {
+) *api.SessionAgentSpaceDecision {
 	t.Helper()
 
 	payload, err := json.Marshal(api.ReconfigureSessionRequest{
-		Profile: profile,
-		Reason:  realOperationsReason,
+		AgentSpace: agentSpace,
+		Reason:     realOperationsReason,
 	})
 	require.NoError(t, err)
 
-	request, err := http.NewRequest(
+	request, err := http.NewRequestWithContext(
+		t.Context(),
 		http.MethodPost,
 		process.baseURL+realOperationsReconfigurePath,
 		bytes.NewReader(payload),
@@ -386,7 +383,7 @@ func reconfigureRealHarnessSession(
 		return nil
 	}
 
-	decision := api.SessionProfileDecision{}
+	decision := api.SessionAgentSpaceDecision{}
 	require.NoError(t, json.NewDecoder(response.Body).Decode(&decision))
 
 	return &decision
@@ -443,7 +440,8 @@ func signalRealHarnessJob(
 	})
 	require.NoError(t, err)
 
-	request, err := http.NewRequest(
+	request, err := http.NewRequestWithContext(
+		t.Context(),
 		http.MethodPost,
 		process.baseURL+realHarnessJobsPath+"/"+jobID.String()+"/signal",
 		bytes.NewReader(payload),

@@ -28,8 +28,8 @@ const (
 	// nothing about whether cancelling works.
 	realCancelTask = `This is an execution task, not a request for advice. Repeat the ` +
 		`following three-step cycle ten times, and announce the cycle number before each ` +
-		`one: call read_file on internal/status/status.go, then call read_file on ` +
-		`internal/status/status_test.go, then call list_files on internal/status. Perform ` +
+		`one: call readFile on internal/status/status.go, then call readFile on ` +
+		`internal/status/status_test.go, then call listFiles on internal/status. Perform ` +
 		`every cycle with its own separate tool calls. Do not batch them, do not skip a ` +
 		`cycle, do not stop early, and do not modify any file.`
 
@@ -85,7 +85,7 @@ func TestRealHarnessCancelsALiveTurn(t *testing.T) {
 		sent,
 		sessionID,
 	)
-	assert.Equal(t, string(server.ErrorCodeTurnCancelled), failure.Code)
+	assert.Equal(t, server.ErrorCodeTurnCancelled, failure.Code)
 
 	waitForRealHarnessIdleSession(t, process, sessionID)
 	assertRealHarnessCancelledTurn(t, process, sessionID, fixture.service)
@@ -133,7 +133,8 @@ func cancelRealHarnessTurn(
 ) bool {
 	t.Helper()
 
-	request, err := http.NewRequest(
+	request, err := http.NewRequestWithContext(
+		t.Context(),
 		http.MethodPost,
 		process.baseURL+realCancelPath,
 		nil,
@@ -175,7 +176,7 @@ func awaitRealHarnessWebSocketFailure(
 			continue
 		}
 
-		switch event.Type {
+		switch string(event.Type) {
 		case realHarnessMessageFailed:
 			failure := realHarnessWebSocketFailure{}
 			require.NoError(t, json.Unmarshal(event.Data, &failure))

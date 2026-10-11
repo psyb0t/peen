@@ -13,7 +13,7 @@ WebSocket client
       v
 control plane: HTTP server, session hub, SQLite, worker supervisor
       |                                         ^
-      | run_turn over a private Unix socket     | durable writes, then events
+      | runTurn over a private Unix socket     | durable writes, then events
       v                                         |
 session worker process ------------------------ +
       |
@@ -47,45 +47,38 @@ loop. There are no controller IDs and no second controller.
 Each session's turns run in a worker process the control plane starts on demand.
 A worker never opens the control SQLite file. It reaches durable state through
 the control plane over a private per-session Unix socket, which carries JSON
-frames for `run_turn`, `cancel`, and `shutdown`. The socket is created with only
+frames for `runTurn`, `cancel`, `signalJob`, and `shutdown`. The socket is created with only
 the controller's own access, and the worker authenticates with a credential
 generated per worker generation. The control plane stores only the SHA-256 hash
 of that credential, hands the raw value to the worker on stdin, and never writes
 it to a command line, an environment variable, a label, or a log.
 
-An operator defines the execution profiles a session may run under. The client
-names a profile and nothing else. Images, mounts, network, the Docker socket,
-and privilege escalation come from deployment configuration. A native profile
-starts the same installed Peen binary with its internal `worker` command. A
-Docker profile creates a container named `peen-worker-<session-uuid>` carrying
-exactly two labels, `peen.managed=true` and `peen.session=<session-uuid>`, and
-the supervisor acts on a stored container ID only when both labels still match.
+Each session runs in an agent space the deployment offers, and the client names the agent space and nothing else. Images, mounts, network, the Docker socket, and sudo come from deployment configuration. The `control` agent space starts the same installed Peen binary with its internal `worker` command, as a child of the controller. A `docker:<profile>` agent space creates a container named `peen-worker-<session-uuid>` carrying exactly two labels, `peen.managed=true` and `peen.session=<session-uuid>`, and the supervisor acts on a stored container ID only when both labels still match. [Where it runs](where-it-runs.md) is the reference for agent spaces and Docker profiles.
 
 A Docker worker runs as the controller's own host UID, GID, and username. A
-native controller resolves that account from the operating system. A controller
+controller on the host resolves that account from the operating system. A controller
 running in Docker with numeric `--user` IDs supplies `PEEN_HOST_USERNAME` and
 `PEEN_HOST_HOME` so a worker can recreate the same host account. Every Docker
 worker container starts as root just long enough for the image entrypoint to
-create that account and drop to it. A profile that sets
-`allowPrivilegeEscalation` also gets a passwordless sudo rule for that account.
-The agent is the host user either way. See [privilege
-escalation](configuration.md#privilege-escalation).
-
-A Docker worker calls the model provider itself, so a Docker profile needs
-`allowNetwork: true` to reach a provider over the network.
+create that account and drop to it. A profile that sets `sudo: true` also gets a
+passwordless sudo rule for that account. The agent is the host user either way.
+See [sudo](configuration.md#sudo).
 
 The controller passes each Docker worker the runtime configuration it needs to
 execute a turn, including provider definitions and named provider credentials.
 It never passes controller SQLite state, the public API token, the controller
-Docker socket, or the entrypoint bootstrap variables. A profile can explicitly
-grant a separate Docker socket to a worker. That makes the worker
-host-root-equivalent and is visible in the profile's capability warning.
+Docker socket, or the entrypoint bootstrap variables. A Docker profile can
+explicitly grant a separate Docker socket to a worker with `docker: full`. That
+makes the worker host root and is visible in the agent space's capability
+warnings.
 
 Docker authority is decided at startup by whether the controller can reach a
-Docker socket. Without it, no Docker launcher is registered and a session on a
-Docker profile is refused. There is no fallback to a native worker, because
-silently downgrading a sandboxed profile would run the model's tools in the
-controller's own environment.
+Docker socket. Without it, no Docker launcher is registered and a session in a
+Docker agent space is refused. There is no fallback to the `control` agent space,
+because silently downgrading a sandboxed agent space would run the model's tools
+in the controller's own environment. With a socket the rule runs the other way:
+`control` is never offered, because a control worker could use the controller's
+socket to become host root.
 
 Events reach clients only after they are durable. A worker's turn writes through
 the control plane, and the control plane publishes to the WebSocket hub after
@@ -146,7 +139,7 @@ control-core  ->  control-api
 ```
 
 `control-core` opens validated configuration, SQLite, the provider registry,
-the workspace policy, the execution profiles, and the worker supervisor. It
+the workspace policy, the agent spaces, and the worker supervisor. It
 reports ready only after those exist, and it creates no workspace session, so a
 controller starts empty.
 
@@ -176,19 +169,20 @@ what each one means.
 
 | Term | Meaning | Where it is defined |
 | --- | --- | --- |
-| hook point | A fixed point in a turn where hooks run, such as `pre_write_file` or `turn_start`. The top-level keys of `hooks.yaml` name hook points. The hooks page calls them hook events, and the command stdin field `event` holds one. | [Hooks](hooks.md#events) |
+| hook point | A fixed point in a turn where hooks run, such as `preWriteFile` or `turnStart`. The top-level keys of `hooks.yaml` name hook points. The hooks page calls them hook events, and the command stdin field `event` holds one. | [Hooks](hooks.md#events) |
 | session event | A record of something that happened outside the model's own tool calls, such as `job.exited`, `agent.finished`, or a type a hook or outside caller chooses. Peen hands it to the model as data. The API calls it a notice (`/v1/session/notices`). | [Session events](events.md) |
 | protocol event | A durable transcript record of one step of a turn, such as `turn.started` or `tool.use`. `GET /v1/session/events` lists them, and each one also goes out live as a WebSocket frame. | [Protocol event types](http-api.md#protocol-event-types) |
 | WebSocket frame | One JSON message on the WebSocket, in either direction: a client's `message.send`, a protocol event, or a `message.completed` or `message.failed` reply. | [WebSocket](http-api.md#send-and-watch-turns-over-websocket) |
 | upstream | One entry in `PEEN_UPSTREAMS`. The docs also call it a provider, and the API calls its name `connectionName`. All three mean the same configured entry. A qualified model name is `<upstream name>/<model ID>`, such as `zai/glm-5.3`. | [Providers](configuration.md#providers) |
+| agent space | The place a workspace's agent runs: `control`, next to Peen, or `docker:<profile>`, in its own container. A Docker profile is one entry in `PEEN_DOCKER_PROFILES`. | [Where it runs](where-it-runs.md) |
 
 The `agent.` prefix appears in two places. `agent.finished` and `agent.failed`
 are session events. `agent.run.started`, `agent.run.tool.use`, and the other
 `agent.run.*` names are protocol events of a child agent run.
 
 The field name `type` also means different things. On a hook action it is the
-action kind (`deny`, `inject`, `emit_event`, `command`). On a session event it
-is the event name, which an `emit_event` action spells `event_type`. On an
+action kind (`deny`, `inject`, `emitEvent`, `command`). On a session event it
+is the event name, which an `emitEvent` action spells `eventType`. On an
 upstream it is the wire protocol. On an event handler it is the session event
 type the handler answers.
 
@@ -200,7 +194,7 @@ type the handler answers.
 | request ID | One accepted `message.send`, or one turn an event woke. | Peen, when it accepts the frame or starts the woken turn. | Frame `metadata.requestId`, turn records, hook stdin `requestId`. Every frame of one turn shares it. A queued message keeps its own. |
 | turn ID | One durable turn record. | Peen, when the turn starts. | `GET /v1/session/turns`, `turnId` on stored messages, protocol events, and jobs, hook stdin `turnId`. |
 | call ID | One tool call inside a turn. | The model provider. | `callId` on `tool.use` and `tool.result`, `id` and `tool_use_id` on content blocks, `toolCallId` on stored messages, hook stdin `callId`. |
-| agent run ID | One `launch_agent` child run. | Peen, when the child starts. | `GET /v1/session/agents/{agentRunId}`, `runId` in `agent.*` session event data, hook stdin `agentRunId`. |
+| agent run ID | One `launchAgent` child run. | Peen, when the child starts. | `GET /v1/session/agents/{agentRunId}`, `runId` in `agent.*` session event data, hook stdin `agentRunId`. |
 | worker generation ID | One run of a session's worker process. | Peen, when it starts the worker. | `GET /v1/session/workers`, `workerGenerationId` on turns, protocol events, and jobs. |
 | HTTP request ID | One HTTP call. It has no link to the request ID above. | The client in an `X-Request-ID` request header, or Peen when the client sends none or an invalid one. | The `X-Request-ID` response header and the logs for that call. |
 

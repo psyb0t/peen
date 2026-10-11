@@ -41,7 +41,7 @@ const maxLaunchDocumentBytes = 64 << 10
 // default, so the command itself passes none.
 type Options struct {
 	// LaunchInput carries the launch document. Nil reads os.Stdin, which is
-	// how a native worker receives it without the credential ever appearing in
+	// how a control worker receives it without the credential ever appearing in
 	// the process table or on disk.
 	LaunchInput io.Reader
 
@@ -71,7 +71,7 @@ func Run(ctx context.Context, options Options) error {
 		ctx,
 		ctxscope.Attr("session_id", document.SessionID.String()),
 		ctxscope.Attr("worker_generation_id", document.GenerationID.String()),
-		ctxscope.Attr("execution_profile", document.Profile),
+		ctxscope.Attr("agent_space", document.AgentSpace),
 	)
 
 	parseConfig := options.ParseConfig
@@ -207,6 +207,23 @@ func readLaunchDocument(input io.Reader) (worker.LaunchDocument, error) {
 	return document, nil
 }
 
+// applyCommandEnvironment gives the commands the agent runs the worker's
+// environment without the API token and the provider credentials. The worker
+// process keeps them, because its model calls need them.
+func applyCommandEnvironment(
+	options *agent.RuntimeOptions,
+	deployment peenconfig.Config,
+) error {
+	environment, err := deployment.CommandEnvironment(os.Environ())
+	if err != nil {
+		return ctxerrors.Wrap(err, "build the agent command environment")
+	}
+
+	options.CommandEnvironment = environment
+
+	return nil
+}
+
 // buildRuntime wires this worker's session runtime over the protocol store.
 func buildRuntime(
 	ctx context.Context,
@@ -250,6 +267,10 @@ func buildRuntime(
 		models,
 		metrics.New(),
 	)
+	if err := applyCommandEnvironment(&options, deployment); err != nil {
+		return nil, err
+	}
+
 	options.Store = connection.Store()
 	options.Resolver = resolver
 	options.WorkerGenerationID = document.GenerationID
@@ -408,7 +429,7 @@ func (h *commandHandler) signalJob(
 	if err := json.Unmarshal(payload, &request); err != nil {
 		return nil, ctxerrors.Wrap(
 			commerr.ErrParseFailed,
-			"decode the signal_job command",
+			"decode the signalJob command",
 		)
 	}
 
@@ -444,7 +465,7 @@ func (h *commandHandler) runTurn(
 	if err := json.Unmarshal(payload, &request); err != nil {
 		return nil, ctxerrors.Wrap(
 			commerr.ErrParseFailed,
-			"decode the run_turn command",
+			"decode the runTurn command",
 		)
 	}
 
@@ -458,7 +479,7 @@ func (h *commandHandler) runTurn(
 	return protocol.TurnResult{Text: result.Text, Queued: result.Queued}, nil
 }
 
-// turnMessage turns a run_turn command into this worker's session turn.
+// turnMessage turns a runTurn command into this worker's session turn.
 func turnMessage(
 	sessionID uuid.UUID,
 	request protocol.RunTurn,

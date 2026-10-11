@@ -30,8 +30,8 @@ const (
 		`as 90s, 5m, or 1h30m: time: invalid duration "soon": validation failed`
 	jobToolsOldArgumentError = `decode tool arguments: json: unknown field ` +
 		`"timeoutSeconds"`
-	jobToolsStateRunning    = "running"
-	jobToolsStateExited     = "exited"
+	jobToolsStateRunning = "running"
+	jobToolsStateExited  = "exited"
 
 	jobNoticeWorkspacePrefix = "jobnotice-"
 	jobNoticeMessage         = "start a short background job"
@@ -61,7 +61,7 @@ type jobToolsResult struct {
 	Stdout     string `json:"stdout"`
 }
 
-// wait_job waits for a real job up to its timeout: a short timeout reports it
+// waitJob waits for a real job up to its timeout: a short timeout reports it
 // still running, a long one reports how it exited with its output. A timeout
 // that is not a Go duration, and the retired timeoutSeconds argument, are
 // refused as failed tool calls and run nothing.
@@ -81,7 +81,7 @@ func TestAPIWaitJobHonorsItsTimeoutThroughTheWorker(t *testing.T) {
 		UserMessage: jobToolsMessage,
 		Calls: []testinfra.ScriptedToolCall{
 			{
-				Name: "run_command",
+				Name: "runCommand",
 				Arguments: map[string]any{
 					"command":    jobToolsCommand,
 					"purpose":    jobToolsPurpose,
@@ -89,7 +89,7 @@ func TestAPIWaitJobHonorsItsTimeoutThroughTheWorker(t *testing.T) {
 				},
 			},
 			{
-				Name: "wait_job",
+				Name: "waitJob",
 				ArgumentsFrom: func(results []string) map[string]any {
 					return map[string]any{
 						"jobId":   jobID(results),
@@ -98,7 +98,7 @@ func TestAPIWaitJobHonorsItsTimeoutThroughTheWorker(t *testing.T) {
 				},
 			},
 			{
-				Name: "wait_job",
+				Name: "waitJob",
 				ArgumentsFrom: func(results []string) map[string]any {
 					return map[string]any{
 						"jobId":   jobID(results),
@@ -107,7 +107,7 @@ func TestAPIWaitJobHonorsItsTimeoutThroughTheWorker(t *testing.T) {
 				},
 			},
 			{
-				Name: "run_command",
+				Name: "runCommand",
 				Arguments: map[string]any{
 					"command": "true",
 					"purpose": jobToolsPurpose,
@@ -115,7 +115,7 @@ func TestAPIWaitJobHonorsItsTimeoutThroughTheWorker(t *testing.T) {
 				},
 			},
 			{
-				Name: "run_command",
+				Name: "runCommand",
 				Arguments: map[string]any{
 					"command":        "true",
 					"purpose":        jobToolsPurpose,
@@ -123,7 +123,7 @@ func TestAPIWaitJobHonorsItsTimeoutThroughTheWorker(t *testing.T) {
 				},
 			},
 			{
-				Name: "wait_job",
+				Name: "waitJob",
 				ArgumentsFrom: func(results []string) map[string]any {
 					return map[string]any{
 						"jobId":   jobID(results),
@@ -132,7 +132,7 @@ func TestAPIWaitJobHonorsItsTimeoutThroughTheWorker(t *testing.T) {
 				},
 			},
 			{
-				Name: "wait_job",
+				Name: "waitJob",
 				ArgumentsFrom: func(results []string) map[string]any {
 					return map[string]any{
 						"jobId":          jobID(results),
@@ -189,7 +189,7 @@ func TestAPIWaitJobHonorsItsTimeoutThroughTheWorker(t *testing.T) {
 	assert.Equal(t, jobToolsOldArgumentError, tools[6].Content)
 }
 
-// A job that ends after its run_command call returned publishes job.exited
+// A job that ends after its runCommand call returned publishes job.exited
 // with its run time as durationMs and as a Go duration string, and the next
 // turn receives that same data in its events message.
 func TestAPIJobExitedNoticeCarriesTheDuration(t *testing.T) {
@@ -200,7 +200,7 @@ func TestAPIJobExitedNoticeCarriesTheDuration(t *testing.T) {
 	integrationInfra.EnableScriptedToolTurn(testinfra.ScriptedToolTurn{
 		UserMessage: jobNoticeMessage,
 		Calls: []testinfra.ScriptedToolCall{{
-			Name: "run_command",
+			Name: "runCommand",
 			Arguments: map[string]any{
 				"command":    jobNoticeCommand,
 				"purpose":    jobNoticePurpose,
@@ -255,7 +255,7 @@ func TestAPIJobExitedNoticeCarriesTheDuration(t *testing.T) {
 	assert.Contains(t, events, `"type":"job.exited"`)
 }
 
-// launch_agent through the worker: the child runs as the core agent the call
+// launchAgent through the worker: the child runs as the core agent the call
 // names, its task's :name skill follows the task as its own message, and the
 // parent receives the child's answer as the tool result.
 func TestAPILaunchAgentRunsACoreAgentWithATaskSkill(t *testing.T) {
@@ -266,7 +266,7 @@ func TestAPILaunchAgentRunsACoreAgentWithATaskSkill(t *testing.T) {
 	integrationInfra.EnableScriptedToolTurn(testinfra.ScriptedToolTurn{
 		UserMessage: agentToolsMessage,
 		Calls: []testinfra.ScriptedToolCall{{
-			Name: "launch_agent",
+			Name: "launchAgent",
 			Arguments: map[string]any{
 				"agent": agentToolsAgent,
 				"task":  agentToolsTask,

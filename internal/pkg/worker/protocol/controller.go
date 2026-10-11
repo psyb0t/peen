@@ -433,7 +433,7 @@ func (c *Controller) createOrResume(
 }
 
 // acquireTurn starts a turn and publishes the events it opens with, such as
-// user_message.created, after they are written. They never pass through a
+// userMessage.created, after they are written. They never pass through a
 // checkpoint, so without this a client would not see them until it reloaded.
 func (c *Controller) acquireTurn(
 	ctx context.Context,

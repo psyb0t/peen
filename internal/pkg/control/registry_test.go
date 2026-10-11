@@ -46,19 +46,19 @@ func newRegistryFixture(t *testing.T) registryFixture {
 	policy, err := control.NewWorkspacePolicy([]string{root})
 	require.NoError(t, err)
 
-	profiles, err := worker.NewProfileSet(
-		[]worker.Profile{{
-			Name: worker.ProfileNative,
-			Kind: worker.KindNative,
+	agentSpaces, err := worker.NewAgentSpaceSet(
+		[]worker.AgentSpace{{
+			Name: worker.AgentSpaceControl,
+			Kind: worker.KindControl,
 		}},
-		worker.ProfileNative,
+		worker.AgentSpaceControl,
 	)
 	require.NoError(t, err)
 
 	registry, err := control.NewRegistry(control.RegistryOptions{
 		Store:        store,
 		Policy:       policy,
-		Profiles:     profiles,
+		AgentSpaces:  agentSpaces,
 		RootAgent:    testRootAgent,
 		DefaultModel: testDefaultModel,
 	})

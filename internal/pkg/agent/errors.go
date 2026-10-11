@@ -21,7 +21,7 @@ var (
 	// ErrInvalidAgentRunLimits reports a limit set that cannot bound agent
 	// run work.
 	ErrInvalidAgentRunLimits = errors.New("invalid agent run limits")
-	// ErrAgentSpecificationInvalid reports a launch_agent call naming zero
+	// ErrAgentSpecificationInvalid reports a launchAgent call naming zero
 	// or both of agent and agentDefinition.
 	ErrAgentSpecificationInvalid = errors.New(
 		"agent specification is invalid",
@@ -31,7 +31,7 @@ var (
 	ErrAgentDefinitionTooLarge = errors.New(
 		"ad-hoc agent definition is too large",
 	)
-	// ErrAgentDepthExceeded reports a launch_agent call that would exceed
+	// ErrAgentDepthExceeded reports a launchAgent call that would exceed
 	// the configured maximum child agent depth.
 	ErrAgentDepthExceeded = errors.New("child agent depth limit exceeded")
 	// ErrTooManyAgentRuns reports a session already running its configured

@@ -143,7 +143,7 @@ func TestRuntimeStreamDeliversEventsIncrementally(t *testing.T) {
 	}()
 
 	first := receiveEvent(t, events)
-	assert.Equal(t, "user_message.created", first.Type)
+	assert.Equal(t, "userMessage.created", first.Type)
 
 	select {
 	case <-done:

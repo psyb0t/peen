@@ -29,10 +29,10 @@ const (
 	rootAgentDepth                = 0
 )
 
-// agentDepthKey is the unexported context key carrying how many launch_agent
+// agentDepthKey is the unexported context key carrying how many launchAgent
 // calls already sit above the conversation now running. The root turn is
 // depth 0; hostToolHandler forwards ctx unchanged to every tool Handler, and
-// launch_agent's own handler sets a fresh depth on the context it hands its
+// launchAgent's own handler sets a fresh depth on the context it hands its
 // child's Run call, so the value is always the depth of whichever
 // conversation is currently executing.
 type agentDepthKey struct{}
@@ -49,7 +49,7 @@ func agentDepthFromContext(ctx context.Context) int {
 
 // parentToolCallIDKey is the unexported context key carrying the elelem call
 // ID of whichever tool call is currently executing. hostToolHandler sets it
-// for every host tool call; launch_agent reads it back to record which call
+// for every host tool call; launchAgent reads it back to record which call
 // started a given agent run, for internal transcript correlation.
 type parentToolCallIDKey struct{}
 
@@ -67,7 +67,7 @@ func parentToolCallIDFromContext(ctx context.Context) string {
 }
 
 // parentAgentRunIDKey carries the direct child-run parent while a nested
-// launch_agent call executes. Root calls have no parent agent run.
+// launchAgent call executes. Root calls have no parent agent run.
 type parentAgentRunIDKey struct{}
 
 func contextWithParentAgentRunID(
@@ -134,12 +134,12 @@ type preparedChildLaunch struct {
 	skillLedger *skillLedger
 }
 
-// launchAgentDeps is everything one turn's launch_agent tool needs to run a
+// launchAgentDeps is everything one turn's launchAgent tool needs to run a
 // child conversation sharing this turn's session, workspace, resolved
 // rules, tool registry, and model. Built once per turn in
 // Runtime.runProvider and reused unchanged at every recursion depth: only
 // the context's depth value and the run's own identity change as
-// launch_agent calls itself for a grandchild.
+// launchAgent calls itself for a grandchild.
 type launchAgentDeps struct {
 	runtime            *Runtime
 	executor           *tools.JobExecutor
@@ -153,7 +153,7 @@ type launchAgentDeps struct {
 	liveSink           EventSink
 }
 
-// handle is the tool Handler launch_agent registers.
+// handle is the tool Handler launchAgent registers.
 func (d *launchAgentDeps) handle(
 	ctx context.Context,
 	input launchAgentInput,
@@ -161,7 +161,7 @@ func (d *launchAgentDeps) handle(
 	return d.runtime.launchAgent(ctx, d, input)
 }
 
-// launchAgentTool builds the launch_agent tool over one turn's (or one
+// launchAgentTool builds the launchAgent tool over one turn's (or one
 // child's) dependencies. It is added to a *elelem.ToolSet that hostToolSet
 // already built, via ToolSet.Add, rather than being part of hostToolSet
 // itself: hostToolSet has other callers (see skills_test.go, tools_test.go)

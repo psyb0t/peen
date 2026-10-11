@@ -138,18 +138,60 @@ func (e AgentRunMessageRole) Valid() bool {
 	}
 }
 
-// Defines values for ExecutionProfileKind.
+// Defines values for AgentSpaceDocker.
 const (
-	ExecutionProfileKindDocker ExecutionProfileKind = "docker"
-	ExecutionProfileKindNative ExecutionProfileKind = "native"
+	AgentSpaceDockerFull     AgentSpaceDocker = "full"
+	AgentSpaceDockerNone     AgentSpaceDocker = "none"
+	AgentSpaceDockerReadonly AgentSpaceDocker = "readonly"
 )
 
-// Valid indicates whether the value is a known member of the ExecutionProfileKind enum.
-func (e ExecutionProfileKind) Valid() bool {
+// Valid indicates whether the value is a known member of the AgentSpaceDocker enum.
+func (e AgentSpaceDocker) Valid() bool {
 	switch e {
-	case ExecutionProfileKindDocker:
+	case AgentSpaceDockerFull:
 		return true
-	case ExecutionProfileKindNative:
+	case AgentSpaceDockerNone:
+		return true
+	case AgentSpaceDockerReadonly:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentSpaceKind.
+const (
+	AgentSpaceKindControl AgentSpaceKind = "control"
+	AgentSpaceKindDocker  AgentSpaceKind = "docker"
+)
+
+// Valid indicates whether the value is a known member of the AgentSpaceKind enum.
+func (e AgentSpaceKind) Valid() bool {
+	switch e {
+	case AgentSpaceKindControl:
+		return true
+	case AgentSpaceKindDocker:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AgentSpaceNetwork.
+const (
+	AgentSpaceNetworkBridge AgentSpaceNetwork = "bridge"
+	AgentSpaceNetworkHost   AgentSpaceNetwork = "host"
+	AgentSpaceNetworkNone   AgentSpaceNetwork = "none"
+)
+
+// Valid indicates whether the value is a known member of the AgentSpaceNetwork enum.
+func (e AgentSpaceNetwork) Valid() bool {
+	switch e {
+	case AgentSpaceNetworkBridge:
+		return true
+	case AgentSpaceNetworkHost:
+		return true
+	case AgentSpaceNetworkNone:
 		return true
 	default:
 		return false
@@ -494,16 +536,16 @@ func (e TurnState) Valid() bool {
 
 // Defines values for WorkerGenerationKind.
 const (
-	WorkerGenerationKindDocker WorkerGenerationKind = "docker"
-	WorkerGenerationKindNative WorkerGenerationKind = "native"
+	WorkerGenerationKindControl WorkerGenerationKind = "control"
+	WorkerGenerationKindDocker  WorkerGenerationKind = "docker"
 )
 
 // Valid indicates whether the value is a known member of the WorkerGenerationKind enum.
 func (e WorkerGenerationKind) Valid() bool {
 	switch e {
-	case WorkerGenerationKindDocker:
+	case WorkerGenerationKindControl:
 		return true
-	case WorkerGenerationKindNative:
+	case WorkerGenerationKindDocker:
 		return true
 	default:
 		return false
@@ -860,6 +902,48 @@ type AgentRunPage struct {
 	Offset  int32      `json:"offset"`
 }
 
+// AgentSpace defines model for AgentSpace.
+type AgentSpace struct {
+	// CapabilityWarnings One operator-facing sentence for each risky grant this space makes. Empty for a space that grants nothing risky.
+	CapabilityWarnings []string `json:"capabilityWarnings"`
+
+	// Docker How much of the host Docker daemon the space reaches. `full` mounts the controller's Docker socket, which is host root. `readonly` is reserved, and the controller refuses to start with a profile that names it. Set only for kind docker.
+	Docker *AgentSpaceDocker `json:"docker,omitempty"`
+
+	// HostRootEquivalent True when this space grants access that is effectively host root, which is `docker: full`.
+	HostRootEquivalent bool           `json:"hostRootEquivalent"`
+	Kind               AgentSpaceKind `json:"kind"`
+
+	// Name What a client names to pick this agent space: `control` or `docker:<profile>`.
+	Name string `json:"name"`
+
+	// Network The network the space gives its worker. Set only for kind docker.
+	Network *AgentSpaceNetwork `json:"network,omitempty"`
+
+	// Profile The Docker profile behind the space. Set only for kind docker.
+	Profile  *string `json:"profile,omitempty"`
+	Revision int64   `json:"revision"`
+
+	// Sudo True when the agent may run commands as root inside the worker container. Set only for kind docker.
+	Sudo *bool `json:"sudo,omitempty"`
+}
+
+// AgentSpaceDocker How much of the host Docker daemon the space reaches. `full` mounts the controller's Docker socket, which is host root. `readonly` is reserved, and the controller refuses to start with a profile that names it. Set only for kind docker.
+type AgentSpaceDocker string
+
+// AgentSpaceKind defines model for AgentSpace.Kind.
+type AgentSpaceKind string
+
+// AgentSpaceNetwork The network the space gives its worker. Set only for kind docker.
+type AgentSpaceNetwork string
+
+// AgentSpaceList defines model for AgentSpaceList.
+type AgentSpaceList struct {
+	// Default The agent space a session opened without naming one uses.
+	Default string       `json:"default"`
+	Items   []AgentSpace `json:"items"`
+}
+
 // CancelResponse defines model for CancelResponse.
 type CancelResponse struct {
 	CancelRequested bool `json:"cancelRequested"`
@@ -915,32 +999,6 @@ type Error struct {
 	Code    string                  `json:"code"`
 	Details *map[string]interface{} `json:"details,omitempty"`
 	Message string                  `json:"message"`
-}
-
-// ExecutionProfile defines model for ExecutionProfile.
-type ExecutionProfile struct {
-	AllowDockerSocket        bool `json:"allowDockerSocket"`
-	AllowNetwork             bool `json:"allowNetwork"`
-	AllowPrivilegeEscalation bool `json:"allowPrivilegeEscalation"`
-
-	// CapabilityWarning Operator-facing warning for a host-root-equivalent profile. Empty for a profile that grants no such access.
-	CapabilityWarning *string `json:"capabilityWarning,omitempty"`
-
-	// HostRootEquivalent True when this profile grants access that is effectively host root, such as a writable Docker socket.
-	HostRootEquivalent bool                 `json:"hostRootEquivalent"`
-	Kind               ExecutionProfileKind `json:"kind"`
-	Name               string               `json:"name"`
-	Revision           int64                `json:"revision"`
-}
-
-// ExecutionProfileKind defines model for ExecutionProfile.Kind.
-type ExecutionProfileKind string
-
-// ExecutionProfileList defines model for ExecutionProfileList.
-type ExecutionProfileList struct {
-	// Default The profile a session opened without naming one uses.
-	Default string             `json:"default"`
-	Items   []ExecutionProfile `json:"items"`
 }
 
 // Job defines model for Job.
@@ -1224,8 +1282,8 @@ type ModelRunPage struct {
 
 // OpenSessionRequest defines model for OpenSessionRequest.
 type OpenSessionRequest struct {
-	// Profile Name of an operator-defined execution profile. Empty takes the deployment default. A name the operator did not define is refused with 403. This is the only environment choice a client makes: images, mounts, network, and capabilities come from deployment configuration alone. It applies only when this call creates the session; opening an existing session never changes its profile.
-	Profile *string `json:"profile,omitempty"`
+	// AgentSpace The agent space to run in, `control` or `docker:<profile>`. Empty takes the deployment default. A name the deployment does not offer is refused with 403. This is the only environment choice a client makes: images, mounts, network, and capabilities come from deployment configuration alone. It applies only when this call creates the session; opening an existing session never changes its agent space.
+	AgentSpace *string `json:"agentSpace,omitempty"`
 
 	// Workspace Absolute host path of the workspace directory. It is resolved through its symlinks and must fall under a configured workspace root.
 	Workspace string `json:"workspace"`
@@ -1247,28 +1305,48 @@ type PromptSnapshot struct {
 
 // ReconfigureSessionRequest defines model for ReconfigureSessionRequest.
 type ReconfigureSessionRequest struct {
-	// Profile The operator-defined profile to move this session to. An undefined name is refused. This is the only environment choice a client makes.
-	Profile string `json:"profile"`
+	// AgentSpace The agent space to move this session to, `control` or `docker:<profile>`. A space the deployment does not offer is refused. This is the only environment choice a client makes.
+	AgentSpace string `json:"agentSpace"`
 
-	// Reason Why the profile changed, kept in the durable decision history.
+	// Reason Why the agent space changed, kept in the durable decision history.
 	Reason string `json:"reason"`
 }
 
 // Session defines model for Session.
 type Session struct {
-	ActiveTurn         bool      `json:"activeTurn"`
-	Agent              string    `json:"agent"`
-	CompletedTurnCount int64     `json:"completedTurnCount"`
-	CreatedAt          time.Time `json:"createdAt"`
+	ActiveTurn bool   `json:"activeTurn"`
+	Agent      string `json:"agent"`
 
-	// ExecutionProfile The operator-defined profile this session's tools run under. Empty for a session recorded before profiles existed, which the controller reads as the deployment default.
-	ExecutionProfile *string            `json:"executionProfile,omitempty"`
-	Id               openapi_types.UUID `json:"id"`
-	LastMessageAt    *time.Time         `json:"lastMessageAt,omitempty"`
-	MessageCount     int64              `json:"messageCount"`
-	Model            string             `json:"model"`
-	UpdatedAt        time.Time          `json:"updatedAt"`
-	Workspace        string             `json:"workspace"`
+	// AgentSpace The agent space this session's tools run in, `control` or `docker:<profile>`.
+	AgentSpace         *string            `json:"agentSpace,omitempty"`
+	CompletedTurnCount int64              `json:"completedTurnCount"`
+	CreatedAt          time.Time          `json:"createdAt"`
+	Id                 openapi_types.UUID `json:"id"`
+	LastMessageAt      *time.Time         `json:"lastMessageAt,omitempty"`
+	MessageCount       int64              `json:"messageCount"`
+	Model              string             `json:"model"`
+	UpdatedAt          time.Time          `json:"updatedAt"`
+	Workspace          string             `json:"workspace"`
+}
+
+// SessionAgentSpaceDecision defines model for SessionAgentSpaceDecision.
+type SessionAgentSpaceDecision struct {
+	DecidedAt time.Time `json:"decidedAt"`
+
+	// FromAgentSpace The agent space the session ran in before this decision. Absent when the session had no recorded agent space.
+	FromAgentSpace *string            `json:"fromAgentSpace,omitempty"`
+	Id             openapi_types.UUID `json:"id"`
+	Reason         string             `json:"reason"`
+	SessionId      openapi_types.UUID `json:"sessionId"`
+	ToAgentSpace   string             `json:"toAgentSpace"`
+}
+
+// SessionAgentSpaceDecisionPage defines model for SessionAgentSpaceDecisionPage.
+type SessionAgentSpaceDecisionPage struct {
+	HasMore bool                        `json:"hasMore"`
+	Items   []SessionAgentSpaceDecision `json:"items"`
+	Limit   int32                       `json:"limit"`
+	Offset  int32                       `json:"offset"`
 }
 
 // SessionNotice defines model for SessionNotice.
@@ -1317,26 +1395,6 @@ type SessionPage struct {
 	Items   []Session `json:"items"`
 	Limit   int32     `json:"limit"`
 	Offset  int32     `json:"offset"`
-}
-
-// SessionProfileDecision defines model for SessionProfileDecision.
-type SessionProfileDecision struct {
-	DecidedAt time.Time `json:"decidedAt"`
-
-	// FromProfile The profile the session ran under before this decision. Absent when the session had no recorded profile.
-	FromProfile *string            `json:"fromProfile,omitempty"`
-	Id          openapi_types.UUID `json:"id"`
-	Reason      string             `json:"reason"`
-	SessionId   openapi_types.UUID `json:"sessionId"`
-	ToProfile   string             `json:"toProfile"`
-}
-
-// SessionProfileDecisionPage defines model for SessionProfileDecisionPage.
-type SessionProfileDecisionPage struct {
-	HasMore bool                     `json:"hasMore"`
-	Items   []SessionProfileDecision `json:"items"`
-	Limit   int32                    `json:"limit"`
-	Offset  int32                    `json:"offset"`
 }
 
 // TranscriptEvent defines model for TranscriptEvent.
@@ -1391,6 +1449,9 @@ type TurnPage struct {
 
 // WorkerGeneration defines model for WorkerGeneration.
 type WorkerGeneration struct {
+	AgentSpace         string `json:"agentSpace"`
+	AgentSpaceRevision int64  `json:"agentSpaceRevision"`
+
 	// ContainerId Set only for a Docker generation.
 	ContainerId *string    `json:"containerId,omitempty"`
 	CreatedAt   time.Time  `json:"createdAt"`
@@ -1401,14 +1462,12 @@ type WorkerGeneration struct {
 	Id            openapi_types.UUID `json:"id"`
 
 	// ImageDigest Immutable image identity for a Docker generation, never a moving tag.
-	ImageDigest     *string               `json:"imageDigest,omitempty"`
-	Kind            WorkerGenerationKind  `json:"kind"`
-	Profile         string                `json:"profile"`
-	ProfileRevision int64                 `json:"profileRevision"`
-	SessionId       openapi_types.UUID    `json:"sessionId"`
-	StartedAt       *time.Time            `json:"startedAt,omitempty"`
-	State           WorkerGenerationState `json:"state"`
-	Workspace       string                `json:"workspace"`
+	ImageDigest *string               `json:"imageDigest,omitempty"`
+	Kind        WorkerGenerationKind  `json:"kind"`
+	SessionId   openapi_types.UUID    `json:"sessionId"`
+	StartedAt   *time.Time            `json:"startedAt,omitempty"`
+	State       WorkerGenerationState `json:"state"`
+	Workspace   string                `json:"workspace"`
 }
 
 // WorkerGenerationKind defines model for WorkerGeneration.Kind.
@@ -1492,6 +1551,13 @@ type ListMessagesParamsOrder string
 
 // GetSessionParams defines parameters for GetSession.
 type GetSessionParams struct {
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// ListSessionAgentSpaceDecisionsParams defines parameters for ListSessionAgentSpaceDecisions.
+type ListSessionAgentSpaceDecisionsParams struct {
+	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
@@ -1643,13 +1709,6 @@ type PublishSessionNoticeParams struct {
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
-// ListSessionProfileDecisionsParams defines parameters for ListSessionProfileDecisions.
-type ListSessionProfileDecisionsParams struct {
-	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
-	XSessionID SessionIDRequired `json:"X-Session-ID"`
-}
-
 // GetSessionPromptSnapshotParams defines parameters for GetSessionPromptSnapshot.
 type GetSessionPromptSnapshotParams struct {
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
@@ -1766,12 +1825,12 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 // The interface specification for the client above.
 type ClientInterface interface {
 
-	// ListExecutionProfiles List the execution profiles a client may name
+	// ListAgentSpaces List the agent spaces a client may name
 	//
-	// Lists the operator-defined profiles a session may run under. A client names a profile when it opens a workspace and never sends an image, mount, network setting, or capability. A profile that grants host-root-equivalent access carries a capability warning.
+	// Lists the agent spaces a session may run in: `control`, where the agent runs where Peen runs, which is listed only when the controller cannot reach a Docker daemon, and one `docker:<profile>` space for each Docker profile, including the built-in `default`. A client names an agent space when it opens a workspace and never sends an image, mount, network setting, or capability. Each Docker space reports its grants (`docker`, `network`, `sudo`), and a space that grants host root or other risky access carries capability warnings.
 	//
-	// Corresponds with GET /execution-profiles (the `ListExecutionProfiles` operationId).
-	ListExecutionProfiles(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// Corresponds with GET /agent-spaces (the `ListAgentSpaces` operationId).
+	ListAgentSpaces(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListMessages List stored conversation messages
 	//
@@ -1789,6 +1848,13 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /session (the `GetSession` operationId).
 	GetSession(ctx context.Context, params *GetSessionParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListSessionAgentSpaceDecisions List one session's agent space decision history
+	//
+	// Returns the durable record of every agent space change made to one session, newest first. Each entry names the agent space the session moved from, the agent space it moved to, and the reason the caller gave.
+	//
+	// Corresponds with GET /session/agent-space-decisions (the `ListSessionAgentSpaceDecisions` operationId).
+	ListSessionAgentSpaceDecisions(ctx context.Context, params *ListSessionAgentSpaceDecisionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListSessionAgentRuns List the child agent runs this session has started
 	//
@@ -1910,30 +1976,23 @@ type ClientInterface interface {
 	// Corresponds with POST /session/notices (the `PublishSessionNotice` operationId).
 	PublishSessionNotice(ctx context.Context, params *PublishSessionNoticeParams, body PublishSessionNoticeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ListSessionProfileDecisions List one session's execution profile decision history
-	//
-	// Returns the durable record of every execution profile change made to one session, newest first. Each entry names the profile the session moved from, the profile it moved to, and the reason the caller gave.
-	//
-	// Corresponds with GET /session/profile-decisions (the `ListSessionProfileDecisions` operationId).
-	ListSessionProfileDecisions(ctx context.Context, params *ListSessionProfileDecisionsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// GetSessionPromptSnapshot Read a prompt snapshot referenced by this session
 	//
 	// Corresponds with GET /session/prompt-snapshots/{promptHash} (the `GetSessionPromptSnapshot` operationId).
 	GetSessionPromptSnapshot(ctx context.Context, promptHash PromptHash, params *GetSessionPromptSnapshotParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReconfigureSessionWithBody Move an idle session to a different execution profile
+	// ReconfigureSessionWithBody Move an idle session to a different agent space
 	//
-	// Changes the operator-defined profile a session's tools run under and records the decision with the caller's reason. The named profile must be one the operator defined; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to a profile that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation under the new profile. The client names only a profile and never sends an image, mount, network setting, or capability.
+	// Changes the agent space a session's tools run in and records the decision with the caller's reason. The named agent space must be one the deployment offers; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with POST /session/reconfigure (the `ReconfigureSession` operationId).
 	ReconfigureSessionWithBody(ctx context.Context, params *ReconfigureSessionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReconfigureSession Move an idle session to a different execution profile
+	// ReconfigureSession Move an idle session to a different agent space
 	//
-	// Changes the operator-defined profile a session's tools run under and records the decision with the caller's reason. The named profile must be one the operator defined; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to a profile that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation under the new profile. The client names only a profile and never sends an image, mount, network setting, or capability.
+	// Changes the agent space a session's tools run in and records the decision with the caller's reason. The named agent space must be one the deployment offers; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -1947,7 +2006,7 @@ type ClientInterface interface {
 
 	// ListSessionWorkers List one session's worker generations
 	//
-	// Returns the durable worker generations for one session, newest first. A generation records the worker process that ran a set of turns, the profile revision it started under, and for a Docker generation its container and repository image digest when one is available.
+	// Returns the durable worker generations for one session, newest first. A generation records the worker process that ran a set of turns, the agent space revision it started under, and for a Docker generation its container and repository image digest when one is available.
 	//
 	// Corresponds with GET /session/workers (the `ListSessionWorkers` operationId).
 	ListSessionWorkers(ctx context.Context, params *ListSessionWorkersParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -1961,7 +2020,7 @@ type ClientInterface interface {
 
 	// OpenSessionWithBody Open or resume the session for a workspace
 	//
-	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -1970,7 +2029,7 @@ type ClientInterface interface {
 
 	// OpenSession Open or resume the session for a workspace
 	//
-	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -1985,13 +2044,13 @@ type ClientInterface interface {
 	ListWorkspaceRoots(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
-// ListExecutionProfiles List the execution profiles a client may name
+// ListAgentSpaces List the agent spaces a client may name
 //
-// Lists the operator-defined profiles a session may run under. A client names a profile when it opens a workspace and never sends an image, mount, network setting, or capability. A profile that grants host-root-equivalent access carries a capability warning.
+// Lists the agent spaces a session may run in: `control`, where the agent runs where Peen runs, which is listed only when the controller cannot reach a Docker daemon, and one `docker:<profile>` space for each Docker profile, including the built-in `default`. A client names an agent space when it opens a workspace and never sends an image, mount, network setting, or capability. Each Docker space reports its grants (`docker`, `network`, `sudo`), and a space that grants host root or other risky access carries capability warnings.
 //
-// Corresponds with GET /execution-profiles (the `ListExecutionProfiles` operationId).
-func (c *Client) ListExecutionProfiles(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListExecutionProfilesRequest(c.Server)
+// Corresponds with GET /agent-spaces (the `ListAgentSpaces` operationId).
+func (c *Client) ListAgentSpaces(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListAgentSpacesRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -2039,6 +2098,23 @@ func (c *Client) ListModels(ctx context.Context, reqEditors ...RequestEditorFn) 
 // Corresponds with GET /session (the `GetSession` operationId).
 func (c *Client) GetSession(ctx context.Context, params *GetSessionParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetSessionRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListSessionAgentSpaceDecisions List one session's agent space decision history
+//
+// Returns the durable record of every agent space change made to one session, newest first. Each entry names the agent space the session moved from, the agent space it moved to, and the reason the caller gave.
+//
+// Corresponds with GET /session/agent-space-decisions (the `ListSessionAgentSpaceDecisions` operationId).
+func (c *Client) ListSessionAgentSpaceDecisions(ctx context.Context, params *ListSessionAgentSpaceDecisionsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSessionAgentSpaceDecisionsRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -2389,23 +2465,6 @@ func (c *Client) PublishSessionNotice(ctx context.Context, params *PublishSessio
 	return c.Client.Do(req)
 }
 
-// ListSessionProfileDecisions List one session's execution profile decision history
-//
-// Returns the durable record of every execution profile change made to one session, newest first. Each entry names the profile the session moved from, the profile it moved to, and the reason the caller gave.
-//
-// Corresponds with GET /session/profile-decisions (the `ListSessionProfileDecisions` operationId).
-func (c *Client) ListSessionProfileDecisions(ctx context.Context, params *ListSessionProfileDecisionsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListSessionProfileDecisionsRequest(c.Server, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 // GetSessionPromptSnapshot Read a prompt snapshot referenced by this session
 //
 // Corresponds with GET /session/prompt-snapshots/{promptHash} (the `GetSessionPromptSnapshot` operationId).
@@ -2421,9 +2480,9 @@ func (c *Client) GetSessionPromptSnapshot(ctx context.Context, promptHash Prompt
 	return c.Client.Do(req)
 }
 
-// ReconfigureSessionWithBody Move an idle session to a different execution profile
+// ReconfigureSessionWithBody Move an idle session to a different agent space
 //
-// Changes the operator-defined profile a session's tools run under and records the decision with the caller's reason. The named profile must be one the operator defined; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to a profile that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation under the new profile. The client names only a profile and never sends an image, mount, network setting, or capability.
+// Changes the agent space a session's tools run in and records the decision with the caller's reason. The named agent space must be one the deployment offers; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
 //
 // Takes any type of body and a specified content type.
 //
@@ -2440,9 +2499,9 @@ func (c *Client) ReconfigureSessionWithBody(ctx context.Context, params *Reconfi
 	return c.Client.Do(req)
 }
 
-// ReconfigureSession Move an idle session to a different execution profile
+// ReconfigureSession Move an idle session to a different agent space
 //
-// Changes the operator-defined profile a session's tools run under and records the decision with the caller's reason. The named profile must be one the operator defined; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to a profile that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation under the new profile. The client names only a profile and never sends an image, mount, network setting, or capability.
+// Changes the agent space a session's tools run in and records the decision with the caller's reason. The named agent space must be one the deployment offers; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -2476,7 +2535,7 @@ func (c *Client) ListSessionTurns(ctx context.Context, params *ListSessionTurnsP
 
 // ListSessionWorkers List one session's worker generations
 //
-// Returns the durable worker generations for one session, newest first. A generation records the worker process that ran a set of turns, the profile revision it started under, and for a Docker generation its container and repository image digest when one is available.
+// Returns the durable worker generations for one session, newest first. A generation records the worker process that ran a set of turns, the agent space revision it started under, and for a Docker generation its container and repository image digest when one is available.
 //
 // Corresponds with GET /session/workers (the `ListSessionWorkers` operationId).
 func (c *Client) ListSessionWorkers(ctx context.Context, params *ListSessionWorkersParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -2510,7 +2569,7 @@ func (c *Client) ListSessions(ctx context.Context, params *ListSessionsParams, r
 
 // OpenSessionWithBody Open or resume the session for a workspace
 //
-// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 //
 // Takes any type of body and a specified content type.
 //
@@ -2529,7 +2588,7 @@ func (c *Client) OpenSessionWithBody(ctx context.Context, contentType string, bo
 
 // OpenSession Open or resume the session for a workspace
 //
-// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -2563,8 +2622,8 @@ func (c *Client) ListWorkspaceRoots(ctx context.Context, reqEditors ...RequestEd
 	return c.Client.Do(req)
 }
 
-// NewListExecutionProfilesRequest constructs an http.Request for the ListExecutionProfiles method
-func NewListExecutionProfilesRequest(server string) (*http.Request, error) {
+// NewListAgentSpacesRequest constructs an http.Request for the ListAgentSpaces method
+func NewListAgentSpacesRequest(server string) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -2572,7 +2631,7 @@ func NewListExecutionProfilesRequest(server string) (*http.Request, error) {
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/execution-profiles")
+	operationPath := fmt.Sprintf("/agent-spaces")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -2725,6 +2784,85 @@ func NewGetSessionRequest(server string, params *GetSessionParams) (*http.Reques
 	queryURL, err := serverURL.Parse(operationPath)
 	if err != nil {
 		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Session-ID", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewListSessionAgentSpaceDecisionsRequest constructs an http.Request for the ListSessionAgentSpaceDecisions method
+func NewListSessionAgentSpaceDecisionsRequest(server string, params *ListSessionAgentSpaceDecisionsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/agent-space-decisions")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
@@ -4205,85 +4343,6 @@ func NewPublishSessionNoticeRequestWithBody(server string, params *PublishSessio
 	return req, nil
 }
 
-// NewListSessionProfileDecisionsRequest constructs an http.Request for the ListSessionProfileDecisions method
-func NewListSessionProfileDecisionsRequest(server string, params *ListSessionProfileDecisionsParams) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/session/profile-decisions")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		// queryValues collects non-styled parameters (passthrough, JSON)
-		// that are safe to round-trip through url.Values.Encode().
-		queryValues := queryURL.Query()
-		// rawQueryFragments collects pre-encoded query fragments from
-		// styled parameters, preserving literal commas as delimiters
-		// per the OpenAPI spec (e.g. "color=blue,black,brown").
-		var rawQueryFragments []string
-
-		if params.Limit != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
-		if params.Offset != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
-		if encoded := queryValues.Encode(); encoded != "" {
-			rawQueryFragments = append(rawQueryFragments, encoded)
-		}
-		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-
-		var headerParam0 string
-
-		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
-		if err != nil {
-			return nil, err
-		}
-
-		req.Header.Set("X-Session-ID", headerParam0)
-
-	}
-
-	return req, nil
-}
-
 // NewGetSessionPromptSnapshotRequest constructs an http.Request for the GetSessionPromptSnapshot method
 func NewGetSessionPromptSnapshotRequest(server string, promptHash PromptHash, params *GetSessionPromptSnapshotParams) (*http.Request, error) {
 	var err error
@@ -4719,14 +4778,14 @@ func WithBaseURL(baseURL string) ClientOption {
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
 
-	// ListExecutionProfilesWithResponse List the execution profiles a client may name
+	// ListAgentSpacesWithResponse List the agent spaces a client may name
 	//
-	// Lists the operator-defined profiles a session may run under. A client names a profile when it opens a workspace and never sends an image, mount, network setting, or capability. A profile that grants host-root-equivalent access carries a capability warning.
+	// Lists the agent spaces a session may run in: `control`, where the agent runs where Peen runs, which is listed only when the controller cannot reach a Docker daemon, and one `docker:<profile>` space for each Docker profile, including the built-in `default`. A client names an agent space when it opens a workspace and never sends an image, mount, network setting, or capability. Each Docker space reports its grants (`docker`, `network`, `sudo`), and a space that grants host root or other risky access carries capability warnings.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
-	// Corresponds with GET /execution-profiles (the `ListExecutionProfiles` operationId).
-	ListExecutionProfilesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListExecutionProfilesResponse, error)
+	// Corresponds with GET /agent-spaces (the `ListAgentSpaces` operationId).
+	ListAgentSpacesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAgentSpacesResponse, error)
 
 	// ListMessagesWithResponse List stored conversation messages
 	//
@@ -4750,6 +4809,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /session (the `GetSession` operationId).
 	GetSessionWithResponse(ctx context.Context, params *GetSessionParams, reqEditors ...RequestEditorFn) (*GetSessionResponse, error)
+
+	// ListSessionAgentSpaceDecisionsWithResponse List one session's agent space decision history
+	//
+	// Returns the durable record of every agent space change made to one session, newest first. Each entry names the agent space the session moved from, the agent space it moved to, and the reason the caller gave.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /session/agent-space-decisions (the `ListSessionAgentSpaceDecisions` operationId).
+	ListSessionAgentSpaceDecisionsWithResponse(ctx context.Context, params *ListSessionAgentSpaceDecisionsParams, reqEditors ...RequestEditorFn) (*ListSessionAgentSpaceDecisionsResponse, error)
 
 	// ListSessionAgentRunsWithResponse List the child agent runs this session has started
 	//
@@ -4907,15 +4975,6 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /session/notices (the `PublishSessionNotice` operationId).
 	PublishSessionNoticeWithResponse(ctx context.Context, params *PublishSessionNoticeParams, body PublishSessionNoticeJSONRequestBody, reqEditors ...RequestEditorFn) (*PublishSessionNoticeResponse, error)
 
-	// ListSessionProfileDecisionsWithResponse List one session's execution profile decision history
-	//
-	// Returns the durable record of every execution profile change made to one session, newest first. Each entry names the profile the session moved from, the profile it moved to, and the reason the caller gave.
-	//
-	// Returns a wrapper object for the known response body format(s).
-	//
-	// Corresponds with GET /session/profile-decisions (the `ListSessionProfileDecisions` operationId).
-	ListSessionProfileDecisionsWithResponse(ctx context.Context, params *ListSessionProfileDecisionsParams, reqEditors ...RequestEditorFn) (*ListSessionProfileDecisionsResponse, error)
-
 	// GetSessionPromptSnapshotWithResponse Read a prompt snapshot referenced by this session
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -4923,18 +4982,18 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /session/prompt-snapshots/{promptHash} (the `GetSessionPromptSnapshot` operationId).
 	GetSessionPromptSnapshotWithResponse(ctx context.Context, promptHash PromptHash, params *GetSessionPromptSnapshotParams, reqEditors ...RequestEditorFn) (*GetSessionPromptSnapshotResponse, error)
 
-	// ReconfigureSessionWithBodyWithResponse Move an idle session to a different execution profile
+	// ReconfigureSessionWithBodyWithResponse Move an idle session to a different agent space
 	//
-	// Changes the operator-defined profile a session's tools run under and records the decision with the caller's reason. The named profile must be one the operator defined; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to a profile that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation under the new profile. The client names only a profile and never sends an image, mount, network setting, or capability.
+	// Changes the agent space a session's tools run in and records the decision with the caller's reason. The named agent space must be one the deployment offers; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /session/reconfigure (the `ReconfigureSession` operationId).
 	ReconfigureSessionWithBodyWithResponse(ctx context.Context, params *ReconfigureSessionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReconfigureSessionResponse, error)
 
-	// ReconfigureSessionWithResponse Move an idle session to a different execution profile
+	// ReconfigureSessionWithResponse Move an idle session to a different agent space
 	//
-	// Changes the operator-defined profile a session's tools run under and records the decision with the caller's reason. The named profile must be one the operator defined; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to a profile that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation under the new profile. The client names only a profile and never sends an image, mount, network setting, or capability.
+	// Changes the agent space a session's tools run in and records the decision with the caller's reason. The named agent space must be one the deployment offers; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -4950,7 +5009,7 @@ type ClientWithResponsesInterface interface {
 
 	// ListSessionWorkersWithResponse List one session's worker generations
 	//
-	// Returns the durable worker generations for one session, newest first. A generation records the worker process that ran a set of turns, the profile revision it started under, and for a Docker generation its container and repository image digest when one is available.
+	// Returns the durable worker generations for one session, newest first. A generation records the worker process that ran a set of turns, the agent space revision it started under, and for a Docker generation its container and repository image digest when one is available.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -4968,7 +5027,7 @@ type ClientWithResponsesInterface interface {
 
 	// OpenSessionWithBodyWithResponse Open or resume the session for a workspace
 	//
-	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -4977,7 +5036,7 @@ type ClientWithResponsesInterface interface {
 
 	// OpenSessionWithResponse Open or resume the session for a workspace
 	//
-	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -4994,46 +5053,46 @@ type ClientWithResponsesInterface interface {
 	ListWorkspaceRootsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListWorkspaceRootsResponse, error)
 }
 
-// ListExecutionProfilesResponse200Headers the declared response headers of an HTTP 200 response for ListExecutionProfiles
-type ListExecutionProfilesResponse200Headers struct {
+// ListAgentSpacesResponse200Headers the declared response headers of an HTTP 200 response for ListAgentSpaces
+type ListAgentSpacesResponse200Headers struct {
 	XRequestID openapi_types.UUID
 }
 
-type ListExecutionProfilesResponse struct {
+type ListAgentSpacesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *ExecutionProfileList
+	JSON200 *AgentSpaceList
 	// JSON401 the response for an HTTP 401 `application/json` response
 	JSON401 *ErrorUnauthorized
 	// JSON500 the response for an HTTP 500 `application/json` response
 	JSON500 *ErrorInternal
 	// Headers200 the parsed response headers for an HTTP 200 response
-	Headers200 *ListExecutionProfilesResponse200Headers
+	Headers200 *ListAgentSpacesResponse200Headers
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r ListExecutionProfilesResponse) GetJSON200() *ExecutionProfileList {
+func (r ListAgentSpacesResponse) GetJSON200() *AgentSpaceList {
 	return r.JSON200
 }
 
 // GetJSON401 returns the response for an HTTP 401 `application/json` response
-func (r ListExecutionProfilesResponse) GetJSON401() *ErrorUnauthorized {
+func (r ListAgentSpacesResponse) GetJSON401() *ErrorUnauthorized {
 	return r.JSON401
 }
 
 // GetJSON500 returns the response for an HTTP 500 `application/json` response
-func (r ListExecutionProfilesResponse) GetJSON500() *ErrorInternal {
+func (r ListAgentSpacesResponse) GetJSON500() *ErrorInternal {
 	return r.JSON500
 }
 
 // GetBody returns the raw response body bytes
-func (r ListExecutionProfilesResponse) GetBody() []byte {
+func (r ListAgentSpacesResponse) GetBody() []byte {
 	return r.Body
 }
 
 // Status returns HTTPResponse.Status
-func (r ListExecutionProfilesResponse) Status() string {
+func (r ListAgentSpacesResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -5041,7 +5100,7 @@ func (r ListExecutionProfilesResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r ListExecutionProfilesResponse) StatusCode() int {
+func (r ListAgentSpacesResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -5049,7 +5108,7 @@ func (r ListExecutionProfilesResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r ListExecutionProfilesResponse) ContentType() string {
+func (r ListAgentSpacesResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5266,6 +5325,83 @@ func (r GetSessionResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetSessionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ListSessionAgentSpaceDecisionsResponse200Headers the declared response headers of an HTTP 200 response for ListSessionAgentSpaceDecisions
+type ListSessionAgentSpaceDecisionsResponse200Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListSessionAgentSpaceDecisionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SessionAgentSpaceDecisionPage
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ListSessionAgentSpaceDecisionsResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListSessionAgentSpaceDecisionsResponse) GetJSON200() *SessionAgentSpaceDecisionPage {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ListSessionAgentSpaceDecisionsResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListSessionAgentSpaceDecisionsResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ListSessionAgentSpaceDecisionsResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListSessionAgentSpaceDecisionsResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListSessionAgentSpaceDecisionsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListSessionAgentSpaceDecisionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListSessionAgentSpaceDecisionsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListSessionAgentSpaceDecisionsResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -6812,83 +6948,6 @@ func (r PublishSessionNoticeResponse) ContentType() string {
 	return ""
 }
 
-// ListSessionProfileDecisionsResponse200Headers the declared response headers of an HTTP 200 response for ListSessionProfileDecisions
-type ListSessionProfileDecisionsResponse200Headers struct {
-	XRequestID openapi_types.UUID
-	XSessionID openapi_types.UUID
-}
-
-type ListSessionProfileDecisionsResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *SessionProfileDecisionPage
-	// JSON400 the response for an HTTP 400 `application/json` response
-	JSON400 *ErrorBadRequest
-	// JSON401 the response for an HTTP 401 `application/json` response
-	JSON401 *ErrorUnauthorized
-	// JSON404 the response for an HTTP 404 `application/json` response
-	JSON404 *ErrorNotFound
-	// JSON500 the response for an HTTP 500 `application/json` response
-	JSON500 *ErrorInternal
-	// Headers200 the parsed response headers for an HTTP 200 response
-	Headers200 *ListSessionProfileDecisionsResponse200Headers
-}
-
-// GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r ListSessionProfileDecisionsResponse) GetJSON200() *SessionProfileDecisionPage {
-	return r.JSON200
-}
-
-// GetJSON400 returns the response for an HTTP 400 `application/json` response
-func (r ListSessionProfileDecisionsResponse) GetJSON400() *ErrorBadRequest {
-	return r.JSON400
-}
-
-// GetJSON401 returns the response for an HTTP 401 `application/json` response
-func (r ListSessionProfileDecisionsResponse) GetJSON401() *ErrorUnauthorized {
-	return r.JSON401
-}
-
-// GetJSON404 returns the response for an HTTP 404 `application/json` response
-func (r ListSessionProfileDecisionsResponse) GetJSON404() *ErrorNotFound {
-	return r.JSON404
-}
-
-// GetJSON500 returns the response for an HTTP 500 `application/json` response
-func (r ListSessionProfileDecisionsResponse) GetJSON500() *ErrorInternal {
-	return r.JSON500
-}
-
-// GetBody returns the raw response body bytes
-func (r ListSessionProfileDecisionsResponse) GetBody() []byte {
-	return r.Body
-}
-
-// Status returns HTTPResponse.Status
-func (r ListSessionProfileDecisionsResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ListSessionProfileDecisionsResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r ListSessionProfileDecisionsResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
 // GetSessionPromptSnapshotResponse200Headers the declared response headers of an HTTP 200 response for GetSessionPromptSnapshot
 type GetSessionPromptSnapshotResponse200Headers struct {
 	XRequestID openapi_types.UUID
@@ -6976,7 +7035,7 @@ type ReconfigureSessionResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *SessionProfileDecision
+	JSON200 *SessionAgentSpaceDecision
 	// JSON400 the response for an HTTP 400 `application/json` response
 	JSON400 *ErrorBadRequest
 	// JSON401 the response for an HTTP 401 `application/json` response
@@ -6994,7 +7053,7 @@ type ReconfigureSessionResponse struct {
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r ReconfigureSessionResponse) GetJSON200() *SessionProfileDecision {
+func (r ReconfigureSessionResponse) GetJSON200() *SessionAgentSpaceDecision {
 	return r.JSON200
 }
 
@@ -7426,19 +7485,19 @@ func (r ListWorkspaceRootsResponse) ContentType() string {
 	return ""
 }
 
-// ListExecutionProfilesWithResponse List the execution profiles a client may name
+// ListAgentSpacesWithResponse List the agent spaces a client may name
 //
-// Lists the operator-defined profiles a session may run under. A client names a profile when it opens a workspace and never sends an image, mount, network setting, or capability. A profile that grants host-root-equivalent access carries a capability warning.
+// Lists the agent spaces a session may run in: `control`, where the agent runs where Peen runs, which is listed only when the controller cannot reach a Docker daemon, and one `docker:<profile>` space for each Docker profile, including the built-in `default`. A client names an agent space when it opens a workspace and never sends an image, mount, network setting, or capability. Each Docker space reports its grants (`docker`, `network`, `sudo`), and a space that grants host root or other risky access carries capability warnings.
 //
 // Returns a wrapper object for the known response body format(s).
 //
-// Corresponds with GET /execution-profiles (the `ListExecutionProfiles` operationId).
-func (c *ClientWithResponses) ListExecutionProfilesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListExecutionProfilesResponse, error) {
-	rsp, err := c.ListExecutionProfiles(ctx, reqEditors...)
+// Corresponds with GET /agent-spaces (the `ListAgentSpaces` operationId).
+func (c *ClientWithResponses) ListAgentSpacesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAgentSpacesResponse, error) {
+	rsp, err := c.ListAgentSpaces(ctx, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseListExecutionProfilesResponse(rsp)
+	return ParseListAgentSpacesResponse(rsp)
 }
 
 // ListMessagesWithResponse List stored conversation messages
@@ -7480,6 +7539,21 @@ func (c *ClientWithResponses) GetSessionWithResponse(ctx context.Context, params
 		return nil, err
 	}
 	return ParseGetSessionResponse(rsp)
+}
+
+// ListSessionAgentSpaceDecisionsWithResponse List one session's agent space decision history
+//
+// Returns the durable record of every agent space change made to one session, newest first. Each entry names the agent space the session moved from, the agent space it moved to, and the reason the caller gave.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /session/agent-space-decisions (the `ListSessionAgentSpaceDecisions` operationId).
+func (c *ClientWithResponses) ListSessionAgentSpaceDecisionsWithResponse(ctx context.Context, params *ListSessionAgentSpaceDecisionsParams, reqEditors ...RequestEditorFn) (*ListSessionAgentSpaceDecisionsResponse, error) {
+	rsp, err := c.ListSessionAgentSpaceDecisions(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListSessionAgentSpaceDecisionsResponse(rsp)
 }
 
 // ListSessionAgentRunsWithResponse List the child agent runs this session has started
@@ -7770,21 +7844,6 @@ func (c *ClientWithResponses) PublishSessionNoticeWithResponse(ctx context.Conte
 	return ParsePublishSessionNoticeResponse(rsp)
 }
 
-// ListSessionProfileDecisionsWithResponse List one session's execution profile decision history
-//
-// Returns the durable record of every execution profile change made to one session, newest first. Each entry names the profile the session moved from, the profile it moved to, and the reason the caller gave.
-//
-// Returns a wrapper object for the known response body format(s).
-//
-// Corresponds with GET /session/profile-decisions (the `ListSessionProfileDecisions` operationId).
-func (c *ClientWithResponses) ListSessionProfileDecisionsWithResponse(ctx context.Context, params *ListSessionProfileDecisionsParams, reqEditors ...RequestEditorFn) (*ListSessionProfileDecisionsResponse, error) {
-	rsp, err := c.ListSessionProfileDecisions(ctx, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListSessionProfileDecisionsResponse(rsp)
-}
-
 // GetSessionPromptSnapshotWithResponse Read a prompt snapshot referenced by this session
 //
 // Returns a wrapper object for the known response body format(s).
@@ -7798,9 +7857,9 @@ func (c *ClientWithResponses) GetSessionPromptSnapshotWithResponse(ctx context.C
 	return ParseGetSessionPromptSnapshotResponse(rsp)
 }
 
-// ReconfigureSessionWithBodyWithResponse Move an idle session to a different execution profile
+// ReconfigureSessionWithBodyWithResponse Move an idle session to a different agent space
 //
-// Changes the operator-defined profile a session's tools run under and records the decision with the caller's reason. The named profile must be one the operator defined; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to a profile that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation under the new profile. The client names only a profile and never sends an image, mount, network setting, or capability.
+// Changes the agent space a session's tools run in and records the decision with the caller's reason. The named agent space must be one the deployment offers; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -7813,9 +7872,9 @@ func (c *ClientWithResponses) ReconfigureSessionWithBodyWithResponse(ctx context
 	return ParseReconfigureSessionResponse(rsp)
 }
 
-// ReconfigureSessionWithResponse Move an idle session to a different execution profile
+// ReconfigureSessionWithResponse Move an idle session to a different agent space
 //
-// Changes the operator-defined profile a session's tools run under and records the decision with the caller's reason. The named profile must be one the operator defined; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to a profile that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation under the new profile. The client names only a profile and never sends an image, mount, network setting, or capability.
+// Changes the agent space a session's tools run in and records the decision with the caller's reason. The named agent space must be one the deployment offers; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -7843,7 +7902,7 @@ func (c *ClientWithResponses) ListSessionTurnsWithResponse(ctx context.Context, 
 
 // ListSessionWorkersWithResponse List one session's worker generations
 //
-// Returns the durable worker generations for one session, newest first. A generation records the worker process that ran a set of turns, the profile revision it started under, and for a Docker generation its container and repository image digest when one is available.
+// Returns the durable worker generations for one session, newest first. A generation records the worker process that ran a set of turns, the agent space revision it started under, and for a Docker generation its container and repository image digest when one is available.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -7873,7 +7932,7 @@ func (c *ClientWithResponses) ListSessionsWithResponse(ctx context.Context, para
 
 // OpenSessionWithBodyWithResponse Open or resume the session for a workspace
 //
-// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -7888,7 +7947,7 @@ func (c *ClientWithResponses) OpenSessionWithBodyWithResponse(ctx context.Contex
 
 // OpenSessionWithResponse Open or resume the session for a workspace
 //
-// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -7916,22 +7975,22 @@ func (c *ClientWithResponses) ListWorkspaceRootsWithResponse(ctx context.Context
 	return ParseListWorkspaceRootsResponse(rsp)
 }
 
-// ParseListExecutionProfilesResponse parses an HTTP response from a ListExecutionProfilesWithResponse call
-func ParseListExecutionProfilesResponse(rsp *http.Response) (*ListExecutionProfilesResponse, error) {
+// ParseListAgentSpacesResponse parses an HTTP response from a ListAgentSpacesWithResponse call
+func ParseListAgentSpacesResponse(rsp *http.Response) (*ListAgentSpacesResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &ListExecutionProfilesResponse{
+	response := &ListAgentSpacesResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest ExecutionProfileList
+		var dest AgentSpaceList
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -7955,7 +8014,7 @@ func ParseListExecutionProfilesResponse(rsp *http.Response) (*ListExecutionProfi
 
 	switch {
 	case rsp.StatusCode == 200:
-		var headers ListExecutionProfilesResponse200Headers
+		var headers ListAgentSpacesResponse200Headers
 		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
 			var value openapi_types.UUID
 			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
@@ -8150,6 +8209,80 @@ func ParseGetSessionResponse(rsp *http.Response) (*GetSessionResponse, error) {
 	switch {
 	case rsp.StatusCode == 200:
 		var headers GetSessionResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListSessionAgentSpaceDecisionsResponse parses an HTTP response from a ListSessionAgentSpaceDecisionsWithResponse call
+func ParseListSessionAgentSpaceDecisionsResponse(rsp *http.Response) (*ListSessionAgentSpaceDecisionsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListSessionAgentSpaceDecisionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SessionAgentSpaceDecisionPage
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ListSessionAgentSpaceDecisionsResponse200Headers
 		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
 			var value openapi_types.UUID
 			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
@@ -9650,80 +9783,6 @@ func ParsePublishSessionNoticeResponse(rsp *http.Response) (*PublishSessionNotic
 	return response, nil
 }
 
-// ParseListSessionProfileDecisionsResponse parses an HTTP response from a ListSessionProfileDecisionsWithResponse call
-func ParseListSessionProfileDecisionsResponse(rsp *http.Response) (*ListSessionProfileDecisionsResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ListSessionProfileDecisionsResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest SessionProfileDecisionPage
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest ErrorBadRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest ErrorUnauthorized
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest ErrorNotFound
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
-		var dest ErrorInternal
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON500 = &dest
-
-	}
-
-	switch {
-	case rsp.StatusCode == 200:
-		var headers ListSessionProfileDecisionsResponse200Headers
-		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
-			var value openapi_types.UUID
-			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
-				return nil, err
-			}
-			headers.XRequestID = value
-		}
-		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
-			var value openapi_types.UUID
-			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
-				return nil, err
-			}
-			headers.XSessionID = value
-		}
-		response.Headers200 = &headers
-	}
-
-	return response, nil
-}
-
 // ParseGetSessionPromptSnapshotResponse parses an HTTP response from a GetSessionPromptSnapshotWithResponse call
 func ParseGetSessionPromptSnapshotResponse(rsp *http.Response) (*GetSessionPromptSnapshotResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -9813,7 +9872,7 @@ func ParseReconfigureSessionResponse(rsp *http.Response) (*ReconfigureSessionRes
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest SessionProfileDecision
+		var dest SessionAgentSpaceDecision
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

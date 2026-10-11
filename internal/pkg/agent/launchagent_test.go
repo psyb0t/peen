@@ -32,8 +32,8 @@ const (
 
 	launchAgentChildAgentFile             = "---\nname: child-agent\ndescription: test child\n---\nDo the child task."
 	launchAgentGrandAgentFile             = "---\nname: grandchild-agent\ndescription: test grandchild\n---\nDo the grandchild task."
-	launchAgentRestrictedChildAgentFile   = "---\nname: child-agent\ndescription: test child\nallowed-tools: read_file\n---\nReview only."
-	launchAgentDepthLimitedChildAgentFile = "---\nname: child-agent\ndescription: test child\nallowed-tools: read_file, launch_agent\n---\nReview and delegate when possible."
+	launchAgentRestrictedChildAgentFile   = "---\nname: child-agent\ndescription: test child\nallowed-tools: readFile\n---\nReview only."
+	launchAgentDepthLimitedChildAgentFile = "---\nname: child-agent\ndescription: test child\nallowed-tools: readFile, launchAgent\n---\nReview and delegate when possible."
 )
 
 // launchAgentFixtureOptions parameterizes newLaunchAgentFixture beyond what
@@ -49,7 +49,7 @@ type launchAgentFixtureOptions struct {
 // newLaunchAgentFixture builds a runtime the same way newRuntimeFixture
 // does, reusing its unexported helpers (writeRuntimeFile, NewStaticRegistry)
 // from the same package, but with the extra agent files and agent run
-// limits launch_agent's own tests need.
+// limits launchAgent's own tests need.
 func newLaunchAgentFixture(
 	t *testing.T,
 	driver elelem.Driver,
@@ -150,7 +150,7 @@ func decodeLaunchAgentOutput(t *testing.T, content string) launchAgentOutput {
 	return output
 }
 
-// One scripted launch_agent call must produce a paired tool_use and
+// One scripted launchAgent call must produce a paired tool_use and
 // tool_result on the parent's event stream, a durable tool-role message, and
 // return the named child's final answer.
 func TestLaunchAgentNamedAgentReturnsFinalResponse(t *testing.T) {
@@ -483,7 +483,7 @@ func TestLaunchAgentTaskSkillReferenceFollowsTheTaskInTheChildRequest(
 }
 
 // A skill the child's task names is checked before the child exists. An
-// unknown name fails the launch_agent call and lists the effective skills.
+// unknown name fails the launchAgent call and lists the effective skills.
 func TestLaunchAgentUnknownTaskSkillFailsTheCall(t *testing.T) {
 	driver := elelemtest.NewScriptedDriver(
 		elelemtest.ToolCall(
@@ -716,7 +716,7 @@ func TestLaunchAgentUnknownAgentListsEffectiveNames(t *testing.T) {
 const launchAgentCustomGeneralPurposeFile = "---\nname: general-purpose\ndescription: custom general purpose\n---\nCustom body."
 
 // launchAgentToolResult runs one turn whose model launches the named agent
-// and returns the launch_agent tool result.
+// and returns the launchAgent tool result.
 func launchAgentToolResult(
 	t *testing.T,
 	agentName string,
@@ -965,7 +965,7 @@ func TestLaunchAgentOversizedAdHocInstructionsRejected(t *testing.T) {
 }
 
 // A parent launches a child, and that child itself launches a grandchild,
-// proving launch_agent's recursion end to end.
+// proving launchAgent's recursion end to end.
 func TestLaunchAgentRecursion(t *testing.T) {
 	driver := elelemtest.NewScriptedDriver(
 		elelemtest.ToolCall(
@@ -1054,7 +1054,7 @@ func TestLaunchAgentRecursion(t *testing.T) {
 }
 
 // A child at the configured limit cannot request more child work because the
-// model never receives the launch_agent tool definition.
+// model never receives the launchAgent tool definition.
 func TestLaunchAgentAtDepthLimitDoesNotExposeLaunchAgent(t *testing.T) {
 	driver := elelemtest.NewScriptedDriver(
 		elelemtest.ToolCall(
@@ -1333,7 +1333,7 @@ func TestLaunchAgentRunRemainsInStartupWorkspaceSession(t *testing.T) {
 // dedicated cancellation returns a typed success and leaves the parent
 // context untouched, while the parent context itself being done propagates
 // as a real, turn-ending error. Both record the run as cancelled. This is
-// the precise new branch launch_agent adds; the underlying context
+// the precise new branch launchAgent adds; the underlying context
 // cascade (a parent turn cancelling its whole child tree) is plain
 // context.WithCancel behavior, already covered directly against
 // AgentRunRegistry.Start in agentrun_test.go.

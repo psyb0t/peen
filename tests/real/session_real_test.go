@@ -18,22 +18,20 @@ import (
 )
 
 const (
-	realSessionClientCount = 2
-
 	realSessionQueuedMarker = "REAL_SESSION_QUEUED_FOLLOWUP_MARKER"
 
 	realSessionTask = `This is an execution task, not a request for advice. Do not return a ` +
 		`final answer until every step below has a matching tool result. In this exact order: ` +
-		`(1) call list_files on the workspace root; (2) call read_file on ` +
-		`internal/status/status.go; (3) call read_file on internal/status/status_test.go; ` +
-		`(4) call list_files on internal/status; (5) call read_file on AGENTS.md. ` +
+		`(1) call listFiles on the workspace root; (2) call readFile on ` +
+		`internal/status/status.go; (3) call readFile on internal/status/status_test.go; ` +
+		`(4) call listFiles on internal/status; (5) call readFile on AGENTS.md. ` +
 		`Then reply with a one-line summary. Do not modify any file.`
 
 	realSessionFollowUp = "Additional instruction " + realSessionQueuedMarker +
 		": when you summarize, state how many files you listed."
 
-	realSessionUserMessageQueued  = "user_message.queued"
-	realSessionUserMessageCreated = "user_message.created"
+	realSessionUserMessageQueued  = "userMessage.queued"
+	realSessionUserMessageCreated = "userMessage.created"
 
 	// realSessionActiveTurnTimeout bounds the wait for the first turn to reach
 	// the controller. It only covers session open and worker start, never the

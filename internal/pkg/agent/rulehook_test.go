@@ -55,7 +55,7 @@ exec jq -n --rawfile rule "$RULE_FILE" \
 `
 
 	ruleHookHooksFormat = `version: 1
-pre_write_file:
+preWriteFile:
   - name: go-rules
     match:
       extensions: [".go"]
@@ -71,7 +71,7 @@ pre_write_file:
 	ruleHookDenyReason = "return errs []error, see [the guide](docs/errors.md)"
 
 	ruleHookDenyHooks = `version: 1
-pre_write_file:
+preWriteFile:
   - name: go-deny
     match:
       extensions: [".go"]
@@ -89,7 +89,7 @@ state="$(jq -r '.stateDirectory')"
 find "$state" -maxdepth 1 -name 'rule-*.delivered' -delete
 `
 
-	ruleHookForgetHooksFormat = ruleHookHooksFormat + `post_compact:
+	ruleHookForgetHooksFormat = ruleHookHooksFormat + `postCompact:
   - name: forget-delivered-rules
     actions:
       - name: forget-rules
@@ -263,7 +263,7 @@ func installRuleHook(t *testing.T, fixture runtimeFixture) {
 }
 
 // A compaction can summarize the rule out of the model's context, so the
-// post_compact forget script clears the markers and the next matching write
+// postCompact forget script clears the markers and the next matching write
 // gets the rule again. Without that, the model would keep writing Go with no
 // rule in view.
 //

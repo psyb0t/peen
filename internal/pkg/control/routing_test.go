@@ -34,6 +34,7 @@ const (
 	routingStopWait   = 2 * time.Second
 	routedSignal      = "stop"
 	routedSignalState = "signalled"
+	routedDockerSpace = "docker:sandbox"
 
 	routedTestImageTag = "psyb0t/peen@sha256:" +
 		"2222222222222222222222222222222222222222222222222222222222222222"
@@ -52,7 +53,7 @@ type routedWorker struct {
 	sessionID uuid.UUID
 	workspace string
 
-	// signals records every decoded signal_job payload. Decoding it here is the
+	// signals records every decoded signalJob payload. Decoding it here is the
 	// point: a command whose payload is encoded twice still arrives and still
 	// answers, so only a worker that reads the fields catches it.
 	signals []protocol.SignalJob
@@ -66,7 +67,7 @@ func (w *routedWorker) signalJob(
 	if err := json.Unmarshal(payload, &request); err != nil {
 		return protocol.SignalJobResult{}, ctxerrors.Wrap(
 			commerr.ErrParseFailed,
-			"decode the signal_job command",
+			"decode the signalJob command",
 		)
 	}
 
@@ -87,7 +88,7 @@ func (w *routedWorker) HandleCall(
 	return nil, commerr.ErrNotImplemented
 }
 
-// HandleCommand answers a run_turn by doing what a real worker does: it writes
+// HandleCommand answers a runTurn by doing what a real worker does: it writes
 // the turn's records through the protocol, then reports the final text.
 func (w *routedWorker) HandleCommand(
 	ctx context.Context,
@@ -166,7 +167,7 @@ type routedLauncher struct {
 }
 
 func (l *routedLauncher) Kind() worker.Kind {
-	return worker.KindNative
+	return worker.KindControl
 }
 
 //nolint:ireturn // The Launcher contract is returning a Process.
@@ -258,17 +259,23 @@ func newRoutingFixture(t *testing.T) routingFixture {
 	policy, err := control.NewWorkspacePolicy([]string{root})
 	require.NoError(t, err)
 
-	profiles, err := worker.NewProfileSet(
-		[]worker.Profile{
-			{Name: worker.ProfileNative, Kind: worker.KindNative, Revision: 1},
+	agentSpaces, err := worker.NewAgentSpaceSet(
+		[]worker.AgentSpace{
 			{
-				Name:     worker.ProfileDockerSandbox,
+				Name:     worker.AgentSpaceControl,
+				Kind:     worker.KindControl,
+				Revision: 1,
+			},
+			{
+				Name:     routedDockerSpace,
 				Kind:     worker.KindDocker,
 				Revision: 2,
 				Image:    routedTestImageTag,
+				Docker:   worker.DockerAccessNone,
+				Network:  worker.NetworkModeBridge,
 			},
 		},
-		worker.ProfileNative,
+		worker.AgentSpaceControl,
 	)
 	require.NoError(t, err)
 
@@ -281,10 +288,10 @@ func newRoutingFixture(t *testing.T) routingFixture {
 	relay.SetSink(published.PublishSessionEvents)
 
 	supervised, err := supervisor.New(supervisor.Options{
-		Store:    store,
-		Profiles: profiles,
+		Store:       store,
+		AgentSpaces: agentSpaces,
 		Launchers: map[worker.Kind]worker.Launcher{
-			worker.KindNative: launcher,
+			worker.KindControl: launcher,
 		},
 		Publisher:       relay,
 		SocketRoot:      routingSocketRoot(t),
@@ -301,14 +308,14 @@ func newRoutingFixture(t *testing.T) routingFixture {
 	registry, err := control.NewRegistry(control.RegistryOptions{
 		Store:        store,
 		Policy:       policy,
-		Profiles:     profiles,
+		AgentSpaces:  agentSpaces,
 		Workers:      supervised,
 		RootAgent:    testRootAgent,
 		DefaultModel: testDefaultModel,
 	})
 	require.NoError(t, err)
 
-	opened, err := registry.Open(t.Context(), root, worker.ProfileNative)
+	opened, err := registry.Open(t.Context(), root, worker.AgentSpaceControl)
 	require.NoError(t, err)
 
 	router, err := control.NewTurnRouter(registry, supervised, relay)
@@ -561,15 +568,15 @@ func TestRouterRefusesAnUnknownSession(t *testing.T) {
 	assert.Empty(t, fixture.launcher.workers)
 }
 
-// A session whose stored profile is a Docker profile is refused outright on a
-// controller with no Docker socket, and never falls back to a native worker.
-func TestRouterRefusesADockerProfileWithoutAuthority(t *testing.T) {
+// A session whose stored agent space is a Docker space is refused outright on a
+// controller with no Docker socket, and never falls back to a control worker.
+func TestRouterRefusesADockerSpaceWithoutAuthority(t *testing.T) {
 	fixture := newRoutingFixture(t)
 
-	_, err := fixture.store.ReconfigureExecutionProfile(
+	_, err := fixture.store.ReconfigureAgentSpace(
 		t.Context(),
 		fixture.sessionID,
-		worker.ProfileDockerSandbox,
+		routedDockerSpace,
 		"isolating the workspace",
 	)
 	require.NoError(t, err)
@@ -585,7 +592,7 @@ func TestRouterRefusesADockerProfileWithoutAuthority(t *testing.T) {
 	assert.Empty(
 		t,
 		fixture.launcher.workers,
-		"a refused Docker profile must not start a native worker instead",
+		"a refused Docker agent space must not start a control worker instead",
 	)
 }
 

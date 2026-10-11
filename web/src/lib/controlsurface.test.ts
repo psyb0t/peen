@@ -9,6 +9,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import Page from "../routes/+page.svelte";
+import { AGENT_SPACE_DEFAULT_OPTION } from "./common/constants";
 
 class TestWebSocket extends EventTarget {
 	public static readonly OPEN = 1;
@@ -47,13 +48,45 @@ class TestWebSocket extends EventTarget {
 const session = {
 	activeTurn: false,
 	createdAt: "2026-09-23T00:00:00Z",
-	executionProfile: "native",
+	agentSpace: "control",
 	id: "22222222-2222-4222-8222-222222222222",
 	messageCount: 0,
 	model: "aigate/default",
 	updatedAt: "2026-09-23T00:00:00Z",
 	workspace: "/workspace/catalog",
 };
+
+const agentSpaces = [
+	{
+		capabilityWarnings: [],
+		hostRootEquivalent: false,
+		kind: "control",
+		name: "control",
+		revision: 0,
+	},
+	{
+		capabilityWarnings: [],
+		docker: "none",
+		hostRootEquivalent: false,
+		kind: "docker",
+		name: "docker:default",
+		network: "bridge",
+		profile: "default",
+		revision: 0,
+		sudo: false,
+	},
+	{
+		capabilityWarnings: ["docker: full mounts the host Docker socket"],
+		docker: "full",
+		hostRootEquivalent: true,
+		kind: "docker",
+		name: "docker:ops",
+		network: "host",
+		profile: "ops",
+		revision: 1,
+		sudo: true,
+	},
+];
 
 const messages = [
 	{
@@ -87,7 +120,7 @@ const messages = [
 			{
 				arguments: { path: "README.md" },
 				id: "call-read-file",
-				name: "read_file",
+				name: "readFile",
 			},
 		],
 		workspace: "/workspace/catalog",
@@ -144,10 +177,14 @@ function response(body: unknown): Response {
 describe("control surface", () => {
 	let sessionOpened = false;
 	let openedWorkspace = "";
+	let openedBody: Record<string, unknown> = {};
+	let reconfiguredBody: Record<string, unknown> | undefined;
 
 	beforeEach(() => {
 		sessionOpened = false;
 		openedWorkspace = "";
+		openedBody = {};
+		reconfiguredBody = undefined;
 		TestWebSocket.instances = [];
 		vi.stubGlobal("WebSocket", TestWebSocket);
 		vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -166,12 +203,23 @@ describe("control surface", () => {
 					return response({ roots: ["/workspace/catalog"] });
 				case "/v1/sessions/open": {
 					const body = (await request.clone().json()) as { workspace: string };
+					openedBody = body;
 					openedWorkspace = body.workspace;
 					sessionOpened = true;
 					return response({ created: true, session });
 				}
-				case "/v1/execution-profiles":
-					return response({ default: "native", items: [] });
+				case "/v1/session/reconfigure": {
+					reconfiguredBody = (await request.clone().json()) as Record<string, unknown>;
+					return response({
+						decidedAt: "2026-09-24T00:00:00Z",
+						id: "33333333-3333-4333-8333-333333333333",
+						reason: "needs the ops tools",
+						sessionId: session.id,
+						toAgentSpace: "docker:ops",
+					});
+				}
+				case "/v1/agent-spaces":
+					return response({ default: "control", items: agentSpaces });
 				case "/v1/models":
 					return response({
 						models: [
@@ -212,7 +260,7 @@ describe("control surface", () => {
 					return response({ hasMore: false, jobs: [], limit: 100, offset: 0 });
 				case "/v1/session/turns":
 					return response({ hasMore: false, limit: 100, offset: 0, turns: [] });
-				case "/v1/session/profile-decisions":
+				case "/v1/session/agent-space-decisions":
 					return response({ hasMore: false, items: [], limit: 100, offset: 0 });
 				default:
 					throw new Error(`unexpected request ${url.pathname}`);
@@ -262,12 +310,12 @@ describe("control surface", () => {
 			"Inspect the workspace before changing it.",
 		);
 
-		const toolCard = (await screen.findByText("read_file:")).closest("details");
+		const toolCard = (await screen.findByText("readFile:")).closest("details");
 		const summary = toolCard?.querySelector("summary")?.textContent;
 		expect(summary).toContain("Done");
 		expect(summary).toContain("README.md");
 		expect(screen.queryByText("Tool result")).toBeNull();
-		await fireEvent.click(screen.getByText("read_file:"));
+		await fireEvent.click(screen.getByText("readFile:"));
 		expect(toolCard?.open).toBe(true);
 		expect(toolCard?.textContent).toContain("Arguments");
 		expect(toolCard?.textContent).toContain('"path": "README.md"');
@@ -298,6 +346,116 @@ describe("control surface", () => {
 		const names = Array.from(modelSelector.options, (option) => option.value);
 		expect(names).toEqual(["aigate/default", "aigate/catalog/model", "zai/glm-5.3"]);
 		expect(modelSelector.value).toBe("aigate/default");
+	});
+
+	it("lists each agent space with its grants when opening a workspace", async () => {
+		render(Page);
+
+		const connectionForm = screen
+			.getByRole("button", { name: "Connect" })
+			.closest("form");
+		await fireEvent.submit(connectionForm as HTMLFormElement);
+		await screen.findByDisplayValue("/workspace/catalog");
+
+		const selector = screen.getByLabelText<HTMLSelectElement>("Agent space");
+		expect(Array.from(selector.options, (option) => option.textContent)).toEqual([
+			"Controller default (control)",
+			"control (runs where Peen runs)",
+			"default (docker: none, network: bridge, sudo: no)",
+			"ops (docker: full = host root, network: host, sudo: yes)",
+		]);
+		expect(Array.from(selector.options, (option) => option.value)).toEqual([
+			"",
+			"control",
+			"docker:default",
+			"docker:ops",
+		]);
+	});
+
+	it("opens the workspace in the chosen agent space", async () => {
+		render(Page);
+
+		const connectionForm = screen
+			.getByRole("button", { name: "Connect" })
+			.closest("form");
+		await fireEvent.submit(connectionForm as HTMLFormElement);
+		await screen.findByDisplayValue("/workspace/catalog");
+
+		await fireEvent.change(screen.getByLabelText("Agent space"), {
+			target: { value: "docker:ops" },
+		});
+		await fireEvent.click(screen.getByRole("button", { name: "Open chat" }));
+		await waitFor(() => {
+			expect(openedWorkspace).toBe("/workspace/catalog");
+		});
+
+		expect(openedBody).toEqual({
+			agentSpace: "docker:ops",
+			workspace: "/workspace/catalog",
+		});
+	});
+
+	it("opens the workspace in the controller default when none is chosen", async () => {
+		render(Page);
+		await connectAndOpenChat();
+
+		expect(openedBody).toEqual({ workspace: "/workspace/catalog" });
+	});
+
+	it("lists the agent spaces with their grants in the change form", async () => {
+		render(Page);
+		await connectAndOpenChat();
+
+		await fireEvent.click(screen.getByRole("button", { name: "Details" }));
+		const form = (await screen.findByText("Change agent space")).closest(
+			"form",
+		) as HTMLFormElement;
+
+		const selector = within(form).getByLabelText<HTMLSelectElement>("Agent space");
+		expect(Array.from(selector.options, (option) => option.textContent)).toEqual([
+			"Choose an agent space",
+			"control (runs where Peen runs)",
+			"default (docker: none, network: bridge, sudo: no)",
+			"ops (docker: full = host root, network: host, sudo: yes)",
+		]);
+
+		await fireEvent.change(selector, { target: { value: "docker:ops" } });
+		await fireEvent.input(within(form).getByLabelText("Reason"), {
+			target: { value: "needs the ops tools" },
+		});
+		await fireEvent.submit(form);
+
+		await waitFor(() => {
+			expect(reconfiguredBody).toEqual({
+				agentSpace: "docker:ops",
+				reason: "needs the ops tools",
+			});
+		});
+	});
+
+	it("shows the agent space a session runs in", async () => {
+		render(Page);
+		await connectAndOpenChat();
+
+		expect(
+			screen.getByText("control", { selector: ".session-facts span" }),
+		).not.toBeNull();
+	});
+
+	it("shows the controller default for a session with no recorded agent space", async () => {
+		session.agentSpace = "";
+		try {
+			render(Page);
+			await connectAndOpenChat();
+
+			expect(
+				screen.getByText(AGENT_SPACE_DEFAULT_OPTION, {
+					selector: ".session-facts span",
+				}),
+			).not.toBeNull();
+		} finally {
+			session.agentSpace = "control";
+		}
 	});
 
 	it("sends the shown model and reasoning level with each new turn", async () => {
@@ -347,7 +505,7 @@ describe("control surface", () => {
 				},
 				timestamp: 1,
 				triggeredBy: null,
-				type: "user_message.created",
+				type: "userMessage.created",
 			}),
 		);
 		await screen.findByText("run the build");
@@ -453,7 +611,7 @@ describe("control surface", () => {
 			);
 		};
 
-		send("user_message.created", { message: "make a script" });
+		send("userMessage.created", { message: "make a script" });
 		send("content_block_start", {
 			content_block: { type: "thinking" },
 			index: 0,
@@ -474,7 +632,7 @@ describe("control surface", () => {
 			content_block: {
 				id: "call-write",
 				input: {},
-				name: "write_file",
+				name: "writeFile",
 				type: "tool_use",
 			},
 			index: 1,
@@ -515,7 +673,7 @@ describe("control surface", () => {
 
 		await screen.findByText("make a script");
 		await screen.findByText("plan the script");
-		const writeCard = (await screen.findByText("write_file:")).closest("details");
+		const writeCard = (await screen.findByText("writeFile:")).closest("details");
 		expect(writeCard?.querySelector(".tool-subject")?.textContent).toBe("run.sh");
 		expect(writeCard?.querySelector("summary")?.textContent).toContain("Done");
 		expect(writeCard?.textContent).toContain('"path": "run.sh"');
@@ -547,19 +705,19 @@ describe("control surface", () => {
 			);
 		};
 
-		send("user_message.created", { message: "run the build" }, runningRequestID);
+		send("userMessage.created", { message: "run the build" }, runningRequestID);
 		send("turn.started", {}, runningRequestID);
 		send(
 			"content_block_start",
 			{
-				content_block: { id: "call-build", name: "run_command", type: "tool_use" },
+				content_block: { id: "call-build", name: "runCommand", type: "tool_use" },
 				index: 0,
 				type: "content_block_start",
 			},
 			runningRequestID,
 		);
-		send("user_message.created", { message: "then run the tests" }, queuedRequestID);
-		send("user_message.queued", { message: "then run the tests" }, queuedRequestID);
+		send("userMessage.created", { message: "then run the tests" }, queuedRequestID);
+		send("userMessage.queued", { message: "then run the tests" }, queuedRequestID);
 
 		const queuedNote = await screen.findByText("Queued. Lands after the current step.");
 		expect(queuedNote.closest("article")?.textContent).toContain("then run the tests");
@@ -573,7 +731,7 @@ describe("control surface", () => {
 			},
 			runningRequestID,
 		);
-		send("user_message.delivered", { message: "then run the tests" }, queuedRequestID);
+		send("userMessage.delivered", { message: "then run the tests" }, queuedRequestID);
 		send(
 			"content_block_start",
 			{ content_block: { type: "text" }, index: 2, type: "content_block_start" },
@@ -596,7 +754,7 @@ describe("control surface", () => {
 		const delivered = screen.getAllByText("then run the tests");
 		expect(delivered).toHaveLength(1);
 		const deliveredMessage = delivered[0] as HTMLElement;
-		const buildCard = screen.getByText("run_command").closest("details") as HTMLElement;
+		const buildCard = screen.getByText("runCommand").closest("details") as HTMLElement;
 		expect(
 			buildCard.compareDocumentPosition(deliveredMessage) &
 				Node.DOCUMENT_POSITION_FOLLOWING,

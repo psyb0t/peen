@@ -111,7 +111,7 @@ const (
 
 	probeResultEnvKey      = "PEEN_PROBE_RESULT"
 	probeOwnedFileEnvKey   = "PEEN_PROBE_OWNED_FILE"
-	probeStateSecretEnvKey = "PEEN_PROBE_STATE_SECRET"
+	probeStateSecretEnvKey = "PEEN_PROBE_STATE_SECRET" //nolint:gosec // An environment variable name, not a credential.
 	probeForeignSockEnvKey = "PEEN_PROBE_FOREIGN_SOCKET"
 	probeSessionDirEnvKey  = "PEEN_PROBE_SESSION_SOCKET_DIR"
 	probeSocketRootEnvKey  = "PEEN_PROBE_SOCKET_ROOT"
@@ -229,9 +229,9 @@ func TestDockerWorkerEntrypointDropsToTheHostAccount(t *testing.T) {
 	// The request comes from the production builder, so the user, environment,
 	// mounts, and security options under test are the real ones.
 	create, err := docker.BuildCreateRequest(docker.LaunchSpec{
-		Document: paths.launchDocument(t, sessionID),
-		Profile:  sealedProfile(t),
-		Identity: identity,
+		Document:   paths.launchDocument(t, sessionID),
+		AgentSpace: sealedSpace(t),
+		Identity:   identity,
 	})
 	require.NoError(t, err)
 
@@ -302,7 +302,7 @@ func assertSealedRequest(
 
 	assert.Equal(t, expectedRootUsers, create.User)
 	assert.True(t, create.NoNewPrivileges)
-	assert.True(t, create.NetworkDisabled)
+	assert.Equal(t, worker.NetworkModeNone, create.NetworkMode)
 	assert.Empty(t, create.Groups)
 	assert.Equal(t, worker.ContainerLabels(sessionID), create.Labels)
 	assert.NotContains(t, create.Env, "PEEN_WORKER_ALLOW_SUDO")
@@ -466,88 +466,29 @@ func assertHostOwnership(
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	require.True(t, ok, "ownership is not readable on this platform")
 
-	assert.Equal(t, uint32(identity.UID), stat.Uid)
-	assert.Equal(t, uint32(identity.GID), stat.Gid)
+	assert.EqualValues(t, identity.UID, stat.Uid)
+	assert.EqualValues(t, identity.GID, stat.Gid)
 }
 
-// guardedClient answers image inspection from fixed data and fails the test if
-// anything ever reaches container creation.
-type guardedClient struct {
-	t           *testing.T
-	repoDigests []string
-	inspectErr  error
-}
-
-func (g *guardedClient) InspectImage(
-	_ context.Context,
-	_ string,
-) (docker.ImageIdentity, error) {
-	if g.inspectErr != nil {
-		return docker.ImageIdentity{}, g.inspectErr
-	}
-
-	return docker.ImageIdentity{RepoDigests: g.repoDigests}, nil
-}
-
-func (g *guardedClient) CreateContainer(
-	_ context.Context,
-	_ docker.CreateRequest,
-) (string, error) {
-	g.t.Fatal("a refused launch must never create a container")
-
-	return "", nil
-}
-
-func (g *guardedClient) AttachStdin(
-	_ context.Context,
-	_ string,
-	_ []byte,
-) error {
-	g.t.Fatal("a refused launch must never write a credential")
-
-	return nil
-}
-
-func (g *guardedClient) StartContainer(_ context.Context, _ string) error {
-	g.t.Fatal("a refused launch must never start a container")
-
-	return nil
-}
-
-func (g *guardedClient) StopContainer(_ context.Context, _ string) error {
-	return nil
-}
-
-func (g *guardedClient) RemoveContainer(_ context.Context, _ string) error {
-	return nil
-}
-
-func (g *guardedClient) InspectContainer(
-	_ context.Context,
-	_ string,
-) (docker.ContainerState, error) {
-	return docker.ContainerState{}, nil
-}
-
-// sealedProfile is the only profile this suite ever launches: no Docker socket,
-// no sudo, no network, no extra mounts.
-func sealedProfile(t *testing.T) worker.Profile {
+// sealedSpace is the only agent space this suite ever launches: no Docker
+// socket, no sudo, no network, no extra mounts.
+func sealedSpace(t *testing.T) worker.AgentSpace {
 	t.Helper()
 
-	profile := worker.Profile{
-		Name:                     testProfileName,
-		Kind:                     worker.KindDocker,
-		Revision:                 1,
-		Image:                    workerImage(t),
-		AllowDockerSocket:        false,
-		AllowNetwork:             false,
-		AllowPrivilegeEscalation: false,
+	space := worker.AgentSpace{
+		Name:     worker.DockerSpaceName(testProfileName),
+		Kind:     worker.KindDocker,
+		Revision: 1,
+		Image:    workerImage(t),
+		Docker:   worker.DockerAccessNone,
+		Network:  worker.NetworkModeNone,
+		Sudo:     false,
 	}
 
-	require.NoError(t, profile.Validate())
-	require.Empty(t, profile.Mounts, "the sealed profile adds no mounts")
+	require.NoError(t, space.Validate())
+	require.Empty(t, space.Mounts, "the sealed space adds no mounts")
 
-	return profile
+	return space
 }
 
 // newDisposableRoot builds this run's whole filesystem footprint inside the
@@ -657,7 +598,7 @@ func (d disposableRoot) launchDocument(
 		SocketPath:      worker.SocketPathFor(d.socketRoot, sessionID),
 		Workspace:       d.workspace,
 		ConfigDirectory: d.config,
-		Profile:         testProfileName,
+		AgentSpace:      worker.DockerSpaceName(testProfileName),
 	}
 	require.NoError(t, document.Validate())
 
@@ -753,6 +694,7 @@ func daemonSocket(t *testing.T) string {
 		socket = dockerSocketPath
 	}
 
+	//nolint:gosec // The path is the test operator's own Docker socket setting.
 	info, err := os.Stat(socket)
 	require.NoError(t, err, "the controller Docker socket must be reachable")
 	require.NotZero(

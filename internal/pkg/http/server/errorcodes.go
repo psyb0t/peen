@@ -22,12 +22,12 @@ const (
 	ErrorCodeUserMessageQueueFull = aichteeteapee.ErrorCode(
 		"USER_MESSAGE_QUEUE_FULL",
 	)
-	// ErrorCodeExecutionProfileNotAllowed reports a named execution profile
-	// the deployment does not define. It is a refusal rather than a
-	// not-found, because the allowed set is operator policy and the response
-	// never names which profiles exist.
-	ErrorCodeExecutionProfileNotAllowed = aichteeteapee.ErrorCode(
-		"EXECUTION_PROFILE_NOT_ALLOWED",
+	// ErrorCodeAgentSpaceNotAllowed reports a named agent space the
+	// deployment does not offer. It is a refusal rather than a not-found,
+	// because the allowed set is operator policy and the response never names
+	// which agent spaces exist.
+	ErrorCodeAgentSpaceNotAllowed = aichteeteapee.ErrorCode(
+		"AGENT_SPACE_NOT_ALLOWED",
 	)
 	// ErrorCodeWorkspaceNotAllowed reports a requested workspace that falls
 	// outside every configured workspace root. It is distinct from a

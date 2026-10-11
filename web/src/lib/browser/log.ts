@@ -78,7 +78,7 @@ export interface BrowserLogMetadata {
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
-const EVENT_TYPE_PATTERN = /^[a-z][a-z0-9._-]{0,63}$/u;
+const EVENT_TYPE_PATTERN = /^[a-z][A-Za-z0-9._-]{0,63}$/u;
 const MODEL_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,199}$/u;
 
 const MIN_HTTP_STATUS = 100;

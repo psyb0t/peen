@@ -98,9 +98,9 @@ type LaunchDocument struct {
 	// so the database is never reachable through this mount.
 	ConfigDirectory string `json:"configDirectory"`
 
-	// Profile names the operator-defined profile this generation runs under.
-	// The worker reports it back; it cannot choose another.
-	Profile string `json:"profile"`
+	// AgentSpace names the agent space this generation runs under. The worker
+	// reports it back; it cannot choose another.
+	AgentSpace string `json:"agentSpace"`
 }
 
 // Validate rejects a launch document a worker cannot act on.
@@ -133,10 +133,10 @@ func (d LaunchDocument) Validate() error {
 		)
 	}
 
-	if d.Profile == "" {
+	if d.AgentSpace == "" {
 		return ctxerrors.Wrap(
 			commerr.ErrValidationFailed,
-			"worker launch requires a profile name",
+			"worker launch requires an agent space name",
 		)
 	}
 

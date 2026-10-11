@@ -21,32 +21,32 @@ type testSessionRegistry struct {
 	listErr  error
 	requests []string
 
-	// profiles records the profile name each open carried, so a routing test
-	// can assert the client's choice reached the registry.
-	profiles []string
+	// agentSpaces records the agent space name each open carried, so a routing
+	// test can assert the client's choice reached the registry.
+	agentSpaces []string
 
-	profileList api.ExecutionProfileList
-	rootList    api.WorkspaceRootList
-	workerPage  api.WorkerGenerationPage
-	workersErr  error
+	agentSpaceList api.AgentSpaceList
+	rootList       api.WorkspaceRootList
+	workerPage     api.WorkerGenerationPage
+	workersErr     error
 
-	decision        api.SessionProfileDecision
+	decision        api.SessionAgentSpaceDecision
 	decisionErr     error
-	decisionPage    api.SessionProfileDecisionPage
+	decisionPage    api.SessionAgentSpaceDecisionPage
 	decisionListErr error
 
-	// reconfigured records every profile change the handler asked for, so a
-	// test can assert the request body reached the registry unchanged.
+	// reconfigured records every agent space change the handler asked for, so
+	// a test can assert the request body reached the registry unchanged.
 	reconfigured []api.ReconfigureSessionRequest
 }
 
 func (r *testSessionRegistry) OpenWorkspaceSession(
 	_ context.Context,
 	workspace string,
-	profile string,
+	agentSpace string,
 ) (api.OpenedSession, error) {
 	r.requests = append(r.requests, workspace)
-	r.profiles = append(r.profiles, profile)
+	r.agentSpaces = append(r.agentSpaces, agentSpace)
 
 	if r.openErr != nil {
 		return api.OpenedSession{}, r.openErr
@@ -55,8 +55,8 @@ func (r *testSessionRegistry) OpenWorkspaceSession(
 	return r.opened, nil
 }
 
-func (r *testSessionRegistry) ExecutionProfiles() api.ExecutionProfileList {
-	return r.profileList
+func (r *testSessionRegistry) AgentSpaces() api.AgentSpaceList {
+	return r.agentSpaceList
 }
 
 func (r *testSessionRegistry) WorkspaceRoots() api.WorkspaceRootList {
@@ -79,23 +79,23 @@ func (r *testSessionRegistry) ReconfigureSession(
 	_ context.Context,
 	_ uuid.UUID,
 	request api.ReconfigureSessionRequest,
-) (api.SessionProfileDecision, error) {
+) (api.SessionAgentSpaceDecision, error) {
 	r.reconfigured = append(r.reconfigured, request)
 
 	if r.decisionErr != nil {
-		return api.SessionProfileDecision{}, r.decisionErr
+		return api.SessionAgentSpaceDecision{}, r.decisionErr
 	}
 
 	return r.decision, nil
 }
 
-func (r *testSessionRegistry) ListProfileDecisions(
+func (r *testSessionRegistry) ListAgentSpaceDecisions(
 	_ context.Context,
 	_ uuid.UUID,
-	_ api.ListSessionProfileDecisionsParams,
-) (api.SessionProfileDecisionPage, error) {
+	_ api.ListSessionAgentSpaceDecisionsParams,
+) (api.SessionAgentSpaceDecisionPage, error) {
 	if r.decisionListErr != nil {
-		return api.SessionProfileDecisionPage{}, r.decisionListErr
+		return api.SessionAgentSpaceDecisionPage{}, r.decisionListErr
 	}
 
 	return r.decisionPage, nil

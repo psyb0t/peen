@@ -10,6 +10,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// The change-agent-space form shows where a session runs now, so the session
+// the API returns carries its agent space. A session recorded before agent
+// spaces existed reports none.
+func TestSessionToAPIReportsTheAgentSpace(t *testing.T) {
+	t.Parallel()
+
+	withSpace := SessionToAPI(
+		&models.Session{ID: uuid.New(), AgentSpace: "docker:ops"},
+		false,
+	)
+	require.NotNil(t, withSpace.AgentSpace)
+	assert.Equal(t, "docker:ops", *withSpace.AgentSpace)
+
+	withoutSpace := SessionToAPI(&models.Session{ID: uuid.New()}, false)
+	assert.Nil(t, withoutSpace.AgentSpace)
+}
+
 func TestMessageToAPILabelsInjectedSkillMessages(t *testing.T) {
 	t.Parallel()
 

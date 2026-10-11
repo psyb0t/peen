@@ -78,7 +78,7 @@ func TestControllerPublishesTurnStartEventsAfterTheWrite(t *testing.T) {
 	requestID := uuid.New()
 	opening := session.EventInput{
 		RequestID:   requestID,
-		EventType:   "user_message.created",
+		EventType:   "userMessage.created",
 		PayloadJSON: `{"message":"make a script"}`,
 	}
 

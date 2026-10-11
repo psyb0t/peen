@@ -75,7 +75,7 @@ func EventBusOptions(
 
 // ConfiguredAgentRunLimits maps the deployment's child-agent bounds onto the
 // runtime. Without this the env vars parse and validate but never reach
-// launch_agent, so an operator would set them and see nothing change.
+// launchAgent, so an operator would set them and see nothing change.
 func ConfiguredAgentRunLimits(deployment config.Config) AgentRunLimits {
 	return AgentRunLimits{
 		MaxDepth:                 deployment.MaxChildAgentDepth,

@@ -4,7 +4,7 @@ import "github.com/google/uuid"
 
 // WorkerCommand is the subcommand a worker process runs.
 //
-// Native and Docker launches both run this exact subcommand of the same Peen
+// Control and Docker launches both run this exact subcommand of the same Peen
 // binary, so a worker is the same program in both forms. It is not a general
 // user command: without a controller-issued launch document on stdin it has no
 // session, no endpoint, and nothing to do.

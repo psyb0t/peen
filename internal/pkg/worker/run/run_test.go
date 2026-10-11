@@ -22,7 +22,7 @@ const (
 	testSocketPath      = "/run/peen/workers/session.sock"
 	testWorkspacePath   = "/srv/work/project"
 	testConfigDirectory = "/data/peen"
-	testProfileName     = "native"
+	testAgentSpaceName  = "control"
 
 	// testReadyGracePeriod is how long a waiting command is observed before
 	// the test concludes it really is waiting.
@@ -134,7 +134,7 @@ func TestRunRefusesWithoutALaunchDocument(t *testing.T) {
 	require.ErrorIs(t, err, commerr.ErrRequiredFieldNotSet)
 }
 
-// A run_turn command becomes the session's turn with every setting it named,
+// A runTurn command becomes the session's turn with every setting it named,
 // and a turn an event started keeps that origin.
 func TestTurnMessageCarriesTheCommandSettings(t *testing.T) {
 	t.Parallel()
@@ -299,6 +299,6 @@ func validLaunchDocument(t *testing.T) worker.LaunchDocument {
 		SocketPath:      testSocketPath,
 		Workspace:       testWorkspacePath,
 		ConfigDirectory: testConfigDirectory,
-		Profile:         testProfileName,
+		AgentSpace:      testAgentSpaceName,
 	}
 }

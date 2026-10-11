@@ -19,4 +19,4 @@ Peen reads its deployment settings from environment variables once, at startup, 
 
 ## Directories
 
-`PEEN_CONFIG_DIR` and `PEEN_STATE_DIR` must stay separate. Startup refuses equal or nested paths after resolving symlinks. Workers receive the config directory read-only and never receive the state directory. Keep both rules when touching path handling.
+`PEEN_CONFIG_DIR` and `PEEN_STATE_DIR` must stay separate. Startup refuses equal or nested paths after resolving symlinks. Docker workers receive the config directory read-only and never receive the state directory. A `control` worker runs as the controller's user and reaches both. Keep both rules when touching path handling.

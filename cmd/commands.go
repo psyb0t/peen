@@ -49,7 +49,7 @@ func commands() []*cobra.Command {
 // workerCommand runs one session worker.
 //
 // It is hidden because it is not a user command. The controller supplies the
-// session binding, socket, credential, workspace, and profile on stdin, and
+// session binding, socket, credential, workspace, and agent space on stdin, and
 // the worker refuses to start without them.
 func workerCommand() *cobra.Command {
 	return &cobra.Command{

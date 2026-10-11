@@ -56,9 +56,10 @@ local network.
 
 - Editing Peen's own Go implementation. Use the repository development docs
   and Make targets instead.
-- Assuming a session is sandboxed. The execution profile the operator gave it
-  decides that, and the default `native` profile runs tools with the
-  controller's own access.
+- Assuming a session is sandboxed. The agent space the operator gave it
+  decides that, and the `control` agent space runs tools with the
+  controller's own access. Only a `docker:<profile>` agent space runs the
+  agent in its own container. See `docs/where-it-runs.md`.
 
 ## Start Peen
 
@@ -90,14 +91,7 @@ docker run --rm \
   psyb0t/peen:latest
 ```
 
-`PEEN_CONFIG_DIR` holds the optional trusted base harness, and every worker
-reads it read-only. `PEEN_STATE_DIR` holds SQLite, logs, and worker sockets,
-and no worker receives it. Peen refuses to start when one sits inside the
-other. Each directory is mounted at its literal host path. The working
-directory `-w "$workspace_root"` is the workspace root, and
-`PEEN_WORKSPACE_ROOT` sets a different one. A client may open the root or any
-directory inside it as a workspace. The container runs as the operator's UID
-and GID, so agent writes keep host ownership.
+`PEEN_CONFIG_DIR` holds the optional trusted base harness, and every Docker worker reads it read-only. `PEEN_STATE_DIR` holds SQLite, logs, and worker sockets, and no Docker worker receives it. This command mounts no Docker socket, so the agent runs in the `control` agent space as the controller's user and can write the first and read the second. Peen refuses to start when one sits inside the other. Each directory is mounted at its literal host path. The working directory `-w "$workspace_root"` is the workspace root, and `PEEN_WORKSPACE_ROOT` sets a different one. A client may open the root or any directory inside it as a workspace. The container runs as the operator's UID and GID, so agent writes keep host ownership.
 
 ## Send and follow work
 
@@ -142,6 +136,7 @@ deny, run a direct command, or emit a session notice.
 
 - [Setup, providers, WebSocket, and REST](references/setup.md)
 - [Configuration](../../../docs/configuration.md)
+- [Where it runs](../../../docs/where-it-runs.md)
 - [The harness](../../../docs/harness.md)
 - [AGENTS.md and rules](../../../docs/rules.md)
 - [Skills](../../../docs/skills.md)

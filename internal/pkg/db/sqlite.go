@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -55,6 +56,10 @@ func Open(ctx context.Context, cfg Config) (*Handle, error) {
 			sqlDB,
 			ctxerrors.Wrap(err, "install database metrics"),
 		)
+	}
+
+	if err := verifyMigrationLineage(ctx, sqlDB); err != nil {
+		return nil, closeAfterOpenFailure(ctx, sqlDB, err)
 	}
 
 	if err := commonsqlite.MigrateUp(
@@ -244,6 +249,207 @@ func sqliteDSN(databasePath string, busyTimeoutMilliseconds int64) string {
 		databasePath,
 		busyTimeoutMilliseconds,
 	)
+}
+
+// sqliteTableOrder lists the tables in the order their create migrations run,
+// read from the migration file names
+// `<7-digit sequence>_create_<table>_table.up.sql`. Migration N creates entry
+// N-1, so a database at version N holds exactly the first N tables.
+func sqliteTableOrder() ([]string, error) {
+	entries, err := migrations.SQLiteFS.ReadDir(sqliteMigrationsPath)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "list sqlite migrations")
+	}
+
+	order := []string{}
+
+	for _, entry := range entries {
+		stem, isUp := strings.CutSuffix(entry.Name(), ".up.sql")
+		if !isUp {
+			continue
+		}
+
+		sequence, rest, _ := strings.Cut(stem, "_create_")
+
+		table, isTable := strings.CutSuffix(rest, "_table")
+		if !isTable || sequence != fmt.Sprintf("%07d", len(order)+1) {
+			return nil, ctxerrors.Wrapf(
+				commerr.ErrInvalidState,
+				"sqlite migration %q is not the next create migration",
+				entry.Name(),
+			)
+		}
+
+		order = append(order, table)
+	}
+
+	return order, nil
+}
+
+// verifyMigrationLineage refuses a database that a different Peen version
+// created. Those versions overlap the current numbering, so the recorded
+// version alone cannot tell them apart. The tables present must be exactly the
+// ones the recorded version should have created, and their columns, defaults,
+// constraints, and indexes must match the migrations up to that version.
+func verifyMigrationLineage(ctx context.Context, sqlDB *sql.DB) error {
+	version, dirty, recorded, err := recordedMigrationVersion(ctx, sqlDB)
+	if err != nil {
+		return err
+	}
+
+	if !recorded {
+		return nil
+	}
+
+	tables, err := migratedTableNames(ctx, sqlDB)
+	if err != nil {
+		return err
+	}
+
+	order, err := sqliteTableOrder()
+	if err != nil {
+		return err
+	}
+
+	if !tablesMatchVersion(tables, order, version, dirty) {
+		return errIncompatibleDatabase(version)
+	}
+
+	// A migration that stopped midway leaves a schema between two versions.
+	// That stays a migration problem, reported by the runner.
+	if dirty {
+		return nil
+	}
+
+	return verifyRecordedSchema(ctx, sqlDB, version)
+}
+
+// tablesMatchVersion reports whether tables are exactly the ones the first
+// version migrations create. A migration that failed midway leaves the version
+// marked dirty with the tables of the previous step.
+func tablesMatchVersion(
+	tables, order []string,
+	version int,
+	dirty bool,
+) bool {
+	if version < 0 || version > len(order) {
+		return false
+	}
+
+	if tablesMatchPrefix(tables, order[:version]) {
+		return true
+	}
+
+	return dirty && version >= 1 && tablesMatchPrefix(tables, order[:version-1])
+}
+
+func tablesMatchPrefix(tables, prefix []string) bool {
+	if len(tables) != len(prefix) {
+		return false
+	}
+
+	expected := make(map[string]struct{}, len(prefix))
+	for _, name := range prefix {
+		expected[name] = struct{}{}
+	}
+
+	for _, name := range tables {
+		if _, ok := expected[name]; !ok {
+			return false
+		}
+	}
+
+	return true
+}
+
+// recordedMigrationVersion reads the version the migration runner stored. It
+// reports recorded as false for a database the runner has not touched.
+func recordedMigrationVersion(
+	ctx context.Context,
+	sqlDB *sql.DB,
+) (int, bool, bool, error) {
+	var tableCount int
+	if err := sqlDB.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*) FROM sqlite_master
+		 WHERE type = 'table' AND name = 'schema_migrations'`,
+	).Scan(&tableCount); err != nil {
+		return 0, false, false, ctxerrors.Wrap(
+			err,
+			"look up sqlite migration table",
+		)
+	}
+
+	if tableCount == 0 {
+		return 0, false, false, nil
+	}
+
+	var (
+		version int
+		dirty   bool
+	)
+
+	err := sqlDB.QueryRowContext(
+		ctx,
+		"SELECT version, dirty FROM schema_migrations LIMIT 1",
+	).Scan(&version, &dirty)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, false, nil
+	}
+
+	if err != nil {
+		return 0, false, false, ctxerrors.Wrap(
+			err,
+			"read sqlite migration version",
+		)
+	}
+
+	return version, dirty, true, nil
+}
+
+// migratedTableNames lists the tables the migrations created, excluding the
+// objects SQLite and the migration runner own.
+func migratedTableNames(
+	ctx context.Context,
+	sqlDB *sql.DB,
+) ([]string, error) {
+	rows, err := sqlDB.QueryContext(
+		ctx,
+		`SELECT name FROM sqlite_master
+		 WHERE type = 'table'
+		   AND name NOT LIKE 'sqlite_%'
+		   AND name <> 'schema_migrations'`,
+	)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "list sqlite tables")
+	}
+
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			ctxscope.GetLogger(ctx).Warn(
+				"close sqlite table rows",
+				"err",
+				closeErr,
+			)
+		}
+	}()
+
+	names := []string{}
+
+	for rows.Next() {
+		name := ""
+		if err := rows.Scan(&name); err != nil {
+			return nil, ctxerrors.Wrap(err, "scan sqlite table name")
+		}
+
+		names = append(names, name)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, ctxerrors.Wrap(err, "iterate sqlite tables")
+	}
+
+	return names, nil
 }
 
 func verifySQLiteIntegrity(ctx context.Context, sqlDB *sql.DB) error {

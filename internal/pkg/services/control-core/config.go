@@ -98,6 +98,7 @@ func logValidatedConfig(
 		"http_listen_address", config.HTTPListenAddress,
 		"metrics_listen_address", config.MetricsListenAddress,
 		"worker_socket_root", config.WorkerSocketRoot(),
+		//nolint:contextcheck // A startup probe bounded by its own timeout.
 		"docker_authority", config.HasDockerAuthority(),
 		"api_token_configured", config.APIToken != "",
 		"provider_count", len(upstreams),

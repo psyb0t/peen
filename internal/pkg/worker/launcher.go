@@ -4,11 +4,11 @@ import "context"
 
 // Launcher starts one worker process for one session.
 //
-// Native and Docker launching differ only here. Everything above this point,
+// Control and Docker launching differ only here. Everything above this point,
 // the generation record, the credential, the socket, and the protocol, is the
 // same for both, so a new launch form does not change the supervisor.
 type Launcher interface {
-	// Kind is the profile kind this launcher serves.
+	// Kind is the agent space kind this launcher serves.
 	Kind() Kind
 
 	// Launch starts the worker and returns once the process or container
@@ -23,8 +23,8 @@ type Launcher interface {
 // Every field comes from the controller. Nothing here is taken from model
 // output or a client request.
 type LaunchRequest struct {
-	Document LaunchDocument
-	Profile  Profile
+	Document   LaunchDocument
+	AgentSpace AgentSpace
 }
 
 // Process is a launched worker as its launcher holds it.
@@ -41,7 +41,7 @@ type Process interface {
 
 // Descriptor is a launched worker's recorded identity.
 type Descriptor struct {
-	// ProcessID is set for a native worker.
+	// ProcessID is set for a control worker.
 	ProcessID int
 
 	// ContainerID and ImageDigest are set for a Docker worker. The digest is

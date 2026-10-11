@@ -43,7 +43,7 @@ func main() {
 		models.PromptSnapshot{},
 		models.Session{},
 		models.SessionNotice{},
-		models.SessionProfileDecision{},
+		models.SessionAgentSpaceDecision{},
 		models.Turn{},
 		models.WorkerGeneration{},
 	)

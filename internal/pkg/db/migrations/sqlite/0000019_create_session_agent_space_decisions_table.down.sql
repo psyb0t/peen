@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS session_agent_space_decisions_session_decided_at_id_index;
+DROP TABLE IF EXISTS session_agent_space_decisions;

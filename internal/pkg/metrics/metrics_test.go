@@ -15,7 +15,7 @@ const (
 	testModel        = "aigate/test-model"
 	testRoute        = "/v1/messages"
 	testStatusOK     = "200"
-	testTool         = "read_file"
+	testTool         = "readFile"
 	testOperation    = "query"
 	testFunction     = "run_provider"
 	testStage        = "turn"
@@ -55,7 +55,7 @@ func TestMetricsRecordsBoundedOperationFamilies(t *testing.T) {
 	)
 	instance.ToolCompleted(testTool, OutcomeSuccess, testDuration)
 	instance.JobStarted()
-	instance.JobCompleted("run_command", OutcomeSuccess, testDuration)
+	instance.JobCompleted("runCommand", OutcomeSuccess, testDuration)
 	instance.JobOutputDropped("stdout", 3)
 	instance.EventDropped("pending")
 

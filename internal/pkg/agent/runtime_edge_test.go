@@ -214,7 +214,7 @@ func TestPromptHistoryAndRuntimeHelpers(t *testing.T) {
 				Role:          models.MessageRoleAssistant,
 				Content:       "answer",
 				Thinking:      "reasoning",
-				ToolCallsJSON: `[{"id":"call-1","name":"read_file","arguments":"{}"}]`,
+				ToolCallsJSON: `[{"id":"call-1","name":"readFile","arguments":"{}"}]`,
 			},
 			{
 				Role:          models.MessageRoleTool,

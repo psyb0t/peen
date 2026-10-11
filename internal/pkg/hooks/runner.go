@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
@@ -33,6 +34,8 @@ const (
 
 	hookStateDirectoryName = "hook-state"
 	hookStateDirectoryMode = 0o700
+
+	hookEventPrePrefix = "pre"
 
 	hookRunOutcomeSucceeded = "succeeded"
 	hookRunOutcomeFailed    = "failed"
@@ -284,10 +287,21 @@ func (r Runner) continuesOnFailure(
 	return !isPreEvent(event)
 }
 
+// isPreEvent reports whether the event runs before the operation it guards:
+// a name made of the pre prefix and a capitalized word, such as preToolUse or
+// preWriteFile, plus sessionStart and turnStart.
 func isPreEvent(event harness.HookEvent) bool {
-	return strings.HasPrefix(string(event), "pre_") ||
-		event == harness.HookEventSessionStart ||
-		event == harness.HookEventTurnStart
+	if event == harness.HookEventSessionStart ||
+		event == harness.HookEventTurnStart {
+		return true
+	}
+
+	rest, found := strings.CutPrefix(string(event), hookEventPrePrefix)
+	if !found || rest == "" {
+		return false
+	}
+
+	return unicode.IsUpper(rune(rest[0]))
 }
 
 type actionResult struct {
@@ -641,11 +655,11 @@ func (r Runner) recordActionFailure(
 	}
 
 	data, err := json.Marshal(map[string]string{
-		"event":       string(invocation.Event),
-		"hook_name":   resolvedHookName(hook),
-		"action":      action.Name,
-		"action_type": string(action.Type),
-		"source":      hook.Source,
+		"event":      string(invocation.Event),
+		"hookName":   resolvedHookName(hook),
+		"action":     action.Name,
+		"actionType": string(action.Type),
+		"source":     hook.Source,
 	})
 	if err != nil {
 		ctxscope.GetLogger(ctx).Warn(

@@ -5,6 +5,7 @@ package api_test
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"net/url"
@@ -26,14 +27,14 @@ const (
 	apiTestWebSocketPath               = apiBasePath + "/ws"
 	apiTestWebSocketSessionIDParameter = "sessionId"
 	apiTestWebSocketSubprotocol        = "peen.v1"
-	apiTestWebSocketBearerPrefix       = "peen.bearer."
+	apiTestWebSocketBearerPrefix       = "peen.bearer." //nolint:gosec // A subprotocol prefix, not a credential.
 	apiTestWebSocketMessageSend        = "message.send"
 	apiTestWebSocketMessageCompleted   = "message.completed"
 	apiTestWebSocketMessageFailed      = "message.failed"
 	apiTestWebSocketTurnStarted        = "turn.started"
 	apiTestWebSocketContentBlockDelta  = "content_block_delta"
 	apiTestWebSocketTurnCompleted      = "turn.completed"
-	apiTestWebSocketMessageDelivered   = "user_message.delivered"
+	apiTestWebSocketMessageDelivered   = "userMessage.delivered"
 	apiTestWebSocketMetadataSessionID  = "sessionId"
 	apiTestWebSocketMetadataRequestID  = "requestId"
 	apiTestWebSocketReadTimeout        = 30 * time.Second
@@ -271,7 +272,7 @@ func TestAPIWebSocketCarriesTheTurnReasoningEffort(t *testing.T) {
 		}))
 
 		failure := awaitAPIWebSocketFailure(t, connection)
-		assert.Equal(t, string(aichteeteapee.ErrorCodeValidationFailed), failure.Code)
+		assert.Equal(t, aichteeteapee.ErrorCodeValidationFailed, failure.Code)
 	})
 }
 
@@ -309,7 +310,7 @@ func TestAPIWebSocketRefusesAnUnknownSkill(t *testing.T) {
 	))
 
 	failure := awaitAPIWebSocketFailure(t, connection)
-	assert.Equal(t, string(aichteeteapee.ErrorCodeValidationFailed), failure.Code)
+	assert.Equal(t, aichteeteapee.ErrorCodeValidationFailed, failure.Code)
 	assert.Contains(
 		t,
 		failure.Message,
@@ -516,12 +517,13 @@ func awaitAPIWebSocketCompletion(
 		received := dabluveees.Event{}
 		require.NoError(t, connection.ReadJSON(&received))
 
-		switch received.Type {
+		switch string(received.Type) {
 		case apiTestWebSocketMessageCompleted:
 			result := apiTestWebSocketResult{}
 			require.NoError(t, json.Unmarshal(received.Data, &result))
 			if result.Queued == wantQueued {
 				sessionID, requestID := apiTestWebSocketMetadata(t, received)
+
 				return apiTestWebSocketObservation{
 					result:              result,
 					sessionID:           sessionID,
@@ -554,7 +556,7 @@ func awaitAPIWebSocketFailure(
 
 		received := dabluveees.Event{}
 		require.NoError(t, connection.ReadJSON(&received))
-		switch received.Type {
+		switch string(received.Type) {
 		case apiTestWebSocketMessageFailed:
 			failure := apiTestWebSocketFailure{}
 			require.NoError(t, json.Unmarshal(received.Data, &failure))
@@ -602,7 +604,9 @@ func assertNoAPIWebSocketEvent(t *testing.T, connection *websocket.Conn) {
 	err := connection.ReadJSON(&received)
 	require.Error(t, err)
 
-	networkErr, isNetworkErr := err.(net.Error)
+	var networkErr net.Error
+
+	isNetworkErr := errors.As(err, &networkErr)
 	require.True(t, isNetworkErr)
 	assert.True(t, networkErr.Timeout())
 }

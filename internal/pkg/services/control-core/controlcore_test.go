@@ -3,6 +3,7 @@ package controlcore
 import (
 	"context"
 	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -38,6 +39,8 @@ const (
 	coreTestClearedTimeout  = time.Second
 	coreTestContextTokens   = 8192
 	coreTestOutputTokens    = 1024
+
+	coreTestDockerSocketName = "docker.sock"
 )
 
 type coreFixture struct {
@@ -76,10 +79,15 @@ func newCoreFixtureWith(
 	)
 
 	config := peenconfig.Config{
-		ConfigDirectory:        configDirectory,
-		StateDirectory:         filepath.Join(root, "state"),
-		WorkingDirectory:       workspaceDirectory,
-		WorkerSocketDirectory:  shortWorkerSocketDirectory(t),
+		ConfigDirectory:       configDirectory,
+		StateDirectory:        filepath.Join(root, "state"),
+		WorkingDirectory:      workspaceDirectory,
+		WorkerSocketDirectory: shortWorkerSocketDirectory(t),
+
+		// No Docker socket by default, so the control agent space is offered
+		// whatever the machine running the test can reach. A test that wants
+		// a socket sets one in mutate.
+		DockerSocket:           filepath.Join(root, "no-docker.sock"),
 		Agent:                  coreTestAgentName,
 		UpstreamsJSON:          coreTestUpstreamsJSON,
 		DefaultModel:           coreTestModelReference,
@@ -91,6 +99,9 @@ func newCoreFixtureWith(
 		HTTPListenAddress:      reserveLoopbackAddress(t),
 		MetricsListenAddress:   reserveLoopbackAddress(t),
 	}
+	// The machine running the test decides nothing about the Docker rule.
+	config = config.WithDockerEnvironment("", filepath.Join(root, "no-docker.sock"))
+
 	if mutate != nil {
 		mutate(&config)
 	}
@@ -251,6 +262,193 @@ func TestControlCoreAppliesTheConfiguredWorkspaceRoots(t *testing.T) {
 	)
 }
 
+// reachableDockerSocket starts a Unix socket where a Docker socket would be, so
+// the controller sees the same thing a mounted socket shows it.
+func reachableDockerSocket(t *testing.T) string {
+	t.Helper()
+
+	path := filepath.Join(
+		shortWorkerSocketDirectory(t),
+		coreTestDockerSocketName,
+	)
+
+	listener, err := (&net.ListenConfig{}).Listen(
+		t.Context(),
+		"unix",
+		path,
+	)
+	require.NoError(t, err)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/_ping", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("OK"))
+	})
+
+	server := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: coreTestClearedTimeout,
+	}
+
+	go func() { _ = server.Serve(listener) }()
+
+	t.Cleanup(func() { _ = server.Close() })
+
+	return path
+}
+
+// silentDockerSocket is a socket file that exists and never answers the Docker
+// API, the shape of a socket the controller's user cannot use.
+func silentDockerSocket(t *testing.T) string {
+	t.Helper()
+
+	path := filepath.Join(
+		shortWorkerSocketDirectory(t),
+		coreTestDockerSocketName,
+	)
+
+	listener, err := (&net.ListenConfig{}).Listen(
+		t.Context(),
+		"unix",
+		path,
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+
+	go func() {
+		for {
+			conn, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				return
+			}
+
+			_ = conn.Close()
+		}
+	}()
+
+	return path
+}
+
+// A socket file the controller cannot talk to does not trigger the socket
+// rule: the control agent space stays offered and the default.
+func TestControlCoreIgnoresASocketThatDoesNotAnswer(t *testing.T) {
+	fixture := newCoreFixtureWith(t, func(config *peenconfig.Config) {
+		config.DockerSocket = silentDockerSocket(t)
+	})
+	runCoreService(t, fixture)
+
+	core, err := fixture.handoff.Await(t.Context())
+	require.NoError(t, err)
+
+	assert.Equal(t, "control", core.AgentSpaces.Default())
+	assert.Contains(t, core.AgentSpaces.Names(), "control")
+}
+
+// With a Docker daemon reachable only Docker agent spaces are offered. If the
+// launcher for them cannot be built, startup fails with the reason instead of
+// reporting ready with no agent space that can run.
+func TestControlCoreFailsStartupWhenNoAgentSpaceCanRun(t *testing.T) {
+	fixture := newCoreFixtureWith(t, func(config *peenconfig.Config) {
+		config.DockerSocket = reachableDockerSocket(t)
+	})
+
+	// Half an identity override passes no validation here because the config
+	// is handed over directly, and the launcher cannot be built from it.
+	config := fixture.config
+	config.HostUsername = "peen"
+
+	service := newControlCore(serviceDependencies{
+		parseConfig: func() (peenconfig.Config, error) {
+			return config, nil
+		},
+		configureAuditLog: func() error { return nil },
+		driverFactory: func(peenconfig.Upstream) (elelem.Driver, error) {
+			return elelemtest.NewScriptedDriver(
+				elelemtest.Text("unused"),
+			).WithModels(coreTestModelID), nil
+		},
+		handoff: control.NewHandoff(),
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	done := make(chan error, 1)
+
+	go func() { done <- service.Run(ctx) }()
+
+	select {
+	case err := <-done:
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "PEEN_HOST_USERNAME")
+		assert.Contains(t, err.Error(), "PEEN_HOST_HOME")
+	case <-service.Ready():
+		t.Fatal("the controller reported ready with no runnable agent space")
+	case <-time.After(coreTestStartupTimeout):
+		t.Fatal("the controller neither failed nor became ready")
+	}
+}
+
+// Without a Docker socket the controller offers the control agent space and
+// defaults to it.
+func TestControlCoreOffersTheControlAgentSpaceWithoutADockerSocket(
+	t *testing.T,
+) {
+	fixture := newCoreFixture(t)
+	runCoreService(t, fixture)
+
+	core, err := fixture.handoff.Await(t.Context())
+	require.NoError(t, err)
+
+	assert.Equal(t, "control", core.AgentSpaces.Default())
+	assert.Contains(t, core.AgentSpaces.Names(), "control")
+	assert.Equal(t, "control", core.Sessions.AgentSpaces().Default)
+}
+
+// With a reachable Docker socket and nothing configured, the default agent
+// space is the built-in Docker profile and control is not offered.
+func TestControlCoreDefaultsToADockerAgentSpaceWithADockerSocket(
+	t *testing.T,
+) {
+	fixture := newCoreFixtureWith(t, func(config *peenconfig.Config) {
+		config.DockerSocket = reachableDockerSocket(t)
+		config.HostUsername = "peen"
+		config.HostHome = "/home/peen"
+	})
+	runCoreService(t, fixture)
+
+	core, err := fixture.handoff.Await(t.Context())
+	require.NoError(t, err)
+
+	assert.Equal(t, "docker:default", core.AgentSpaces.Default())
+	assert.NotContains(t, core.AgentSpaces.Names(), "control")
+}
+
+// Startup fails when the control agent space is the default beside a reachable
+// Docker socket, even when the configuration was not validated first.
+func TestControlCoreRefusesControlBesideADockerSocket(t *testing.T) {
+	fixture := newCoreFixture(t)
+
+	config := fixture.config
+	config.DockerSocket = reachableDockerSocket(t)
+	config.DefaultAgentSpace = "control"
+
+	service := newControlCore(serviceDependencies{
+		parseConfig: func() (peenconfig.Config, error) {
+			return config, nil
+		},
+		configureAuditLog: func() error { return nil },
+		driverFactory: func(peenconfig.Upstream) (elelem.Driver, error) {
+			return elelemtest.NewScriptedDriver(
+				elelemtest.Text("unused"),
+			).WithModels(coreTestModelID), nil
+		},
+		handoff: control.NewHandoff(),
+	})
+
+	err := service.Run(t.Context())
+	require.ErrorIs(t, err, peenconfig.ErrControlSpaceRefused)
+}
+
 // The controller builds its harness resolver with the deployment's disabled
 // core sets, so a disabled core skill cannot be named in a message.
 func TestControlCoreAppliesTheDisabledCoreSkills(t *testing.T) {
@@ -329,33 +527,36 @@ func TestResolveWorkerImagePrefersTheConfiguredImage(t *testing.T) {
 	restore := setTestBuildVersion(t, "v1.2.3")
 	defer restore()
 
-	resolved := resolveWorkerImage(peenconfig.Config{
+	override, fallback := resolveWorkerImages(peenconfig.Config{
 		WorkerImage: "peen-dev:local",
 	})
 
-	assert.Equal(t, "peen-dev:local", resolved)
+	assert.Equal(t, "peen-dev:local", override)
+	assert.Equal(t, "psyb0t/peen:v1.2.3", fallback)
 }
 
-// Without an override the worker image tracks the controller's own version
-// verbatim, so a release runs the worker published beside it.
-func TestResolveWorkerImageTracksTheBuildVersion(t *testing.T) {
+// Without an override the build's image is only a fallback, so a profile's own
+// image still applies. It tracks the controller's version verbatim.
+func TestResolveWorkerImageTracksTheBuildVersionAsAFallback(t *testing.T) {
 	restore := setTestBuildVersion(t, "v1.2.3")
 	defer restore()
 
-	assert.Equal(
-		t,
-		"psyb0t/peen:v1.2.3",
-		resolveWorkerImage(peenconfig.Config{}),
-	)
+	override, fallback := resolveWorkerImages(peenconfig.Config{})
+
+	assert.Empty(t, override)
+	assert.Equal(t, "psyb0t/peen:v1.2.3", fallback)
 }
 
-// A build stamped with no version names no image, so a native-only deployment
+// A build stamped with no version names no image, so a control-only deployment
 // is not refused over an image it never uses.
 func TestResolveWorkerImageWithoutAStampedVersion(t *testing.T) {
 	restore := setTestBuildVersion(t, "")
 	defer restore()
 
-	assert.Empty(t, resolveWorkerImage(peenconfig.Config{}))
+	override, fallback := resolveWorkerImages(peenconfig.Config{})
+
+	assert.Empty(t, override)
+	assert.Empty(t, fallback)
 }
 
 // setTestBuildVersion sets the scope key the binary stamps at startup and

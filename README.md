@@ -25,7 +25,7 @@ the conversations it wants from each event's session ID.
 One host runs one control plane. It owns SQLite, the API, and the event feed,
 and it starts a separate worker process per session to run that session's turns.
 Which environment a worker gets, a child process or its own container, is an
-operator decision. See [Architecture](docs/architecture.md).
+operator decision. See [Where it runs](docs/where-it-runs.md) and [Architecture](docs/architecture.md).
 
 Peen ships its own browser control surface at the controller's root URL. It is one client among many, so a terminal client, bot, or your own application can watch the same live work and use the same durable records.
 
@@ -56,13 +56,13 @@ docker pull psyb0t/peen:latest
 The image starts Peen's control plane by default. You need Docker and a provider
 API key. The next section creates the configuration and starts it.
 
-If you want a native binary instead, use the installer:
+If you want a host binary instead, use the installer:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/psyb0t/peen/main/install.sh | bash
 ```
 
-Read [install.sh](install.sh) before piping it into a shell. [Deployment](docs/deployment.md) covers native installs, source builds, and running Peen under a process manager.
+Read [install.sh](install.sh) before piping it into a shell. [Deployment](docs/deployment.md) covers host installs, source builds, and running Peen under a process manager.
 
 ## Run it
 
@@ -98,7 +98,7 @@ AIGATE_TOKEN=your-token-here
 PEEN_API_TOKEN=
 ```
 
-Set the provider URL, model IDs, and the named API-key environment variable in `$root/.env`. Leave `PEEN_CONFIG_DIR` and `PEEN_STATE_DIR` in that file as they are. The `docker run` command below sets both with `-e`, which overrides `.env`. The two directories are separate on purpose. Workers get the first one read-only and never get the second. Peen refuses to start if one sits inside the other.
+Set the provider URL, model IDs, and the named API-key environment variable in `$root/.env`. Leave `PEEN_CONFIG_DIR` and `PEEN_STATE_DIR` in that file as they are. The `docker run` command below sets both with `-e`, which overrides `.env`. The two directories are separate on purpose. Docker workers get the first one read-only and never get the second. In the `control` agent space, which the command below uses, the agent runs as the controller and can read and write both. Peen refuses to start if one sits inside the other.
 
 The file is a Docker `--env-file`, so leave the JSON unquoted. For a server outside your own machine, set `PEEN_API_TOKEN` to a real secret before starting it.
 
@@ -120,11 +120,7 @@ docker run --rm \
   psyb0t/peen:latest
 ```
 
-The control process and workers run as your UID and GID, so files the agent
-creates stay yours. `PEEN_HOST_USERNAME` and `PEEN_HOST_HOME` let a Docker
-worker recreate that account inside its own image. `config` holds the trusted
-harness layer and workers receive it read-only. `state` holds the database,
-audit logs, and worker sockets and workers never receive it. `workspace_root` is the process working directory, which makes it the workspace root. Set `PEEN_WORKSPACE_ROOT` to use a different one. Peen starts with no sessions and opens one when a client names a workspace inside the root. It resumes the same session when it restarts with the same state directory and the same workspace. All three mounts survive a container restart.
+The control process and workers run as your UID and GID, so files the agent creates stay yours. `PEEN_HOST_USERNAME` and `PEEN_HOST_HOME` let a Docker worker recreate that account inside its own image. `config` holds the trusted harness layer, mounted read-only into Docker workers. `state` holds the database, audit logs, and worker sockets, which no Docker worker receives. This command mounts no Docker socket, so the agent runs in `control` and can reach both. `workspace_root` is the process working directory, which makes it the workspace root. Set `PEEN_WORKSPACE_ROOT` to use a different one. Peen starts with no sessions and opens one when a client names a workspace inside the root. It resumes the same session when it restarts with the same state directory and the same workspace. All three mounts survive a container restart.
 
 ## Use the control surface
 
@@ -132,7 +128,7 @@ Open `http://localhost:8080` after Peen starts. If `PEEN_API_TOKEN` is set, ente
 
 The sidebar shows the workspace root. Type a workspace inside it, such as `$HOME/work/my-app`, and open the chat. Peen returns its existing session when that directory was opened before, otherwise it creates the one durable session for that workspace. Open `$HOME/work/other-app` for a second project with its own agent. The composer shows the model and reasoning level the next turn will use, starting from the session's model, and you can change either for that turn before you send the work. The input box spans the full width. Enter sends, and Shift+Enter starts a new line. Your messages show as bubbles on the right. The agent's replies take the full width with no bubble, stream in as the model writes them, and render as Markdown, with each tool call shown as one card next to its result. A message you send while a turn is running shows "Queued. Lands after the current step." until the agent receives it.
 
-The socket receives the live feed for every session. The control surface keeps that global feed intact, but shows the selected session's events and durable records in its own tab. It also exposes cancellation, execution-profile changes, transcript messages, model runs, child agents, compactions, workers, jobs, and notices.
+The socket receives the live feed for every session. The control surface keeps that global feed intact, but shows the selected session's events and durable records in its own tab. It also exposes cancellation, agent space changes, transcript messages, model runs, child agents, compactions, workers, jobs, and notices.
 
 The browser control surface is embedded in the Peen binary. There is no frontend service or browser token persistence to operate. Build another client against the [WebSocket and REST API guide](docs/http-api.md) when you need a different interface or automation.
 
@@ -159,9 +155,7 @@ The full list of provider, context, tool, and event settings is in
 
 ## Make it understand your project
 
-`PEEN_CONFIG_DIR` holds an optional trusted base harness. `PEEN_STATE_DIR`
-holds durable controller state and is never mounted into a worker. The workspace
-adds project-specific instructions:
+`PEEN_CONFIG_DIR` holds an optional trusted base harness. `PEEN_STATE_DIR` holds durable controller state and is never mounted into a Docker worker. The workspace adds project-specific instructions:
 
 ```text
 workspace/
@@ -184,9 +178,9 @@ Peen reads these files from the configuration directory and from every directory
 
 **Rules.** Topic files in `.agents/rules/` or `.claude/rules/`, one subject each, such as `testing.md` or `go.md`. They also go into the system prompt on every turn and add up across layers. [AGENTS.md and rules](docs/rules.md#rules)
 
-**Skills.** A skill is a directory with a `SKILL.md`: YAML frontmatter with a `name` and `description`, then the procedure. The model sees every skill's name and description each turn and loads the full text with `use_skill` when a task fits. Write `:skill-name` in a message and the skill arrives as its own message right after yours, also in a message sent while a turn runs. Peen ships two core skills, `core:planning` and `core:freshness`, and your own skills sit beside them. [Skills](docs/skills.md)
+**Skills.** A skill is a directory with a `SKILL.md`: YAML frontmatter with a `name` and `description`, then the procedure. The model sees every skill's name and description each turn and loads the full text with `useSkill` when a task fits. Write `:skill-name` in a message and the skill arrives as its own message right after yours, also in a message sent while a turn runs. Peen ships two core skills, `core:planning` and `core:freshness`, and your own skills sit beside them. [Skills](docs/skills.md)
 
-**Named agents.** A file in `.agents/agents/` defines a child agent with its own instructions and an optional `allowed-tools` list. The main agent hands it a job with `launch_agent` and gets its final answer back. Every child run is stored and inspectable. Peen ships one core agent, `core:general-purpose`, which runs every turn unless `PEEN_AGENT` names another. [Named agents](docs/agents.md)
+**Named agents.** A file in `.agents/agents/` defines a child agent with its own instructions and an optional `allowed-tools` list. The main agent hands it a job with `launchAgent` and gets its final answer back. Every child run is stored and inspectable. Peen ships one core agent, `core:general-purpose`, which runs every turn unless `PEEN_AGENT` names another. [Named agents](docs/agents.md)
 
 **Session events.** When a background command finishes, a child agent ends, a hook reports something, or an outside system posts to `/v1/session/notices`, Peen records an event and hands it to the model at the next turn or tool boundary. A handler in `.agents/events/<type>.md` can make an event start a turn on an idle session. [Session events](docs/events.md)
 
@@ -236,7 +230,7 @@ was nothing running. The commands read the same `PEEN_` configuration the
 controller does, so a command and its controller cannot disagree about the
 endpoint.
 
-A native deployment currently reaches the controller over the configured
+A host deployment currently reaches the controller over the configured
 loopback HTTP endpoint. Unix-domain-socket discovery is not implemented: the
 vendored HTTP server creates TCP listeners only and exposes no way to supply
 one, so it needs an upstream capability first.
@@ -260,33 +254,20 @@ summary, as [compaction](docs/configuration.md#compaction) explains.
 Read this before you deploy Peen anywhere it can reach something you do not
 want touched.
 
-A session's tools run in a worker process under the execution profile the
-operator picked for that session. On the default `native` profile that worker is
-a child of the controller, so `run_command` and the file tools have exactly the
-access of the operating-system user running Peen. There is no path allowlist, no
+A session's tools run in a worker process in the agent space the operator
+picked for that session. In the `control` agent space that worker is a child of
+the controller, so `runCommand` and the file tools have exactly the access of
+the operating-system user running Peen. There is no path allowlist, no
 secret-file denylist, and no approval or permission step before a tool runs. A
 file tool can read, write, or remove any path that user can touch, including
-`.git/`, `.env`, and SSH keys. `run_command` executes an arbitrary shell command
+`.git/`, `.env`, and SSH keys. `runCommand` executes an arbitrary shell command
 immediately. That is deliberate: the product is a coding agent with real access.
 
-A `docker` profile is the isolation boundary. It runs the worker in its own
-container with only the mounts, network, and capabilities the operator defined.
-A client picks a profile by name and never sends an image, mount, network
-setting, or capability, so the blast radius is an operator decision. If the
-controller cannot reach a Docker socket, a session on a Docker profile is
-refused rather than run on the host. See
-[Configuration](docs/configuration.md#execution-profiles).
+Commands the agent runs start with an environment that has `PEEN_API_TOKEN` and every provider `apiKeyEnv` variable removed. A `control` agent still runs as the controller's user, so it can read both from the controller's process environment through `/proc`, and it can read `PEEN_STATE_DIR`, which holds every session's transcript. With the API token it can read and drive every other session. Treat a `control` agent as holding every secret the controller holds.
 
-A worker container receives the workspace, `PEEN_CONFIG_DIR` read-only, its own
-session socket directory, and only the runtime configuration it needs, including
-the named provider credential for its model calls. It does not receive
-`PEEN_STATE_DIR`, the control API token, or the controller Docker socket. The
-provider credential is therefore available to the agent process. Treat it like
-any other secret exposed inside an agent workspace. Peen runs the image published
-alongside the running build unless `PEEN_WORKER_IMAGE` or the profile names
-another. The container starts as root and the Peen entrypoint drops it back to
-your host account, so an image without that entrypoint fails when the worker
-runs.
+A `docker:<profile>` agent space is the isolation boundary. It runs the worker in its own container with only the mounts, network, and grants the operator defined. A client picks an agent space by name and never sends an image, mount, network setting, or capability, so the blast radius is an operator decision. If the controller cannot reach a Docker daemon, a session in a Docker agent space is refused rather than run on the host. If it can, Peen refuses the `control` agent space, because a reachable daemon makes `control` sessions host root. See [Where it runs](docs/where-it-runs.md).
+
+A worker container receives the workspace, `PEEN_CONFIG_DIR` read-only, its own session socket directory, and only the runtime configuration it needs, including the named provider credential for its model calls. It does not receive `PEEN_STATE_DIR`, the control API token, or the controller Docker socket unless its profile sets `docker: full`. The agent's commands run as the same user as the worker process that holds the provider credential, so treat that credential like any other secret exposed inside an agent workspace. Peen runs `PEEN_WORKER_IMAGE` when it is set, then the Docker profile's `image`, then the image published alongside the running build. The container starts as root and the Peen entrypoint drops it back to your host account, so an image without that entrypoint fails when the worker runs.
 
 Tool calls and their results are recorded verbatim in the session transcript
 and sent live over the global WebSocket feed, exactly like any other message.
@@ -297,7 +278,7 @@ or redact secret-shaped content in tool output. Treat the transcript and the
 event stream at the same sensitivity level as the files and commands the agent
 can reach.
 
-`remove_path` has exactly one built-in restriction, and it is a guard against
+`removePath` has exactly one built-in restriction, and it is a guard against
 a catastrophic typo, not a permission system: it refuses to remove the
 filesystem root or the session's own workspace directory. Every
 other path, including everything named above, is removable.
@@ -335,6 +316,7 @@ openclaw skills install @psyb0t/peen
 | --- | --- |
 | Start from zero | [Getting started](docs/getting-started.md) |
 | Configure providers, limits, and logs | [Configuration](docs/configuration.md) |
+| Decide where the agent runs and what it can touch | [Where it runs](docs/where-it-runs.md) |
 | Understand how Peen reads project files | [The harness](docs/harness.md) |
 | Give the agent project instructions and rules | [AGENTS.md and rules](docs/rules.md) |
 | Write named procedures the agent loads on demand | [Skills](docs/skills.md) |

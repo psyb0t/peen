@@ -52,13 +52,13 @@ func (s *Store) OpenWorkspace(
 	now := s.now()
 
 	created := &models.Session{
-		ID:               s.newID(),
-		CreatedAt:        now,
-		UpdatedAt:        now,
-		RootAgent:        options.RootAgent,
-		ModelID:          options.ModelID,
-		Workspace:        canonicalWorkspace,
-		ExecutionProfile: options.ExecutionProfile,
+		ID:         s.newID(),
+		CreatedAt:  now,
+		UpdatedAt:  now,
+		RootAgent:  options.RootAgent,
+		ModelID:    options.ModelID,
+		Workspace:  canonicalWorkspace,
+		AgentSpace: options.AgentSpace,
 	}
 	if err := s.query.Session.WithContext(ctx).Create(created); err != nil {
 		existing, lookupErr := s.findWorkspaceSession(ctx, canonicalWorkspace)

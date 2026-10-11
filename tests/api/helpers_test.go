@@ -27,7 +27,7 @@ type freshWorkspace struct {
 	sessionID uuid.UUID
 	directory string
 	// fixturePath is an absolute path to a file the workspace holds, which a
-	// scripted read_file call can read.
+	// scripted readFile call can read.
 	fixturePath string
 }
 

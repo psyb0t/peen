@@ -137,7 +137,7 @@ func TestJobBuffer_ReadZeroMaxLinesReturnsEverythingAvailable(t *testing.T) {
 
 // TestJobBuffer_ConcurrentAppendAndRead mirrors production usage: one
 // goroutine per stream appends (as commander's stream consumer does) while
-// another concurrently reads, the way read_job_output/wait_job can observe
+// another concurrently reads, the way readJobOutput/waitJob can observe
 // a still-running job. Run with -race.
 func TestJobBuffer_ConcurrentAppendAndRead(t *testing.T) {
 	t.Parallel()

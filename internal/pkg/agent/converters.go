@@ -20,7 +20,7 @@ func SessionToAPI(
 	stored *models.Session,
 	activeTurn bool,
 ) api.Session {
-	return api.Session{
+	converted := api.Session{
 		ActiveTurn:         activeTurn,
 		Agent:              stored.RootAgent,
 		CompletedTurnCount: stored.CompletedTurnCount,
@@ -32,6 +32,12 @@ func SessionToAPI(
 		UpdatedAt:          stored.UpdatedAt,
 		Workspace:          stored.Workspace,
 	}
+
+	if stored.AgentSpace != "" {
+		converted.AgentSpace = &stored.AgentSpace
+	}
+
+	return converted
 }
 
 func messagePageToAPI(page *session.MessagePage) (api.MessagePage, error) {

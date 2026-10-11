@@ -6,6 +6,7 @@ import (
 	"io"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -172,9 +173,10 @@ func parseHookGroups(hookGroups map[string][]rawHook) ([]Hook, error) {
 	return hooks, nil
 }
 
-func validHookEvent(event HookEvent) bool {
-	switch event {
-	case HookEventPreUserMessage,
+// HookEvents lists every hook event a hooks.yaml document may name.
+func HookEvents() []HookEvent {
+	return []HookEvent{
+		HookEventPreUserMessage,
 		HookEventPostUserMessage,
 		HookEventSessionStart,
 		HookEventTurnStart,
@@ -211,11 +213,12 @@ func validHookEvent(event HookEvent) bool {
 		HookEventRemovePathFailed,
 		HookEventPreMakeDirectory,
 		HookEventPostMakeDirectory,
-		HookEventMakeDirectoryFailure:
-		return true
-	default:
-		return false
+		HookEventMakeDirectoryFailure,
 	}
+}
+
+func validHookEvent(event HookEvent) bool {
+	return slices.Contains(HookEvents(), event)
 }
 
 // CommandTimeout parses Timeout as a Go duration. Empty returns zero, which
@@ -247,14 +250,6 @@ func (a HookAction) CommandTimeout() (time.Duration, error) {
 
 //nolint:cyclop // Each action kind has distinct required configuration.
 func validateHookAction(action HookAction) error {
-	if action.RemovedTimeoutSeconds != nil {
-		return ctxerrors.Wrap(
-			ErrInvalidHook,
-			"timeout_seconds was removed, use timeout with a Go duration "+
-				"(for example timeout: 30s)",
-		)
-	}
-
 	if err := validateHookMatch(action.When); err != nil {
 		return ctxerrors.Wrap(err, "validate action matcher")
 	}

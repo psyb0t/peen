@@ -27,7 +27,7 @@ func (e *JobExecutor) RunCommand(
 	input RunCommandInput,
 ) (RunCommandOutput, error) {
 	if err := ctx.Err(); err != nil {
-		return RunCommandOutput{}, ctxerrors.Wrap(err, "run_command context")
+		return RunCommandOutput{}, ctxerrors.Wrap(err, "runCommand context")
 	}
 
 	purpose := strings.TrimSpace(input.Purpose)
@@ -63,7 +63,7 @@ func (e *JobExecutor) RunCommand(
 	job, err := e.jobs.Start(ctx, StartJobInput{
 		Command:            input.Command,
 		Directory:          directory,
-		Env:                append(os.Environ(), env...),
+		Env:                append(e.commandBaseEnvironment(), env...),
 		Purpose:            purpose,
 		TurnID:             e.turnID,
 		WorkerGenerationID: e.workerGenerationID,
@@ -234,7 +234,7 @@ func (e *JobExecutor) logJobStarted(
 	snapshot := job.Snapshot()
 
 	ctxscope.GetLogger(ctx).Info(
-		"run_command finished",
+		"runCommand finished",
 		"job_id", snapshot.ID,
 		"pid", snapshot.PID,
 		"directory", snapshot.Directory,

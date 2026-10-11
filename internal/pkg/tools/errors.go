@@ -25,7 +25,7 @@ var (
 	ErrMatchNotUnique = errors.New("exact text matched more than once")
 	// ErrOverlappingEdits reports edits that replace the same region.
 	ErrOverlappingEdits = errors.New("edits overlap")
-	// ErrInvalidPatch reports malformed apply_patch input.
+	// ErrInvalidPatch reports malformed applyPatch input.
 	ErrInvalidPatch = errors.New("invalid patch")
 	// ErrPatchConflict reports file operations whose source or target collides.
 	ErrPatchConflict = errors.New("patch paths conflict")

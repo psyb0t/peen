@@ -20,14 +20,14 @@ type RegistryOptions struct {
 	RootAgent    string
 	DefaultModel string
 
-	// Profiles are the deployment's allowed execution profiles. A client names
+	// AgentSpaces are the deployment's allowed agent spaces. A client names
 	// one when it opens a workspace, and an undefined name is refused.
-	Profiles *worker.ProfileSet
+	AgentSpaces *worker.AgentSpaceSet
 
 	// Workers supervises each session's worker process. Reconfiguring a
-	// session stops its worker so the next turn starts a new generation under
-	// the new profile. A nil supervisor records the decision without replacing
-	// anything.
+	// session stops its worker so the next turn starts a new generation in
+	// the new agent space. A nil supervisor records the decision without
+	// replacing anything.
 	Workers *supervisor.Supervisor
 }
 
@@ -37,7 +37,7 @@ type RegistryOptions struct {
 type Registry struct {
 	store        *session.Store
 	policy       *WorkspacePolicy
-	profiles     *worker.ProfileSet
+	agentSpaces  *worker.AgentSpaceSet
 	workers      *supervisor.Supervisor
 	rootAgent    string
 	defaultModel string
@@ -53,7 +53,7 @@ type OpenResult struct {
 // NewRegistry validates the registry's dependencies.
 func NewRegistry(options RegistryOptions) (*Registry, error) {
 	if options.Store == nil || options.Policy == nil ||
-		options.Profiles == nil {
+		options.AgentSpaces == nil {
 		return nil, ctxerrors.Wrap(
 			commerr.ErrRequiredFieldNotSet,
 			"control registry dependency",
@@ -70,7 +70,7 @@ func NewRegistry(options RegistryOptions) (*Registry, error) {
 	return &Registry{
 		store:        options.Store,
 		policy:       options.Policy,
-		profiles:     options.Profiles,
+		agentSpaces:  options.AgentSpaces,
 		workers:      options.Workers,
 		rootAgent:    options.RootAgent,
 		defaultModel: options.DefaultModel,
@@ -87,19 +87,19 @@ func NewRegistry(options RegistryOptions) (*Registry, error) {
 func (r *Registry) Open(
 	ctx context.Context,
 	requested string,
-	profileName string,
+	agentSpaceName string,
 ) (OpenResult, error) {
-	// Naming a profile is the only environment choice a client gets, and an
-	// undefined name is refused before any row exists.
-	profile, err := r.profiles.Select(profileName)
+	// Naming an agent space is the only environment choice a client gets, and
+	// an undefined name is refused before any row exists.
+	agentSpace, err := r.agentSpaces.Select(agentSpaceName)
 	if err != nil {
 		ctxscope.GetLogger(ctx).Warn(
 			"workspace open refused",
-			"reason", "execution_profile_policy",
+			"reason", "agent_space_policy",
 			"err", err,
 		)
 
-		return OpenResult{}, ctxerrors.Wrap(err, "select execution profile")
+		return OpenResult{}, ctxerrors.Wrap(err, "select agent space")
 	}
 
 	canonical, err := r.policy.Resolve(requested)
@@ -122,9 +122,9 @@ func (r *Registry) Open(
 			RootAgent: r.rootAgent,
 			ModelID:   r.defaultModel,
 			// Only a newly created session takes this. Opening an existing
-			// session never silently changes the profile it already runs
-			// under.
-			ExecutionProfile: profile.Name,
+			// session never silently changes the agent space it already runs
+			// in.
+			AgentSpace: agentSpace.Name,
 		},
 	)
 	if err != nil {
@@ -135,7 +135,7 @@ func (r *Registry) Open(
 		"workspace session opened",
 		"session_id", opened.Session.ID.String(),
 		"workspace", opened.Session.Workspace,
-		"execution_profile", opened.Session.ExecutionProfile,
+		"agent_space", opened.Session.AgentSpace,
 		"created", opened.Created,
 	)
 

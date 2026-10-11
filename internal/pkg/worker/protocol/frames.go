@@ -28,7 +28,7 @@ const (
 	// it.
 	KindHello Kind = "hello"
 	// KindHelloAck answers a registration attempt.
-	KindHelloAck Kind = "hello_ack"
+	KindHelloAck Kind = "helloAck"
 	// KindCall is a worker request for a durable operation.
 	KindCall Kind = "call"
 	// KindResult answers a call.
@@ -36,7 +36,7 @@ const (
 	// KindCommand is controller-initiated work or control for the worker.
 	KindCommand Kind = "command"
 	// KindCommandResult answers a command.
-	KindCommandResult Kind = "command_result"
+	KindCommandResult Kind = "commandResult"
 )
 
 // Command names the controller-initiated operations.
@@ -44,13 +44,13 @@ type Command string
 
 const (
 	// CommandRunTurn hands the worker one accepted user message to run.
-	CommandRunTurn Command = "run_turn"
+	CommandRunTurn Command = "runTurn"
 	// CommandCancel asks the worker to cancel its session's active turn.
 	CommandCancel Command = "cancel"
 	// CommandSignalJob asks the worker to signal one of its running jobs. The
 	// job's process group lives in the worker, so the controller cannot reach
 	// it and can only record what the worker reports back.
-	CommandSignalJob Command = "signal_job"
+	CommandSignalJob Command = "signalJob"
 	// CommandShutdown asks the worker to finish and exit.
 	CommandShutdown Command = "shutdown"
 )
@@ -81,18 +81,18 @@ type Hello struct {
 	SessionID    uuid.UUID         `json:"sessionId"`
 	GenerationID uuid.UUID         `json:"generationId"`
 	Credential   worker.Credential `json:"credential"`
-	Profile      string            `json:"profile"`
+	AgentSpace   string            `json:"agentSpace"`
 }
 
 // HelloAck confirms registration and tells the worker what its session already
 // looks like, so it does not need a second round trip to start.
 type HelloAck struct {
-	SessionID uuid.UUID `json:"sessionId"`
-	Workspace string    `json:"workspace"`
-	Profile   string    `json:"profile"`
+	SessionID  uuid.UUID `json:"sessionId"`
+	Workspace  string    `json:"workspace"`
+	AgentSpace string    `json:"agentSpace"`
 }
 
-// RunTurn is the payload of a run_turn command.
+// RunTurn is the payload of a runTurn command.
 //
 // The controller has already recorded the accepted user message, so this
 // carries the routing identity and the text, never a session the worker may
@@ -117,7 +117,7 @@ type TurnOrigin struct {
 	EventType string    `json:"eventType"`
 }
 
-// TurnResult is the worker's answer to a run_turn command.
+// TurnResult is the worker's answer to a runTurn command.
 type TurnResult struct {
 	Text   string `json:"text"`
 	Queued bool   `json:"queued"`

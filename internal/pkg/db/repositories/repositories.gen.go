@@ -16,26 +16,26 @@ import (
 )
 
 var (
-	Q                      = new(Query)
-	AgentRun               *agentRun
-	AgentRunCompaction     *agentRunCompaction
-	AgentRunEvent          *agentRunEvent
-	AgentRunMessage        *agentRunMessage
-	Compaction             *compaction
-	ContextSnapshot        *contextSnapshot
-	Event                  *event
-	Job                    *job
-	JobOutputLine          *jobOutputLine
-	JobSignalRequest       *jobSignalRequest
-	Message                *message
-	ModelCall              *modelCall
-	ModelRun               *modelRun
-	PromptSnapshot         *promptSnapshot
-	Session                *session
-	SessionNotice          *sessionNotice
-	SessionProfileDecision *sessionProfileDecision
-	Turn                   *turn
-	WorkerGeneration       *workerGeneration
+	Q                         = new(Query)
+	AgentRun                  *agentRun
+	AgentRunCompaction        *agentRunCompaction
+	AgentRunEvent             *agentRunEvent
+	AgentRunMessage           *agentRunMessage
+	Compaction                *compaction
+	ContextSnapshot           *contextSnapshot
+	Event                     *event
+	Job                       *job
+	JobOutputLine             *jobOutputLine
+	JobSignalRequest          *jobSignalRequest
+	Message                   *message
+	ModelCall                 *modelCall
+	ModelRun                  *modelRun
+	PromptSnapshot            *promptSnapshot
+	Session                   *session
+	SessionAgentSpaceDecision *sessionAgentSpaceDecision
+	SessionNotice             *sessionNotice
+	Turn                      *turn
+	WorkerGeneration          *workerGeneration
 )
 
 func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
@@ -55,59 +55,59 @@ func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 	ModelRun = &Q.ModelRun
 	PromptSnapshot = &Q.PromptSnapshot
 	Session = &Q.Session
+	SessionAgentSpaceDecision = &Q.SessionAgentSpaceDecision
 	SessionNotice = &Q.SessionNotice
-	SessionProfileDecision = &Q.SessionProfileDecision
 	Turn = &Q.Turn
 	WorkerGeneration = &Q.WorkerGeneration
 }
 
 func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 	return &Query{
-		db:                     db,
-		AgentRun:               newAgentRun(db, opts...),
-		AgentRunCompaction:     newAgentRunCompaction(db, opts...),
-		AgentRunEvent:          newAgentRunEvent(db, opts...),
-		AgentRunMessage:        newAgentRunMessage(db, opts...),
-		Compaction:             newCompaction(db, opts...),
-		ContextSnapshot:        newContextSnapshot(db, opts...),
-		Event:                  newEvent(db, opts...),
-		Job:                    newJob(db, opts...),
-		JobOutputLine:          newJobOutputLine(db, opts...),
-		JobSignalRequest:       newJobSignalRequest(db, opts...),
-		Message:                newMessage(db, opts...),
-		ModelCall:              newModelCall(db, opts...),
-		ModelRun:               newModelRun(db, opts...),
-		PromptSnapshot:         newPromptSnapshot(db, opts...),
-		Session:                newSession(db, opts...),
-		SessionNotice:          newSessionNotice(db, opts...),
-		SessionProfileDecision: newSessionProfileDecision(db, opts...),
-		Turn:                   newTurn(db, opts...),
-		WorkerGeneration:       newWorkerGeneration(db, opts...),
+		db:                        db,
+		AgentRun:                  newAgentRun(db, opts...),
+		AgentRunCompaction:        newAgentRunCompaction(db, opts...),
+		AgentRunEvent:             newAgentRunEvent(db, opts...),
+		AgentRunMessage:           newAgentRunMessage(db, opts...),
+		Compaction:                newCompaction(db, opts...),
+		ContextSnapshot:           newContextSnapshot(db, opts...),
+		Event:                     newEvent(db, opts...),
+		Job:                       newJob(db, opts...),
+		JobOutputLine:             newJobOutputLine(db, opts...),
+		JobSignalRequest:          newJobSignalRequest(db, opts...),
+		Message:                   newMessage(db, opts...),
+		ModelCall:                 newModelCall(db, opts...),
+		ModelRun:                  newModelRun(db, opts...),
+		PromptSnapshot:            newPromptSnapshot(db, opts...),
+		Session:                   newSession(db, opts...),
+		SessionAgentSpaceDecision: newSessionAgentSpaceDecision(db, opts...),
+		SessionNotice:             newSessionNotice(db, opts...),
+		Turn:                      newTurn(db, opts...),
+		WorkerGeneration:          newWorkerGeneration(db, opts...),
 	}
 }
 
 type Query struct {
 	db *gorm.DB
 
-	AgentRun               agentRun
-	AgentRunCompaction     agentRunCompaction
-	AgentRunEvent          agentRunEvent
-	AgentRunMessage        agentRunMessage
-	Compaction             compaction
-	ContextSnapshot        contextSnapshot
-	Event                  event
-	Job                    job
-	JobOutputLine          jobOutputLine
-	JobSignalRequest       jobSignalRequest
-	Message                message
-	ModelCall              modelCall
-	ModelRun               modelRun
-	PromptSnapshot         promptSnapshot
-	Session                session
-	SessionNotice          sessionNotice
-	SessionProfileDecision sessionProfileDecision
-	Turn                   turn
-	WorkerGeneration       workerGeneration
+	AgentRun                  agentRun
+	AgentRunCompaction        agentRunCompaction
+	AgentRunEvent             agentRunEvent
+	AgentRunMessage           agentRunMessage
+	Compaction                compaction
+	ContextSnapshot           contextSnapshot
+	Event                     event
+	Job                       job
+	JobOutputLine             jobOutputLine
+	JobSignalRequest          jobSignalRequest
+	Message                   message
+	ModelCall                 modelCall
+	ModelRun                  modelRun
+	PromptSnapshot            promptSnapshot
+	Session                   session
+	SessionAgentSpaceDecision sessionAgentSpaceDecision
+	SessionNotice             sessionNotice
+	Turn                      turn
+	WorkerGeneration          workerGeneration
 }
 
 func (q *Query) Available() bool { return q.db != nil }
@@ -116,26 +116,26 @@ func (q *Query) UnderlyingDB() *gorm.DB { return q.db }
 
 func (q *Query) clone(db *gorm.DB) *Query {
 	return &Query{
-		db:                     db,
-		AgentRun:               q.AgentRun.clone(db),
-		AgentRunCompaction:     q.AgentRunCompaction.clone(db),
-		AgentRunEvent:          q.AgentRunEvent.clone(db),
-		AgentRunMessage:        q.AgentRunMessage.clone(db),
-		Compaction:             q.Compaction.clone(db),
-		ContextSnapshot:        q.ContextSnapshot.clone(db),
-		Event:                  q.Event.clone(db),
-		Job:                    q.Job.clone(db),
-		JobOutputLine:          q.JobOutputLine.clone(db),
-		JobSignalRequest:       q.JobSignalRequest.clone(db),
-		Message:                q.Message.clone(db),
-		ModelCall:              q.ModelCall.clone(db),
-		ModelRun:               q.ModelRun.clone(db),
-		PromptSnapshot:         q.PromptSnapshot.clone(db),
-		Session:                q.Session.clone(db),
-		SessionNotice:          q.SessionNotice.clone(db),
-		SessionProfileDecision: q.SessionProfileDecision.clone(db),
-		Turn:                   q.Turn.clone(db),
-		WorkerGeneration:       q.WorkerGeneration.clone(db),
+		db:                        db,
+		AgentRun:                  q.AgentRun.clone(db),
+		AgentRunCompaction:        q.AgentRunCompaction.clone(db),
+		AgentRunEvent:             q.AgentRunEvent.clone(db),
+		AgentRunMessage:           q.AgentRunMessage.clone(db),
+		Compaction:                q.Compaction.clone(db),
+		ContextSnapshot:           q.ContextSnapshot.clone(db),
+		Event:                     q.Event.clone(db),
+		Job:                       q.Job.clone(db),
+		JobOutputLine:             q.JobOutputLine.clone(db),
+		JobSignalRequest:          q.JobSignalRequest.clone(db),
+		Message:                   q.Message.clone(db),
+		ModelCall:                 q.ModelCall.clone(db),
+		ModelRun:                  q.ModelRun.clone(db),
+		PromptSnapshot:            q.PromptSnapshot.clone(db),
+		Session:                   q.Session.clone(db),
+		SessionAgentSpaceDecision: q.SessionAgentSpaceDecision.clone(db),
+		SessionNotice:             q.SessionNotice.clone(db),
+		Turn:                      q.Turn.clone(db),
+		WorkerGeneration:          q.WorkerGeneration.clone(db),
 	}
 }
 
@@ -149,72 +149,72 @@ func (q *Query) WriteDB() *Query {
 
 func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 	return &Query{
-		db:                     db,
-		AgentRun:               q.AgentRun.replaceDB(db),
-		AgentRunCompaction:     q.AgentRunCompaction.replaceDB(db),
-		AgentRunEvent:          q.AgentRunEvent.replaceDB(db),
-		AgentRunMessage:        q.AgentRunMessage.replaceDB(db),
-		Compaction:             q.Compaction.replaceDB(db),
-		ContextSnapshot:        q.ContextSnapshot.replaceDB(db),
-		Event:                  q.Event.replaceDB(db),
-		Job:                    q.Job.replaceDB(db),
-		JobOutputLine:          q.JobOutputLine.replaceDB(db),
-		JobSignalRequest:       q.JobSignalRequest.replaceDB(db),
-		Message:                q.Message.replaceDB(db),
-		ModelCall:              q.ModelCall.replaceDB(db),
-		ModelRun:               q.ModelRun.replaceDB(db),
-		PromptSnapshot:         q.PromptSnapshot.replaceDB(db),
-		Session:                q.Session.replaceDB(db),
-		SessionNotice:          q.SessionNotice.replaceDB(db),
-		SessionProfileDecision: q.SessionProfileDecision.replaceDB(db),
-		Turn:                   q.Turn.replaceDB(db),
-		WorkerGeneration:       q.WorkerGeneration.replaceDB(db),
+		db:                        db,
+		AgentRun:                  q.AgentRun.replaceDB(db),
+		AgentRunCompaction:        q.AgentRunCompaction.replaceDB(db),
+		AgentRunEvent:             q.AgentRunEvent.replaceDB(db),
+		AgentRunMessage:           q.AgentRunMessage.replaceDB(db),
+		Compaction:                q.Compaction.replaceDB(db),
+		ContextSnapshot:           q.ContextSnapshot.replaceDB(db),
+		Event:                     q.Event.replaceDB(db),
+		Job:                       q.Job.replaceDB(db),
+		JobOutputLine:             q.JobOutputLine.replaceDB(db),
+		JobSignalRequest:          q.JobSignalRequest.replaceDB(db),
+		Message:                   q.Message.replaceDB(db),
+		ModelCall:                 q.ModelCall.replaceDB(db),
+		ModelRun:                  q.ModelRun.replaceDB(db),
+		PromptSnapshot:            q.PromptSnapshot.replaceDB(db),
+		Session:                   q.Session.replaceDB(db),
+		SessionAgentSpaceDecision: q.SessionAgentSpaceDecision.replaceDB(db),
+		SessionNotice:             q.SessionNotice.replaceDB(db),
+		Turn:                      q.Turn.replaceDB(db),
+		WorkerGeneration:          q.WorkerGeneration.replaceDB(db),
 	}
 }
 
 type queryCtx struct {
-	AgentRun               IAgentRunDo
-	AgentRunCompaction     IAgentRunCompactionDo
-	AgentRunEvent          IAgentRunEventDo
-	AgentRunMessage        IAgentRunMessageDo
-	Compaction             ICompactionDo
-	ContextSnapshot        IContextSnapshotDo
-	Event                  IEventDo
-	Job                    IJobDo
-	JobOutputLine          IJobOutputLineDo
-	JobSignalRequest       IJobSignalRequestDo
-	Message                IMessageDo
-	ModelCall              IModelCallDo
-	ModelRun               IModelRunDo
-	PromptSnapshot         IPromptSnapshotDo
-	Session                ISessionDo
-	SessionNotice          ISessionNoticeDo
-	SessionProfileDecision ISessionProfileDecisionDo
-	Turn                   ITurnDo
-	WorkerGeneration       IWorkerGenerationDo
+	AgentRun                  IAgentRunDo
+	AgentRunCompaction        IAgentRunCompactionDo
+	AgentRunEvent             IAgentRunEventDo
+	AgentRunMessage           IAgentRunMessageDo
+	Compaction                ICompactionDo
+	ContextSnapshot           IContextSnapshotDo
+	Event                     IEventDo
+	Job                       IJobDo
+	JobOutputLine             IJobOutputLineDo
+	JobSignalRequest          IJobSignalRequestDo
+	Message                   IMessageDo
+	ModelCall                 IModelCallDo
+	ModelRun                  IModelRunDo
+	PromptSnapshot            IPromptSnapshotDo
+	Session                   ISessionDo
+	SessionAgentSpaceDecision ISessionAgentSpaceDecisionDo
+	SessionNotice             ISessionNoticeDo
+	Turn                      ITurnDo
+	WorkerGeneration          IWorkerGenerationDo
 }
 
 func (q *Query) WithContext(ctx context.Context) *queryCtx {
 	return &queryCtx{
-		AgentRun:               q.AgentRun.WithContext(ctx),
-		AgentRunCompaction:     q.AgentRunCompaction.WithContext(ctx),
-		AgentRunEvent:          q.AgentRunEvent.WithContext(ctx),
-		AgentRunMessage:        q.AgentRunMessage.WithContext(ctx),
-		Compaction:             q.Compaction.WithContext(ctx),
-		ContextSnapshot:        q.ContextSnapshot.WithContext(ctx),
-		Event:                  q.Event.WithContext(ctx),
-		Job:                    q.Job.WithContext(ctx),
-		JobOutputLine:          q.JobOutputLine.WithContext(ctx),
-		JobSignalRequest:       q.JobSignalRequest.WithContext(ctx),
-		Message:                q.Message.WithContext(ctx),
-		ModelCall:              q.ModelCall.WithContext(ctx),
-		ModelRun:               q.ModelRun.WithContext(ctx),
-		PromptSnapshot:         q.PromptSnapshot.WithContext(ctx),
-		Session:                q.Session.WithContext(ctx),
-		SessionNotice:          q.SessionNotice.WithContext(ctx),
-		SessionProfileDecision: q.SessionProfileDecision.WithContext(ctx),
-		Turn:                   q.Turn.WithContext(ctx),
-		WorkerGeneration:       q.WorkerGeneration.WithContext(ctx),
+		AgentRun:                  q.AgentRun.WithContext(ctx),
+		AgentRunCompaction:        q.AgentRunCompaction.WithContext(ctx),
+		AgentRunEvent:             q.AgentRunEvent.WithContext(ctx),
+		AgentRunMessage:           q.AgentRunMessage.WithContext(ctx),
+		Compaction:                q.Compaction.WithContext(ctx),
+		ContextSnapshot:           q.ContextSnapshot.WithContext(ctx),
+		Event:                     q.Event.WithContext(ctx),
+		Job:                       q.Job.WithContext(ctx),
+		JobOutputLine:             q.JobOutputLine.WithContext(ctx),
+		JobSignalRequest:          q.JobSignalRequest.WithContext(ctx),
+		Message:                   q.Message.WithContext(ctx),
+		ModelCall:                 q.ModelCall.WithContext(ctx),
+		ModelRun:                  q.ModelRun.WithContext(ctx),
+		PromptSnapshot:            q.PromptSnapshot.WithContext(ctx),
+		Session:                   q.Session.WithContext(ctx),
+		SessionAgentSpaceDecision: q.SessionAgentSpaceDecision.WithContext(ctx),
+		SessionNotice:             q.SessionNotice.WithContext(ctx),
+		Turn:                      q.Turn.WithContext(ctx),
+		WorkerGeneration:          q.WorkerGeneration.WithContext(ctx),
 	}
 }
 

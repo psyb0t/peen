@@ -111,7 +111,7 @@ func TestRuntimeListsAgentRunsNewestFirstWithPagingAndStateFilter(t *testing.T) 
 	ctx := context.Background()
 	fixture := newAgentRunFixture(t)
 
-	first := fixture.startRun(t, "first", `["read_file"]`)
+	first := fixture.startRun(t, "first", `["readFile"]`)
 	second := fixture.startRun(t, "second", `[]`)
 
 	_, err := fixture.store.FinalizeAgentRun(
@@ -169,7 +169,7 @@ func TestRuntimeListsAgentRunsNewestFirstWithPagingAndStateFilter(t *testing.T) 
 func TestRuntimeGetsOneAgentRunWithItsDurableDetail(t *testing.T) {
 	ctx := context.Background()
 	fixture := newAgentRunFixture(t)
-	run := fixture.startRun(t, "detail", `["read_file","run_command"]`)
+	run := fixture.startRun(t, "detail", `["readFile","runCommand"]`)
 
 	_, err := fixture.store.FinalizeAgentRun(
 		ctx,
@@ -181,7 +181,7 @@ func TestRuntimeGetsOneAgentRunWithItsDurableDetail(t *testing.T) {
 			ResponseThinking:      "considered it",
 			ResponseMessagesJSON:  `[{"role":"assistant"},{"role":"user"}]`,
 			FinishReason:          "error",
-			FailureClassification: "model_error",
+			FailureClassification: "modelError",
 			FailureDetail:         "upstream refused",
 		},
 	)
@@ -197,7 +197,7 @@ func TestRuntimeGetsOneAgentRunWithItsDurableDetail(t *testing.T) {
 	assert.Equal(t, api.AgentRunState(models.AgentRunStateFailed), got.State)
 	assert.Equal(t, "gave up", got.ResponseText)
 	assert.Equal(t, "considered it", got.ResponseThinking)
-	assert.Equal(t, "model_error", got.FailureClassification)
+	assert.Equal(t, "modelError", got.FailureClassification)
 	assert.Equal(t, "upstream refused", got.FailureDetail)
 	assert.Len(t, got.AllowedTools, 2)
 	assert.Len(t, got.ResponseMessages, 2)

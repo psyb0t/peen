@@ -376,6 +376,11 @@ func testConfig(t *testing.T) Config {
 		MaxEventSummaryBytes:      4096,
 		MaxEventDataBytes:         65536,
 		MaxEventWakesPerHour:      60,
+
+		// No test reads the machine's DOCKER_HOST or its real Docker socket.
+		dockerEnv: &dockerEnvironment{
+			defaultSocket: filepath.Join(t.TempDir(), "no-docker.sock"),
+		},
 	}
 }
 

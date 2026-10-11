@@ -66,7 +66,7 @@ type skillInjectedPayload struct {
 
 // skillLedger records which skills a conversation already holds, so each is
 // delivered at most once. It is safe for concurrent use: a queued message and
-// a use_skill call can race inside one turn.
+// a useSkill call can race inside one turn.
 //
 // The skills come from two places. The stored history holds the ones delivered
 // in earlier turns, and a compaction that summarizes part of that history
@@ -170,7 +170,7 @@ func (l *skillLedger) recordMessages(messages []skillMessage) {
 }
 
 // deliveredSkillNames lists the skills the stored history already holds: the
-// <skill> messages, and the skills the model loaded with use_skill, which
+// <skill> messages, and the skills the model loaded with useSkill, which
 // include the skills those named. Only messages after the latest compaction
 // are in the history, which is right: a compacted skill no longer reaches
 // the model.
@@ -195,7 +195,7 @@ func deliveredSkillNames(history []*models.Message) []string {
 	return names
 }
 
-// useSkillCallIDs collects the IDs of the use_skill calls the history's
+// useSkillCallIDs collects the IDs of the useSkill calls the history's
 // assistant messages made. A stored tool result carries only its call ID, so
 // the call is where the tool's name is known.
 func useSkillCallIDs(history []*models.Message) map[string]struct{} {
@@ -224,8 +224,8 @@ func useSkillCallIDs(history []*models.Message) map[string]struct{} {
 	return ids
 }
 
-// useSkillResultNames reads the skills a stored use_skill result delivered.
-// A result that is an error, belongs to another tool, or is not a use_skill
+// useSkillResultNames reads the skills a stored useSkill result delivered.
+// A result that is an error, belongs to another tool, or is not a useSkill
 // output delivered nothing.
 func useSkillResultNames(
 	message *models.Message,

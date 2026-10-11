@@ -28,6 +28,7 @@ const (
 	testDockerGID    = 999
 	testContainerID  = "container-abc"
 	dockerSocketPath = "/var/run/docker.sock"
+	testProfileName  = "sandbox"
 
 	// testLocalImageID is the shape a container inspect reports. It is a local
 	// content ID, not a repository digest, and the launcher must never record
@@ -54,17 +55,28 @@ func testDocument(sessionID uuid.UUID) worker.LaunchDocument {
 		SocketPath:      worker.SocketPathFor(testSocketRoot, sessionID),
 		Workspace:       testWorkspace,
 		ConfigDirectory: testConfigDir,
-		Profile:         worker.ProfileDockerSandbox,
+		AgentSpace:      worker.DockerSpaceName(testProfileName),
 	}
 }
 
-func sandboxProfile() worker.Profile {
-	return worker.Profile{
-		Name:     worker.ProfileDockerSandbox,
+// sandboxSpace is a Docker agent space with every grant at its safe value.
+func sandboxSpace() worker.AgentSpace {
+	return worker.AgentSpace{
+		Name:     worker.DockerSpaceName(testProfileName),
 		Kind:     worker.KindDocker,
 		Revision: 1,
 		Image:    testImage,
+		Docker:   worker.DockerAccessNone,
+		Network:  worker.NetworkModeBridge,
 	}
+}
+
+// grantedSpace is the sandbox with the given grants changed.
+func grantedSpace(change func(*worker.AgentSpace)) worker.AgentSpace {
+	space := sandboxSpace()
+	change(&space)
+
+	return space
 }
 
 // A worker container is named for its session and carries exactly the two
@@ -75,9 +87,9 @@ func TestBuildCreateRequestUsesDeterministicNameAndLabels(t *testing.T) {
 	sessionID := uuid.New()
 
 	create, err := docker.BuildCreateRequest(docker.LaunchSpec{
-		Document: testDocument(sessionID),
-		Profile:  sandboxProfile(),
-		Identity: testIdentity(),
+		Document:   testDocument(sessionID),
+		AgentSpace: sandboxSpace(),
+		Identity:   testIdentity(),
 	})
 	require.NoError(t, err)
 
@@ -92,15 +104,15 @@ func TestBuildCreateRequestUsesDeterministicNameAndLabels(t *testing.T) {
 	)
 }
 
-// The container runs the same worker subcommand a native worker runs, from the
+// The container runs the same worker subcommand a control worker runs, from the
 // operator-selected image.
 func TestBuildCreateRequestRunsTheWorkerCommand(t *testing.T) {
 	t.Parallel()
 
 	create, err := docker.BuildCreateRequest(docker.LaunchSpec{
-		Document: testDocument(uuid.New()),
-		Profile:  sandboxProfile(),
-		Identity: testIdentity(),
+		Document:   testDocument(uuid.New()),
+		AgentSpace: sandboxSpace(),
+		Identity:   testIdentity(),
 	})
 	require.NoError(t, err)
 
@@ -114,9 +126,9 @@ func TestBuildCreateRequestNeverCarriesTheCredential(t *testing.T) {
 	t.Parallel()
 
 	create, err := docker.BuildCreateRequest(docker.LaunchSpec{
-		Document: testDocument(uuid.New()),
-		Profile:  sandboxProfile(),
-		Identity: testIdentity(),
+		Document:   testDocument(uuid.New()),
+		AgentSpace: sandboxSpace(),
+		Identity:   testIdentity(),
 	})
 	require.NoError(t, err)
 
@@ -143,16 +155,16 @@ func TestBuildCreateRequestNeverCarriesTheCredential(t *testing.T) {
 	}
 }
 
-// A Docker worker needs its model and provider settings just like a native
+// A Docker worker needs its model and provider settings just like a control
 // worker, but controller state and the public control token must never cross
 // the process boundary.
 func TestBuildCreateRequestCarriesOnlyWorkerRuntimeEnvironment(t *testing.T) {
 	t.Parallel()
 
 	create, err := docker.BuildCreateRequest(docker.LaunchSpec{
-		Document: testDocument(uuid.New()),
-		Profile:  sandboxProfile(),
-		Identity: testIdentity(),
+		Document:   testDocument(uuid.New()),
+		AgentSpace: sandboxSpace(),
+		Identity:   testIdentity(),
 		RuntimeEnvironment: map[string]string{
 			"PEEN_DEFAULT_MODEL": "aigate/test-model",
 			"AIGATE_TOKEN":       "test-provider-credential",
@@ -176,8 +188,8 @@ func TestBuildCreateRequestRefusesControllerEnvironment(t *testing.T) {
 		"PEEN_WORKER_UID",
 		"PEEN_DOCKER_SOCKET",
 		"PEEN_WORKER_IMAGE",
-		"PEEN_EXECUTION_PROFILES",
-		"PEEN_DEFAULT_EXECUTION_PROFILE",
+		"PEEN_DOCKER_PROFILES",
+		"PEEN_DEFAULT_AGENT_SPACE",
 		"PEEN_WORKSPACE_ROOT",
 		"PEEN_HTTP_LISTEN_ADDRESS",
 		"PEEN_METRICS_LISTEN_ADDRESS",
@@ -194,9 +206,9 @@ func TestBuildCreateRequestRefusesControllerEnvironment(t *testing.T) {
 			t.Parallel()
 
 			_, err := docker.BuildCreateRequest(docker.LaunchSpec{
-				Document: testDocument(uuid.New()),
-				Profile:  sandboxProfile(),
-				Identity: testIdentity(),
+				Document:   testDocument(uuid.New()),
+				AgentSpace: sandboxSpace(),
+				Identity:   testIdentity(),
 				RuntimeEnvironment: map[string]string{
 					key: "must-not-cross",
 				},
@@ -213,9 +225,9 @@ func TestBuildCreateRequestCarriesTheHarnessSelectionEnvironment(
 	t.Parallel()
 
 	create, err := docker.BuildCreateRequest(docker.LaunchSpec{
-		Document: testDocument(uuid.New()),
-		Profile:  sandboxProfile(),
-		Identity: testIdentity(),
+		Document:   testDocument(uuid.New()),
+		AgentSpace: sandboxSpace(),
+		Identity:   testIdentity(),
 		RuntimeEnvironment: map[string]string{
 			"PEEN_AGENT":                "reviewer",
 			"PEEN_DISABLED_CORE_SKILLS": "planning",
@@ -238,9 +250,9 @@ func TestBuildCreateRequestKeepsLiteralPaths(t *testing.T) {
 	sessionID := uuid.New()
 
 	create, err := docker.BuildCreateRequest(docker.LaunchSpec{
-		Document: testDocument(sessionID),
-		Profile:  sandboxProfile(),
-		Identity: testIdentity(),
+		Document:   testDocument(sessionID),
+		AgentSpace: sandboxSpace(),
+		Identity:   testIdentity(),
 	})
 	require.NoError(t, err)
 
@@ -278,9 +290,9 @@ func TestBuildCreateRequestMountsOnlyThisSessionsSocketDirectory(t *testing.T) {
 	otherSessionID := uuid.New()
 
 	create, err := docker.BuildCreateRequest(docker.LaunchSpec{
-		Document: testDocument(sessionID),
-		Profile:  sandboxProfile(),
-		Identity: testIdentity(),
+		Document:   testDocument(sessionID),
+		AgentSpace: sandboxSpace(),
+		Identity:   testIdentity(),
 	})
 	require.NoError(t, err)
 
@@ -310,9 +322,9 @@ func TestBuildCreateRequestRunsAsTheHostIdentity(t *testing.T) {
 	t.Parallel()
 
 	create, err := docker.BuildCreateRequest(docker.LaunchSpec{
-		Document: testDocument(uuid.New()),
-		Profile:  sandboxProfile(),
-		Identity: testIdentity(),
+		Document:   testDocument(uuid.New()),
+		AgentSpace: sandboxSpace(),
+		Identity:   testIdentity(),
 	})
 	require.NoError(t, err)
 
@@ -371,9 +383,9 @@ func TestBuildCreateRequestRefusesAnUnusableIdentity(t *testing.T) {
 			t.Parallel()
 
 			_, err := docker.BuildCreateRequest(docker.LaunchSpec{
-				Document: testDocument(uuid.New()),
-				Profile:  sandboxProfile(),
-				Identity: tc.identity,
+				Document:   testDocument(uuid.New()),
+				AgentSpace: sandboxSpace(),
+				Identity:   tc.identity,
 			})
 
 			require.ErrorIs(t, err, tc.wantErr)
@@ -381,19 +393,20 @@ func TestBuildCreateRequestRefusesAnUnusableIdentity(t *testing.T) {
 	}
 }
 
-// A sandbox profile gets no Docker socket and an isolated network. The worker
-// socket is a separate, opt-in grant only a host-like profile carries.
+// A profile with every grant at its default gets no Docker socket, the bridge
+// network, and no sudo. The Docker socket is a separate, opt-in grant only
+// `docker: full` carries.
 func TestBuildCreateRequestKeepsTheSandboxSealed(t *testing.T) {
 	t.Parallel()
 
 	create, err := docker.BuildCreateRequest(docker.LaunchSpec{
-		Document: testDocument(uuid.New()),
-		Profile:  sandboxProfile(),
-		Identity: testIdentity(),
+		Document:   testDocument(uuid.New()),
+		AgentSpace: sandboxSpace(),
+		Identity:   testIdentity(),
 	})
 	require.NoError(t, err)
 
-	assert.True(t, create.NetworkDisabled)
+	assert.Equal(t, worker.NetworkModeBridge, create.NetworkMode)
 	assert.Empty(t, create.Groups)
 
 	for _, mount := range create.Mounts {
@@ -406,29 +419,23 @@ func TestBuildCreateRequestKeepsTheSandboxSealed(t *testing.T) {
 	}
 }
 
-// A host-like profile receives the socket it declares, plus the group needed
-// to use it.
+// `docker: full` receives the host socket, plus the group needed to use it.
 func TestBuildCreateRequestGrantsTheDeclaredDockerSocket(t *testing.T) {
 	t.Parallel()
 
-	profile := worker.Profile{
-		Name:              worker.ProfileDockerHostLike,
-		Kind:              worker.KindDocker,
-		Revision:          1,
-		Image:             testImage,
-		AllowDockerSocket: true,
-		AllowNetwork:      true,
-	}
+	space := grantedSpace(func(s *worker.AgentSpace) {
+		s.Docker = worker.DockerAccessFull
+	})
 
 	create, err := docker.BuildCreateRequest(docker.LaunchSpec{
-		Document:        testDocument(uuid.New()),
-		Profile:         profile,
-		Identity:        testIdentity(),
-		DockerSocketGID: testDockerGID,
+		Document:         testDocument(uuid.New()),
+		AgentSpace:       space,
+		Identity:         testIdentity(),
+		DockerSocketPath: dockerSocketPath,
+		DockerSocketGID:  testDockerGID,
 	})
 	require.NoError(t, err)
 
-	assert.False(t, create.NetworkDisabled)
 	assert.Contains(t, create.Groups, "999")
 
 	granted := false
@@ -446,6 +453,151 @@ func TestBuildCreateRequestGrantsTheDeclaredDockerSocket(t *testing.T) {
 	assert.True(t, granted, "the declared Docker socket must be mounted")
 }
 
+// `docker: full` mounts the socket the controller resolved, not a hardcoded
+// host path, and presents it at the conventional path inside the worker.
+func TestBuildCreateRequestMountsTheResolvedSocket(t *testing.T) {
+	t.Parallel()
+
+	const relocated = "/run/user/1000/docker.sock"
+
+	space := grantedSpace(func(s *worker.AgentSpace) {
+		s.Docker = worker.DockerAccessFull
+	})
+
+	create, err := docker.BuildCreateRequest(docker.LaunchSpec{
+		Document:         testDocument(uuid.New()),
+		AgentSpace:       space,
+		Identity:         testIdentity(),
+		DockerSocketPath: relocated,
+		DockerSocketGID:  testDockerGID,
+	})
+	require.NoError(t, err)
+
+	assert.Contains(
+		t,
+		create.Mounts,
+		worker.Mount{Source: relocated, Target: dockerSocketPath},
+	)
+
+	for _, mount := range create.Mounts {
+		assert.NotEqual(
+			t,
+			dockerSocketPath,
+			mount.Source,
+			"the host default path must not be mounted",
+		)
+	}
+}
+
+// A `docker: full` launch with no resolved socket is refused rather than
+// mounting a guessed host path.
+func TestBuildCreateRequestRefusesDockerFullWithoutASocketPath(t *testing.T) {
+	t.Parallel()
+
+	space := grantedSpace(func(s *worker.AgentSpace) {
+		s.Docker = worker.DockerAccessFull
+	})
+
+	_, err := docker.BuildCreateRequest(docker.LaunchSpec{
+		Document:        testDocument(uuid.New()),
+		AgentSpace:      space,
+		Identity:        testIdentity(),
+		DockerSocketGID: testDockerGID,
+	})
+
+	require.ErrorIs(t, err, commerr.ErrValidationFailed)
+}
+
+// A socket owned by group 0 cannot be granted to the worker account, so
+// startup refuses a `docker: full` profile instead of the first launch.
+func TestValidateFullAccessSocketRefusesAnUngrantableGroup(t *testing.T) {
+	t.Parallel()
+
+	full := grantedSpace(func(s *worker.AgentSpace) {
+		s.Name = worker.DockerSpaceName("full")
+		s.Docker = worker.DockerAccessFull
+	})
+
+	withFull, err := worker.NewAgentSpaceSet(
+		[]worker.AgentSpace{sandboxSpace(), full},
+		sandboxSpace().Name,
+	)
+	require.NoError(t, err)
+
+	sandboxOnly, err := worker.NewAgentSpaceSet(
+		[]worker.AgentSpace{sandboxSpace()},
+		sandboxSpace().Name,
+	)
+	require.NoError(t, err)
+
+	require.ErrorIs(
+		t,
+		docker.ValidateFullAccessSocket(withFull, 0),
+		commerr.ErrValidationFailed,
+	)
+	require.NoError(t, docker.ValidateFullAccessSocket(withFull, testDockerGID))
+	require.NoError(t, docker.ValidateFullAccessSocket(sandboxOnly, 0))
+}
+
+// The worker image is PEEN_WORKER_IMAGE when set, else the profile's own image,
+// else the image published with this build.
+func TestBuildCreateRequestImagePrecedence(t *testing.T) {
+	t.Parallel()
+
+	const (
+		override = "operator/override:1"
+		fallback = "psyb0t/peen:build"
+		profile  = "operator/profile:2"
+	)
+
+	testCases := []struct {
+		name         string
+		override     string
+		profileImage string
+		fallback     string
+		want         string
+	}{
+		{
+			name:         "the override wins over everything",
+			override:     override,
+			profileImage: profile,
+			fallback:     fallback,
+			want:         override,
+		},
+		{
+			name:         "the profile image wins over the build image",
+			profileImage: profile,
+			fallback:     fallback,
+			want:         profile,
+		},
+		{
+			name:     "the build image is the last resort",
+			fallback: fallback,
+			want:     fallback,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			space := sandboxSpace()
+			space.Image = tc.profileImage
+
+			create, err := docker.BuildCreateRequest(docker.LaunchSpec{
+				Document:      testDocument(uuid.New()),
+				AgentSpace:    space,
+				Identity:      testIdentity(),
+				ImageOverride: tc.override,
+				ImageFallback: tc.fallback,
+			})
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.want, create.Image)
+		})
+	}
+}
+
 // Every Docker worker gets a root-only identity bootstrap. Without the explicit
 // escalation grant, the entrypoint writes no sudoers rule and the daemon sets
 // no-new-privileges for the worker after the drop.
@@ -453,9 +605,9 @@ func TestBuildCreateRequestWithoutPrivilegeEscalation(t *testing.T) {
 	t.Parallel()
 
 	create, err := docker.BuildCreateRequest(docker.LaunchSpec{
-		Document: testDocument(uuid.New()),
-		Profile:  sandboxProfile(),
-		Identity: testIdentity(),
+		Document:   testDocument(uuid.New()),
+		AgentSpace: sandboxSpace(),
+		Identity:   testIdentity(),
 	})
 	require.NoError(t, err)
 
@@ -466,26 +618,19 @@ func TestBuildCreateRequestWithoutPrivilegeEscalation(t *testing.T) {
 	assert.True(t, create.NoNewPrivileges)
 }
 
-// A profile the operator marked allowPrivilegeEscalation starts as root so the
-// image entrypoint can build the host account and write its sudoers rule. The
+// A profile the operator marked `sudo: true` starts as root so the image
+// entrypoint can build the host account and write its sudoers rule. The
 // identity it hands that entrypoint is the controller's own, so the agent still
 // ends up running as the host user rather than as root.
-func TestBuildCreateRequestWithPrivilegeEscalation(t *testing.T) {
+func TestBuildCreateRequestWithSudo(t *testing.T) {
 	t.Parallel()
 
-	profile := worker.Profile{
-		Name:                     worker.ProfileDockerHostLike,
-		Kind:                     worker.KindDocker,
-		Revision:                 1,
-		Image:                    testImage,
-		AllowNetwork:             true,
-		AllowPrivilegeEscalation: true,
-	}
+	space := grantedSpace(func(s *worker.AgentSpace) { s.Sudo = true })
 
 	create, err := docker.BuildCreateRequest(docker.LaunchSpec{
-		Document: testDocument(uuid.New()),
-		Profile:  profile,
-		Identity: testIdentity(),
+		Document:   testDocument(uuid.New()),
+		AgentSpace: space,
+		Identity:   testIdentity(),
 	})
 	require.NoError(t, err)
 
@@ -501,7 +646,7 @@ func TestBuildCreateRequestWithPrivilegeEscalation(t *testing.T) {
 	assert.Equal(t, "peen", create.Env["USER"])
 	assert.Equal(t, "/home/peen", create.Env["HOME"])
 
-	// Escalation alone grants no socket. That is a separate opt-in.
+	// Sudo alone grants no socket. That is a separate opt-in.
 	for _, mount := range create.Mounts {
 		assert.NotEqual(t, dockerSocketPath, mount.Target)
 	}
@@ -509,78 +654,132 @@ func TestBuildCreateRequestWithPrivilegeEscalation(t *testing.T) {
 
 // The two grants compose without either implying the other, and the socket
 // group reaches the entrypoint so the account it creates can use the socket.
-func TestBuildCreateRequestWithEscalationAndDockerSocket(t *testing.T) {
+func TestBuildCreateRequestWithSudoAndDockerSocket(t *testing.T) {
 	t.Parallel()
 
-	profile := worker.Profile{
-		Name:                     worker.ProfileDockerHostLike,
-		Kind:                     worker.KindDocker,
-		Revision:                 1,
-		Image:                    testImage,
-		AllowDockerSocket:        true,
-		AllowNetwork:             true,
-		AllowPrivilegeEscalation: true,
-	}
+	space := grantedSpace(func(s *worker.AgentSpace) {
+		s.Docker = worker.DockerAccessFull
+		s.Sudo = true
+	})
 
 	create, err := docker.BuildCreateRequest(docker.LaunchSpec{
-		Document:        testDocument(uuid.New()),
-		Profile:         profile,
-		Identity:        testIdentity(),
-		DockerSocketGID: testDockerGID,
+		Document:         testDocument(uuid.New()),
+		AgentSpace:       space,
+		Identity:         testIdentity(),
+		DockerSocketPath: dockerSocketPath,
+		DockerSocketGID:  testDockerGID,
 	})
 	require.NoError(t, err)
 
 	assert.Equal(t, "0:0", create.User)
 	assert.Equal(t, "999", create.Env["PEEN_WORKER_SUPPLEMENTARY_GIDS"])
 	assert.Contains(t, create.Groups, "999")
+	assert.Equal(t, "true", create.Env["PEEN_WORKER_ALLOW_SUDO"])
 }
 
-// A native profile has no entrypoint to grant sudo, so promising escalation
-// there is refused instead of silently ignored.
-func TestNativeProfileCannotGrantPrivilegeEscalation(t *testing.T) {
+// The network a profile names is the network the container request carries:
+// `none` and `bridge` and `host` each reach the create call as that mode.
+func TestBuildCreateRequestCarriesTheNetworkMode(t *testing.T) {
 	t.Parallel()
 
-	profile := worker.Profile{
-		Name:                     worker.ProfileNative,
-		Kind:                     worker.KindNative,
-		Revision:                 1,
-		AllowPrivilegeEscalation: true,
+	testCases := []struct {
+		name string
+		mode worker.NetworkMode
+	}{
+		{name: "none", mode: worker.NetworkModeNone},
+		{name: "bridge", mode: worker.NetworkModeBridge},
+		{name: "host", mode: worker.NetworkModeHost},
 	}
 
-	require.ErrorIs(t, profile.Validate(), commerr.ErrValidationFailed)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			create, err := docker.BuildCreateRequest(docker.LaunchSpec{
+				Document: testDocument(uuid.New()),
+				AgentSpace: grantedSpace(func(s *worker.AgentSpace) {
+					s.Network = tc.mode
+				}),
+				Identity: testIdentity(),
+			})
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.mode, create.NetworkMode)
+		})
+	}
 }
 
-// A host-like profile with no discovered socket group refuses rather than
-// mounting a socket the worker account cannot use.
+// `docker: none` never mounts the socket, whatever else the profile grants.
+func TestBuildCreateRequestWithDockerNoneMountsNoSocket(t *testing.T) {
+	t.Parallel()
+
+	space := grantedSpace(func(s *worker.AgentSpace) {
+		s.Network = worker.NetworkModeHost
+		s.Sudo = true
+	})
+
+	create, err := docker.BuildCreateRequest(docker.LaunchSpec{
+		Document:        testDocument(uuid.New()),
+		AgentSpace:      space,
+		Identity:        testIdentity(),
+		DockerSocketGID: testDockerGID,
+	})
+	require.NoError(t, err)
+
+	assert.Empty(t, create.Groups)
+
+	for _, mount := range create.Mounts {
+		assert.NotEqual(t, dockerSocketPath, mount.Target)
+	}
+}
+
+// `docker: readonly` is not available yet, so a profile naming it never
+// reaches the daemon.
+func TestBuildCreateRequestRefusesDockerReadonly(t *testing.T) {
+	t.Parallel()
+
+	space := grantedSpace(func(s *worker.AgentSpace) {
+		s.Docker = worker.DockerAccessReadonly
+	})
+
+	_, err := docker.BuildCreateRequest(docker.LaunchSpec{
+		Document:        testDocument(uuid.New()),
+		AgentSpace:      space,
+		Identity:        testIdentity(),
+		DockerSocketGID: testDockerGID,
+	})
+
+	require.ErrorIs(t, err, worker.ErrDockerReadonlyUnavailable)
+}
+
+// `docker: full` with no discovered socket group refuses rather than mounting
+// a socket the worker account cannot use.
 func TestBuildCreateRequestRefusesAnUnusableSocketGrant(t *testing.T) {
 	t.Parallel()
 
-	profile := worker.Profile{
-		Name:              worker.ProfileDockerHostLike,
-		Kind:              worker.KindDocker,
-		Revision:          1,
-		Image:             testImage,
-		AllowDockerSocket: true,
-	}
+	space := grantedSpace(func(s *worker.AgentSpace) {
+		s.Docker = worker.DockerAccessFull
+	})
 
 	_, err := docker.BuildCreateRequest(docker.LaunchSpec{
-		Document: testDocument(uuid.New()),
-		Profile:  profile,
-		Identity: testIdentity(),
+		Document:         testDocument(uuid.New()),
+		AgentSpace:       space,
+		Identity:         testIdentity(),
+		DockerSocketPath: dockerSocketPath,
 	})
 
 	require.ErrorIs(t, err, commerr.ErrValidationFailed)
 }
 
-// A native profile is never launched as a container.
-func TestBuildCreateRequestRefusesANativeProfile(t *testing.T) {
+// The control agent space is never launched as a container.
+func TestBuildCreateRequestRefusesTheControlSpace(t *testing.T) {
 	t.Parallel()
 
 	_, err := docker.BuildCreateRequest(docker.LaunchSpec{
 		Document: testDocument(uuid.New()),
-		Profile: worker.Profile{
-			Name: worker.ProfileNative,
-			Kind: worker.KindNative,
+		AgentSpace: worker.AgentSpace{
+			Name: worker.AgentSpaceControl,
+			Kind: worker.KindControl,
 		},
 		Identity: testIdentity(),
 	})
@@ -734,8 +933,8 @@ func TestLaunchFeedsTheDocumentBeforeStarting(t *testing.T) {
 	require.NoError(t, err)
 
 	process, err := launcher.Launch(t.Context(), worker.LaunchRequest{
-		Document: testDocument(sessionID),
-		Profile:  sandboxProfile(),
+		Document:   testDocument(sessionID),
+		AgentSpace: sandboxSpace(),
 	})
 	require.NoError(t, err)
 
@@ -776,8 +975,8 @@ func TestLaunchFollowsTheWorkerContainerLogs(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = launcher.Launch(t.Context(), worker.LaunchRequest{
-		Document: testDocument(sessionID),
-		Profile:  sandboxProfile(),
+		Document:   testDocument(sessionID),
+		AgentSpace: sandboxSpace(),
 	})
 	require.NoError(t, err)
 
@@ -803,8 +1002,8 @@ func TestLaunchSurvivesALogFollowFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	process, err := launcher.Launch(t.Context(), worker.LaunchRequest{
-		Document: testDocument(sessionID),
-		Profile:  sandboxProfile(),
+		Document:   testDocument(sessionID),
+		AgentSpace: sandboxSpace(),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, testContainerID, process.Describe().ContainerID)
@@ -830,8 +1029,8 @@ func TestLaunchPullsAnAbsentImage(t *testing.T) {
 	require.NoError(t, err)
 
 	process, err := launcher.Launch(t.Context(), worker.LaunchRequest{
-		Document: testDocument(sessionID),
-		Profile:  sandboxProfile(),
+		Document:   testDocument(sessionID),
+		AgentSpace: sandboxSpace(),
 	})
 	require.NoError(t, err)
 
@@ -859,8 +1058,8 @@ func TestLaunchFailsWhenTheImageCannotBePulled(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = launcher.Launch(t.Context(), worker.LaunchRequest{
-		Document: testDocument(sessionID),
-		Profile:  sandboxProfile(),
+		Document:   testDocument(sessionID),
+		AgentSpace: sandboxSpace(),
 	})
 
 	require.ErrorIs(t, err, commerr.ErrFetchFailed)
@@ -877,15 +1076,15 @@ func TestLaunchRecordsNoDigestForALocalImage(t *testing.T) {
 	daemon := &fakeDaemon{labels: worker.ContainerLabels(sessionID)}
 
 	launcher, err := docker.New(docker.Options{
-		Client:   daemon,
-		Identity: testIdentity(),
-		Image:    "peen-dev:local",
+		Client:        daemon,
+		Identity:      testIdentity(),
+		ImageOverride: "peen-dev:local",
 	})
 	require.NoError(t, err)
 
 	process, err := launcher.Launch(t.Context(), worker.LaunchRequest{
-		Document: testDocument(sessionID),
-		Profile:  sandboxProfile(),
+		Document:   testDocument(sessionID),
+		AgentSpace: sandboxSpace(),
 	})
 	require.NoError(t, err)
 
@@ -915,8 +1114,8 @@ func TestLaunchIgnoresAForeignRepositoryDigest(t *testing.T) {
 	require.NoError(t, err)
 
 	process, err := launcher.Launch(t.Context(), worker.LaunchRequest{
-		Document: testDocument(sessionID),
-		Profile:  sandboxProfile(),
+		Document:   testDocument(sessionID),
+		AgentSpace: sandboxSpace(),
 	})
 	require.NoError(t, err)
 
@@ -938,15 +1137,15 @@ func TestLaunchRecordsTheDigestBehindATag(t *testing.T) {
 	}
 
 	launcher, err := docker.New(docker.Options{
-		Client:   daemon,
-		Identity: testIdentity(),
-		Image:    worker.ImageRepository + ":v1.2.3",
+		Client:        daemon,
+		Identity:      testIdentity(),
+		ImageOverride: worker.ImageRepository + ":v1.2.3",
 	})
 	require.NoError(t, err)
 
 	process, err := launcher.Launch(t.Context(), worker.LaunchRequest{
-		Document: testDocument(sessionID),
-		Profile:  sandboxProfile(),
+		Document:   testDocument(sessionID),
+		AgentSpace: sandboxSpace(),
 	})
 	require.NoError(t, err)
 
@@ -964,15 +1163,15 @@ func TestLaunchAcceptsAnotherRepository(t *testing.T) {
 	daemon := &fakeDaemon{labels: worker.ContainerLabels(sessionID)}
 
 	launcher, err := docker.New(docker.Options{
-		Client:   daemon,
-		Identity: testIdentity(),
-		Image:    "someoneelse/peen:v1.2.3",
+		Client:        daemon,
+		Identity:      testIdentity(),
+		ImageOverride: "someoneelse/peen:v1.2.3",
 	})
 	require.NoError(t, err)
 
 	_, err = launcher.Launch(t.Context(), worker.LaunchRequest{
-		Document: testDocument(sessionID),
-		Profile:  sandboxProfile(),
+		Document:   testDocument(sessionID),
+		AgentSpace: sandboxSpace(),
 	})
 	require.NoError(t, err)
 
@@ -993,12 +1192,12 @@ func TestLaunchRefusesAnEmptyImage(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	profile := sandboxProfile()
-	profile.Image = ""
+	space := sandboxSpace()
+	space.Image = ""
 
 	_, err = launcher.Launch(t.Context(), worker.LaunchRequest{
-		Document: testDocument(sessionID),
-		Profile:  profile,
+		Document:   testDocument(sessionID),
+		AgentSpace: space,
 	})
 
 	require.ErrorIs(t, err, commerr.ErrValidationFailed)
@@ -1027,8 +1226,8 @@ func TestStopRequiresTheOwnershipLabels(t *testing.T) {
 	require.NoError(t, err)
 
 	process, err := launcher.Launch(t.Context(), worker.LaunchRequest{
-		Document: testDocument(sessionID),
-		Profile:  sandboxProfile(),
+		Document:   testDocument(sessionID),
+		AgentSpace: sandboxSpace(),
 	})
 	require.NoError(t, err)
 
@@ -1056,8 +1255,8 @@ func TestStopRemovesTheOwnedContainer(t *testing.T) {
 	require.NoError(t, err)
 
 	process, err := launcher.Launch(t.Context(), worker.LaunchRequest{
-		Document: testDocument(sessionID),
-		Profile:  sandboxProfile(),
+		Document:   testDocument(sessionID),
+		AgentSpace: sandboxSpace(),
 	})
 	require.NoError(t, err)
 

@@ -12,6 +12,7 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/naming"
 	"github.com/psyb0t/peen/internal/pkg/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -78,6 +79,25 @@ func TestHostToolSetRegistersEveryTool(t *testing.T) {
 			"tool %s schema must be valid JSON",
 			name,
 		)
+	}
+}
+
+func TestToolNamesAreCamelCase(t *testing.T) {
+	t.Parallel()
+
+	set := hostToolSet(newToolTestExecutor(t), nil, harness.Snapshot{}, nil, nil)
+
+	definitions := set.Definitions()
+
+	names := make([]string, 0, len(definitions)+1)
+	names = append(names, toolNameLaunchAgent)
+
+	for _, tool := range definitions {
+		names = append(names, tool.Name)
+	}
+
+	for _, name := range names {
+		assert.True(t, naming.IsValid(name), "tool name %q", name)
 	}
 }
 
@@ -157,7 +177,7 @@ func TestHostToolSchemasRejectUnknownFields(t *testing.T) {
 	}
 }
 
-// run_command and wait_job take a Go duration string as timeout. The retired
+// runCommand and waitJob take a Go duration string as timeout. The retired
 // integer timeoutSeconds field must fail as an unknown field.
 func TestWaitTimeoutToolsTakeADurationString(t *testing.T) {
 	t.Parallel()
@@ -185,7 +205,7 @@ func TestWaitTimeoutToolsTakeADurationString(t *testing.T) {
 		wantContains []string
 	}{
 		{
-			name:      "run_command timeout string",
+			name:      "runCommand timeout string",
 			tool:      toolNameRunCommand,
 			arguments: `{"command":"echo hello","purpose":"check","timeout":"1m30s"}`,
 			wantContains: []string{
@@ -197,19 +217,19 @@ func TestWaitTimeoutToolsTakeADurationString(t *testing.T) {
 			},
 		},
 		{
-			name:      "run_command retired timeoutSeconds",
+			name:      "runCommand retired timeoutSeconds",
 			tool:      toolNameRunCommand,
 			arguments: `{"command":"true","purpose":"check","timeoutSeconds":5}`,
 			wantError: true,
 		},
 		{
-			name:      "run_command integer timeout",
+			name:      "runCommand integer timeout",
 			tool:      toolNameRunCommand,
 			arguments: `{"command":"true","purpose":"check","timeout":5}`,
 			wantError: true,
 		},
 		{
-			name:      "wait_job timeout string",
+			name:      "waitJob timeout string",
 			tool:      toolNameWaitJob,
 			arguments: `{"jobId":"` + jobID + `","timeout":"5s"}`,
 			wantContains: []string{
@@ -221,7 +241,7 @@ func TestWaitTimeoutToolsTakeADurationString(t *testing.T) {
 			},
 		},
 		{
-			name:      "wait_job retired timeoutSeconds",
+			name:      "waitJob retired timeoutSeconds",
 			tool:      toolNameWaitJob,
 			arguments: `{"jobId":"` + jobID + `","timeoutSeconds":5}`,
 			wantError: true,

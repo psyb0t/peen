@@ -29,7 +29,7 @@ type HostIdentity struct {
 	Home      string
 
 	// SupplementaryGIDs are the extra groups the worker needs, such as the
-	// Docker socket's group when a host-like profile mounts it.
+	// Docker socket's group when a `docker: full` profile mounts it.
 	SupplementaryGIDs []int
 }
 
@@ -87,7 +87,7 @@ func CurrentHostIdentity() (HostIdentity, error) {
 // `docker run --user uid:gid` is the correct way to preserve host ownership,
 // but the numeric identity commonly does not exist in the image's passwd
 // database. A Docker controller supplies PEEN_HOST_USERNAME and PEEN_HOST_HOME
-// for that case. They must be supplied together. Native controllers leave both
+// for that case. They must be supplied together. Host controllers leave both
 // empty and keep the operating system lookup as the source of truth.
 func CurrentHostIdentityWithOverride(
 	username string,

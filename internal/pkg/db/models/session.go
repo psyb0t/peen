@@ -20,10 +20,10 @@ type Session struct {
 	ModelID               string
 	Workspace             string
 
-	// ExecutionProfile is the operator-defined profile this session's tools
-	// run under. It is empty for a session recorded before profiles existed,
-	// which the supervisor reads as the deployment default.
-	ExecutionProfile string
+	// AgentSpace is the agent space this session's tools run in: `control` or
+	// `docker:<profile>`. It is empty for a session recorded before agent
+	// spaces existed, which the supervisor reads as the deployment default.
+	AgentSpace string
 }
 
 // TableName pins the schema-owned sessions table name.

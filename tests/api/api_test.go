@@ -52,10 +52,13 @@ const (
 
 	apiTestNestedInstructionsFile = "service/AGENTS.md"
 	apiTestNestedInstructions     = "Nested service instructions."
-	apiTestNestedScopeLine        = "Instructions from service/AGENTS.md. They apply to files under service/" //nolint:lll // One prompt sentence.
+	apiTestNestedScopeLine        = "Instructions from service/AGENTS.md. They apply to files under service/"
 	apiTestNestedMessage          = "prove nested AGENTS.md reaches the model"
 )
 
+// integrationInfra is the production stack TestMain starts once for the suite.
+//
+//nolint:gochecknoglobals // TestMain owns it and every test reads it.
 var integrationInfra *testinfra.Infra
 
 func TestMain(m *testing.M) {
@@ -103,6 +106,7 @@ func TestAPIMessageSessionAndPagination(t *testing.T) {
 		assert.False(t, result.result.Queued)
 		if sessionID == uuid.Nil {
 			sessionID = result.sessionID
+
 			continue
 		}
 		assert.Equal(t, sessionID, result.sessionID)
@@ -169,7 +173,7 @@ func TestAPIMessageSessionAndPagination(t *testing.T) {
 			page := listMessages(t, sessionID, 2, startOffset+tc.offset, "asc")
 
 			assert.Equal(t, int32(2), page.Limit)
-			assert.Equal(t, int32(startOffset+tc.offset), page.Offset)
+			assert.EqualValues(t, startOffset+tc.offset, page.Offset)
 			assert.Equal(t, tc.hasMore, page.HasMore)
 			assert.Equal(t, tc.want, apiMessageContents(page.Items))
 		})
@@ -246,16 +250,22 @@ func TestMetricsAreOnlyAvailableOnThePrivateListener(t *testing.T) {
 	)
 	requireAPIStatus(t, publicResponse, http.StatusNotFound)
 
-	privateResponse, err := integrationInfra.HTTPClient().Get(
+	metricsRequest, err := http.NewRequestWithContext(
+		t.Context(),
+		http.MethodGet,
 		integrationInfra.MetricsURL("/metrics"),
+		nil,
 	)
 	require.NoError(t, err)
-	metricsBody, readErr := io.ReadAll(privateResponse.Body)
-	closeErr := privateResponse.Body.Close()
-	require.NoError(t, readErr)
-	require.NoError(t, closeErr)
-	require.Equal(t, http.StatusOK, privateResponse.StatusCode)
-	assert.Contains(t, string(metricsBody), "peen_http_requests_total")
+
+	privateResponse, err := integrationInfra.HTTPClient().Do(metricsRequest)
+	require.NoError(t, err)
+
+	defer func() { require.NoError(t, privateResponse.Body.Close()) }()
+
+	metrics := readAPIResponse(t, privateResponse)
+	require.Equal(t, http.StatusOK, metrics.StatusCode)
+	assert.Contains(t, string(metrics.Body), "peen_http_requests_total")
 }
 
 func TestProductionImageRestartsWithDurableStateAndFreshHarness(t *testing.T) {
@@ -350,7 +360,7 @@ func TestAPICancelsActiveTurn(t *testing.T) {
 	assert.True(t, cancelResult.CancelRequested)
 
 	failure := awaitAPIWebSocketFailure(t, connection)
-	assert.Equal(t, string(server.ErrorCodeTurnCancelled), failure.Code)
+	assert.Equal(t, server.ErrorCodeTurnCancelled, failure.Code)
 
 	require.Eventually(t, func() bool {
 		return !getSession(t, sessionID).ActiveTurn
@@ -420,7 +430,6 @@ func TestAPIDoesNotSubmitMessagesOverHTTP(t *testing.T) {
 		authenticatedHeaders(),
 	)
 	require.Equal(t, http.StatusMethodNotAllowed, response.StatusCode)
-	require.NoError(t, response.Body.Close())
 }
 
 func TestAPIReturnsDocumentedErrorEnvelopes(t *testing.T) {
@@ -578,7 +587,7 @@ func apiRequest(
 	path string,
 	body []byte,
 	headers map[string]string,
-) *http.Response {
+) *apiResponse {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
@@ -602,22 +611,41 @@ func apiRequest(
 	response, err := integrationInfra.HTTPClient().Do(request)
 	require.NoError(t, err)
 
-	return response
+	defer func() { require.NoError(t, response.Body.Close()) }()
+
+	return readAPIResponse(t, response)
 }
 
-func decodeResponse[T any](t *testing.T, response *http.Response) T {
+// apiResponse is one HTTP response read to the end, so a test never holds an
+// open body.
+type apiResponse struct {
+	StatusCode int
+	Body       []byte
+}
+
+// readAPIResponse reads the whole body of response. The caller closes it.
+func readAPIResponse(t *testing.T, response *http.Response) *apiResponse {
 	t.Helper()
 
-	body := readResponseBody(t, response)
+	body, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+
+	return &apiResponse{StatusCode: response.StatusCode, Body: body}
+}
+
+//nolint:ireturn // The type parameter is the decoded JSON value, not an interface.
+func decodeResponse[T any](t *testing.T, response *apiResponse) T {
+	t.Helper()
+
 	decoded := new(T)
-	require.NoError(t, json.Unmarshal(body, decoded))
+	require.NoError(t, json.Unmarshal(response.Body, decoded))
 
 	return *decoded
 }
 
 func assertErrorCode(
 	t *testing.T,
-	response *http.Response,
+	response *apiResponse,
 	want aichteeteapee.ErrorCode,
 ) {
 	t.Helper()
@@ -629,7 +657,7 @@ func assertErrorCode(
 
 func requireAPIStatus(
 	t *testing.T,
-	response *http.Response,
+	response *apiResponse,
 	wantStatus int,
 ) {
 	t.Helper()
@@ -638,7 +666,6 @@ func requireAPIStatus(
 		return
 	}
 
-	body := readResponseBody(t, response)
 	logContext, cancelLogs := context.WithTimeout(
 		context.Background(),
 		requestTimeout,
@@ -652,19 +679,9 @@ func requireAPIStatus(
 		"want=%d got=%d body=%s container_logs=%s",
 		wantStatus,
 		response.StatusCode,
-		body,
+		response.Body,
 		logs,
 	)
-}
-
-func readResponseBody(t *testing.T, response *http.Response) []byte {
-	t.Helper()
-
-	body, err := io.ReadAll(response.Body)
-	require.NoError(t, err)
-	require.NoError(t, response.Body.Close())
-
-	return body
 }
 
 func authenticatedHeaders() map[string]string {

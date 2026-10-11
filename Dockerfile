@@ -58,7 +58,7 @@ RUN APP_NAME="$(head -n 1 go.mod | awk '{print $2}' | awk -F'/' '{print $NF}')" 
 # Final stage - Ubuntu runtime
 #
 # A static Go binary would normally ship on scratch or distroless. Peen does
-# not, on purpose: `run_command` executes arbitrary shell commands as the
+# not, on purpose: `runCommand` executes arbitrary shell commands as the
 # product's core feature, so the runtime image IS the agent's toolbox. A
 # distroless image would leave the agent with no shell and no utilities, and
 # Ubuntu is the distribution whose layout and tooling agents handle most
@@ -74,9 +74,8 @@ FROM ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a
 # first. Trim this list if a deployment wants a smaller blast radius.
 #
 # sudo is installed but authorizes nobody. The image ships no sudoers rule, so
-# it stays inert until a worker container that the controller started under an
-# execution profile marked allowPrivilegeEscalation writes one for that worker's
-# own account. util-linux supplies setpriv, which is how that bootstrap drops
+# it stays inert until a worker container that the controller started under a
+# Docker profile marked sudo: true writes one for that worker's own account. util-linux supplies setpriv, which is how that bootstrap drops
 # back to a non-root account before the agent runs.
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -119,7 +118,7 @@ RUN chmod 0755 /usr/local/bin/peen-entrypoint
 # Switch to non-root user
 USER appuser
 
-# tini reaps the processes run_command spawns and forwards signals to the app.
+# tini reaps the processes runCommand spawns and forwards signals to the app.
 #
 # The binary path is absolute because containers rarely start in /app. The
 # documented controller command sets -w to the workspace, and every Docker
@@ -134,9 +133,12 @@ ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/peen-entrypoint", "/app/app"]
 # stdin, so a worker is this same ENTRYPOINT under a different command, never a
 # second control plane.
 #
-# A controller in this image always starts native workers inside itself. It can
-# only start sibling worker containers when a Docker socket is mounted; a Docker
-# execution profile without one is refused outright rather than run natively.
+# Without a Docker socket a controller in this image runs every worker inside
+# itself, in the control agent space. With a Docker socket mounted it starts one
+# sibling worker container per workspace and refuses the control agent space,
+# because a control worker could use the socket to become host root. A Docker
+# agent space without a socket is refused outright rather than run in control.
+# See docs/where-it-runs.md.
 CMD ["run"]
 
 # No HEALTHCHECK on purpose. Only the control-plane role listens on HTTP; a

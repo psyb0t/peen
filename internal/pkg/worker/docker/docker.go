@@ -25,12 +25,19 @@ type Options struct {
 	// Identity is the host account every worker runs as.
 	Identity HostIdentity
 
-	// Image overrides the image for every Docker profile. Empty leaves each
-	// profile's image in effect. A local development image is valid here.
-	Image string
+	// ImageOverride replaces the image of every Docker profile. Empty leaves
+	// each profile's image in effect. A local development image is valid here.
+	ImageOverride string
+
+	// ImageFallback is the image a profile that names none runs. It never
+	// replaces a profile's own image.
+	ImageFallback string
+
+	// DockerSocketPath is the host socket a `docker: full` profile mounts.
+	DockerSocketPath string
 
 	// DockerSocketGID is the host GID of the Docker socket, needed only by a
-	// profile that mounts it into the worker.
+	// profile with `docker: full`.
 	DockerSocketGID int
 
 	// RuntimeEnvironment is the controller-selected configuration and named
@@ -43,7 +50,9 @@ type Options struct {
 type Launcher struct {
 	client             Client
 	identity           HostIdentity
-	image              string
+	imageOverride      string
+	imageFallback      string
+	dockerSocketPath   string
 	dockerSocketGID    int
 	runtimeEnvironment map[string]string
 }
@@ -74,13 +83,15 @@ func New(options Options) (*Launcher, error) {
 	return &Launcher{
 		client:             options.Client,
 		identity:           options.Identity,
-		image:              options.Image,
+		imageOverride:      options.ImageOverride,
+		imageFallback:      options.ImageFallback,
+		dockerSocketPath:   options.DockerSocketPath,
 		dockerSocketGID:    options.DockerSocketGID,
 		runtimeEnvironment: maps.Clone(options.RuntimeEnvironment),
 	}, nil
 }
 
-// Kind reports the profile kind this launcher serves.
+// Kind reports the agent space kind this launcher serves.
 func (l *Launcher) Kind() worker.Kind {
 	return worker.KindDocker
 }
@@ -97,9 +108,11 @@ func (l *Launcher) Launch(
 ) (worker.Process, error) {
 	create, err := BuildCreateRequest(LaunchSpec{
 		Document:           request.Document,
-		Profile:            request.Profile,
+		AgentSpace:         request.AgentSpace,
 		Identity:           l.identity,
-		Image:              l.image,
+		ImageOverride:      l.imageOverride,
+		ImageFallback:      l.imageFallback,
+		DockerSocketPath:   l.dockerSocketPath,
 		DockerSocketGID:    l.dockerSocketGID,
 		RuntimeEnvironment: maps.Clone(l.runtimeEnvironment),
 	})
@@ -164,7 +177,7 @@ func logDockerWorkerStarted(
 		"generation_id", document.GenerationID.String(),
 		"container_name", create.Name,
 		"image_digest", imageDigest,
-		"network_disabled", create.NetworkDisabled,
+		"network_mode", string(create.NetworkMode),
 	)
 }
 

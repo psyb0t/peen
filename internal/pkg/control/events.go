@@ -69,7 +69,7 @@ func (r *EventRelay) SetSink(sink EventSink) {
 // WatchAdmission calls admitted once the session's worker admits the message
 // sent under requestID.
 //
-// A worker records user_message.created for a message exactly when it admits
+// A worker records userMessage.created for a message exactly when it admits
 // it, whether the message starts a turn or joins the running turn's queue, and
 // the record passes through this relay. admitted runs at most once, on the
 // goroutine that publishes the event, so it must not block. The returned stop

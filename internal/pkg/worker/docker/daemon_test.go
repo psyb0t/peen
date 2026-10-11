@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/psyb0t/peen/internal/pkg/worker"
 	"github.com/psyb0t/peen/internal/pkg/worker/docker"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -280,6 +281,74 @@ func TestDaemonClientReturnsTheCreatedContainerID(t *testing.T) {
 		request.URL.Query().Get("name"),
 		"the container name is what makes it findable and label-checkable",
 	)
+}
+
+// sentCreateBody is the part of the Engine API create payload these tests read.
+//
+//nolint:tagliatelle // The Docker Engine API defines these names.
+type sentCreateBody struct {
+	NetworkDisabled bool `json:"NetworkDisabled"`
+	HostConfig      struct {
+		NetworkMode string `json:"NetworkMode"`
+	} `json:"HostConfig"`
+}
+
+// The network a Docker agent space names reaches the create body the daemon
+// receives: HostConfig.NetworkMode carries the mode, and `none` also disables
+// the container's networking.
+func TestDaemonClientSendsTheNetworkModeInTheCreateBody(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name         string
+		mode         worker.NetworkMode
+		wantDisabled bool
+	}{
+		{name: "none", mode: worker.NetworkModeNone, wantDisabled: true},
+		{name: "bridge", mode: worker.NetworkModeBridge},
+		{name: "host", mode: worker.NetworkModeHost},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			bodies := make(chan []byte, 1)
+
+			_, socketPath := newFakeEngine(
+				t,
+				func(w http.ResponseWriter, r *http.Request) {
+					body, readErr := io.ReadAll(r.Body)
+					assert.NoError(t, readErr)
+
+					bodies <- body
+
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusCreated)
+					_ = json.NewEncoder(w).Encode(map[string]any{"Id": "c1"})
+				},
+			)
+
+			client, err := docker.NewDaemonClient(socketPath)
+			require.NoError(t, err)
+
+			_, err = client.CreateContainer(
+				context.Background(),
+				docker.CreateRequest{
+					Name:        "peen-worker-test",
+					Image:       "psyb0t/peen:v1.2.3",
+					NetworkMode: tc.mode,
+				},
+			)
+			require.NoError(t, err)
+
+			sent := sentCreateBody{}
+			require.NoError(t, json.Unmarshal(<-bodies, &sent))
+
+			assert.Equal(t, string(tc.mode), sent.HostConfig.NetworkMode)
+			assert.Equal(t, tc.wantDisabled, sent.NetworkDisabled)
+		})
+	}
 }
 
 // A pull by tag and a pull by digest both go to /images/create, but the

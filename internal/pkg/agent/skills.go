@@ -24,7 +24,7 @@ type useSkillInput struct {
 }
 
 // useSkillOutput is one skill's complete content plus enough provenance for
-// the model to read sibling files afterward with read_file.
+// the model to read sibling files afterward with readFile.
 type useSkillOutput struct {
 	Name      string `json:"name"`
 	Directory string `json:"directory"`
@@ -44,7 +44,7 @@ type referencedSkillOutput struct {
 	Content   string `json:"content"`
 }
 
-// skillHostTools registers the use_skill tool over one turn's resolved
+// skillHostTools registers the useSkill tool over one turn's resolved
 // harness snapshot. Split from hostToolSet, like jobHostTools, to keep that
 // builder under the function-length bound. The ledger records the skills the
 // conversation holds; a nil ledger tracks nothing.

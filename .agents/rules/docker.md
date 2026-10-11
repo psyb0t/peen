@@ -10,10 +10,10 @@
 
 ## Production image
 
-- Three stages: Node builds the web client, Go builds a static binary with `CGO_ENABLED=0` and the embedded web build, and Ubuntu is the runtime. The runtime is a full Ubuntu on purpose, because `run_command` gives the agent a shell and the image is its toolbox. Do not switch it to distroless or scratch.
+- Three stages: Node builds the web client, Go builds a static binary with `CGO_ENABLED=0` and the embedded web build, and Ubuntu is the runtime. The runtime is a full Ubuntu on purpose, because `runCommand` gives the agent a shell and the image is its toolbox. Do not switch it to distroless or scratch.
 - The runtime holds only the binary, the entrypoint, and the tools the agent needs. No compiler, source tree, or package cache. Clean apt lists in the same `RUN`.
 - The controller runs as the fixed non-root `appuser` (UID and GID 10001). `COPY` sets ownership explicitly.
-- `tini` is PID 1, in exec form, so signals reach Peen and `run_command` children are reaped.
+- `tini` is PID 1, in exec form, so signals reach Peen and `runCommand` children are reaped.
 - There is no `HEALTHCHECK`, because a worker container from the same image has no HTTP listener. Readiness belongs to whatever starts the controller. `docs/deployment.md` documents the probe.
 - Set file modes with `RUN chmod`, not `COPY --chmod`. testcontainers builds this image with the classic builder, which does not support `--chmod`.
 - Build arguments are `BUILD_COMMIT`, `BUILD_VERSION`, and the coverage switch. Never pass a secret as an `ARG`, an `ENV`, or a copied file.
@@ -25,7 +25,7 @@
 
 ## Entrypoint
 
-`docker/entrypoint.sh` does nothing for the controller. For a worker it starts as root, creates or reconciles the controller's host account from operator configuration, grants `sudo` only when the execution profile sets `allowPrivilegeEscalation`, and drops to that account with `setpriv` before Peen runs. The agent never runs as root. Every input comes from the controller, never from a client request or model output. It does not tee to a log file, because the worker reads its launch document from stdin.
+`docker/entrypoint.sh` does nothing for the controller. For a worker it starts as root, creates or reconciles the controller's host account from operator configuration, grants `sudo` only when the Docker profile sets `sudo: true`, and drops to that account with `setpriv` before Peen runs. The agent never runs as root. Every input comes from the controller, never from a client request or model output. It does not tee to a log file, because the worker reads its launch document from stdin.
 
 ## Build context
 

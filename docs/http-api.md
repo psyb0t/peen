@@ -51,30 +51,32 @@ root, so a caller cannot map the deployment's directory layout by probing it. A 
 returns `404 WORKSPACE_NOT_FOUND` with `workspace directory does not exist`, so
 a client can correct the path instead of receiving a generic server failure.
 
-An open request may also name an execution profile. That is the only environment
+An open request may also name an agent space, `control` or `docker:<profile>`. That is the only environment
 choice a client makes: images, mounts, network, and capabilities come from
-deployment configuration alone. A name the operator did not define is refused
-and creates no session, and opening an existing session never changes the
-profile it already runs under. `GET /v1/execution-profiles` lists what a client
-may name, with `hostRootEquivalent` and a `capabilityWarning` for a profile that
-grants effectively host-root access.
+deployment configuration alone. A name the deployment does not offer is refused
+with `403 AGENT_SPACE_NOT_ALLOWED` and creates no session, even when the workspace already has one. Opening an existing session never changes the agent space it already runs in. `GET /v1/agent-spaces` lists what a client
+may name and the agent space a request without a name gets. Each Docker space
+reports its `profile`, `docker` (`none` or `full`), `network`
+(`none`, `bridge`, or `host`), and `sudo`, plus `hostRootEquivalent` and one
+sentence per risky grant in `capabilityWarnings`. The `control` space reports no
+grants. [Where it runs](where-it-runs.md) explains the agent spaces.
 
-`GET /v1/session/workers` reports one session's durable worker generations, newest first. A generation is one run of one worker process. It records the profile and profile revision it started under, its lifecycle state, and for a Docker generation its container and repository image digest when one is available. Turns, post-start protocol events, jobs, and child-agent runs record the generation that produced them. The accepted user-message record predates worker startup, so it has no generation.
+`GET /v1/session/workers` reports one session's durable worker generations, newest first. A generation is one run of one worker process. It records the agent space and agent space revision it started under, its lifecycle state, and for a Docker generation its container and repository image digest when one is available. Turns, post-start protocol events, jobs, and child-agent runs record the generation that produced them. The accepted user-message record predates worker startup, so it has no generation.
 
 `POST /v1/session/reconfigure` moves an already-open session to a different
-profile. The body carries `profile` and `reason`, both required, and nothing
+agent space. The body carries `agentSpace` and `reason`, both required, and nothing
 else. An image, mount, network setting, or capability in the body is rejected by
-schema validation before a handler sees it. An undefined profile is refused with
-`403 EXECUTION_PROFILE_NOT_ALLOWED`, and the refusal names no profile, so a
-caller cannot enumerate the allowed set by probing. A session with a turn in
+schema validation before a handler sees it. An agent space the deployment does not
+offer is refused with `403 AGENT_SPACE_NOT_ALLOWED`, and the refusal names no
+agent space, so a caller cannot enumerate the allowed set by probing. A session with a turn in
 flight is refused with `409 SESSION_BUSY`, because changing the environment
-under running work would attribute that turn's tool calls to a profile that did
+under running work would attribute that turn's tool calls to an agent space that did
 not run them. The same call succeeds once the turn ends. On success Peen stops
-the session's current worker, so the next turn starts a new generation under
-the new profile instead of continuing in the old one.
+the session's current worker, so the next turn starts a new generation in
+the new agent space instead of continuing in the old one.
 
-`GET /v1/session/profile-decisions` reports that history, newest first. Each
-entry names the profile the session moved from, the profile it moved to, the
+`GET /v1/session/agent-space-decisions` reports that history, newest first. Each
+entry names the agent space the session moved from, the agent space it moved to, the
 reason the caller gave, and when it was decided.
 
 `GET /v1/models` lists every model Peen discovered at controller startup. Each record provides the exact one-turn override name, its configured connection name, the raw model ID the upstream accepted, and Peen's enforced context window. The endpoint never makes a provider call and never returns provider credentials. Clients pass the `name` field as `data.model` in a `message.send` frame.
@@ -124,25 +126,25 @@ skill reaches the model as its own user message right after your message, as a
 `SKILL.md`. The directory is absolute for a custom skill and
 `embedded://skills/<name>` for a core skill. The skill is not part of the
 system prompt, and a child agent only gets it when the parent names it in the
-`launch_agent` task. A skill that names other skills with `:name` brings them
+`launchAgent` task. A skill that names other skills with `:name` brings them
 too, and Peen does not repeat a skill the model already holds; see
 [Skills](skills.md#once-per-conversation). An unknown name produces
 `message.failed` with
 `VALIDATION_FAILED`, and nothing is stored. Without this syntax, the model sees
 the skill catalogue and decides whether to load a matching procedure with
-`use_skill`. See [Skills](skills.md#forcing-a-skill).
+`useSkill`. See [Skills](skills.md#forcing-a-skill).
 
 Peen admits the messages for one session in the order it receives them, from every connected client. The first starts a turn, and every `message.send` that arrives while that turn runs or is still starting, for example while the session's worker boots, joins the turn's FIFO user-message queue. A queued message may repeat the running turn's `model` and `reasoningEffort`, but it cannot change them or set a `systemPrompt`, because those settings belong to the running turn, and that refusal answers `message.failed` with `VALIDATION_FAILED`. A queued message that names a skill with `:name` is resolved when Peen accepts it. An unknown name refuses that message with `VALIDATION_FAILED` and queues nothing. Otherwise the message and its skill messages are queued together, and they reach the model together. At most `PEEN_MAX_QUEUED_USER_MESSAGES` messages, 16 by default, can wait in the queue at once, counting each skill message or already-loaded note that follows a queued message, and a message that does not fit answers `USER_MESSAGE_QUEUE_FULL`. Queueing never interrupts an in-flight provider request.
 
-A queued message gets its own request ID. Peen acknowledges it with `message.completed` `{"queued": true}` and emits `user_message.created` and then `user_message.queued`, both carrying that message's own `requestId`. When the running turn's current model round ends, after every tool call in that round has finished, Peen hands the queued message to the model and emits `user_message.delivered` with that same `requestId` and `{"message": "<text>"}` to every connected client. Queued messages are delivered in the order they were sent, and `user_message.delivered` fires once per message however many skill messages follow it. Each skill message that follows is announced with a `skill.injected` frame under the running turn's `requestId`. The queue lives in the worker's memory until delivery. If the turn ends without a `user_message.delivered` for your message's `requestId`, for example after a restart or a cancellation, the message never reached the model, so resend it.
+A queued message gets its own request ID. Peen acknowledges it with `message.completed` `{"queued": true}` and emits `userMessage.created` and then `userMessage.queued`, both carrying that message's own `requestId`. When the running turn's current model round ends, after every tool call in that round has finished, Peen hands the queued message to the model and emits `userMessage.delivered` with that same `requestId` and `{"message": "<text>"}` to every connected client. Queued messages are delivered in the order they were sent, and `userMessage.delivered` fires once per message however many skill messages follow it. Each skill message that follows is announced with a `skill.injected` frame under the running turn's `requestId`. The queue lives in the worker's memory until delivery. If the turn ends without a `userMessage.delivered` for your message's `requestId`, for example after a restart or a cancellation, the message never reached the model, so resend it.
 
-Every accepted `message.send` first emits a durable `user_message.created`
+Every accepted `message.send` first emits a durable `userMessage.created`
 frame. Every server frame is a JSON object with `id`, `type`, `data`,
 `timestamp`, `metadata`, and `triggeredBy`, the same shape as the client frame
 above. `triggeredBy` is the `id` of the client frame that caused this frame.
 A frame from a turn an event woke has no client frame behind it and carries the
 all-zero UUID. A client frame is caused by nothing, so a client sends `null`.
-All session frames carry `metadata.sessionId` and `metadata.requestId`. Every frame of one turn shares the turn's `requestId`, except the `user_message.*` frames of a queued message, which carry that message's own:
+All session frames carry `metadata.sessionId` and `metadata.requestId`. Every frame of one turn shares the turn's `requestId`, except the `userMessage.*` frames of a queued message, which carry that message's own:
 
 ```json
 {
@@ -173,10 +175,10 @@ A protocol event is a durable record of one step of a turn. Each one goes out li
 
 | Type | `data` | Meaning |
 | --- | --- | --- |
-| `user_message.created` | `{message, sourceEventId?}` | Peen accepted a `message.send`. |
-| `user_message.queued` | `{message, sourceEventId?}` | The message joined the running turn's queue. |
-| `user_message.delivered` | `{message, sourceEventId?}` | A queued message reached the model. It carries the queued message's own `requestId`. |
-| `skill.injected` | `{name, content}` | A skill message reached the model right after the user message that named it. `content` is the whole message, and `name` is the resolved skill name. The note that a skill is already loaded uses the same event. It follows `user_message.created` at the start of a turn and `user_message.delivered` for a queued message. |
+| `userMessage.created` | `{message, sourceEventId?}` | Peen accepted a `message.send`. |
+| `userMessage.queued` | `{message, sourceEventId?}` | The message joined the running turn's queue. |
+| `userMessage.delivered` | `{message, sourceEventId?}` | A queued message reached the model. It carries the queued message's own `requestId`. |
+| `skill.injected` | `{name, content}` | A skill message reached the model right after the user message that named it. `content` is the whole message, and `name` is the resolved skill name. The note that a skill is already loaded uses the same event. It follows `userMessage.created` at the start of a turn and `userMessage.delivered` for a queued message. |
 | `harness.warning` | `{warnings: [{kind, source, reason}]}` | Peen ignored invalid optional harness files, or a skill names a skill that does not exist. See below. |
 | `turn.started` | `{sessionId, model, workspace, originEventId?, originEventType?}` | The turn started. `originEventId` and `originEventType` name the session event that woke it, when one did. |
 | `session.events` | `{notices, dropped}` | Session events were handed to the model. See [Session events](events.md#how-the-model-receives-events). |
@@ -194,7 +196,7 @@ Successful submissions finish with `message.completed`. Its data is
 `{"queued": false}` when the turn finished or `{"queued": true}` when the
 message joined an active turn's queue. `queued: true` acknowledges only that
 submission. The running turn hands the queued text to the model when its
-current model round ends, and `user_message.delivered` reports that.
+current model round ends, and `userMessage.delivered` reports that.
 `message.completed` closes the submission, not the socket.
 An unsuccessful submission finishes with `message.failed`. Its safe payload is
 `{code, message, reason?}`. `reason` appears only for known safe categories.
@@ -223,16 +225,16 @@ other value. Never place a bearer token in the URL. Use `wss://` in deployment.
 
 ## POST /v1/sessions/open
 
-Opens the session for a workspace, creating it the first time that directory is opened. No session header. `profile` is optional and applies only when this call creates the session.
+Opens the session for a workspace, creating it the first time that directory is opened. No session header. `agentSpace` is optional and sets the agent space only when this call creates the session. Leave it out for the controller's default agent space. A name the deployment does not offer returns `403 AGENT_SPACE_NOT_ALLOWED`, even when the workspace already has a session.
 
 ```json
-{"workspace": "/home/me/work/my-app", "profile": "native"}
+{"workspace": "/home/me/work/my-app", "agentSpace": "control"}
 ```
 
 The response is the session, in the same shape as [`GET /v1/session`](#get-v1session), and whether this call created it:
 
 ```json
-{"session": {"id": "uuid", "workspace": "/home/me/work/my-app", "executionProfile": "native", "...": "..."}, "created": true}
+{"session": {"id": "uuid", "workspace": "/home/me/work/my-app", "agentSpace": "control", "...": "..."}, "created": true}
 ```
 
 Use `session.id` as `metadata.sessionId` on the WebSocket and as `X-Session-ID` on REST calls.
@@ -244,6 +246,22 @@ Lists every session. No session header. Query parameters are `limit` and `offset
 ```json
 {"items": [{"id": "uuid", "workspace": "/home/me/work/my-app", "...": "..."}], "limit": 50, "offset": 0, "hasMore": false}
 ```
+
+## GET /v1/agent-spaces
+
+Lists the agent spaces a client may name, and the one a request without a name gets. No session header. `control` is listed only when the controller cannot reach a Docker daemon. A Docker space adds `profile`, `docker`, `network`, and `sudo`. The `control` space reports none of those.
+
+```json
+{
+  "items": [
+    {"name": "docker:default", "kind": "docker", "profile": "default", "revision": 0, "docker": "none", "network": "bridge", "sudo": false, "hostRootEquivalent": false, "capabilityWarnings": []},
+    {"name": "docker:builder", "kind": "docker", "profile": "builder", "revision": 2, "docker": "full", "network": "bridge", "sudo": true, "hostRootEquivalent": true, "capabilityWarnings": ["docker: full mounts the host Docker socket into the worker, which is host root", "sudo: true lets the agent run commands as root inside the worker container"]}
+  ],
+  "default": "docker:default"
+}
+```
+
+Without a Docker daemon in reach, the list starts with `{"name": "control", "kind": "control", "revision": 0, "hostRootEquivalent": false, "capabilityWarnings": []}` and `default` is `control` unless `PEEN_DEFAULT_AGENT_SPACE` names another.
 
 ## GET /v1/messages
 
@@ -360,7 +378,7 @@ Reads details for one existing session. `X-Session-ID` is required.
   "agent": "core:general-purpose",
   "model": "aigate/your-model-id",
   "workspace": "/home/me/work/my-app",
-  "executionProfile": "native"
+  "agentSpace": "control"
 }
 ```
 
@@ -376,6 +394,40 @@ running or not.
 
 `cancelRequested` is `true` only when this call found a running turn and
 signalled it. The endpoint does not wait for the turn to unwind.
+
+## POST /v1/session/reconfigure
+
+Moves an idle session to another agent space. `X-Session-ID` is required. Both fields are required, and any other field is rejected.
+
+```json
+{"agentSpace": "docker:builder", "reason": "needs to build container images"}
+```
+
+The response is the recorded decision:
+
+```json
+{"id": "uuid", "sessionId": "uuid", "fromAgentSpace": "docker:default", "toAgentSpace": "docker:builder", "reason": "needs to build container images", "decidedAt": "..."}
+```
+
+A name the deployment does not offer returns `403 AGENT_SPACE_NOT_ALLOWED`. A session with a turn in flight returns `409 SESSION_BUSY`. On success Peen stops the session's worker, and the next turn starts a new worker generation in the new agent space.
+
+## GET /v1/session/agent-space-decisions
+
+Lists one session's agent space changes, newest first. `X-Session-ID` is required. Query parameters are `limit` and `offset`.
+
+```json
+{"items": [{"id": "uuid", "sessionId": "uuid", "fromAgentSpace": "docker:default", "toAgentSpace": "docker:builder", "reason": "needs to build container images", "decidedAt": "..."}], "limit": 50, "offset": 0, "hasMore": false}
+```
+
+## GET /v1/session/workers
+
+Lists one session's worker generations, newest first. `X-Session-ID` is required. Query parameters are `limit` and `offset`. `containerId` and `imageDigest` appear only for a Docker generation, `imageDigest` only when the daemon reported a repository digest, and `failureDetail` only for a generation that failed or was replaced.
+
+```json
+{"items": [{"id": "uuid", "sessionId": "uuid", "kind": "docker", "agentSpace": "docker:builder", "agentSpaceRevision": 2, "state": "ready", "workspace": "/home/me/work/my-app", "containerId": "...", "imageDigest": "psyb0t/peen@sha256:...", "createdAt": "...", "startedAt": "...", "endedAt": null}], "limit": 50, "offset": 0, "hasMore": false}
+```
+
+`state` is `requested`, `starting`, `ready`, `stopping`, `stopped`, or `failed`.
 
 ## GET /v1/session/events
 

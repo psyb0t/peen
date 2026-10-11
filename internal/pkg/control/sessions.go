@@ -15,15 +15,15 @@ import (
 // and reports whether this call created it.
 //
 // It returns commerr.ErrPermissionDenied when the path falls outside every
-// configured workspace root or names an execution profile the deployment does
-// not define, and commerr.ErrValidationFailed when the path is not a usable
+// configured workspace root or names an agent space the deployment does not
+// offer, and commerr.ErrValidationFailed when the path is not a usable
 // directory. None of those cases creates a session.
 func (r *Registry) OpenWorkspaceSession(
 	ctx context.Context,
 	workspace string,
-	profileName string,
+	agentSpaceName string,
 ) (api.OpenedSession, error) {
-	opened, err := r.Open(ctx, workspace, profileName)
+	opened, err := r.Open(ctx, workspace, agentSpaceName)
 	if err != nil {
 		return api.OpenedSession{}, err
 	}

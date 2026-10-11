@@ -1,6 +1,6 @@
 # Skills
 
-A skill is a named procedure the agent loads only when it needs it. Every turn the model sees a short catalogue with each skill's name and description. When a task matches, it calls `use_skill` to load the full instructions. You can also hand a skill to the model with `:skill-name` in your message. Use a skill for a procedure that is too long or too specific to sit in the [rules](rules.md) on every turn, such as cutting a release, writing a migration, or triaging a bug report.
+A skill is a named procedure the agent loads only when it needs it. Every turn the model sees a short catalogue with each skill's name and description. When a task matches, it calls `useSkill` to load the full instructions. You can also hand a skill to the model with `:skill-name` in your message. Use a skill for a procedure that is too long or too specific to sit in the [rules](rules.md) on every turn, such as cutting a release, writing a migration, or triaging a bug report.
 
 Peen follows the [Agent Skills](https://agentskills.io) layout, so a skill written for Claude Code works here unchanged.
 
@@ -58,9 +58,9 @@ The YAML is strict. An unknown key, a second YAML document, or a non-string valu
 
 Skills come in two groups. Core skills are embedded in Peen: `planning` and `freshness`. Custom skills are the ones you write in a harness layer. The groups never replace each other.
 
-A core skill is addressed with the `core:` prefix: `core:planning` in `use_skill`, `:core:planning` in a message. A plain name means the custom skill when one exists and the core skill otherwise. With no custom `planning` skill, `:planning` loads the core one. Once you write `.agents/skills/planning/SKILL.md`, `:planning` loads yours and `:core:planning` still loads Peen's. A custom skill name cannot contain `:`.
+A core skill is addressed with the `core:` prefix: `core:planning` in `useSkill`, `:core:planning` in a message. A plain name means the custom skill when one exists and the core skill otherwise. With no custom `planning` skill, `:planning` loads the core one. Once you write `.agents/skills/planning/SKILL.md`, `:planning` loads yours and `:core:planning` still loads Peen's. A custom skill name cannot contain `:`.
 
-To turn core skills off, set `PEEN_DISABLED_CORE_SKILLS` to a comma-separated list of core names without the prefix, such as `planning,freshness`, or to `all`. A disabled core skill is gone from the catalogue, from `use_skill`, and from `:name`. An unknown name stops startup. See [configuration](configuration.md).
+To turn core skills off, set `PEEN_DISABLED_CORE_SKILLS` to a comma-separated list of core names without the prefix, such as `planning,freshness`, or to `all`. A disabled core skill is gone from the catalogue, from `useSkill`, and from `:name`. An unknown name stops startup. See [configuration](configuration.md).
 
 ## How the model finds a skill
 
@@ -75,7 +75,7 @@ Custom skills (defined by you, no prefix):
 - release-notes: Write RELEASE_NOTES.md from the files and changes in this workspace. (/home/me/work/my-app/.agents/skills/release-notes/SKILL.md)
 ```
 
-A group with no skills has no heading. Only the names and descriptions are in the prompt. The model calls `use_skill` with `{"name": "release-notes"}` and gets back the full `SKILL.md`, the skill's directory, and a content hash. [Forcing a skill](#forcing-a-skill) explains what the directory of a core skill is. Files next to `SKILL.md`, such as `references/` and `scripts/`, are not loaded automatically. The model reads them with `read_file` and runs scripts with `run_command` in that directory, so each one shows up as its own tool call in the chat. An unknown name returns an error that lists the skills that do exist.
+A group with no skills has no heading. Only the names and descriptions are in the prompt. The model calls `useSkill` with `{"name": "release-notes"}` and gets back the full `SKILL.md`, the skill's directory, and a content hash. [Forcing a skill](#forcing-a-skill) explains what the directory of a core skill is. Files next to `SKILL.md`, such as `references/` and `scripts/`, are not loaded automatically. The model reads them with `readFile` and runs scripts with `runCommand` in that directory, so each one shows up as its own tool call in the chat. An unknown name returns an error that lists the skills that do exist.
 
 ## Forcing a skill
 
@@ -105,11 +105,11 @@ Peen marks a `<skill>` or `<hook>` block as instructions from your harness layer
 
 Your message is stored exactly as you typed it. Each skill message is stored right after it as an injected message of kind `skill`, so a resumed session replays them and the model sees them in later turns. The control surface shows each one as a collapsed `skill: name` marker that expands to the content, not as a bubble from you.
 
-A message sent while a turn is running works the same way. Peen resolves the names when it accepts the message, and an unknown name refuses that message: nothing is queued and nothing is stored. The message and its skill messages reach the model together when the model's current round ends, after every tool call in that round, and `user_message.delivered` fires once for your message. Each skill message takes one slot of `PEEN_MAX_QUEUED_USER_MESSAGES`, so a message that brings skills leaves less room in the queue.
+A message sent while a turn is running works the same way. Peen resolves the names when it accepts the message, and an unknown name refuses that message: nothing is queued and nothing is stored. The message and its skill messages reach the model together when the model's current round ends, after every tool call in that round, and `userMessage.delivered` fires once for your message. Each skill message takes one slot of `PEEN_MAX_QUEUED_USER_MESSAGES`, so a message that brings skills leaves less room in the queue.
 
 ### Skills that name other skills
 
-A `SKILL.md` body can name other skills with `:name` or `:core:name`, under the same rules as a message. The frontmatter is not scanned. When a skill reaches the model through `:name` or `use_skill`, every skill it names comes with it, and every skill those name in turn, depth first in the order they are named. Through `:name`, each one is its own `<skill>` message after the one that named it. Through `use_skill`, they come back in a `referencedSkills` array of `name`, `directory`, and `content`, leaving out any skill the conversation already holds (see [Once per conversation](#once-per-conversation)). The skill you ask `use_skill` for always comes back in full.
+A `SKILL.md` body can name other skills with `:name` or `:core:name`, under the same rules as a message. The frontmatter is not scanned. When a skill reaches the model through `:name` or `useSkill`, every skill it names comes with it, and every skill those name in turn, depth first in the order they are named. Through `:name`, each one is its own `<skill>` message after the one that named it. Through `useSkill`, they come back in a `referencedSkills` array of `name`, `directory`, and `content`, leaving out any skill the conversation already holds (see [Once per conversation](#once-per-conversation)). The skill you ask `useSkill` for always comes back in full.
 
 A `:name` in a `SKILL.md` that names no skill is a workspace configuration warning when Peen loads the harness. The warning names the skill file and the reference. Peen skips the reference when it delivers the skill.
 
@@ -117,25 +117,25 @@ A `:name` in a `SKILL.md` that names no skill is a workspace configuration warni
 
 Peen does not send a skill twice while the model still has it, which also stops a cycle where skill A names B and B names A. When you name a skill the model already holds, Peen sends the note `<note>Skill NAME is already loaded earlier in this conversation.</note>` instead of a second copy. A skill that only another skill names is left out without a note. Naming a skill twice in one message delivers it once. Which skills the model holds depends on `PEEN_COMPACTION_MODE`:
 
-- Within one turn, a skill delivered by `:name` or by `use_skill` counts, along with the skills it brought. This holds in both modes, for the turn's first message and for messages sent while the turn runs.
+- Within one turn, a skill delivered by `:name` or by `useSkill` counts, along with the skills it brought. This holds in both modes, for the turn's first message and for messages sent while the turn runs.
 - Under the default `drop-oldest`, Peen stores no compaction and leaves old messages out of the request on its own, so a delivery from an earlier turn may no longer reach the model. A skill counts as delivered only in the turn that delivered it. A `:name` in a later turn delivers the skill in full again.
-- Under `summarize`, a skill delivered in an earlier turn, by `:name` or by `use_skill`, still counts until a compaction covers it. After a compaction covers a skill message, the model has only a summary of it, and naming the skill again delivers it in full again. This includes a compaction in the middle of a running turn.
+- Under `summarize`, a skill delivered in an earlier turn, by `:name` or by `useSkill`, still counts until a compaction covers it. After a compaction covers a skill message, the model has only a summary of it, and naming the skill again delivers it in full again. This includes a compaction in the middle of a running turn.
 
-`use_skill` always returns the skill you ask for in full, whatever the model already holds.
+`useSkill` always returns the skill you ask for in full, whatever the model already holds.
 
-One message, or one `use_skill` call, can bring at most 128 KiB of skill content, counting each delivered `SKILL.md` in full and not counting already-loaded notes. The limit is fixed. More than that fails the message, or the tool call, with a validation error.
+One message, or one `useSkill` call, can bring at most 128 KiB of skill content, counting each delivered `SKILL.md` in full and not counting already-loaded notes. The limit is fixed. More than that fails the message, or the tool call, with a validation error.
 
 ### Skills and child agents
 
-A skill you force on a turn is not copied to the child agents it launches. The parent hands a skill to a child by naming it with `:name` in the `task` of `launch_agent`. The task is treated like a user message: each skill arrives as its own message right after the task, in the child's first request and in its stored transcript, and an unknown name fails the `launch_agent` call and lists up to 10 of the skills that exist.
+A skill you force on a turn is not copied to the child agents it launches. The parent hands a skill to a child by naming it with `:name` in the `task` of `launchAgent`. The task is treated like a user message: each skill arrives as its own message right after the task, in the child's first request and in its stored transcript, and an unknown name fails the `launchAgent` call and lists up to 10 of the skills that exist.
 
 ## When skills load
 
-Peen reads every skill at the start of every turn, so a new or edited skill is available on the next message. During a turn the skills are frozen: `use_skill` returns the content Peen read when the turn started.
+Peen reads every skill at the start of every turn, so a new or edited skill is available on the next message. During a turn the skills are frozen: `useSkill` returns the content Peen read when the turn started.
 
 ## How skills combine
 
-Custom skills replace by name and are never merged. A skill in a deeper layer replaces one with the same name from a broader layer. Inside one layer, `.agents/skills/<name>` replaces `.claude/skills/<name>`. The catalogue and `use_skill` always use the winning copy, and `use_skill` returns that copy's directory, so bundled scripts come from the same place. Core skills are outside this: no layer replaces them.
+Custom skills replace by name and are never merged. A skill in a deeper layer replaces one with the same name from a broader layer. Inside one layer, `.agents/skills/<name>` replaces `.claude/skills/<name>`. The catalogue and `useSkill` always use the winning copy, and `useSkill` returns that copy's directory, so bundled scripts come from the same place. Core skills are outside this: no layer replaces them.
 
 ## Limits
 

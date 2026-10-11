@@ -28,25 +28,25 @@ const (
 	hooksTestFinalAnswer     = "the hooks fired"
 
 	hooksTestYAML = `version: 1
-turn_start:
+turnStart:
   - name: api-turn-start
     actions:
       - name: remind-turn
         type: inject
         message: Hook text for the turn start.
-post_tool_use:
+postToolUse:
   - name: api-after-read
     match:
-      tool: read_file
+      tool: readFile
     actions:
       - name: remind-read
         type: inject
         message: Hook text after a read.
 `
-	hooksTestTurnStartBlock = "<hook>\n<event>turn_start</event>\n\n" +
+	hooksTestTurnStartBlock = "<hook>\n<event>turnStart</event>\n\n" +
 		"Hook text for the turn start.\n</hook>"
-	hooksTestPostToolBlock = "<hook>\n<event>post_tool_use</event>\n" +
-		"<tool>read_file</tool>\n\nHook text after a read.\n</hook>"
+	hooksTestPostToolBlock = "<hook>\n<event>postToolUse</event>\n" +
+		"<tool>readFile</tool>\n\nHook text after a read.\n</hook>"
 
 	handlerTestWorkspacePrefix = "handler-"
 	handlerTestEventType       = "test.api.handler"
@@ -88,8 +88,8 @@ post_tool_use:
 )
 
 // A hook inject in the workspace's hooks.yaml reaches the model from the
-// session's worker: a turn_start inject joins the system prompt, and a
-// post_tool_use inject follows the tool result as its own user message.
+// session's worker: a turnStart inject joins the system prompt, and a
+// postToolUse inject follows the tool result as its own user message.
 func TestAPIWorkspaceHooksInjectIntoTheWorkerTurn(t *testing.T) {
 	workspace := openFreshWorkspace(t, hooksTestWorkspacePrefix, map[string]string{
 		hooksTestFile: hooksTestYAML,
@@ -100,7 +100,7 @@ func TestAPIWorkspaceHooksInjectIntoTheWorkerTurn(t *testing.T) {
 	integrationInfra.EnableScriptedToolTurn(testinfra.ScriptedToolTurn{
 		UserMessage: hooksTestMessage,
 		Calls: []testinfra.ScriptedToolCall{{
-			Name:      "read_file",
+			Name:      "readFile",
 			Arguments: map[string]any{"path": workspace.fixturePath},
 		}},
 		FinalAnswer: hooksTestFinalAnswer,
@@ -118,7 +118,7 @@ func TestAPIWorkspaceHooksInjectIntoTheWorkerTurn(t *testing.T) {
 	assert.True(
 		t,
 		strings.HasSuffix(requests[0][0].Content, hooksTestTurnStartBlock),
-		"the turn_start inject ends the system prompt",
+		"the turnStart inject ends the system prompt",
 	)
 
 	second := nonSystemMessages(t, requests[1])
@@ -218,7 +218,7 @@ func TestAPIDisabledCoreSkillsAndAgentsApplyInsideTheWorker(t *testing.T) {
 	failure := awaitAPIWebSocketFailure(t, connection)
 	assert.Equal(
 		t,
-		string(aichteeteapee.ErrorCodeValidationFailed),
+		aichteeteapee.ErrorCodeValidationFailed,
 		failure.Code,
 	)
 	assert.Equal(t, variantTestDisabledErr, failure.Message)
@@ -293,11 +293,15 @@ func openVariantSession(t *testing.T, variant *testinfra.Infra) uuid.UUID {
 
 	response, err := variant.HTTPClient().Do(request)
 	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, response.StatusCode)
 
-	opened := decodeResponse[apiTestOpenedSession](t, response)
+	defer func() { require.NoError(t, response.Body.Close()) }()
 
-	return opened.Session.ID
+	opened := readAPIResponse(t, response)
+	require.Equal(t, http.StatusOK, opened.StatusCode)
+
+	session := decodeResponse[apiTestOpenedSession](t, opened)
+
+	return session.Session.ID
 }
 
 func dialVariantSession(

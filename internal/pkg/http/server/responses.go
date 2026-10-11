@@ -144,12 +144,12 @@ func sessionBusyError(message string) api.Error {
 	return api.Error{Code: ErrorCodeSessionBusy, Message: message}
 }
 
-// executionProfileNotAllowedError names no profile, because a refused caller is
-// not entitled to learn which profiles the deployment defines.
-func executionProfileNotAllowedError() api.Error {
+// agentSpaceNotAllowedError names no agent space, because a refused caller is
+// not entitled to learn which agent spaces the deployment offers.
+func agentSpaceNotAllowedError() api.Error {
 	return api.Error{
-		Code:    ErrorCodeExecutionProfileNotAllowed,
-		Message: "execution profile is not allowed by this deployment",
+		Code:    ErrorCodeAgentSpaceNotAllowed,
+		Message: "agent space is not allowed by this deployment",
 	}
 }
 

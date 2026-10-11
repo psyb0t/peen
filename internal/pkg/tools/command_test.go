@@ -253,6 +253,48 @@ func TestRunCommand_ValidationErrors(t *testing.T) {
 	}
 }
 
+// Options.Environment is the whole base environment of every command. A
+// variable only the process has never reaches the command, the configured base
+// does, and the request's own additions still apply.
+//
+// It sets a process variable, so it does not run in parallel.
+func TestRunCommand_UsesTheConfiguredBaseEnvironment(t *testing.T) {
+	const (
+		processOnlyName = "PEEN_TEST_PROCESS_ONLY_VALUE"
+		keptName        = "PEEN_TEST_KEPT_VALUE"
+		addedName       = "PEEN_TEST_REQUEST_ADDITION"
+	)
+
+	t.Setenv(processOnlyName, "process-only")
+
+	executor, err := NewExecutor(Options{
+		Workspace: t.TempDir(),
+		Environment: []string{
+			"PATH=" + os.Getenv("PATH"),
+			keptName + "=kept",
+		},
+	})
+	require.NoError(t, err)
+
+	registry, err := NewJobRegistry(uuid.New(), nil, Limits{})
+	require.NoError(t, err)
+
+	jobExecutor, err := NewJobExecutor(executor, registry, uuid.New())
+	require.NoError(t, err)
+
+	out, err := jobExecutor.RunCommand(context.Background(), RunCommandInput{
+		Purpose:     commandTestPurpose,
+		Command:     "env",
+		Environment: map[string]string{addedName: "added"},
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, 0, out.ExitCode)
+	assert.Contains(t, out.Stdout, keptName+"=kept")
+	assert.Contains(t, out.Stdout, addedName+"=added")
+	assert.NotContains(t, out.Stdout, processOnlyName)
+}
+
 func TestRunCommand_MissingDirectory(t *testing.T) {
 	t.Parallel()
 
@@ -401,7 +443,7 @@ func TestRunCommand_StillRunningWhenBoundExpires(t *testing.T) {
 		"killed job must eventually die")
 }
 
-// A job's completion event is for work that outlived its run_command call.
+// A job's completion event is for work that outlived its runCommand call.
 // A command that finishes inside the call already reports its result there,
 // so publishing an event too would hand the model the same news twice.
 func TestRunCommand_PublishesCompletionOnlyForJobsThatOutliveTheCall(

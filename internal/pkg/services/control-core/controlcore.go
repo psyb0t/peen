@@ -21,8 +21,8 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/worker"
+	"github.com/psyb0t/peen/internal/pkg/worker/controlspace"
 	dockerworker "github.com/psyb0t/peen/internal/pkg/worker/docker"
-	"github.com/psyb0t/peen/internal/pkg/worker/native"
 	"github.com/psyb0t/peen/internal/pkg/worker/protocol"
 	"github.com/psyb0t/peen/internal/pkg/worker/supervisor"
 )
@@ -34,10 +34,6 @@ const ServiceName = control.CoreServiceName
 // startup. The worker image tracks it, so a release runs the worker published
 // beside it.
 const buildVersionScopeKey = "version"
-
-// reasonDockerLauncherUnavailable marks a controller that reached a Docker
-// socket but could not build the launcher behind it.
-const reasonDockerLauncherUnavailable = "docker_launcher_unavailable"
 
 type serviceDependencies struct {
 	parseConfig       func() (peenconfig.Config, error)
@@ -133,8 +129,8 @@ func (s *ControlCore) Run(ctx context.Context) (runErr error) {
 		"config_directory", config.ConfigDirectory,
 		"state_directory", config.StateDirectory,
 		"workspace_roots", core.Sessions.Roots(),
-		"execution_profiles", core.Profiles.Names(),
-		"default_execution_profile", core.Profiles.Default(),
+		"agent_spaces", core.AgentSpaces.Names(),
+		"default_agent_space", core.AgentSpaces.Default(),
 		"provider_count", len(upstreams),
 		"default_model", config.DefaultModel,
 	)
@@ -171,9 +167,10 @@ func (s *ControlCore) openCore(
 		return nil, ctxerrors.Wrap(err, "discover configured provider models")
 	}
 
-	profiles, err := config.ExecutionProfiles()
+	//nolint:contextcheck // A startup probe bounded by its own timeout.
+	agentSpaces, err := config.AgentSpaces()
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "load execution profiles")
+		return nil, ctxerrors.Wrap(err, "load agent spaces")
 	}
 
 	harnessOptions, err := agent.HarnessOptions(config)
@@ -199,11 +196,11 @@ func (s *ControlCore) openCore(
 	// is what makes every worker event durable before any client sees it.
 	relay := control.NewEventRelay()
 
+	//nolint:contextcheck // A startup probe bounded by its own timeout.
 	workers, err := newWorkerSupervisor(
-		ctx,
 		config,
 		assembled.Store,
-		profiles,
+		agentSpaces,
 		relay,
 	)
 	if err != nil {
@@ -213,7 +210,7 @@ func (s *ControlCore) openCore(
 	sessions, err := newSessionRegistry(
 		config,
 		assembled.Store,
-		profiles,
+		agentSpaces,
 		workers,
 	)
 	if err != nil {
@@ -249,17 +246,17 @@ func (s *ControlCore) openCore(
 	})
 
 	return &control.Core{
-		Config:    config,
-		Upstreams: upstreams,
-		Runtime:   assembled.Runtime,
-		Store:     assembled.Store,
-		Handle:    assembled.Handle,
-		Sessions:  sessions,
-		Profiles:  profiles,
-		Workers:   workers,
-		Turns:     turns,
-		Events:    relay,
-		Metrics:   metricRegistry,
+		Config:      config,
+		Upstreams:   upstreams,
+		Runtime:     assembled.Runtime,
+		Store:       assembled.Store,
+		Handle:      assembled.Handle,
+		Sessions:    sessions,
+		AgentSpaces: agentSpaces,
+		Workers:     workers,
+		Turns:       turns,
+		Events:      relay,
+		Metrics:     metricRegistry,
 	}, nil
 }
 
@@ -280,41 +277,46 @@ func (s *ControlCore) closeCore(ctx context.Context, core *control.Core) error {
 // deployment configuration.
 // newWorkerSupervisor wires the session worker supervisor.
 //
-// A Docker launcher is registered only when this controller can actually reach
-// a Docker socket AND can build a launcher for it. Without one, a Docker
-// profile is refused rather than run somewhere else, which is what keeps an
-// isolation promise from quietly becoming a host process.
+// A Docker launcher is registered only when this controller can reach a Docker
+// daemon. Without one, a Docker agent space is refused rather than run
+// somewhere else, which is what keeps an isolation promise from quietly
+// becoming a host process.
 //
-// A socket that is present but unusable degrades the same way rather than
-// failing startup. The common case is a controller started with numeric
-// `--user uid:gid` whose UID has no passwd entry in the image, which leaves
-// every native profile working and only Docker profiles refused.
+// A reachable daemon removes the control agent space, so Docker agent spaces
+// are then the only ones offered. If their launcher cannot be built, startup
+// fails with the reason: a controller that reports ready while no agent space
+// can run is worse than one that refuses to start.
 func newWorkerSupervisor(
-	ctx context.Context,
 	config peenconfig.Config,
 	store *session.Store,
-	profiles *worker.ProfileSet,
+	agentSpaces *worker.AgentSpaceSet,
 	publisher protocol.Publisher,
 ) (*supervisor.Supervisor, error) {
-	nativeLauncher, err := native.New(native.Options{})
+	controlLauncher, err := controlspace.New(controlspace.Options{})
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "create the native worker launcher")
+		return nil, ctxerrors.Wrap(err, "create the control worker launcher")
 	}
 
 	launchers := map[worker.Kind]worker.Launcher{
-		worker.KindNative: nativeLauncher,
+		worker.KindControl: controlLauncher,
 	}
 
-	// A deployment override replaces every profile's own image, so it is
-	// checked here rather than when a session first asks for a worker.
-	workerImage := resolveWorkerImage(config)
+	imageOverride, imageFallback := resolveWorkerImages(config)
 
-	registerDockerLauncher(ctx, config, workerImage, launchers)
+	if err := registerDockerLauncher(
+		config,
+		agentSpaces,
+		imageOverride,
+		imageFallback,
+		launchers,
+	); err != nil {
+		return nil, err
+	}
 
 	built, err := supervisor.New(supervisor.Options{
 		Publisher:       publisher,
 		Store:           store,
-		Profiles:        profiles,
+		AgentSpaces:     agentSpaces,
 		Launchers:       launchers,
 		SocketRoot:      config.WorkerSocketRoot(),
 		ConfigDirectory: config.ConfigDirectory,
@@ -326,63 +328,73 @@ func newWorkerSupervisor(
 	return built, nil
 }
 
-// resolveWorkerImage decides which image a Docker worker runs.
+// resolveWorkerImages decides which image a Docker worker runs.
 //
-// An operator override wins. Otherwise the controller runs the worker image
-// published alongside this build, which is what lets a release name its own
-// worker without anyone writing an image into configuration. The version comes
-// from the process scope the binary stamps at startup.
-func resolveWorkerImage(config peenconfig.Config) string {
-	if configured := strings.TrimSpace(config.WorkerImage); configured != "" {
-		return configured
-	}
+// PEEN_WORKER_IMAGE, when set, replaces every profile's image. Without it a
+// profile's own image applies, and a profile that names none runs the fallback:
+// the image published alongside this build, which is what lets a release name
+// its own worker without anyone writing an image into configuration. The
+// version comes from the process scope the binary stamps at startup.
+func resolveWorkerImages(config peenconfig.Config) (string, string) {
+	override := strings.TrimSpace(config.WorkerImage)
 
 	version, _ := ctxscope.GetGlobal()[buildVersionScopeKey].(string)
 
-	return worker.ImageForBuildVersion(version)
+	return override, worker.ImageForBuildVersion(version)
 }
 
 // registerDockerLauncher adds the Docker launcher when this controller can
-// both reach a Docker socket and build a launcher over it.
+// reach a Docker daemon, and fails when it then cannot build one.
 //
-// A socket it cannot use leaves Docker profiles refused rather than failing
-// startup, which is the same outcome as having no socket at all. Every other
-// profile keeps working, so one unusable capability does not take down a
-// controller whose sessions may never ask for it.
+// Reaching a daemon removes the control agent space, so the Docker agent
+// spaces are the only ones offered. A launcher failure here is not a degraded
+// mode, it is a controller that can run nothing, and the error names the usual
+// cause: a numeric `--user uid:gid` whose UID has no passwd entry in the image.
 func registerDockerLauncher(
-	ctx context.Context,
 	config peenconfig.Config,
-	workerImage string,
+	agentSpaces *worker.AgentSpaceSet,
+	imageOverride, imageFallback string,
 	launchers map[worker.Kind]worker.Launcher,
-) {
-	if !config.HasDockerAuthority() {
-		return
+) error {
+	authority := config.DockerAuthority()
+	if !authority.Present() {
+		return nil
 	}
 
-	dockerLauncher, err := newDockerLauncher(config, workerImage)
+	dockerLauncher, err := newDockerLauncher(
+		config,
+		authority,
+		agentSpaces,
+		imageOverride,
+		imageFallback,
+	)
 	if err != nil {
-		ctxscope.GetLogger(ctx).Warn(
-			"docker worker launcher unavailable, docker profiles refused",
-			"reason", reasonDockerLauncherUnavailable,
-			"docker_socket_path", config.DockerSocketPath(),
-			"err", err,
+		return ctxerrors.Wrapf(
+			err,
+			"the controller reaches the Docker daemon at %s, so only Docker "+
+				"agent spaces are offered, but no Docker worker launcher "+
+				"can be built; a controller run with a numeric --user needs "+
+				"PEEN_HOST_USERNAME and PEEN_HOST_HOME",
+			authority,
 		)
-
-		return
 	}
 
 	launchers[worker.KindDocker] = dockerLauncher
+
+	return nil
 }
 
 // newDockerLauncher builds the Docker worker launcher for a controller that
-// has its own Docker socket.
+// reaches a Docker daemon.
 //
-// It is only reached when HasDockerAuthority already confirmed the socket, so a
-// failure here is a real misconfiguration, such as a control account that
-// cannot own worker files, rather than an absent daemon.
+// Peen launches workers only through a local socket, so a daemon reachable only
+// over TCP fails here. A `docker: full` agent space whose socket group cannot
+// be granted fails here too, so the refusal happens at startup.
 func newDockerLauncher(
 	config peenconfig.Config,
-	workerImage string,
+	authority peenconfig.DockerAuthority,
+	agentSpaces *worker.AgentSpaceSet,
+	imageOverride, imageFallback string,
 ) (*dockerworker.Launcher, error) {
 	identity, err := dockerworker.CurrentHostIdentityWithOverride(
 		config.HostUsername,
@@ -403,16 +415,27 @@ func newDockerLauncher(
 		)
 	}
 
-	client, err := dockerworker.NewDaemonClient(config.DockerSocketPath())
+	client, err := dockerworker.NewDaemonClient(authority.SocketPath)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create the Docker daemon client")
+	}
+
+	socketGID := dockerworker.SocketGID(authority.SocketPath)
+
+	if err := dockerworker.ValidateFullAccessSocket(
+		agentSpaces,
+		socketGID,
+	); err != nil {
+		return nil, ctxerrors.Wrap(err, "validate the Docker socket grant")
 	}
 
 	launcher, err := dockerworker.New(dockerworker.Options{
 		Client:             client,
 		Identity:           identity,
-		Image:              workerImage,
-		DockerSocketGID:    dockerworker.SocketGID(config.DockerSocketPath()),
+		ImageOverride:      imageOverride,
+		ImageFallback:      imageFallback,
+		DockerSocketPath:   authority.SocketPath,
+		DockerSocketGID:    socketGID,
 		RuntimeEnvironment: runtimeEnvironment,
 	})
 	if err != nil {
@@ -425,7 +448,7 @@ func newDockerLauncher(
 func newSessionRegistry(
 	config peenconfig.Config,
 	store *session.Store,
-	profiles *worker.ProfileSet,
+	agentSpaces *worker.AgentSpaceSet,
 	workers *supervisor.Supervisor,
 ) (*control.Registry, error) {
 	roots, err := config.WorkspaceRoots()
@@ -441,7 +464,7 @@ func newSessionRegistry(
 	registry, err := control.NewRegistry(control.RegistryOptions{
 		Store:        store,
 		Policy:       policy,
-		Profiles:     profiles,
+		AgentSpaces:  agentSpaces,
 		Workers:      workers,
 		RootAgent:    config.Agent,
 		DefaultModel: config.DefaultModel,

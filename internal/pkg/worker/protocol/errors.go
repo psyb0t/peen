@@ -24,18 +24,18 @@ type Code string
 
 const (
 	CodeUnknown          Code = "unknown"
-	CodeNotFound         Code = "not_found"
-	CodeAlreadyExists    Code = "already_exists"
+	CodeNotFound         Code = "notFound"
+	CodeAlreadyExists    Code = "alreadyExists"
 	CodeConflict         Code = "conflict"
-	CodeValidation       Code = "validation_failed"
-	CodePermissionDenied Code = "permission_denied"
-	CodeLockHeld         Code = "lock_held"
+	CodeValidation       Code = "validationFailed"
+	CodePermissionDenied Code = "permissionDenied"
+	CodeLockHeld         Code = "lockHeld"
 	CodeCancelled        Code = "cancelled"
-	CodeNotImplemented   Code = "not_implemented"
+	CodeNotImplemented   Code = "notImplemented"
 
-	CodeRunningTurnSettingsChange Code = "running_turn_settings_change"
-	CodeUserMessageQueueFull      Code = "user_message_queue_full"
-	CodeUnknownSkill              Code = "unknown_skill"
+	CodeRunningTurnSettingsChange Code = "runningTurnSettingsChange"
+	CodeUserMessageQueueFull      Code = "userMessageQueueFull"
+	CodeUnknownSkill              Code = "unknownSkill"
 )
 
 // Error is one failure as it crosses the socket.

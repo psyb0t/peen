@@ -11,10 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const (
-	assembleTestCoreAgent   = "core:general-purpose"
-	assembleTestLegacyAgent = "default"
-)
+const assembleTestCoreAgent = "core:general-purpose"
 
 func assembleFailureOptions(
 	t *testing.T,
@@ -46,11 +43,6 @@ func TestAssembleFailsWhenTheRootAgentResolvesToNothing(t *testing.T) {
 		options   []harness.ResolverOption
 		wantText  string
 	}{
-		{
-			name:      "legacy default without a custom agent",
-			rootAgent: assembleTestLegacyAgent,
-			wantText:  assembleTestCoreAgent,
-		},
 		{
 			name:      "disabled core agent",
 			rootAgent: assembleTestCoreAgent,

@@ -55,9 +55,9 @@ func TestRunnerAppliesConfigHooksThenWorkspaceHooks(t *testing.T) {
 	t.Parallel()
 
 	snapshot, workspace := testSnapshot(t, `version: 1
-pre_tool_use:
+preToolUse:
   - match:
-      tool: write_file
+      tool: writeFile
       root: internal
       path: "**/*.go"
       extensions: [".go"]
@@ -68,9 +68,9 @@ pre_tool_use:
       - type: inject
         message: config write rule
 `, `version: 1
-pre_tool_use:
+preToolUse:
   - match:
-      tool: write_file
+      tool: writeFile
     actions:
       - type: inject
         message: workspace write rule
@@ -78,7 +78,7 @@ pre_tool_use:
 
 	invocation := Invocation{
 		Event: harness.HookEventPreToolUse,
-		Tool:  "write_file",
+		Tool:  "writeFile",
 		Paths: []string{filepath.Join(workspace, "internal", "check.go")},
 		Input: json.RawMessage(`{"expectedSha256":"abc"}`),
 	}
@@ -97,9 +97,9 @@ func TestRunnerPassesFullEventToCommandAndHonorsItsDecision(t *testing.T) {
 	t.Parallel()
 
 	snapshot, workspace := testSnapshot(t, `version: 1
-pre_tool_use:
+preToolUse:
   - match:
-      tool: read_file
+      tool: readFile
     actions:
       - type: command
         command: check-file
@@ -141,7 +141,7 @@ pre_tool_use:
 	outcome, err := runner.Run(context.Background(), Invocation{
 		Event:     harness.HookEventPreToolUse,
 		SessionID: sessionID,
-		Tool:      "read_file",
+		Tool:      "readFile",
 		CallID:    "call_1",
 		Paths:     []string{filepath.Join(workspace, "readme.md")},
 		Input:     json.RawMessage(`{"path":"readme.md"}`),
@@ -158,7 +158,7 @@ pre_tool_use:
 	require.NoError(t, json.Unmarshal(received.Stdin, &invocation))
 	assert.Equal(t, harness.HookEventPreToolUse, invocation.Event)
 	assert.Equal(t, sessionID, invocation.SessionID)
-	assert.Equal(t, "read_file", invocation.Tool)
+	assert.Equal(t, "readFile", invocation.Tool)
 	assert.Equal(t, 73, invocation.ContextTokens)
 	assert.Equal(
 		t,
@@ -182,9 +182,9 @@ func TestRunnerBoundsACommandByItsTimeoutDuration(t *testing.T) {
 	const defaultBound = time.Hour
 
 	snapshot, workspace := testSnapshot(t, `version: 1
-pre_tool_use:
+preToolUse:
   - match:
-      tool: read_file
+      tool: readFile
     actions:
       - type: command
         command: bounded
@@ -212,7 +212,7 @@ pre_tool_use:
 
 	_, err = runner.Run(context.Background(), Invocation{
 		Event: harness.HookEventPreToolUse,
-		Tool:  "read_file",
+		Tool:  "readFile",
 		Paths: []string{filepath.Join(workspace, "readme.md")},
 		Input: json.RawMessage(`{"path":"readme.md"}`),
 	})
@@ -227,7 +227,7 @@ func TestRunnerUsesStablePrivateStatePerSession(t *testing.T) {
 	t.Parallel()
 
 	snapshot, workspace := testSnapshot(t, `version: 1
-pre_tool_use:
+preToolUse:
   - actions:
       - type: command
         command: state-check
@@ -277,7 +277,7 @@ func TestRunnerRejectsUnreplayableCommandEventData(t *testing.T) {
 	t.Parallel()
 
 	snapshot, workspace := testSnapshot(t, `version: 1
-pre_tool_use:
+preToolUse:
   - actions:
       - type: command
         command: poisoned-hook
@@ -360,7 +360,7 @@ func TestRunnerFailsCommandEventsOverSizeLimits(t *testing.T) {
 			t.Parallel()
 
 			snapshot, workspace := testSnapshot(t, `version: 1
-pre_tool_use:
+preToolUse:
   - actions:
       - type: command
         command: noisy-hook
@@ -393,10 +393,10 @@ func TestRunnerFailsEmitEventActionOverPublisherLimit(t *testing.T) {
 	const summaryBound = 8
 
 	snapshot, workspace := testSnapshot(t, `version: 1
-pre_tool_use:
+preToolUse:
   - actions:
-      - type: emit_event
-        event_type: repo.script.changed
+      - type: emitEvent
+        eventType: repo.script.changed
         summary: This summary is longer than the bound.
 `, "")
 	publisher := &limitedTestPublisher{
@@ -431,7 +431,7 @@ func TestRunnerFailsCommandEventsWithReservedTypes(t *testing.T) {
 			t.Parallel()
 
 			snapshot, workspace := testSnapshot(t, `version: 1
-pre_tool_use:
+preToolUse:
   - actions:
       - type: command
         command: forger
@@ -459,16 +459,16 @@ pre_tool_use:
 	}
 }
 
-// data is optional on both an emit_event action and a command's events, so an
+// data is optional on both an emitEvent action and a command's events, so an
 // event without it publishes with no payload instead of failing the action.
 func TestRunnerPublishesEventsWithoutData(t *testing.T) {
 	t.Parallel()
 
 	snapshot, workspace := testSnapshot(t, `version: 1
-post_tool_use:
+postToolUse:
   - actions:
-      - type: emit_event
-        event_type: repo.script.changed
+      - type: emitEvent
+        eventType: repo.script.changed
         summary: A script changed.
       - type: command
         command: reporter
@@ -503,7 +503,7 @@ func TestRunnerRejectsPreActionWhenTokenEstimateFails(t *testing.T) {
 	t.Parallel()
 
 	snapshot, workspace := testSnapshot(t, `version: 1
-pre_tool_use:
+preToolUse:
   - actions:
       - type: command
         command: token-check
@@ -545,10 +545,10 @@ func TestRunnerDebugLogsEveryHookLifecycleAndName(t *testing.T) {
 	t.Cleanup(func() { slog.SetDefault(originalLogger) })
 
 	snapshot, workspace := testSnapshot(t, `version: 1
-pre_tool_use:
+preToolUse:
   - name: protected-read
     match:
-      tool: read_file
+      tool: readFile
     actions:
       - name: record-check
         type: command
@@ -568,12 +568,12 @@ pre_tool_use:
 	_, err = runner.Run(context.Background(), Invocation{
 		Event:     harness.HookEventPreToolUse,
 		SessionID: uuid.New(),
-		Tool:      "read_file",
+		Tool:      "readFile",
 	})
 	require.NoError(t, err)
 	_, err = runner.Run(context.Background(), Invocation{
 		Event: harness.HookEventPreReadFile,
-		Tool:  "read_file",
+		Tool:  "readFile",
 	})
 	require.NoError(t, err)
 
@@ -595,18 +595,18 @@ pre_tool_use:
 
 	assert.Contains(t, logs, `"hook_name":"protected-read"`)
 	assert.Contains(t, logs, `"hook_action_name":"record-check"`)
-	assert.Contains(t, logs, `"hook_event":"pre_read_file"`)
+	assert.Contains(t, logs, `"hook_event":"preReadFile"`)
 }
 
 func TestRunnerDeniesPreActionFailuresAndContinuesPostFailures(t *testing.T) {
 	t.Parallel()
 
 	snapshot, workspace := testSnapshot(t, `version: 1
-pre_tool_use:
+preToolUse:
   - actions:
       - type: command
         command: pre-check
-post_tool_use:
+postToolUse:
   - actions:
       - type: command
         command: post-check
@@ -646,11 +646,11 @@ func TestRunnerCanExplicitlyContinueAfterAPreActionFailure(t *testing.T) {
 	t.Parallel()
 
 	snapshot, workspace := testSnapshot(t, `version: 1
-pre_tool_use:
+preToolUse:
   - actions:
       - type: command
         command: failed-check
-        on_failure: continue
+        onFailure: continue
       - type: inject
         message: the next action still runs
 `, "")
@@ -681,7 +681,7 @@ func TestRunnerDenialNeverDegradesToPostFailure(t *testing.T) {
 	t.Parallel()
 
 	snapshot, workspace := testSnapshot(t, `version: 1
-post_tool_use:
+postToolUse:
   - actions:
       - type: deny
         reason: Stop here.
@@ -724,6 +724,30 @@ func TestRunCommandPassesOnlyPathAndDeclaredEnvironment(t *testing.T) {
 	assert.Contains(t, string(output), "HOOK_TEST_VALUE=declared")
 	assert.NotContains(t, string(output), "HOME=")
 	assert.NotContains(t, string(output), "PEEN_API_TOKEN=")
+}
+
+// A hook command never inherits the process environment, whatever the
+// controller or worker holds in it. It sets process variables, so it does not
+// run in parallel.
+func TestRunCommandDoesNotInheritProcessSecrets(t *testing.T) {
+	const (
+		apiTokenValue   = "hook-test-api-token-value"
+		providerKeyName = "HOOK_TEST_PROVIDER_KEY"
+		providerKey     = "hook-test-provider-key-value"
+	)
+
+	t.Setenv("PEEN_API_TOKEN", apiTokenValue)
+	t.Setenv(providerKeyName, providerKey)
+
+	output, err := runCommand(context.Background(), CommandInput{
+		Command:    "/usr/bin/env",
+		WorkingDir: t.TempDir(),
+		MaxOutput:  defaultCommandOutput,
+	})
+	require.NoError(t, err)
+	assert.NotContains(t, string(output), apiTokenValue)
+	assert.NotContains(t, string(output), providerKeyName)
+	assert.NotContains(t, string(output), providerKey)
 }
 
 func TestRunCommandStopsWhenItsContextExpires(t *testing.T) {
@@ -786,6 +810,26 @@ func testSnapshot(
 	require.NoError(t, err)
 
 	return snapshot, workspace
+}
+
+func TestIsPreEventCoversEveryHookEvent(t *testing.T) {
+	t.Parallel()
+
+	for _, event := range harness.HookEvents() {
+		want := strings.HasPrefix(string(event), "pre") ||
+			event == harness.HookEventSessionStart ||
+			event == harness.HookEventTurnStart
+
+		assert.Equal(t, want, isPreEvent(event), string(event))
+	}
+
+	assert.True(t, isPreEvent(harness.HookEventPreReadFile))
+	assert.False(t, isPreEvent(harness.HookEventPostReadFile))
+	assert.False(t, isPreEvent(harness.HookEventReadFileFailure))
+	assert.False(t, isPreEvent(harness.HookEventTurnStop))
+
+	assert.False(t, isPreEvent("pre"))
+	assert.False(t, isPreEvent("preparation"))
 }
 
 func writeHookFixture(t *testing.T, root string, content string) {

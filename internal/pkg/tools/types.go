@@ -27,6 +27,11 @@ type Options struct {
 	// Workspace is the already canonicalized default directory for the turn.
 	Workspace string
 	Limits    Limits
+
+	// Environment is the base environment of every command, as KEY=VALUE
+	// entries. Nil means the process environment. A deployment that holds
+	// secrets in its own environment passes a copy without them.
+	Environment []string
 }
 
 // ListFilesInput selects one directory listing.
@@ -130,7 +135,7 @@ type EditFileOutput struct {
 	SHA256        string `json:"sha256"`
 }
 
-// PatchOperation identifies one file-level apply_patch action.
+// PatchOperation identifies one file-level applyPatch action.
 type PatchOperation string
 
 // PatchOutcome identifies whether one reported operation fully completed.
@@ -256,14 +261,14 @@ const (
 	// its exit code.
 	JobStateExited JobState = "exited"
 	// JobStateSignalled marks a job terminated by a signal, whether sent
-	// through signal_job, shutdown, or an outside actor.
+	// through signalJob, shutdown, or an outside actor.
 	JobStateSignalled JobState = "signalled"
 	// JobStateFailed marks a job that could not be launched or whose wait
 	// failed in a way that is neither a normal exit nor a signal.
 	JobStateFailed JobState = "failed"
 )
 
-// JobStream selects which output stream(s) read_job_output returns.
+// JobStream selects which output stream(s) readJobOutput returns.
 type JobStream = string
 
 const (
@@ -275,7 +280,7 @@ const (
 	JobStreamBoth JobStream = "both"
 )
 
-// JobSignal selects how signal_job asks a job's process group to stop.
+// JobSignal selects how signalJob asks a job's process group to stop.
 type JobSignal = string
 
 const (
@@ -286,7 +291,7 @@ const (
 	JobSignalKill JobSignal = "kill"
 )
 
-// JobSummary describes one job for list_jobs: identity, attribution,
+// JobSummary describes one job for listJobs: identity, attribution,
 // timing, and how much of its output is currently buffered or already
 // dropped.
 type JobSummary struct {
@@ -357,7 +362,7 @@ type WaitJobInput struct {
 	StderrCursor int       `json:"stderrCursor"`
 }
 
-// WaitJobOutput reports the job's status once wait_job returns, plus
+// WaitJobOutput reports the job's status once waitJob returns, plus
 // whatever output arrived during the wait. Found is false when JobID is not
 // a job in this session; Running is true when the bound elapsed first.
 // Duration is DurationMs rendered as a Go duration string.
@@ -385,7 +390,7 @@ type SignalJobInput struct {
 	Signal JobSignal `json:"signal"`
 }
 
-// SignalJobOutput reports the job's state at the moment signal_job was
+// SignalJobOutput reports the job's state at the moment signalJob was
 // called, not necessarily its state once the signal takes effect. Found is
 // false when JobID is not a job in this session; that is reported, not
 // failed.

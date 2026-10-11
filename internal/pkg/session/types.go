@@ -32,10 +32,10 @@ type OpenSessionOptions struct {
 	RootAgent string
 	ModelID   string
 
-	// ExecutionProfile is the operator-defined profile a newly created session
-	// runs under. Opening an existing session never changes its profile, so
-	// this only applies to creation.
-	ExecutionProfile string
+	// AgentSpace is the agent space a newly created session runs in. Opening
+	// an existing session never changes its agent space, so this only applies
+	// to creation.
+	AgentSpace string
 }
 
 // OpenSessionResult is a resolved session and whether this call created it.
@@ -304,16 +304,16 @@ type WorkerGenerationPage struct {
 	HasMore bool
 }
 
-// ListProfileDecisionsOptions controls a bounded page of one session's
-// execution profile decisions.
-type ListProfileDecisionsOptions struct {
+// ListAgentSpaceDecisionsOptions controls a bounded page of one session's
+// agent space decisions.
+type ListAgentSpaceDecisionsOptions struct {
 	Limit  int
 	Offset int
 }
 
-// ProfileDecisionPage is one complete page of profile decisions.
-type ProfileDecisionPage struct {
-	Items   []*models.SessionProfileDecision
+// AgentSpaceDecisionPage is one complete page of agent space decisions.
+type AgentSpaceDecisionPage struct {
+	Items   []*models.SessionAgentSpaceDecision
 	Limit   int
 	Offset  int
 	HasMore bool

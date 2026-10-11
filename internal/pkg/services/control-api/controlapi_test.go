@@ -20,7 +20,7 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/worker"
-	"github.com/psyb0t/peen/internal/pkg/worker/native"
+	"github.com/psyb0t/peen/internal/pkg/worker/controlspace"
 	"github.com/psyb0t/peen/internal/pkg/worker/supervisor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -82,10 +82,14 @@ func newAPIFixture(t *testing.T) apiFixture {
 	)
 
 	config := peenconfig.Config{
-		ConfigDirectory:        configDirectory,
-		StateDirectory:         filepath.Join(root, "state"),
-		WorkingDirectory:       workspaceDirectory,
-		WorkerSocketDirectory:  shortWorkerSocketDirectory(t),
+		ConfigDirectory:       configDirectory,
+		StateDirectory:        filepath.Join(root, "state"),
+		WorkingDirectory:      workspaceDirectory,
+		WorkerSocketDirectory: shortWorkerSocketDirectory(t),
+
+		// No Docker socket, so the control agent space is offered and is the
+		// default whatever the machine running the test can reach.
+		DockerSocket:           filepath.Join(root, "no-docker.sock"),
 		Agent:                  apiTestAgentName,
 		UpstreamsJSON:          apiTestUpstreamsJSON,
 		DefaultModel:           apiTestModelReference,
@@ -98,6 +102,8 @@ func newAPIFixture(t *testing.T) apiFixture {
 		MetricsListenAddress:   reserveLoopbackAddress(t),
 		APIToken:               apiTestToken,
 	}
+	config = config.WithDockerEnvironment("", filepath.Join(root, "no-docker.sock"))
+
 	require.NoError(t, config.Validate())
 
 	core := newTestCore(t, config)
@@ -157,7 +163,7 @@ func newTestCore(t *testing.T, config peenconfig.Config) *control.Core {
 	)
 	require.NoError(t, err)
 
-	profiles, err := config.ExecutionProfiles()
+	agentSpaces, err := config.AgentSpaces()
 	require.NoError(t, err)
 
 	// The relay is the supervisor's publisher here exactly as it is in
@@ -165,14 +171,14 @@ func newTestCore(t *testing.T, config peenconfig.Config) *control.Core {
 	// the same object a worker would write through.
 	relay := control.NewEventRelay()
 
-	nativeLauncher, err := native.New(native.Options{})
+	controlLauncher, err := controlspace.New(controlspace.Options{})
 	require.NoError(t, err)
 
 	workers, err := supervisor.New(supervisor.Options{
-		Store:    assembled.Store,
-		Profiles: profiles,
+		Store:       assembled.Store,
+		AgentSpaces: agentSpaces,
 		Launchers: map[worker.Kind]worker.Launcher{
-			worker.KindNative: nativeLauncher,
+			worker.KindControl: controlLauncher,
 		},
 		Publisher:       relay,
 		SocketRoot:      config.WorkerSocketRoot(),
@@ -183,7 +189,7 @@ func newTestCore(t *testing.T, config peenconfig.Config) *control.Core {
 	sessions, err := control.NewRegistry(control.RegistryOptions{
 		Store:        assembled.Store,
 		Policy:       policy,
-		Profiles:     profiles,
+		AgentSpaces:  agentSpaces,
 		RootAgent:    config.Agent,
 		DefaultModel: config.DefaultModel,
 		Workers:      workers,
@@ -194,16 +200,16 @@ func newTestCore(t *testing.T, config peenconfig.Config) *control.Core {
 	require.NoError(t, err)
 
 	return &control.Core{
-		Config:   config,
-		Runtime:  assembled.Runtime,
-		Store:    assembled.Store,
-		Handle:   assembled.Handle,
-		Sessions: sessions,
-		Profiles: profiles,
-		Workers:  workers,
-		Turns:    turns,
-		Events:   relay,
-		Metrics:  metrics.New(),
+		Config:      config,
+		Runtime:     assembled.Runtime,
+		Store:       assembled.Store,
+		Handle:      assembled.Handle,
+		Sessions:    sessions,
+		AgentSpaces: agentSpaces,
+		Workers:     workers,
+		Turns:       turns,
+		Events:      relay,
+		Metrics:     metrics.New(),
 	}
 }
 

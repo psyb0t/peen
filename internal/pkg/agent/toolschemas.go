@@ -75,9 +75,9 @@ offset is the 1-based first line and limit is the line count.
 The result reports firstLine, lastLine, totalLines, and the sha256 of the
 WHOLE file, not of the window.
 When truncated is true, call again with offset set to the nextOffset.
-Binary files are rejected. Use run_command for those.
-Reading a file is what makes it eligible for write_file, edit_file,
-apply_patch, move_path, and remove_path in this turn. A directory listing
+Binary files are rejected. Use runCommand for those.
+Reading a file is what makes it eligible for writeFile, editFile,
+applyPatch, movePath, and removePath in this turn. A directory listing
 does not count as reading a regular file.`
 
 const readFileSchema = `{
@@ -109,7 +109,7 @@ appears concurrently.
 Replacing an EXISTING file requires reading it first in this turn and
 passing its current expectedSha256. A mismatch means the file changed
 underneath you and the write is refused.
-Prefer edit_file for a targeted change. This tool replaces everything.
+Prefer editFile for a targeted change. This tool replaces everything.
 The write is atomic and preserves the existing file's permission mode.`
 
 const writeFileSchema = `{
@@ -278,8 +278,8 @@ default. It bounds how long THIS CALL WAITS, never how long the command may
 run. A command still running when the bound elapses is left running and you get
 a jobId back, with running true. That is how you start builds, servers, and
 long test runs. Use background true to skip the wait entirely.
-Follow a running job with read_job_output, block on it with wait_job, and
-stop it with signal_job. Clean up what you no longer need.
+Follow a running job with readJobOutput, block on it with waitJob, and
+stop it with signalJob. Clean up what you no longer need.
 stdout and stderr come back separately with the exit status. A non-zero exit
 is a normal result to read and react to, not a tool failure.
 Output is bounded and drops oldest, reporting how many lines it dropped.

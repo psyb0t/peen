@@ -39,7 +39,7 @@ const readJobOutputSchema = `{
     "jobId": {
       "type": "string",
       "format": "uuid",
-      "description": "The job to read, from run_command or list_jobs."
+      "description": "The job to read, from runCommand or listJobs."
     },
     "stream": {
       "type": "string",

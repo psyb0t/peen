@@ -77,6 +77,8 @@ cd "$root/workspace"
 "$root/build/peen" run
 ```
 
+A bare run uses the `control` agent space, so the agent has the access of your user. If your user can use a Docker daemon, for example because it is in the `docker` group, Peen refuses `control` and runs each workspace in its own container instead, and a source build needs `PEEN_WORKER_IMAGE` for that. See [where it runs](where-it-runs.md#the-docker-socket-rule).
+
 If you have a matching local Go toolchain and prefer to skip Docker for the
 build step itself:
 
@@ -115,25 +117,26 @@ stage compiles the same static binary as `make build`; the runtime stage is
 Ubuntu 24.04, pinned by image digest, with `ca-certificates`, `curl`, `git`,
 `jq`, `less`, `ripgrep`, `sudo`, `tini`, `tzdata`, `unzip`, and `util-linux`
 installed. `sudo` authorizes nobody by default: the image ships no sudoers rule,
-and only a worker on a profile with `allowPrivilegeEscalation` writes one for
-its own account. `util-linux` supplies the `setpriv` the entrypoint drops
+and only a worker on a Docker profile with `sudo: true` writes one for its own
+account. `util-linux` supplies the `setpriv` the entrypoint drops
 privileges with. Ubuntu was
-chosen deliberately: `run_command` needs a real shell and utilities, so the
+chosen deliberately: `runCommand` needs a real shell and utilities, so the
 runtime image is the agent's toolbox, not just a binary carrier. A
 distroless or scratch image would leave the agent with nothing to run
 commands with.
 
 The image defaults to a fixed non-root user, UID and GID `10001` (`appuser`),
-under `tini` as PID 1 so processes `run_command` spawns get reaped instead of
+under `tini` as PID 1 so processes `runCommand` spawns get reaped instead of
 becoming zombies. The default command is `run`, so `docker run peen` starts a
 control plane. When that controller will work with host bind mounts or launch
 Docker workers, run it as your host UID and GID as shown below.
 
-The same image is also the worker image. A controller on a Docker execution
-profile creates `peen-worker-<session-uuid>` from it with the `worker` command
-and hands that worker its launch document on stdin. That path needs the
-controller to reach a Docker socket; see [Docker
-profiles](#docker-execution-profiles) below.
+The same image is also the worker image. A controller creates
+`peen-worker-<session-uuid>` from it with the `worker` command for a session in
+a Docker agent space, and hands that worker its launch document on stdin. That
+path needs the controller to reach a Docker socket; see [Docker agent
+spaces](#docker-agent-spaces) below. [Where it runs](where-it-runs.md) explains
+the agent spaces and the three ways to run the controller.
 
 The image carries no `HEALTHCHECK`, because only the control-plane role listens
 on HTTP and a worker container would report permanently unhealthy against any
@@ -151,12 +154,9 @@ healthcheck:
 
 ### Durable state and mounts
 
-Peen keeps two directories apart. `PEEN_CONFIG_DIR` holds `AGENTS.md` and the
-harness files, and every Docker worker receives it read-only. `PEEN_STATE_DIR`
-holds the SQLite database, the audit logs, and the worker sockets, and no worker
-receives it. Peen refuses to start when the two are the same path or one sits
-inside the other, because the read-only configuration mount would otherwise
-carry the database into every worker.
+Peen keeps two directories apart. `PEEN_CONFIG_DIR` holds `AGENTS.md` and the harness files, and every Docker worker receives it read-only. `PEEN_STATE_DIR` holds the SQLite database, the audit logs, and the worker sockets, and no Docker worker receives it. A `control` worker runs as the controller's user and reaches both. Peen refuses to start when the two are the same path or one sits inside the other, because the read-only configuration mount would otherwise carry the database into every Docker worker.
+
+Before 1.0 Peen does not migrate a database that an earlier version created. On open, Peen compares the database's schema with the schema its own migrations build, and refuses to start when they differ, with an error that names the files to delete. Stop Peen, delete `peen.db`, `peen.db-wal`, and `peen.db-shm` from `PEEN_STATE_DIR`, and start it again to create a new database. A leftover `peen.db-wal` next to a new `peen.db` makes SQLite try to replay it into the wrong file. Deleting the database discards every stored session, transcript, job record, and model call, so copy the three files first if you want to keep the history.
 
 The process working directory is the default allowed workspace root, and a
 session's canonical workspace path is its durable key. A Docker controller that
@@ -217,26 +217,19 @@ container's loopback interface at `127.0.0.1:9090`. Do not publish it with
 network namespace as Peen, or collect metrics through an operator-controlled
 local proxy that shares that namespace.
 
-### Docker execution profiles
+### Docker agent spaces
 
-A Docker execution profile runs a session's worker in a sibling container rather
-than as a child process of the controller. The controller needs its own Docker
-socket to create one. It resolves that socket from `PEEN_DOCKER_SOCKET`, then a
-`unix://` `DOCKER_HOST`, then `/var/run/docker.sock`, and decides at startup
-whether it has that authority. Without it, opening a session on a Docker profile
-is refused. Peen does not quietly run the worker natively instead.
+A Docker agent space runs a session's worker in a sibling container rather than as a child process of the controller. The controller needs its own Docker socket to create one, and decides at startup whether it has one, as [the Docker socket rule](where-it-runs.md#the-docker-socket-rule) describes. Without it, a session in a Docker agent space is refused. Peen does not quietly run the worker in the `control` agent space instead.
 
-A socket it can reach but cannot use degrades the same way. The controller logs
-the reason once at startup and keeps serving every other profile, rather than
-refusing to start over a capability those sessions may never ask for. The usual
-cause is a controller run with numeric `--user uid:gid` against an image that
-holds no account for that UID; set `PEEN_HOST_USERNAME` and `PEEN_HOST_HOME` to
-resolve it.
+A controller that can reach a Docker daemon refuses the `control` agent space, so the default becomes `docker:default` and every workspace gets its own container. [Where it runs](where-it-runs.md#the-docker-socket-rule) explains why.
+
+Because the Docker agent spaces are then the only ones offered, Peen refuses to start when it reaches a daemon but cannot build the Docker worker launcher. The usual cause is a controller run with numeric `--user uid:gid` against an image that holds no account for that UID. Set `PEEN_HOST_USERNAME` and `PEEN_HOST_HOME`, which the error names. A daemon reachable only through a `tcp://` `DOCKER_HOST` also stops startup, because Peen launches workers only through a local socket.
 
 Mounting the host Docker socket into the controller is what grants that
-authority, and it is host-root-equivalent. Do it only when you want sibling
-worker containers, and keep the controller itself behind the restrictions in the
-next section:
+authority, and it is host root for anything that can use the socket. Do it only
+when you want sibling worker containers, and keep the controller itself behind
+the restrictions in the next section. The container has no nested Docker daemon
+and no `--privileged`:
 
 ```bash
 docker run --rm \
@@ -265,12 +258,9 @@ literal path, and its own session socket directory writable, and runs as the
 controller's own host UID, GID, and username, so files it writes keep host
 ownership and a path means the same thing on both sides of the boundary.
 
-Three things are deliberately absent from a worker: `PEEN_STATE_DIR`, so the controller's database and audit logs are unreachable; the worker socket root, so one worker never learns another session's socket path; and any client or model supplied image selection. The operator selects an image in the execution profile.
+Three things are deliberately absent from a worker: `PEEN_STATE_DIR`, so the controller's database and audit logs are unreachable; the worker socket root, so one worker never learns another session's socket path; and any client or model supplied image selection. The operator selects an image with `PEEN_WORKER_IMAGE` or the Docker profile's `image`.
 
-The worker gets its own runtime settings and the named provider credentials for
-its model calls. It does not get the controller API token or controller Docker
-socket. A profile can independently grant a worker Docker socket, but that is a
-host-root-equivalent grant to the agent and must be deliberate.
+The worker gets its own runtime settings and the named provider credentials for its model calls. It does not get the controller API token or controller Docker socket. Commands the agent runs start without the provider credentials in their environment. A Docker profile can independently grant a worker the Docker socket with `docker: full`, but that is a host root grant to the agent and must be deliberate. [Docker access](configuration.md#docker-access) says how the socket reaches the worker.
 
 `make test-docker-worker-source` builds the Dockerfile in the current checkout,
 then creates one worker container, replaces the worker command with a probe,
@@ -279,43 +269,42 @@ controller database. `make test-docker-worker
 PEEN_DOCKER_WORKER_TEST_IMAGE=psyb0t/peen:<tag>` runs the same probe against a
 published image.
 
-A profile's `allowDockerSocket` is a separate decision from the controller's
-authority. It gives the worker itself access to the daemon, which is
-host-root-equivalent for the model's tools. `GET /v1/execution-profiles` reports
-such a profile with `hostRootEquivalent` true and a `capabilityWarning`.
+A profile's `docker: full` is a separate decision from the controller's
+authority. It gives the worker itself access to the daemon, which is host root
+for the model's tools. `GET /v1/agent-spaces` reports such a space with
+`hostRootEquivalent` true and a sentence in `capabilityWarnings`.
 
 A Docker worker starts as root only for entrypoint bootstrap. The entrypoint
 creates or reconciles the controller's host UID, GID, and username, then drops
-to that account before the agent runs. `allowPrivilegeEscalation` additionally
-writes a passwordless sudo rule for that account and removes the worker's
-`no-new-privileges` guard. See [privilege
-escalation](configuration.md#privilege-escalation).
+to that account before the agent runs. `sudo: true` additionally writes a
+passwordless sudo rule for that account and removes the worker's
+`no-new-privileges` guard. See [sudo](configuration.md#sudo).
 
-Peen builds each worker container itself from the named profile. The flags you
+Peen builds each worker container itself from the Docker profile. The flags you
 pass to `docker run` shape the controller, not its workers, so hardening the
 controller does not carry over. A worker's mounts, network, socket, and
-privileges come from `PEEN_EXECUTION_PROFILES` and nowhere else.
+sudo come from `PEEN_DOCKER_PROFILES` and nowhere else.
 
-A Docker worker calls the model provider itself. A profile without
-`allowNetwork: true` runs the worker with networking disabled, so it cannot
-reach a provider over the network.
+A Docker worker calls the model provider itself. A profile with `network: none`
+runs the worker with networking disabled, so it cannot reach a provider over the
+network. The default, `bridge`, can.
 
 ### Isolation is the operator's job, not the image's
 
 The Ubuntu base and the non-root controller account are the only isolation Peen
-ships with by default. `run_command` and the file tools still have whatever
+ships with by default. `runCommand` and the file tools still have whatever
 access the selected worker UID has: everything under the mounted
 `PEEN_CONFIG_DIR` and workspace, plus network access unless you restrict it.
 Read the root README's [Security](../README.md#security) section. Where to
-harden depends on the session's profile:
+harden depends on the session's agent space:
 
-- On the `native` profile the agent runs inside the controller container, so
+- In the `control` agent space the agent runs inside the controller container, so
   harden that container. Add `--network`, `--cap-drop`, `--read-only` (with
   writable mounts for the state directory and the workspace root, and the
   configuration directory mounted read-only), or a seccomp or AppArmor profile
-  as your deployment needs.
-- On a `docker` profile the agent runs in its own worker container, and
-  `docker run` flags affect only the controller. Harden the profile instead,
-  with `allowNetwork`, `mounts`, `allowDockerSocket`, and
-  `allowPrivilegeEscalation`. See
-  [execution profiles](configuration.md#execution-profiles).
+  as your deployment needs. Do not mount the Docker socket into it: Peen refuses
+  `control` beside a reachable socket.
+- In a `docker:<profile>` agent space the agent runs in its own worker container,
+  and `docker run` flags affect only the controller. Harden the Docker profile
+  instead, with `network`, `mounts`, `docker`, and `sudo`. See
+  [Docker profiles](where-it-runs.md#docker-profiles).

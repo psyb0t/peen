@@ -79,4 +79,15 @@ if ! bash "${script_dir}/servicepack/lint.sh"; then
 	log ERROR "run Servicepack lint checks"
 	exit 1
 fi
+
+# The Servicepack run above sees only untagged files. The black-box suites sit
+# behind these build tags, so lint them with every tag on.
+tagged_suites="integration,browser,real,dockerworker"
+log INFO "linting build-tagged test suites tags=${tagged_suites}"
+if ! go tool golangci-lint run --timeout=30m0s \
+	--max-issues-per-linter=0 --max-same-issues=0 \
+	--build-tags="${tagged_suites}" ./tests/...; then
+	log ERROR "lint build-tagged test suites"
+	exit 1
+fi
 log INFO "Peen lint checks completed"

@@ -33,7 +33,7 @@ const (
 
 	skillTestDocumentFormat = "---\nname: %s\ndescription: %s\n---\n%s"
 
-	skillTestCallID    = "call_use_skill"
+	skillTestCallID    = "call-use-skill"
 	skillTestFinalText = "used it"
 )
 
@@ -201,7 +201,7 @@ func resolvedSkillDirectory(t *testing.T, layer, name string) string {
 }
 
 // The reported directory has to be absolute. It is what a caller passes as
-// run_command's directory to launch a bundled script, and a relative path
+// runCommand's directory to launch a bundled script, and a relative path
 // would resolve against the message workspace instead of the skill.
 func TestUseSkillHandlerReportsAnAbsoluteDirectory(t *testing.T) {
 	t.Parallel()
@@ -461,7 +461,7 @@ func TestHostToolSetUseSkillEndToEnd(t *testing.T) {
 	assert.Contains(t, output.Content, skillTestOtherBody)
 }
 
-// One scripted use_skill call must produce a paired tool_use and tool_result
+// One scripted useSkill call must produce a paired tool_use and tool_result
 // on the event stream and a durable tool-role message, all sharing Elelem's
 // call ID, exactly like the host file tools in runtime_tools_test.go.
 func TestRuntimeRunExecutesUseSkillAndPairsCallID(t *testing.T) {

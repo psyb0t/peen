@@ -6,12 +6,12 @@ A session event, also called a notice, is a record of something that happened ou
 
 | Source | `source` value | Event types | When |
 | --- | --- | --- | --- |
-| Background jobs | `tools.job` | `job.exited`, `job.signalled`, `job.failed` | A command ends after its `run_command` call has already returned, because it ran in the background or outlived its timeout. |
-| Child agents | `agent.launch_agent` | `agent.finished`, `agent.failed` | A `launch_agent` run ends. A cancelled run counts as `agent.failed`. |
-| Hooks | `hooks` | any type except `job.*` and `agent.*`, plus `hook.action.failed` | An `emit_event` action runs, a hook command prints `events`, or a post-event hook action fails. See [Hooks](hooks.md). |
+| Background jobs | `tools.job` | `job.exited`, `job.signalled`, `job.failed` | A command ends after its `runCommand` call has already returned, because it ran in the background or outlived its timeout. |
+| Child agents | `agent.launchAgent` | `agent.finished`, `agent.failed` | A `launchAgent` run ends. A cancelled run counts as `agent.failed`. |
+| Hooks | `hooks` | any type except `job.*` and `agent.*`, plus `hook.action.failed` | An `emitEvent` action runs, a hook command prints `events`, or a post-event hook action fails. See [Hooks](hooks.md). |
 | Outside callers | `api` | any type except `job.*` and `agent.*` | Something calls `POST /v1/session/notices`. |
 
-`job.*` and `agent.*` are reserved for Peen. `POST /v1/session/notices` rejects them, a `hooks.yaml` file whose `emit_event` action names one is invalid, and a hook command that prints one fails its action. Only Peen's own jobs and child agents produce them.
+`job.*` and `agent.*` are reserved for Peen. `POST /v1/session/notices` rejects them, a `hooks.yaml` file whose `emitEvent` action names one is invalid, and a hook command that prints one fails its action. Only Peen's own jobs and child agents produce them.
 
 An event has a `type`, a `summary`, an optional JSON object `data`, and a `delivery` mode, `queue` or `wake`. Peen adds the `source`, an ID, and a timestamp. `POST /v1/session/notices` requires a non-empty `summary`. A hook may leave it empty. Peen does not check that a summary is one line, but keep it to one, because the model reads it as a headline. The built-in events look like this:
 
@@ -25,21 +25,21 @@ An event has a `type`, a `summary`, an optional JSON object `data`, and a `deliv
 
 `durationMs` is the run time in whole milliseconds, for programs. `duration` is the same value as a Go duration string such as `5.321s` or `1m30s`, for people and models.
 
-Peen publishes a child-agent event for every run, even though `launch_agent` already returned the child's answer as its tool result. For the model the event repeats what it already knows. It exists as a durable record and as something an [event handler](#waking-an-idle-session) can react to.
+Peen publishes a child-agent event for every run, even though `launchAgent` already returned the child's answer as its tool result. For the model the event repeats what it already knows. It exists as a durable record and as something an [event handler](#waking-an-idle-session) can react to.
 
 Event types are lowercase dotted names of 1 to 8 parts, up to 128 characters. Each part starts with a letter and holds only lowercase letters and digits, for example `ci.build.failed`.
 
 `PEEN_MAX_EVENT_SUMMARY_BYTES` (4096) limits `summary` and `PEEN_MAX_EVENT_DATA_BYTES` (65536) limits the encoded `data`. What happens over a limit depends on who sent the event:
 
 - `POST /v1/session/notices` rejects the request with `400 VALIDATION_FAILED`.
-- A hook `emit_event` action or command-printed event fails that action, and the normal [hook failure rules](hooks.md#failures) apply.
+- A hook `emitEvent` action or command-printed event fails that action, and the normal [hook failure rules](hooks.md#failures) apply.
 - Peen's own `job.*` and `agent.*` events are never rejected. Peen shortens an over-long summary to the limit without splitting a character, and leaves out over-size data.
 
 ## Background jobs
 
-`run_command` takes `command`, `purpose`, and optionally `directory`, `timeout`, and `background`. `timeout` is a Go duration string such as `"90s"`, `"5m"`, or `"1h30m"`. `wait_job` takes `timeout` in the same format. It defaults to `30s`, and Peen lowers any value above `10m` to `10m`. These two `wait_job` bounds are fixed. For `run_command`, a value above `PEEN_TOOL_MAX_COMMAND_TIMEOUT` is lowered to that maximum rather than rejected. A command that finishes within its timeout returns its exit code and output normally. A command still running when the timeout passes is not killed. Peen leaves it running as a job and returns a job handle with the output so far. `background: true` returns the handle right away.
+`runCommand` takes `command`, `purpose`, and optionally `directory`, `timeout`, and `background`. `timeout` is a Go duration string such as `"90s"`, `"5m"`, or `"1h30m"`. `waitJob` takes `timeout` in the same format. It defaults to `30s`, and Peen lowers any value above `10m` to `10m`. These two `waitJob` bounds are fixed. For `runCommand`, a value above `PEEN_TOOL_MAX_COMMAND_TIMEOUT` is lowered to that maximum rather than rejected. A command that finishes within its timeout returns its exit code and output normally. A command still running when the timeout passes is not killed. Peen leaves it running as a job and returns a job handle with the output so far. `background: true` returns the handle right away.
 
-Jobs belong to the session, not the turn. The agent can check them later with `list_jobs`, `read_job_output`, `wait_job`, and `signal_job`, and every output line is stored in SQLite. When a background job ends, Peen publishes a `job.*` event, so the agent learns the result at its next tool boundary or next turn without polling. A command that finishes inside its own `run_command` call publishes no event, because the tool result already reports it. On shutdown Peen stops every job, so none outlives the process. The API exposes jobs under `GET /v1/session/jobs`.
+Jobs belong to the session, not the turn. The agent can check them later with `listJobs`, `readJobOutput`, `waitJob`, and `signalJob`, and every output line is stored in SQLite. When a background job ends, Peen publishes a `job.*` event, so the agent learns the result at its next tool boundary or next turn without polling. A command that finishes inside its own `runCommand` call publishes no event, because the tool result already reports it. On shutdown Peen stops every job, so none outlives the process. The API exposes jobs under `GET /v1/session/jobs`.
 
 ## How the model receives events
 
@@ -77,7 +77,7 @@ When any of them fails, the event stays queued and is delivered at the next turn
 
 `PEEN_MAX_EVENT_WAKES_PER_HOUR=0` removes the cap. Peen keeps the count in memory, per process, so it starts over when Peen restarts.
 
-A woken turn runs in the session's worker under the session's execution profile, the same as a turn a client sends, and streams to every client watching the session.
+A woken turn runs in the session's worker in the session's agent space, the same as a turn a client sends, and streams to every client watching the session.
 
 An event handler is a Markdown file named after the event type:
 

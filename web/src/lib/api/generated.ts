@@ -52,7 +52,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Open or resume the session for a workspace
-		 * @description Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 and no session is created. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+		 * @description Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 		 */
 		post: operations["openSession"];
 		delete?: never;
@@ -61,7 +61,7 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
-	"/execution-profiles": {
+	"/agent-spaces": {
 		parameters: {
 			query?: never;
 			header?: never;
@@ -69,10 +69,10 @@ export interface paths {
 			cookie?: never;
 		};
 		/**
-		 * List the execution profiles a client may name
-		 * @description Lists the operator-defined profiles a session may run under. A client names a profile when it opens a workspace and never sends an image, mount, network setting, or capability. A profile that grants host-root-equivalent access carries a capability warning.
+		 * List the agent spaces a client may name
+		 * @description Lists the agent spaces a session may run in: `control`, where the agent runs where Peen runs, which is listed only when the controller cannot reach a Docker daemon, and one `docker:<profile>` space for each Docker profile, including the built-in `default`. A client names an agent space when it opens a workspace and never sends an image, mount, network setting, or capability. Each Docker space reports its grants (`docker`, `network`, `sudo`), and a space that grants host root or other risky access carries capability warnings.
 		 */
-		get: operations["listExecutionProfiles"];
+		get: operations["listAgentSpaces"];
 		put?: never;
 		post?: never;
 		delete?: never;
@@ -130,7 +130,7 @@ export interface paths {
 		};
 		/**
 		 * List one session's worker generations
-		 * @description Returns the durable worker generations for one session, newest first. A generation records the worker process that ran a set of turns, the profile revision it started under, and for a Docker generation its container and repository image digest when one is available.
+		 * @description Returns the durable worker generations for one session, newest first. A generation records the worker process that ran a set of turns, the agent space revision it started under, and for a Docker generation its container and repository image digest when one is available.
 		 */
 		get: operations["listSessionWorkers"];
 		put?: never;
@@ -151,8 +151,8 @@ export interface paths {
 		get?: never;
 		put?: never;
 		/**
-		 * Move an idle session to a different execution profile
-		 * @description Changes the operator-defined profile a session's tools run under and records the decision with the caller's reason. The named profile must be one the operator defined; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to a profile that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation under the new profile. The client names only a profile and never sends an image, mount, network setting, or capability.
+		 * Move an idle session to a different agent space
+		 * @description Changes the agent space a session's tools run in and records the decision with the caller's reason. The named agent space must be one the deployment offers; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
 		 */
 		post: operations["reconfigureSession"];
 		delete?: never;
@@ -161,7 +161,7 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
-	"/session/profile-decisions": {
+	"/session/agent-space-decisions": {
 		parameters: {
 			query?: never;
 			header?: never;
@@ -169,10 +169,10 @@ export interface paths {
 			cookie?: never;
 		};
 		/**
-		 * List one session's execution profile decision history
-		 * @description Returns the durable record of every execution profile change made to one session, newest first. Each entry names the profile the session moved from, the profile it moved to, and the reason the caller gave.
+		 * List one session's agent space decision history
+		 * @description Returns the durable record of every agent space change made to one session, newest first. Each entry names the agent space the session moved from, the agent space it moved to, and the reason the caller gave.
 		 */
-		get: operations["listSessionProfileDecisions"];
+		get: operations["listSessionAgentSpaceDecisions"];
 		put?: never;
 		post?: never;
 		delete?: never;
@@ -627,26 +627,38 @@ export interface components {
 			agent: string;
 			model: string;
 			workspace: string;
-			/** @description The operator-defined profile this session's tools run under. Empty for a session recorded before profiles existed, which the controller reads as the deployment default. */
-			executionProfile?: string;
+			/** @description The agent space this session's tools run in, `control` or `docker:<profile>`. */
+			agentSpace?: string;
 		};
-		ExecutionProfile: {
+		AgentSpace: {
+			/** @description What a client names to pick this agent space: `control` or `docker:<profile>`. */
 			name: string;
 			/** @enum {string} */
-			kind: "native" | "docker";
+			kind: "control" | "docker";
+			/** @description The Docker profile behind the space. Set only for kind docker. */
+			profile?: string;
 			/** Format: int64 */
 			revision: number;
-			allowDockerSocket: boolean;
-			allowNetwork: boolean;
-			allowPrivilegeEscalation: boolean;
-			/** @description True when this profile grants access that is effectively host root, such as a writable Docker socket. */
+			/**
+			 * @description How much of the host Docker daemon the space reaches. `full` mounts the controller's Docker socket, which is host root. `readonly` is reserved, and the controller refuses to start with a profile that names it. Set only for kind docker.
+			 * @enum {string}
+			 */
+			docker?: "none" | "readonly" | "full";
+			/**
+			 * @description The network the space gives its worker. Set only for kind docker.
+			 * @enum {string}
+			 */
+			network?: "none" | "bridge" | "host";
+			/** @description True when the agent may run commands as root inside the worker container. Set only for kind docker. */
+			sudo?: boolean;
+			/** @description True when this space grants access that is effectively host root, which is `docker: full`. */
 			hostRootEquivalent: boolean;
-			/** @description Operator-facing warning for a host-root-equivalent profile. Empty for a profile that grants no such access. */
-			capabilityWarning?: string;
+			/** @description One operator-facing sentence for each risky grant this space makes. Empty for a space that grants nothing risky. */
+			capabilityWarnings: string[];
 		};
-		ExecutionProfileList: {
-			items: components["schemas"]["ExecutionProfile"][];
-			/** @description The profile a session opened without naming one uses. */
+		AgentSpaceList: {
+			items: components["schemas"]["AgentSpace"][];
+			/** @description The agent space a session opened without naming one uses. */
 			default: string;
 		};
 		WorkspaceRootList: {
@@ -726,10 +738,10 @@ export interface components {
 			/** Format: uuid */
 			sessionId: string;
 			/** @enum {string} */
-			kind: "native" | "docker";
-			profile: string;
+			kind: "control" | "docker";
+			agentSpace: string;
 			/** Format: int64 */
-			profileRevision: number;
+			agentSpaceRevision: number;
 			/** @enum {string} */
 			state: "requested" | "starting" | "ready" | "stopping" | "stopped" | "failed";
 			workspace: string;
@@ -747,25 +759,25 @@ export interface components {
 			endedAt?: string | null;
 		};
 		ReconfigureSessionRequest: {
-			/** @description The operator-defined profile to move this session to. An undefined name is refused. This is the only environment choice a client makes. */
-			profile: string;
-			/** @description Why the profile changed, kept in the durable decision history. */
+			/** @description The agent space to move this session to, `control` or `docker:<profile>`. A space the deployment does not offer is refused. This is the only environment choice a client makes. */
+			agentSpace: string;
+			/** @description Why the agent space changed, kept in the durable decision history. */
 			reason: string;
 		};
-		SessionProfileDecision: {
+		SessionAgentSpaceDecision: {
 			/** Format: uuid */
 			id: string;
 			/** Format: uuid */
 			sessionId: string;
-			/** @description The profile the session ran under before this decision. Absent when the session had no recorded profile. */
-			fromProfile?: string;
-			toProfile: string;
+			/** @description The agent space the session ran in before this decision. Absent when the session had no recorded agent space. */
+			fromAgentSpace?: string;
+			toAgentSpace: string;
 			reason: string;
 			/** Format: date-time */
 			decidedAt: string;
 		};
-		SessionProfileDecisionPage: {
-			items: components["schemas"]["SessionProfileDecision"][];
+		SessionAgentSpaceDecisionPage: {
+			items: components["schemas"]["SessionAgentSpaceDecision"][];
 			/** Format: int32 */
 			limit: number;
 			/** Format: int32 */
@@ -791,8 +803,8 @@ export interface components {
 		OpenSessionRequest: {
 			/** @description Absolute host path of the workspace directory. It is resolved through its symlinks and must fall under a configured workspace root. */
 			workspace: string;
-			/** @description Name of an operator-defined execution profile. Empty takes the deployment default. A name the operator did not define is refused with 403. This is the only environment choice a client makes: images, mounts, network, and capabilities come from deployment configuration alone. It applies only when this call creates the session; opening an existing session never changes its profile. */
-			profile?: string;
+			/** @description The agent space to run in, `control` or `docker:<profile>`. Empty takes the deployment default. A name the deployment does not offer is refused with 403. This is the only environment choice a client makes: images, mounts, network, and capabilities come from deployment configuration alone. It applies only when this call creates the session; opening an existing session never changes its agent space. */
+			agentSpace?: string;
 		};
 		OpenedSession: {
 			session: components["schemas"]["Session"];
@@ -1526,7 +1538,7 @@ export interface operations {
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
-	listExecutionProfiles: {
+	listAgentSpaces: {
 		parameters: {
 			query?: never;
 			header?: never;
@@ -1535,14 +1547,14 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Execution profile list */
+			/** @description Agent space list */
 			200: {
 				headers: {
 					"X-Request-ID": components["headers"]["RequestID"];
 					[name: string]: unknown;
 				};
 				content: {
-					"application/json": components["schemas"]["ExecutionProfileList"];
+					"application/json": components["schemas"]["AgentSpaceList"];
 				};
 			};
 			401: components["responses"]["ErrorUnauthorized"];
@@ -1641,7 +1653,7 @@ export interface operations {
 			};
 		};
 		responses: {
-			/** @description Execution profile changed */
+			/** @description Agent space changed */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -1649,7 +1661,7 @@ export interface operations {
 					[name: string]: unknown;
 				};
 				content: {
-					"application/json": components["schemas"]["SessionProfileDecision"];
+					"application/json": components["schemas"]["SessionAgentSpaceDecision"];
 				};
 			};
 			400: components["responses"]["ErrorBadRequest"];
@@ -1660,7 +1672,7 @@ export interface operations {
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
-	listSessionProfileDecisions: {
+	listSessionAgentSpaceDecisions: {
 		parameters: {
 			query?: {
 				limit?: components["parameters"]["Limit"];
@@ -1674,7 +1686,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Execution profile decision page */
+			/** @description Agent space decision page */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -1682,7 +1694,7 @@ export interface operations {
 					[name: string]: unknown;
 				};
 				content: {
-					"application/json": components["schemas"]["SessionProfileDecisionPage"];
+					"application/json": components["schemas"]["SessionAgentSpaceDecisionPage"];
 				};
 			};
 			400: components["responses"]["ErrorBadRequest"];

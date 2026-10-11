@@ -97,45 +97,45 @@ type EventHandler struct {
 type HookEvent string
 
 const (
-	HookEventPreUserMessage  HookEvent = "pre_user_message"
-	HookEventPostUserMessage HookEvent = "post_user_message"
-	HookEventSessionStart    HookEvent = "session_start"
-	HookEventTurnStart       HookEvent = "turn_start"
-	HookEventTurnStop        HookEvent = "turn_stop"
-	HookEventTurnCancelled   HookEvent = "turn_cancelled"
-	HookEventPreCompact      HookEvent = "pre_compact"
-	HookEventPostCompact     HookEvent = "post_compact"
-	HookEventPreToolUse      HookEvent = "pre_tool_use"
-	HookEventPostToolUse     HookEvent = "post_tool_use"
-	HookEventToolUseFailure  HookEvent = "tool_use_failure"
+	HookEventPreUserMessage  HookEvent = "preUserMessage"
+	HookEventPostUserMessage HookEvent = "postUserMessage"
+	HookEventSessionStart    HookEvent = "sessionStart"
+	HookEventTurnStart       HookEvent = "turnStart"
+	HookEventTurnStop        HookEvent = "turnStop"
+	HookEventTurnCancelled   HookEvent = "turnCancelled"
+	HookEventPreCompact      HookEvent = "preCompact"
+	HookEventPostCompact     HookEvent = "postCompact"
+	HookEventPreToolUse      HookEvent = "preToolUse"
+	HookEventPostToolUse     HookEvent = "postToolUse"
+	HookEventToolUseFailure  HookEvent = "toolUseFailure"
 
-	HookEventPreReadFile          HookEvent = "pre_read_file"
-	HookEventPostReadFile         HookEvent = "post_read_file"
-	HookEventReadFileFailure      HookEvent = "read_file_failure"
-	HookEventPreListFiles         HookEvent = "pre_list_files"
-	HookEventPostListFiles        HookEvent = "post_list_files"
-	HookEventListFilesFailure     HookEvent = "list_files_failure"
-	HookEventPreSearchText        HookEvent = "pre_search_text"
-	HookEventPostSearchText       HookEvent = "post_search_text"
-	HookEventSearchTextFailure    HookEvent = "search_text_failure"
-	HookEventPreWriteFile         HookEvent = "pre_write_file"
-	HookEventPostWriteFile        HookEvent = "post_write_file"
-	HookEventWriteFileFailure     HookEvent = "write_file_failure"
-	HookEventPreEditFile          HookEvent = "pre_edit_file"
-	HookEventPostEditFile         HookEvent = "post_edit_file"
-	HookEventEditFileFailure      HookEvent = "edit_file_failure"
-	HookEventPreApplyPatch        HookEvent = "pre_apply_patch"
-	HookEventPostApplyPatch       HookEvent = "post_apply_patch"
-	HookEventApplyPatchFailed     HookEvent = "apply_patch_failure"
-	HookEventPreMovePath          HookEvent = "pre_move_path"
-	HookEventPostMovePath         HookEvent = "post_move_path"
-	HookEventMovePathFailure      HookEvent = "move_path_failure"
-	HookEventPreRemovePath        HookEvent = "pre_remove_path"
-	HookEventPostRemovePath       HookEvent = "post_remove_path"
-	HookEventRemovePathFailed     HookEvent = "remove_path_failure"
-	HookEventPreMakeDirectory     HookEvent = "pre_make_directory"
-	HookEventPostMakeDirectory    HookEvent = "post_make_directory"
-	HookEventMakeDirectoryFailure HookEvent = "make_directory_failure"
+	HookEventPreReadFile          HookEvent = "preReadFile"
+	HookEventPostReadFile         HookEvent = "postReadFile"
+	HookEventReadFileFailure      HookEvent = "readFileFailure"
+	HookEventPreListFiles         HookEvent = "preListFiles"
+	HookEventPostListFiles        HookEvent = "postListFiles"
+	HookEventListFilesFailure     HookEvent = "listFilesFailure"
+	HookEventPreSearchText        HookEvent = "preSearchText"
+	HookEventPostSearchText       HookEvent = "postSearchText"
+	HookEventSearchTextFailure    HookEvent = "searchTextFailure"
+	HookEventPreWriteFile         HookEvent = "preWriteFile"
+	HookEventPostWriteFile        HookEvent = "postWriteFile"
+	HookEventWriteFileFailure     HookEvent = "writeFileFailure"
+	HookEventPreEditFile          HookEvent = "preEditFile"
+	HookEventPostEditFile         HookEvent = "postEditFile"
+	HookEventEditFileFailure      HookEvent = "editFileFailure"
+	HookEventPreApplyPatch        HookEvent = "preApplyPatch"
+	HookEventPostApplyPatch       HookEvent = "postApplyPatch"
+	HookEventApplyPatchFailed     HookEvent = "applyPatchFailure"
+	HookEventPreMovePath          HookEvent = "preMovePath"
+	HookEventPostMovePath         HookEvent = "postMovePath"
+	HookEventMovePathFailure      HookEvent = "movePathFailure"
+	HookEventPreRemovePath        HookEvent = "preRemovePath"
+	HookEventPostRemovePath       HookEvent = "postRemovePath"
+	HookEventRemovePathFailed     HookEvent = "removePathFailure"
+	HookEventPreMakeDirectory     HookEvent = "preMakeDirectory"
+	HookEventPostMakeDirectory    HookEvent = "postMakeDirectory"
+	HookEventMakeDirectoryFailure HookEvent = "makeDirectoryFailure"
 )
 
 // HookActionType selects the work one hook action performs.
@@ -144,7 +144,7 @@ type HookActionType string
 const (
 	HookActionCommand   HookActionType = "command"
 	HookActionInject    HookActionType = "inject"
-	HookActionEmitEvent HookActionType = "emit_event"
+	HookActionEmitEvent HookActionType = "emitEvent"
 	HookActionDeny      HookActionType = "deny"
 )
 
@@ -192,22 +192,15 @@ type HookAction struct {
 	Command     string            `yaml:"command" json:"command,omitempty"`
 	Args        []string          `yaml:"args" json:"args,omitempty"`
 	Environment map[string]string `yaml:"environment" json:"environment,omitempty"` //nolint:lll // Immutable schema tags.
-	//nolint:tagliatelle // YAML uses the public snake_case schema.
-	WorkingDir string `yaml:"working_dir" json:"workingDir,omitempty"`
-	Timeout    string `yaml:"timeout" json:"timeout,omitempty"`
-	// RemovedTimeoutSeconds only detects the removed timeout_seconds field so
-	// the hooks file fails with a message naming timeout.
-	//nolint:tagliatelle // YAML uses the public snake_case schema.
-	RemovedTimeoutSeconds any    `yaml:"timeout_seconds" json:"-"`
-	Message               string `yaml:"message" json:"message,omitempty"`
-	//nolint:tagliatelle // YAML uses the public snake_case schema.
-	EventType string         `yaml:"event_type" json:"eventType,omitempty"`
-	Summary   string         `yaml:"summary" json:"summary,omitempty"`
-	Data      map[string]any `yaml:"data" json:"data,omitempty"`
-	Delivery  string         `yaml:"delivery" json:"delivery,omitempty"`
-	Reason    string         `yaml:"reason" json:"reason,omitempty"`
-	//nolint:tagliatelle // YAML uses the public snake_case schema.
-	OnFailure HookFailureMode `yaml:"on_failure" json:"onFailure,omitempty"`
+	WorkingDir  string            `yaml:"workingDir" json:"workingDir,omitempty"`   //nolint:lll // Immutable schema tags.
+	Timeout     string            `yaml:"timeout" json:"timeout,omitempty"`
+	Message     string            `yaml:"message" json:"message,omitempty"`
+	EventType   string            `yaml:"eventType" json:"eventType,omitempty"`
+	Summary     string            `yaml:"summary" json:"summary,omitempty"`
+	Data        map[string]any    `yaml:"data" json:"data,omitempty"`
+	Delivery    string            `yaml:"delivery" json:"delivery,omitempty"`
+	Reason      string            `yaml:"reason" json:"reason,omitempty"`
+	OnFailure   HookFailureMode   `yaml:"onFailure" json:"onFailure,omitempty"`
 }
 
 // Hook is one ordered matcher group from a layered hooks.yaml document.
@@ -249,7 +242,7 @@ type PromptBlock struct {
 	Hash    string
 }
 
-// ActivatedSkill is the full content returned by the use_skill tool.
+// ActivatedSkill is the full content returned by the useSkill tool.
 type ActivatedSkill struct {
 	Skill
 	Content string
@@ -344,7 +337,7 @@ func (s Snapshot) Agent(name string) (Agent, error) {
 		}
 	}
 
-	return Agent{}, missingAgentError(name)
+	return Agent{}, ErrAgentNotFound
 }
 
 func (s Snapshot) EventHandler(eventType string) (EventHandler, error) {

@@ -105,7 +105,7 @@ func (e *Executor) applyEditsLocked(
 	}, nil
 }
 
-// resolveEditPath resolves the tool path, rejecting an empty one. edit_file
+// resolveEditPath resolves the tool path, rejecting an empty one. editFile
 // never creates a file, so unlike other tools it has no "workspace itself"
 // default to fall back on.
 func (e *Executor) resolveEditPath(raw string) (string, error) {

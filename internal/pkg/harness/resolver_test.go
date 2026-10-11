@@ -209,7 +209,7 @@ func TestResolverNamedAgentParsesAllowedTools(t *testing.T) {
 		`---
 name: restricted-agent
 description: restricted
-allowed-tools: list_files, read_file, use_skill
+allowed-tools: listFiles, readFile, useSkill
 ---
 Inspect only.`,
 	)
@@ -219,7 +219,7 @@ Inspect only.`,
 	require.NoError(t, err)
 	assert.Equal(
 		t,
-		[]string{"list_files", "read_file", "use_skill"},
+		[]string{"listFiles", "readFile", "useSkill"},
 		agent.AllowedTools,
 	)
 }
@@ -866,7 +866,7 @@ func TestResolverKeepsValidOptionalSourcesWhenSiblingsAreInvalid(t *testing.T) {
 	), "---\ndelivery: queue\n---\nMissing type.")
 
 	fixture.writeHook(t, fixture.configRoot, `version: 1
-pre_tool_use:
+preToolUse:
   - actions:
       - type: inject
         message: Keep this hook.

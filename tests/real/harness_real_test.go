@@ -4,6 +4,7 @@ package realtest
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -88,7 +89,7 @@ const (
 	realHarnessJSONMediaType        = "application/json"
 	realHarnessWebSocketSessionID   = "sessionId"
 	realHarnessWebSocketProtocol    = "peen.v1"
-	realHarnessWebSocketBearer      = "peen.bearer."
+	realHarnessWebSocketBearer      = "peen.bearer." //nolint:gosec // A subprotocol prefix, not a credential.
 	realHarnessMessageSendEvent     = "message.send"
 	realHarnessMessageCompleted     = "message.completed"
 	realHarnessMessageFailed        = "message.failed"
@@ -109,12 +110,12 @@ const (
 	// realHarnessNotesLineCount makes that file big enough that one read fills
 	// a tool result at the deployment's result cap.
 	realHarnessNotesLineCount    = 1500
-	realHarnessPatchOnlyReason   = "Fixture changes must use apply_patch."
+	realHarnessPatchOnlyReason   = "Fixture changes must use applyPatch."
 	realHarnessCommandOnlyReason = "Only the fixture test command is allowed."
 	realHarnessHookHelperEnv     = "PEEN_REAL_HOOK_HELPER"
 	realHarnessHookHelperEnabled = "enabled"
 	realHarnessReadMarker        = "read-observed"
-	realHarnessTaskMessage       = `This is an execution task with mandatory tool-call acceptance criteria, not a request for advice. Do not return a final answer until all criteria below have completed successfully. In this exact order: (1) call use_skill with fixture-service; (2) call launch_agent with fixture-reviewer, asking it to inspect internal/status/status.go and internal/status/status_test.go without changes; (3) after the child returns, call read_file yourself for each of those two paths; (4) call apply_patch, and only apply_patch, to make Label return "ready" and make the test expect "ready"; (5) call run_command with exactly "go test ./..." from this workspace. Do not alter any other path.`
+	realHarnessTaskMessage       = `This is an execution task with mandatory tool-call acceptance criteria, not a request for advice. Do not return a final answer until all criteria below have completed successfully. In this exact order: (1) call useSkill with fixture-service; (2) call launchAgent with fixture-reviewer, asking it to inspect internal/status/status.go and internal/status/status_test.go without changes; (3) after the child returns, call readFile yourself for each of those two paths; (4) call applyPatch, and only applyPatch, to make Label return "ready" and make the test expect "ready"; (5) call runCommand with exactly "go test ./..." from this workspace. Do not alter any other path.`
 
 	realHarnessConfigRuleMarker    = "REAL_HARNESS_CONFIG_RULE_MARKER"
 	realHarnessWorkspaceRuleMarker = "REAL_HARNESS_WORKSPACE_RULE_MARKER"
@@ -370,11 +371,11 @@ func TestRealHarnessHookHelper(_ *testing.T) {
 
 	marker := filepath.Join(invocation.StateDirectory, realHarnessReadMarker)
 	switch invocation.Event {
-	case "post_read_file":
+	case "postReadFile":
 		if err := os.WriteFile(marker, []byte("observed"), realHarnessFileMode); err != nil {
 			os.Exit(1)
 		}
-	case "pre_apply_patch":
+	case "preApplyPatch":
 		if _, err := os.Stat(marker); err != nil {
 			if _, writeErr := fmt.Fprint(
 				os.Stdout,
@@ -388,7 +389,7 @@ func TestRealHarnessHookHelper(_ *testing.T) {
 		if _, err := fmt.Fprint(os.Stdout, `{"decision":"allow"}`); err != nil {
 			os.Exit(1)
 		}
-	case "pre_tool_use":
+	case "preToolUse":
 		input := struct {
 			Command string `json:"command"`
 		}{}
@@ -430,7 +431,7 @@ func realHarnessNotesDocument() string {
 }
 
 // realHarnessCommandAllowed is the fixture's command policy, enforced by the
-// pre_tool_use hook. Everything outside this set is denied, which is what the
+// preToolUse hook. Everything outside this set is denied, which is what the
 // lifecycle test checks when it asserts a refused command.
 func realHarnessCommandAllowed(command string) bool {
 	return command == realHarnessFixtureTestCommand ||
@@ -472,7 +473,7 @@ func newRealHarnessFixture(t *testing.T) realHarnessFixture {
 		realHarnessAgentDocument(
 			realHarnessReviewer,
 			"Read-only reviewer for the live coding fixture.",
-			"read_file,list_files,search_text",
+			"readFile,listFiles,searchText",
 			realHarnessReviewerMarker,
 		),
 	)
@@ -485,7 +486,7 @@ func newRealHarnessFixture(t *testing.T) realHarnessFixture {
 		t,
 		filepath.Join(service, ".agents", "skills", realHarnessSkill, "SKILL.md"),
 		"---\nname: fixture-service\ndescription: Safely complete the live coding fixture.\n---\n"+
-			realHarnessSkillBodyMarker+"\nUse apply_patch for mutations. Read every target before patching it. Run the fixture test after the patch.\n",
+			realHarnessSkillBodyMarker+"\nUse applyPatch for mutations. Read every target before patching it. Run the fixture test after the patch.\n",
 	)
 
 	writeRealHarnessFile(
@@ -554,7 +555,7 @@ func newRealHarnessFixture(t *testing.T) realHarnessFixture {
 // uses to keep bind sources identical on the host. This suite mounts no Docker
 // socket and launches no sibling container, so none of these directories is
 // ever a bind source and the host does not need to see them. Giving this suite
-// a Docker execution profile would have to solve both constraints at once.
+// a Docker agent space would have to solve both constraints at once.
 func newRealHarnessRoot(t *testing.T) string {
 	t.Helper()
 
@@ -609,7 +610,7 @@ func realHarnessAgentDocument(name, description, allowedTools, instructions stri
 
 func realHarnessConfigHooksDocument() string {
 	return fmt.Sprintf(`version: 1
-post_read_file:
+postReadFile:
   - name: config-remember-read
     match:
       path: internal/status/status.go
@@ -620,7 +621,7 @@ post_read_file:
         args: ["-test.run=^TestRealHarnessHookHelper$"]
         environment:
           PEEN_REAL_HOOK_HELPER: enabled
-pre_apply_patch:
+preApplyPatch:
   - name: config-require-read
     actions:
       - name: allow-only-after-read
@@ -629,10 +630,10 @@ pre_apply_patch:
         args: ["-test.run=^TestRealHarnessHookHelper$"]
         environment:
           PEEN_REAL_HOOK_HELPER: enabled
-pre_tool_use:
+preToolUse:
   - name: config-allow-only-fixture-test
     match:
-      tool: run_command
+      tool: runCommand
     actions:
       - name: deny-unapproved-command
         type: command
@@ -644,31 +645,31 @@ pre_tool_use:
 }
 
 func realHarnessInjectingHookDocument(name, message string) string {
-	return "version: 1\npre_apply_patch:\n  - name: " + name +
+	return "version: 1\npreApplyPatch:\n  - name: " + name +
 		"\n    actions:\n      - name: " + name +
 		"-action\n        type: inject\n        message: " + message + "\n"
 }
 
 func realHarnessServiceHooksDocument() string {
 	return fmt.Sprintf(`version: 1
-pre_write_file:
+preWriteFile:
   - name: service-require-patch-for-writes
     actions:
       - name: deny-direct-write
         type: deny
         reason: %q
-pre_edit_file:
+preEditFile:
   - name: service-require-patch-for-edits
     actions:
       - name: deny-direct-edit
         type: deny
         reason: %q
-post_apply_patch:
+postApplyPatch:
   - name: service-patch-event
     actions:
       - name: emit-patch-event
-        type: emit_event
-        event_type: fixture.patch.applied
+        type: emitEvent
+        eventType: fixture.patch.applied
         summary: Fixture patch was applied.
         delivery: queue
 `, realHarnessPatchOnlyReason, realHarnessPatchOnlyReason)
@@ -690,7 +691,14 @@ func buildRealHarnessBinary(t *testing.T) string {
 	require.NoError(t, err)
 
 	binary := filepath.Join(t.TempDir(), realHarnessBinaryName)
-	command := exec.Command("go", "build", "-o", binary, realHarnessCommandPackage)
+	command := exec.CommandContext(
+		t.Context(),
+		"go",
+		"build",
+		"-o",
+		binary,
+		realHarnessCommandPackage,
+	)
 	command.Dir = repository
 	output, err := command.CombinedOutput()
 	require.NoError(t, err, string(output))
@@ -720,7 +728,7 @@ func startRealHarnessPeen(
 // startRealHarnessPeenWith starts a controller with extra configuration.
 //
 // The overrides are applied after the fixture's own settings, so a test that
-// needs a second execution profile or a smaller context budget can ask for one
+// needs another agent space setting or a smaller context budget can ask for one
 // without every other test inheriting it.
 func startRealHarnessPeenWith(
 	t *testing.T,
@@ -740,7 +748,13 @@ func startRealHarnessPeenWith(
 		apiToken: apiToken,
 		done:     make(chan error, 1),
 	}
-	process.command = exec.Command(binary, realHarnessRunCommand)
+	// The context never cancels, so the cleanup that stops Peen can still ask it
+	// to shut down gracefully instead of finding it already killed.
+	process.command = exec.CommandContext(
+		context.WithoutCancel(t.Context()),
+		binary,
+		realHarnessRunCommand,
+	)
 	process.command.Dir = fixture.workspace
 	process.command.Env = realHarnessEnvironment(
 		fixture,
@@ -779,31 +793,34 @@ func realHarnessEnvironment(
 
 	// Every directory and worker setting is pinned to the fixture rather than
 	// inherited. The deployment .env this suite reads providers from also
-	// carries the operator's own roots, profiles, image, and Docker socket, and
-	// any one of them reaching the spawned controller would test their
-	// deployment instead of this fixture.
+	// carries the operator's own roots, Docker profiles, image, and Docker
+	// socket, and any one of them reaching the spawned controller would test
+	// their deployment instead of this fixture.
+	//
+	// The Docker socket names a path that holds no socket. A controller that
+	// can reach a socket refuses the control agent space, and this suite runs
+	// its workers in the control agent space whatever the machine has.
 	for name, value := range map[string]string{
-		"PEEN_CONFIG_DIR":                fixture.configDirectory,
-		"PEEN_STATE_DIR":                 fixture.stateDirectory,
-		"PEEN_WORKER_SOCKET_DIR":         fixture.socketDirectory,
-		"PEEN_WORKSPACE_ROOT":            fixture.workspaceRoot,
-		"PEEN_WORKSPACE_ROOTS":           "",
-		"PEEN_EXECUTION_PROFILES":        "",
-		"PEEN_DEFAULT_EXECUTION_PROFILE": "",
-		"PEEN_WORKER_IMAGE":              "",
-		"PEEN_DOCKER_SOCKET":             "",
-		"PEEN_HOST_USERNAME":             "",
-		"PEEN_HOST_HOME":                 "",
-		"PEEN_AGENT":                     realHarnessRootAgent,
-		"PEEN_HTTP_LISTEN_ADDRESS":       apiAddress,
-		"PEEN_METRICS_LISTEN_ADDRESS":    metricsAddress,
-		"PEEN_UPSTREAMS":                 upstreams,
-		"PEEN_DEFAULT_MODEL":             defaultModel,
-		"PEEN_API_TOKEN":                 apiToken,
-		"PEEN_TURN_TIMEOUT":              realHarnessTestTimeout.String(),
-		"PEEN_LOG_DIRECTORY":             fixture.auditDirectory,
-		"PEEN_LOG_RETENTION":             "336h",
-		"LOG_LEVEL":                      "debug",
+		"PEEN_CONFIG_DIR":             fixture.configDirectory,
+		"PEEN_STATE_DIR":              fixture.stateDirectory,
+		"PEEN_WORKER_SOCKET_DIR":      fixture.socketDirectory,
+		"PEEN_WORKSPACE_ROOT":         fixture.workspaceRoot,
+		"PEEN_DOCKER_PROFILES":        "",
+		"PEEN_DEFAULT_AGENT_SPACE":    "",
+		"PEEN_WORKER_IMAGE":           "",
+		"PEEN_DOCKER_SOCKET":          filepath.Join(fixture.configDirectory, "no-docker.sock"),
+		"PEEN_HOST_USERNAME":          "",
+		"PEEN_HOST_HOME":              "",
+		"PEEN_AGENT":                  realHarnessRootAgent,
+		"PEEN_HTTP_LISTEN_ADDRESS":    apiAddress,
+		"PEEN_METRICS_LISTEN_ADDRESS": metricsAddress,
+		"PEEN_UPSTREAMS":              upstreams,
+		"PEEN_DEFAULT_MODEL":          defaultModel,
+		"PEEN_API_TOKEN":              apiToken,
+		"PEEN_TURN_TIMEOUT":           realHarnessTestTimeout.String(),
+		"PEEN_LOG_DIRECTORY":          fixture.auditDirectory,
+		"PEEN_LOG_RETENTION":          "336h",
+		"LOG_LEVEL":                   "debug",
 	} {
 		environment[name] = name + "=" + value
 	}
@@ -847,18 +864,36 @@ func (p *runningRealHarnessPeen) stop(t *testing.T) {
 	}
 }
 
+// realHarnessReady reports whether one GET of the ready endpoint answers 200.
+func realHarnessReady(t *testing.T, client *http.Client, target string) bool {
+	t.Helper()
+
+	request, err := http.NewRequestWithContext(
+		t.Context(),
+		http.MethodGet,
+		target,
+		nil,
+	)
+	require.NoError(t, err)
+
+	response, err := client.Do(request)
+	if err != nil {
+		return false
+	}
+
+	closeErr := response.Body.Close()
+
+	return response.StatusCode == http.StatusOK && closeErr == nil
+}
+
 func awaitRealHarnessReady(t *testing.T, process *runningRealHarnessPeen) {
 	t.Helper()
 
 	deadline := time.Now().Add(realHarnessStartupTimeout)
 	client := &http.Client{Timeout: realHarnessPollInterval}
 	for time.Now().Before(deadline) {
-		response, err := client.Get(process.baseURL + realHarnessReadyPath)
-		if err == nil {
-			closeErr := response.Body.Close()
-			if response.StatusCode == http.StatusOK && closeErr == nil {
-				return
-			}
+		if realHarnessReady(t, client, process.baseURL+realHarnessReadyPath) {
+			return
 		}
 
 		select {
@@ -942,7 +977,8 @@ func openRealHarnessSession(
 	payload, err := json.Marshal(api.OpenSessionRequest{Workspace: workspace})
 	require.NoError(t, err)
 
-	request, err := http.NewRequest(
+	request, err := http.NewRequestWithContext(
+		t.Context(),
 		http.MethodPost,
 		process.baseURL+realHarnessAPIPath+"/sessions/open",
 		bytes.NewReader(payload),
@@ -1042,7 +1078,7 @@ func awaitRealHarnessWebSocketResult(
 			continue
 		}
 
-		switch event.Type {
+		switch string(event.Type) {
 		case realHarnessMessageCompleted:
 			result := realHarnessWebSocketMessageResult{}
 			require.NoError(t, json.Unmarshal(event.Data, &result))
@@ -1139,7 +1175,7 @@ func assertRealHarnessTranscriptMessages(t *testing.T, messages []api.Message) {
 	assertRealHarnessToolSubsequence(
 		t,
 		names,
-		[]string{"use_skill", "launch_agent", "read_file", "apply_patch", "run_command"},
+		[]string{"useSkill", "launchAgent", "readFile", "applyPatch", "runCommand"},
 	)
 	assertRealHarnessDirectFileToolsWereDenied(t, messages)
 }
@@ -1164,7 +1200,7 @@ func assertRealHarnessDirectFileToolsWereDenied(t *testing.T, messages []api.Mes
 		}
 
 		toolName := toolNames[*message.ToolCallId]
-		if toolName != "write_file" && toolName != "edit_file" {
+		if toolName != "writeFile" && toolName != "editFile" {
 			continue
 		}
 
@@ -1181,7 +1217,8 @@ func listRealHarnessMessages(
 ) []api.Message {
 	t.Helper()
 
-	request, err := http.NewRequest(
+	request, err := http.NewRequestWithContext(
+		t.Context(),
 		http.MethodGet,
 		baseURL+realHarnessMessagesPath+"?limit=200&order=asc",
 		nil,
@@ -1278,10 +1315,11 @@ func assertRealHarnessJob(
 // assertRealHarnessWorkerGeneration checks the durable record of the process
 // that actually ran the turn, and returns its identifier.
 //
-// A native profile keeps the worker in a child process of the controller, so
-// the generation must carry neither a container nor an image digest. Those
-// belong to a Docker generation and their presence here would mean the
-// controller launched something other than what the profile asked for.
+// The control agent space keeps the worker in a child process of the
+// controller, so the generation must carry neither a container nor an image
+// digest. Those belong to a Docker generation and their presence here would
+// mean the controller launched something other than what the agent space asked
+// for.
 func assertRealHarnessWorkerGeneration(
 	t *testing.T,
 	baseURL, apiToken string,
@@ -1301,7 +1339,7 @@ func assertRealHarnessWorkerGeneration(
 	generation := page.Items[0]
 	assert.Equal(t, sessionID, generation.SessionId)
 	assert.Equal(t, workspace, generation.Workspace)
-	assert.Equal(t, api.WorkerGenerationKindNative, generation.Kind)
+	assert.Equal(t, api.WorkerGenerationKindControl, generation.Kind)
 	assert.Equal(t, api.WorkerGenerationStateReady, generation.State)
 	assert.Nil(t, generation.ContainerId)
 	assert.Nil(t, generation.ImageDigest)
@@ -1613,7 +1651,8 @@ func publishRealHarnessWakeEvent(
 	})
 	require.NoError(t, err)
 
-	request, err := http.NewRequest(
+	request, err := http.NewRequestWithContext(
+		t.Context(),
 		http.MethodPost,
 		baseURL+realHarnessNoticesPath,
 		bytes.NewReader(payload),
@@ -1653,6 +1692,7 @@ func waitForRealHarnessWake(
 	require.Fail(t, "wake turn did not complete")
 }
 
+//nolint:ireturn // The type parameter is the decoded JSON value, not an interface.
 func getRealHarnessJSON[T any](
 	t *testing.T,
 	endpoint, apiToken string,
@@ -1660,7 +1700,12 @@ func getRealHarnessJSON[T any](
 ) T {
 	t.Helper()
 
-	request, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	request, err := http.NewRequestWithContext(
+		t.Context(),
+		http.MethodGet,
+		endpoint,
+		nil,
+	)
 	require.NoError(t, err)
 	setRealHarnessSessionHeaders(request, apiToken, sessionID)
 
@@ -1764,13 +1809,14 @@ func (p *realHarnessProviderProxy) handle(writer http.ResponseWriter, request *h
 	}
 	forward.Header = request.Header.Clone()
 
+	//nolint:gosec // The proxy forwards to the operator-configured provider.
 	response, err := p.client.Do(forward)
 	if err != nil {
 		http.Error(writer, "forward provider request", http.StatusBadGateway)
 
 		return
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 
 	for key, values := range response.Header {
 		writer.Header()[key] = append([]string(nil), values...)
@@ -1978,7 +2024,7 @@ func assertRealHarnessAuditLog(t *testing.T, directory string) {
 
 		fileContent, readErr := os.ReadFile(filepath.Join(directory, entry.Name()))
 		require.NoError(t, readErr)
-		content.WriteString(string(fileContent))
+		content.Write(fileContent)
 	}
 
 	for _, message := range []string{

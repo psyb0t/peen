@@ -18,7 +18,7 @@ const (
 	modelRunTestReference       = "gateway/test-model"
 	modelRunTestSettingsJSON    = `{"streaming":true}`
 	modelRunTestMessagesJSON    = `[{"role":"user","content":"inspect"}]`
-	modelRunTestToolsJSON       = `[{"name":"read_file"}]`
+	modelRunTestToolsJSON       = `[{"name":"readFile"}]`
 	modelRunTestResponseJSON    = `{"role":"assistant","content":"done"}`
 	modelRunTestUsageJSON       = `{"prompt":12,"completion":8,"total":20}`
 	modelRunTestRetryJSON       = `[{"attempt":1,"reason":"rate_limit"}]`

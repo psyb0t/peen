@@ -14,6 +14,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/http/api"
+	"github.com/psyb0t/peen/internal/pkg/worker"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -82,9 +83,9 @@ func TestServerOpenSessionReturnsTheSession(t *testing.T) {
 	assert.Equal(t, []string{testWorkspacePath}, registry.requests)
 }
 
-// Naming a profile is the only environment choice a client makes, so the name it
-// sends must reach the registry unchanged.
-func TestServerOpenSessionForwardsTheNamedProfile(t *testing.T) {
+// Naming an agent space is the only environment choice a client makes, so the
+// name it sends must reach the registry unchanged.
+func TestServerOpenSessionForwardsTheNamedAgentSpace(t *testing.T) {
 	t.Parallel()
 
 	sessionID := uuid.New()
@@ -104,17 +105,46 @@ func TestServerOpenSessionForwardsTheNamedProfile(t *testing.T) {
 		openSessionRequest(
 			t,
 			`{"workspace":"`+testWorkspacePath+
-				`","profile":"docker.sandbox"}`,
+				`","agentSpace":"docker:sandbox"}`,
 		),
 	)
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
-	assert.Equal(t, []string{"docker.sandbox"}, registry.profiles)
+	assert.Equal(t, []string{"docker:sandbox"}, registry.agentSpaces)
 }
 
-// A request that names no profile forwards an empty name, which the registry
-// reads as the deployment default rather than a refusal.
-func TestServerOpenSessionForwardsAnEmptyProfile(t *testing.T) {
+// A request that still sends the removed profile field is rejected before it
+// reaches the registry.
+func TestServerOpenSessionRejectsTheRemovedProfileField(t *testing.T) {
+	t.Parallel()
+
+	sessionID := uuid.New()
+	registry := &testSessionRegistry{
+		opened: testOpenedSession(sessionID, true),
+	}
+
+	instance, err := newTestServer(Dependencies{
+		Runtime:  newTestRuntime(sessionID),
+		Sessions: registry,
+	})
+	require.NoError(t, err)
+
+	recorder := httptest.NewRecorder()
+	instance.testHandler.ServeHTTP(
+		recorder,
+		openSessionRequest(
+			t,
+			`{"workspace":"`+testWorkspacePath+`","profile":"native"}`,
+		),
+	)
+
+	require.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())
+	assert.Empty(t, registry.requests)
+}
+
+// A request that names no agent space forwards an empty name, which the
+// registry reads as the deployment default rather than a refusal.
+func TestServerOpenSessionForwardsAnEmptyAgentSpace(t *testing.T) {
 	t.Parallel()
 
 	sessionID := uuid.New()
@@ -135,7 +165,7 @@ func TestServerOpenSessionForwardsAnEmptyProfile(t *testing.T) {
 	)
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
-	assert.Equal(t, []string{""}, registry.profiles)
+	assert.Equal(t, []string{""}, registry.agentSpaces)
 }
 
 // Resuming reports created=false, which is how a client tells a new workspace
@@ -184,6 +214,17 @@ func TestServerOpenSessionMapsRefusals(t *testing.T) {
 			),
 			wantStatus: http.StatusForbidden,
 			wantCode:   ErrorCodeWorkspaceNotAllowed,
+		},
+		{
+			name: "agent space the deployment does not offer",
+			body: `{"workspace":"` + testWorkspacePath +
+				`","agentSpace":"docker:missing"}`,
+			openErr: ctxerrors.Wrap(
+				worker.ErrAgentSpaceNotAllowed,
+				"select agent space",
+			),
+			wantStatus: http.StatusForbidden,
+			wantCode:   ErrorCodeAgentSpaceNotAllowed,
 		},
 		{
 			name: "workspace is not a directory",
@@ -358,7 +399,7 @@ func TestServerSessionControlEndpointsRequireBearerToken(t *testing.T) {
 	}
 }
 
-// The worker and profile reads expose deployment layout and container
+// The worker and agent space reads expose deployment layout and container
 // identity, so they sit behind the bearer token like every other endpoint.
 func TestServerWorkerReadsRequireBearerToken(t *testing.T) {
 	sessionID := uuid.New()
@@ -369,8 +410,8 @@ func TestServerWorkerReadsRequireBearerToken(t *testing.T) {
 		setHeader bool
 	}{
 		{
-			name: "execution profiles",
-			path: apiBaseURL + "/execution-profiles",
+			name: "agent spaces",
+			path: apiBaseURL + "/agent-spaces",
 		},
 		{
 			name:      "session workers",
@@ -422,12 +463,12 @@ func TestServerListSessionWorkersIsSessionScoped(t *testing.T) {
 	registry := &testSessionRegistry{
 		workerPage: api.WorkerGenerationPage{
 			Items: []api.WorkerGeneration{{
-				Id:        generationID,
-				SessionId: sessionID,
-				Kind:      api.WorkerGenerationKindNative,
-				Profile:   "native",
-				State:     api.WorkerGenerationStateReady,
-				Workspace: testWorkspacePath,
+				Id:         generationID,
+				SessionId:  sessionID,
+				Kind:       api.WorkerGenerationKindControl,
+				AgentSpace: "control",
+				State:      api.WorkerGenerationStateReady,
+				Workspace:  testWorkspacePath,
 			}},
 			Limit: 50,
 		},

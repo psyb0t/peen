@@ -71,7 +71,7 @@ func newSessionStartResumedFixture(
 	))
 
 	writeChildHarnessHooks(t, fixture, `version: 1
-session_start:
+sessionStart:
   - name: mark
     actions:
       - type: command
@@ -111,7 +111,7 @@ func (f sessionStartResumedFixture) runTurn(t *testing.T, runtime *Runtime) {
 }
 
 // The controller creates the session and the worker resumes it, so the
-// runtime never created the row. session_start still has to run on the
+// runtime never created the row. sessionStart still has to run on the
 // session's first turn, and only on that one.
 func TestSessionStartRunsOnFirstTurnOfResumedSession(t *testing.T) {
 	fixture := newSessionStartResumedFixture(
@@ -121,7 +121,7 @@ func TestSessionStartRunsOnFirstTurnOfResumedSession(t *testing.T) {
 	)
 
 	fixture.runTurn(t, fixture.runtime)
-	require.Equal(t, 1, fixture.runCount(t), "first turn must fire session_start")
+	require.Equal(t, 1, fixture.runCount(t), "first turn must fire sessionStart")
 
 	fixture.runTurn(t, fixture.runtime)
 	require.Equal(t, 1, fixture.runCount(t), "second turn must not fire it again")
@@ -143,5 +143,5 @@ func TestSessionStartDoesNotRunAgainAfterRuntimeRestart(t *testing.T) {
 	require.NoError(t, err)
 
 	fixture.runTurn(t, restarted)
-	require.Equal(t, 1, fixture.runCount(t), "a restart must not replay session_start")
+	require.Equal(t, 1, fixture.runCount(t), "a restart must not replay sessionStart")
 }

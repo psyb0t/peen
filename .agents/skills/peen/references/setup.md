@@ -52,10 +52,7 @@ docker run --rm \
   psyb0t/peen:latest
 ```
 
-Do not publish the metrics listener. It defaults to the container's loopback
-interface. Do not add the Docker socket to this container. For stronger
-isolation, restrict the network and use a read-only root filesystem with only
-the required writable mounts.
+Do not publish the metrics listener. It defaults to the container's loopback interface. This command runs the `control` agent space, so the agent can read the state directory and the controller's secrets. Do not add the Docker socket to this container: with a reachable daemon Peen refuses the `control` agent space and runs each workspace in its own Docker container instead, as `docs/where-it-runs.md` explains. For stronger isolation, restrict the network and use a read-only root filesystem with only the required writable mounts.
 
 ## Send a turn
 

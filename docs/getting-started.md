@@ -66,7 +66,7 @@ docker run --rm \
 
 To build the image from a checkout instead, see [Deployment](deployment.md#docker).
 
-`workspace_root` is the workspace root: the controller may open it or any directory inside it. Put the projects you want the agent to work on inside it, or point the variable at a directory that already holds them. Each project you open becomes a workspace with its own session. `config` holds the trusted harness layer. `state` holds SQLite, logs, and worker sockets. The Docker processes use your UID and GID, so agent writes keep host ownership. Peen resumes the same session on a later start with the same state directory and workspace. Do not mount your whole home directory because the agent has normal file and command access inside its container.
+`workspace_root` is the workspace root: the controller may open it or any directory inside it. Put the projects you want the agent to work on inside it, or point the variable at a directory that already holds them. Each project you open becomes a workspace with its own session. `config` holds the trusted harness layer. `state` holds SQLite, logs, and worker sockets. The Docker processes use your UID and GID, so agent writes keep host ownership. Peen resumes the same session on a later start with the same state directory and workspace. Do not mount your whole home directory because the agent has normal file and command access inside its container. This command mounts no Docker socket, so every workspace's agent runs inside this one container, in the `control` agent space, as the controller's user. That agent can also read and write `config` and `state`, including every session's transcript. [Where it runs](where-it-runs.md) explains how to give every workspace its own container instead.
 
 ## 3. Open a workspace chat
 
@@ -110,7 +110,7 @@ covers that directory, and the closest one wins. Put topic rules that must
 apply to every turn in
 `.claude/rules/*.md` or `.agents/rules/*.md`. Skills give the agent named
 procedures. Every turn sees a skill's name and description, then the model
-decides whether an ordinary task matches and loads it with `use_skill`. Put a
+decides whether an ordinary task matches and loads it with `useSkill`. Put a
 standalone `:skill-name` at the start of a message or after whitespace to hand
 the model the effective skill by exact name, as a message after yours. Named agents let it split off a
 bounded job. Hooks are for mechanical checks and hard stops that an ordinary

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/psyb0t/peen/internal/pkg/naming"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,6 +17,34 @@ const (
 	testAgentName    = "sample-agent"
 	testChangedValue = "changed"
 )
+
+func TestHookNamesAreCamelCase(t *testing.T) {
+	t.Parallel()
+
+	seen := map[HookEvent]struct{}{}
+
+	for _, event := range HookEvents() {
+		assert.True(t, naming.IsValid(string(event)), "hook event %q", event)
+		assert.NotContains(t, seen, event, "duplicate hook event")
+
+		seen[event] = struct{}{}
+	}
+
+	actionTypes := []HookActionType{
+		HookActionCommand,
+		HookActionInject,
+		HookActionEmitEvent,
+		HookActionDeny,
+	}
+	for _, actionType := range actionTypes {
+		assert.True(
+			t,
+			naming.IsValid(string(actionType)),
+			"hook action type %q",
+			actionType,
+		)
+	}
+}
 
 func TestSnapshotReturnsIndependentCollections(t *testing.T) {
 	t.Parallel()
@@ -46,7 +75,7 @@ func TestSnapshotReturnsIndependentCollections(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "skill read", filesystem["read"])
 	assert.Equal(t, "agent description", snapshot.Agents()[0].Description)
-	assert.Equal(t, "read_file", snapshot.Agents()[0].AllowedTools[0])
+	assert.Equal(t, "readFile", snapshot.Agents()[0].AllowedTools[0])
 	assert.Equal(t, "/workspace/AGENTS.md", snapshot.Manifest()[0].Source)
 }
 
@@ -78,7 +107,7 @@ func TestSnapshotContractAccessors(t *testing.T) {
 	assert.Contains(t, blocks[2].Content, testSkillName)
 	assert.Equal(t, SourceKindAgent, blocks[3].Kind)
 	assert.Contains(t, blocks[3].Content, testAgentName)
-	assert.Contains(t, blocks[3].Content, "read_file")
+	assert.Contains(t, blocks[3].Content, "readFile")
 	assert.NotContains(t, blocks[3].Content, "agent instructions")
 
 	for _, block := range blocks {
@@ -123,14 +152,14 @@ func TestRenderAgentCatalogueSortsWithoutMutatingInput(t *testing.T) {
 			Description:  "z description",
 			Source:       "/z",
 			Instructions: "z instructions",
-			AllowedTools: []string{"read_file"},
+			AllowedTools: []string{"readFile"},
 		},
 		{
 			Name:         "alpha",
 			Description:  "a description",
 			Source:       "/a",
 			Instructions: "a instructions",
-			AllowedTools: []string{"list_files"},
+			AllowedTools: []string{"listFiles"},
 		},
 	}
 
@@ -139,7 +168,7 @@ func TestRenderAgentCatalogueSortsWithoutMutatingInput(t *testing.T) {
 	assert.Equal(t, "zulu", agents[0].Name)
 	assert.Equal(t, "alpha", agents[1].Name)
 	assert.Less(t, strings.Index(catalogue, "alpha"), strings.Index(catalogue, "zulu"))
-	assert.Contains(t, catalogue, "allowed tools: list_files")
+	assert.Contains(t, catalogue, "allowed tools: listFiles")
 	assert.NotContains(t, catalogue, "a instructions")
 	assert.Equal(t, agentCatalogueEmpty, renderAgentCatalogue(nil))
 }
@@ -171,7 +200,7 @@ func testSnapshot() Snapshot {
 			Description:  "agent description",
 			Source:       "/workspace/.agents/agents/sample-agent.md",
 			Instructions: "agent instructions",
-			AllowedTools: []string{"read_file"},
+			AllowedTools: []string{"readFile"},
 			Hash:         "agent-hash",
 		}},
 		manifest: []ManifestEntry{{

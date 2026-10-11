@@ -86,29 +86,19 @@ type Config struct {
 	// client request. Empty uses the process working directory.
 	WorkspaceRoot string `env:"PEEN_WORKSPACE_ROOT"`
 
-	// RemovedWorkspaceRootsJSON catches the PEEN_WORKSPACE_ROOTS list this
-	// release replaced, so a deployment still setting it fails at startup
-	// instead of silently confining sessions to the working directory.
-	RemovedWorkspaceRootsJSON string `env:"PEEN_WORKSPACE_ROOTS"`
-
-	// RemovedWorkspaceHooksSwitch catches PEEN_ENABLE_WORKSPACE_HOOKS, which
-	// this release removed: workspace hooks always run. A deployment that set
-	// it to false relied on it as a guard, so startup stops for it instead of
-	// quietly running those hooks.
-	RemovedWorkspaceHooksSwitch string `env:"PEEN_ENABLE_WORKSPACE_HOOKS"`
-
-	// ExecutionProfilesJSON defines the execution profiles a client may name,
+	// DockerProfilesJSON defines the named Docker profiles a client may pick,
 	// as a JSON array. Every worker capability lives here: image, mounts,
-	// network, Docker socket, and privilege escalation. None of it ever comes
-	// from model output or a client request, which only names a profile.
+	// Docker access, network, and sudo. None of it ever comes from model
+	// output or a client request, which only names an agent space.
 	//
-	// An empty value defines the single native profile, so a deployment that
-	// configures nothing runs on the host as it always has.
-	ExecutionProfilesJSON string `env:"PEEN_EXECUTION_PROFILES"`
+	// An empty value defines no profile beyond the built-in `default` one,
+	// which has no Docker access, the bridge network, and no sudo.
+	DockerProfilesJSON string `env:"PEEN_DOCKER_PROFILES"`
 
-	// DefaultExecutionProfile is the profile a session opened without naming
-	// one runs under. Empty takes the native profile.
-	DefaultExecutionProfile string `env:"PEEN_DEFAULT_EXECUTION_PROFILE"`
+	// DefaultAgentSpace is where a session opened without naming one runs:
+	// `control` or `docker:<profile>`. Empty takes `docker:default` when the
+	// controller can reach a Docker socket and `control` when it cannot.
+	DefaultAgentSpace string `env:"PEEN_DEFAULT_AGENT_SPACE"`
 
 	// WorkerSocketDirectory is the root holding one private directory per
 	// session worker. Empty puts it under the state directory, because a
@@ -117,9 +107,14 @@ type Config struct {
 	WorkerSocketDirectory string `env:"PEEN_WORKER_SOCKET_DIR"`
 
 	// DockerSocket is the controller's own Docker socket, used to create
-	// worker containers for a Docker profile. Empty resolves DOCKER_HOST and
-	// then the platform default. Without a reachable socket a Docker profile
-	// is refused rather than run natively.
+	// worker containers for a Docker profile. It is the first of three
+	// candidates: this setting, a `unix://` DOCKER_HOST, and the platform
+	// default. The first one that answers the Docker API launches workers, and
+	// any one that answers, or a reachable `tcp://` DOCKER_HOST, counts as
+	// Docker authority. Without authority a Docker agent space is refused
+	// rather than run in the control agent space. With it, the control agent
+	// space is refused, because a control worker could use the daemon to
+	// become host root. Setting this to another path does not hide the others.
 	DockerSocket string `env:"PEEN_DOCKER_SOCKET"`
 
 	// HostUsername and HostHome describe the host account when a controller
@@ -127,7 +122,8 @@ type Config struct {
 	// the controller container has no passwd entry for the host account, but a
 	// Docker worker still has to recreate the account before it can safely
 	// write workspace files with host ownership. They are both empty for a
-	// native controller, which resolves its account from the operating system.
+	// controller on the host, which resolves its account from the operating
+	// system.
 	HostUsername string `env:"PEEN_HOST_USERNAME"`
 	HostHome     string `env:"PEEN_HOST_HOME"`
 
@@ -196,6 +192,11 @@ type Config struct {
 	HTTPListenAddress    string `default:":8080"           env:"PEEN_HTTP_LISTEN_ADDRESS"`   //nolint:lll // Immutable env tag.
 	MetricsListenAddress string `default:"127.0.0.1:9090" env:"PEEN_METRICS_LISTEN_ADDRESS"` //nolint:lll // Immutable env tag.
 	APIToken             string `env:"PEEN_API_TOKEN"`
+
+	// dockerEnv replaces the process environment and platform default the
+	// Docker daemon lookup reads. Only tests set it, so a lookup never needs
+	// t.Setenv.
+	dockerEnv *dockerEnvironment
 }
 
 // Upstream configures one deployment-owned named provider. The name is Peen's
@@ -219,7 +220,7 @@ func Parse() (Config, error) {
 //
 // A worker owns no durable state, so PEEN_STATE_DIR is neither required nor
 // used. The controller keeps it out of a Docker worker's environment on
-// purpose, and a native worker that inherits it still opens no database.
+// purpose, and a control worker that inherits it still opens no database.
 func ParseWorker() (Config, error) {
 	parsed, err := parse(Config.ValidateWorker)
 	if err != nil {
@@ -259,7 +260,11 @@ func parse(validate func(Config) error) (Config, error) {
 // Validate checks values which need cross-field or filesystem-aware rules. It
 // is the controller's contract and requires a state directory.
 func (c Config) Validate() error {
-	return c.validate(true)
+	if err := c.validate(true); err != nil {
+		return err
+	}
+
+	return c.validateAgentSpaces()
 }
 
 // ValidateWorker is Validate without the controller-only state directory rules.
@@ -277,8 +282,6 @@ func (c Config) validate(requireStateDirectory bool) error {
 		c.validateUpstreamConfiguration,
 		c.validateAgentRunLimits,
 		c.validateMessageLimits,
-		c.validateWorkspaceRoot,
-		c.validateWorkspaceHooks,
 	}
 	for _, validate := range validators {
 		if err := validate(); err != nil {
@@ -773,37 +776,6 @@ func (c Config) WorkspaceRoots() ([]string, error) {
 	}
 
 	return []string{resolved}, nil
-}
-
-// validateWorkspaceRoot refuses the removed multi-root setting by name, so an
-// operator upgrading learns which variable to set instead.
-func (c Config) validateWorkspaceRoot() error {
-	if strings.TrimSpace(c.RemovedWorkspaceRootsJSON) != "" {
-		return ctxerrors.Wrap(
-			ErrInvalidConfig,
-			"PEEN_WORKSPACE_ROOTS was removed, set PEEN_WORKSPACE_ROOT",
-		)
-	}
-
-	return nil
-}
-
-// validateWorkspaceHooks accepts the removed switch only when it is unset or
-// true, the two values under which workspace hooks already ran.
-func (c Config) validateWorkspaceHooks() error {
-	value := strings.TrimSpace(c.RemovedWorkspaceHooksSwitch)
-	if value == "" {
-		return nil
-	}
-
-	if enabled, err := strconv.ParseBool(value); err == nil && enabled {
-		return nil
-	}
-
-	return ctxerrors.Wrap(
-		ErrInvalidConfig,
-		"PEEN_ENABLE_WORKSPACE_HOOKS was removed and workspace hooks always run; unset it, and delete .agents/hooks.yaml from any workspace whose hooks must not run", //nolint:lll // One operator message.
-	)
 }
 
 // APIKey resolves only the environment variable selected by the operator.

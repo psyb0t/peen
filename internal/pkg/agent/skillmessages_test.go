@@ -278,7 +278,7 @@ func TestRuntimeDeliversASkillInFullInALaterTurnUnderDropOldest(t *testing.T) {
 	)
 }
 
-// A skill the model loaded with use_skill in an earlier turn is no more
+// A skill the model loaded with useSkill in an earlier turn is no more
 // certain to be in the window under drop-oldest than one named with :name.
 func TestRuntimeDeliversAUseSkillSkillInFullInALaterTurnUnderDropOldest(
 	t *testing.T,
@@ -473,7 +473,7 @@ func TestRuntimeEmitsASkillEventForEachSkillMessageAtTurnStart(t *testing.T) {
 	)
 }
 
-// useSkillScript scripts one turn that loads name with use_skill, then
+// useSkillScript scripts one turn that loads name with useSkill, then
 // replies with reply.
 func useSkillScript(t *testing.T, name, reply string) []elelemtest.Turn {
 	t.Helper()
@@ -543,8 +543,8 @@ func TestDeliveredSkillNames(t *testing.T) {
 	t.Parallel()
 
 	const (
-		useSkillCalls = `[{"ID":"call-1","Name":"use_skill","Arguments":{}}]`
-		otherCalls    = `[{"ID":"call-1","Name":"read_file","Arguments":{}}]`
+		useSkillCalls = `[{"ID":"call-1","Name":"useSkill","Arguments":{}}]`
+		otherCalls    = `[{"ID":"call-1","Name":"readFile","Arguments":{}}]`
 		loaded        = `{"name":"alpha","referencedSkills":` +
 			`[{"name":"bravo"},{"name":"charlie"}]}`
 	)
@@ -571,7 +571,7 @@ func TestDeliveredSkillNames(t *testing.T) {
 	}{
 		{name: "empty history", history: nil, want: []string{}},
 		{
-			name: "use_skill result counts the skill and its references",
+			name: "useSkill result counts the skill and its references",
 			history: []*models.Message{
 				assistant(useSkillCalls),
 				result("call-1", loaded, false),
@@ -579,7 +579,7 @@ func TestDeliveredSkillNames(t *testing.T) {
 			want: []string{"alpha", "bravo", "charlie"},
 		},
 		{
-			name: "use_skill error result counts nothing",
+			name: "useSkill error result counts nothing",
 			history: []*models.Message{
 				assistant(useSkillCalls),
 				result("call-1", loaded, true),

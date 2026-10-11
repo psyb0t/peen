@@ -1,6 +1,6 @@
 // Package supervisor owns the lifecycle of one controller's session workers.
 //
-// It is the only place a worker is created, so the profile policy cannot be
+// It is the only place a worker is created, so the agent space policy cannot be
 // bypassed, no worker runs without a durable generation row, and no worker is
 // accepted without the credential this controller issued for that exact
 // generation.
@@ -33,12 +33,12 @@ const (
 
 // Options builds a supervisor.
 type Options struct {
-	Store    *session.Store
-	Profiles *worker.ProfileSet
+	Store       *session.Store
+	AgentSpaces *worker.AgentSpaceSet
 
 	// Launchers holds one launcher per kind. A kind with no launcher cannot
-	// run: a Docker profile on a controller with no Docker socket is refused
-	// rather than run somewhere else.
+	// run: a Docker agent space on a controller with no Docker socket is
+	// refused rather than run somewhere else.
 	Launchers map[worker.Kind]worker.Launcher
 
 	// Publisher receives durable records after the controller writes them.
@@ -70,12 +70,12 @@ type supervised struct {
 	process      worker.Process
 	ready        chan struct{}
 	readyOnce    sync.Once
-	profile      worker.Profile
+	agentSpace   worker.AgentSpace
 }
 
 // New validates the supervisor's dependencies.
 func New(options Options) (*Supervisor, error) {
-	if options.Store == nil || options.Profiles == nil {
+	if options.Store == nil || options.AgentSpaces == nil {
 		return nil, ctxerrors.Wrap(
 			commerr.ErrRequiredFieldNotSet,
 			"worker supervisor dependency",
@@ -111,16 +111,16 @@ func New(options Options) (*Supervisor, error) {
 	}, nil
 }
 
-// Profiles exposes the deployment's allowed profiles for reporting.
-func (s *Supervisor) Profiles() *worker.ProfileSet {
-	return s.options.Profiles
+// AgentSpaces exposes the deployment's allowed agent spaces for reporting.
+func (s *Supervisor) AgentSpaces() *worker.AgentSpaceSet {
+	return s.options.AgentSpaces
 }
 
 // EnsureRequest asks for one session's live worker.
 type EnsureRequest struct {
-	SessionID   uuid.UUID
-	Workspace   string
-	ProfileName string
+	SessionID      uuid.UUID
+	Workspace      string
+	AgentSpaceName string
 }
 
 // Ensure returns the session's registered worker, launching one when the
@@ -144,43 +144,43 @@ func (s *Supervisor) Ensure(
 		return live, nil
 	}
 
-	profile, err := s.options.Profiles.Select(request.ProfileName)
+	agentSpace, err := s.options.AgentSpaces.Select(request.AgentSpaceName)
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "select the execution profile")
+		return nil, ctxerrors.Wrap(err, "select the agent space")
 	}
 
-	launcher, err := s.launcherFor(profile)
+	launcher, err := s.launcherFor(agentSpace)
 	if err != nil {
 		return nil, err
 	}
 
-	return s.launch(ctx, request, profile, launcher)
+	return s.launch(ctx, request, agentSpace, launcher)
 }
 
-// launcherFor resolves the launcher a profile needs, refusing plainly when the
-// controller lacks the authority that profile requires.
+// launcherFor resolves the launcher an agent space needs, refusing plainly
+// when the controller lacks the authority that agent space requires.
 //
 //nolint:ireturn // Selecting between launch forms is the point.
 func (s *Supervisor) launcherFor(
-	profile worker.Profile,
+	agentSpace worker.AgentSpace,
 ) (worker.Launcher, error) {
-	launcher, found := s.options.Launchers[profile.Kind]
+	launcher, found := s.options.Launchers[agentSpace.Kind]
 	if found {
 		return launcher, nil
 	}
 
-	if profile.RequiresDockerAuthority() {
+	if agentSpace.RequiresDockerAuthority() {
 		return nil, ctxerrors.Wrapf(
 			worker.ErrDockerAuthorityUnavailable,
-			"execution profile %q requires a controller Docker socket",
-			profile.Name,
+			"agent space %q requires a controller Docker socket",
+			agentSpace.Name,
 		)
 	}
 
 	return nil, ctxerrors.Wrapf(
 		commerr.ErrNotImplemented,
 		"no launcher is registered for %q workers",
-		profile.Kind,
+		agentSpace.Kind,
 	)
 }
 
@@ -189,10 +189,10 @@ func (s *Supervisor) launcherFor(
 func (s *Supervisor) launch(
 	ctx context.Context,
 	request EnsureRequest,
-	profile worker.Profile,
+	agentSpace worker.AgentSpace,
 	launcher worker.Launcher,
 ) (*protocol.Worker, error) {
-	document, err := s.recordGeneration(ctx, request, profile)
+	document, err := s.recordGeneration(ctx, request, agentSpace)
 	if err != nil {
 		return nil, err
 	}
@@ -200,14 +200,21 @@ func (s *Supervisor) launch(
 	held := &supervised{
 		generationID: document.GenerationID,
 		ready:        make(chan struct{}),
-		profile:      profile,
+		agentSpace:   agentSpace,
 	}
 
 	s.mutex.Lock()
 	s.sessions[request.SessionID] = held
 	s.mutex.Unlock()
 
-	registered, err := s.start(ctx, request, profile, launcher, held, document)
+	registered, err := s.start(
+		ctx,
+		request,
+		agentSpace,
+		launcher,
+		held,
+		document,
+	)
 	if err != nil {
 		s.abandon(ctx, request.SessionID, held, err)
 
@@ -223,7 +230,7 @@ func (s *Supervisor) launch(
 func (s *Supervisor) recordGeneration(
 	ctx context.Context,
 	request EnsureRequest,
-	profile worker.Profile,
+	agentSpace worker.AgentSpace,
 ) (worker.LaunchDocument, error) {
 	credential, err := worker.NewCredential()
 	if err != nil {
@@ -243,14 +250,14 @@ func (s *Supervisor) recordGeneration(
 		ctx,
 		request.SessionID,
 		session.CreateWorkerGenerationInput{
-			ID:              generationID,
-			Kind:            string(profile.Kind),
-			Profile:         profile.Name,
-			ProfileRevision: profile.Revision,
-			State:           string(worker.StateRequested),
-			Workspace:       request.Workspace,
-			SocketPath:      socketPath,
-			CredentialHash:  credential.Hash(),
+			ID:                 generationID,
+			Kind:               string(agentSpace.Kind),
+			AgentSpace:         agentSpace.Name,
+			AgentSpaceRevision: agentSpace.Revision,
+			State:              string(worker.StateRequested),
+			Workspace:          request.Workspace,
+			SocketPath:         socketPath,
+			CredentialHash:     credential.Hash(),
 		},
 	); err != nil {
 		return worker.LaunchDocument{}, ctxerrors.Wrap(
@@ -266,7 +273,7 @@ func (s *Supervisor) recordGeneration(
 		SocketPath:      socketPath,
 		Workspace:       request.Workspace,
 		ConfigDirectory: s.options.ConfigDirectory,
-		Profile:         profile.Name,
+		AgentSpace:      agentSpace.Name,
 	}, nil
 }
 
@@ -274,7 +281,7 @@ func (s *Supervisor) recordGeneration(
 func (s *Supervisor) start(
 	ctx context.Context,
 	request EnsureRequest,
-	profile worker.Profile,
+	agentSpace worker.AgentSpace,
 	launcher worker.Launcher,
 	held *supervised,
 	document worker.LaunchDocument,
@@ -314,7 +321,7 @@ func (s *Supervisor) start(
 		return nil, ctxerrors.Wrap(err, "mark the worker generation starting")
 	}
 
-	process, err := s.runLauncher(ctx, launcher, document, profile)
+	process, err := s.runLauncher(ctx, launcher, document, agentSpace)
 	if err != nil {
 		return nil, err
 	}
@@ -338,11 +345,11 @@ func (s *Supervisor) runLauncher(
 	ctx context.Context,
 	launcher worker.Launcher,
 	document worker.LaunchDocument,
-	profile worker.Profile,
+	agentSpace worker.AgentSpace,
 ) (worker.Process, error) {
 	process, err := launcher.Launch(ctx, worker.LaunchRequest{
-		Document: document,
-		Profile:  profile,
+		Document:   document,
+		AgentSpace: agentSpace,
 	})
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "launch the session worker")
@@ -424,8 +431,8 @@ func (s *Supervisor) awaitRegistration(
 		"session worker ready",
 		"session_id", sessionID.String(),
 		"generation_id", held.generationID.String(),
-		"profile", held.profile.Name,
-		"kind", string(held.profile.Kind),
+		"agent_space", held.agentSpace.Name,
+		"kind", string(held.agentSpace.Kind),
 	)
 
 	return registered, nil
@@ -475,9 +482,9 @@ func (s *Supervisor) AcceptWorker(
 	}
 
 	return protocol.HelloAck{
-		SessionID: stored.ID,
-		Workspace: stored.Workspace,
-		Profile:   generation.Profile,
+		SessionID:  stored.ID,
+		Workspace:  stored.Workspace,
+		AgentSpace: generation.AgentSpace,
 	}, nil
 }
 
@@ -516,18 +523,18 @@ func (s *Supervisor) Current(sessionID uuid.UUID) (*protocol.Worker, bool) {
 
 // EnsureSessionWorker is Ensure in the shape the control surface routes with.
 //
-// The workspace and profile come from the stored session, so a client naming a
-// session cannot also choose where it runs or what it may do.
+// The workspace and agent space come from the stored session, so a client
+// naming a session cannot also choose where it runs or what it may do.
 func (s *Supervisor) EnsureSessionWorker(
 	ctx context.Context,
 	sessionID uuid.UUID,
 	workspace string,
-	profileName string,
+	agentSpaceName string,
 ) (*protocol.Worker, error) {
 	return s.Ensure(ctx, EnsureRequest{
-		SessionID:   sessionID,
-		Workspace:   workspace,
-		ProfileName: profileName,
+		SessionID:      sessionID,
+		Workspace:      workspace,
+		AgentSpaceName: agentSpaceName,
 	})
 }
 

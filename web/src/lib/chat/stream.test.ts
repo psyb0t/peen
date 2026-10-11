@@ -85,7 +85,7 @@ describe("live stream reducer", () => {
 
 	it("pairs a tool result with its tool call by tool use id", () => {
 		const turns = fold([
-			blockStart(0, { id: "call-1", input: {}, name: "write_file", type: "tool_use" }),
+			blockStart(0, { id: "call-1", input: {}, name: "writeFile", type: "tool_use" }),
 			blockDelta(0, { partial_json: '{"path":"a.sh"}', type: "input_json_delta" }),
 			blockStop(0),
 			blockStart(1, { tool_use_id: "call-1", type: "tool_result" }),
@@ -100,7 +100,7 @@ describe("live stream reducer", () => {
 				isError: false,
 				key: `${firstRequestID}:0`,
 				kind: "tool",
-				name: "write_file",
+				name: "writeFile",
 				result: '{"created":true}',
 				toolUseID: "call-1",
 			},
@@ -109,7 +109,7 @@ describe("live stream reducer", () => {
 
 	it("marks a failed tool result as an error", () => {
 		const turns = fold([
-			blockStart(0, { id: "call-1", input: {}, name: "run_command", type: "tool_use" }),
+			blockStart(0, { id: "call-1", input: {}, name: "runCommand", type: "tool_use" }),
 			blockStart(1, { is_error: true, tool_use_id: "call-1", type: "tool_result" }),
 			blockDelta(1, { text: "exit 1", type: "json_partial" }),
 		]);
@@ -121,7 +121,7 @@ describe("live stream reducer", () => {
 		const turns = fold([
 			blockStart(0, { type: "thinking" }),
 			blockDelta(0, { text: "first", type: "thinking_delta" }),
-			blockStart(1, { id: "call-1", input: {}, name: "read_file", type: "tool_use" }),
+			blockStart(1, { id: "call-1", input: {}, name: "readFile", type: "tool_use" }),
 			blockStart(2, { tool_use_id: "call-1", type: "tool_result" }),
 			blockDelta(2, { text: "content", type: "json_partial" }),
 			blockStart(3, { type: "thinking" }),
@@ -134,7 +134,7 @@ describe("live stream reducer", () => {
 			turns[0]?.blocks.map((block) =>
 				block.kind === "tool" ? `${block.name}:${block.result ?? ""}` : block.text,
 			),
-		).toEqual(["first", "read_file:content", "second", "done"]);
+		).toEqual(["first", "readFile:content", "second", "done"]);
 	});
 
 	it("keeps turns with different request ids apart even when indexes repeat", () => {
@@ -152,7 +152,7 @@ describe("live stream reducer", () => {
 	});
 
 	it("records the prompt and session of the turn", () => {
-		const turns = fold([event("user_message.created", { message: "make a script" })]);
+		const turns = fold([event("userMessage.created", { message: "make a script" })]);
 
 		expect(turns).toEqual([
 			{
@@ -177,7 +177,7 @@ describe("live stream reducer", () => {
 
 	it("records which event started a turn", () => {
 		const turns = fold([
-			event("user_message.created", { message: "fix CI" }),
+			event("userMessage.created", { message: "fix CI" }),
 			event("turn.started", { originEventType: "ci.build.failed" }),
 		]);
 
@@ -194,7 +194,7 @@ describe("live stream reducer", () => {
 	it("keeps another session's turn under its own session id", () => {
 		const turns = fold([
 			event(
-				"user_message.created",
+				"userMessage.created",
 				{ message: "elsewhere" },
 				firstRequestID,
 				otherSessionID,
@@ -263,7 +263,7 @@ describe("live stream reducer", () => {
 
 	it("ignores events without a session or request id", () => {
 		const turns = fold([
-			event("user_message.created", { message: "x" }, firstRequestID, null),
+			event("userMessage.created", { message: "x" }, firstRequestID, null),
 		]);
 
 		expect(turns).toEqual([]);
@@ -282,7 +282,7 @@ describe("live stream reducer", () => {
 
 		it("adds a skill block to the turn the skill message belongs to", () => {
 			const turns = fold([
-				event("user_message.created", { message: "plan :planning" }),
+				event("userMessage.created", { message: "plan :planning" }),
 				event("skill.injected", { content: skillContent, name: "planning" }),
 				blockStart(0, { type: "text" }),
 			]);
@@ -306,12 +306,12 @@ describe("live stream reducer", () => {
 
 		it("puts the skill of a delivered queued message after its user block", () => {
 			const turns = fold([
-				event("user_message.created", { message: "go" }, firstRequestID),
+				event("userMessage.created", { message: "go" }, firstRequestID),
 				event("turn.started", {}, firstRequestID),
 				blockStart(0, { type: "text" }, firstRequestID),
-				event("user_message.created", { message: "then :planning" }, secondRequestID),
-				event("user_message.queued", { message: "then :planning" }, secondRequestID),
-				event("user_message.delivered", { message: "then :planning" }, secondRequestID),
+				event("userMessage.created", { message: "then :planning" }, secondRequestID),
+				event("userMessage.queued", { message: "then :planning" }, secondRequestID),
+				event("userMessage.delivered", { message: "then :planning" }, secondRequestID),
 				event(
 					"skill.injected",
 					{ content: skillContent, name: "planning" },
@@ -335,13 +335,13 @@ describe("live stream reducer", () => {
 
 	describe("queued messages", () => {
 		const runningTurn = [
-			event("user_message.created", { message: "inspect" }),
+			event("userMessage.created", { message: "inspect" }),
 			event("turn.started", {}),
-			blockStart(0, { id: "call-1", name: "list_files", type: "tool_use" }),
+			blockStart(0, { id: "call-1", name: "listFiles", type: "tool_use" }),
 		];
 		const queued = [
-			event("user_message.created", { message: "also check tests" }, secondRequestID),
-			event("user_message.queued", { message: "also check tests" }, secondRequestID),
+			event("userMessage.created", { message: "also check tests" }, secondRequestID),
+			event("userMessage.queued", { message: "also check tests" }, secondRequestID),
 		];
 
 		it("marks a message sent during a running turn as queued", () => {
@@ -361,7 +361,7 @@ describe("live stream reducer", () => {
 				...queued,
 				blockStart(1, { tool_use_id: "call-1", type: "tool_result" }),
 				event(
-					"user_message.delivered",
+					"userMessage.delivered",
 					{ message: "also check tests" },
 					secondRequestID,
 				),
@@ -385,7 +385,7 @@ describe("live stream reducer", () => {
 			const turns = fold([
 				...queued,
 				event(
-					"user_message.delivered",
+					"userMessage.delivered",
 					{ message: "also check tests" },
 					secondRequestID,
 				),
