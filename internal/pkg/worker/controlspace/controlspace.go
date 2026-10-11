@@ -12,6 +12,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"slices"
 	"sync"
 	"syscall"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
+	peenconfig "github.com/psyb0t/peen/internal/pkg/config"
 	"github.com/psyb0t/peen/internal/pkg/worker"
 	"github.com/psyb0t/peen/internal/pkg/worker/workerlog"
 )
@@ -27,6 +29,10 @@ const (
 	// terminateGrace is how long a worker gets to exit after the signal
 	// before it is killed outright.
 	terminateGrace = 10 * time.Second
+
+	// configDirectoryEnvKey points the worker at the configuration directory
+	// named in its launch document.
+	configDirectoryEnvKey = "PEEN_CONFIG_DIR"
 )
 
 // Options builds a control launcher.
@@ -37,8 +43,14 @@ type Options struct {
 	BinaryPath string
 
 	// Environment is the base environment every worker inherits. Empty means
-	// the controller's own.
+	// the controller's own. Either way the controller-only settings are
+	// removed before a worker gets it.
 	Environment []string
+
+	// ProviderCredentialKeys names the variables that hold the provider
+	// credentials the worker's model calls need. They stay in the worker's
+	// environment even when their names start with PEEN_.
+	ProviderCredentialKeys []string
 }
 
 // Launcher starts control workers.
@@ -68,9 +80,15 @@ func New(options Options) (*Launcher, error) {
 		environment = os.Environ()
 	}
 
+	// A control worker runs as the controller's user, so whatever it inherits
+	// is readable by the agent it hosts. The API token, the state directory,
+	// and the Docker authority stay with the controller.
 	return &Launcher{
-		binaryPath:  binaryPath,
-		environment: environment,
+		binaryPath: binaryPath,
+		environment: peenconfig.ControlWorkerEnvironment(
+			environment,
+			options.ProviderCredentialKeys,
+		),
 	}, nil
 }
 
@@ -111,7 +129,12 @@ func (l *Launcher) Launch(
 	//nolint:gosec,noctx // Own executable; the worker outlives the launch ctx.
 	command := exec.Command(l.binaryPath, worker.WorkerCommand)
 	command.Dir = request.Document.Workspace
-	command.Env = l.environment
+	// The controller decides where the worker reads its configuration from,
+	// as the Docker launcher does, so an inherited value never applies.
+	command.Env = append(
+		slices.Clone(l.environment),
+		configDirectoryEnvKey+"="+request.Document.ConfigDirectory,
+	)
 	command.Stdin = stdin
 
 	// The worker's records go through this process's logger rather than

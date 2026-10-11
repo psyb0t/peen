@@ -8,6 +8,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	peenconfig "github.com/psyb0t/peen/internal/pkg/config"
 	controlclient "github.com/psyb0t/peen/internal/pkg/control/client"
+	"github.com/psyb0t/peen/internal/pkg/nondumpable"
 	workerpkg "github.com/psyb0t/peen/internal/pkg/worker"
 	workerrun "github.com/psyb0t/peen/internal/pkg/worker/run"
 	"github.com/spf13/cobra"
@@ -42,8 +43,14 @@ func commands() []*cobra.Command {
 	return []*cobra.Command{
 		sessionCommand(),
 		controlCommand(),
-		workerCommand(),
+		workerCommand(workerCommandDependencies{}),
 	}
+}
+
+// workerCommandDependencies are the worker command's seams. A nil field takes
+// its production default.
+type workerCommandDependencies struct {
+	enableNonDumpable func(context.Context) error
 }
 
 // workerCommand runs one session worker.
@@ -51,7 +58,11 @@ func commands() []*cobra.Command {
 // It is hidden because it is not a user command. The controller supplies the
 // session binding, socket, credential, workspace, and agent space on stdin, and
 // the worker refuses to start without them.
-func workerCommand() *cobra.Command {
+func workerCommand(dependencies workerCommandDependencies) *cobra.Command {
+	if dependencies.enableNonDumpable == nil {
+		dependencies.enableNonDumpable = nondumpable.Enable
+	}
+
 	return &cobra.Command{
 		Use:    workerpkg.WorkerCommand,
 		Short:  workerShort,
@@ -59,6 +70,15 @@ func workerCommand() *cobra.Command {
 		Hidden: true,
 		Args:   cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
+			// First, before the launch document with the worker credential
+			// is read: the agent's commands run as this user and must not
+			// read the provider keys from this process's /proc files.
+			if err := dependencies.enableNonDumpable(
+				command.Context(),
+			); err != nil {
+				return ctxerrors.Wrap(err, "protect the worker process")
+			}
+
 			if err := workerrun.Run(
 				command.Context(),
 				workerrun.Options{LaunchInput: command.InOrStdin()},

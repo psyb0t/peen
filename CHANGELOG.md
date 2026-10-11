@@ -4,6 +4,14 @@ All notable Peen changes per release. Versions follow
 [semver](https://semver.org). Peen release history starts at v0.1.0. Entries
 below document the Servicepack baseline from which Peen was created.
 
+## v0.19.1 (2026-10-11)
+
+A `control` agent can no longer read `PEEN_API_TOKEN` or a provider key from the `/proc` files of the controller or its own worker. A `control` agent still runs as the controller's user, so it can still read and change `PEEN_STATE_DIR`, which holds every session's transcript, and `docs/where-it-runs.md` lists what else it can reach. A `PEEN_` variable that is not a worker setting and is not named by an upstream's `apiKeyEnv` no longer reaches a `control` worker or the commands its agent runs, so move anything your agent's commands read from such a variable to a name without the `PEEN_` prefix. No API migration is needed.
+
+- Fixes a `control` agent reading `PEEN_API_TOKEN` and every provider `apiKeyEnv` variable through `/proc/<pid>/environ` of the controller or of its session worker. On Linux the controller and `peen worker` now mark themselves non-dumpable before anything else, so the kernel refuses that read for any process of the same user. Peen refuses to start when it cannot set this. Root and processes with `CAP_SYS_PTRACE` can still read a non-dumpable process.
+- Fixes a `control` worker inheriting the controller's whole environment. It no longer receives `PEEN_API_TOKEN`, `PEEN_STATE_DIR`, `PEEN_DOCKER_SOCKET`, `DOCKER_HOST`, the listen addresses, the host identity and log settings, or any other `PEEN_` variable a worker does not read. It keeps the provider credentials named by `apiKeyEnv` and every variable without the `PEEN_` prefix.
+- Updates `golang.org/x/crypto` to v0.57.0, with `golang.org/x/sys` v0.48.0, `golang.org/x/sync` v0.23.0, and `golang.org/x/text` v0.42.0. GO-2026-5932 has no fixed version and covers only the `x/crypto/openpgp` package, which Peen does not import.
+
 ## v0.19.0 (2026-10-11)
 
 Every name Peen owns is now camelCase, execution profiles become agent spaces with explicit Docker grants, and Peen refuses the `control` agent space on a controller that can reach a Docker daemon. This is a clean break with no compatibility layer, and some old settings fail open instead of failing startup. Old environment variables are ignored without a warning, and a `hooks.yaml` that still uses an old key is skipped, so its deny rules stop applying. Before you upgrade, stop Peen and delete `peen.db`, `peen.db-wal`, and `peen.db-shm` from `PEEN_STATE_DIR`, which discards every stored session, so copy the three files first if you need the history. Then translate `PEEN_EXECUTION_PROFILES` and `PEEN_DEFAULT_EXECUTION_PROFILE` as the bullets below describe, rename every `hooks.yaml` key and `match.tool` value, point a pinned `PEEN_WORKER_IMAGE` at a v0.19.0 image, and update any client that reads tool names, event types, or the agent-space API.

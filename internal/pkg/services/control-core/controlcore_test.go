@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/elelem"
@@ -386,6 +387,66 @@ func TestControlCoreFailsStartupWhenNoAgentSpaceCanRun(t *testing.T) {
 	case <-time.After(coreTestStartupTimeout):
 		t.Fatal("the controller neither failed nor became ready")
 	}
+}
+
+// The controller must not run unprotected: when it cannot mark itself
+// non-dumpable it stops before it reads configuration, opens the database, or
+// publishes a core for control-api to serve.
+func TestControlCoreFailsStartupWhenItCannotBecomeNonDumpable(t *testing.T) {
+	fixture := newCoreFixture(t)
+
+	enablerErr := ctxerrors.Wrap(
+		commerr.ErrPermissionDenied,
+		"refuse the non-dumpable flag",
+	)
+	hasParsedConfig := false
+	hasConfiguredAuditLog := false
+	handoff := control.NewHandoff()
+
+	service := newControlCore(serviceDependencies{
+		enableNonDumpable: func(context.Context) error { return enablerErr },
+		parseConfig: func() (peenconfig.Config, error) {
+			hasParsedConfig = true
+
+			return fixture.config, nil
+		},
+		configureAuditLog: func() error {
+			hasConfiguredAuditLog = true
+
+			return nil
+		},
+		handoff: handoff,
+	})
+
+	done := make(chan error, 1)
+
+	go func() { done <- service.Run(t.Context()) }()
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, commerr.ErrPermissionDenied)
+	case <-service.Ready():
+		t.Fatal("the controller reported ready without non-dumpable")
+	case <-time.After(coreTestStartupTimeout):
+		t.Fatal("the controller neither failed nor became ready")
+	}
+
+	assert.False(t, hasParsedConfig, "configuration was read")
+	assert.False(t, hasConfiguredAuditLog, "the audit log was configured")
+	assert.NoDirExists(t, fixture.config.StateDirectory)
+
+	select {
+	case <-service.Ready():
+		t.Fatal("the controller reported ready after failing")
+	default:
+	}
+
+	awaitCtx, cancel := context.WithTimeout(t.Context(), coreTestClearedTimeout)
+	defer cancel()
+
+	core, err := handoff.Await(awaitCtx)
+	require.Error(t, err)
+	assert.Nil(t, core, "a core was published for control-api")
 }
 
 // Without a Docker socket the controller offers the control agent space and

@@ -17,7 +17,17 @@ What `control` can touch depends on where Peen runs:
 - Peen in a container with no Docker daemon in reach: the mounted folders. Those include `PEEN_CONFIG_DIR`, which the agent can write when it is mounted writable as in the README, and `PEEN_STATE_DIR`, which holds every session's transcript in `peen.db`. Outside the container it reaches whatever the container's network reaches, which by default includes your LAN and the internet.
 - Peen anywhere it can reach a Docker daemon: host root. This is why Peen refuses `control` there. See [the Docker socket rule](#the-docker-socket-rule).
 
-Commands the agent runs, in any agent space, start with an environment that has `PEEN_API_TOKEN` and every variable named by an upstream's `apiKeyEnv` removed. In `control` the agent still runs as the controller's user, so a command can read both values from the controller's process environment through `/proc`. With the API token the agent can read and drive every other session through the API. Treat a `control` agent as holding every secret the controller holds.
+Commands the agent runs, in any agent space, start with an environment that has `PEEN_API_TOKEN` and every variable named by an upstream's `apiKeyEnv` removed. A `control` worker itself never receives `PEEN_API_TOKEN`, `PEEN_STATE_DIR`, the controller's Docker settings, or any other `PEEN_` setting a worker does not read. It keeps the provider credentials, because it makes the model calls. Variables that are not Peen settings, such as `PATH` and `HOME`, pass through to the agent's commands unchanged, so do not start the controller with unrelated secrets in its environment.
+
+On Linux the controller and every worker mark themselves non-dumpable when they start. The kernel then refuses a command that runs as the same user when it tries to read their `/proc/<pid>/environ`, their memory, or attach to them with ptrace, so a `control` agent cannot take the API token or a provider key from either process. Commands the agent starts are ordinary processes and stay readable to each other.
+
+A `control` agent still runs as the controller's user, and that leaves these limits:
+
+- It can read and change `PEEN_STATE_DIR`, which holds `peen.db` with every session's transcript, and `PEEN_CONFIG_DIR`.
+- It can read any file or other process of that user that holds a secret, such as an `.env` file or the shell you exported `PEEN_API_TOKEN` in.
+- Non-dumpable does not stop root or a process with `CAP_SYS_PTRACE`. Do not run the controller as root or grant it that capability.
+
+A Docker agent space is the isolation boundary. Use one when an agent must not see other sessions.
 
 ## Three ways Peen runs
 

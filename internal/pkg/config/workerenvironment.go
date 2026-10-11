@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/psyb0t/ctxerrors"
@@ -19,6 +20,9 @@ const (
 	// a worker reaches through its private credentialed socket instead.
 	environmentStateDirectory = "PEEN_STATE_DIR"
 	environmentAPIToken       = "PEEN_API_TOKEN" //nolint:gosec // Name only.
+
+	// peenSettingPrefix starts every Peen deployment setting.
+	peenSettingPrefix = "PEEN_"
 )
 
 // WorkerEnvironment returns exactly the deployment settings a worker needs.
@@ -41,6 +45,45 @@ func (c Config) WorkerEnvironment() (map[string]string, error) {
 	}
 
 	return environment, nil
+}
+
+// ControlWorkerEnvironment returns environ without the settings a control
+// worker must not inherit from its controller.
+//
+// It removes every controller-only key (the API token, the state directory,
+// Docker settings, listen addresses, host identity, and log settings) and every
+// PEEN_ key outside the worker allowlist. A key named in credentialKeys stays
+// even when it starts with PEEN_, because it holds a provider credential the
+// worker's model calls need, unless it is controller-only. Variables outside
+// PEEN_ stay, so the agent's commands keep PATH, HOME, and the user's
+// toolchain. PEEN_CONFIG_DIR is controller-only here too: the control launcher
+// sets it from the launch document, as the Docker launcher does.
+func ControlWorkerEnvironment(environ, credentialKeys []string) []string {
+	kept := make([]string, 0, len(environ))
+
+	for _, entry := range environ {
+		key, _, _ := strings.Cut(entry, "=")
+		if !controlWorkerEnvironmentKey(key, credentialKeys) {
+			continue
+		}
+
+		kept = append(kept, entry)
+	}
+
+	return kept
+}
+
+func controlWorkerEnvironmentKey(key string, credentialKeys []string) bool {
+	if workerEnvironmentReserved(key) {
+		return false
+	}
+
+	if !strings.HasPrefix(key, peenSettingPrefix) {
+		return true
+	}
+
+	return workerRuntimeEnvironmentKey(key) ||
+		slices.Contains(credentialKeys, key)
 }
 
 func workerRuntimeEnvironment(entries []string) map[string]string {

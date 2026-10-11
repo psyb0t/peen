@@ -91,6 +91,60 @@ func TestWorkerEnvironmentReservesAuditLogRetentionKeys(t *testing.T) {
 	}
 }
 
+func TestControlWorkerEnvironment(t *testing.T) {
+	t.Parallel()
+
+	credentialKeys := []string{testWorkerProviderKey, "PEEN_API_TOKEN"}
+
+	testCases := []struct {
+		name     string
+		entry    string
+		wantKept bool
+	}{
+		{name: "api token", entry: "PEEN_API_TOKEN=token"},
+		{name: "state directory", entry: "PEEN_STATE_DIR=/state"},
+		{name: "config directory", entry: "PEEN_CONFIG_DIR=/config"},
+		{name: "docker socket", entry: "PEEN_DOCKER_SOCKET=/docker.sock"},
+		{name: "docker host", entry: "DOCKER_HOST=unix:///docker.sock"},
+		{name: "listen address", entry: "PEEN_HTTP_LISTEN_ADDRESS=127.0.0.1:1"},
+		{name: "host identity", entry: "PEEN_HOST_USERNAME=someone"},
+		{name: "log directory", entry: "PEEN_LOG_DIRECTORY=/logs"},
+		{name: "worker bootstrap", entry: "PEEN_WORKER_UID=0"},
+		{name: "unlisted setting", entry: "PEEN_NOT_A_WORKER_KEY=value"},
+		{
+			name:     "allowlisted setting",
+			entry:    "PEEN_DEFAULT_MODEL=" + testQualifiedModel,
+			wantKept: true,
+		},
+		{
+			name:     "provider credential",
+			entry:    testWorkerProviderKey + "=credential",
+			wantKept: true,
+		},
+		{name: "ordinary variable", entry: "PATH=/usr/bin", wantKept: true},
+		{name: "log level", entry: "LOG_LEVEL=debug", wantKept: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := ControlWorkerEnvironment(
+				[]string{tc.entry},
+				credentialKeys,
+			)
+
+			if tc.wantKept {
+				assert.Equal(t, []string{tc.entry}, got)
+
+				return
+			}
+
+			assert.Empty(t, got)
+		})
+	}
+}
+
 func TestConfigValidateDockerHostIdentity(t *testing.T) {
 	base := testConfig(t)
 

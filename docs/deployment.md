@@ -308,3 +308,5 @@ harden depends on the session's agent space:
   and `docker run` flags affect only the controller. Harden the Docker profile
   instead, with `network`, `mounts`, `docker`, and `sudo`. See
   [Docker profiles](where-it-runs.md#docker-profiles).
+
+The controller and its workers mark themselves non-dumpable when they start, so a command the agent runs cannot read `PEEN_API_TOKEN` or a provider key from their `/proc/<pid>/environ` or memory. Root and any process with `CAP_SYS_PTRACE` still can, so keep the controller on its non-root image account and do not start it with `--cap-add SYS_PTRACE` or `--privileged`. Non-dumpable does not protect files: a `control` agent can still read and change `PEEN_STATE_DIR`, which holds every session's transcript in `peen.db`. See [where it runs](where-it-runs.md#agent-spaces).

@@ -19,6 +19,7 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/control"
 	"github.com/psyb0t/peen/internal/pkg/db"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
+	"github.com/psyb0t/peen/internal/pkg/nondumpable"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/worker"
 	"github.com/psyb0t/peen/internal/pkg/worker/controlspace"
@@ -36,6 +37,7 @@ const ServiceName = control.CoreServiceName
 const buildVersionScopeKey = "version"
 
 type serviceDependencies struct {
+	enableNonDumpable func(context.Context) error
 	parseConfig       func() (peenconfig.Config, error)
 	configureAuditLog func() error
 	driverFactory     agent.DriverFactory
@@ -58,6 +60,10 @@ func New() (*ControlCore, error) {
 }
 
 func newControlCore(dependencies serviceDependencies) *ControlCore {
+	if dependencies.enableNonDumpable == nil {
+		dependencies.enableNonDumpable = nondumpable.Enable
+	}
+
 	if dependencies.parseConfig == nil {
 		dependencies.parseConfig = peenconfig.Parse
 	}
@@ -92,6 +98,13 @@ func (s *ControlCore) Ready() <-chan struct{} {
 func (s *ControlCore) Run(ctx context.Context) (runErr error) {
 	ctx = ctxscope.Set(ctx, ctxscope.Attr("service", ServiceName))
 	logger := ctxscope.GetLogger(ctx)
+
+	// First, before any worker exists: a control agent runs as this user and
+	// must not read the API token or provider keys from this process's /proc
+	// files.
+	if err := s.dependencies.enableNonDumpable(ctx); err != nil {
+		return ctxerrors.Wrap(err, "protect the controller process")
+	}
 
 	config, err := s.dependencies.parseConfig()
 	if err != nil {
@@ -199,6 +212,7 @@ func (s *ControlCore) openCore(
 	//nolint:contextcheck // A startup probe bounded by its own timeout.
 	workers, err := newWorkerSupervisor(
 		config,
+		upstreams,
 		assembled.Store,
 		agentSpaces,
 		relay,
@@ -288,11 +302,14 @@ func (s *ControlCore) closeCore(ctx context.Context, core *control.Core) error {
 // can run is worse than one that refuses to start.
 func newWorkerSupervisor(
 	config peenconfig.Config,
+	upstreams []peenconfig.Upstream,
 	store *session.Store,
 	agentSpaces *worker.AgentSpaceSet,
 	publisher protocol.Publisher,
 ) (*supervisor.Supervisor, error) {
-	controlLauncher, err := controlspace.New(controlspace.Options{})
+	controlLauncher, err := controlspace.New(controlspace.Options{
+		ProviderCredentialKeys: providerCredentialKeys(upstreams),
+	})
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create the control worker launcher")
 	}
@@ -326,6 +343,22 @@ func newWorkerSupervisor(
 	}
 
 	return built, nil
+}
+
+// providerCredentialKeys names the variables that hold the configured
+// providers' credentials, which a control worker keeps for its model calls.
+func providerCredentialKeys(upstreams []peenconfig.Upstream) []string {
+	keys := make([]string, 0, len(upstreams))
+
+	for _, upstream := range upstreams {
+		if upstream.APIKeyEnv == "" {
+			continue
+		}
+
+		keys = append(keys, upstream.APIKeyEnv)
+	}
+
+	return keys
 }
 
 // resolveWorkerImages decides which image a Docker worker runs.
