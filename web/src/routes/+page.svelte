@@ -33,6 +33,7 @@
 		SESSION_PAGE_LIMIT,
 	} from "$lib/common/constants";
 	import { formatJSON } from "$lib/common/json";
+	import { sessionFromLink } from "$lib/common/sessionlink";
 	import {
 		PeenSocket,
 		type PeenSocketEvent,
@@ -124,7 +125,11 @@
 	$: syncSelectedModel(selectedSession);
 	$: modelNames = modelOptions(models, selectedSession?.model);
 
-	onMount(() => () => socket?.close());
+	onMount(() => {
+		selectedSessionID = sessionFromLink(window.location.search);
+
+		return () => socket?.close();
+	});
 
 	afterUpdate(() => {
 		if (isFollowingConversation && conversationElement !== undefined) {
@@ -221,6 +226,7 @@
 		});
 		socket.connect();
 		await refreshController();
+		await loadSession();
 	}
 
 	async function refreshController(): Promise<void> {

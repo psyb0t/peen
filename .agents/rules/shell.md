@@ -22,4 +22,4 @@ Scripts live under `scripts/` (Make helpers in `scripts/make/`, web helpers in `
 
 ## Lint
 
-`make format` runs shfmt and `make lint` runs shfmt and shellcheck over everything under `scripts/`. `docker/entrypoint.sh` and `install.sh` sit outside that glob, so check them with shfmt and shellcheck inside `make shell` after editing. Fix every finding. A `# shellcheck disable=SCxxxx` needs a comment with the reason.
+`make format` runs shfmt and `make lint` runs shfmt and shellcheck over everything under `scripts/`, which includes `scripts/peen.sh`. `make lint` also checks `install.sh`. `docker/entrypoint.sh` sits outside both, so check it with shfmt and shellcheck inside `make shell` after editing. Fix every finding. A `# shellcheck disable=SCxxxx` needs a comment with the reason.

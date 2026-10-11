@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	peenconfig "github.com/psyb0t/peen/internal/pkg/config"
+	"github.com/psyb0t/peen/internal/pkg/config/envtemplate"
 	controlclient "github.com/psyb0t/peen/internal/pkg/control/client"
 	"github.com/psyb0t/peen/internal/pkg/nondumpable"
 	workerpkg "github.com/psyb0t/peen/internal/pkg/worker"
@@ -33,6 +34,26 @@ const (
 	sessionStopShort   = "Stop the session's active turn"
 	controlStatShort   = "Report whether a local controller is reachable"
 
+	configShort     = "Prepare Peen's configuration"
+	configInitShort = "Write a new commented .env file"
+	configInitLong  = "Writes the commented .env template to --env-file with " +
+		"the given settings, mode 0600. It refuses a file that already " +
+		"exists and leaves it unchanged. It reads no other configuration, " +
+		"so it runs before any .env exists."
+
+	flagEnvFile           = "env-file"
+	flagConfigDir         = "config-dir"
+	flagStateDir          = "state-dir"
+	flagWorkspaceRoot     = "workspace-root"
+	flagDefaultAgentSpace = "default-agent-space"
+	flagWorkerImage       = "worker-image"
+	flagHTTPListenAddress = "http-listen-address"
+	flagHostUsername      = "host-username"
+	flagHostHome          = "host-home"
+	flagControlSpace      = "control-space"
+	flagImage             = "image"
+	flagContainerName     = "container-name"
+
 	workerShort = "Run one controller-launched session worker"
 	workerLong  = "Internal command. A controller launches it with a launch " +
 		"document on stdin. Running it by hand fails: it cannot choose a " +
@@ -43,7 +64,115 @@ func commands() []*cobra.Command {
 	return []*cobra.Command{
 		sessionCommand(),
 		controlCommand(),
+		configCommand(),
 		workerCommand(workerCommandDependencies{}),
+	}
+}
+
+func configCommand() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "config",
+		Short: configShort,
+	}
+
+	command.AddCommand(configInitCommand())
+
+	return command
+}
+
+// configInitCommand writes a new .env from the template.
+//
+// An installer runs it through the image or the host binary before any .env
+// exists, so it must never parse PEEN_ configuration or start a service. It
+// reads only its own flags.
+func configInitCommand() *cobra.Command {
+	var (
+		envFile string
+		values  envtemplate.Values
+	)
+
+	command := &cobra.Command{
+		Use:   "init",
+		Short: configInitShort,
+		Long:  configInitLong,
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			if err := envtemplate.WriteNew(
+				command.Context(),
+				envFile,
+				values,
+			); err != nil {
+				return ctxerrors.Wrap(err, "write the env file")
+			}
+
+			command.Printf("wrote %s\n", envFile)
+
+			return nil
+		},
+	}
+
+	flags := command.Flags()
+	flags.StringVar(&envFile, flagEnvFile, "", "absolute path of the new .env")
+
+	for _, flag := range configInitValueFlags(&values) {
+		flags.StringVar(flag.target, flag.name, "", flag.usage)
+	}
+
+	// MarkFlagRequired fails only for an undefined flag, and this one is
+	// defined above.
+	_ = command.MarkFlagRequired(flagEnvFile)
+
+	return command
+}
+
+// configInitValueFlag binds one `config init` flag to the setting it writes.
+type configInitValueFlag struct {
+	name   string
+	target *string
+	usage  string
+}
+
+func configInitValueFlags(values *envtemplate.Values) []configInitValueFlag {
+	return []configInitValueFlag{
+		{
+			flagConfigDir,
+			&values.ConfigDirectory,
+			"PEEN_CONFIG_DIR, an absolute path",
+		},
+		{
+			flagStateDir,
+			&values.StateDirectory,
+			"PEEN_STATE_DIR, an absolute path",
+		},
+		{
+			flagWorkspaceRoot,
+			&values.WorkspaceRoot,
+			"PEEN_WORKSPACE_ROOT, an absolute path",
+		},
+		{
+			flagDefaultAgentSpace,
+			&values.DefaultAgentSpace,
+			"PEEN_DEFAULT_AGENT_SPACE, control or docker:<profile>",
+		},
+		{flagWorkerImage, &values.WorkerImage, "PEEN_WORKER_IMAGE"},
+		{
+			flagHTTPListenAddress,
+			&values.HTTPListenAddress,
+			"PEEN_HTTP_LISTEN_ADDRESS",
+		},
+		{flagHostUsername, &values.HostUsername, "PEEN_HOST_USERNAME"},
+		{
+			flagHostHome,
+			&values.HostHome,
+			"PEEN_HOST_HOME, an absolute path",
+		},
+		{
+			flagControlSpace,
+			&values.ControlSpace,
+			"PEEN_CONTROL_SPACE, host or docker",
+		},
+		{flagImage, &values.Image, "PEEN_IMAGE"},
+		{flagContainerName, &values.ContainerName, "PEEN_CONTAINER_NAME"},
 	}
 }
 

@@ -1,6 +1,6 @@
 # The harness
 
-The harness is everything Peen tells the model besides your message: `AGENTS.md` instructions, rules, skills, named agents, event handlers, and hooks. You write it as plain files beside your code. Peen reads those files fresh at the start of every turn, so an edit takes effect on the next message without a restart.
+The harness is everything Peen tells the model besides your message: `AGENTS.md` instructions, rules, skills, named agents, event handlers, and hooks. You write it as plain files beside your code. Peen reads those files fresh at the start of every turn, so an edit takes effect on the next message without a restart. The two exceptions are `SYSTEM.md` and `APPEND_SYSTEM.md`, which Peen reads once when it starts.
 
 | Piece | File | What it does | Details |
 | --- | --- | --- | --- |
@@ -57,7 +57,7 @@ Peen's embedded operating rules are always on and have no switch. Later `AGENTS.
 
 ## When it is read
 
-Peen resolves the whole harness at the start of every turn, and again when it checks whether a session event should wake an idle session. Nothing is cached between turns and there is no file watcher. During one turn the harness is frozen: a file you edit mid-turn is picked up by the next turn, and child agents use the same snapshot as the turn that launched them.
+Peen resolves the whole harness at the start of every turn, and again when it checks whether a session event should wake an idle session. Apart from the base prompt files described below, nothing is kept between turns, and there is no file watcher. During one turn the harness does not change. A file you edit mid-turn is picked up by the next turn, and child agents use the same snapshot as the turn that launched them.
 
 Each turn stores the exact harness it used as a context snapshot, with a manifest of every source file and its hash. Read it with `GET /v1/session/context-snapshots/{contextHash}` from the [API](http-api.md).
 

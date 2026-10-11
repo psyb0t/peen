@@ -41,6 +41,11 @@ export const SESSION_EVENTS_TITLE = "Session events";
 export const SESSION_EVENTS_DROPPED_LABEL = "Older events dropped: ";
 export const SESSION_EVENT_UNREADABLE = "unreadable event";
 export const SESSION_PAGE_LIMIT = 200;
+// A link to the page can name one session to show after connecting. It never
+// carries the API token.
+export const SESSION_LINK_PARAMETER = "session";
+export const SESSION_LINK_PATTERN =
+	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const SESSION_DETAIL_LIMIT = 100;
 // An agent space is where a workspace's agent runs: `control`, or a Docker
 // profile. The label next to each one lists what it grants.

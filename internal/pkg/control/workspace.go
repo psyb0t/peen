@@ -23,12 +23,56 @@ const parentRelativePrefix = ".."
 // control surface never opens a directory the deployment did not allow.
 type WorkspacePolicy struct {
 	roots []string
+
+	// protected holds canonical paths. A workspace may not equal or contain
+	// any of them, and may not sit inside a state directory.
+	protected ProtectedDirectories
+}
+
+// ProtectedDirectories are the controller's own directories, which no
+// workspace may expose.
+//
+// A workspace is bind-mounted into a Docker worker. If a root such as $HOME
+// holds the controller's directories, opening that root or a directory between
+// it and them would hand one session every other session's data.
+type ProtectedDirectories struct {
+	// State directories hold controller-only data: SQLite with every
+	// transcript, audit logs, and worker sockets. A workspace may not equal,
+	// contain, or sit inside one.
+	State []string
+
+	// Configuration directories reach every worker read-only already. A
+	// workspace may not equal or contain one, because a workspace mount is
+	// writable and would let one session rewrite the harness of every other.
+	Configuration []string
+}
+
+// WorkspacePolicyOption changes how NewWorkspacePolicy builds a policy.
+type WorkspacePolicyOption func(*ProtectedDirectories)
+
+// WithProtectedDirectories refuses workspaces that would expose directories.
+// Empty paths are ignored, so a caller can pass optional settings as they are.
+// Every other path must be absolute. It is resolved through its symlinks when
+// the policy is built, and a part that does not exist yet is kept literally.
+func WithProtectedDirectories(
+	directories ProtectedDirectories,
+) WorkspacePolicyOption {
+	return func(protected *ProtectedDirectories) {
+		protected.State = append(protected.State, directories.State...)
+		protected.Configuration = append(
+			protected.Configuration,
+			directories.Configuration...,
+		)
+	}
 }
 
 // NewWorkspacePolicy validates the operator's roots once at startup. Every root
 // must already be absolute and canonical, which config.WorkspaceRoots
 // guarantees, so a later request compares against a stable path.
-func NewWorkspacePolicy(roots []string) (*WorkspacePolicy, error) {
+func NewWorkspacePolicy(
+	roots []string,
+	options ...WorkspacePolicyOption,
+) (*WorkspacePolicy, error) {
 	if len(roots) == 0 {
 		return nil, ctxerrors.Wrap(
 			commerr.ErrValidationFailed,
@@ -50,7 +94,96 @@ func NewWorkspacePolicy(roots []string) (*WorkspacePolicy, error) {
 		owned = append(owned, filepath.Clean(root))
 	}
 
-	return &WorkspacePolicy{roots: owned}, nil
+	requested := ProtectedDirectories{}
+	for _, option := range options {
+		option(&requested)
+	}
+
+	state, err := canonicalProtectedDirectories(requested.State)
+	if err != nil {
+		return nil, err
+	}
+
+	configuration, err := canonicalProtectedDirectories(
+		requested.Configuration,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &WorkspacePolicy{
+		roots: owned,
+		protected: ProtectedDirectories{
+			State:         state,
+			Configuration: configuration,
+		},
+	}, nil
+}
+
+func canonicalProtectedDirectories(directories []string) ([]string, error) {
+	canonical := make([]string, 0, len(directories))
+
+	for _, directory := range directories {
+		if directory == "" {
+			continue
+		}
+
+		if !filepath.IsAbs(directory) {
+			return nil, ctxerrors.Wrapf(
+				commerr.ErrValidationFailed,
+				"protected directory %q is not absolute",
+				directory,
+			)
+		}
+
+		resolved, err := canonicalDirectory(directory)
+		if err != nil {
+			return nil, err
+		}
+
+		canonical = append(canonical, resolved)
+	}
+
+	return canonical, nil
+}
+
+// canonicalDirectory resolves directory through its symlinks.
+//
+// The worker socket root may not exist yet when the policy is built, so the
+// deepest existing ancestor is resolved and the missing parts are joined back
+// on literally. Any failure other than a missing part refuses, because an
+// unreadable component is exactly where a link could hide.
+func canonicalDirectory(directory string) (string, error) {
+	current := filepath.Clean(directory)
+
+	var missing []string
+
+	for {
+		resolved, err := filepath.EvalSymlinks(current)
+		if err == nil {
+			return filepath.Join(append([]string{resolved}, missing...)...), nil
+		}
+
+		if !errors.Is(err, fs.ErrNotExist) {
+			return "", ctxerrors.Wrapf(
+				err,
+				"resolve protected directory %q",
+				directory,
+			)
+		}
+
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", ctxerrors.Wrapf(
+				err,
+				"resolve protected directory %q",
+				directory,
+			)
+		}
+
+		missing = append([]string{filepath.Base(current)}, missing...)
+		current = parent
+	}
 }
 
 // Roots returns the configured roots for reporting. The copy keeps a caller
@@ -116,13 +249,49 @@ func (p *WorkspacePolicy) Resolve(requested string) (string, error) {
 		)
 	}
 
-	if !p.admits(canonical) {
-		// The refusal names no root, because the caller is not entitled to
-		// learn the deployment's directory layout from a rejected request.
-		return "", workspaceNotAllowed()
+	if err := p.refuseCanonical(canonical); err != nil {
+		return "", err
 	}
 
 	return canonical, nil
+}
+
+// refuseCanonical applies the policy to a resolved workspace. Neither refusal
+// names a directory, because the caller is not entitled to learn the
+// deployment's layout or where the controller keeps its state.
+func (p *WorkspacePolicy) refuseCanonical(canonical string) error {
+	if !p.admits(canonical) {
+		return workspaceNotAllowed()
+	}
+
+	if p.exposesProtected(canonical) {
+		return ctxerrors.Wrap(
+			commerr.ErrPermissionDenied,
+			"workspace would expose the controller's own directories",
+		)
+	}
+
+	return nil
+}
+
+// exposesProtected reports whether a workspace at canonical would reach a
+// protected directory: it equals or contains any of them, or sits inside a
+// state directory.
+func (p *WorkspacePolicy) exposesProtected(canonical string) bool {
+	for _, state := range p.protected.State {
+		if isSameOrBeneath(canonical, state) ||
+			isSameOrBeneath(state, canonical) {
+			return true
+		}
+	}
+
+	for _, configuration := range p.protected.Configuration {
+		if isSameOrBeneath(canonical, configuration) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func workspaceNotFound() error {
@@ -144,27 +313,31 @@ func workspaceNotAllowed() error {
 // matching a string prefix, so /srv/work never admits /srv/work-other.
 func (p *WorkspacePolicy) admits(canonical string) bool {
 	for _, root := range p.roots {
-		relative, err := filepath.Rel(root, canonical)
-		if err != nil {
-			continue
-		}
-
-		if relative == "." {
+		if isSameOrBeneath(root, canonical) {
 			return true
 		}
-
-		escapePrefix := parentRelativePrefix + string(filepath.Separator)
-		if relative == parentRelativePrefix ||
-			strings.HasPrefix(relative, escapePrefix) {
-			continue
-		}
-
-		if filepath.IsAbs(relative) {
-			continue
-		}
-
-		return true
 	}
 
 	return false
+}
+
+// isSameOrBeneath reports whether target is base or sits beneath it, comparing
+// path components rather than string prefixes.
+func isSameOrBeneath(base, target string) bool {
+	relative, err := filepath.Rel(base, target)
+	if err != nil {
+		return false
+	}
+
+	if relative == "." {
+		return true
+	}
+
+	escapePrefix := parentRelativePrefix + string(filepath.Separator)
+	if relative == parentRelativePrefix ||
+		strings.HasPrefix(relative, escapePrefix) {
+		return false
+	}
+
+	return !filepath.IsAbs(relative)
 }

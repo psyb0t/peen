@@ -80,9 +80,22 @@ if ! bash "${script_dir}/servicepack/lint.sh"; then
 	exit 1
 fi
 
+# Servicepack lints only scripts/**/*.sh. The root installer is shell users run
+# straight from curl, so it gets the same shfmt and shellcheck pass.
+root_shell_files=(install.sh)
+log INFO "linting root shell scripts files=${root_shell_files[*]}"
+if ! shfmt -d "${root_shell_files[@]}"; then
+	log ERROR "shfmt root shell scripts"
+	exit 1
+fi
+if ! shellcheck -x "${root_shell_files[@]}"; then
+	log ERROR "shellcheck root shell scripts"
+	exit 1
+fi
+
 # The Servicepack run above sees only untagged files. The black-box suites sit
 # behind these build tags, so lint them with every tag on.
-tagged_suites="integration,browser,real,dockerworker"
+tagged_suites="integration,browser,real,dockerworker,installer"
 log INFO "linting build-tagged test suites tags=${tagged_suites}"
 if ! go tool golangci-lint run --timeout=30m0s \
 	--max-issues-per-linter=0 --max-same-issues=0 \

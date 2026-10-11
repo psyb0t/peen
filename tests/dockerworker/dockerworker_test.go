@@ -22,7 +22,10 @@
 //     sides. A path under /tmp would be the test container's /tmp, which the
 //     host daemon would resolve to some other directory or create empty, and
 //     every filesystem assertion below would be meaningless.
-//   - Exactly one container, named for a session UUID this run generated.
+//   - Exactly one container per test, named for a session UUID that test
+//     generated.
+//   - The readonly test starts one proxy of its own, inside its own session
+//     socket directory, and closes it before its disposable root is removed.
 //   - Teardown inspects that exact container ID and acts only when
 //     worker.OwnedBy still reports it as this session's worker. No name
 //     pattern, no label selector, no prune.
@@ -42,6 +45,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/peen/internal/pkg/worker"
 	"github.com/psyb0t/peen/internal/pkg/worker/docker"
+	"github.com/psyb0t/peen/internal/pkg/worker/dockerproxy"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -74,7 +78,11 @@ const (
 	testProfileName  = "audit-sandbox"
 	repositoryModule = "go.mod"
 	testingDirectory = ".testing"
-	rootPrefix       = "dockerworker-"
+	// rootPrefix, rootSuffixLength, and socketRootName are short because a
+	// session socket under this root must fit the 107-byte Unix socket
+	// address, and the root sits inside the checkout's own path.
+	rootPrefix       = "dw-"
+	rootSuffixLength = 8
 
 	dockerSocketPath = "/var/run/docker.sock"
 	agentsFileName   = "AGENTS.md"
@@ -86,7 +94,7 @@ const (
 	stateSecretName = "controller-only-secret"
 	stateSecretBody = "this must never be readable from a worker\n"
 
-	socketRootName    = "workers"
+	socketRootName    = "w"
 	socketSentinel    = "worker.sock"
 	resultFileName    = "probe-result.json"
 	ownedFileName     = "probe-owned-file"
@@ -115,6 +123,19 @@ const (
 	probeForeignSockEnvKey = "PEEN_PROBE_FOREIGN_SOCKET"
 	probeSessionDirEnvKey  = "PEEN_PROBE_SESSION_SOCKET_DIR"
 	probeSocketRootEnvKey  = "PEEN_PROBE_SOCKET_ROOT"
+
+	probeListBodyEnvKey    = "PEEN_PROBE_LIST_BODY"
+	probeInspectBodyEnvKey = "PEEN_PROBE_INSPECT_BODY"
+	probeCreateBodyEnvKey  = "PEEN_PROBE_CREATE_BODY"
+
+	listBodyFileName    = "probe-list.json"
+	inspectBodyFileName = "probe-inspect.json"
+	createBodyFileName  = "probe-create.json"
+	httpStatusOK        = "200"
+	httpStatusForbidden = "403"
+	dockerHostEnvKey    = "DOCKER_HOST"
+	dockerHostScheme    = "unix://"
+	redactedEnvSuffix   = "=" + dockerproxy.RedactedValue
 )
 
 // probeScript is fixed text. Every path it touches arrives through the
@@ -180,6 +201,54 @@ printf '{"uid":%s,"gid":%s,"username":"%s","sudoAllowed":%s,"dockerSocketPresent
     "$session_socket_visible" "$socket_root_entries" "$network_reachable" \
     > "$PEEN_PROBE_RESULT"
 `
+
+// readonlyProbeScript is fixed text like probeScript. It talks to the Docker
+// API only through DOCKER_HOST, the way a Docker client in the worker would,
+// and records each answer's status and body in the workspace.
+const readonlyProbeScript = `
+set -u
+
+proxy_socket="${DOCKER_HOST#unix://}"
+
+http_status() {
+    local output="$1"
+    shift
+    curl --silent --max-time 20 --output "$output" --write-out '%{http_code}' \
+        --unix-socket "$proxy_socket" "$@"
+}
+
+ping_status="$(http_status /dev/null http://docker/_ping)"
+list_status="$(http_status "$PEEN_PROBE_LIST_BODY" \
+    http://docker/v1.43/containers/json)"
+inspect_status="$(http_status "$PEEN_PROBE_INSPECT_BODY" \
+    "http://docker/v1.43/containers/$(hostname)/json")"
+create_status="$(http_status "$PEEN_PROBE_CREATE_BODY" \
+    --request POST --header 'Content-Type: application/json' \
+    --data '{"Image":"peen-readonly-probe-never-created"}' \
+    http://docker/v1.43/containers/create)"
+
+docker_socket_present=false
+if [ -e /var/run/docker.sock ]; then
+    docker_socket_present=true
+fi
+
+printf '{"uid":%s,"dockerHost":"%s","pingStatus":"%s","listStatus":"%s","inspectStatus":"%s","createStatus":"%s","dockerSocketPresent":%s}\n' \
+    "$(id -u)" "$DOCKER_HOST" \
+    "$ping_status" "$list_status" "$inspect_status" "$create_status" \
+    "$docker_socket_present" \
+    > "$PEEN_PROBE_RESULT"
+`
+
+// readonlyProbeResult is what the readonly probe reports.
+type readonlyProbeResult struct {
+	UID                 int    `json:"uid"`
+	DockerHost          string `json:"dockerHost"`
+	PingStatus          string `json:"pingStatus"`
+	ListStatus          string `json:"listStatus"`
+	InspectStatus       string `json:"inspectStatus"`
+	CreateStatus        string `json:"createStatus"`
+	DockerSocketPresent bool   `json:"dockerSocketPresent"`
+}
 
 // probeResult is what the container reports about itself.
 type probeResult struct {
@@ -287,6 +356,237 @@ func TestDockerWorkerEntrypointDropsToTheHostAccount(t *testing.T) {
 	)
 
 	assertHostOwnership(t, paths.ownedFilePath(), identity)
+}
+
+// TestDockerWorkerReadonlyReachesOnlyTheProxy creates one `docker: readonly`
+// container and proves, from inside it, that DOCKER_HOST reaches the real
+// daemon through the proxy for reads, that a write is refused, that inspect
+// output carries no environment values, and that no socket is mounted.
+func TestDockerWorkerReadonlyReachesOnlyTheProxy(t *testing.T) {
+	requireOptIn(t)
+
+	identity := requireNonRootIdentity(t)
+	paths := newDisposableRoot(t)
+	sessionID := uuid.New()
+	daemonSocketPath := daemonSocket(t)
+
+	client, err := docker.NewDaemonClient(daemonSocketPath)
+	require.NoError(t, err)
+
+	// The controller refuses a socket root this deep at startup. Checking it
+	// here names the cause instead of failing the proxy bind below.
+	require.NoError(
+		t,
+		worker.ValidateSocketRoot(paths.socketRoot),
+		"the checkout path is too deep for a session socket under .testing/",
+	)
+
+	document := paths.launchDocument(t, sessionID)
+
+	create, err := docker.BuildCreateRequest(docker.LaunchSpec{
+		Document:         document,
+		AgentSpace:       readonlySpace(t),
+		Identity:         identity,
+		DockerSocketPath: daemonSocketPath,
+		DockerSocketGID:  docker.SocketGID(daemonSocketPath),
+	})
+	require.NoError(t, err)
+
+	proxySocket := docker.ReadonlyProxySocketPath(document)
+	assertReadonlyRequest(t, create, paths, sessionID, proxySocket)
+
+	// The controller starts this proxy in Launch. The probe replaces the
+	// worker command that Launch would run, so the test starts it the same
+	// way, before the container exists.
+	proxy, err := dockerproxy.Start(t.Context(), proxySocket, daemonSocketPath)
+	require.NoError(t, err)
+
+	t.Cleanup(func() { assert.NoError(t, proxy.Close()) })
+
+	probe := paths.readonlyProbeRequest(t, create)
+
+	containerID, err := client.CreateContainer(t.Context(), probe)
+	require.NoError(t, err)
+	require.NotEmpty(t, containerID)
+
+	registerOwnedTeardown(t, client, containerID, sessionID)
+
+	require.NoError(t, client.AttachStdin(t.Context(), containerID, nil))
+	require.NoError(t, client.StartContainer(t.Context(), containerID))
+
+	awaitContainerExit(t, client, containerID)
+
+	result := readonlyProbeResult{}
+	readJSONFile(t, paths.resultPath(), &result)
+
+	assert.Equal(t, identity.UID, result.UID, "the probe must run as the host UID")
+	assert.Equal(t, dockerHostScheme+proxySocket, result.DockerHost)
+	assert.False(t, result.DockerSocketPresent, "no Docker socket is mounted")
+
+	assert.Equal(t, httpStatusOK, result.PingStatus, "ping goes through")
+	assert.Equal(t, httpStatusOK, result.ListStatus, "listing goes through")
+	assert.Equal(t, httpStatusOK, result.InspectStatus, "inspect goes through")
+	assert.Equal(
+		t,
+		httpStatusForbidden,
+		result.CreateStatus,
+		"creating a container must be refused",
+	)
+
+	containers := []map[string]any{}
+	readJSONFile(
+		t,
+		filepath.Join(paths.workspace, listBodyFileName),
+		&containers,
+	)
+	assert.NotEmpty(t, containers, "the list includes at least the probe")
+
+	refusal := map[string]string{}
+	readJSONFile(
+		t,
+		filepath.Join(paths.workspace, createBodyFileName),
+		&refusal,
+	)
+	assert.True(
+		t,
+		strings.HasPrefix(refusal["message"], dockerproxy.RefusalPrefix),
+		"the refusal names Peen's readonly access, got %q",
+		refusal["message"],
+	)
+
+	assertRedactedInspect(t, paths)
+}
+
+// assertReadonlyRequest checks that the production request gives a readonly
+// worker its proxy through DOCKER_HOST and nothing else: no socket mount, no
+// socket group, no sudo.
+func assertReadonlyRequest(
+	t *testing.T,
+	create docker.CreateRequest,
+	paths disposableRoot,
+	sessionID uuid.UUID,
+	proxySocket string,
+) {
+	t.Helper()
+
+	sessionSocketDir := worker.SessionSocketDirectory(
+		paths.socketRoot,
+		sessionID,
+	)
+
+	assert.Equal(t, sessionSocketDir, filepath.Dir(proxySocket))
+	assert.Equal(t, dockerHostScheme+proxySocket, create.Env[dockerHostEnvKey])
+	assert.Empty(t, create.Groups, "readonly needs no socket group")
+	assert.True(t, create.NoNewPrivileges)
+	assert.NotContains(t, create.Env, "PEEN_WORKER_ALLOW_SUDO")
+
+	targets := make([]string, 0, len(create.Mounts))
+	for _, mount := range create.Mounts {
+		targets = append(targets, mount.Target)
+	}
+
+	assert.ElementsMatch(
+		t,
+		[]string{paths.workspace, paths.config, sessionSocketDir},
+		targets,
+		"a readonly worker receives the same three mounts as a sealed one",
+	)
+}
+
+// assertRedactedInspect reads the probe container's inspect of itself. Its
+// environment holds DOCKER_HOST and the probe paths, and every value must be
+// redacted while the names stay.
+func assertRedactedInspect(t *testing.T, paths disposableRoot) {
+	t.Helper()
+
+	inspect := struct {
+		Config struct {
+			Env []string `json:"Env"` //nolint:tagliatelle // Docker field name.
+		} `json:"Config"` //nolint:tagliatelle // Docker field name.
+	}{}
+	readJSONFile(
+		t,
+		filepath.Join(paths.workspace, inspectBodyFileName),
+		&inspect,
+	)
+
+	require.NotEmpty(t, inspect.Config.Env)
+	assert.Contains(
+		t,
+		inspect.Config.Env,
+		dockerHostEnvKey+redactedEnvSuffix,
+	)
+
+	for _, entry := range inspect.Config.Env {
+		if !strings.Contains(entry, "=") {
+			continue
+		}
+
+		assert.True(
+			t,
+			strings.HasSuffix(entry, redactedEnvSuffix),
+			"inspect leaked an environment value in %q",
+			entry,
+		)
+	}
+}
+
+// readonlyProbeRequest keeps the production request and replaces only the
+// program the Peen entrypoint finally execs, as probeRequest does.
+func (d disposableRoot) readonlyProbeRequest(
+	t *testing.T,
+	create docker.CreateRequest,
+) docker.CreateRequest {
+	t.Helper()
+
+	create.Entrypoint = []string{
+		tiniPath,
+		tiniSeparator,
+		peenEntrypoint,
+		probeShell,
+	}
+	create.Command = []string{probeShellFlag, readonlyProbeScript}
+
+	if image := sourceWorkerImage(t); image != "" {
+		create.Image = image
+	}
+
+	create.Env[probeResultEnvKey] = d.resultPath()
+	create.Env[probeListBodyEnvKey] = filepath.Join(
+		d.workspace,
+		listBodyFileName,
+	)
+	create.Env[probeInspectBodyEnvKey] = filepath.Join(
+		d.workspace,
+		inspectBodyFileName,
+	)
+	create.Env[probeCreateBodyEnvKey] = filepath.Join(
+		d.workspace,
+		createBodyFileName,
+	)
+
+	return create
+}
+
+// readonlySpace is the sealed space with `docker: readonly` and nothing else.
+func readonlySpace(t *testing.T) worker.AgentSpace {
+	t.Helper()
+
+	space := sealedSpace(t)
+	space.Docker = worker.DockerAccessReadonly
+
+	require.NoError(t, space.Validate())
+
+	return space
+}
+
+// readJSONFile decodes one file the probe wrote into the workspace.
+func readJSONFile(t *testing.T, path string, target any) {
+	t.Helper()
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err, "the probe wrote no %s", filepath.Base(path))
+	require.NoError(t, json.Unmarshal(raw, target))
 }
 
 // assertSealedRequest checks the production request before anything is created,
@@ -503,7 +803,7 @@ func newDisposableRoot(t *testing.T) disposableRoot {
 
 	root := filepath.Join(
 		repositoryPath(t, testingDirectory),
-		rootPrefix+uuid.NewString(),
+		rootPrefix+uuid.NewString()[:rootSuffixLength],
 	)
 
 	paths := disposableRoot{

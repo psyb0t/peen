@@ -9,7 +9,7 @@ This file covers how to change Peen itself. The topic rules in `.agents/rules/` 
 | Path | What it holds |
 | --- | --- |
 | `api/api.yml` | The OpenAPI contract. Source for the Go server, the Go client, and the web client types. `api/spec.go` embeds it for request validation. It is hand-written today and moves to a spec generated from Go in `cmd/apigen`; see `.agents/rules/http-api.md`. |
-| `cmd/` | Entry point. `main.go` is Servicepack's, `init.go` and `commands.go` are Peen's, `repogen/` is the gorm/gen generator. |
+| `cmd/` | Entry point. `main.go` is Servicepack's, `init.go` and `commands.go` are Peen's, `repogen/` is the gorm/gen generator, `envexample/` writes `.env.example` from the env file template. |
 | `internal/app/` | Servicepack's application lifecycle. Not edited here. |
 | `internal/pkg/agent/` | Agent runtime: turns, provider calls, tools wiring, skills, child agents, compaction. |
 | `internal/pkg/harness/` | Harness discovery and layering: `AGENTS.md`, rules, skills, agents, event handlers, hooks. `builtin/` is the embedded baseline shipped to every user. |
@@ -19,7 +19,7 @@ This file covers how to change Peen itself. The topic rules in `.agents/rules/` 
 | `internal/pkg/db/` | SQLite open, embedded migrations, gorm models, generated repositories. |
 | `internal/pkg/http/` | `api/` is generated server code. `server/` holds handlers, middleware, WebSocket, and the embedded web build in `server/web/dist`. |
 | `internal/pkg/control/` | Workspace policy and the session registry. |
-| `internal/pkg/worker/` | Controller to worker boundary: protocol, supervisor, control and Docker launchers, agent spaces, the worker command, worker logs. |
+| `internal/pkg/worker/` | Controller to worker boundary: protocol, supervisor, control and Docker launchers, agent spaces, the `docker: readonly` proxy in `dockerproxy/`, the worker command, worker logs. |
 | `internal/pkg/events/`, `metrics/`, `auditlog/`, `config/` | Session events, Prometheus metrics, the JSON audit sink, and `PEEN_` configuration. |
 | `internal/pkg/services/` | Servicepack services `control-core` and `control-api`. `services.gen.go` is generated. |
 | `internal/pkg/service-manager/`, `pkg/runner/` | Servicepack-owned. |
@@ -28,6 +28,7 @@ This file covers how to change Peen itself. The topic rules in `.agents/rules/` 
 | `web/` | SvelteKit control surface source. |
 | `tests/` | Black-box suites: `api`, `browser`, `executionforms`, `dockerworker`, `real`, and the shared `testinfra` harness. |
 | `docker/entrypoint.sh`, `Dockerfile`, `Dockerfile.dev` | The production and worker image, its entrypoint, and the dev toolchain image. |
+| `install.sh`, `scripts/peen.sh` | The installer users pipe from curl, and the `peen` command it installs. `make test-installer` runs both end to end. |
 | `scripts/` | Make helpers. `scripts/make/servicepack/` is Servicepack-owned. |
 | `docs/` | User and operator documentation. |
 
@@ -55,7 +56,7 @@ Every operation is a Make target. Targets run Go, Node, and the linters inside t
 | `make web-lint`, `make web-check`, `make web-test` | ESLint and Prettier, svelte-check and tsc, Vitest for `web/`. |
 | `make test-real` | Opt-in live provider tests. Costs money. Never a routine check. |
 
-Pick the tier that can see your change. A change inside one package needs `make test-unit` while you work. A change to HTTP, WebSocket, or wiring needs `make test-api`. A control surface change needs the web targets, `make web-build`, and `make test-browser`. A Dockerfile or entrypoint change needs `make test-docker-worker-source`. Before you call any change done, run `make lint` and `make test-coverage`, which is what `pre-commit.sh` and CI run. The Make targets run without the race detector. Dev container runs are capped with `--cpus` to all but two CPU threads, at least one; set `DEV_CPUS`, for example `make test-coverage DEV_CPUS=4`, to change the cap. `make run-dev` is not capped. Containers that tests start themselves are not capped.
+Pick the tier that can see your change. A change inside one package needs `make test-unit` while you work. A change to HTTP, WebSocket, or wiring needs `make test-api`. A control surface change needs the web targets, `make web-build`, and `make test-browser`. A Dockerfile or entrypoint change needs `make test-docker-worker-source`. Before you call any change done, run `make lint` and `make test-coverage`, which is what `pre-commit.sh` and CI run. The Make targets run without the race detector. Dev container runs are capped with `--cpus` to 6 CPUs; set `DEV_CPUS`, for example `make test-coverage DEV_CPUS=4`, to change the cap. Run one lint, test, or build target at a time, never several in parallel, and never from several agents at once: parallel runs overload the machine. `make run-dev` is not capped. Containers that tests start themselves are not capped.
 
 `make run-dev` runs this checkout as a local controller on `http://localhost:8080`, with state under the gitignored `data/peen/`.
 

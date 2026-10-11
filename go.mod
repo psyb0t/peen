@@ -326,6 +326,7 @@ tool (
 	github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
 	github.com/psyb0t/gofindimpl
 	github.com/psyb0t/oapixconstgen
+	github.com/psyb0t/peen/cmd/envexample
 	github.com/psyb0t/peen/cmd/repogen
 	golang.org/x/tools/cmd/goimports
 	golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize

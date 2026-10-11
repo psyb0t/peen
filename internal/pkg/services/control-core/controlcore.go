@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxscope"
+	"github.com/psyb0t/gonfiguration"
 	"github.com/psyb0t/peen/internal/pkg/agent"
 	"github.com/psyb0t/peen/internal/pkg/auditlog"
 	peenconfig "github.com/psyb0t/peen/internal/pkg/config"
@@ -40,6 +41,7 @@ type serviceDependencies struct {
 	enableNonDumpable func(context.Context) error
 	parseConfig       func() (peenconfig.Config, error)
 	configureAuditLog func() error
+	auditLogDirectory func() (string, error)
 	driverFactory     agent.DriverFactory
 	handoff           *control.Handoff
 }
@@ -70,6 +72,10 @@ func newControlCore(dependencies serviceDependencies) *ControlCore {
 
 	if dependencies.configureAuditLog == nil {
 		dependencies.configureAuditLog = auditlog.Configure
+	}
+
+	if dependencies.auditLogDirectory == nil {
+		dependencies.auditLogDirectory = configuredAuditLogDirectory
 	}
 
 	if dependencies.handoff == nil {
@@ -221,8 +227,17 @@ func (s *ControlCore) openCore(
 		return nil, errors.Join(err, closeState(ctx, assembled.Handle))
 	}
 
+	auditLogDirectory, err := s.dependencies.auditLogDirectory()
+	if err != nil {
+		return nil, errors.Join(
+			ctxerrors.Wrap(err, "load the audit log directory"),
+			closeState(ctx, assembled.Handle),
+		)
+	}
+
 	sessions, err := newSessionRegistry(
 		config,
+		auditLogDirectory,
 		assembled.Store,
 		agentSpaces,
 		workers,
@@ -287,8 +302,6 @@ func (s *ControlCore) closeCore(ctx context.Context, core *control.Core) error {
 	)
 }
 
-// newSessionRegistry builds the workspace policy and session registry from
-// deployment configuration.
 // newWorkerSupervisor wires the session worker supervisor.
 //
 // A Docker launcher is registered only when this controller can reach a Docker
@@ -478,8 +491,16 @@ func newDockerLauncher(
 	return launcher, nil
 }
 
+// newSessionRegistry builds the workspace policy and session registry from
+// deployment configuration.
+//
+// The policy protects every directory that holds controller data. A workspace
+// is bind-mounted into a Docker worker, so a workspace root such as $HOME that
+// also holds the state directory must not let a session open a directory that
+// carries SQLite, the audit logs, or another session's worker socket.
 func newSessionRegistry(
 	config peenconfig.Config,
+	auditLogDirectory string,
 	store *session.Store,
 	agentSpaces *worker.AgentSpaceSet,
 	workers *supervisor.Supervisor,
@@ -489,7 +510,20 @@ func newSessionRegistry(
 		return nil, ctxerrors.Wrap(err, "load configured workspace roots")
 	}
 
-	policy, err := control.NewWorkspacePolicy(roots)
+	policy, err := control.NewWorkspacePolicy(
+		roots,
+		control.WithProtectedDirectories(control.ProtectedDirectories{
+			// PEEN_WORKER_SOCKET_DIR and PEEN_LOG_DIRECTORY default to
+			// paths under the state directory, but either can be set to a
+			// path outside it. An empty audit directory means the default.
+			State: []string{
+				config.StateDirectory,
+				config.WorkerSocketRoot(),
+				auditLogDirectory,
+			},
+			Configuration: []string{config.ConfigDirectory},
+		}),
+	)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create workspace policy")
 	}
@@ -507,6 +541,18 @@ func newSessionRegistry(
 	}
 
 	return registry, nil
+}
+
+// configuredAuditLogDirectory reads PEEN_LOG_DIRECTORY the way the audit sink
+// does. It is empty when unset, because the sink then writes under the state
+// directory, which the workspace policy already protects.
+func configuredAuditLogDirectory() (string, error) {
+	config := auditlog.Config{}
+	if err := gonfiguration.Parse(&config); err != nil {
+		return "", ctxerrors.Wrap(err, "parse audit log configuration")
+	}
+
+	return config.Directory, nil
 }
 
 // closeState closes the durable store, reporting rather than hiding a failure

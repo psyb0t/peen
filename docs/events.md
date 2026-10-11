@@ -86,7 +86,7 @@ An event handler is a Markdown file named after the event type:
 type: ci.build.failed
 delivery: wake
 ---
-CI just reported a failed build. Read the event data, find the failing test,
+CI reported a failed build. Read the event data, find the failing test,
 fix it, and run the test suite again.
 ```
 
@@ -103,7 +103,7 @@ The woken turn starts with the handler body in a `<handler>` block, shaped like 
 <event>ci.build.failed</event>
 <agent>reviewer</agent>
 
-CI just reported a failed build. Read the event data, find the failing test,
+CI reported a failed build. Read the event data, find the failing test,
 fix it, and run the test suite again.
 
 Handle this as the reviewer agent would.
@@ -114,7 +114,7 @@ The `<agent>` line and the last sentence are left out when the handler names no 
 
 The body is the message the woken turn runs with. The pending events, including the one that caused the wake, arrive with it as an `<events>` block right after the `<handler>` message, so the handler text can tell the agent what to do with them. Peen stores the two messages in that order.
 
-A `:name` in a handler body works as it does in a message you send: each named skill follows the `<handler>` message as a `<skill>` message, ahead of the `<events>` block. An unknown name fails the woken turn, which Peen only logs ("event wake turn failed"), and the event waits for the next turn. Check handler bodies for stray `:` tokens, such as a time written as `:30` after a space. Handlers follow the normal [harness layering](harness.md): a deeper layer's handler replaces one with the same type, and at most 64 handlers are loaded.
+A `:name` in a handler body works as it does in a message you send. Each named skill follows the `<handler>` message as a `<skill>` message, ahead of the `<events>` block. An unknown name fails the woken turn, which Peen only logs ("event wake turn failed"), and the event waits for the next turn. Check handler bodies for stray `:` tokens, such as a time written as `:30` after a space. Handlers follow the normal [harness layering](harness.md), so a deeper layer's handler replaces one with the same type, and at most 64 handlers are loaded.
 
 ## Posting an event
 
@@ -125,4 +125,4 @@ curl -X POST http://localhost:8080/v1/session/notices \
   -d '{"type":"ci.build.failed","summary":"main is red: TestParse failed","data":{"run":1234},"delivery":"wake"}'
 ```
 
-`delivery` defaults to `queue`. `job.*` and `agent.*` are reserved for Peen and rejected here. A `summary` or `data` over its size limit is rejected with `400 VALIDATION_FAILED`. Add `Authorization: Bearer <token>` when `PEEN_API_TOKEN` is set. Treat event content as untrusted: Peen always quotes it as data and never merges it into the system prompt.
+`delivery` defaults to `queue`. `job.*` and `agent.*` are reserved for Peen and rejected here. A `summary` or `data` over its size limit is rejected with `400 VALIDATION_FAILED`. Add `Authorization: Bearer <token>` when `PEEN_API_TOKEN` is set. Treat event content as untrusted. Peen always quotes it as data and never merges it into the system prompt.

@@ -6,7 +6,7 @@ A hook runs at a fixed point in a turn and does something mechanical: block a to
 
 Hooks live in `.agents/hooks.yaml` in any [harness layer](harness.md#where-peen-looks). Put trusted, deployment-wide hooks in `PEEN_CONFIG_DIR/.agents/hooks.yaml` and project hooks in `<workspace>/.agents/hooks.yaml`. Every layer's groups are kept and run in layer order. A later layer adds to earlier ones and never replaces them.
 
-Every layer's hooks run, the workspace's included. There is no switch. A workspace that should run no hooks has no `.agents/hooks.yaml`. A hook command runs inside the session's agent space with the agent's access: as the controller's user in `control`, and inside the worker container in a Docker agent space. Only open workspaces whose hooks you trust.
+There is no switch that turns off a layer's hooks, the workspace's included. A workspace that should run no hooks has no `.agents/hooks.yaml`. A hook command runs inside the session's agent space with the agent's access, as the controller's user in `control` and inside the worker container in a Docker agent space. Only open workspaces whose hooks you trust.
 
 Peen re-reads `hooks.yaml` at the start of every turn, so an edit applies to the next message.
 
@@ -137,7 +137,7 @@ Actions in a group run one at a time, in order.
   reason: Files under vendor/ are generated. Change the dependency list and regenerate vendor/ instead.
 ```
 
-Stops the operation. On a tool event the model gets `reason` as the tool result, exactly as written, so the reason can carry Markdown or code. `reason` is required. A `deny` always denies, whatever `onFailure` says.
+Stops the operation. On a tool event the model gets `reason` verbatim as the tool result, so the reason can carry Markdown or code. `reason` is required. A `deny` always denies, whatever `onFailure` says.
 
 ### `inject`
 

@@ -44,7 +44,7 @@ with the file and line. Do not change anything.
 | `description` | yes | What the agent is for. The main agent reads it to decide when to use it. |
 | `allowed-tools` | no | One comma-separated string of tool names. Leave it out to give the agent every tool. |
 
-The body is the agent's instructions and must not be empty. The YAML is strict: every value is a string, and unknown keys make the file invalid. There is no `model` field, because a child always runs on the same model as the turn that launched it.
+The body is the agent's instructions and must not be empty. The YAML is strict. Every value is a string, and unknown keys make the file invalid. There is no `model` field, because a child always runs on the same model as the turn that launched it.
 
 These are the tool names `allowed-tools` accepts:
 
@@ -64,6 +64,8 @@ Custom agents (defined by you, no prefix):
 - reviewer: Reviews shell scripts for safety and style. Read-only. (allowed tools: listFiles, searchText, readFile; source: /home/me/work/my-app/.agents/agents/reviewer.md)
 ```
 
+An empty `allowed tools` list, as on `core:general-purpose`, means the agent can use every tool.
+
 The main agent starts one with the `launchAgent` tool:
 
 ```json
@@ -82,7 +84,7 @@ It can also define a one-off child inline when no stored agent fits:
 }
 ```
 
-Exactly one of `agent` and `agentDefinition` must be present. Inline instructions are capped by `PEEN_MAX_ADHOC_AGENT_INSTRUCTION_BYTES` (64 KiB by default) and are never written to disk.
+A call names either `agent` or `agentDefinition`, never both and never neither. Inline instructions are capped by `PEEN_MAX_ADHOC_AGENT_INSTRUCTION_BYTES` (64 KiB by default) and are never written to disk.
 
 `launchAgent` waits for the child and returns its final answer as the tool result. A session may have up to `PEEN_MAX_CONCURRENT_AGENT_RUNS` children running at once. A launch past that limit fails with "too many concurrent agent runs".
 
@@ -98,7 +100,7 @@ A child shares the parent's session, workspace, rules, and model. Its system pro
 
 It does not get the root agent's instructions or the message's `systemPrompt` override. It uses the harness snapshot of the turn that launched it. Session events are delivered to the root agent only, never to a child.
 
-A skill you forced on the parent turn with `:skill-name` does not reach the child. The parent hands a skill over by naming it in the `task`. The task is treated like a user message: each `:name` in it, and each skill those skills name, arrives as its own `<skill>` message right after the task, in the child's first request and in its stored transcript. An unknown name fails the `launchAgent` call and lists up to 10 of the skills that exist. See [Forcing a skill](skills.md#forcing-a-skill).
+A skill you forced on the parent turn with `:skill-name` does not reach the child. The parent hands a skill over by naming it in the `task`. The task is treated like a user message. Each `:name` in it, and each skill those skills name, arrives as its own `<skill>` message right after the task, in the child's first request and in its stored transcript. An unknown name fails the `launchAgent` call and lists up to 10 of the skills that exist. See [Forcing a skill](skills.md#forcing-a-skill).
 
 ## Limits
 

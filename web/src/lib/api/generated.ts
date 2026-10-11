@@ -52,7 +52,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Open or resume the session for a workspace
-		 * @description Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+		 * @description Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 		 */
 		post: operations["openSession"];
 		delete?: never;
@@ -640,7 +640,7 @@ export interface components {
 			/** Format: int64 */
 			revision: number;
 			/**
-			 * @description How much of the host Docker daemon the space reaches. `full` mounts the controller's Docker socket, which is host root. `readonly` is reserved, and the controller refuses to start with a profile that names it. Set only for kind docker.
+			 * @description How much of the host Docker daemon the space reaches. `full` mounts the controller's Docker socket, which is host root. `readonly` gives the worker a controller-run proxy that answers only read requests (list and inspect containers, images, networks, and volumes, and watch events) with environment values redacted from inspect output. Set only for kind docker.
 			 * @enum {string}
 			 */
 			docker?: "none" | "readonly" | "full";

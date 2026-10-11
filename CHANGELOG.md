@@ -1,8 +1,21 @@
 # Changelog
 
-All notable Peen changes per release. Versions follow
-[semver](https://semver.org). Peen release history starts at v0.1.0. Entries
-below document the Servicepack baseline from which Peen was created.
+All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
+
+## v0.20.0 (2026-10-11)
+
+`install.sh` now installs a `peen` command that runs Peen for you, in a container or as a host binary, and gives each workspace's agent its own container or runs it next to Peen, as `docs/where-it-runs.md` explains. After installing, `peen config edit` adds a model key and `cd your/project && peen` opens it. Docker profiles can now set `docker: readonly`. Peen also refuses a workspace that would expose its own state or configuration directory. If you used `install.sh` to build a host binary, use `make install` from a clone instead. If you open a workspace that contains `PEEN_STATE_DIR` or `PEEN_CONFIG_DIR`, open the project directories inside it instead. No API migration is needed.
+
+- Breaking: `install.sh` no longer clones the repository and builds a binary into `~/bin`, and it ignores `PREFIX` and `REF`. It installs the `peen` command in `~/.local/bin`, or `/usr/local/bin` with `--system`, pins the newest release image, and writes `~/.config/peen/.env`. It refuses to run as root without `--system`. Use `--version vX.Y.Z` to pick a release and `--rolling` to follow `latest`. To build from source, clone the repository and run `make install`.
+- Breaking: Peen refuses to open a workspace that is, contains, or sits inside `PEEN_STATE_DIR`, `PEEN_WORKER_SOCKET_DIR`, or `PEEN_LOG_DIRECTORY`, or is or contains `PEEN_CONFIG_DIR`, with `403 WORKSPACE_NOT_ALLOWED`. Before this, opening such a directory in a Docker agent space mounted the database with every session's transcript and every other session's worker socket into that worker. Open the project directories inside it instead.
+- Fixes published images reporting the version `dev`, which made a controller without `PEEN_WORKER_IMAGE` start Docker workers from `psyb0t/peen:dev`, an image that does not exist. Images now carry the tag they are published under, or `latest` for builds from `main`, so a release starts workers from its own image.
+- Adds the `peen` command. `peen`, `peen .`, or `peen <dir>` starts Peen when needed, opens the session for the directory, and prints a link to it. `peen setup`, `start`, `stop`, `restart`, `status`, `logs`, `run`, `config`, `doctor`, `upgrade`, and `uninstall` manage the installation, and `peen session` and `peen control` run the server's own client commands with the installation's configuration. `docs/deployment.md` lists every flag and command.
+- Adds `PEEN_WORKER_IMAGE` pinning to the installer. It sets the variable to the installed release, and `peen setup` and `peen upgrade` move it to the new release only while it still names the old one. Clear it with `peen config set PEEN_WORKER_IMAGE ''` to let Docker profile images apply.
+- Adds `--control-space host|docker` and `--agent-space control|docker` to the installer and to `peen setup`. The default is `docker` for both. The installer refuses `host` with `control` when your user can reach a Docker daemon, and requires `--workspace-root` for `docker` with `control`. The host control space takes the binary out of the published image over the registry's HTTP API, checking each layer's sha256, so it needs no Docker daemon.
+- Adds `docker: readonly` for Docker profiles. The worker gets a Docker API at a socket in its own session directory, with `DOCKER_HOST` pointing at it, that answers only read requests such as listing and inspecting containers, images, networks, and volumes, stats, and events. It refuses creating, starting, exec, attach, logs, file copies, and image pulls and builds, and replaces environment values in inspect output with `<redacted>`. `GET /v1/agent-spaces` reports it with `hostRootEquivalent` false and a capability warning.
+- Adds `peen config init --env-file PATH`, which writes the commented `.env` template with the given directories, workspace root, default agent space, images, and host identity. It never overwrites an existing file. `.env.example` is now generated from the same template.
+- Adds a session link to the control surface. `/?session=<id>` shows that session once you connect. The link never carries the API token.
+- Changes the dev container CPU cap for Peen's `make` targets to 6 CPUs by default. `DEV_CPUS` still overrides it.
 
 ## v0.19.1 (2026-10-11)
 

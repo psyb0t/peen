@@ -7,6 +7,11 @@
 MIN_TEST_COVERAGE := 80
 TEST_TIMEOUT := 30m
 
+# Dev container runs get 6 CPUs by default, so one lint or test run leaves the
+# rest of the machine usable. It is set before the include, because Servicepack
+# only sets DEV_CPUS when it is still empty. `make lint DEV_CPUS=4` still wins.
+DEV_CPUS ?= 6
+
 # Include servicepack framework commands
 include Makefile.servicepack
 
@@ -14,7 +19,7 @@ include Makefile.servicepack
 # Note: Override warnings are expected and can be ignored
 
 .PHONY: install test test-unit test-integration test-stress test-api test-browser \
-	test-execution-forms test-docker-worker test-docker-worker-source test-real \
+	test-execution-forms test-docker-worker test-docker-worker-source test-installer test-real \
 	web-generate web-build web-check web-lint web-lint-fix web-test web-pkg-lock \
 	web-pkg-add web-pkg-update web-pkg-upgrade web-pkg-remove
 
@@ -96,6 +101,15 @@ test-docker-worker-source: dev-image ## Build this checkout's worker image and p
 			go test -count=1 -tags=dockerworker -timeout=$(TEST_TIMEOUT) \
 			./tests/dockerworker \
 	'
+
+# test-installer runs install.sh and the peen command end to end against an
+# image built from this checkout, a local registry, and a mock model provider.
+# It needs the Docker socket to build, push, and run that image. Every home,
+# configuration, and workspace it creates lives under the gitignored .testing/
+# at its literal host path, because the controller containers it starts bind
+# those paths through the host daemon.
+test-installer: dev-image ## Run the installer and peen command end to end in Docker
+	@$(DEV_RUN_DIND) go test -count=1 -tags=installer -timeout=$(TEST_TIMEOUT) -v ./tests/installer
 
 test-real: ## Run opt-in real provider tests with the deployment .env
 	@bash scripts/make/test_real.sh

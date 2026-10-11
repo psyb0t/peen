@@ -119,6 +119,7 @@ func newCoreFixtureWith(
 			return config, nil
 		},
 		configureAuditLog: func() error { return nil },
+		auditLogDirectory: func() (string, error) { return "", nil },
 		driverFactory: func(peenconfig.Upstream) (elelem.Driver, error) {
 			return driver, nil
 		},
@@ -261,6 +262,59 @@ func TestControlCoreAppliesTheConfiguredWorkspaceRoots(t *testing.T) {
 		[]string{fixture.config.WorkingDirectory},
 		core.Sessions.Roots(),
 	)
+}
+
+// The controller builds its workspace policy with every directory that holds
+// its data protected, including a worker socket root and an audit log
+// directory set outside the state directory.
+func TestControlCoreRefusesWorkspacesExposingItsDirectories(t *testing.T) {
+	auditDirectory := filepath.Join(t.TempDir(), "audit")
+	require.NoError(t, os.MkdirAll(auditDirectory, coreTestDirectoryMode))
+
+	fixture := newCoreFixtureWith(t, func(config *peenconfig.Config) {
+		// The system temporary directory holds the fixture's state,
+		// configuration, socket root, and audit directory, the way $HOME
+		// holds an installed controller's.
+		config.WorkingDirectory = filepath.Dir(config.WorkerSocketDirectory)
+	})
+	fixture.service.dependencies.auditLogDirectory = func() (string, error) {
+		return auditDirectory, nil
+	}
+	runCoreService(t, fixture)
+
+	core, err := fixture.handoff.Await(t.Context())
+	require.NoError(t, err)
+
+	for _, requested := range []string{
+		fixture.config.StateDirectory,
+		fixture.config.ConfigDirectory,
+		filepath.Dir(fixture.config.StateDirectory),
+		fixture.config.WorkerSocketDirectory,
+		auditDirectory,
+	} {
+		_, err := core.Sessions.Open(t.Context(), requested, "")
+		require.ErrorIs(t, err, commerr.ErrPermissionDenied, requested)
+	}
+
+	sibling := filepath.Join(
+		filepath.Dir(fixture.config.StateDirectory),
+		"workspace",
+	)
+	opened, err := core.Sessions.Open(t.Context(), sibling, "")
+	require.NoError(t, err)
+	assert.True(t, opened.Created)
+}
+
+func TestControlCoreFailsStartupWhenTheAuditDirectoryCannotBeRead(
+	t *testing.T,
+) {
+	fixture := newCoreFixture(t)
+	fixture.service.dependencies.auditLogDirectory = func() (string, error) {
+		return "", ctxerrors.Wrap(commerr.ErrParseFailed, "parse audit log")
+	}
+
+	err := fixture.service.Run(t.Context())
+	require.ErrorIs(t, err, commerr.ErrParseFailed)
 }
 
 // reachableDockerSocket starts a Unix socket where a Docker socket would be, so

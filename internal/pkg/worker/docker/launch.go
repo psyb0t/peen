@@ -2,6 +2,7 @@ package docker
 
 import (
 	"maps"
+	"path/filepath"
 	"strings"
 
 	"github.com/psyb0t/ctxerrors"
@@ -15,6 +16,17 @@ const (
 	// source is the socket the controller resolved. Mounting it is what makes
 	// a worker host root.
 	workerDockerSocketPath = "/var/run/docker.sock"
+
+	// readonlyProxySocketName is the `docker: readonly` proxy socket inside
+	// the session's own socket directory, which the worker already mounts.
+	// It is as long as the worker socket's name, so the socket root check
+	// at startup covers both.
+	readonlyProxySocketName = "docker.sock"
+
+	// dockerHostEnvKey points Docker clients in the worker at the readonly
+	// proxy. It is controller-owned: a runtime environment cannot set it.
+	dockerHostEnvKey     = "DOCKER_HOST"
+	dockerHostUnixScheme = "unix://"
 
 	// configEnvKey points the worker at the same global configuration the
 	// controller reads, mounted read-only at its literal host path.
@@ -31,7 +43,7 @@ const (
 	bootstrapAllowSudoEnvKey = "PEEN_WORKER_ALLOW_SUDO"
 	bootstrapAllowSudoValue  = "true"
 
-	workerEnvironmentBaseEntries = 8
+	workerEnvironmentBaseEntries = 9
 	validateRuntimeEnvironmentOp = "validate Docker worker runtime environment"
 
 	// bootstrapUser starts a worker as root so the image entrypoint can create
@@ -109,6 +121,11 @@ func BuildCreateRequest(spec LaunchSpec) (CreateRequest, error) {
 		environment[bootstrapAllowSudoEnvKey] = bootstrapAllowSudoValue
 	}
 
+	if spec.AgentSpace.Docker == worker.DockerAccessReadonly {
+		environment[dockerHostEnvKey] = dockerHostUnixScheme +
+			ReadonlyProxySocketPath(spec.Document)
+	}
+
 	return CreateRequest{
 		Name:             worker.ContainerName(spec.Document.SessionID),
 		Image:            spec.image(),
@@ -122,6 +139,17 @@ func BuildCreateRequest(spec LaunchSpec) (CreateRequest, error) {
 		NoNewPrivileges:  !spec.AgentSpace.Sudo,
 		Labels:           worker.ContainerLabels(spec.Document.SessionID),
 	}, nil
+}
+
+// ReadonlyProxySocketPath is where the controller runs a `docker: readonly`
+// worker's proxy: beside the worker socket in the session's own directory,
+// so the worker reaches it through the mount it already has and no other
+// session can.
+func ReadonlyProxySocketPath(document worker.LaunchDocument) string {
+	return filepath.Join(
+		socketDirectory(document.SocketPath),
+		readonlyProxySocketName,
+	)
 }
 
 // ValidateFullAccessSocket refuses, at startup, a `docker: full` agent space
@@ -253,7 +281,7 @@ func workerEnvironmentReserved(key string) bool {
 		"PEEN_HOST_HOME",
 		"PEEN_LOG_DIRECTORY",
 		"PEEN_LOG_RETENTION",
-		"DOCKER_HOST",
+		dockerHostEnvKey,
 		"HOME",
 		"USER",
 		"LOGNAME":

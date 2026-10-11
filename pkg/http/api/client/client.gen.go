@@ -907,7 +907,7 @@ type AgentSpace struct {
 	// CapabilityWarnings One operator-facing sentence for each risky grant this space makes. Empty for a space that grants nothing risky.
 	CapabilityWarnings []string `json:"capabilityWarnings"`
 
-	// Docker How much of the host Docker daemon the space reaches. `full` mounts the controller's Docker socket, which is host root. `readonly` is reserved, and the controller refuses to start with a profile that names it. Set only for kind docker.
+	// Docker How much of the host Docker daemon the space reaches. `full` mounts the controller's Docker socket, which is host root. `readonly` gives the worker a controller-run proxy that answers only read requests (list and inspect containers, images, networks, and volumes, and watch events) with environment values redacted from inspect output. Set only for kind docker.
 	Docker *AgentSpaceDocker `json:"docker,omitempty"`
 
 	// HostRootEquivalent True when this space grants access that is effectively host root, which is `docker: full`.
@@ -928,7 +928,7 @@ type AgentSpace struct {
 	Sudo *bool `json:"sudo,omitempty"`
 }
 
-// AgentSpaceDocker How much of the host Docker daemon the space reaches. `full` mounts the controller's Docker socket, which is host root. `readonly` is reserved, and the controller refuses to start with a profile that names it. Set only for kind docker.
+// AgentSpaceDocker How much of the host Docker daemon the space reaches. `full` mounts the controller's Docker socket, which is host root. `readonly` gives the worker a controller-run proxy that answers only read requests (list and inspect containers, images, networks, and volumes, and watch events) with environment values redacted from inspect output. Set only for kind docker.
 type AgentSpaceDocker string
 
 // AgentSpaceKind defines model for AgentSpace.Kind.
@@ -2020,7 +2020,7 @@ type ClientInterface interface {
 
 	// OpenSessionWithBody Open or resume the session for a workspace
 	//
-	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -2029,7 +2029,7 @@ type ClientInterface interface {
 
 	// OpenSession Open or resume the session for a workspace
 	//
-	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -2569,7 +2569,7 @@ func (c *Client) ListSessions(ctx context.Context, params *ListSessionsParams, r
 
 // OpenSessionWithBody Open or resume the session for a workspace
 //
-// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 //
 // Takes any type of body and a specified content type.
 //
@@ -2588,7 +2588,7 @@ func (c *Client) OpenSessionWithBody(ctx context.Context, contentType string, bo
 
 // OpenSession Open or resume the session for a workspace
 //
-// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -5027,7 +5027,7 @@ type ClientWithResponsesInterface interface {
 
 	// OpenSessionWithBodyWithResponse Open or resume the session for a workspace
 	//
-	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5036,7 +5036,7 @@ type ClientWithResponsesInterface interface {
 
 	// OpenSessionWithResponse Open or resume the session for a workspace
 	//
-	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -7932,7 +7932,7 @@ func (c *ClientWithResponses) ListSessionsWithResponse(ctx context.Context, para
 
 // OpenSessionWithBodyWithResponse Open or resume the session for a workspace
 //
-// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -7947,7 +7947,7 @@ func (c *ClientWithResponses) OpenSessionWithBodyWithResponse(ctx context.Contex
 
 // OpenSessionWithResponse Open or resume the session for a workspace
 //
-// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //

@@ -433,6 +433,39 @@ describe("control surface", () => {
 		});
 	});
 
+	it("shows the session a link names once connected", async () => {
+		sessionOpened = true;
+		window.history.replaceState({}, "", `/?session=${session.id}`);
+		try {
+			render(Page);
+			const connectionForm = screen
+				.getByRole("button", { name: "Connect" })
+				.closest("form");
+			await fireEvent.submit(connectionForm as HTMLFormElement);
+
+			expect(await screen.findByRole("heading", { name: "catalog" })).not.toBeNull();
+		} finally {
+			window.history.replaceState({}, "", "/");
+		}
+	});
+
+	it("opens no session when the link names none", async () => {
+		sessionOpened = true;
+		window.history.replaceState({}, "", "/?session=not-a-session");
+		try {
+			render(Page);
+			const connectionForm = screen
+				.getByRole("button", { name: "Connect" })
+				.closest("form");
+			await fireEvent.submit(connectionForm as HTMLFormElement);
+			await screen.findByDisplayValue("/workspace/catalog");
+
+			expect(screen.queryByRole("heading", { name: "catalog" })).toBeNull();
+		} finally {
+			window.history.replaceState({}, "", "/");
+		}
+	});
+
 	it("shows the agent space a session runs in", async () => {
 		render(Page);
 		await connectAndOpenChat();

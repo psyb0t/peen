@@ -10,7 +10,8 @@ Make is the only entry point for project operations. If an operation is supporte
 ## Running tools
 
 - Every Go, Node, and lint command runs in the dev image through `$(DEV_RUN)`: an ephemeral `docker run --rm` as your UID and GID, with `HOME=/tmp` and the checkout at `/work`. It has no Docker socket. Unit tests, lint, generation, and builds use it.
-- `DEV_RUN` and `DEV_RUN_DIND` carry `--cpus=$(DEV_CPUS)`, which defaults to all but two CPU threads and is at least 1. `run-dev` is Servicepack's and does not use them. Servicepack defines the cap (`DEV_CPUS_RESERVED`, `DEV_CPUS`, `DEV_CPU_LIMIT_ARGS`), and `DEV_RUN_EXTRA_ARGS` and `DEV_RUN_DIND_EXTRA_ARGS` add `docker run` arguments. Peen sets none of them and does not redefine `DEV_RUN`.
+- `DEV_RUN` and `DEV_RUN_DIND` carry `--cpus=$(DEV_CPUS)`. Servicepack defines the cap (`DEV_CPUS_RESERVED`, `DEV_CPUS`, `DEV_CPU_LIMIT_ARGS`) and defaults it to all but two CPU threads. Peen's `Makefile` sets `DEV_CPUS ?= 6` before including `Makefile.servicepack`, so Peen's default is 6 and a command-line `DEV_CPUS` still wins. `run-dev` is Servicepack's and does not use them. `DEV_RUN_EXTRA_ARGS` and `DEV_RUN_DIND_EXTRA_ARGS` add `docker run` arguments. Peen does not redefine `DEV_RUN`.
+- Run one lint, test, or build target at a time. Never start them in parallel, from one shell or from several agents: each one is a full dev container build or Go compile, and several at once overload the machine.
 - `$(DEV_RUN_DIND)` adds the Docker socket, host networking, and the checkout at its real host path, for tests that start sibling containers. Use it only for the targets that need it.
 - A target that needs the dev image depends on `dev-image`.
 - Nothing installs or runs Go, pnpm, or linters on the host. The host needs Docker, Make, Git, and a shell.

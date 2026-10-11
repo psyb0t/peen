@@ -20,13 +20,5 @@ var ErrAgentSpaceNotAllowed = errors.New(
 	"the agent space is not allowed by this deployment",
 )
 
-// ErrDockerReadonlyUnavailable reports a Docker profile that asks for
-// `docker: readonly`. A read-only socket proxy does not exist yet, so the
-// profile is refused instead of quietly getting more or less access than it
-// named.
-var ErrDockerReadonlyUnavailable = errors.New(
-	"docker: readonly is not available yet, use none or full",
-)
-
 // ErrWorkerLaunchFailed reports a worker that never became ready.
 var ErrWorkerLaunchFailed = errors.New("worker launch failed")

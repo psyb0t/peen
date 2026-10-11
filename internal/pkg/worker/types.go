@@ -44,9 +44,9 @@ type DockerAccess string
 const (
 	// DockerAccessNone gives the worker no Docker socket.
 	DockerAccessNone DockerAccess = "none"
-	// DockerAccessReadonly is reserved for a socket proxy that answers only
-	// read endpoints. It is not available yet, and a profile naming it is
-	// refused.
+	// DockerAccessReadonly gives the worker a controller-run proxy that
+	// answers only read endpoints of the host Docker daemon. The worker never
+	// receives the socket itself.
 	DockerAccessReadonly DockerAccess = "readonly"
 	// DockerAccessFull mounts the host Docker socket into the worker, which
 	// is host root.

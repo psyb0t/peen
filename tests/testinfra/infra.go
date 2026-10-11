@@ -35,14 +35,18 @@ import (
 )
 
 const (
-	appDockerfile      = "Dockerfile"
-	appBootTimeout     = 25 * time.Minute
-	appCleanupTimeout  = 30 * time.Second
-	appConfigDirectory = "/tmp/peen"
+	appDockerfile     = "Dockerfile"
+	appBootTimeout    = 25 * time.Minute
+	appCleanupTimeout = 30 * time.Second
+	// The configuration and state directories live outside the workspace
+	// root, /tmp: Peen refuses a workspace that contains either of them, and
+	// the tests open /tmp itself. /var/tmp is writable by any account, like
+	// /tmp, which the coverage variant's host UID needs.
+	appConfigDirectory = "/var/tmp/peen"
 	// appStateDirectory is a sibling of appConfigDirectory, never a child.
 	// Peen refuses to start when one contains the other, because the
 	// read-only configuration mount would carry SQLite into every worker.
-	appStateDirectory          = "/tmp/peen-state"
+	appStateDirectory          = "/var/tmp/peen-state"
 	appWorkingDirectory        = "/tmp"
 	appAgentName               = "default"
 	appFixtureInstructionsPath = "/tmp/peen-test-AGENTS.md"
@@ -54,9 +58,10 @@ const (
 	ConfigInstructions = "Follow the request and use available tools."
 	//nolint:lll // Fixture content is byte exact and has no trailing newline.
 	appAgentDocument    = "---\nname: default\ndescription: API integration test agent\n---\nFollow the request and return the result."
-	appBootstrapCommand = `mkdir -p /tmp/peen/.agents/agents /tmp/peen-state
-cp /tmp/peen-test-AGENTS.md /tmp/peen/AGENTS.md
-cp /tmp/peen-test-default.md /tmp/peen/.agents/agents/default.md
+	appBootstrapCommand = `mkdir -p /var/tmp/peen/.agents/agents
+mkdir -p /var/tmp/peen-state
+cp /tmp/peen-test-AGENTS.md /var/tmp/peen/AGENTS.md
+cp /tmp/peen-test-default.md /var/tmp/peen/.agents/agents/default.md
 exec /app/app run`
 	appNetwork                = "tcp"
 	appHostNetwork            = "host"

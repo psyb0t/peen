@@ -907,7 +907,7 @@ type AgentSpace struct {
 	// CapabilityWarnings One operator-facing sentence for each risky grant this space makes. Empty for a space that grants nothing risky.
 	CapabilityWarnings []string `json:"capabilityWarnings"`
 
-	// Docker How much of the host Docker daemon the space reaches. `full` mounts the controller's Docker socket, which is host root. `readonly` is reserved, and the controller refuses to start with a profile that names it. Set only for kind docker.
+	// Docker How much of the host Docker daemon the space reaches. `full` mounts the controller's Docker socket, which is host root. `readonly` gives the worker a controller-run proxy that answers only read requests (list and inspect containers, images, networks, and volumes, and watch events) with environment values redacted from inspect output. Set only for kind docker.
 	Docker *AgentSpaceDocker `json:"docker,omitempty"`
 
 	// HostRootEquivalent True when this space grants access that is effectively host root, which is `docker: full`.
@@ -928,7 +928,7 @@ type AgentSpace struct {
 	Sudo *bool `json:"sudo,omitempty"`
 }
 
-// AgentSpaceDocker How much of the host Docker daemon the space reaches. `full` mounts the controller's Docker socket, which is host root. `readonly` is reserved, and the controller refuses to start with a profile that names it. Set only for kind docker.
+// AgentSpaceDocker How much of the host Docker daemon the space reaches. `full` mounts the controller's Docker socket, which is host root. `readonly` gives the worker a controller-run proxy that answers only read requests (list and inspect containers, images, networks, and volumes, and watch events) with environment values redacted from inspect output. Set only for kind docker.
 type AgentSpaceDocker string
 
 // AgentSpaceKind defines model for AgentSpace.Kind.

@@ -1,13 +1,19 @@
 # Set up and use Peen
 
+## Install with the peen command
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/psyb0t/peen/main/install.sh | bash
+peen config edit
+cd ~/work/my-app
+peen
+```
+
+The installer pins the newest release and writes `~/.config/peen`. Its defaults run Peen in a container with the host Docker socket and give each workspace's agent its own container. Pass flags after `bash -s --`, such as `--control-space host`, `--agent-space control`, or `--workspace-root DIR`. `peen` starts the controller when needed, opens the session for the current directory, and prints its link. [Deployment](https://github.com/psyb0t/peen/blob/main/docs/deployment.md#install) lists every flag and command, and [where it runs](https://github.com/psyb0t/peen/blob/main/docs/where-it-runs.md) explains the combinations.
+
 ## Configure a provider
 
-Download `.env.example` as `$root/.env`, where `$root` is the directory the
-Docker command below uses. Keep only the upstreams you intend to use, deleting
-the key variables of the others, set
-`PEEN_DEFAULT_MODEL`, and set the matching credential variable. Provider
-credentials belong in the named environment variable, never inside
-`PEEN_UPSTREAMS`.
+`peen config edit` opens `~/.config/peen/.env`. Keep only the upstreams you intend to use, delete the key variables of the others, set `PEEN_DEFAULT_MODEL` and `PEEN_COMPACTION_MODEL` to models of a provider you kept, and set the matching credential variable. A compaction model that still names a deleted provider stops startup. Provider credentials belong in the named environment variable, never inside `PEEN_UPSTREAMS`.
 
 ```dotenv
 PEEN_UPSTREAMS=[{"name":"aigate","type":"openai","baseUrl":"https://aigate.example/v1","apiKeyEnv":"AIGATE_TOKEN"}]
@@ -17,55 +23,24 @@ AIGATE_TOKEN=your-token-here
 PEEN_API_TOKEN=
 ```
 
-`openai`, `anthropic`, and `zai-coding` are supported upstream types. Peen
-checks that the configured model is available when it starts. Set
-`PEEN_API_TOKEN` before running anywhere other than an intentionally
-unauthenticated local environment.
+`openai`, `anthropic`, and `zai-coding` are the supported upstream types. Peen checks that the configured model is available when it starts. Set `PEEN_API_TOKEN` before running Peen anywhere other than a local machine where no one else can reach it. `peen doctor` checks the configuration.
 
-## Start the Docker server
+## Run the image by hand
 
-The server needs three host directories: a configuration directory for the
-trusted harness, a private state directory for the SQLite transcript, logs,
-and worker sockets, and one deliberate workspace root. Peen refuses to start
-when the configuration and state directories overlap. All three must exist
-before the container starts, and each is mounted at its literal host path.
-
-```bash
-root="$HOME/.local/share/peen"
-config="$root/config"
-state="$root/state"
-workspace_root="$HOME/work"
-mkdir -p "$config" "$state" "$workspace_root/my-app"
-
-docker run --rm \
-  --user "$(id -u):$(id -g)" \
-  --env-file "$root/.env" \
-  -e PEEN_CONFIG_DIR="$config" \
-  -e PEEN_STATE_DIR="$state" \
-  -e PEEN_HOST_USERNAME="$(id -un)" \
-  -e PEEN_HOST_HOME="$HOME" \
-  -p 8080:8080 \
-  -v "$config:$config" \
-  -v "$state:$state" \
-  -v "$workspace_root:$workspace_root" \
-  -w "$workspace_root" \
-  psyb0t/peen:latest
-```
-
-Do not publish the metrics listener. It defaults to the container's loopback interface. This command runs the `control` agent space, so the agent can read the state directory and the controller's secrets. Do not add the Docker socket to this container: with a reachable daemon Peen refuses the `control` agent space and runs each workspace in its own Docker container instead, as `docs/where-it-runs.md` explains. For stronger isolation, restrict the network and use a read-only root filesystem with only the required writable mounts.
+The manual route is the [Docker section of deployment](https://github.com/psyb0t/peen/blob/main/docs/deployment.md#docker). It creates the configuration, state, and workspace root directories, lets the image write `.env` with `config init`, and runs the controller with each directory mounted at its literal host path. Pin a release tag such as `psyb0t/peen:v0.20.0` rather than `latest`, publish the API on `127.0.0.1` only unless `PEEN_API_TOKEN` is set, and do not publish the metrics listener. Without the Docker socket the controller runs the `control` agent space, so the agent can read and change the state directory with every session's transcript. With the socket mounted, Peen refuses `control` and runs each workspace in its own container.
 
 ## Send a turn
 
-WebSocket is the only turn-creation surface. REST is read and control only.
+A message for the agent goes over the WebSocket only. REST reads stored state and controls work, and the one REST call that can start a turn is a posted notice that an event handler lets wake an idle session.
 
 ```js
-const opened = await (await fetch("http://localhost:8080/v1/sessions/open", {
+const opened = await (await fetch("http://127.0.0.1:8080/v1/sessions/open", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({ workspace: "/abs/path/to/project" }),
 })).json();
 const sessionId = opened.session.id;
-const socket = new WebSocket("ws://localhost:8080/v1/ws");
+const socket = new WebSocket("ws://127.0.0.1:8080/v1/ws");
 
 socket.addEventListener("message", ({ data }) => console.log(JSON.parse(data)));
 socket.addEventListener("open", () => {
@@ -80,33 +55,23 @@ socket.addEventListener("open", () => {
 });
 ```
 
-Keep `sessionId`. Never invent one, because Peen refuses an unknown session ID
-and starts no turn. Sending another `message.send` with that ID continues the
-session. Each accepted event carries `metadata.sessionId`, so clients sharing
-a global socket can render only the session tab they need. A
-`message.completed` event means that submitted message is done. It does not
-close the socket.
+Keep `sessionId`. Never invent one, because Peen refuses an unknown session ID and starts no turn. Sending another `message.send` with that ID continues the session. Each accepted event carries `metadata.sessionId`, so clients sharing a global socket can render only the session tab they need. A `message.completed` event means that submitted message is done. It does not close the socket.
 
-With `PEEN_API_TOKEN` set, browser clients authenticate through the
-`peen.v1` and `peen.bearer.<base64url-token>` WebSocket subprotocols. Non-browser
-clients can use the normal `Authorization: Bearer <token>` upgrade header.
-Never put a token in the URL.
+With `PEEN_API_TOKEN` set, browser clients authenticate through the `peen.v1` and `peen.bearer.<base64url-token>` WebSocket subprotocols. Other clients can send the usual `Authorization: Bearer <token>` header with the upgrade request. Never put a token in the URL.
 
-## Inspect and control durable work
+## Inspect and control stored work
 
-REST reads state stored in SQLite. Use `X-Session-ID` on session endpoints.
+REST reads the state stored in SQLite. Send `X-Session-ID` to the session endpoints, and `Authorization: Bearer <token>` when `PEEN_API_TOKEN` is set.
 
 ```bash
-curl "http://localhost:8080/v1/messages?limit=50&order=asc" \
+curl "http://127.0.0.1:8080/v1/messages?limit=50&order=asc" \
   -H "X-Session-ID: <session-id>"
 
-curl -X POST "http://localhost:8080/v1/session/cancel" \
+curl -X POST "http://127.0.0.1:8080/v1/session/cancel" \
   -H "X-Session-ID: <session-id>"
 ```
 
-The API also lists protocol events, context and prompt snapshots, compaction
-lineage, model runs and calls, process jobs and output, child-agent runs, and
-external notices. Use `wss://` and HTTPS when Peen is not local.
+With the installer, `peen session list` and `peen session attach <session-id>` do the same from the command line. The API also lists protocol events, context and prompt snapshots, compaction lineage, model runs and calls, process jobs and output, child-agent runs, and outside notices. Use `wss://` and HTTPS when Peen is not local. The [API reference](https://github.com/psyb0t/peen/blob/main/docs/http-api.md) has every request and frame.
 
 ## Add a harness layer
 
@@ -124,9 +89,4 @@ workspace/
     hooks.yaml
 ```
 
-`AGENTS.md` gives the model standing project instructions. Rules are topic
-files that join them on every turn. Skills are
-on-demand procedures. Named agents handle bounded delegated work. Event
-handlers tell Peen how to process an external notice. Hooks enforce mechanical
-behavior around lifecycle and tool events. Hooks from every layer run, so only
-open workspaces whose hooks you trust.
+`AGENTS.md` gives the model standing project instructions. Rules are topic files that join them on every turn. Skills are procedures the model loads when a task needs them. Named agents handle bounded jobs the main agent hands off. Event handlers tell Peen how to handle an outside notice. Hooks enforce mechanical behavior around turn and tool events. Hooks from every layer run, so only open workspaces whose hooks you trust.

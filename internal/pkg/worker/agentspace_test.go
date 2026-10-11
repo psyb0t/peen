@@ -49,11 +49,10 @@ func TestAgentSpaceValidateDockerGrants(t *testing.T) {
 			},
 		},
 		{
-			name: "docker readonly is not available yet",
+			name: "docker readonly",
 			mutate: func(s *worker.AgentSpace) {
 				s.Docker = worker.DockerAccessReadonly
 			},
-			wantErr: worker.ErrDockerReadonlyUnavailable,
 		},
 		{
 			name: "docker unknown value",
@@ -238,6 +237,13 @@ func TestAgentSpaceCapabilityWarnings(t *testing.T) {
 			wantHostRoot: true,
 		},
 		{
+			name: "docker readonly warns but is not host root",
+			mutate: func(s *worker.AgentSpace) {
+				s.Docker = worker.DockerAccessReadonly
+			},
+			wantWarnings: 1,
+		},
+		{
 			name: "network host",
 			mutate: func(s *worker.AgentSpace) {
 				s.Network = worker.NetworkModeHost
@@ -279,6 +285,27 @@ func TestAgentSpaceCapabilityWarnings(t *testing.T) {
 	}
 	assert.Empty(t, control.CapabilityWarnings())
 	assert.False(t, control.HostRootEquivalent())
+}
+
+// The readonly warning tells an operator what the worker can still see, and
+// that the proxy refuses changes, so it reads differently from full access.
+func TestAgentSpaceDockerReadonlyWarning(t *testing.T) {
+	t.Parallel()
+
+	space := dockerSpace(testProfile)
+	space.Docker = worker.DockerAccessReadonly
+
+	warnings := space.CapabilityWarnings()
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "docker: readonly")
+	assert.Contains(
+		t,
+		warnings[0],
+		"every container, image, network, and volume on the host",
+	)
+	assert.Contains(t, warnings[0], "Docker events")
+	assert.Contains(t, warnings[0], "refuses every change")
+	assert.NotContains(t, warnings[0], "host root")
 }
 
 func TestAgentSpaceSetSelect(t *testing.T) {

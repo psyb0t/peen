@@ -2,7 +2,7 @@
 
 A skill is a named procedure the agent loads only when it needs it. Every turn the model sees a short catalogue with each skill's name and description. When a task matches, it calls `useSkill` to load the full instructions. You can also hand a skill to the model with `:skill-name` in your message. Use a skill for a procedure that is too long or too specific to sit in the [rules](rules.md) on every turn, such as cutting a release, writing a migration, or triaging a bug report.
 
-Peen follows the [Agent Skills](https://agentskills.io) layout, so a skill written for Claude Code works here unchanged.
+Peen follows the [Agent Skills](https://agentskills.io) layout, so a skill written for Claude Code works here unchanged as long as its frontmatter uses only the keys listed under [Format](#format). Peen skips a skill with any other key and says so in the chat.
 
 ## Where skills go
 
@@ -103,9 +103,9 @@ The name is the one Peen resolved, so a core skill shows as `core:planning`. For
 
 Peen marks a `<skill>` or `<hook>` block as instructions from your harness layers, whichever layer it came from. The agent can write a workspace `.agents/skills/*/SKILL.md` and a workspace `hooks.yaml` with its own file tools (see the [hook limits](hooks.md#limits)), and the next turn delivers that text under the same mark. Keep a skill that must stay trusted in `PEEN_CONFIG_DIR`.
 
-Your message is stored exactly as you typed it. Each skill message is stored right after it as an injected message of kind `skill`, so a resumed session replays them and the model sees them in later turns. The control surface shows each one as a collapsed `skill: name` marker that expands to the content, not as a bubble from you.
+Your message is stored as you typed it. Each skill message is stored right after it as an injected message of kind `skill`, so a resumed session replays them and the model sees them in later turns. The control surface shows each one as a collapsed `skill: name` marker that expands to the content, not as a bubble from you.
 
-A message sent while a turn is running works the same way. Peen resolves the names when it accepts the message, and an unknown name refuses that message: nothing is queued and nothing is stored. The message and its skill messages reach the model together when the model's current round ends, after every tool call in that round, and `userMessage.delivered` fires once for your message. Each skill message takes one slot of `PEEN_MAX_QUEUED_USER_MESSAGES`, so a message that brings skills leaves less room in the queue.
+A message sent while a turn is running works the same way. Peen resolves the names when it accepts the message, and an unknown name refuses that message, and nothing is queued or stored. The message and its skill messages reach the model together when the model's current round ends, after every tool call in that round, and `userMessage.delivered` fires once for your message. Each skill message takes one slot of `PEEN_MAX_QUEUED_USER_MESSAGES`, so a message that brings skills leaves less room in the queue.
 
 ### Skills that name other skills
 
@@ -127,15 +127,15 @@ One message, or one `useSkill` call, can bring at most 128 KiB of skill content,
 
 ### Skills and child agents
 
-A skill you force on a turn is not copied to the child agents it launches. The parent hands a skill to a child by naming it with `:name` in the `task` of `launchAgent`. The task is treated like a user message: each skill arrives as its own message right after the task, in the child's first request and in its stored transcript, and an unknown name fails the `launchAgent` call and lists up to 10 of the skills that exist.
+A skill you force on a turn is not copied to the child agents it launches. The parent hands a skill to a child by naming it with `:name` in the `task` of `launchAgent`. The task is treated like a user message. Each skill arrives as its own message right after the task, in the child's first request and in its stored transcript, and an unknown name fails the `launchAgent` call and lists up to 10 of the skills that exist.
 
 ## When skills load
 
-Peen reads every skill at the start of every turn, so a new or edited skill is available on the next message. During a turn the skills are frozen: `useSkill` returns the content Peen read when the turn started.
+Peen reads every skill at the start of every turn, so a new or edited skill is available on the next message. During a turn the skills do not change, and `useSkill` returns the content Peen read when the turn started.
 
 ## How skills combine
 
-Custom skills replace by name and are never merged. A skill in a deeper layer replaces one with the same name from a broader layer. Inside one layer, `.agents/skills/<name>` replaces `.claude/skills/<name>`. The catalogue and `useSkill` always use the winning copy, and `useSkill` returns that copy's directory, so bundled scripts come from the same place. Core skills are outside this: no layer replaces them.
+Custom skills replace by name and are never merged. A skill in a deeper layer replaces one with the same name from a broader layer. Inside one layer, `.agents/skills/<name>` replaces `.claude/skills/<name>`. The catalogue and `useSkill` always use the winning copy, and `useSkill` returns that copy's directory, so bundled scripts come from the same place. No layer replaces a core skill.
 
 ## Limits
 

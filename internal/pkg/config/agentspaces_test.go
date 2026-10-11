@@ -229,9 +229,10 @@ func TestDockerProfileGrantValues(t *testing.T) {
 			wantNetwork: worker.NetworkModeBridge,
 		},
 		{
-			name:        "docker readonly is not available yet",
+			name:        "docker readonly",
 			profileJSON: `{"name":"ops","docker":"readonly"}`,
-			wantErr:     worker.ErrDockerReadonlyUnavailable,
+			wantDocker:  worker.DockerAccessReadonly,
+			wantNetwork: worker.NetworkModeBridge,
 		},
 		{
 			name:        "docker unknown value",
@@ -438,6 +439,34 @@ func TestDockerProfileCapabilityWarningsNameEachRiskyGrant(t *testing.T) {
 	builtIn, err := spaces.Select(testDefaultName)
 	require.NoError(t, err)
 	assert.Empty(t, builtIn.CapabilityWarnings())
+}
+
+// Startup used to refuse `docker: readonly`. It now starts, as the default
+// agent space too, and the space reports what the worker can see without
+// claiming host root.
+func TestValidateAcceptsADockerReadonlyProfile(t *testing.T) {
+	t.Parallel()
+
+	config := withSocket(testConfig(t), reachableSocket(t))
+	config.DockerProfilesJSON = `[{"name":"ops","docker":"readonly"}]`
+	config.DefaultAgentSpace = testOpsSpace
+
+	require.NoError(t, config.Validate())
+
+	spaces, err := config.AgentSpaces()
+	require.NoError(t, err)
+	assert.Equal(t, testOpsSpace, spaces.Default())
+
+	space, err := spaces.Select(testOpsSpace)
+	require.NoError(t, err)
+	assert.Equal(t, worker.DockerAccessReadonly, space.Docker)
+	assert.False(t, space.HostRootEquivalent())
+
+	warnings := space.CapabilityWarnings()
+	require.Len(t, warnings, 1)
+	assert.Contains(t, warnings[0], "docker: readonly")
+	assert.Contains(t, warnings[0], "watch Docker events")
+	assert.Contains(t, warnings[0], "refuses every change")
 }
 
 func TestDockerProfilesAreNotPassedToWorkers(t *testing.T) {

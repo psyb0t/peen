@@ -12,6 +12,7 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/worker"
+	"github.com/psyb0t/peen/internal/pkg/worker/dockerproxy"
 	"github.com/psyb0t/peen/internal/pkg/worker/workerlog"
 )
 
@@ -33,7 +34,8 @@ type Options struct {
 	// replaces a profile's own image.
 	ImageFallback string
 
-	// DockerSocketPath is the host socket a `docker: full` profile mounts.
+	// DockerSocketPath is the controller's own Docker socket. A `docker: full`
+	// profile mounts it, and a `docker: readonly` proxy forwards to it.
 	DockerSocketPath string
 
 	// DockerSocketGID is the host GID of the Docker socket, needed only by a
@@ -44,7 +46,24 @@ type Options struct {
 	// provider credential set a Docker worker needs. It excludes controller
 	// state and authority, and New validates it before any session launches.
 	RuntimeEnvironment map[string]string
+
+	// StartReadonlyProxy starts the proxy a `docker: readonly` worker reaches
+	// the daemon through. Nil starts the real dockerproxy.Server.
+	StartReadonlyProxy ReadonlyProxyStarter
 }
+
+// ReadonlyProxy is a running `docker: readonly` proxy as the launcher holds
+// it. Close stops it, ends its open connections, and removes its socket.
+type ReadonlyProxy interface {
+	Close() error
+}
+
+// ReadonlyProxyStarter starts a proxy that listens on socketPath and forwards
+// read requests to the daemon at upstreamSocketPath.
+type ReadonlyProxyStarter func(
+	ctx context.Context,
+	socketPath, upstreamSocketPath string,
+) (ReadonlyProxy, error)
 
 // Launcher starts session workers as psyb0t/peen containers.
 type Launcher struct {
@@ -55,6 +74,7 @@ type Launcher struct {
 	dockerSocketPath   string
 	dockerSocketGID    int
 	runtimeEnvironment map[string]string
+	startReadonlyProxy ReadonlyProxyStarter
 }
 
 // New validates the launcher's dependencies.
@@ -80,6 +100,11 @@ func New(options Options) (*Launcher, error) {
 		return nil, ctxerrors.Wrap(err, validateRuntimeEnvironmentOp)
 	}
 
+	startReadonlyProxy := options.StartReadonlyProxy
+	if startReadonlyProxy == nil {
+		startReadonlyProxy = startDockerProxy
+	}
+
 	return &Launcher{
 		client:             options.Client,
 		identity:           options.Identity,
@@ -88,7 +113,23 @@ func New(options Options) (*Launcher, error) {
 		dockerSocketPath:   options.DockerSocketPath,
 		dockerSocketGID:    options.DockerSocketGID,
 		runtimeEnvironment: maps.Clone(options.RuntimeEnvironment),
+		startReadonlyProxy: startReadonlyProxy,
 	}, nil
+}
+
+// startDockerProxy is the production ReadonlyProxyStarter.
+//
+//nolint:ireturn // The starter contract returns the ReadonlyProxy seam.
+func startDockerProxy(
+	ctx context.Context,
+	socketPath, upstreamSocketPath string,
+) (ReadonlyProxy, error) {
+	server, err := dockerproxy.Start(ctx, socketPath, upstreamSocketPath)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "start the readonly Docker proxy")
+	}
+
+	return server, nil
 }
 
 // Kind reports the agent space kind this launcher serves.
@@ -106,16 +147,7 @@ func (l *Launcher) Launch(
 	ctx context.Context,
 	request worker.LaunchRequest,
 ) (worker.Process, error) {
-	create, err := BuildCreateRequest(LaunchSpec{
-		Document:           request.Document,
-		AgentSpace:         request.AgentSpace,
-		Identity:           l.identity,
-		ImageOverride:      l.imageOverride,
-		ImageFallback:      l.imageFallback,
-		DockerSocketPath:   l.dockerSocketPath,
-		DockerSocketGID:    l.dockerSocketGID,
-		RuntimeEnvironment: maps.Clone(l.runtimeEnvironment),
-	})
+	create, err := l.buildCreateRequest(request)
 	if err != nil {
 		return nil, err
 	}
@@ -133,8 +165,17 @@ func (l *Launcher) Launch(
 		return nil, ctxerrors.Wrap(err, "encode the worker launch document")
 	}
 
+	// The proxy listens before the container exists, so a worker that asks
+	// the daemon anything as soon as it starts finds the socket in place.
+	proxy, err := l.startProxyFor(ctx, request)
+	if err != nil {
+		return nil, err
+	}
+
 	containerID, err := l.client.CreateContainer(ctx, create)
 	if err != nil {
+		closeReadonlyProxy(ctx, proxy)
+
 		return nil, ctxerrors.Wrap(err, "create the worker container")
 	}
 
@@ -143,6 +184,7 @@ func (l *Launcher) Launch(
 		id:          containerID,
 		sessionID:   request.Document.SessionID,
 		imageDigest: imageDigest,
+		proxy:       proxy,
 	}
 
 	if err := l.client.AttachStdin(ctx, containerID, document); err != nil {
@@ -158,26 +200,95 @@ func (l *Launcher) Launch(
 	}
 
 	l.startLogRelay(ctx, containerID, request.Document)
-	logDockerWorkerStarted(ctx, request.Document, create, held.imageDigest)
+	logDockerWorkerStarted(ctx, request, create, held.imageDigest)
 
 	return held, nil
+}
+
+// buildCreateRequest resolves the container request from the launcher's
+// deployment settings. A readonly agent space also needs the controller's own
+// socket, because that is what its proxy forwards to.
+func (l *Launcher) buildCreateRequest(
+	request worker.LaunchRequest,
+) (CreateRequest, error) {
+	if request.AgentSpace.Docker == worker.DockerAccessReadonly &&
+		l.dockerSocketPath == "" {
+		return CreateRequest{}, ctxerrors.Wrapf(
+			worker.ErrDockerAuthorityUnavailable,
+			"agent space %q needs the controller's Docker socket for its "+
+				"readonly proxy, and none was resolved",
+			request.AgentSpace.Name,
+		)
+	}
+
+	return BuildCreateRequest(LaunchSpec{
+		Document:           request.Document,
+		AgentSpace:         request.AgentSpace,
+		Identity:           l.identity,
+		ImageOverride:      l.imageOverride,
+		ImageFallback:      l.imageFallback,
+		DockerSocketPath:   l.dockerSocketPath,
+		DockerSocketGID:    l.dockerSocketGID,
+		RuntimeEnvironment: maps.Clone(l.runtimeEnvironment),
+	})
+}
+
+// startProxyFor starts the readonly proxy a `docker: readonly` worker needs,
+// and nothing for any other agent space.
+//
+//nolint:ireturn // The proxy is held through the ReadonlyProxy seam.
+func (l *Launcher) startProxyFor(
+	ctx context.Context,
+	request worker.LaunchRequest,
+) (ReadonlyProxy, error) {
+	if request.AgentSpace.Docker != worker.DockerAccessReadonly {
+		return nil, nil //nolint:nilnil // No proxy is the normal case.
+	}
+
+	proxy, err := l.startReadonlyProxy(
+		ctx,
+		ReadonlyProxySocketPath(request.Document),
+		l.dockerSocketPath,
+	)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "start the worker's readonly proxy")
+	}
+
+	return proxy, nil
+}
+
+// closeReadonlyProxy stops a proxy whose container was never created. The
+// launch has already failed, so a close failure is logged, not returned.
+func closeReadonlyProxy(ctx context.Context, proxy ReadonlyProxy) {
+	if proxy == nil {
+		return
+	}
+
+	if err := proxy.Close(); err != nil {
+		ctxscope.GetLogger(ctx).Warn(
+			"closing an unused readonly docker proxy failed",
+			"reason", "readonly_proxy_cleanup_failed",
+			"err", err,
+		)
+	}
 }
 
 // logDockerWorkerStarted records the launch an operator needs to tie a running
 // container back to the session and image digest it was started for.
 func logDockerWorkerStarted(
 	ctx context.Context,
-	document worker.LaunchDocument,
+	request worker.LaunchRequest,
 	create CreateRequest,
 	imageDigest string,
 ) {
 	ctxscope.GetLogger(ctx).Info(
 		"docker worker started",
-		"session_id", document.SessionID.String(),
-		"generation_id", document.GenerationID.String(),
+		"session_id", request.Document.SessionID.String(),
+		"generation_id", request.Document.GenerationID.String(),
 		"container_name", create.Name,
 		"image_digest", imageDigest,
 		"network_mode", string(create.NetworkMode),
+		"docker_access", string(request.AgentSpace.Docker),
 	)
 }
 
@@ -331,6 +442,10 @@ type process struct {
 	sessionID   uuid.UUID
 	imageDigest string
 
+	// proxy is the worker's `docker: readonly` proxy, nil for any other
+	// access. It lives exactly as long as the container.
+	proxy ReadonlyProxy
+
 	stopOnce sync.Once
 	stopErr  error
 	exitCode int
@@ -350,12 +465,32 @@ func (p *process) Describe() worker.Descriptor {
 // The stored container ID alone is not enough: an ID can be reused after a
 // container is removed. Checking the labels too is what makes cleanup safe on a
 // host running containers Peen does not own.
+//
+// A readonly proxy is closed after the container is gone, and also when the
+// container could not be stopped, so a container left behind keeps no Docker
+// access through it.
 func (p *process) Stop(ctx context.Context) error {
 	p.stopOnce.Do(func() {
 		p.stopErr = p.stop(ctx)
+
+		if err := p.closeProxy(); err != nil {
+			p.stopErr = errors.Join(p.stopErr, err)
+		}
 	})
 
 	return p.stopErr
+}
+
+func (p *process) closeProxy() error {
+	if p.proxy == nil {
+		return nil
+	}
+
+	if err := p.proxy.Close(); err != nil {
+		return ctxerrors.Wrap(err, "close the worker's readonly proxy")
+	}
+
+	return nil
 }
 
 func (p *process) stop(ctx context.Context) error {

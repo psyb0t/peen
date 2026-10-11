@@ -28,6 +28,10 @@ const (
 
 	warningDockerFull = "docker: full mounts the host Docker socket into the " +
 		"worker, which is host root"
+	warningDockerReadonly = "docker: readonly lets the worker list and " +
+		"inspect every container, image, network, and volume on the host " +
+		"and watch Docker events, through a proxy that refuses every change " +
+		"and redacts environment values"
 	warningNetworkHost = "network: host puts the worker on the host network, " +
 		"so it can reach every service the host can"
 	warningSudo = "sudo: true lets the agent run commands as root inside the " +
@@ -101,7 +105,8 @@ func (s AgentSpace) DockerProfile() string {
 // HostRootEquivalent reports whether this agent space gives the worker access
 // that is effectively host root. A Docker socket is the clearest case: any
 // process that can reach it can start a privileged container that mounts the
-// host.
+// host. `docker: readonly` is not: its proxy refuses every request that could
+// create, start, or change anything.
 func (s AgentSpace) HostRootEquivalent() bool {
 	return s.Docker == DockerAccessFull
 }
@@ -111,8 +116,12 @@ func (s AgentSpace) HostRootEquivalent() bool {
 func (s AgentSpace) CapabilityWarnings() []string {
 	warnings := []string{}
 
-	if s.Docker == DockerAccessFull {
+	switch s.Docker {
+	case DockerAccessFull:
 		warnings = append(warnings, warningDockerFull)
+	case DockerAccessReadonly:
+		warnings = append(warnings, warningDockerReadonly)
+	case DockerAccessNone:
 	}
 
 	if s.Network == NetworkModeHost {
@@ -215,20 +224,9 @@ func (s AgentSpace) validateGrants() error {
 	if !s.Docker.Valid() {
 		return ctxerrors.Wrapf(
 			commerr.ErrValidationFailed,
-			"agent space %q has docker %q, want none or full",
+			"agent space %q has docker %q, want none, readonly, or full",
 			s.Name,
 			s.Docker,
-		)
-	}
-
-	if s.Docker == DockerAccessReadonly {
-		return ctxerrors.Wrapf(
-			errors.Join(
-				commerr.ErrValidationFailed,
-				ErrDockerReadonlyUnavailable,
-			),
-			"agent space %q",
-			s.Name,
 		)
 	}
 
