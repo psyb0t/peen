@@ -75,7 +75,8 @@ func TestUnknownSkillReferenceMessageNamesTheWrongName(t *testing.T) {
 	assert.Equal(
 		t,
 		`unknown skill "ghost-skill" in :ghost-skill; available skills: `+
-			`core:freshness, core:planning, `+skillTestAlpha,
+			`core:delegation, core:freshness, core:plan-and-delegate, `+
+			`core:planning, `+skillTestAlpha,
 		unknown.Message,
 	)
 }

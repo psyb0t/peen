@@ -47,6 +47,16 @@ export const SESSION_LINK_PARAMETER = "session";
 export const SESSION_LINK_PATTERN =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const SESSION_DETAIL_LIMIT = 100;
+// Child agents. A message goes to the root conversation unless the composer
+// names a running child. The root's own question to the user opens with a
+// question.asked event and closes with question.answered.
+export const AGENT_RUN_STATE_RUNNING = "running";
+export const AGENT_RUN_ID_SHORT_LENGTH = 8;
+export const SEND_TARGET_ROOT = "";
+export const SEND_TARGET_ROOT_LABEL = "Root conversation";
+export const EVENT_TYPE_QUESTION_ASKED = "question.asked";
+export const EVENT_TYPE_QUESTION_ANSWERED = "question.answered";
+export const AGENT_POLL_INTERVAL_MS = 3000;
 // An agent space is where a workspace's agent runs: `control`, or a Docker
 // profile. The label next to each one lists what it grants.
 export const AGENT_SPACE_KIND_CONTROL = "control";

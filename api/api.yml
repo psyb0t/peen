@@ -591,9 +591,20 @@ paths:
         - name: state
           in: query
           required: false
+          description: >-
+            Keep runs in one state. waiting keeps running runs whose question
+            nobody has answered yet.
           schema:
             type: string
-            enum: [running, completed, failed, cancelled]
+            enum: [running, waiting, completed, failed, cancelled, interrupted]
+        - name: parentAgentRunId
+          in: query
+          required: false
+          description: >-
+            Keep the direct children of one agent run, or root for the children
+            the root conversation launched.
+          schema:
+            type: string
       responses:
         '200':
           description: Agent runs
@@ -1418,6 +1429,16 @@ components:
             default applies. A message queued into an active turn cannot set it.
         systemPrompt:
           $ref: '#/components/schemas/WebSocketMessageSystemPrompt'
+        to:
+          type: string
+          format: uuid
+          description: >-
+            A running child agent run ID. The message goes to that child, which
+            reads it after its current tool call, and starts no turn. It
+            completes as queued and cannot carry model, reasoningEffort, or
+            systemPrompt. A finished child fails it with AGENT_FINISHED, an
+            unknown one with AGENT_NOT_FOUND, and a child with a full inbox
+            with USER_MESSAGE_QUEUE_FULL.
     WebSocketMessageMetadata:
       type: object
       additionalProperties: false
@@ -2276,11 +2297,19 @@ components:
          allowedTools, systemPrompt, eventCount, cancelRequested, state,
          responseText, responseThinking, responseMessages, finishReason,
          promptTokenCount, completionTokenCount, failureClassification,
-         failureDetail, startedAt]
+         failureDetail, startedAt, waiting]
       properties:
         agentRunId:
           type: string
           format: uuid
+        waiting:
+          description: >-
+            True while the run is running and waits for an answer to the
+            question it asked.
+          type: boolean
+        question:
+          description: The question a waiting run asked. Absent otherwise.
+          type: [string, 'null']
         sessionId:
           type: string
           format: uuid

@@ -33,6 +33,10 @@ const (
 	toolNameSignalJob     = "signalJob"
 	toolNameUseSkill      = "useSkill"
 	toolNameLaunchAgent   = "launchAgent"
+	toolNameSendMessage   = "sendMessage"
+	toolNameWaitMessages  = "waitMessages"
+	toolNameStopAgent     = "stopAgent"
+	toolNameAsk           = "ask"
 
 	errorLocationMarker = " ["
 	unknownToolError    = "tool failed"

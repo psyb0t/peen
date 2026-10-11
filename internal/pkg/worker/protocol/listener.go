@@ -371,6 +371,30 @@ func (w *Worker) Cancel(ctx context.Context) (bool, error) {
 	return result.CancelRequested, nil
 }
 
+// CancelAgentRun asks the worker to stop one running child agent. False means
+// this worker holds no such running child.
+func (w *Worker) CancelAgentRun(
+	ctx context.Context,
+	agentRunID uuid.UUID,
+) (bool, error) {
+	payload, err := w.conn.Call(
+		ctx,
+		KindCommand,
+		string(CommandCancelAgentRun),
+		CancelAgentRun{AgentRunID: agentRunID},
+	)
+	if err != nil {
+		return false, ctxerrors.Wrap(err, "cancel the worker agent run")
+	}
+
+	result := CancelResult{}
+	if err := json.Unmarshal(payload, &result); err != nil {
+		return false, ctxerrors.Wrap(err, "decode the agent run cancel result")
+	}
+
+	return result.CancelRequested, nil
+}
+
 // SignalJob asks the worker to signal one of its running jobs.
 //
 // A worker that no longer holds the job answers Handled false rather than an

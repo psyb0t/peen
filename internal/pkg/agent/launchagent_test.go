@@ -5,10 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/elelem"
@@ -121,6 +125,18 @@ func newLaunchAgentFixture(
 	runtime, err := NewRuntime(context.Background(), runtimeOptions)
 	require.NoError(t, err)
 
+	// Children outlive the turn that launched them. Each one has to end, and
+	// record that it ended, before the database closes under it.
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(
+			context.Background(),
+			launchAgentShutdownBound,
+		)
+		defer cancel()
+
+		require.NoError(t, runtime.ShutdownAgentRuns(ctx))
+	})
+
 	return runtimeFixture{
 		runtime:         runtime,
 		store:           store,
@@ -150,21 +166,299 @@ func decodeLaunchAgentOutput(t *testing.T, content string) launchAgentOutput {
 	return output
 }
 
-// One scripted launchAgent call must produce a paired tool_use and
-// tool_result on the parent's event stream, a durable tool-role message, and
-// return the named child's final answer.
-func TestLaunchAgentNamedAgentReturnsFinalResponse(t *testing.T) {
-	driver := elelemtest.NewScriptedDriver(
+const (
+	// rootConversation keys the root conversation's script. A child's script
+	// is keyed by the name of the agent that sent it its task.
+	rootConversation = "root"
+	// compactionConversation keys the compaction model's calls.
+	compactionConversation = "compaction"
+	// taggedTaskPrefix opens every child's first message.
+	taggedTaskPrefix = `<message from="agent" name="`
+
+	launchAgentWaitCallID = "call_wait"
+	launchAgentWaitBound  = `{"timeout":"30s"}`
+
+	launchAgentShutdownBound = 30 * time.Second
+	launchAgentPollInterval  = 10 * time.Millisecond
+
+	// agentFinishedEventType and agentFailedEventType name the events
+	// package types for tests whose event slice shadows the package.
+	agentFinishedEventType = events.TypeAgentFinished
+	agentFailedEventType   = events.TypeAgentFailed
+)
+
+// conversationDriver serves each conversation in a session from its own
+// script, so a parent and the children running beside it each get their
+// turns in order however their calls interleave.
+//
+// A gate holds a conversation's calls until another conversation has started
+// a number of calls, which makes the order of events across them
+// deterministic.
+type conversationDriver struct {
+	mutex   sync.Mutex
+	scripts map[string]*elelemtest.ScriptedDriver
+	gates   map[string]conversationGate
+	calls   map[string]int
+	changed chan struct{}
+
+	// systems remembers which conversation each system prompt belongs to. A
+	// compaction can summarize a child's task away, and its system prompt is
+	// what still names the conversation afterwards.
+	systems map[string]string
+}
+
+type conversationGate struct {
+	after string
+	calls int
+}
+
+func newConversationDriver(
+	scripts map[string]*elelemtest.ScriptedDriver,
+) *conversationDriver {
+	return &conversationDriver{
+		scripts: scripts,
+		gates:   map[string]conversationGate{},
+		calls:   map[string]int{},
+		changed: make(chan struct{}),
+		systems: map[string]string{},
+	}
+}
+
+// route names the conversation of one request and remembers its system
+// prompt for later requests whose task a compaction removed.
+func (d *conversationDriver) route(request elelem.DriverRequest) string {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+
+	key := conversationKey(request)
+	system := requestSystemPrompt(request)
+
+	if key != rootConversation {
+		d.systems[system] = key
+
+		return key
+	}
+
+	if learned, found := d.systems[system]; found {
+		return learned
+	}
+
+	return key
+}
+
+// after holds conversation's calls until the after conversation has started
+// calls calls.
+func (d *conversationDriver) after(
+	conversation string,
+	after string,
+	calls int,
+) *conversationDriver {
+	d.gates[conversation] = conversationGate{after: after, calls: calls}
+
+	return d
+}
+
+func (d *conversationDriver) script(key string) *elelemtest.ScriptedDriver {
+	script, ok := d.scripts[key]
+	if !ok {
+		// An unscripted conversation fails its first call, which is what a
+		// test expecting no such conversation wants to see.
+		return elelemtest.NewScriptedDriver()
+	}
+
+	return script
+}
+
+func (d *conversationDriver) requests(key string) []elelem.DriverRequest {
+	return d.script(key).Requests()
+}
+
+func (d *conversationDriver) begin(
+	ctx context.Context,
+	request elelem.DriverRequest,
+) *elelemtest.ScriptedDriver {
+	key := d.route(request)
+
+	for {
+		d.mutex.Lock()
+		gate, gated := d.gates[key]
+		open := !gated || d.calls[gate.after] >= gate.calls
+		changed := d.changed
+
+		if open {
+			d.calls[key]++
+			close(d.changed)
+			d.changed = make(chan struct{})
+			d.mutex.Unlock()
+
+			return d.script(key)
+		}
+
+		d.mutex.Unlock()
+
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			return d.script(key)
+		}
+	}
+}
+
+func (d *conversationDriver) Stream(
+	ctx context.Context,
+	request elelem.DriverRequest,
+	onDelta func(elelem.Delta) error,
+) (elelem.Usage, error) {
+	return d.begin(ctx, request).Stream(ctx, request, onDelta)
+}
+
+func (d *conversationDriver) Complete(
+	ctx context.Context,
+	request elelem.DriverRequest,
+	onDelta func(elelem.Delta) error,
+) (elelem.Usage, error) {
+	return d.begin(ctx, request).Complete(ctx, request, onDelta)
+}
+
+func (d *conversationDriver) ListModels(
+	ctx context.Context,
+) ([]string, error) {
+	return d.script(rootConversation).ListModels(ctx)
+}
+
+func (d *conversationDriver) Capabilities(
+	model elelem.Model,
+) elelem.Capabilities {
+	return d.script(rootConversation).Capabilities(model)
+}
+
+//nolint:ireturn // elelem.Driver fixes this signature.
+func (d *conversationDriver) TokenCounter() elelem.TokenCounter {
+	return d.script(rootConversation).TokenCounter()
+}
+
+// conversationKey names the conversation a request belongs to: a compaction
+// model call, the agent that sent a child its task, or the root.
+func conversationKey(request elelem.DriverRequest) string {
+	if strings.Contains(
+		requestSystemPrompt(request),
+		strings.TrimSpace(defaultCompactionPrompt),
+	) {
+		return compactionConversation
+	}
+
+	for _, message := range request.Messages {
+		if message.Role != elelem.RoleUser {
+			continue
+		}
+
+		rest, isTask := strings.CutPrefix(message.Text(), taggedTaskPrefix)
+		if !isTask {
+			return rootConversation
+		}
+
+		name, _, _ := strings.Cut(rest, `"`)
+
+		return name
+	}
+
+	return rootConversation
+}
+
+// launchAndWaitTurns scripts a conversation that launches one child, waits
+// for it, and then answers final.
+func launchAndWaitTurns(
+	t *testing.T,
+	callID string,
+	input launchAgentInput,
+	final string,
+) []elelemtest.Turn {
+	t.Helper()
+
+	return []elelemtest.Turn{
 		elelemtest.ToolCall(
-			launchAgentCallID,
+			callID,
 			toolNameLaunchAgent,
-			launchAgentArguments(t, launchAgentInput{
-				Task:  "say hi",
-				Agent: launchAgentChildName,
-			}),
+			launchAgentArguments(t, input),
 		),
+		elelemtest.ToolCall(
+			launchAgentWaitCallID+"_"+callID,
+			toolNameWaitMessages,
+			launchAgentWaitBound,
+		),
+		elelemtest.Text(final),
+	}
+}
+
+// launchedChildDriver runs a root that launches one child and waits for it,
+// and a child answering with childTurns once the root is waiting.
+func launchedChildDriver(
+	t *testing.T,
+	input launchAgentInput,
+	childTurns ...elelemtest.Turn,
+) *conversationDriver {
+	t.Helper()
+
+	return newConversationDriver(map[string]*elelemtest.ScriptedDriver{
+		rootConversation: elelemtest.NewScriptedDriver(
+			launchAndWaitTurns(t, launchAgentCallID, input, "done")...,
+		),
+		runtimeTestAgentName: elelemtest.NewScriptedDriver(childTurns...),
+	}).after(runtimeTestAgentName, rootConversation, 2)
+}
+
+// taggedTask is the first message a child launched by the root receives.
+func taggedTask(t *testing.T, task string) string {
+	t.Helper()
+
+	rendered, err := renderAgentMessage(agentMessage{
+		From: messageSenderAgent,
+		Name: runtimeTestAgentName,
+		Run:  rootAgentRunReference,
+		Text: task,
+	})
+	require.NoError(t, err)
+
+	return rendered
+}
+
+// onlyDeliveredNotice returns the single session event a turn delivered.
+func onlyDeliveredNotice(t *testing.T, turnEvents []Event) events.Notice {
+	t.Helper()
+
+	payload := sessionEventsPayload{}
+	require.NoError(t, json.Unmarshal(
+		decodeEventPayload(t, turnEvents, EventTypeSessionEvents),
+		&payload,
+	))
+	require.Len(t, payload.Notices, 1)
+
+	return payload.Notices[0]
+}
+
+// eventsOfTypes keeps the events of the given types, in order.
+func eventsOfTypes(turnEvents []Event, types ...string) []string {
+	kept := make([]string, 0, len(turnEvents))
+
+	for _, event := range turnEvents {
+		if slices.Contains(types, event.Type) {
+			kept = append(kept, event.Type)
+		}
+	}
+
+	return kept
+}
+
+// launchAgent returns as soon as the child runs, naming it. The child's final
+// answer reaches the root later as an agent.finished session event whose data
+// carries the answer, delivered at the root's next tool boundary.
+func TestLaunchAgentReturnsAtOnceAndDeliversTheAnswerAsAnEvent(
+	t *testing.T,
+) {
+	driver := launchedChildDriver(
+		t,
+		launchAgentInput{Task: "say hi", Agent: launchAgentChildName},
 		elelemtest.Text("child says hi"),
-		elelemtest.Text("done"),
 	)
 	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
 		AgentFiles: map[string]string{
@@ -181,27 +475,43 @@ func TestLaunchAgentNamedAgentReturnsFinalResponse(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "done", result.Text)
 
-	// The completed run's own agent.finished notice lands on this same
-	// session's event bus, and this tool call's own post-run boundary is the
-	// very next place a pending event is delivered, so it surfaces here as
-	// an ordinary session.events message: a child agent gets no private
-	// notification path, only the normal session event path every producer
-	// uses.
+	// The root's own stream is ordered. The child's events interleave with it
+	// once the root waits, so they are checked apart.
 	assert.Equal(
 		t,
 		[]string{
 			EventTypeUserMessageCreated,
 			EventTypeTurnStarted,
 			EventTypeToolUse,
-			EventTypeAgentRunStarted,
-			EventTypeAgentRunTextDelta,
-			EventTypeAgentRunAssistantMessage,
-			EventTypeAgentRunCompleted,
+			EventTypeToolResult,
+			EventTypeToolUse,
 			EventTypeSessionEvents,
 			EventTypeToolResult,
 			EventTypeTurnCompleted,
 		},
-		harnessEventTypes(events),
+		eventsOfTypes(
+			events,
+			EventTypeUserMessageCreated,
+			EventTypeTurnStarted,
+			EventTypeToolUse,
+			EventTypeToolResult,
+			EventTypeSessionEvents,
+			EventTypeTurnCompleted,
+		),
+	)
+	assert.Equal(
+		t,
+		[]string{
+			EventTypeAgentRunStarted,
+			EventTypeAgentRunAssistantMessage,
+			EventTypeAgentRunCompleted,
+		},
+		eventsOfTypes(
+			events,
+			EventTypeAgentRunStarted,
+			EventTypeAgentRunAssistantMessage,
+			EventTypeAgentRunCompleted,
+		),
 	)
 
 	use := toolUsePayload{}
@@ -221,10 +531,27 @@ func TestLaunchAgentNamedAgentReturnsFinalResponse(t *testing.T) {
 	assert.False(t, toolResult.IsError)
 
 	output := decodeLaunchAgentOutput(t, toolResult.Content)
+	assert.NotEqual(t, uuid.Nil, output.AgentRunID)
 	assert.Equal(t, launchAgentChildName, output.Name)
 	assert.Equal(t, AgentRunDefinitionStored, output.Definition)
-	assert.Equal(t, "child says hi", output.Response)
-	assert.False(t, output.Cancelled)
+	assert.Equal(t, rootAgentRunReference, output.ParentAgentRunID)
+
+	notice := onlyDeliveredNotice(t, events)
+	assert.Equal(t, agentFinishedEventType, notice.Type)
+
+	data := agentEventData{}
+	require.NoError(t, json.Unmarshal(notice.Data, &data))
+	assert.Equal(t, output.AgentRunID, data.RunID)
+	assert.Equal(t, "child says hi", data.Response)
+
+	childRequests := driver.requests(runtimeTestAgentName)
+	require.Len(t, childRequests, 1)
+	assert.Equal(
+		t,
+		[]string{taggedTask(t, "say hi")},
+		tailTexts(childRequests[0].Messages, 1),
+		"the child's task names the root as its sender",
+	)
 
 	messages, err := fixture.store.ListMessages(
 		context.Background(),
@@ -268,17 +595,10 @@ func TestLaunchAgentSuccessfulLaunchLogsNoError(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&captured, nil)))
 	t.Cleanup(func() { slog.SetDefault(previousLogger) })
 
-	driver := elelemtest.NewScriptedDriver(
-		elelemtest.ToolCall(
-			launchAgentCallID,
-			toolNameLaunchAgent,
-			launchAgentArguments(t, launchAgentInput{
-				Task:  "say hi",
-				Agent: launchAgentChildName,
-			}),
-		),
+	driver := launchedChildDriver(
+		t,
+		launchAgentInput{Task: "say hi", Agent: launchAgentChildName},
 		elelemtest.Text("child says hi"),
-		elelemtest.Text("done"),
 	)
 	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
 		AgentFiles: map[string]string{
@@ -323,17 +643,13 @@ func TestLaunchAgentDescriptionTellsTheParentToNameSkillsInTheTask(
 // A skill the user named on the parent reaches the child only when the parent
 // names it in the task, so a child's system prompt never carries a skill.
 func TestLaunchAgentDoesNotCopyTheUsersSkillIntoTheChild(t *testing.T) {
-	driver := elelemtest.NewScriptedDriver(
-		elelemtest.ToolCall(
-			launchAgentCallID,
-			toolNameLaunchAgent,
-			launchAgentArguments(t, launchAgentInput{
-				Task:  "review the workspace",
-				Agent: launchAgentChildName,
-			}),
-		),
+	driver := launchedChildDriver(
+		t,
+		launchAgentInput{
+			Task:  "review the workspace",
+			Agent: launchAgentChildName,
+		},
 		elelemtest.Text("child finished"),
-		elelemtest.Text("done"),
 	)
 	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
 		AgentFiles: map[string]string{
@@ -353,17 +669,17 @@ func TestLaunchAgentDoesNotCopyTheUsersSkillIntoTheChild(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	requests := driver.Requests()
-	require.Len(t, requests, 3)
+	childRequests := driver.requests(runtimeTestAgentName)
+	require.Len(t, childRequests, 1)
 	assert.NotContains(
 		t,
-		requests[1].Messages[0].Text(),
+		childRequests[0].Messages[0].Text(),
 		runtimeTestWorkspaceSkillInstructions,
 	)
 	assert.Equal(
 		t,
-		[]string{"review the workspace"},
-		tailTexts(requests[1].Messages, 1),
+		[]string{taggedTask(t, "review the workspace")},
+		tailTexts(childRequests[0].Messages, 1),
 	)
 
 	query := repositories.Use(fixture.handle.GormDB)
@@ -384,17 +700,13 @@ func TestLaunchAgentDoesNotCopyTheUsersSkillIntoTheChild(t *testing.T) {
 func TestLaunchAgentTaskSkillReferenceFollowsTheTaskInTheChildRequest(
 	t *testing.T,
 ) {
-	driver := elelemtest.NewScriptedDriver(
-		elelemtest.ToolCall(
-			launchAgentCallID,
-			toolNameLaunchAgent,
-			launchAgentArguments(t, launchAgentInput{
-				Task:  launchAgentSkillTask,
-				Agent: launchAgentChildName,
-			}),
-		),
+	driver := launchedChildDriver(
+		t,
+		launchAgentInput{
+			Task:  launchAgentSkillTask,
+			Agent: launchAgentChildName,
+		},
 		elelemtest.Text("child finished"),
-		elelemtest.Text("done"),
 	)
 	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
 		AgentFiles: map[string]string{
@@ -420,21 +732,21 @@ func TestLaunchAgentTaskSkillReferenceFollowsTheTaskInTheChildRequest(
 		runtimeTestExplicitSkillName,
 	)
 
-	requests := driver.Requests()
-	require.Len(t, requests, 3)
+	childRequests := driver.requests(runtimeTestAgentName)
+	require.Len(t, childRequests, 1)
 	assert.Equal(
 		t,
-		[]string{launchAgentSkillTask, skillMessage},
-		tailTexts(requests[1].Messages, 2),
+		[]string{taggedTask(t, launchAgentSkillTask), skillMessage},
+		tailTexts(childRequests[0].Messages, 2),
 	)
 	assert.NotContains(
 		t,
-		requests[1].Messages[0].Text(),
+		childRequests[0].Messages[0].Text(),
 		runtimeTestWorkspaceSkillInstructions,
 	)
 	assert.NotContains(
 		t,
-		requests[0].Messages[0].Text(),
+		driver.requests(rootConversation)[0].Messages[0].Text(),
 		runtimeTestWorkspaceSkillInstructions,
 	)
 
@@ -468,7 +780,11 @@ func TestLaunchAgentTaskSkillReferenceFollowsTheTaskInTheChildRequest(
 
 	assert.Equal(
 		t,
-		[]string{launchAgentSkillTask, skillMessage, "child finished"},
+		[]string{
+			taggedTask(t, launchAgentSkillTask),
+			skillMessage,
+			"child finished",
+		},
 		contents,
 	)
 	assert.Equal(
@@ -532,23 +848,21 @@ func TestLaunchAgentUnknownTaskSkillFailsTheCall(t *testing.T) {
 	assert.Len(t, driver.Requests(), 2, "the child never ran")
 }
 
-func TestLaunchAgentAllowedToolsExcludeWrites(t *testing.T) {
-	driver := elelemtest.NewScriptedDriver(
-		elelemtest.ToolCall(
-			launchAgentCallID,
-			toolNameLaunchAgent,
-			launchAgentArguments(t, launchAgentInput{
-				Task:  "review the workspace",
-				Agent: launchAgentChildName,
-			}),
-		),
+// allowed-tools removes workspace tools from a child, but never the messaging
+// tools it needs to report back and to collect its own children's answers.
+func TestLaunchAgentAllowedToolsExcludeWritesButKeepMessaging(t *testing.T) {
+	driver := launchedChildDriver(
+		t,
+		launchAgentInput{
+			Task:  "review the workspace",
+			Agent: launchAgentChildName,
+		},
 		elelemtest.ToolCall(
 			"call_restricted_write",
 			toolNameWriteFile,
 			`{"path":"must-not-exist.txt","content":"blocked"}`,
 		),
 		elelemtest.Text("review complete"),
-		elelemtest.Text("parent complete"),
 	)
 	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
 		AgentFiles: map[string]string{
@@ -561,36 +875,54 @@ func TestLaunchAgentAllowedToolsExcludeWrites(t *testing.T) {
 		Workspace: fixture.workspace,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "parent complete", result.Text)
+	assert.Equal(t, "done", result.Text)
 
 	_, err = os.Stat(filepath.Join(fixture.workspace, "must-not-exist.txt"))
 	assert.True(t, os.IsNotExist(err))
+
+	childTools := toolNames(driver.requests(runtimeTestAgentName)[0].Tools)
+	assert.NotContains(t, childTools, toolNameWriteFile)
+	assert.Contains(t, childTools, toolNameReadFile)
+
+	for _, messaging := range []string{
+		toolNameSendMessage,
+		toolNameWaitMessages,
+		toolNameStopAgent,
+		toolNameAsk,
+	} {
+		assert.Contains(t, childTools, messaging)
+	}
 }
 
-func TestLaunchAgentAdHocDefinitionReturnsFinalResponse(t *testing.T) {
-	driver := elelemtest.NewScriptedDriver(
-		elelemtest.ToolCall(
-			launchAgentCallID,
-			toolNameLaunchAgent,
-			launchAgentArguments(t, launchAgentInput{
-				Task: "say hi",
-				AgentDefinition: &agentDefinitionInput{
-					Name:         "scratch",
-					Instructions: "do the ad-hoc task",
-				},
-			}),
-		),
+func TestLaunchAgentAdHocDefinitionDeliversItsAnswer(t *testing.T) {
+	driver := launchedChildDriver(
+		t,
+		launchAgentInput{
+			Task: "say hi",
+			AgentDefinition: &agentDefinitionInput{
+				Name:         "scratch",
+				Instructions: "do the ad-hoc task",
+			},
+		},
 		elelemtest.Text("child says hi"),
-		elelemtest.Text("done"),
 	)
 	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{})
 
+	turnEvents := make([]Event, 0)
 	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
 		Message:   "launch the ad-hoc child",
 		Workspace: fixture.workspace,
+		OnEvent:   collectEvents(&turnEvents),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "done", result.Text)
+
+	data := agentEventData{}
+	require.NoError(t, json.Unmarshal(
+		onlyDeliveredNotice(t, turnEvents).Data,
+		&data,
+	))
+	assert.Equal(t, "child says hi", data.Response)
 
 	messages, err := fixture.store.ListMessages(
 		context.Background(),
@@ -604,7 +936,7 @@ func TestLaunchAgentAdHocDefinitionReturnsFinalResponse(t *testing.T) {
 	output := decodeLaunchAgentOutput(t, toolMessage.Content)
 	assert.Equal(t, "scratch", output.Name)
 	assert.Equal(t, AgentRunDefinitionAdHoc, output.Definition)
-	assert.Equal(t, "child says hi", output.Response)
+	assert.Equal(t, output.AgentRunID, data.RunID)
 }
 
 func TestLaunchAgentBothFormsIsValidationFailure(t *testing.T) {
@@ -716,26 +1048,31 @@ func TestLaunchAgentUnknownAgentListsEffectiveNames(t *testing.T) {
 const launchAgentCustomGeneralPurposeFile = "---\nname: general-purpose\ndescription: custom general purpose\n---\nCustom body."
 
 // launchAgentToolResult runs one turn whose model launches the named agent
-// and returns the launchAgent tool result.
+// and returns the launchAgent tool result. A launch expected to start a child
+// waits for it. One expected to fail does not, because no child would ever
+// answer.
 func launchAgentToolResult(
 	t *testing.T,
 	agentName string,
+	isLaunchExpected bool,
 	options launchAgentFixtureOptions,
 ) toolResultPayload {
 	t.Helper()
 
-	driver := elelemtest.NewScriptedDriver(
+	input := launchAgentInput{Task: "say hi", Agent: agentName}
+
+	var driver elelem.Driver = elelemtest.NewScriptedDriver(
 		elelemtest.ToolCall(
 			launchAgentCallID,
 			toolNameLaunchAgent,
-			launchAgentArguments(t, launchAgentInput{
-				Task:  "say hi",
-				Agent: agentName,
-			}),
+			launchAgentArguments(t, input),
 		),
-		elelemtest.Text("child says hi"),
 		elelemtest.Text("done"),
 	)
+	if isLaunchExpected {
+		driver = launchedChildDriver(t, input, elelemtest.Text("child says hi"))
+	}
+
 	fixture := newLaunchAgentFixture(t, driver, options)
 
 	events := make([]Event, 0)
@@ -791,6 +1128,7 @@ func TestLaunchAgentResolvesCoreAndCustomNames(t *testing.T) {
 			result := launchAgentToolResult(
 				t,
 				tc.agent,
+				true,
 				launchAgentFixtureOptions{AgentFiles: tc.files},
 			)
 
@@ -811,17 +1149,10 @@ func TestLaunchAgentCoreGeneralPurposeChildRunsOnTheEmbeddedInstructions(
 ) {
 	const embeddedBody = "Carry out the user's request within the resolved"
 
-	driver := elelemtest.NewScriptedDriver(
-		elelemtest.ToolCall(
-			launchAgentCallID,
-			toolNameLaunchAgent,
-			launchAgentArguments(t, launchAgentInput{
-				Task:  "say hi",
-				Agent: "core:general-purpose",
-			}),
-		),
+	driver := launchedChildDriver(
+		t,
+		launchAgentInput{Task: "say hi", Agent: "core:general-purpose"},
 		elelemtest.Text("child says hi"),
-		elelemtest.Text("done"),
 	)
 	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
 		AgentFiles: map[string]string{
@@ -836,16 +1167,16 @@ func TestLaunchAgentCoreGeneralPurposeChildRunsOnTheEmbeddedInstructions(
 	require.NoError(t, err)
 	assert.Equal(t, "done", result.Text)
 
-	requests := driver.Requests()
-	require.Len(t, requests, 3)
+	childRequests := driver.requests(runtimeTestAgentName)
+	require.Len(t, childRequests, 1)
 
-	childSystem := requests[1].Messages[0].Text()
+	childSystem := childRequests[0].Messages[0].Text()
 	assert.Contains(t, childSystem, embeddedBody)
 	assert.NotContains(t, childSystem, "Custom body.")
 	assert.Equal(
 		t,
-		"say hi",
-		requests[1].Messages[len(requests[1].Messages)-1].Text(),
+		[]string{taggedTask(t, "say hi")},
+		tailTexts(childRequests[0].Messages, 1),
 	)
 }
 
@@ -900,6 +1231,7 @@ func TestLaunchAgentRefusesADisabledCoreAgent(t *testing.T) {
 			result := launchAgentToolResult(
 				t,
 				agentName,
+				false,
 				launchAgentFixtureOptions{
 					Customize: func(options *RuntimeOptions) {
 						resolver, err := harness.NewResolver(
@@ -965,29 +1297,33 @@ func TestLaunchAgentOversizedAdHocInstructionsRejected(t *testing.T) {
 }
 
 // A parent launches a child, and that child itself launches a grandchild,
-// proving launchAgent's recursion end to end.
+// proving launchAgent's recursion end to end. The grandchild's answer lands in
+// the child's inbox as a tagged result, and the child's answer reaches the
+// root as an event.
 func TestLaunchAgentRecursion(t *testing.T) {
-	driver := elelemtest.NewScriptedDriver(
-		elelemtest.ToolCall(
+	driver := newConversationDriver(map[string]*elelemtest.ScriptedDriver{
+		rootConversation: elelemtest.NewScriptedDriver(launchAndWaitTurns(
+			t,
 			launchAgentCallID,
-			toolNameLaunchAgent,
-			launchAgentArguments(t, launchAgentInput{
-				Task:  "delegate",
-				Agent: launchAgentChildName,
-			}),
-		),
-		elelemtest.ToolCall(
+			launchAgentInput{Task: "delegate", Agent: launchAgentChildName},
+			"parent final",
+		)...),
+		runtimeTestAgentName: elelemtest.NewScriptedDriver(launchAndWaitTurns(
+			t,
 			launchAgentGrandCallID,
-			toolNameLaunchAgent,
-			launchAgentArguments(t, launchAgentInput{
+			launchAgentInput{
 				Task:  "do the grandchild work",
 				Agent: launchAgentGrandName,
-			}),
+			},
+			"child final, saw: grandchild says hi",
+		)...),
+		launchAgentChildName: elelemtest.NewScriptedDriver(
+			elelemtest.Text("grandchild says hi"),
 		),
-		elelemtest.Text("grandchild says hi"),
-		elelemtest.Text("child final, saw: grandchild says hi"),
-		elelemtest.Text("parent final"),
-	)
+	}).
+		after(runtimeTestAgentName, rootConversation, 2).
+		after(launchAgentChildName, runtimeTestAgentName, 2)
+
 	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
 		AgentFiles: map[string]string{
 			launchAgentChildName: launchAgentChildAgentFile,
@@ -995,23 +1331,19 @@ func TestLaunchAgentRecursion(t *testing.T) {
 		},
 	})
 
+	turnEvents := make([]Event, 0)
 	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
 		Message:   "start the chain",
 		Workspace: fixture.workspace,
+		OnEvent:   collectEvents(&turnEvents),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "parent final", result.Text)
 
-	messages, err := fixture.store.ListMessages(
-		context.Background(),
-		result.SessionID,
-		session.ListMessagesOptions{Order: session.PageOrderAscending},
-	)
-	require.NoError(t, err)
-
-	toolMessage := messages.Items[2]
-	output := decodeLaunchAgentOutput(t, toolMessage.Content)
-	assert.Equal(t, "child final, saw: grandchild says hi", output.Response)
+	notice := onlyDeliveredNotice(t, turnEvents)
+	data := agentEventData{}
+	require.NoError(t, json.Unmarshal(notice.Data, &data))
+	assert.Equal(t, "child final, saw: grandchild says hi", data.Response)
 
 	registry, err := fixture.runtime.sessionAgentRuns(result.SessionID)
 	require.NoError(t, err)
@@ -1051,22 +1383,70 @@ func TestLaunchAgentRecursion(t *testing.T) {
 	require.NotNil(t, storedGrandchild.ParentAgentRunID)
 	assert.Equal(t, byDepth[1].ID, *storedGrandchild.ParentAgentRunID)
 	assert.Equal(t, launchAgentGrandCallID, storedGrandchild.ParentToolCallID)
+
+	grandchildResult, err := renderAgentMessage(agentMessage{
+		From: messageSenderAgent,
+		Name: launchAgentGrandName,
+		Run:  byDepth[2].ID.String(),
+		Kind: messageKindResult,
+		Text: "grandchild says hi",
+	})
+	require.NoError(t, err)
+
+	childRequests := driver.requests(runtimeTestAgentName)
+	require.Len(t, childRequests, 3)
+	assert.Equal(
+		t,
+		[]string{grandchildResult},
+		tailTexts(childRequests[2].Messages, 1),
+		"the grandchild's answer reaches the child after its wait",
+	)
+
+	grandchildRequests := driver.requests(launchAgentChildName)
+	require.Len(t, grandchildRequests, 1)
+
+	grandchildTask, err := renderAgentMessage(agentMessage{
+		From: messageSenderAgent,
+		Name: launchAgentChildName,
+		Run:  byDepth[1].ID.String(),
+		Text: "do the grandchild work",
+	})
+	require.NoError(t, err)
+	assert.Equal(
+		t,
+		[]string{grandchildTask},
+		tailTexts(grandchildRequests[0].Messages, 1),
+		"the grandchild's task names the child as its sender",
+	)
+
+	childTranscript, err := fixture.store.ListAgentRunMessages(
+		context.Background(),
+		result.SessionID,
+		byDepth[1].ID,
+		session.ListAgentRunMessagesOptions{Limit: session.MaximumPageLimit},
+	)
+	require.NoError(t, err)
+
+	transcriptTexts := make([]string, 0, len(childTranscript.Items))
+	for _, item := range childTranscript.Items {
+		transcriptTexts = append(transcriptTexts, item.Content)
+	}
+
+	assert.Contains(
+		t,
+		transcriptTexts,
+		grandchildResult,
+		"the delivered result is part of the child's durable transcript",
+	)
 }
 
 // A child at the configured limit cannot request more child work because the
 // model never receives the launchAgent tool definition.
 func TestLaunchAgentAtDepthLimitDoesNotExposeLaunchAgent(t *testing.T) {
-	driver := elelemtest.NewScriptedDriver(
-		elelemtest.ToolCall(
-			launchAgentCallID,
-			toolNameLaunchAgent,
-			launchAgentArguments(t, launchAgentInput{
-				Task:  "delegate",
-				Agent: launchAgentChildName,
-			}),
-		),
+	driver := launchedChildDriver(
+		t,
+		launchAgentInput{Task: "delegate", Agent: launchAgentChildName},
 		elelemtest.Text("child final"),
-		elelemtest.Text("parent final"),
 	)
 	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
 		AgentLimits: AgentRunLimits{MaxDepth: 1},
@@ -1080,13 +1460,18 @@ func TestLaunchAgentAtDepthLimitDoesNotExposeLaunchAgent(t *testing.T) {
 		Workspace: fixture.workspace,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "parent final", result.Text)
+	assert.Equal(t, "done", result.Text)
 
-	requests := driver.Requests()
-	require.Len(t, requests, 3)
-	assert.Contains(t, toolNames(requests[0].Tools), toolNameLaunchAgent)
-	assert.Contains(t, toolNames(requests[1].Tools), toolNameReadFile)
-	assert.NotContains(t, toolNames(requests[1].Tools), toolNameLaunchAgent)
+	rootRequests := driver.requests(rootConversation)
+	childRequests := driver.requests(runtimeTestAgentName)
+	require.Len(t, childRequests, 1)
+	assert.Contains(t, toolNames(rootRequests[0].Tools), toolNameLaunchAgent)
+	assert.Contains(t, toolNames(childRequests[0].Tools), toolNameReadFile)
+	assert.NotContains(
+		t,
+		toolNames(childRequests[0].Tools),
+		toolNameLaunchAgent,
+	)
 
 	registry, err := fixture.runtime.sessionAgentRuns(result.SessionID)
 	require.NoError(t, err)
@@ -1155,17 +1540,10 @@ func toolNames(tools []elelem.Tool) []string {
 // proving the bound is threaded into the child's own request rather than
 // inherited from the parent turn's larger MaxToolRounds.
 func TestLaunchAgentMaxChildTurnsWithholdsToolsOnLastRound(t *testing.T) {
-	driver := elelemtest.NewScriptedDriver(
-		elelemtest.ToolCall(
-			launchAgentCallID,
-			toolNameLaunchAgent,
-			launchAgentArguments(t, launchAgentInput{
-				Task:  "say hi",
-				Agent: launchAgentChildName,
-			}),
-		),
+	driver := launchedChildDriver(
+		t,
+		launchAgentInput{Task: "say hi", Agent: launchAgentChildName},
 		elelemtest.Text("child says hi"),
-		elelemtest.Text("done"),
 	)
 	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
 		AgentLimits: AgentRunLimits{MaxChildTurns: 1},
@@ -1180,16 +1558,15 @@ func TestLaunchAgentMaxChildTurnsWithholdsToolsOnLastRound(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	requests := driver.Requests()
-	require.Len(t, requests, 3)
-	childRequest := requests[1]
+	childRequests := driver.requests(runtimeTestAgentName)
+	require.Len(t, childRequests, 1)
 	assert.Empty(
 		t,
-		childRequest.Tools,
+		childRequests[0].Tools,
 		"max child turns of 1 must withhold tools on the only round",
 	)
 
-	parentFirstRequest := requests[0]
+	parentFirstRequest := driver.requests(rootConversation)[0]
 	assert.NotEmpty(
 		t,
 		parentFirstRequest.Tools,
@@ -1201,22 +1578,18 @@ func TestLaunchAgentMaxChildTurnsWithholdsToolsOnLastRound(t *testing.T) {
 // child sees the failure as an ordinary tool result and still returns a
 // final answer.
 func TestLaunchAgentChildToolFailureStaysVisibleAndRunCompletes(t *testing.T) {
-	driver := elelemtest.NewScriptedDriver(
-		elelemtest.ToolCall(
-			launchAgentCallID,
-			toolNameLaunchAgent,
-			launchAgentArguments(t, launchAgentInput{
-				Task:  "read a missing file",
-				Agent: launchAgentChildName,
-			}),
-		),
+	driver := launchedChildDriver(
+		t,
+		launchAgentInput{
+			Task:  "read a missing file",
+			Agent: launchAgentChildName,
+		},
 		elelemtest.ToolCall(
 			"call_read",
 			toolNameReadFile,
 			runtimeToolArguments(t, "absent.txt"),
 		),
 		elelemtest.Text("the file is missing"),
-		elelemtest.Text("done"),
 	)
 	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
 		AgentFiles: map[string]string{
@@ -1224,21 +1597,21 @@ func TestLaunchAgentChildToolFailureStaysVisibleAndRunCompletes(t *testing.T) {
 		},
 	})
 
+	turnEvents := make([]Event, 0)
 	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
 		Message:   "launch the child",
 		Workspace: fixture.workspace,
+		OnEvent:   collectEvents(&turnEvents),
 	})
 	require.NoError(t, err, "a child tool failure must not fail the parent turn")
 	assert.Equal(t, "done", result.Text)
 
-	messages, err := fixture.store.ListMessages(
-		context.Background(),
-		result.SessionID,
-		session.ListMessagesOptions{Order: session.PageOrderAscending},
-	)
-	require.NoError(t, err)
-	output := decodeLaunchAgentOutput(t, messages.Items[2].Content)
-	assert.Equal(t, "the file is missing", output.Response)
+	data := agentEventData{}
+	require.NoError(t, json.Unmarshal(
+		onlyDeliveredNotice(t, turnEvents).Data,
+		&data,
+	))
+	assert.Equal(t, "the file is missing", data.Response)
 
 	registry, err := fixture.runtime.sessionAgentRuns(result.SessionID)
 	require.NoError(t, err)
@@ -1278,19 +1651,21 @@ func TestLaunchAgentChildToolFailureStaysVisibleAndRunCompletes(t *testing.T) {
 // A caller cannot switch the startup workspace session by supplying a session
 // ID. Child runs remain available to every later turn in that workspace.
 func TestLaunchAgentRunRemainsInStartupWorkspaceSession(t *testing.T) {
-	driver := elelemtest.NewScriptedDriver(
-		elelemtest.ToolCall(
-			launchAgentCallID,
-			toolNameLaunchAgent,
-			launchAgentArguments(t, launchAgentInput{
-				Task:  "say hi",
-				Agent: launchAgentChildName,
-			}),
-		),
-		elelemtest.Text("child says hi"),
-		elelemtest.Text("done"),
-		elelemtest.Text("unrelated session reply"),
+	rootTurns := launchAndWaitTurns(
+		t,
+		launchAgentCallID,
+		launchAgentInput{Task: "say hi", Agent: launchAgentChildName},
+		"done",
 	)
+	driver := newConversationDriver(map[string]*elelemtest.ScriptedDriver{
+		rootConversation: elelemtest.NewScriptedDriver(append(
+			rootTurns,
+			elelemtest.Text("unrelated session reply"),
+		)...),
+		runtimeTestAgentName: elelemtest.NewScriptedDriver(
+			elelemtest.Text("child says hi"),
+		),
+	}).after(runtimeTestAgentName, rootConversation, 2)
 	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
 		AgentFiles: map[string]string{
 			launchAgentChildName: launchAgentChildAgentFile,
@@ -1329,45 +1704,271 @@ func TestLaunchAgentRunRemainsInStartupWorkspaceSession(t *testing.T) {
 	assert.Equal(t, runs[0].ID, got.ID)
 }
 
-// finishAgentRun's own decision logic, exercised directly: a single run's
-// dedicated cancellation returns a typed success and leaves the parent
-// context untouched, while the parent context itself being done propagates
-// as a real, turn-ending error. Both record the run as cancelled. This is
-// the precise new branch launchAgent adds; the underlying context
-// cascade (a parent turn cancelling its whole child tree) is plain
-// context.WithCancel behavior, already covered directly against
-// AgentRunRegistry.Start in agentrun_test.go.
-func TestFinishAgentRunDistinguishesSingleRunFromParentCancellation(t *testing.T) {
+// finishAgentRun records a cancellation durably and reports it as the
+// outcome, whatever wrapped the cancellation.
+func TestFinishAgentRunRecordsACancellation(t *testing.T) {
 	driver := elelemtest.NewScriptedDriver()
 	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{})
 
-	t.Run("single run cancellation leaves the parent turn alive", func(t *testing.T) {
-		parentCtx := context.Background()
-		registry, run, _, sink := startDurableAgentRun(parentCtx, t, fixture)
+	registry, run, _, sink := startDurableAgentRun(
+		context.Background(),
+		t,
+		fixture,
+	)
 
-		runErr := &wrappedCancelError{}
-		output, err := fixture.runtime.finishAgentRun(
-			parentCtx, registry, sink, run, nil, runErr,
-		)
-		require.NoError(t, err)
-		assert.True(t, output.Cancelled)
-		assert.Equal(t, AgentRunStateCancelled, run.Snapshot().State)
+	result := fixture.runtime.finishAgentRun(
+		context.Background(),
+		registry,
+		sink,
+		run,
+		nil,
+		&wrappedCancelError{},
+	)
+	assert.Equal(t, AgentRunStateCancelled, result.State)
+	assert.Equal(t, AgentRunStateCancelled, run.Snapshot().State)
+
+	stored, err := fixture.store.GetAgentRun(
+		context.Background(),
+		run.SessionID,
+		run.ID,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, models.AgentRunStateCancelled, stored.State)
+}
+
+// heldChildDriver runs a root whose child never gets past its first model
+// call until its context ends, so the child is still running when the test
+// acts on it.
+func heldChildDriver(
+	t *testing.T,
+	rootTurns ...elelemtest.Turn,
+) *conversationDriver {
+	t.Helper()
+
+	return newConversationDriver(map[string]*elelemtest.ScriptedDriver{
+		rootConversation: elelemtest.NewScriptedDriver(rootTurns...),
+		runtimeTestAgentName: elelemtest.NewScriptedDriver(
+			elelemtest.Text("never sent"),
+		),
+	}).after(runtimeTestAgentName, rootConversation, math.MaxInt)
+}
+
+// onlyRun waits until the session holds exactly one child run and returns it.
+func onlyRun(
+	t *testing.T,
+	fixture runtimeFixture,
+	sessionID func() uuid.UUID,
+) *AgentRun {
+	t.Helper()
+
+	var run *AgentRun
+
+	require.Eventually(t, func() bool {
+		id := sessionID()
+		if id == uuid.Nil {
+			return false
+		}
+
+		registry := fixture.runtime.existingAgentRuns(id)
+		if registry == nil {
+			return false
+		}
+
+		runs := registry.List()
+		if len(runs) != 1 {
+			return false
+		}
+
+		run = runs[0]
+
+		return true
+	}, launchAgentShutdownBound, launchAgentPollInterval)
+
+	return run
+}
+
+// A child keeps running after the turn that launched it ends. When it
+// finishes, its agent.finished event wakes the idle root, and the woken turn
+// reads the answer.
+func TestLaunchAgentChildOutlivesItsTurnAndWakesTheRoot(t *testing.T) {
+	driver := newConversationDriver(map[string]*elelemtest.ScriptedDriver{
+		rootConversation: elelemtest.NewScriptedDriver(
+			elelemtest.ToolCall(
+				launchAgentCallID,
+				toolNameLaunchAgent,
+				launchAgentArguments(t, launchAgentInput{
+					Task:  "say hi later",
+					Agent: launchAgentChildName,
+				}),
+			),
+			elelemtest.Text("launched"),
+			elelemtest.Text("woken and read the answer"),
+		),
+		runtimeTestAgentName: elelemtest.NewScriptedDriver(
+			elelemtest.Text("late hi"),
+		),
+	}).after(runtimeTestAgentName, rootConversation, 2)
+
+	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
+		AgentFiles: map[string]string{
+			launchAgentChildName: launchAgentChildAgentFile,
+		},
 	})
 
-	t.Run("parent cancellation propagates and cancels the child tree", func(t *testing.T) {
-		startCtx, cancel := context.WithCancel(context.Background())
-		registry, run, runCtx, sink := startDurableAgentRun(startCtx, t, fixture)
-
-		cancel()
-		assert.Error(t, runCtx.Err(), "parent cancellation must reach child work")
-
-		runErr := &wrappedCancelError{}
-		_, err := fixture.runtime.finishAgentRun(
-			startCtx, registry, sink, run, nil, runErr,
-		)
-		require.Error(t, err)
-		assert.Equal(t, AgentRunStateCancelled, run.Snapshot().State)
+	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
+		Message:   "launch and leave",
+		Workspace: fixture.workspace,
 	})
+	require.NoError(t, err)
+	assert.Equal(t, "launched", result.Text)
+
+	run := onlyRun(t, fixture, func() uuid.UUID { return result.SessionID })
+
+	select {
+	case <-run.Done():
+	case <-time.After(launchAgentShutdownBound):
+		require.FailNow(t, "the child never finished")
+	}
+
+	assert.Equal(t, AgentRunStateCompleted, run.Snapshot().State)
+
+	// Turns list newest first. The woken turn is the second one.
+	require.Eventually(t, func() bool {
+		turns, err := fixture.store.ListTurns(
+			context.Background(),
+			result.SessionID,
+			session.ListTurnsOptions{},
+		)
+		if err != nil || len(turns.Items) != 2 {
+			return false
+		}
+
+		return turns.Items[0].State == models.TurnStateCompleted
+	}, launchAgentShutdownBound, launchAgentPollInterval)
+
+	rootRequests := driver.requests(rootConversation)
+	require.Len(t, rootRequests, 3)
+
+	wokenConversation := conversationText(rootRequests[2:])
+	assert.Contains(t, wokenConversation, agentWakeInstructions)
+	assert.Contains(
+		t,
+		wokenConversation,
+		`"response":"late hi"`,
+		"the woken turn reads the child's answer from the event",
+	)
+}
+
+// Cancelling a turn stops the children it started, and the cancelled child's
+// report waits rather than waking the root again.
+func TestCancelledTurnCancelsTheChildrenItStarted(t *testing.T) {
+	driver := heldChildDriver(
+		t,
+		elelemtest.ToolCall(
+			launchAgentCallID,
+			toolNameLaunchAgent,
+			launchAgentArguments(t, launchAgentInput{
+				Task:  "hold on",
+				Agent: launchAgentChildName,
+			}),
+		),
+		elelemtest.ToolCall(
+			launchAgentWaitCallID,
+			toolNameWaitMessages,
+			`{}`,
+		),
+	)
+	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
+		AgentFiles: map[string]string{
+			launchAgentChildName: launchAgentChildAgentFile,
+		},
+	})
+
+	turnDone := make(chan error, 1)
+
+	go func() {
+		_, err := fixture.runtime.Run(context.Background(), TurnRequest{
+			Message:   "launch and wait",
+			Workspace: fixture.workspace,
+		})
+		turnDone <- err
+	}()
+
+	run := onlyRun(t, fixture, fixture.runtime.SessionID)
+
+	cancelled, err := fixture.store.Cancel(context.Background(), run.SessionID)
+	require.NoError(t, err)
+	assert.True(t, cancelled)
+
+	select {
+	case err := <-turnDone:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(launchAgentShutdownBound):
+		require.FailNow(t, "the cancelled turn never returned")
+	}
+
+	select {
+	case <-run.Done():
+	case <-time.After(launchAgentShutdownBound):
+		require.FailNow(t, "the child outlived its cancelled turn")
+	}
+
+	assert.Equal(t, AgentRunStateCancelled, run.Snapshot().State)
+
+	// Finish closes Done before it publishes, so the report may trail it.
+	require.Eventually(t, func() bool {
+		return fixture.eventBus.Pending(run.SessionID) == 1
+	}, launchAgentShutdownBound, launchAgentPollInterval)
+
+	pending := fixture.eventBus.Peek(run.SessionID)
+	assert.Equal(t, agentFailedEventType, pending.Notices[0].Type)
+	assert.Equal(t, events.DeliveryQueue, pending.Notices[0].Delivery)
+}
+
+// Cancelling the session stops children that outlived their turn, and says a
+// cancellation was requested even though no turn is running.
+func TestCancelSessionStopsChildrenOfEndedTurns(t *testing.T) {
+	driver := heldChildDriver(
+		t,
+		elelemtest.ToolCall(
+			launchAgentCallID,
+			toolNameLaunchAgent,
+			launchAgentArguments(t, launchAgentInput{
+				Task:  "hold on",
+				Agent: launchAgentChildName,
+			}),
+		),
+		elelemtest.Text("launched"),
+	)
+	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
+		AgentFiles: map[string]string{
+			launchAgentChildName: launchAgentChildAgentFile,
+		},
+	})
+
+	result, err := fixture.runtime.Run(context.Background(), TurnRequest{
+		Message:   "launch and leave",
+		Workspace: fixture.workspace,
+	})
+	require.NoError(t, err)
+
+	run := onlyRun(t, fixture, func() uuid.UUID { return result.SessionID })
+	assert.Equal(t, AgentRunStateRunning, run.Snapshot().State)
+
+	response, err := fixture.runtime.CancelSession(
+		context.Background(),
+		result.SessionID,
+	)
+	require.NoError(t, err)
+	assert.True(t, response.CancelRequested)
+
+	select {
+	case <-run.Done():
+	case <-time.After(launchAgentShutdownBound):
+		require.FailNow(t, "the child was never cancelled")
+	}
+
+	assert.Equal(t, AgentRunStateCancelled, run.Snapshot().State)
 }
 
 func startDurableAgentRun(

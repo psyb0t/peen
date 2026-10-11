@@ -3,14 +3,18 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/events"
+	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
 const (
@@ -34,6 +38,17 @@ const (
 	// agentEventSource identifies this package as the origin of agent.*
 	// events, matching tools.jobEventSource for job.* events.
 	agentEventSource = "agent.launchAgent"
+
+	// agentResultTruncatedNote ends a final answer cut to fit the event data
+	// bound. The run record keeps the whole text.
+	//nolint:lll // One message string.
+	agentResultTruncatedNote = "\n\n[cut to fit the event, the whole answer is in the agent run record]"
+	// agentFailureDetailBytes bounds the failure text an agent.failed event
+	// carries.
+	agentFailureDetailBytes = 1024
+	// agentResultCutAttempts bounds how often a final answer is shortened
+	// when JSON escaping keeps it over the event data bound.
+	agentResultCutAttempts = 8
 )
 
 // AgentRunDefinition names whether a run's child came from a stored agent
@@ -326,6 +341,15 @@ type AgentRun struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 
+	// isCancelSignalled records that the run's cancellation has fired, so a
+	// later sweep counts only the runs it actually stops.
+	isCancelSignalled atomic.Bool
+
+	// inbox receives messages for the child while it runs. It is set before
+	// the run is registered and never changes, so reading it needs no lock.
+	// A run started without one accepts no messages.
+	inbox *agentInbox
+
 	mu      sync.RWMutex
 	state   AgentRunState
 	endedAt time.Time
@@ -455,10 +479,11 @@ type StartAgentRunInput struct {
 }
 
 // Start registers one agent run in AgentRunStateRunning and returns it along
-// with a context descending from ctx. Cancelling ctx (the parent turn ending)
-// cancels the returned context too, so the whole child tree stops; cancelling
-// only this run later, through Cancel, leaves ctx and every sibling run
-// alone. An error means the session is already at its concurrent-run bound.
+// with the context it runs under. That context keeps ctx's values but not its
+// cancellation: a child outlives the tool call and the turn that launched it,
+// and stops only through this registry, by Cancel, CancelTurn, CancelRunning,
+// or its parent run ending. An error means the session is already at its
+// concurrent-run bound.
 func (r *AgentRunRegistry) Start(
 	ctx context.Context,
 	input StartAgentRunInput,
@@ -475,7 +500,7 @@ func (r *AgentRunRegistry) Start(
 		)
 	}
 
-	runCtx, cancel := context.WithCancel(ctx)
+	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 
 	runID := input.ID
 	if runID == uuid.Nil {
@@ -582,54 +607,217 @@ func (r *AgentRunRegistry) Cancel(id uuid.UUID) (AgentRunSnapshot, bool) {
 		return snapshot, true
 	}
 
-	run.cancel()
+	run.signalCancel()
 
 	return run.Snapshot(), true
 }
 
-// Finish records one run's terminal state and publishes its completion event
-// exactly once. ctx is used only for logging a publish failure; the write to
-// the bus never fails the caller.
+// signalCancel fires the run's cancellation and reports whether this call was
+// the one that fired it.
+func (a *AgentRun) signalCancel() bool {
+	if !a.isCancelSignalled.CompareAndSwap(false, true) {
+		return false
+	}
+
+	a.cancel()
+
+	return true
+}
+
+// CancelTurn stops every running child the turn turnID started, directly or
+// through its descendants, and reports how many it signalled.
+func (r *AgentRunRegistry) CancelTurn(turnID uuid.UUID) int {
+	return r.cancelMatching(func(run *AgentRun) bool {
+		return run.ParentTurnID == turnID
+	})
+}
+
+// CancelRunning stops every running child in the session and reports how
+// many it signalled.
+func (r *AgentRunRegistry) CancelRunning() int {
+	return r.cancelMatching(func(*AgentRun) bool { return true })
+}
+
+// cancelDescendants stops every running run below parentID. Once a run ends,
+// the answers its children would send have nowhere to go.
+func (r *AgentRunRegistry) cancelDescendants(parentID uuid.UUID) int {
+	below := r.descendants(parentID)
+
+	return r.cancelMatching(func(run *AgentRun) bool {
+		return below[run.ID]
+	})
+}
+
+// descendants collects every run whose chain of parents reaches parentID.
+func (r *AgentRunRegistry) descendants(parentID uuid.UUID) map[uuid.UUID]bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	below := map[uuid.UUID]bool{}
+	reached := map[uuid.UUID]bool{parentID: true}
+
+	for grew := true; grew; {
+		grew = false
+
+		for _, run := range r.runs {
+			if run.ParentAgentRunID == nil || reached[run.ID] {
+				continue
+			}
+
+			if !reached[*run.ParentAgentRunID] {
+				continue
+			}
+
+			reached[run.ID] = true
+			below[run.ID] = true
+			grew = true
+		}
+	}
+
+	return below
+}
+
+func (r *AgentRunRegistry) cancelMatching(matches func(*AgentRun) bool) int {
+	signalled := 0
+
+	for _, run := range r.List() {
+		if !matches(run) || run.Snapshot().State != AgentRunStateRunning {
+			continue
+		}
+
+		if !run.signalCancel() {
+			continue
+		}
+
+		signalled++
+	}
+
+	return signalled
+}
+
+// Deliver puts one rendered message in a running child's inbox. It fails with
+// commerr.ErrNotFound when this registry never started id, and with
+// session.ErrAgentRunFinished when the run has ended.
+func (r *AgentRunRegistry) Deliver(
+	ctx context.Context,
+	id uuid.UUID,
+	text string,
+) error {
+	run, ok := r.Get(id)
+	if !ok {
+		return ctxerrors.Wrapf(commerr.ErrNotFound, "agent run %s", id)
+	}
+
+	state := run.Snapshot().State
+	if run.inbox == nil || state != AgentRunStateRunning {
+		return ctxerrors.Wrapf(
+			errAgentRunFinished(),
+			"agent run %s is %s",
+			id,
+			state,
+		)
+	}
+
+	if err := run.inbox.deliver(ctx, text); err != nil {
+		return ctxerrors.Wrapf(err, "deliver to agent run %s", id)
+	}
+
+	return nil
+}
+
+// errAgentRunFinished is the failure of a message sent to an ended run, in
+// both the shared conflict class and its own detail.
+func errAgentRunFinished() error {
+	return errors.Join(commerr.ErrConflict, session.ErrAgentRunFinished)
+}
+
+// errAgentRunNotFound is the failure of a message sent to a run the session
+// never had.
+func errAgentRunNotFound() error {
+	return errors.Join(commerr.ErrNotFound, session.ErrAgentRunNotFound)
+}
+
+// Wait blocks until every run this registry has started has ended, or ctx
+// ends.
+func (r *AgentRunRegistry) Wait(ctx context.Context) error {
+	for _, run := range r.List() {
+		select {
+		case <-run.Done():
+		case <-ctx.Done():
+			return ctxerrors.Wrap(ctx.Err(), "wait for agent runs")
+		}
+	}
+
+	return nil
+}
+
+// AgentRunResult is how one run ended and what it answered.
+//
+//nolint:revive // See the comment on AgentRunDefinition above.
+type AgentRunResult struct {
+	State         AgentRunState
+	Response      string
+	FailureDetail string
+}
+
+// Finish records one run's terminal state and, for a child of the root
+// conversation, publishes its completion event exactly once. A deeper run
+// reports to its parent run's inbox instead, which its launcher handles. ctx
+// is used only for the publish and its logging. The publish never fails the
+// caller.
 func (r *AgentRunRegistry) Finish(
 	ctx context.Context,
 	run *AgentRun,
-	state AgentRunState,
+	result AgentRunResult,
 ) {
 	run.mu.Lock()
-	run.state = state
+	run.state = result.State
 	run.endedAt = time.Now().UTC()
 	endedAt := run.endedAt
 	run.mu.Unlock()
 
 	close(run.done)
 
-	r.publish(ctx, run, state, endedAt)
+	if run.ParentAgentRunID != nil {
+		return
+	}
+
+	r.publish(context.WithoutCancel(ctx), run, result, endedAt)
 }
 
 // publish announces one run's completion on the event bus. Summary carries
-// the agent name and run ID rather than its task or response content,
-// matching the never-log-agent-content discipline this package applies
-// elsewhere.
+// the agent name and run ID. The final answer goes in the data, cut to the
+// event data bound, because the root reads it there.
 func (r *AgentRunRegistry) publish(
 	ctx context.Context,
 	run *AgentRun,
-	state AgentRunState,
+	result AgentRunResult,
 	endedAt time.Time,
 ) {
 	if r.publisher == nil {
 		return
 	}
 
-	eventType, summary := agentCompletionEvent(run, state)
+	eventType, summary := agentCompletionEvent(run, result.State)
 
 	durationMs := endedAt.Sub(run.StartedAt).Milliseconds()
 
-	data, err := json.Marshal(agentEventData{
-		RunID:      run.ID,
-		AgentName:  run.Name,
-		DurationMs: durationMs,
-		Duration:   (time.Duration(durationMs) * time.Millisecond).String(),
-	})
+	data, err := encodeAgentEventData(
+		agentEventData{
+			RunID:      run.ID,
+			AgentName:  run.Name,
+			State:      result.State,
+			DurationMs: durationMs,
+			Duration: (time.Duration(durationMs) * time.Millisecond).
+				String(),
+			Response: result.Response,
+			FailureDetail: events.TruncateToRuneBoundary(
+				result.FailureDetail,
+				agentFailureDetailBytes,
+			),
+		},
+		r.eventDataLimit(),
+	)
 	if err != nil {
 		ctxscope.GetLogger(ctx).Warn(
 			"encode agent completion event data",
@@ -640,12 +828,21 @@ func (r *AgentRunRegistry) publish(
 		data = nil
 	}
 
+	// A cancelled child was stopped on purpose, usually by someone cancelling
+	// the session, so its report waits for the next turn instead of starting
+	// one.
+	delivery := events.DeliveryWake
+	if result.State == AgentRunStateCancelled {
+		delivery = events.DeliveryQueue
+	}
+
 	notice := events.Notice{
 		SessionID: r.sessionID,
 		Type:      eventType,
 		Source:    agentEventSource,
 		Summary:   summary,
 		Data:      data,
+		Delivery:  delivery,
 	}
 
 	if _, err := r.publisher.PublishContext(ctx, notice); err != nil {
@@ -657,13 +854,67 @@ func (r *AgentRunRegistry) publish(
 	}
 }
 
+func (r *AgentRunRegistry) eventDataLimit() int {
+	limited, ok := r.publisher.(events.LimitedPublisher)
+	if !ok {
+		return events.DefaultLimits().MaxDataBytes
+	}
+
+	return limited.EventLimits().MaxDataBytes
+}
+
 // agentEventData is the structured payload carried by every agent.* notice.
-// Duration is DurationMs rendered as a Go duration string.
+// Duration is DurationMs rendered as a Go duration string. Response is the
+// child's final answer and ResponseTruncated says it was cut to fit.
 type agentEventData struct {
-	RunID      uuid.UUID `json:"runId"`
-	AgentName  string    `json:"agentName"`
-	DurationMs int64     `json:"durationMs"`
-	Duration   string    `json:"duration"`
+	RunID             uuid.UUID     `json:"runId"`
+	AgentName         string        `json:"agentName"`
+	State             AgentRunState `json:"state"`
+	DurationMs        int64         `json:"durationMs"`
+	Duration          string        `json:"duration"`
+	Response          string        `json:"response,omitempty"`
+	ResponseTruncated bool          `json:"responseTruncated,omitempty"`
+	FailureDetail     string        `json:"failureDetail,omitempty"`
+}
+
+// encodeAgentEventData fits data into maxBytes by cutting the final answer
+// and marking it cut. JSON escaping can make the cut text larger than its
+// byte count, so the cut repeats a bounded number of times before the answer
+// is left out altogether.
+func encodeAgentEventData(
+	data agentEventData,
+	maxBytes int,
+) (json.RawMessage, error) {
+	whole := data.Response
+	kept := len(whole)
+
+	for range agentResultCutAttempts {
+		encoded, err := json.Marshal(data)
+		if err != nil {
+			return nil, ctxerrors.Wrap(err, "encode agent event data")
+		}
+
+		if len(encoded) <= maxBytes {
+			return encoded, nil
+		}
+
+		// Shrink in proportion to the overshoot, so heavily escaped text
+		// keeps a useful part instead of dropping to nothing.
+		kept = max(kept*maxBytes/len(encoded)-len(agentResultTruncatedNote), 0)
+		data.Response = events.TruncateToRuneBoundary(whole, kept) +
+			agentResultTruncatedNote
+		data.ResponseTruncated = true
+	}
+
+	data.Response = ""
+	data.ResponseTruncated = whole != ""
+
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "encode agent event data")
+	}
+
+	return encoded, nil
 }
 
 // agentCompletionEvent maps a terminal run state onto its event type and a

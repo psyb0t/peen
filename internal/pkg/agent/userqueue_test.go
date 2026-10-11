@@ -487,7 +487,8 @@ func TestRuntimeQueuedUnknownSkillReferenceRefusesTheMessage(t *testing.T) {
 	assert.Equal(
 		t,
 		`unknown skill "missing-skill" in :missing-skill; `+
-			`available skills: core:freshness, core:planning`,
+			`available skills: core:delegation, core:freshness, `+
+			`core:plan-and-delegate, core:planning`,
 		unknown.Message,
 	)
 	assert.Equal(t, queuedUserMessageFinal, result.Text)

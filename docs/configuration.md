@@ -29,7 +29,7 @@ These values decide where Peen keeps its state and which model handles a task. S
 | `PEEN_HOST_USERNAME` | empty | Host account name for a Docker controller started with numeric `--user` IDs. Set it together with `PEEN_HOST_HOME`. The installer sets both. |
 | `PEEN_HOST_HOME` | empty | Absolute host home for a Docker controller started with numeric `--user` IDs. Set it together with `PEEN_HOST_USERNAME`. |
 | `PEEN_AGENT` | `core:general-purpose` | The agent every root turn runs as. A plain name picks a custom agent first and a core agent second, and `core:<name>` picks only the core one. Startup fails when a `core:` name is unknown or disabled. A plain name is resolved at each turn. See [Agents](agents.md). |
-| `PEEN_DISABLED_CORE_SKILLS` | empty | Comma-separated core skills to remove, without the `core:` prefix, or `all`. The core skills are `freshness` and `planning`. An unknown name stops startup. See [core and custom skills and agents](harness.md#core-and-custom-skills-and-agents). |
+| `PEEN_DISABLED_CORE_SKILLS` | empty | Comma-separated core skills to remove, without the `core:` prefix, or `all`. The core skills are `delegation`, `freshness`, `plan-and-delegate`, and `planning`. An unknown name stops startup. See [core and custom skills and agents](harness.md#core-and-custom-skills-and-agents). |
 | `PEEN_DISABLED_CORE_AGENTS` | empty | Comma-separated core agents to remove, without the `core:` prefix, or `all`. The only core agent is `general-purpose`, and it is the default `PEEN_AGENT`. To disable it, first set `PEEN_AGENT` to one of your own agents. Startup fails on an unknown name, and when `PEEN_AGENT` names a disabled `core:` agent. A plain `PEEN_AGENT` name passes startup, and a turn fails when the workspace defines no agent with that name. |
 | `PEEN_UPSTREAMS` | required, JSON | Named provider list. See [providers](#providers). |
 | `PEEN_DEFAULT_MODEL` | required | `provider/model` for the root agent and, unless `PEEN_COMPACTION_MODEL` is set, compaction. |
@@ -271,6 +271,9 @@ See [session events](events.md) for event types, delivery, wakes, and event hand
 | `PEEN_MAX_AGENT_RUN_EVENT_COUNT` | `2000` | How many of a running child's recent events Peen keeps in memory for clients following it live. SQLite keeps every event regardless. |
 | `PEEN_MAX_AGENT_RUN_EVENT_BYTES` | `65536` | Byte limit on that same in-memory list. |
 | `PEEN_MAX_ADHOC_AGENT_INSTRUCTION_BYTES` | `65536` | Size limit on an inline `agentDefinition.instructions` string. |
+| `PEEN_ASK_TIMEOUT` | `0` | How long the `ask` tool waits for an answer, as a Go duration such as `30m`. A call may ask for a shorter wait. `0` sets no limit of its own, so `ask` waits up to the 30-day cap every messaging tool has, and a child whose question nobody answers holds one of the `PEEN_MAX_CONCURRENT_AGENT_RUNS` slots until someone answers or stops it. The root's `ask` still ends with its turn, at `PEEN_TURN_TIMEOUT`. A negative value stops startup. |
+
+A child's inbox holds at most `PEEN_MAX_QUEUED_USER_MESSAGES` messages that it has not read yet, the same bound as the root's queue. See [running children](agents.md#running-children).
 
 ## Harness layering
 
@@ -288,4 +291,4 @@ Jobs belong to the session, not the turn. A command started in one turn stays li
 
 ## Agent run observability
 
-Each `launchAgent` call creates a SQLite run record that never changes once written, and stored event records. Use the session agent-run REST endpoints to inspect or cancel a run and to read its events after its parent turn has finished. SQLite is the only stored replay record. Peen keeps no JSONL copy of transcripts.
+Each `launchAgent` call creates a SQLite run record and stored event records. Peen updates the record when a cancel is requested and when the run ends. Use the session agent-run REST endpoints to inspect or cancel a run, list the runs waiting on a question, and read a run's events during and after it. SQLite is the only stored replay record. Peen keeps no JSONL copy of transcripts.

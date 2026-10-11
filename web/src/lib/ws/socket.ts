@@ -101,15 +101,24 @@ export class PeenSocket {
 	/**
 	 * Sends a message to a session. Settings apply to a new turn only: a
 	 * message queued into a running turn must leave them out, because the
-	 * server rejects a queued message that tries to change them.
+	 * server rejects a queued message that tries to change them. A message to a
+	 * running child agent names its run in agentRunID, starts no turn, and
+	 * never carries settings.
 	 */
-	public send(sessionID: string, message: string, settings?: TurnSettings): string {
+	public send(
+		sessionID: string,
+		message: string,
+		settings?: TurnSettings,
+		agentRunID?: string,
+	): string {
 		if (this.socket?.readyState !== WebSocket.OPEN) {
 			throw new Error("The WebSocket is not connected.");
 		}
 
 		const data: MessageSendData = { message };
-		if (settings !== undefined) {
+		if (agentRunID !== undefined) {
+			data.to = agentRunID;
+		} else if (settings !== undefined) {
 			data.model = settings.model;
 			data.reasoningEffort = settings.reasoningEffort;
 		}

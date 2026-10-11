@@ -48,6 +48,11 @@ const (
 	agentToolsTask            = "summarize the plan with :core:planning"
 	agentToolsFinalAnswer     = "the child agent answered"
 	agentToolsTextPrefix      = "integration completion "
+	// agentToolsWaitBound keeps a waiting root from hanging the suite when
+	// the child's answer already arrived before the wait began.
+	agentToolsWaitBound = "20s"
+	// agentToolsTaskSenderPrefix opens a task the root sent a child.
+	agentToolsTaskSenderPrefix = `<message from="agent" name="`
 )
 
 type jobToolsResult struct {
@@ -256,8 +261,9 @@ func TestAPIJobExitedNoticeCarriesTheDuration(t *testing.T) {
 }
 
 // launchAgent through the worker: the child runs as the core agent the call
-// names, its task's :name skill follows the task as its own message, and the
-// parent receives the child's answer as the tool result.
+// names, its task's :name skill follows the task as its own message, the call
+// returns at once with the child's run, and the child's answer reaches the
+// waiting parent as an agent.finished event.
 func TestAPILaunchAgentRunsACoreAgentWithATaskSkill(t *testing.T) {
 	workspace := openFreshWorkspace(t, agentToolsWorkspacePrefix, nil)
 	connection := openSessionConnection(t, workspace.sessionID)
@@ -265,13 +271,19 @@ func TestAPILaunchAgentRunsACoreAgentWithATaskSkill(t *testing.T) {
 	t.Cleanup(integrationInfra.DisableScriptedToolTurn)
 	integrationInfra.EnableScriptedToolTurn(testinfra.ScriptedToolTurn{
 		UserMessage: agentToolsMessage,
-		Calls: []testinfra.ScriptedToolCall{{
-			Name: "launchAgent",
-			Arguments: map[string]any{
-				"agent": agentToolsAgent,
-				"task":  agentToolsTask,
+		Calls: []testinfra.ScriptedToolCall{
+			{
+				Name: "launchAgent",
+				Arguments: map[string]any{
+					"agent": agentToolsAgent,
+					"task":  agentToolsTask,
+				},
 			},
-		}},
+			{
+				Name:      "waitMessages",
+				Arguments: map[string]any{"timeout": agentToolsWaitBound},
+			},
+		},
 		FinalAnswer: agentToolsFinalAnswer,
 	})
 
@@ -281,31 +293,81 @@ func TestAPILaunchAgentRunsACoreAgentWithATaskSkill(t *testing.T) {
 	readFramesUntilTurnCompleted(t, connection)
 
 	requests := providerRequestsSince(before)
-	require.Len(t, requests, 3)
+	require.Len(t, requests, 4)
 
-	child := requests[1]
-	assert.Contains(t, child[0].Content, variantTestAgentBody)
+	child := childAgentRequest(t, requests)
 
 	childMessages := nonSystemMessages(t, child)
 	require.Len(t, childMessages, 2)
 	assert.Equal(t, "user", childMessages[0].Role)
-	assert.Equal(t, agentToolsTask, childMessages[0].Content)
+	assert.True(t, strings.HasPrefix(
+		childMessages[0].Content,
+		agentToolsTaskSenderPrefix,
+	))
+	assert.True(t, strings.HasSuffix(
+		childMessages[0].Content,
+		"\n"+agentToolsTask+"\n</message>",
+	))
 	assert.Equal(t, "user", childMessages[1].Role)
 	assert.Contains(t, childMessages[1].Content, skillsTestPlanningMessagePrefix)
 
 	tools := toolMessages(t, workspace.sessionID)
-	require.Len(t, tools, 1)
+	require.Len(t, tools, 2)
 	assert.False(t, toolFailed(tools[0]))
 
 	output := struct {
-		Name      string `json:"name"`
-		Cancelled bool   `json:"cancelled"`
-		Response  string `json:"response"`
+		AgentRunID       uuid.UUID `json:"agentRunId"`
+		Name             string    `json:"name"`
+		ParentAgentRunID string    `json:"parentAgentRunId"`
 	}{}
 	require.NoError(t, json.Unmarshal([]byte(tools[0].Content), &output))
 	assert.Equal(t, agentToolsAgent, output.Name)
-	assert.False(t, output.Cancelled)
-	assert.True(t, strings.HasPrefix(output.Response, agentToolsTextPrefix))
+	assert.Equal(t, "root", output.ParentAgentRunID)
+	assert.NotEqual(t, uuid.Nil, output.AgentRunID)
+
+	// The root waited for the child, so its last request is the one that
+	// read the child's answer.
+	final := requests[len(requests)-1]
+	assert.NotContains(t, final[0].Content, variantTestAgentBody)
+
+	conversation := providerConversationText(final)
+	assert.Contains(t, conversation, `"type":"agent.finished"`)
+	assert.Contains(t, conversation, `"response":"`+agentToolsTextPrefix)
+}
+
+// childAgentRequest returns the one request a child agent made, told apart by
+// the core agent's instructions in its system prompt.
+func childAgentRequest(
+	t *testing.T,
+	requests [][]testinfra.ProviderMessage,
+) []testinfra.ProviderMessage {
+	t.Helper()
+
+	var child []testinfra.ProviderMessage
+
+	for _, request := range requests {
+		if !strings.Contains(request[0].Content, variantTestAgentBody) {
+			continue
+		}
+
+		require.Nil(t, child, "the child made more than one request")
+
+		child = request
+	}
+
+	require.NotNil(t, child, "the child never reached the provider")
+
+	return child
+}
+
+// providerConversationText joins every message of one provider request.
+func providerConversationText(messages []testinfra.ProviderMessage) string {
+	parts := make([]string, 0, len(messages))
+	for _, message := range messages {
+		parts = append(parts, message.Content)
+	}
+
+	return strings.Join(parts, "\n")
 }
 
 func toolMessages(t *testing.T, sessionID uuid.UUID) []api.Message {

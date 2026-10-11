@@ -57,6 +57,27 @@ type routedWorker struct {
 	// point: a command whose payload is encoded twice still arrives and still
 	// answers, so only a worker that reads the fields catches it.
 	signals []protocol.SignalJob
+
+	// agentRunCancels records every decoded cancelAgentRun payload, for the
+	// same reason as signals.
+	agentRunCancels []protocol.CancelAgentRun
+}
+
+// cancelAgentRun decodes the command the way the real worker does.
+func (w *routedWorker) cancelAgentRun(
+	payload json.RawMessage,
+) (protocol.CancelResult, error) {
+	request := protocol.CancelAgentRun{}
+	if err := json.Unmarshal(payload, &request); err != nil {
+		return protocol.CancelResult{}, ctxerrors.Wrap(
+			commerr.ErrParseFailed,
+			"decode the cancelAgentRun command",
+		)
+	}
+
+	w.agentRunCancels = append(w.agentRunCancels, request)
+
+	return protocol.CancelResult{CancelRequested: true}, nil
 }
 
 // signalJob decodes the command the way the real worker does.
@@ -102,6 +123,8 @@ func (w *routedWorker) HandleCommand(
 		return protocol.CancelResult{CancelRequested: true}, nil
 	case protocol.CommandSignalJob:
 		return w.signalJob(payload)
+	case protocol.CommandCancelAgentRun:
+		return w.cancelAgentRun(payload)
 	case protocol.CommandShutdown:
 		return protocol.Ack{}, nil
 	default:
@@ -404,6 +427,65 @@ func TestRouterCarriesTheTurnOriginToTheWorker(t *testing.T) {
 	require.NotNil(t, turns[0].Origin)
 	assert.Equal(t, origin.EventID, turns[0].Origin.EventID)
 	assert.Equal(t, origin.EventType, turns[0].Origin.EventType)
+}
+
+// A message for a child agent reaches the worker with the child's ID, so the
+// worker puts it in that child's inbox instead of the root conversation.
+func TestRouterCarriesTheTargetAgentRunToTheWorker(t *testing.T) {
+	fixture := newRoutingFixture(t)
+
+	target := uuid.New()
+	_, err := fixture.router.RunSessionMessage(
+		t.Context(),
+		fixture.sessionID,
+		agent.MessageRequest{Message: routedMessage, To: &target},
+		uuid.New(),
+	)
+	require.NoError(t, err)
+
+	require.Len(t, fixture.launcher.workers, 1)
+	turns := fixture.launcher.workers[0].turns
+	require.Len(t, turns, 1)
+	require.NotNil(t, turns[0].To)
+	assert.Equal(t, target, *turns[0].To)
+}
+
+// A child agent runs in its session's worker, so stopping one has to reach
+// that worker. A session without a live worker runs no children.
+func TestRouterCancelsAnAgentRunInTheSessionWorker(t *testing.T) {
+	fixture := newRoutingFixture(t)
+
+	agentRunID := uuid.New()
+
+	cancelled, err := fixture.router.CancelSessionAgentRun(
+		t.Context(),
+		fixture.sessionID,
+		agentRunID,
+	)
+	require.NoError(t, err)
+	assert.False(t, cancelled, "no live worker holds any child yet")
+
+	_, err = fixture.router.RunSessionMessage(
+		t.Context(),
+		fixture.sessionID,
+		agent.MessageRequest{Message: routedMessage},
+		uuid.New(),
+	)
+	require.NoError(t, err)
+
+	cancelled, err = fixture.router.CancelSessionAgentRun(
+		t.Context(),
+		fixture.sessionID,
+		agentRunID,
+	)
+	require.NoError(t, err)
+	assert.True(t, cancelled)
+
+	require.Len(t, fixture.launcher.workers, 1)
+
+	cancels := fixture.launcher.workers[0].agentRunCancels
+	require.Len(t, cancels, 1)
+	assert.Equal(t, agentRunID, cancels[0].AgentRunID)
 }
 
 // TestRouterSignalsAJobInTheSessionWorker carries a job signal to the process

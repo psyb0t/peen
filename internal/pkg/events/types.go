@@ -31,6 +31,12 @@ const (
 	TypeAgentFinished Type = "agent.finished"
 	// TypeAgentFailed reports a child agent run that failed.
 	TypeAgentFailed Type = "agent.failed"
+	// TypeAgentMessage carries a message a child agent sent the root
+	// conversation.
+	TypeAgentMessage Type = "agent.message"
+	// TypeAgentQuestion carries a question a child agent asked the root
+	// conversation. The child waits for the answer.
+	TypeAgentQuestion Type = "agent.question"
 )
 
 // ReservedPrefixes are the type namespaces only Peen's own producers may

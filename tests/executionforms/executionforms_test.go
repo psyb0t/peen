@@ -154,7 +154,7 @@ const (
 	executionFormsRetentionNotDayMessage = "PEEN_LOG_RETENTION must be a " +
 		"positive whole number of days (a multiple of 24h), got 36h0m0s"
 	executionFormsInvalidDisabledSkillsMessage = "invalid PEEN_DISABLED_CORE_SKILLS"
-	executionFormsValidCoreSkillsMessage       = "valid names are freshness, planning and all"
+	executionFormsValidCoreSkillsMessage       = "valid names are delegation, freshness, plan-and-delegate, planning and all"
 	executionFormsInvalidDisabledAgentsMessage = "invalid PEEN_DISABLED_CORE_AGENTS"
 	executionFormsValidCoreAgentsMessage       = "valid names are general-purpose and all"
 	executionFormsInvalidAgentMessage          = "invalid PEEN_AGENT"

@@ -865,6 +865,20 @@ func (s *Store) ListSessionNotices(
 	)
 }
 
+// OpenAgentRunQuestions reads the questions the session's running children
+// are waiting on.
+func (s *Store) OpenAgentRunQuestions(
+	ctx context.Context,
+	sessionID uuid.UUID,
+) (map[uuid.UUID]string, error) {
+	return call[map[uuid.UUID]string](
+		ctx,
+		s,
+		MethodOpenAgentRunQuestions,
+		SessionRequest{SessionID: sessionID},
+	)
+}
+
 func (s *Store) DrainSessionNotices(
 	ctx context.Context,
 	sessionID uuid.UUID,

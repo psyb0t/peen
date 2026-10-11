@@ -13,6 +13,8 @@ When `Message` or `Stream` reaches a local active turn,
 the eventual provider response. Queued input cannot override model or
 system-prompt settings, and it is not replayed automatically after a restart.
 
+A child agent the model launches with `launchAgent` runs on its own goroutine and can keep running after `Message` or `Stream` returns. `Stream` forwards a child's events only while the turn that launched it runs. When a child of the root ends, its answer waits as a session event, and a new turn starts for it when the runtime is idle. `Cancel` stops the active turn and every running child. See [running children](../../docs/agents.md#running-children).
+
 ## Embedding example
 
 ```go

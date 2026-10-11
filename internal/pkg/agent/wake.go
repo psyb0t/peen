@@ -23,6 +23,9 @@ const (
 	reasonSessionBusy    = "session_busy"
 	reasonWakeLimit      = "wake_rate_limit"
 	reasonQueuedDelivery = "queued_delivery"
+
+	//nolint:lll // Instruction text is one line.
+	agentWakeInstructions = "A child agent you launched reported back. Read its event in this turn and continue the work it belongs to."
 )
 
 // wakeLimiter bounds how often events may start turns for one session. A
@@ -241,13 +244,23 @@ func (r *Runtime) wakeHandler(
 	}
 
 	handler, err := snapshot.EventHandler(notice.Type)
-	if err != nil {
-		// An unhandled type is the normal case, not a failure. The event
-		// stays queued and is delivered at the next turn instead.
-		return harness.EventHandler{}, false, nil //nolint:nilerr // Above.
+	if err == nil {
+		return handler, true, nil
 	}
 
-	return handler, true, nil
+	// A child agent reporting to the root has a handler without any file:
+	// the root launched it to hear back. A workspace handler for the type
+	// still wins, and its delivery can hold these events back.
+	if notice.Source == agentEventSource {
+		return harness.EventHandler{
+			Type:         notice.Type,
+			Instructions: agentWakeInstructions,
+		}, true, nil
+	}
+
+	// An unhandled type is the normal case, not a failure. The event stays
+	// queued and is delivered at the next turn instead.
+	return harness.EventHandler{}, false, nil
 }
 
 // WakeRunner runs a turn a session event started. A controller sets one that

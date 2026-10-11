@@ -162,6 +162,34 @@ func TestServerSessionAgentRunEndpoints(t *testing.T) {
 	}
 }
 
+// A child agent runs in its session's worker, so a cancel has to reach that
+// worker. The durable request alone never stopped it.
+func TestServerCancelSessionAgentRunReachesTheWorker(t *testing.T) {
+	sessionID := uuid.New()
+	runID := uuid.New()
+	router := &testTurnRouter{cancelRouted: true}
+
+	instance, err := newTestServer(Dependencies{
+		Runtime: &testRuntime{sessionID: sessionID},
+		Turns:   router,
+	})
+	require.NoError(t, err)
+
+	request := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		agentRunCancelPath(runID),
+		nil,
+	)
+	request.Header.Set(headerSessionID, sessionID.String())
+
+	recorder := httptest.NewRecorder()
+	instance.testHandler.ServeHTTP(recorder, request)
+
+	assert.Equal(t, http.StatusAccepted, recorder.Code)
+	assert.Equal(t, []uuid.UUID{runID}, router.cancelledAgentRuns)
+}
+
 // Cancelling a child agent stops real work, so these routes must sit behind
 // the same bearer check as everything else.
 func TestServerSessionAgentRunEndpointsRequireTheBearerToken(t *testing.T) {

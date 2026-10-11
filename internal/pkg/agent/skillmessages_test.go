@@ -926,7 +926,8 @@ func TestRuntimeRefusesADisabledCoreSkillNamedInAMessage(t *testing.T) {
 	assert.Equal(
 		t,
 		`unknown skill "core:planning" in :core:planning; `+
-			`available skills: core:freshness`,
+			`available skills: core:delegation, core:freshness, `+
+			`core:plan-and-delegate`,
 		unknown.Message,
 	)
 }

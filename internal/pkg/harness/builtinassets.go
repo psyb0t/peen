@@ -7,15 +7,17 @@ import (
 )
 
 const (
-	embeddedSourcePrefix       = "embedded://"
-	embeddedInstructionAsset   = "builtin/AGENTS.md"
-	embeddedInstructionSource  = embeddedSourcePrefix + "AGENTS.md"
-	embeddedSkillsAssetPrefix  = "builtin/skills/"
-	embeddedSkillsSourcePrefix = embeddedSourcePrefix + "skills/"
-	embeddedAgentsAssetPrefix  = "builtin/agents/"
-	embeddedAgentsSourcePrefix = embeddedSourcePrefix + "agents/"
-	embeddedFreshnessSkillName = "freshness"
-	embeddedPlanningSkillName  = "planning"
+	embeddedSourcePrefix             = "embedded://"
+	embeddedInstructionAsset         = "builtin/AGENTS.md"
+	embeddedInstructionSource        = embeddedSourcePrefix + "AGENTS.md"
+	embeddedSkillsAssetPrefix        = "builtin/skills/"
+	embeddedSkillsSourcePrefix       = embeddedSourcePrefix + "skills/"
+	embeddedAgentsAssetPrefix        = "builtin/agents/"
+	embeddedAgentsSourcePrefix       = embeddedSourcePrefix + "agents/"
+	embeddedFreshnessSkillName       = "freshness"
+	embeddedPlanningSkillName        = "planning"
+	embeddedDelegationSkillName      = "delegation"
+	embeddedPlanAndDelegateSkillName = "plan-and-delegate"
 
 	embeddedGeneralPurposeAgentName = "general-purpose"
 )
@@ -37,6 +39,8 @@ func embeddedSkillAssets() []embeddedSkillAsset {
 	return []embeddedSkillAsset{
 		embeddedSkillAssetFor(embeddedFreshnessSkillName),
 		embeddedSkillAssetFor(embeddedPlanningSkillName),
+		embeddedSkillAssetFor(embeddedDelegationSkillName),
+		embeddedSkillAssetFor(embeddedPlanAndDelegateSkillName),
 	}
 }
 
@@ -74,6 +78,8 @@ func embeddedAgentAssetFor(name string) embeddedAgentAsset {
 //go:embed builtin/agents/general-purpose.md
 //go:embed builtin/skills/freshness/SKILL.md
 //go:embed builtin/skills/planning/SKILL.md
+//go:embed builtin/skills/delegation/SKILL.md
+//go:embed builtin/skills/plan-and-delegate/SKILL.md
 var embeddedHarness embed.FS
 
 func embeddedHarnessAsset(name string) (string, error) {

@@ -94,7 +94,9 @@ Several words in these docs name different things on different pages. This is wh
 | control space | Where Peen itself runs when you install it with the installer: `host` or `docker`. | [Where it runs](where-it-runs.md#the-four-combinations) |
 | worker generation | One run of a session's worker process. A session gets a new generation each time Peen starts its worker. | [Workers](http-api.md#get-v1sessionworkers) |
 
-The `agent.` prefix appears in two places. `agent.finished` and `agent.failed` are session events. `agent.run.started`, `agent.run.tool.use`, and the other `agent.run.*` names are protocol events of a child agent run.
+The `agent.` prefix appears in two places. `agent.finished`, `agent.failed`, `agent.message`, and `agent.question` are session events. `agent.run.started`, `agent.run.tool.use`, and the other `agent.run.*` names are protocol events of a child agent run.
+
+A child agent runs in its session's worker, on its own, and can outlive the turn that launched it. It talks to the agent that launched it through messages and session events. See [running children](agents.md#running-children).
 
 The field name `type` also means different things. On a hook action it is the action kind (`deny`, `inject`, `emitEvent`, `command`). On a session event it is the event name, which an `emitEvent` action spells `eventType`. On an upstream it is the wire protocol. On an event handler it is the session event type the handler answers.
 

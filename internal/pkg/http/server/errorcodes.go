@@ -41,6 +41,12 @@ const (
 	ErrorCodeWorkspaceNotFound = aichteeteapee.ErrorCode(
 		"WORKSPACE_NOT_FOUND",
 	)
+	// ErrorCodeAgentFinished reports a message sent to a child agent that has
+	// already ended.
+	ErrorCodeAgentFinished = aichteeteapee.ErrorCode("AGENT_FINISHED")
+	// ErrorCodeAgentNotFound reports a message sent to an agent run the
+	// session never had.
+	ErrorCodeAgentNotFound = aichteeteapee.ErrorCode("AGENT_NOT_FOUND")
 	// ErrorCodeHarnessConfigurationInvalid reports a harness safety bound that
 	// prevents a turn from starting. Malformed optional definitions emit a
 	// harness.warning event instead.

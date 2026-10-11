@@ -180,22 +180,31 @@ func TestCommandHookDeliversRuleSeparatelyToAChild(t *testing.T) {
 	rootWrite := ruleHookWriteInput(t, ruleHookGoFile)
 	childWrite := ruleHookWriteInput(t, ruleHookChildGoFile)
 
-	driver := elelemtest.NewScriptedDriver(
-		elelemtest.ToolCall(ruleHookFirstCall, toolNameWriteFile, rootWrite),
-		elelemtest.ToolCall(ruleHookRetryCall, toolNameWriteFile, rootWrite),
-		elelemtest.ToolCall(
+	rootTurns := append(
+		[]elelemtest.Turn{
+			elelemtest.ToolCall(ruleHookFirstCall, toolNameWriteFile, rootWrite),
+			elelemtest.ToolCall(ruleHookRetryCall, toolNameWriteFile, rootWrite),
+		},
+		launchAndWaitTurns(
+			t,
 			launchAgentCallID,
-			toolNameLaunchAgent,
-			launchAgentArguments(t, launchAgentInput{
+			launchAgentInput{
 				Task:  "write the child go file",
 				Agent: launchAgentChildName,
-			}),
-		),
-		elelemtest.ToolCall(ruleHookChildFirst, toolNameWriteFile, childWrite),
-		elelemtest.ToolCall(ruleHookChildRetry, toolNameWriteFile, childWrite),
-		elelemtest.Text("child wrote it"),
-		elelemtest.Text(ruleHookFinalText),
+			},
+			ruleHookFinalText,
+		)...,
 	)
+
+	// The root's fourth call is the one that waits for the child.
+	driver := newConversationDriver(map[string]*elelemtest.ScriptedDriver{
+		rootConversation: elelemtest.NewScriptedDriver(rootTurns...),
+		runtimeTestAgentName: elelemtest.NewScriptedDriver(
+			elelemtest.ToolCall(ruleHookChildFirst, toolNameWriteFile, childWrite),
+			elelemtest.ToolCall(ruleHookChildRetry, toolNameWriteFile, childWrite),
+			elelemtest.Text("child wrote it"),
+		),
+	}).after(runtimeTestAgentName, rootConversation, 4)
 	fixture := childHarnessFixture(t, driver)
 	installRuleHook(t, fixture)
 
@@ -275,17 +284,9 @@ func TestPostCompactForgetScriptRedeliversTheRule(t *testing.T) {
 
 	// With a flat charge per message, the child crosses the budget on its
 	// fifth request: after the denied write, its retry, and two reads.
-	turns := make([]elelemtest.Turn, 0, ruleHookCompactFillReads+7)
+	turns := make([]elelemtest.Turn, 0, ruleHookCompactFillReads+5)
 	turns = append(
 		turns,
-		elelemtest.ToolCall(
-			launchAgentCallID,
-			toolNameLaunchAgent,
-			launchAgentArguments(t, launchAgentInput{
-				Task:  "write two go files",
-				Agent: launchAgentChildName,
-			}),
-		),
 		elelemtest.ToolCall(ruleHookChildFirst, toolNameWriteFile, firstWrite),
 		elelemtest.ToolCall(ruleHookChildRetry, toolNameWriteFile, firstWrite),
 	)
@@ -311,11 +312,20 @@ func TestPostCompactForgetScriptRedeliversTheRule(t *testing.T) {
 			secondWrite,
 		),
 		elelemtest.Text("child wrote both"),
-		elelemtest.Text(ruleHookFinalText),
 	)
 
-	driver := elelemtest.NewScriptedDriver(turns...).
-		WithTokenCounter(childCompactionCounter{})
+	driver := childCompactionDriver(
+		launchAndWaitTurns(
+			t,
+			launchAgentCallID,
+			launchAgentInput{
+				Task:  "write two go files",
+				Agent: launchAgentChildName,
+			},
+			ruleHookFinalText,
+		),
+		turns,
+	)
 	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
 		AgentFiles: map[string]string{
 			launchAgentChildName: launchAgentChildAgentFile,

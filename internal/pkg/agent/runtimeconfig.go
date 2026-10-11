@@ -47,6 +47,7 @@ func RuntimeOptionsFromConfig(
 		),
 		Metrics:              metricRegistry,
 		MaxEventWakesPerHour: deployment.MaxEventWakesPerHour,
+		AskTimeout:           deployment.AskTimeout,
 		ConfigDirectory:      deployment.ConfigDirectory,
 		AgentLimits:          ConfiguredAgentRunLimits(deployment),
 		ToolLimits:           ConfiguredToolLimits(deployment),

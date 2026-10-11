@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
@@ -36,6 +37,10 @@ import (
 // document is a handful of identifiers and paths, so anything larger is a
 // mistake or an attempt to exhaust this process before it starts.
 const maxLaunchDocumentBytes = 64 << 10
+
+// agentRunShutdownTimeout bounds how long a stopping worker waits for its
+// cancelled child agents to record how they ended.
+const agentRunShutdownTimeout = 10 * time.Second
 
 // Options are the seams a worker run takes. Every field has a production
 // default, so the command itself passes none.
@@ -151,6 +156,8 @@ func serve(
 	case <-handler.stopped:
 	case <-ctx.Done():
 	}
+
+	handler.shutdownAgentRuns(ctx)
 
 	stop()
 
@@ -395,13 +402,17 @@ func (h *commandHandler) HandleCommand(
 	case protocol.CommandRunTurn:
 		return h.runTurn(ctx, payload)
 	case protocol.CommandCancel:
+		sessionID := h.runtime.SessionID()
+		turnCancelled := h.store.RequestLocalCancellation(sessionID)
+		agentsCancelled := h.runtime.CancelAgentRuns(ctx, sessionID) > 0
+
 		return protocol.CancelResult{
-			CancelRequested: h.store.RequestLocalCancellation(
-				h.runtime.SessionID(),
-			),
+			CancelRequested: turnCancelled || agentsCancelled,
 		}, nil
 	case protocol.CommandSignalJob:
 		return h.signalJob(ctx, payload)
+	case protocol.CommandCancelAgentRun:
+		return h.cancelAgentRun(payload)
 	case protocol.CommandShutdown:
 		// Answered above, before the runtime wait.
 		h.stop()
@@ -452,6 +463,25 @@ func (h *commandHandler) signalJob(
 	}, nil
 }
 
+// cancelAgentRun stops one running child agent of this worker's session. The
+// controller has already recorded the request durably.
+func (h *commandHandler) cancelAgentRun(payload json.RawMessage) (any, error) {
+	request := protocol.CancelAgentRun{}
+	if err := json.Unmarshal(payload, &request); err != nil {
+		return nil, ctxerrors.Wrap(
+			commerr.ErrParseFailed,
+			"decode the cancelAgentRun command",
+		)
+	}
+
+	return protocol.CancelResult{
+		CancelRequested: h.runtime.CancelLocalAgentRun(
+			h.runtime.SessionID(),
+			request.AgentRunID,
+		),
+	}, nil
+}
+
 // runTurn runs one accepted user message to completion.
 //
 // The controller has already recorded the message, so the worker's own events
@@ -488,6 +518,7 @@ func turnMessage(
 		SessionID:    &sessionID,
 		Message:      request.Message,
 		SystemPrompt: systemPrompt(request),
+		To:           request.To,
 	}
 
 	if request.Model != "" {
@@ -521,4 +552,23 @@ func systemPrompt(request protocol.RunTurn) *agent.MessageSystemPrompt {
 
 func (h *commandHandler) stop() {
 	h.stopOnce.Do(func() { close(h.stopped) })
+}
+
+// shutdownAgentRuns cancels the session's running child agents and gives
+// them a bounded time to record how they ended, while the connection that
+// carries those records is still open. serve runs only after attach, so the
+// runtime is set.
+func (h *commandHandler) shutdownAgentRuns(ctx context.Context) {
+	shutdownCtx, cancel := context.WithTimeout(
+		context.WithoutCancel(ctx),
+		agentRunShutdownTimeout,
+	)
+	defer cancel()
+
+	if err := h.runtime.ShutdownAgentRuns(shutdownCtx); err != nil {
+		ctxscope.GetLogger(ctx).Warn(
+			"child agents did not finish before the worker stopped",
+			"err", err,
+		)
+	}
 }

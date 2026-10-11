@@ -136,6 +136,10 @@ type testTurnRouter struct {
 	// cancelErr fails the routed cancel.
 	cancelErr error
 
+	// cancelledAgentRuns records the child agents whose worker was asked to
+	// stop them.
+	cancelledAgentRuns []uuid.UUID
+
 	// signalledJobs records the jobs whose worker was asked to signal them, so
 	// a test can prove the endpoint reached the worker holding the process
 	// group rather than only writing the durable request.
@@ -201,6 +205,20 @@ func (r *testTurnRouter) CancelSessionTurn(
 	sessionID uuid.UUID,
 ) (bool, error) {
 	r.cancelledSessions = append(r.cancelledSessions, sessionID)
+
+	if r.cancelErr != nil {
+		return false, r.cancelErr
+	}
+
+	return r.cancelRouted, nil
+}
+
+func (r *testTurnRouter) CancelSessionAgentRun(
+	_ context.Context,
+	_ uuid.UUID,
+	agentRunID uuid.UUID,
+) (bool, error) {
+	r.cancelledAgentRuns = append(r.cancelledAgentRuns, agentRunID)
 
 	if r.cancelErr != nil {
 		return false, r.cancelErr

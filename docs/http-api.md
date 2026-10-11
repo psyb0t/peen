@@ -42,7 +42,8 @@ The accepted client event is `message.send`. Its `data` is strict JSON:
     "message": "required, non-empty",
     "model": "optional provider/model override for this call only",
     "reasoningEffort": "optional minimal | low | medium | high | xhigh | max",
-    "systemPrompt": {"mode": "append", "content": "optional instructions"}
+    "systemPrompt": {"mode": "append", "content": "optional instructions"},
+    "to": "optional run ID of a running child agent"
   },
   "metadata": {"sessionId": "canonical UUIDv4 returned by sessions/open"},
   "timestamp": 0,
@@ -53,6 +54,8 @@ The accepted client event is `message.send`. Its `data` is strict JSON:
 `systemPrompt.mode` is `append` for the default prompt plus the supplied text, or `replace` for the supplied text alone. Both `mode` and a non-empty `content` are required when `systemPrompt` is present, and leaving either out fails the message with `VALIDATION_FAILED`. Neither setting carries over to the next message.
 
 `reasoningEffort` sets the reasoning level for this turn's model calls. Without it the model uses its own default. Peen fits a level the model cannot take. A model without reasoning levels gets none, and a level outside the model's range runs at the nearest level it supports. The controller logs each change with the requested level, the level used, and a `reason`. Any other value fails the message with `VALIDATION_FAILED`.
+
+`to` sends the message to a running child agent of the session instead of the root conversation. The child reads it after its current tool call, as a `<message from="user">` block, and it is stored in the child's transcript once it reaches the model. Such a message starts no turn and completes at once with `message.completed` `{"queued": true}`. It cannot carry `model`, `reasoningEffort`, or `systemPrompt`, and doing so fails with `VALIDATION_FAILED`. A child that has ended fails it with `AGENT_FINISHED`, a run ID the session never had fails with `AGENT_NOT_FOUND`, and a child whose inbox already holds `PEEN_MAX_QUEUED_USER_MESSAGES` messages fails it with `USER_MESSAGE_QUEUE_FULL`. Use it to answer a child's question or to steer it. See [running children](agents.md#running-children).
 
 `metadata.sessionId` is required on every client message. It routes the work to an existing session and does not grant access. `data.workspace` is rejected. A client learns a session ID from `POST /v1/sessions/open`, not from a special first socket frame.
 
@@ -106,7 +109,9 @@ A protocol event is a stored record of one step of a turn. Each one goes out liv
 | `turn.completed` | `{model, text}` | The turn finished. `text` is the final answer. |
 | `turn.failed` | `{reason}` | The turn failed. |
 | `turn.cancelled` | `{reason}` | The turn was cancelled. |
-| `agent.run.*` | `{agentRunId, parentTurnId, parentAgentRunId?, event}` | A step of a child agent run. The names are `agent.run.started`, `.text.delta`, `.thinking.delta`, `.tool.use`, `.tool.result`, `.assistant.message`, `.message.injected`, `.provider.retry`, `.completed`, `.failed`, and `.cancelled`. `event` holds the step's own payload. These frames are not in `GET /v1/session/events`. Peen stores them with the run, and `GET /v1/session/agents/{agentRunId}/events` returns them. |
+| `question.asked` | `{question}` | The root conversation asked you a question with `ask`. Your next message is the answer. |
+| `question.answered` | `{answered}` | The root's `ask` ended. `answered` is `false` when it timed out. |
+| `agent.run.*` | `{agentRunId, parentTurnId, parentAgentRunId?, event}` | A step of a child agent run. The names are `agent.run.started`, `.text.delta`, `.thinking.delta`, `.tool.use`, `.tool.result`, `.assistant.message`, `.message.injected`, `.message.queued`, `.message.delivered`, `.message.undelivered`, `.question`, `.answer`, `.provider.retry`, `.completed`, `.failed`, and `.cancelled`. `event` holds the step's own payload. The `.message.*` steps carry `{message}` for a message sent to the child, `.question` carries `{question}`, and `.answer` carries `{answered}`. These frames are not in `GET /v1/session/events`. Peen stores them with the run, and `GET /v1/session/agents/{agentRunId}/events` returns them. |
 
 `content_block_start`, `content_block_delta`, and `content_block_stop` carry the model's reply as shown above. `message.completed` and `message.failed` answer one client frame, as described below, and are not stored.
 
@@ -247,13 +252,13 @@ Reads one existing session. `X-Session-ID` is required.
 
 ## POST /v1/session/cancel
 
-Asks the session's active turn to stop. `X-Session-ID` is required, and there is no body. It returns `202` whether or not a turn was running, so repeating it is safe.
+Asks the session's active turn to stop, and stops every child agent still running in the session, including children of turns that already ended. `X-Session-ID` is required, and there is no body. It returns `202` whether or not anything was running, so repeating it is safe.
 
 ```json
 {"cancelRequested": true}
 ```
 
-`cancelRequested` is `true` only when this call found a running turn and signalled it. The endpoint does not wait for the turn to wind down.
+`cancelRequested` is `true` only when this call found a running turn or a running child and signalled it. The endpoint does not wait for them to wind down.
 
 ## POST /v1/session/reconfigure
 
@@ -341,13 +346,15 @@ Stops one job. `X-Session-ID` is required.
 
 ## GET /v1/session/agents
 
-Lists the session's child agent runs, newest first. `X-Session-ID` is required. Query parameters are `limit`, `offset`, and an optional `state` filter (`running`, `completed`, `failed`, `cancelled`).
+Lists the session's child agent runs, newest first. `X-Session-ID` is required. Query parameters are `limit`, `offset`, an optional `state` filter, and an optional `parentAgentRunId` filter.
 
-Each entry is the whole stored run record: root and parent IDs, task, the instructions in effect, allowed tools, system prompt, workspace and model identity, worker generation, event count, state and cancellation flag, final text, thinking, response messages, token counts, failure details, and timestamps. `definition` is `stored` or `ad-hoc`.
+`state` is `running`, `waiting`, `completed`, `failed`, `cancelled`, or `interrupted`. `waiting` keeps the running runs that asked a question nobody has answered yet. `parentAgentRunId` keeps the direct children of one run, or the children of the root conversation when it is `root`. Any other value fails with `400 VALIDATION_FAILED`.
+
+Each entry is the whole stored run record: root and parent IDs, task, the instructions in effect, allowed tools, system prompt, workspace and model identity, worker generation, event count, state and cancellation flag, final text, thinking, response messages, token counts, failure details, and timestamps. `definition` is `stored` or `ad-hoc`. `waiting` is `true` while the run waits on a question, and `question` holds that question. A run that is not waiting has no `question` field. Peen reads both from the run's `agent.run.question` and `agent.run.answer` events, so a run is waiting from its question until its `ask` ends.
 
 ## GET /v1/session/agents/{agentRunId}
 
-Reads one stored child agent run. `X-Session-ID` is required. The record includes its parent tool call, depth, model response, token counts, failure details, and start and end times.
+Reads one stored child agent run. `X-Session-ID` is required. The record includes its parent tool call, depth, model response, token counts, failure details, `waiting` and `question`, and start and end times.
 
 ## GET /v1/session/agents/{agentRunId}/events
 
@@ -363,7 +370,7 @@ A run ID belonging to another session returns `404`, the same as an unknown one,
 
 Lists one child agent run's own transcript, oldest first. `X-Session-ID` is required. Query parameters are `limit` and `offset`.
 
-A child agent runs in a separate model context, so its conversation lives apart from the session transcript and never appears under `GET /v1/messages`. The first record is the task its parent gave it. The rest are the assistant messages, tool results, and hook injections the child saw. Each record carries `agentRunId`, `sequence`, `role`, `content`, the `isError` and `incomplete` flags, optional `model`, `thinking`, `toolCalls`, and `toolCallId`, and `compactionId` when a child compaction covers it.
+A child agent runs in a separate model context, so its conversation lives apart from the session transcript and never appears under `GET /v1/messages`. The first record is the task its parent gave it, as a `<message>` block naming the parent. The rest are the assistant messages, tool results, hook injections, and messages from other agents or from you that the child saw. Each record carries `agentRunId`, `sequence`, `role`, `content`, the `isError` and `incomplete` flags, optional `model`, `thinking`, `toolCalls`, and `toolCallId`, and `compactionId` when a child compaction covers it.
 
 ```json
 {"messages": [{"id": "uuid", "sessionId": "uuid", "agentRunId": "uuid", "sequence": 1, "role": "user", "content": "...", "isError": false, "incomplete": false, "compactionId": null, "createdAt": "..."}], "limit": 50, "offset": 0, "hasMore": false}
@@ -387,7 +394,7 @@ Reads one child compaction record. `X-Session-ID` is required, and the record mu
 
 ## POST /v1/session/agents/{agentRunId}/cancel
 
-Cancels one child agent run without ending its parent turn. `X-Session-ID` is required, and there is no body. It behaves like `POST /v1/session/cancel` and is safe to repeat.
+Cancels one child agent run without ending its parent turn. The children it launched stop with it. `X-Session-ID` is required, and there is no body. Peen records the request and reaches the session's worker, where the child runs. It behaves like `POST /v1/session/cancel` and is safe to repeat.
 
 ```json
 {"agentRunId": "uuid", "cancelRequested": true, "state": "running"}

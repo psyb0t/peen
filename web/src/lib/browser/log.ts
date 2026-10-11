@@ -10,6 +10,10 @@ import { isRecord } from "$lib/common/json";
 export const BROWSER_LOG_PREFIX = "peen.browser";
 
 export const BROWSER_LOG_EVENTS = [
+	"agent.stop.complete",
+	"agent.stop.fail",
+	"agent.stop.start",
+	"agents.refresh.fail",
 	"controller.refresh.complete",
 	"controller.refresh.fail",
 	"controller.refresh.start",
@@ -41,6 +45,8 @@ export const BROWSER_LOG_EVENTS = [
 ] as const;
 
 export const BROWSER_LOG_OPERATIONS = [
+	"agent.stop",
+	"agents.refresh",
 	"controller.refresh",
 	"message.send",
 	"session.cancel",
@@ -63,6 +69,7 @@ export type BrowserFrameRejectReason = (typeof BROWSER_FRAME_REJECT_REASONS)[num
 // Keys are lowercase_snake so a browser record greps the same as the
 // controller's own log fields.
 export interface BrowserLogMetadata {
+	agent_run_id?: string;
 	count?: number;
 	duration_ms?: number;
 	event_id?: string;
@@ -120,6 +127,7 @@ function safeMetadata(metadata: unknown): BrowserLogMetadata {
 	}
 
 	return {
+		agent_run_id: matching(metadata.agent_run_id, UUID_PATTERN),
 		count: safeCount(metadata.count),
 		duration_ms: safeDuration(metadata.duration_ms),
 		event_id: matching(metadata.event_id, UUID_PATTERN),

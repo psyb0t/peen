@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { afterUpdate, onMount } from "svelte";
 
+	import { agentLabel, openRootQuestion, runningAgents, sendTarget } from "$lib/agents";
 	import { agentSpaceLabel } from "$lib/agentspace";
 	import { activities, isActivityEvent, type AgentActivity } from "$lib/chat/activity";
 	import ReplyBlocks from "$lib/chat/ReplyBlocks.svelte";
@@ -24,10 +25,13 @@
 		type BrowserLogOperation,
 	} from "$lib/browser/log";
 	import {
+		AGENT_POLL_INTERVAL_MS,
 		AGENT_SPACE_DEFAULT_OPTION,
 		DEFAULT_REASONING_EFFORT,
 		MAX_LIVE_EVENTS,
 		REASONING_EFFORTS,
+		SEND_TARGET_ROOT,
+		SEND_TARGET_ROOT_LABEL,
 		SESSION_DETAIL_LIMIT,
 		SESSION_ID_HEADER,
 		SESSION_PAGE_LIMIT,
@@ -91,6 +95,8 @@
 	let messages: Message[] = [];
 	let transcriptEvents: TranscriptEvent[] = [];
 	let agents: AgentRun[] = [];
+	// sendTo is the run ID of the child the composer writes to, or the root.
+	let sendTo: string = SEND_TARGET_ROOT;
 	let compactions: Compaction[] = [];
 	let modelRuns: ModelRun[] = [];
 	let notices: SessionNotice[] = [];
@@ -124,11 +130,27 @@
 	$: transcriptItems = groupTranscript(messages);
 	$: syncSelectedModel(selectedSession);
 	$: modelNames = modelOptions(models, selectedSession?.model);
+	$: liveAgents = runningAgents(agents);
+	// A child that ends while it is the target drops back to the root.
+	$: sendTo = sendTarget(sendTo, liveAgents);
+	$: isSendingToAgent = sendTo !== SEND_TARGET_ROOT;
+	$: rootQuestion = openRootQuestion(selectedLiveEvents);
 
 	onMount(() => {
 		selectedSessionID = sessionFromLink(window.location.search);
 
-		return () => socket?.close();
+		// Child agents run on after the turn that launched them, and their
+		// progress is read from the API rather than the live feed.
+		const agentPoll = window.setInterval(() => {
+			if (liveAgents.length > 0) {
+				void refreshAgents();
+			}
+		}, AGENT_POLL_INTERVAL_MS);
+
+		return () => {
+			window.clearInterval(agentPoll);
+			socket?.close();
+		};
 	});
 
 	afterUpdate(() => {
@@ -455,19 +477,23 @@
 		}
 
 		// A message sent while a turn runs joins that turn, which keeps the
-		// model and reasoning level it started with.
-		const settings = turnRunning
-			? undefined
-			: { model: selectedModel, reasoningEffort: selectedReasoningEffort };
+		// model and reasoning level it started with. A message to a child agent
+		// starts no turn, so it carries no settings either.
+		const settings =
+			turnRunning || isSendingToAgent
+				? undefined
+				: { model: selectedModel, reasoningEffort: selectedReasoningEffort };
+		const agentRunID = isSendingToAgent ? sendTo : undefined;
 
 		logBrowserEvent("message.send.start", {
+			agent_run_id: agentRunID,
 			model: settings?.model,
 			reasoning_effort: settings?.reasoningEffort,
 			session_id: selectedSessionID,
 		});
 
 		try {
-			socket?.send(selectedSessionID, messageText.trim(), settings);
+			socket?.send(selectedSessionID, messageText.trim(), settings, agentRunID);
 			messageText = "";
 		} catch (cause) {
 			logBrowserEvent("message.send.fail", { session_id: selectedSessionID });
@@ -499,6 +525,65 @@
 				session_id: cancelledSessionID,
 			});
 			setError("session.cancel", cause);
+		}
+	}
+
+	async function stopAgent(agentRunID: string): Promise<void> {
+		const stoppedSessionID = selectedSessionID;
+		const elapsed = startBrowserTimer();
+		logBrowserEvent("agent.stop.start", {
+			agent_run_id: agentRunID,
+			session_id: stoppedSessionID,
+		});
+
+		try {
+			await requireData(
+				controller().POST("/session/agents/{agentRunId}/cancel", {
+					params: { header: sessionHeaders(), path: { agentRunId: agentRunID } },
+				}),
+			);
+			logBrowserEvent("agent.stop.complete", {
+				agent_run_id: agentRunID,
+				duration_ms: elapsed(),
+				session_id: stoppedSessionID,
+			});
+			await refreshAgents();
+		} catch (cause) {
+			logBrowserEvent("agent.stop.fail", {
+				...failure(cause, elapsed),
+				agent_run_id: agentRunID,
+				session_id: stoppedSessionID,
+			});
+			setError("agent.stop", cause);
+		}
+	}
+
+	// refreshAgents rereads the child agents of the selected session. A
+	// response for a session the reader left is dropped.
+	async function refreshAgents(): Promise<void> {
+		if (selectedSessionID === "" || api === undefined) {
+			return;
+		}
+
+		const refreshedSessionID = selectedSessionID;
+
+		try {
+			const page = await requireData(
+				controller().GET("/session/agents", {
+					params: {
+						header: sessionHeaders(),
+						query: { limit: SESSION_DETAIL_LIMIT, offset: 0 },
+					},
+				}),
+			);
+			if (refreshedSessionID === selectedSessionID) {
+				agents = page.agents;
+			}
+		} catch (cause) {
+			logBrowserEvent("agents.refresh.fail", {
+				...(cause instanceof PeenAPIError ? { status: cause.status } : {}),
+				session_id: refreshedSessionID,
+			});
 		}
 	}
 
@@ -853,24 +938,59 @@
 					{/each}
 				</div>
 
+				{#if rootQuestion !== undefined}<div class="root-question" role="status">
+						<span>Peen asks</span>
+						<p>{rootQuestion}</p>
+					</div>{/if}
+				{#if liveAgents.length > 0}<section
+						aria-label="Running agents"
+						class="running-agents"
+					>
+						<h3>Running agents</h3>
+						<ul>
+							{#each liveAgents as agent (agent.agentRunId)}<li>
+									<div>
+										<span class="agent-name">{agentLabel(agent)}</span>
+										{#if agent.waiting && agent.question}<p class="agent-question">
+												Asks: {agent.question}
+											</p>{/if}
+									</div>
+									<button
+										aria-label={`Stop ${agentLabel(agent)}`}
+										onclick={() => stopAgent(agent.agentRunId)}
+										type="button">Stop</button
+									>
+								</li>{/each}
+						</ul>
+					</section>{/if}
+
 				<form class="composer" onsubmit={sendMessage}>
 					<div class="composer-controls">
-						<label
+						{#if liveAgents.length > 0}<label
+								><span>Send to</span><select bind:value={sendTo}
+									><option value={SEND_TARGET_ROOT}>{SEND_TARGET_ROOT_LABEL}</option
+									>{#each liveAgents as agent (agent.agentRunId)}<option
+											value={agent.agentRunId}>{agentLabel(agent)}</option
+										>{/each}</select
+								></label
+							>{/if}<label
 							><span>Model</span><select
 								bind:value={selectedModel}
-								disabled={turnRunning}
+								disabled={turnRunning || isSendingToAgent}
 								>{#each modelNames as name (name)}<option value={name}>{name}</option
 									>{/each}</select
 							></label
 						><label
 							><span>Reasoning</span><select
 								bind:value={selectedReasoningEffort}
-								disabled={turnRunning}
+								disabled={turnRunning || isSendingToAgent}
 								>{#each REASONING_EFFORTS as effort (effort)}<option value={effort}
 										>{effort}</option
 									>{/each}</select
 							></label
-						>{#if turnRunning}<p>
+						>{#if isSendingToAgent}<p>
+								The agent reads this after its current step.
+							</p>{:else if turnRunning}<p>
 								Messages queue up and land after the current step.
 							</p>{/if}
 					</div>
@@ -878,7 +998,9 @@
 						><span class="sr-only">Message</span><textarea
 							bind:value={messageText}
 							onkeydown={sendOnEnter}
-							placeholder="Ask Peen to work on this workspace"
+							placeholder={rootQuestion === undefined
+								? "Ask Peen to work on this workspace"
+								: "Answer Peen's question"}
 							required
 							rows="3"></textarea></label
 					>
@@ -1482,6 +1604,54 @@ height: 100dvh; padding: 1rem;
 		50% {
 			opacity: 0.45;
 		}
+	}
+	.root-question,
+	.running-agents {
+		background: #1b1c21;
+		border: 1px solid #3a3c43;
+		border-radius: 0.75rem;
+		margin: 0.75rem clamp(1.25rem, 5vw, 3.5rem) 0;
+		padding: 0.6rem 0.9rem;
+	}
+	.root-question {
+		border-color: #d6ff4f;
+	}
+	.root-question span,
+	.running-agents h3 {
+		color: #d6ff4f;
+		font-size: 0.7rem;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+		margin: 0;
+		text-transform: uppercase;
+	}
+	.root-question p {
+		margin: 0.3rem 0 0;
+		white-space: pre-wrap;
+		word-break: break-word;
+	}
+	.running-agents ul {
+		display: grid;
+		gap: 0.4rem;
+		list-style: none;
+		margin: 0.45rem 0 0;
+		padding: 0;
+	}
+	.running-agents li {
+		align-items: center;
+		display: flex;
+		gap: 0.75rem;
+		justify-content: space-between;
+	}
+	.agent-name {
+		font-family: ui-monospace, monospace;
+		font-size: 0.8rem;
+	}
+	.agent-question {
+		color: #c8cad0;
+		font-size: 0.78rem;
+		margin: 0.2rem 0 0;
+		word-break: break-word;
 	}
 	.composer {
 		backdrop-filter: blur(12px);

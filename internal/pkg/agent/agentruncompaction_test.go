@@ -73,13 +73,23 @@ var errChildCompactionSummarize = errors.New(
 
 // childCompactionCounter is a deterministic elelem.TokenCounter, so the child
 // budget arithmetic these tests rely on is message count rather than tokenizer
-// behavior.
+// behavior. The root's own messages count one token each, so its waiting turn
+// never compacts under a budget tuned for the child. The root is told apart by
+// its agent instructions, which no child prompt carries.
 type childCompactionCounter struct{}
 
 func (childCompactionCounter) Count(
 	messages []elelem.Message,
 	_ []elelem.Tool,
 ) (int, error) {
+	request := elelem.DriverRequest{Messages: messages}
+	if strings.Contains(
+		requestSystemPrompt(request),
+		childHarnessRootInstructions,
+	) {
+		return len(messages), nil
+	}
+
 	return len(messages) * childCompactionTokensPerMessage, nil
 }
 
@@ -138,20 +148,28 @@ func childCompactionFixture(
 	return fixture
 }
 
-// childCompactionTurns scripts a parent that delegates once, a child that runs
-// rounds tool rounds and then answers, and the parent's closing message.
-func childCompactionTurns(t *testing.T, rounds int) []elelemtest.Turn {
+// childCompactionParentTurns scripts a parent that delegates once, waits,
+// and closes.
+func childCompactionParentTurns(t *testing.T) []elelemtest.Turn {
 	t.Helper()
 
-	turns := make([]elelemtest.Turn, 0, rounds+3)
-	turns = append(turns, elelemtest.ToolCall(
+	return launchAndWaitTurns(
+		t,
 		launchAgentCallID,
-		toolNameLaunchAgent,
-		launchAgentArguments(t, launchAgentInput{
+		launchAgentInput{
 			Task:  childCompactionTask,
 			Agent: launchAgentChildName,
-		}),
-	))
+		},
+		childCompactionParentText,
+	)
+}
+
+// childCompactionChildTurns scripts a child that runs rounds tool rounds and
+// then answers.
+func childCompactionChildTurns(t *testing.T, rounds int) []elelemtest.Turn {
+	t.Helper()
+
+	turns := make([]elelemtest.Turn, 0, rounds+1)
 
 	for round := range rounds {
 		turns = append(turns, elelemtest.ToolCall(
@@ -161,21 +179,41 @@ func childCompactionTurns(t *testing.T, rounds int) []elelemtest.Turn {
 		))
 	}
 
-	return append(
-		turns,
-		elelemtest.Text(childCompactionFinished),
-		elelemtest.Text(childCompactionParentText),
-	)
+	return append(turns, elelemtest.Text(childCompactionFinished))
 }
 
+// childCompactionDriver serves the parent from parentTurns, the child from
+// childTurns once the parent waits, and the compaction model from
+// compactionTurns. Every script shares the deterministic token counter.
 func childCompactionDriver(
+	parentTurns []elelemtest.Turn,
+	childTurns []elelemtest.Turn,
+	compactionTurns ...elelemtest.Turn,
+) *conversationDriver {
+	script := func(turns []elelemtest.Turn) *elelemtest.ScriptedDriver {
+		return elelemtest.NewScriptedDriver(turns...).
+			WithTokenCounter(childCompactionCounter{})
+	}
+
+	return newConversationDriver(map[string]*elelemtest.ScriptedDriver{
+		rootConversation:       script(parentTurns),
+		runtimeTestAgentName:   script(childTurns),
+		compactionConversation: script(compactionTurns),
+	}).after(runtimeTestAgentName, rootConversation, 2)
+}
+
+// childCompactionRoundsDriver is the usual shape: a parent that delegates and
+// waits, and a child that runs rounds tool rounds.
+func childCompactionRoundsDriver(
 	t *testing.T,
 	rounds int,
-) *elelemtest.ScriptedDriver {
+) *conversationDriver {
 	t.Helper()
 
-	return elelemtest.NewScriptedDriver(childCompactionTurns(t, rounds)...).
-		WithTokenCounter(childCompactionCounter{})
+	return childCompactionDriver(
+		childCompactionParentTurns(t),
+		childCompactionChildTurns(t, rounds),
+	)
 }
 
 // writeChildCompactionInjectHook makes every child tool round add one injected
@@ -274,7 +312,7 @@ func childCompactionChain(
 // at its direct predecessor.
 func TestChildAgentKeepsOwnTranscriptAndCompactionLineage(t *testing.T) {
 	ctx := context.Background()
-	driver := childCompactionDriver(t, childCompactionRounds)
+	driver := childCompactionRoundsDriver(t, childCompactionRounds)
 	fixture := childCompactionFixture(t, driver, childCompactionRepeatBudget)
 	writeChildCompactionInjectHook(t, fixture)
 
@@ -300,7 +338,7 @@ func TestChildAgentKeepsOwnTranscriptAndCompactionLineage(t *testing.T) {
 		first.Role,
 		"a child transcript opens with its task",
 	)
-	assert.Equal(t, childCompactionTask, first.Content)
+	assert.Equal(t, taggedTask(t, childCompactionTask), first.Content)
 	assert.Equal(t, int64(1), first.Sequence)
 
 	roles := map[models.MessageRole]int{}
@@ -418,12 +456,16 @@ func TestChildAgentKeepsOwnTranscriptAndCompactionLineage(t *testing.T) {
 // parent message may be claimed by a child compaction.
 func TestChildCompactionLeavesParentRecordsUntouched(t *testing.T) {
 	ctx := context.Background()
-	turns := append(
-		[]elelemtest.Turn{elelemtest.Text(childCompactionSeedText)},
-		childCompactionTurns(t, childCompactionRounds)...,
+	driver := childCompactionDriver(
+		append(
+			[]elelemtest.Turn{elelemtest.Text(childCompactionSeedText)},
+			childCompactionParentTurns(t)...,
+		),
+		childCompactionChildTurns(t, childCompactionRounds),
 	)
-	driver := elelemtest.NewScriptedDriver(turns...).
-		WithTokenCounter(childCompactionCounter{})
+	// The seed turn is the root's first call, so the child starts once the
+	// delegating turn's second call does.
+	driver.after(runtimeTestAgentName, rootConversation, 3)
 	fixture := childCompactionFixture(t, driver, childCompactionRepeatBudget)
 
 	// One ordinary turn first, so the parent already has durable rows before
@@ -571,29 +613,11 @@ func TestChildCompactionModelRunCarriesAgentRunID(t *testing.T) {
 	// path, which is what records a ModelRun. Under the single-compaction
 	// budget the child's third request is the one over budget, so the
 	// compaction model reads the text turn scripted for it here.
-	driver := elelemtest.NewScriptedDriver(
-		elelemtest.ToolCall(
-			launchAgentCallID,
-			toolNameLaunchAgent,
-			launchAgentArguments(t, launchAgentInput{
-				Task:  childCompactionTask,
-				Agent: launchAgentChildName,
-			}),
-		),
-		elelemtest.ToolCall(
-			"call_child_round_0",
-			toolNameReadFile,
-			runtimeToolArguments(t, childCompactionReadFile),
-		),
-		elelemtest.ToolCall(
-			"call_child_round_1",
-			toolNameReadFile,
-			runtimeToolArguments(t, childCompactionReadFile),
-		),
+	driver := childCompactionDriver(
+		childCompactionParentTurns(t),
+		childCompactionChildTurns(t, 2),
 		elelemtest.Text(childCompactionModelSummary),
-		elelemtest.Text(childCompactionFinished),
-		elelemtest.Text(childCompactionParentText),
-	).WithTokenCounter(childCompactionCounter{})
+	)
 
 	fixture := childCompactionFixture(t, driver, childCompactionSingleBudget)
 
@@ -668,7 +692,7 @@ func TestChildCompactionModelRunCarriesAgentRunID(t *testing.T) {
 // recorded, and the whole superseding chain.
 func TestChildTranscriptAndCompactionsSurviveRestart(t *testing.T) {
 	ctx := context.Background()
-	driver := childCompactionDriver(t, childCompactionRounds)
+	driver := childCompactionRoundsDriver(t, childCompactionRounds)
 	fixture := childCompactionFixture(t, driver, childCompactionRepeatBudget)
 	writeChildCompactionInjectHook(t, fixture)
 
@@ -779,7 +803,7 @@ func TestChildTranscriptAndCompactionsSurviveRestart(t *testing.T) {
 // and page within their bounds.
 func TestChildTranscriptRoutesIsolateSessionsAndPage(t *testing.T) {
 	ctx := context.Background()
-	driver := childCompactionDriver(t, childCompactionRounds)
+	driver := childCompactionRoundsDriver(t, childCompactionRounds)
 	fixture := childCompactionFixture(t, driver, childCompactionRepeatBudget)
 	writeChildCompactionInjectHook(t, fixture)
 
@@ -928,7 +952,7 @@ func TestChildCompactionFailureLeavesNoRowAndNoPostHook(t *testing.T) {
 	// The child reaches its budget on the round after its last scripted tool
 	// call, so the failing compaction is the last thing it does and the parent
 	// reads its closing message next.
-	driver := childCompactionDriver(t, childCompactionFailureRounds)
+	driver := childCompactionRoundsDriver(t, childCompactionFailureRounds)
 	fixture := childCompactionFixture(t, driver, childCompactionRepeatBudget)
 
 	scriptRoot := t.TempDir()
@@ -1016,7 +1040,7 @@ func TestChildCompactionFailureLeavesNoRowAndNoPostHook(t *testing.T) {
 // Both compaction lifecycle hooks fire for a child that does compact, under
 // the child's own workspace and the launching turn's correlation.
 func TestChildCompactionRunsBothLifecycleHooks(t *testing.T) {
-	driver := childCompactionDriver(t, childCompactionRounds)
+	driver := childCompactionRoundsDriver(t, childCompactionRounds)
 	fixture := childCompactionFixture(t, driver, childCompactionRepeatBudget)
 
 	scriptRoot := t.TempDir()

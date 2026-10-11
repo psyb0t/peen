@@ -3,8 +3,10 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
@@ -59,13 +61,19 @@ func TestNewAgentRunRegistryValidatesOptions(t *testing.T) {
 	}
 }
 
-func TestAgentRunRegistryStartContextDescendsFromParent(t *testing.T) {
+type agentRunTestKey struct{}
+
+// A child outlives the tool call that launched it: the run's context keeps
+// the caller's values but not its cancellation.
+func TestAgentRunRegistryStartContextOutlivesTheCaller(t *testing.T) {
 	t.Parallel()
 
 	registry, err := NewAgentRunRegistry(uuid.New(), nil, AgentRunLimits{})
 	require.NoError(t, err)
 
-	parentCtx, cancel := context.WithCancel(context.Background())
+	parentCtx, cancel := context.WithCancel(
+		context.WithValue(context.Background(), agentRunTestKey{}, "kept"),
+	)
 	run, runCtx, err := registry.Start(parentCtx, StartAgentRunInput{
 		Name:       "child",
 		Definition: AgentRunDefinitionStored,
@@ -73,13 +81,143 @@ func TestAgentRunRegistryStartContextDescendsFromParent(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, AgentRunStateRunning, run.Snapshot().State)
-	assert.NoError(t, runCtx.Err())
 
-	// Cancelling the parent context must cascade to the run's own context,
-	// which is what makes cancelling a parent turn cancel the whole child
-	// tree: the run's context is a plain context.WithCancel descendant.
 	cancel()
-	assert.Error(t, runCtx.Err())
+	require.NoError(t, runCtx.Err())
+	assert.Equal(t, "kept", runCtx.Value(agentRunTestKey{}))
+
+	registry.Cancel(run.ID)
+	assert.ErrorIs(t, runCtx.Err(), context.Canceled)
+}
+
+func TestAgentRunRegistryCancelTurnStopsOnlyThatTurnsRuns(t *testing.T) {
+	t.Parallel()
+
+	registry, err := NewAgentRunRegistry(uuid.New(), nil, AgentRunLimits{})
+	require.NoError(t, err)
+
+	cancelledTurn, otherTurn := uuid.New(), uuid.New()
+
+	child, childCtx, err := registry.Start(
+		context.Background(),
+		StartAgentRunInput{
+			Name:         "child",
+			ParentTurnID: cancelledTurn,
+			Depth:        1,
+		},
+	)
+	require.NoError(t, err)
+
+	_, grandchildCtx, err := registry.Start(
+		context.Background(),
+		StartAgentRunInput{
+			Name:             "grandchild",
+			ParentTurnID:     cancelledTurn,
+			ParentAgentRunID: &child.ID,
+			Depth:            2,
+		},
+	)
+	require.NoError(t, err)
+
+	_, otherCtx, err := registry.Start(
+		context.Background(),
+		StartAgentRunInput{Name: "other", ParentTurnID: otherTurn, Depth: 1},
+	)
+	require.NoError(t, err)
+
+	assert.Equal(t, 2, registry.CancelTurn(cancelledTurn))
+	require.ErrorIs(t, childCtx.Err(), context.Canceled)
+	require.ErrorIs(t, grandchildCtx.Err(), context.Canceled)
+	require.NoError(t, otherCtx.Err())
+
+	assert.Equal(t, 1, registry.CancelRunning())
+	assert.ErrorIs(t, otherCtx.Err(), context.Canceled)
+}
+
+func TestAgentRunRegistryCancelDescendantsLeavesTheParentAndSiblings(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	registry, err := NewAgentRunRegistry(uuid.New(), nil, AgentRunLimits{
+		MaxConcurrentRuns: 8,
+	})
+	require.NoError(t, err)
+
+	start := func(name string, parent *uuid.UUID) (*AgentRun, context.Context) {
+		t.Helper()
+
+		run, runCtx, err := registry.Start(
+			context.Background(),
+			StartAgentRunInput{Name: name, ParentAgentRunID: parent},
+		)
+		require.NoError(t, err)
+
+		return run, runCtx
+	}
+
+	parent, parentCtx := start("parent", nil)
+	sibling, siblingCtx := start("sibling", nil)
+	child, childCtx := start("child", &parent.ID)
+	_, grandchildCtx := start("grandchild", &child.ID)
+	_, cousinCtx := start("cousin", &sibling.ID)
+
+	assert.Equal(t, 2, registry.cancelDescendants(parent.ID))
+	require.ErrorIs(t, childCtx.Err(), context.Canceled)
+	require.ErrorIs(t, grandchildCtx.Err(), context.Canceled)
+	require.NoError(t, parentCtx.Err())
+	require.NoError(t, siblingCtx.Err())
+	assert.NoError(t, cousinCtx.Err())
+}
+
+func TestAgentRunRegistryDeliverReportsUnknownAndFinishedRuns(t *testing.T) {
+	t.Parallel()
+
+	registry, err := NewAgentRunRegistry(uuid.New(), nil, AgentRunLimits{})
+	require.NoError(t, err)
+
+	err = registry.Deliver(context.Background(), uuid.New(), "hello")
+	require.ErrorIs(t, err, commerr.ErrNotFound)
+
+	run, _, err := registry.Start(context.Background(), StartAgentRunInput{
+		Name: "child",
+	})
+	require.NoError(t, err)
+
+	err = registry.Deliver(context.Background(), run.ID, "no inbox")
+	require.ErrorIs(t, err, session.ErrAgentRunFinished)
+
+	registry.Finish(
+		context.Background(),
+		run,
+		AgentRunResult{State: AgentRunStateCompleted},
+	)
+
+	err = registry.Deliver(context.Background(), run.ID, "too late")
+	assert.ErrorIs(t, err, session.ErrAgentRunFinished)
+}
+
+func TestAgentRunRegistryWaitReturnsWhenEveryRunEnds(t *testing.T) {
+	t.Parallel()
+
+	registry, err := NewAgentRunRegistry(uuid.New(), nil, AgentRunLimits{})
+	require.NoError(t, err)
+
+	run, _, err := registry.Start(context.Background(), StartAgentRunInput{
+		Name: "child",
+	})
+	require.NoError(t, err)
+
+	expired, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.ErrorIs(t, registry.Wait(expired), context.Canceled)
+
+	registry.Finish(
+		context.Background(),
+		run,
+		AgentRunResult{State: AgentRunStateCancelled},
+	)
+	assert.NoError(t, registry.Wait(context.Background()))
 }
 
 func TestAgentRunRegistryStartEnforcesConcurrencyLimit(t *testing.T) {
@@ -108,7 +246,11 @@ func TestAgentRunRegistryStartEnforcesConcurrencyLimit(t *testing.T) {
 	require.ErrorIs(t, err, ErrTooManyAgentRuns)
 
 	// Freeing a slot by finishing a run lets a new one start again.
-	registry.Finish(context.Background(), first, AgentRunStateCompleted)
+	registry.Finish(
+		context.Background(),
+		first,
+		AgentRunResult{State: AgentRunStateCompleted},
+	)
 
 	third, _, err := registry.Start(context.Background(), StartAgentRunInput{
 		Name: "c", Definition: AgentRunDefinitionStored, Depth: 1,
@@ -146,7 +288,11 @@ func TestAgentRunRegistryCancelIsIdempotent(t *testing.T) {
 	require.True(t, found)
 	assert.Equal(t, AgentRunStateRunning, snapshot.State)
 
-	registry.Finish(context.Background(), run, AgentRunStateCancelled)
+	registry.Finish(
+		context.Background(),
+		run,
+		AgentRunResult{State: AgentRunStateCancelled},
+	)
 
 	// Cancelling an already-completed run reports its current state rather
 	// than failing.
@@ -202,7 +348,11 @@ func TestAgentRunRegistryLateCleanupNeverTouchesNewerRun(t *testing.T) {
 	require.NoError(t, err)
 
 	// The older run finishes late, after the newer one has already started.
-	registry.Finish(context.Background(), older, AgentRunStateCompleted)
+	registry.Finish(
+		context.Background(),
+		older,
+		AgentRunResult{State: AgentRunStateCompleted},
+	)
 
 	assert.Equal(t, AgentRunStateCompleted, older.Snapshot().State)
 	assert.Equal(
@@ -222,13 +372,29 @@ func TestAgentRunRegistryFinishPublishesCompletionEvents(t *testing.T) {
 	require.NoError(t, err)
 
 	testCases := []struct {
-		name      string
-		state     AgentRunState
-		wantEvent events.Type
+		name         string
+		result       AgentRunResult
+		wantEvent    events.Type
+		wantDelivery events.Delivery
 	}{
-		{"completed", AgentRunStateCompleted, events.TypeAgentFinished},
-		{"failed", AgentRunStateFailed, events.TypeAgentFailed},
-		{"cancelled", AgentRunStateCancelled, events.TypeAgentFailed},
+		{
+			"completed",
+			AgentRunResult{State: AgentRunStateCompleted, Response: "done"},
+			events.TypeAgentFinished,
+			events.DeliveryWake,
+		},
+		{
+			"failed",
+			AgentRunResult{State: AgentRunStateFailed, FailureDetail: "boom"},
+			events.TypeAgentFailed,
+			events.DeliveryWake,
+		},
+		{
+			"cancelled",
+			AgentRunResult{State: AgentRunStateCancelled},
+			events.TypeAgentFailed,
+			events.DeliveryQueue,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -237,16 +403,21 @@ func TestAgentRunRegistryFinishPublishesCompletionEvents(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		registry.Finish(context.Background(), run, tc.state)
+		registry.Finish(context.Background(), run, tc.result)
 
 		batch := bus.Drain(sessionID)
 		require.Len(t, batch.Notices, 1)
 		assert.Equal(t, tc.wantEvent, batch.Notices[0].Type)
+		assert.Equal(t, tc.wantDelivery, batch.Notices[0].Delivery)
 
 		var data agentEventData
 		require.NoError(t, json.Unmarshal(batch.Notices[0].Data, &data))
 		assert.Equal(t, run.ID, data.RunID)
 		assert.Equal(t, tc.name, data.AgentName)
+		assert.Equal(t, tc.result.State, data.State)
+		assert.Equal(t, tc.result.Response, data.Response)
+		assert.Equal(t, tc.result.FailureDetail, data.FailureDetail)
+		assert.False(t, data.ResponseTruncated)
 		assert.GreaterOrEqual(t, data.DurationMs, int64(0))
 		assert.NotEmpty(t, data.Duration)
 
@@ -255,6 +426,104 @@ func TestAgentRunRegistryFinishPublishesCompletionEvents(t *testing.T) {
 		assert.Contains(t, raw, "durationMs")
 		assert.Contains(t, raw, "duration")
 	}
+}
+
+// A nested child reports to its parent run's inbox, not to the root, so its
+// end publishes no session event.
+func TestAgentRunRegistryFinishOfANestedRunPublishesNothing(t *testing.T) {
+	t.Parallel()
+
+	sessionID := uuid.New()
+	bus := events.NewBus(events.Options{})
+	registry, err := NewAgentRunRegistry(sessionID, bus, AgentRunLimits{})
+	require.NoError(t, err)
+
+	parentID := uuid.New()
+	run, _, err := registry.Start(context.Background(), StartAgentRunInput{
+		Name:             "nested",
+		ParentAgentRunID: &parentID,
+		Depth:            2,
+	})
+	require.NoError(t, err)
+
+	registry.Finish(
+		context.Background(),
+		run,
+		AgentRunResult{State: AgentRunStateCompleted, Response: "done"},
+	)
+
+	assert.Empty(t, bus.Drain(sessionID).Notices)
+}
+
+// A final answer larger than the event data bound is cut, marked, and still
+// leaves valid JSON under the bound.
+func TestAgentRunPublishCutsAnAnswerToTheDataBound(t *testing.T) {
+	t.Parallel()
+
+	const dataBound = 2048
+
+	sessionID := uuid.New()
+	bus := events.NewBus(events.Options{MaxDataBytes: dataBound})
+	registry, err := NewAgentRunRegistry(
+		sessionID,
+		limitedBusPublisher{bus: bus},
+		AgentRunLimits{},
+	)
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name     string
+		response string
+	}{
+		{name: "plain", response: strings.Repeat("a", 4*dataBound)},
+		{name: "escaped", response: strings.Repeat("<\"", 4*dataBound)},
+		{name: "multibyte", response: strings.Repeat("é", 4*dataBound)},
+	}
+
+	for _, tc := range testCases {
+		run, _, err := registry.Start(context.Background(), StartAgentRunInput{
+			Name: tc.name,
+		})
+		require.NoError(t, err)
+
+		registry.Finish(
+			context.Background(),
+			run,
+			AgentRunResult{State: AgentRunStateCompleted, Response: tc.response},
+		)
+
+		batch := bus.Drain(sessionID)
+		require.Len(t, batch.Notices, 1, tc.name)
+		require.NotEmpty(t, batch.Notices[0].Data, tc.name)
+		assert.LessOrEqual(t, len(batch.Notices[0].Data), dataBound, tc.name)
+
+		var data agentEventData
+		require.NoError(t, json.Unmarshal(batch.Notices[0].Data, &data))
+		assert.True(t, data.ResponseTruncated, tc.name)
+		assert.True(t, utf8.ValidString(data.Response), tc.name)
+		assert.True(
+			t,
+			strings.HasSuffix(data.Response, agentResultTruncatedNote),
+			tc.name,
+		)
+	}
+}
+
+// limitedBusPublisher reports the bus's bounds the way the runtime's own
+// publisher does, so the registry fits answers to them.
+type limitedBusPublisher struct {
+	bus *events.Bus
+}
+
+func (p limitedBusPublisher) PublishContext(
+	ctx context.Context,
+	notice events.Notice,
+) (events.Notice, error) {
+	return p.bus.PublishContext(ctx, notice)
+}
+
+func (p limitedBusPublisher) EventLimits() events.Limits {
+	return p.bus.EventLimits()
 }
 
 // TestAgentRunPublishCarriesAFixedDuration pins the duration text of an
@@ -273,7 +542,7 @@ func TestAgentRunPublishCarriesAFixedDuration(t *testing.T) {
 	registry.publish(
 		context.Background(),
 		run,
-		AgentRunStateCompleted,
+		AgentRunResult{State: AgentRunStateCompleted},
 		started.Add(90*time.Second),
 	)
 

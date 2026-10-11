@@ -93,7 +93,7 @@ Every tool has `preToolUse`, `postToolUse`, and `toolUseFailure`. File tools als
 | `removePath` | `preRemovePath` | `postRemovePath` | `removePathFailure` |
 | `makeDirectory` | `preMakeDirectory` | `postMakeDirectory` | `makeDirectoryFailure` |
 
-`runCommand`, the job tools, `useSkill`, and `launchAgent` have no events of their own. Use `preToolUse` with `match.tool` for them.
+`runCommand`, the job tools, `useSkill`, `launchAgent`, and the messaging tools `sendMessage`, `waitMessages`, `stopAgent`, and `ask` have no events of their own. Use `preToolUse` with `match.tool` for them.
 
 For one tool call the order is:
 

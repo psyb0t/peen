@@ -189,6 +189,7 @@ func runInWorker(
 		SystemPrompt:    promptContent(request),
 		PromptMode:      promptMode(request),
 		Origin:          turnOrigin(request),
+		To:              request.To,
 	})
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "run the turn in the session worker")
@@ -250,6 +251,27 @@ func (r *TurnRouter) CancelSessionTurn(
 	cancelled, err := live.Cancel(ctx)
 	if err != nil {
 		return false, ctxerrors.Wrap(err, "cancel the session worker turn")
+	}
+
+	return cancelled, nil
+}
+
+// CancelSessionAgentRun asks the session's live worker to stop one running
+// child agent. A session with no live worker runs no children here, so the
+// answer is that nothing was stopped rather than an error.
+func (r *TurnRouter) CancelSessionAgentRun(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	agentRunID uuid.UUID,
+) (bool, error) {
+	live, found := r.workers.Current(sessionID)
+	if !found {
+		return false, nil
+	}
+
+	cancelled, err := live.CancelAgentRun(ctx, agentRunID)
+	if err != nil {
+		return false, ctxerrors.Wrap(err, "cancel the session worker agent run")
 	}
 
 	return cancelled, nil

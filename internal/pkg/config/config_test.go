@@ -292,7 +292,11 @@ func TestParseRejectsUnknownDisabledCoreNamesNamingTheEntry(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalidConfig)
 	assert.Contains(t, err.Error(), "PEEN_DISABLED_CORE_SKILLS")
 	assert.Contains(t, err.Error(), "bogus")
-	assert.Contains(t, err.Error(), "freshness, planning")
+	assert.Contains(
+		t,
+		err.Error(),
+		"delegation, freshness, plan-and-delegate, planning",
+	)
 
 	t.Setenv("PEEN_DISABLED_CORE_SKILLS", "")
 	t.Setenv("PEEN_DISABLED_CORE_AGENTS", "default")
@@ -552,6 +556,15 @@ func TestConfigValidateMessageLimits(t *testing.T) {
 		{
 			name:    "negative stored message byte bound",
 			mutate:  func(c *Config) { c.MaxStoredMessageBytes = -1 },
+			wantErr: true,
+		},
+		{
+			name:   "an ask timeout bounds the wait",
+			mutate: func(c *Config) { c.AskTimeout = time.Minute },
+		},
+		{
+			name:    "negative ask timeout",
+			mutate:  func(c *Config) { c.AskTimeout = -time.Second },
 			wantErr: true,
 		},
 	}

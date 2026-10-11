@@ -20,27 +20,19 @@ func (r *Runtime) ListSessionAgentRuns(
 	sessionID uuid.UUID,
 	params api.ListSessionAgentRunsParams,
 ) (*api.AgentRunPage, error) {
-	limit, offset, err := pagingOptionsFromAPI(params.Limit, params.Offset)
+	options, err := listAgentRunsOptionsFromAPI(params)
 	if err != nil {
 		return nil, err
-	}
-
-	var state *models.AgentRunState
-
-	if params.State != nil {
-		parsed := models.AgentRunState(*params.State)
-		state = &parsed
-	}
-
-	options := session.ListAgentRunsOptions{
-		Limit:  limit,
-		Offset: offset,
-		State:  state,
 	}
 
 	stored, err := r.store.ListAgentRuns(ctx, sessionID, options)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "list durable agent runs")
+	}
+
+	questions, err := r.store.OpenAgentRunQuestions(ctx, sessionID)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "list open agent run questions")
 	}
 
 	pageLimit, err := messagePageValueToAPI(
@@ -71,10 +63,75 @@ func (r *Runtime) ListSessionAgentRuns(
 			return nil, convertErr
 		}
 
-		page.Agents = append(page.Agents, converted)
+		page.Agents = append(
+			page.Agents,
+			withOpenQuestion(converted, questions),
+		)
 	}
 
 	return &page, nil
+}
+
+// listAgentRunsOptionsFromAPI maps the list query. waiting is a state a
+// caller filters by, though a waiting run is stored as running.
+func listAgentRunsOptionsFromAPI(
+	params api.ListSessionAgentRunsParams,
+) (session.ListAgentRunsOptions, error) {
+	limit, offset, err := pagingOptionsFromAPI(params.Limit, params.Offset)
+	if err != nil {
+		return session.ListAgentRunsOptions{}, err
+	}
+
+	options := session.ListAgentRunsOptions{Limit: limit, Offset: offset}
+
+	if params.State != nil {
+		state := models.AgentRunState(*params.State)
+		if *params.State == api.ListSessionAgentRunsParamsStateWaiting {
+			options.IsWaiting = true
+			state = models.AgentRunStateRunning
+		}
+
+		options.State = &state
+	}
+
+	if params.ParentAgentRunId == nil {
+		return options, nil
+	}
+
+	if *params.ParentAgentRunId == rootAgentRunReference {
+		options.IsTopLevel = true
+
+		return options, nil
+	}
+
+	parent, err := uuid.Parse(*params.ParentAgentRunId)
+	if err != nil {
+		return session.ListAgentRunsOptions{}, ctxerrors.Wrapf(
+			commerr.ErrValidationFailed,
+			"parentAgentRunId must be an agent run ID or %q",
+			rootAgentRunReference,
+		)
+	}
+
+	options.ParentAgentRunID = &parent
+
+	return options, nil
+}
+
+// withOpenQuestion marks a run waiting when it has a question nobody answered.
+func withOpenQuestion(
+	run api.AgentRun,
+	questions map[uuid.UUID]string,
+) api.AgentRun {
+	question, isWaiting := questions[run.AgentRunId]
+	if !isWaiting || run.State != api.AgentRunStateRunning {
+		return run
+	}
+
+	run.Waiting = true
+	run.Question = &question
+
+	return run
 }
 
 // ListSessionAgentRunEvents follows one child through its complete SQLite
@@ -136,6 +193,13 @@ func (r *Runtime) GetSessionAgentRun(
 	if err != nil {
 		return nil, err
 	}
+
+	questions, err := r.store.OpenAgentRunQuestions(ctx, sessionID)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "list open agent run questions")
+	}
+
+	converted = withOpenQuestion(converted, questions)
 
 	return &converted, nil
 }

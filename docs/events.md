@@ -7,7 +7,7 @@ A session event, also called a notice, is a record of something that happened ou
 | Source | `source` value | Event types | When |
 | --- | --- | --- | --- |
 | Background jobs | `tools.job` | `job.exited`, `job.signalled`, `job.failed` | A command ends after its `runCommand` call has already returned, because it ran in the background or outlived its timeout. |
-| Child agents | `agent.launchAgent` | `agent.finished`, `agent.failed` | A `launchAgent` run ends. A cancelled run counts as `agent.failed`. |
+| Child agents | `agent.launchAgent` | `agent.finished`, `agent.failed`, `agent.message`, `agent.question` | A child of the root conversation ends or asks the root a question, or a child at any depth sends the root a message. A cancelled run counts as `agent.failed`. |
 | Hooks | `hooks` | any type except `job.*` and `agent.*`, plus `hook.action.failed` | An `emitEvent` action runs, a hook command prints `events`, or a post-event hook action fails. See [Hooks](hooks.md). |
 | Outside callers | `api` | any type except `job.*` and `agent.*` | Something calls `POST /v1/session/notices`. |
 
@@ -20,12 +20,23 @@ An event has a `type`, a `summary`, an optional JSON object `data`, and a `deliv
 | `job.exited` | `job 1f0c… (run the test suite) exited with code 0` | `{"jobId", "exitCode", "durationMs", "duration"}` |
 | `job.signalled` | `job 1f0c… (run the test suite) was terminated by a signal` | `{"jobId", "exitCode", "durationMs", "duration"}`, with `exitCode` `-1` |
 | `job.failed` | `job 1f0c… (run the test suite) failed to run` | `{"jobId", "exitCode", "durationMs", "duration"}`, with `exitCode` `-1` |
-| `agent.finished` | `agent "reviewer" run 9b2e… finished` | `{"runId", "agentName", "durationMs", "duration"}` |
-| `agent.failed` | `agent "reviewer" run 9b2e… did not finish (failed)`, or `(cancelled)` | `{"runId", "agentName", "durationMs", "duration"}` |
+| `agent.finished` | `agent "reviewer" run 9b2e… finished` | `{"runId", "agentName", "state", "durationMs", "duration", "response", "responseTruncated"}` |
+| `agent.failed` | `agent "reviewer" run 9b2e… did not finish (failed)`, or `(cancelled)` | `{"runId", "agentName", "state", "durationMs", "duration", "failureDetail"}` |
+| `agent.message` | `agent "reviewer" run 9b2e… sent a message` | `{"runId", "agentName", "message"}` |
+| `agent.question` | `agent "reviewer" run 9b2e… asked a question` | `{"runId", "agentName", "message"}` |
 
 `durationMs` is the run time in whole milliseconds, for programs. `duration` is the same value as a Go duration string such as `5.321s` or `1m30s`, for people and models.
 
-Peen publishes a child-agent event for every run, even though `launchAgent` already returned the child's answer as its tool result. For the model the event repeats what it already knows. It exists as a durable record and as something an [event handler](#waking-an-idle-session) can react to.
+### Agent events
+
+The `agent.*` events are how children talk to the root. `agent.finished`, `agent.failed`, and `agent.question` come only from children of the root conversation. A deeper child reports its final answer and asks its questions with messages in its parent's conversation, which publish no session event. `agent.message` comes from any child, at any depth, that sends a message to `root`. See [running children](agents.md#running-children).
+
+- `agent.finished` carries the child's final answer in `response`. An answer too large for `PEEN_MAX_EVENT_DATA_BYTES` is cut, ends with a note that the whole answer is in the run record, and sets `responseTruncated`. `GET /v1/session/agents/{agentRunId}` returns the whole `responseText`.
+- `agent.failed` carries `state`, `failed` or `cancelled`, and `failureDetail`, the error cut to 1024 bytes.
+- `agent.message` carries a message the child sent the root with `sendMessage`.
+- `agent.question` carries a question the child asked with `ask`. The child waits until a message reaches it. Answer with `sendMessage`, or with a WebSocket message whose `to` names the run.
+
+A child refuses to send a message or question that would not fit the event limits, so the child can shorten it instead of losing it.
 
 Event types are lowercase dotted names of 1 to 8 parts, up to 128 characters. Each part starts with a letter and holds only lowercase letters and digits, for example `ci.build.failed`.
 
@@ -74,6 +85,8 @@ A new event starts a turn right away only when all of these hold:
 - the session has started fewer than `PEEN_MAX_EVENT_WAKES_PER_HOUR` (60) wake turns in the last hour.
 
 When any of them fails, the event stays queued and is delivered at the next turn or tool boundary instead. Without a handler an event never starts a turn, whatever its `delivery` says.
+
+The `agent.*` events from a child are the exception. A child of the root reports to an idle root without any handler file, because the root launched it to hear back. Peen publishes `agent.finished`, `agent.failed`, `agent.message`, and `agent.question` with `delivery: wake`, except `agent.failed` for a cancelled child, which queues, so cancelling a session does not wake it again. With no handler for the type, the woken turn starts with this built-in handler body: "A child agent you launched reported back. Read its event in this turn and continue the work it belongs to." A handler file for the type replaces it, and a handler with `delivery: queue` stops that type from waking the root. The wake cap applies as usual.
 
 `PEEN_MAX_EVENT_WAKES_PER_HOUR=0` removes the cap. Peen keeps the count in memory, per process, so it starts over when Peen restarts.
 

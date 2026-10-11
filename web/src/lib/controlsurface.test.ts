@@ -174,22 +174,71 @@ function response(body: unknown): Response {
 	});
 }
 
+const waitingAgent = {
+	agentRunId: "44444444-4444-4444-8444-444444444444",
+	allowedTools: [],
+	cancelRequested: false,
+	completionTokenCount: 0,
+	definition: "stored",
+	depth: 1,
+	eventCount: 3,
+	failureClassification: "",
+	failureDetail: "",
+	finishReason: "",
+	instructions: "Review the change.",
+	model: "catalog/model",
+	modelReference: "aigate/catalog/model",
+	name: "reviewer",
+	parentTurnId: "55555555-5555-4555-8555-555555555555",
+	promptTokenCount: 0,
+	question: "Which file should I review?",
+	requestId: "66666666-6666-4666-8666-666666666666",
+	responseMessages: [],
+	responseText: "",
+	responseThinking: "",
+	sessionId: "22222222-2222-4222-8222-222222222222",
+	startedAt: "2026-10-11T00:00:00Z",
+	state: "running",
+	systemPrompt: "",
+	task: "review the change",
+	waiting: true,
+	workspace: "/workspace/catalog",
+};
+
+const AGENT_CANCEL_PATH_PATTERN = /^\/v1\/session\/agents\/([^/]+)\/cancel$/u;
+
 describe("control surface", () => {
 	let sessionOpened = false;
 	let openedWorkspace = "";
 	let openedBody: Record<string, unknown> = {};
 	let reconfiguredBody: Record<string, unknown> | undefined;
+	let sessionAgents: unknown[] = [];
+	let cancelledAgentRunIDs: string[] = [];
 
 	beforeEach(() => {
 		sessionOpened = false;
 		openedWorkspace = "";
 		openedBody = {};
 		reconfiguredBody = undefined;
+		sessionAgents = [];
+		cancelledAgentRunIDs = [];
 		TestWebSocket.instances = [];
 		vi.stubGlobal("WebSocket", TestWebSocket);
 		vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
 			const request = input instanceof Request ? input : new Request(input, init);
 			const url = new URL(request.url, window.location.href);
+
+			const cancelledAgent = AGENT_CANCEL_PATH_PATTERN.exec(url.pathname);
+			if (cancelledAgent?.[1] !== undefined && request.method === "POST") {
+				cancelledAgentRunIDs.push(cancelledAgent[1]);
+				sessionAgents = [];
+
+				return response({
+					agentRunId: cancelledAgent[1],
+					cancelRequested: true,
+					state: "running",
+				});
+			}
 
 			switch (url.pathname) {
 				case "/v1/sessions":
@@ -247,7 +296,12 @@ describe("control surface", () => {
 				case "/v1/session/events":
 					return response({ events: [], hasMore: false, limit: 100, offset: 0 });
 				case "/v1/session/agents":
-					return response({ agents: [], hasMore: false, limit: 100, offset: 0 });
+					return response({
+						agents: sessionAgents,
+						hasMore: false,
+						limit: 100,
+						offset: 0,
+					});
 				case "/v1/session/compactions":
 					return response({ compactions: [], hasMore: false, limit: 100, offset: 0 });
 				case "/v1/session/model-runs":
@@ -548,6 +602,73 @@ describe("control surface", () => {
 		await fireEvent.keyDown(messageInput, { key: "Enter" });
 
 		expect(sentMessageData(transport)).toEqual([{ message: "then run the tests" }]);
+	});
+
+	it("lists a waiting child, writes to it, and stops it", async () => {
+		sessionAgents = [waitingAgent];
+		render(Page);
+		const transport = await connectAndOpenChat();
+
+		const panel = await screen.findByRole("region", { name: "Running agents" });
+		expect(within(panel).getByText("reviewer 44444444")).toBeDefined();
+		expect(within(panel).getByText("Asks: Which file should I review?")).toBeDefined();
+
+		await fireEvent.change(screen.getByLabelText("Send to"), {
+			target: { value: waitingAgent.agentRunId },
+		});
+		expect(screen.getByLabelText<HTMLSelectElement>("Model").disabled).toBe(true);
+
+		const messageInput = screen.getByLabelText<HTMLTextAreaElement>("Message");
+		await fireEvent.input(messageInput, { target: { value: "review README.md" } });
+		await fireEvent.submit(messageInput.closest("form") as HTMLFormElement);
+
+		expect(sentMessageData(transport)).toEqual([
+			{ message: "review README.md", to: waitingAgent.agentRunId },
+		]);
+
+		await fireEvent.click(
+			within(panel).getByRole("button", { name: "Stop reviewer 44444444" }),
+		);
+		await waitFor(() => {
+			expect(cancelledAgentRunIDs).toEqual([waitingAgent.agentRunId]);
+		});
+		await waitFor(() => {
+			expect(screen.queryByRole("region", { name: "Running agents" })).toBeNull();
+		});
+		expect(screen.queryByLabelText("Send to")).toBeNull();
+	});
+
+	it("shows the root's open question above the composer until it ends", async () => {
+		render(Page);
+		const transport = await connectAndOpenChat();
+
+		const questionEvent = (type: string, data: unknown) =>
+			JSON.stringify({
+				data,
+				id: crypto.randomUUID(),
+				metadata: {
+					requestId: "77777777-7777-4777-8777-777777777791",
+					sessionId: session.id,
+				},
+				timestamp: 1,
+				triggeredBy: null,
+				type,
+			});
+
+		transport?.receive(
+			questionEvent("question.asked", { question: "Ship it on Friday?" }),
+		);
+
+		const question = await screen.findByText("Ship it on Friday?");
+		expect(question.closest('[role="status"]')).not.toBeNull();
+		expect(screen.getByLabelText<HTMLTextAreaElement>("Message").placeholder).toBe(
+			"Answer Peen's question",
+		);
+
+		transport?.receive(questionEvent("question.answered", { answered: true }));
+		await waitFor(() => {
+			expect(screen.queryByText("Ship it on Friday?")).toBeNull();
+		});
 	});
 
 	it("sends on Enter and keeps Shift+Enter for a new line", async () => {

@@ -140,6 +140,7 @@ func TestTurnMessageCarriesTheCommandSettings(t *testing.T) {
 	t.Parallel()
 
 	sessionID := uuid.New()
+	childAgentRunID := uuid.New()
 	origin := protocol.TurnOrigin{
 		EventID:   uuid.New(),
 		EventType: testWakeEventType,
@@ -162,6 +163,13 @@ func TestTurnMessageCarriesTheCommandSettings(t *testing.T) {
 				Origin:          &origin,
 			},
 		},
+		{
+			name: "a message for a child agent",
+			request: protocol.RunTurn{
+				Message: testTurnMessage,
+				To:      &childAgentRunID,
+			},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -179,6 +187,7 @@ func TestTurnMessageCarriesTheCommandSettings(t *testing.T) {
 				tc.request.ReasoningEffort,
 				optionalValue(message.ReasoningEffort),
 			)
+			assert.Equal(t, tc.request.To, message.To)
 
 			if tc.request.Origin == nil {
 				assert.Nil(t, message.Origin)

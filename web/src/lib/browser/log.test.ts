@@ -95,6 +95,21 @@ describe("logBrowserEvent", () => {
 		]);
 	});
 
+	it("keeps an agent run ID and drops anything else in its place", () => {
+		logBrowserEvent("agent.stop.start", {
+			agent_run_id: eventID,
+			session_id: sessionID,
+		});
+		logBrowserEvent("agent.stop.fail", { agent_run_id: tokenLike });
+
+		const lines = capturedLines(debug);
+		expect(lines.map(parseRecord)).toEqual([
+			{ agent_run_id: eventID, event: "agent.stop.start", session_id: sessionID },
+			{ event: "agent.stop.fail" },
+		]);
+		expect(lines[1]).not.toContain(tokenLike);
+	});
+
 	it("does not accept token or message fields in its public type", () => {
 		// @ts-expect-error A token has no field in the metadata type.
 		logBrowserEvent("ui.error", { token: tokenLike });

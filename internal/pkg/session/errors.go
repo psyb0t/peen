@@ -20,4 +20,12 @@ var (
 	ErrRunningTurnSettingsChange = errors.New(
 		"a message sent during a running turn cannot change its model, reasoning, or system prompt", //nolint:lll // One user-facing sentence.
 	)
+
+	// ErrAgentRunFinished reports a message sent to a child agent that is no
+	// longer running, so nothing would ever read it. It is always joined
+	// with commerr.ErrConflict.
+	ErrAgentRunFinished = errors.New("agent has finished")
+	// ErrAgentRunNotFound reports a message sent to an agent run the session
+	// never had. It is always joined with commerr.ErrNotFound.
+	ErrAgentRunNotFound = errors.New("agent run not found")
 )

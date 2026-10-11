@@ -1,12 +1,23 @@
 package testinfra
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
+
+const (
+	// taggedMessageOpen and taggedMessageClose frame a message one agent sent
+	// another, such as a child's task.
+	taggedMessageOpen  = "<message "
+	taggedMessageClose = "\n</message>"
+	taggedMessageBreak = "\n"
+)
 
 // writeScriptedCalls answers a request of a Calls-mode script. The round is
 // the number of tool results after the script's user message, so the same
 // script keeps working when a queued message or a skill lands in between. A
-// request without the script's user message is not part of the script, such
-// as a child agent's, and gets the default text completion.
+// request without the script's user message follows the first child script
+// whose task it carries, and otherwise gets the default text completion.
 func (m *openAIModelsMock) writeScriptedCalls(
 	writer http.ResponseWriter,
 	request providerCompletionRequest,
@@ -14,7 +25,7 @@ func (m *openAIModelsMock) writeScriptedCalls(
 ) {
 	results, anchored := request.toolResultsAfter(script.UserMessage)
 	if !anchored {
-		m.writeCompletion(writer)
+		m.writeChildScriptedCalls(writer, request, script)
 
 		return
 	}
@@ -60,8 +71,30 @@ func (m *openAIModelsMock) writeScriptedCalls(
 	}
 }
 
+// writeChildScriptedCalls answers a child agent's request from the child
+// script whose task the request carries.
+func (m *openAIModelsMock) writeChildScriptedCalls(
+	writer http.ResponseWriter,
+	request providerCompletionRequest,
+	script *ScriptedToolTurn,
+) {
+	for index := range script.Children {
+		child := &script.Children[index]
+
+		_, isAnchored := request.toolResultsAfter(child.UserMessage)
+		if isAnchored {
+			m.writeScriptedCalls(writer, request, child)
+
+			return
+		}
+	}
+
+	m.writeCompletion(writer)
+}
+
 // toolResultsAfter returns the content of the tool messages after the last
-// user message that equals userMessage, and whether such a message exists.
+// user message that equals userMessage, or whose tagged body does, and
+// whether such a message exists.
 func (r providerCompletionRequest) toolResultsAfter(
 	userMessage string,
 ) ([]string, bool) {
@@ -72,7 +105,8 @@ func (r providerCompletionRequest) toolResultsAfter(
 			continue
 		}
 
-		if message.contentText() == userMessage {
+		text := message.contentText()
+		if text == userMessage || taggedMessageBody(text) == userMessage {
 			start = index + 1
 		}
 	}
@@ -90,4 +124,24 @@ func (r providerCompletionRequest) toolResultsAfter(
 	}
 
 	return results, true
+}
+
+// taggedMessageBody returns the text inside a <message> block, or "" for any
+// other text.
+func taggedMessageBody(text string) string {
+	if !strings.HasPrefix(text, taggedMessageOpen) {
+		return ""
+	}
+
+	body, isClosed := strings.CutSuffix(text, taggedMessageClose)
+	if !isClosed {
+		return ""
+	}
+
+	_, body, hasBody := strings.Cut(body, taggedMessageBreak)
+	if !hasBody {
+		return ""
+	}
+
+	return body
 }

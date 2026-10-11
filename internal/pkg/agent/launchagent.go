@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +28,11 @@ const (
 	// own instructions, the workspace block, and the runtime block.
 	childPromptAdditionalCapacity = 4
 	rootAgentDepth                = 0
+
+	// agentCancelledText and agentFailedLead are the body of the message a
+	// nested child's parent receives when the child did not complete.
+	agentCancelledText = "The agent was cancelled before it finished."
+	agentFailedLead    = "The agent failed: "
 )
 
 // agentDepthKey is the unexported context key carrying how many launchAgent
@@ -66,24 +72,42 @@ func parentToolCallIDFromContext(ctx context.Context) string {
 	return id
 }
 
-// parentAgentRunIDKey carries the direct child-run parent while a nested
-// launchAgent call executes. Root calls have no parent agent run.
-type parentAgentRunIDKey struct{}
+// parentAgentRunKey carries the run whose conversation is executing while a
+// nested launchAgent call runs. Root calls have no parent agent run.
+type parentAgentRunKey struct{}
 
-func contextWithParentAgentRunID(
+// parentAgentRun is the identity a child's messages are tagged with.
+type parentAgentRun struct {
+	id   uuid.UUID
+	name string
+}
+
+func contextWithParentAgentRun(
 	ctx context.Context,
-	agentRunID uuid.UUID,
+	run *AgentRun,
 ) context.Context {
-	return context.WithValue(ctx, parentAgentRunIDKey{}, agentRunID)
+	return context.WithValue(ctx, parentAgentRunKey{}, parentAgentRun{
+		id:   run.ID,
+		name: run.Name,
+	})
+}
+
+func parentAgentRunFromContext(ctx context.Context) (parentAgentRun, bool) {
+	parent, ok := ctx.Value(parentAgentRunKey{}).(parentAgentRun)
+	if !ok || parent.id == uuid.Nil {
+		return parentAgentRun{}, false
+	}
+
+	return parent, true
 }
 
 func parentAgentRunIDFromContext(ctx context.Context) *uuid.UUID {
-	agentRunID, ok := ctx.Value(parentAgentRunIDKey{}).(uuid.UUID)
-	if !ok || agentRunID == uuid.Nil {
+	parent, ok := parentAgentRunFromContext(ctx)
+	if !ok {
 		return nil
 	}
 
-	return &agentRunID
+	return &parent.id
 }
 
 // launchAgentInput selects the child to run and its task. Exactly one of
@@ -100,15 +124,14 @@ type agentDefinitionInput struct {
 	Instructions string `json:"instructions"`
 }
 
-// launchAgentOutput is the child's final answer, or a typed cancellation
-// result when this specific run, rather than the parent turn, was
-// cancelled.
+// launchAgentOutput names the child that is now running. Its answer arrives
+// later, as a message to its parent. ParentAgentRunID is the parent's run ID,
+// or "root" for the session's root conversation.
 type launchAgentOutput struct {
-	AgentRunID uuid.UUID          `json:"agentRunId"`
-	Name       string             `json:"name"`
-	Definition AgentRunDefinition `json:"definition"`
-	Cancelled  bool               `json:"cancelled"`
-	Response   string             `json:"response,omitempty"`
+	AgentRunID       uuid.UUID          `json:"agentRunId"`
+	Name             string             `json:"name"`
+	Definition       AgentRunDefinition `json:"definition"`
+	ParentAgentRunID string             `json:"parentAgentRunId"`
 }
 
 // childDefinition is the resolved child identity and instructions, whether
@@ -151,6 +174,10 @@ type launchAgentDeps struct {
 	parentTurnID       uuid.UUID
 	requestID          uuid.UUID
 	liveSink           EventSink
+
+	// userMessages is the root turn's queue. The root's waitMessages and ask
+	// wait on it. A child never reads it.
+	userMessages *activeUserMessageQueue
 }
 
 // handle is the tool Handler launchAgent registers.
@@ -179,8 +206,10 @@ func launchAgentTool(
 	)
 }
 
-// launchAgent validates the requested child, enforces depth and turn limits
-// before launching, and runs it synchronously to completion.
+// launchAgent validates the requested child, enforces the depth and
+// concurrency limits, records the run and its task, and starts the child in
+// the background. It returns as soon as the child runs. The child's answer
+// reaches its parent as a message when the child ends.
 func (r *Runtime) launchAgent(
 	ctx context.Context,
 	deps *launchAgentDeps,
@@ -198,7 +227,7 @@ func (r *Runtime) launchAgent(
 		return launchAgentOutput{}, err
 	}
 
-	return r.executeChildLaunch(ctx, deps, input, prepared)
+	return r.startChildLaunch(ctx, deps, input, prepared)
 }
 
 func (r *Runtime) prepareChildLaunch(
@@ -281,13 +310,24 @@ func childTaskSkills(
 	return skills, ledger, nil
 }
 
-func (r *Runtime) executeChildLaunch(
+// startChildLaunch records the run, its tagged task, and its start event,
+// then runs the child on its own goroutine. A failure before the goroutine
+// starts ends the run here and fails the launchAgent call.
+func (r *Runtime) startChildLaunch(
 	ctx context.Context,
 	deps *launchAgentDeps,
 	input launchAgentInput,
 	prepared preparedChildLaunch,
 ) (launchAgentOutput, error) {
-	run, runCtx, err := r.startChildAgentRun(ctx, deps, input, prepared)
+	sender := r.messageSender(ctx)
+	sender.Text = input.Task
+
+	task, err := renderAgentMessage(sender)
+	if err != nil {
+		return launchAgentOutput{}, ctxerrors.Wrap(err, "tag child task")
+	}
+
+	run, runCtx, sink, err := r.startChildAgentRun(ctx, deps, input, prepared)
 	if err != nil {
 		return launchAgentOutput{}, err
 	}
@@ -300,21 +340,64 @@ func (r *Runtime) executeChildLaunch(
 		input.Task,
 	)
 
-	sink := newAgentRunSink(
-		r.store,
-		deps.sessionID,
+	if err := r.openChildAgentRun(
+		runCtx,
+		deps,
+		prepared,
 		run,
-		deps.liveSink,
-		deps.modelReference,
-	)
+		sink,
+		task,
+	); err != nil {
+		r.endChildAgentRun(runCtx, prepared.registry, sink, run, nil, err)
 
-	// The task is the child's first durable message, so its transcript is
-	// complete from the request onward rather than from the first answer.
-	if err := sink.seedTask(runCtx, input.Task, prepared.skills); err != nil {
-		return r.finishAgentRun(ctx, prepared.registry, sink, run, nil, err)
+		return launchAgentOutput{}, err
 	}
 
-	if err := sink.emit(
+	go r.superviseChildAgent(runCtx, deps, prepared, run, sink, task)
+
+	return launchAgentOutput{
+		AgentRunID:       run.ID,
+		Name:             run.Name,
+		Definition:       run.Definition,
+		ParentAgentRunID: sender.Run,
+	}, nil
+}
+
+// messageSender names the conversation running in ctx: the child run whose
+// tool call this is, or the session's root conversation.
+func (r *Runtime) messageSender(ctx context.Context) agentMessage {
+	parent, ok := parentAgentRunFromContext(ctx)
+	if !ok {
+		return agentMessage{
+			From: messageSenderAgent,
+			Name: r.rootAgent,
+			Run:  rootAgentRunReference,
+		}
+	}
+
+	return agentMessage{
+		From: messageSenderAgent,
+		Name: parent.name,
+		Run:  parent.id.String(),
+	}
+}
+
+// openChildAgentRun makes the task the child's first durable message, so its
+// transcript is complete from the request onward rather than from the first
+// answer, and records that the child started.
+func (r *Runtime) openChildAgentRun(
+	runCtx context.Context,
+	deps *launchAgentDeps,
+	prepared preparedChildLaunch,
+	run *AgentRun,
+	sink *agentRunSink,
+	task string,
+) error {
+	if err := sink.seedTask(runCtx, task, prepared.skills); err != nil {
+		return err
+	}
+
+	return sink.emit(
 		runCtx,
 		EventTypeAgentRunStarted,
 		agentRunStartedPayload{
@@ -327,29 +410,194 @@ func (r *Runtime) executeChildLaunch(
 			Model:            deps.modelReference,
 			Workspace:        deps.executor.Workspace(),
 		},
-	); err != nil {
-		return r.finishAgentRun(ctx, prepared.registry, sink, run, nil, err)
-	}
-
-	response, runErr := r.runChildAgent(
-		runCtx,
-		deps,
-		prepared,
-		input.Task,
-		run,
-		sink,
 	)
-
-	return r.finishAgentRun(ctx, prepared.registry, sink, run, response, runErr)
 }
 
+// superviseChildAgent runs one child to its end and reports the outcome. A
+// panic still ends the run, so it never holds a concurrency slot forever.
+func (r *Runtime) superviseChildAgent(
+	runCtx context.Context,
+	deps *launchAgentDeps,
+	prepared preparedChildLaunch,
+	run *AgentRun,
+	sink *agentRunSink,
+	task string,
+) {
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			return
+		}
+
+		ctxscope.GetLogger(runCtx).Error(
+			"child agent panicked",
+			"panic", recovered,
+			"stack", string(debug.Stack()),
+		)
+
+		if run.Snapshot().State != AgentRunStateRunning {
+			return
+		}
+
+		r.endChildAgentRun(
+			runCtx,
+			prepared.registry,
+			sink,
+			run,
+			nil,
+			ctxerrors.Wrapf(
+				commerr.ErrInvalidState,
+				"child agent panicked: %v",
+				recovered,
+			),
+		)
+	}()
+
+	response, runErr := r.runChildAgent(runCtx, deps, prepared, task, run, sink)
+
+	r.endChildAgentRun(
+		runCtx,
+		prepared.registry,
+		sink,
+		run,
+		response,
+		runErr,
+	)
+}
+
+// endChildAgentRun closes the child's inbox, records how it ended, stops its
+// running descendants, and hands its outcome to its parent.
+func (r *Runtime) endChildAgentRun(
+	runCtx context.Context,
+	registry *AgentRunRegistry,
+	sink *agentRunSink,
+	run *AgentRun,
+	response *elelem.Response,
+	runErr error,
+) {
+	ctx := context.WithoutCancel(runCtx)
+
+	recordUndeliveredMessages(ctx, sink, run.inbox.close())
+
+	result := r.finishAgentRun(ctx, registry, sink, run, response, runErr)
+
+	if cancelled := registry.cancelDescendants(run.ID); cancelled > 0 {
+		ctxscope.GetLogger(ctx).Info(
+			"child agent descendants cancelled",
+			"reason", "parent_ended",
+			"agent_runs", cancelled,
+		)
+	}
+
+	r.reportToParentRun(ctx, registry, run, result)
+}
+
+// recordUndeliveredMessages notes each message the child ended before
+// reading, so its sender's message is accounted for in the run's events.
+func recordUndeliveredMessages(
+	ctx context.Context,
+	sink *agentRunSink,
+	unread []string,
+) {
+	if len(unread) == 0 {
+		return
+	}
+
+	ctxscope.GetLogger(ctx).Warn(
+		"child agent ended with unread messages",
+		"reason", "agent_ended",
+		"messages", len(unread),
+	)
+
+	for _, text := range unread {
+		if err := sink.emit(
+			ctx,
+			EventTypeAgentRunMessageUndelivered,
+			agentInboxMessagePayload{Message: text},
+		); err != nil {
+			ctxscope.GetLogger(ctx).Warn(
+				"record undelivered agent message",
+				"err", err,
+			)
+		}
+	}
+}
+
+// reportToParentRun puts a nested child's outcome in its parent run's inbox.
+// A child of the root conversation reports through its completion event,
+// which Finish publishes.
+func (r *Runtime) reportToParentRun(
+	ctx context.Context,
+	registry *AgentRunRegistry,
+	run *AgentRun,
+	result AgentRunResult,
+) {
+	if run.ParentAgentRunID == nil {
+		return
+	}
+
+	logger := ctxscope.GetLogger(ctx)
+
+	text, err := renderAgentMessage(agentMessage{
+		From: messageSenderAgent,
+		Name: run.Name,
+		Run:  run.ID.String(),
+		Kind: agentResultKind(result.State),
+		Text: agentResultText(result),
+	})
+	if err != nil {
+		logger.Error("render child agent result", "err", err)
+
+		return
+	}
+
+	if err := registry.Deliver(ctx, *run.ParentAgentRunID, text); err != nil {
+		logger.Warn(
+			"child agent result not delivered",
+			"reason", "parent_unavailable",
+			"parent_agent_run_id", run.ParentAgentRunID.String(),
+			"err", err,
+		)
+	}
+}
+
+// agentResultKind is the kind attribute of the message carrying an outcome.
+func agentResultKind(state AgentRunState) string {
+	switch state {
+	case AgentRunStateCompleted:
+		return messageKindResult
+	case AgentRunStateCancelled:
+		return messageKindCancelled
+	default:
+		return messageKindFailed
+	}
+}
+
+// agentResultText is the body of the message carrying an outcome: the final
+// answer, or what stopped the child.
+func agentResultText(result AgentRunResult) string {
+	switch result.State {
+	case AgentRunStateCompleted:
+		return result.Response
+	case AgentRunStateCancelled:
+		return agentCancelledText
+	default:
+		return agentFailedLead + result.FailureDetail
+	}
+}
+
+// startChildAgentRun registers and records the run. Its sink and inbox exist
+// before the run is visible to anyone, so a message can reach it from the
+// moment it is listed.
 func (r *Runtime) startChildAgentRun(
 	ctx context.Context,
 	deps *launchAgentDeps,
 	input launchAgentInput,
 	prepared preparedChildLaunch,
-) (*AgentRun, context.Context, error) {
-	return prepared.registry.Start(ctx, StartAgentRunInput{
+) (*AgentRun, context.Context, *agentRunSink, error) {
+	var sink *agentRunSink
+
+	run, runCtx, err := prepared.registry.Start(ctx, StartAgentRunInput{
 		ID:               uuid.New(),
 		ParentTurnID:     deps.parentTurnID,
 		ParentAgentRunID: parentAgentRunIDFromContext(ctx),
@@ -360,8 +608,28 @@ func (r *Runtime) startChildAgentRun(
 		Depth:            prepared.depth,
 		StartedAt:        r.now().UTC(),
 	}, func(run *AgentRun) error {
+		sink = newAgentRunSink(
+			r.store,
+			deps.sessionID,
+			run,
+			deps.liveSink,
+			deps.modelReference,
+		)
+
+		inbox, err := newAgentInbox(sink, r.maxQueuedUserMessages)
+		if err != nil {
+			return err
+		}
+
+		run.inbox = inbox
+
 		return r.createChildAgentRun(ctx, deps, input, prepared, run)
 	})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return run, runCtx, sink, nil
 }
 
 func (r *Runtime) createChildAgentRun(
@@ -427,7 +695,7 @@ func childAgentContext(
 		ctxscope.Attr("agent_name", run.Name),
 		ctxscope.Attr("agent_depth", depth),
 	)
-	childCtx = contextWithParentAgentRunID(childCtx, run.ID)
+	childCtx = contextWithParentAgentRun(childCtx, run)
 	ctxscope.GetLogger(childCtx).Info(
 		"child agent started",
 		"agent_definition", definition.kind,
@@ -735,6 +1003,7 @@ func (r *Runtime) runChildAgent(
 		WithPrompt(childPrompt(systemPrompt, task, launch.skills)).
 		WithTools(childToolSet).
 		WithAutoToolCalls().
+		WithUserMessageQueue(run.inbox.queue).
 		WithMaxRounds(r.agentLimits.MaxChildTurns).
 		WithMaxConcurrentTools(r.maxConcurrentTools).
 		WithToolTimeout(r.toolTimeout).
@@ -742,7 +1011,7 @@ func (r *Runtime) runChildAgent(
 		WithMaxContextTokens(r.maxContextTokens).
 		OnText(sink.onText).
 		OnReasoning(sink.onReasoning).
-		OnRoundStart(audit.onRoundStart).
+		OnRoundStart(childRoundStart(run, audit)).
 		OnRoundEnd(audit.onRoundEnd).
 		OnAssistantMessage(func(
 			callbackCtx context.Context,
@@ -805,6 +1074,24 @@ func (r *Runtime) runChildAgent(
 	return response, nil
 }
 
+// childRoundStart records the inbox messages a round just took into the
+// child's transcript, then audits the round.
+func childRoundStart(
+	run *AgentRun,
+	audit *modelAuditRecorder,
+) func(context.Context, *elelem.RoundEvent) error {
+	return func(ctx context.Context, event *elelem.RoundEvent) error {
+		if err := run.inbox.checkpointDelivered(
+			ctx,
+			event.Messages,
+		); err != nil {
+			return ctxerrors.Wrap(err, "checkpoint child inbox")
+		}
+
+		return audit.onRoundStart(ctx, event)
+	}
+}
+
 func (r *Runtime) agentToolSet(
 	deps *launchAgentDeps,
 	skills *skillLedger,
@@ -827,9 +1114,25 @@ func (r *Runtime) agentToolSet(
 		allowedTools = withoutTool(allowedTools, toolNameLaunchAgent)
 	}
 
+	messaging := messageTools(deps, onPostRun)
+	for _, tool := range messaging {
+		toolSet.Add(instrumentTool(tool, r.metrics))
+	}
+
 	restricted, err := restrictToolSet(toolSet, allowedTools)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "restrict agent tools")
+	}
+
+	// allowed-tools limits what an agent can do in the workspace. The
+	// messaging tools only reach other agents in the session, and a child
+	// that launches its own children needs them to collect the answers.
+	for _, tool := range messaging {
+		if _, found := restricted.Get(tool.Name); found {
+			continue
+		}
+
+		restricted.Add(instrumentTool(tool, r.metrics))
 	}
 
 	return restricted, nil
@@ -850,133 +1153,103 @@ func withoutTool(tools []string, excluded string) []string {
 	return filtered
 }
 
-// finishAgentRun records the run's terminal state and shapes the tool
-// result the parent sees.
-//
-// A cancellation is reported the same way regardless of source, but only
-// propagates as a real error, ending the parent turn, when parentCtx itself
-// is also done: that is what tells the two cases apart. When only the run's
-// own dedicated cancellation fired (a single-run Cancel call), parentCtx is
-// still alive, and the call returns a typed, model-visible success instead
-// of failing the turn.
+// finishAgentRun records the run's terminal state and returns the outcome its
+// parent hears about. A run whose outcome cannot be recorded still ends, as
+// failed, so it never holds a concurrency slot.
 func (r *Runtime) finishAgentRun(
-	parentCtx context.Context,
+	ctx context.Context,
 	registry *AgentRunRegistry,
 	sink *agentRunSink,
 	run *AgentRun,
 	response *elelem.Response,
 	runErr error,
-) (launchAgentOutput, error) {
-	state, classification, eventType := agentRunOutcome(runErr)
+) AgentRunResult {
 	if runErr == nil && response == nil {
 		runErr = ctxerrors.New("child provider returned no response")
-		state, classification, eventType = agentRunOutcome(runErr)
 	}
 
-	if err := r.persistAgentRunOutcome(
-		parentCtx,
-		registry,
-		sink,
-		run,
-		response,
-		runErr,
-		state,
-		classification,
-		eventType,
-	); err != nil {
-		return launchAgentOutput{}, err
+	state, classification, eventType := agentRunOutcome(runErr)
+
+	result := AgentRunResult{State: state, FailureDetail: errorText(runErr)}
+	if runErr == nil {
+		result.Response = response.Text
 	}
 
-	return childAgentResult(parentCtx, run, response, runErr, state)
-}
-
-func (r *Runtime) persistAgentRunOutcome(
-	parentCtx context.Context,
-	registry *AgentRunRegistry,
-	sink *agentRunSink,
-	run *AgentRun,
-	response *elelem.Response,
-	runErr error,
-	state AgentRunState,
-	classification string,
-	eventType string,
-) error {
 	if err := r.finalizeAgentRun(
-		context.WithoutCancel(parentCtx),
+		ctx,
 		run,
 		response,
 		state,
 		classification,
 		runErr,
 	); err != nil {
-		registry.Finish(parentCtx, run, AgentRunStateFailed)
+		ctxscope.GetLogger(ctx).Error(
+			"persist child agent outcome",
+			"agent_run_id", run.ID.String(),
+			"err", err,
+		)
 
-		return ctxerrors.Wrap(err, "persist child agent outcome")
+		result = AgentRunResult{
+			State:         AgentRunStateFailed,
+			FailureDetail: errorText(err),
+		}
+		registry.Finish(ctx, run, result)
+
+		return result
 	}
 
-	registry.Finish(parentCtx, run, state)
+	registry.Finish(ctx, run, result)
 
-	persistCtx := context.WithoutCancel(parentCtx)
-	if err := sink.emit(persistCtx, eventType, agentRunTerminalPayload{
+	if err := sink.emit(ctx, eventType, agentRunTerminalPayload{
 		AgentRunID:            run.ID,
 		State:                 state,
 		FailureClassification: classification,
-		FailureDetail:         errorText(runErr),
+		FailureDetail:         result.FailureDetail,
 	}); err != nil {
-		return ctxerrors.Wrap(err, "persist child agent terminal event")
+		ctxscope.GetLogger(ctx).Warn(
+			"persist child agent terminal event",
+			"agent_run_id", run.ID.String(),
+			"err", err,
+		)
 	}
 
-	return nil
+	logChildAgentOutcome(ctx, run, result, runErr)
+
+	return result
 }
 
-func childAgentResult(
-	parentCtx context.Context,
+func logChildAgentOutcome(
+	ctx context.Context,
 	run *AgentRun,
-	response *elelem.Response,
+	result AgentRunResult,
 	runErr error,
-	state AgentRunState,
-) (launchAgentOutput, error) {
-	if runErr != nil {
-		if state == AgentRunStateCancelled && parentCtx.Err() == nil {
-			ctxscope.GetLogger(parentCtx).Info(
-				"child agent cancelled",
-				"agent_run_id", run.ID.String(),
-				"agent_name", run.Name,
-			)
+) {
+	logger := ctxscope.GetLogger(ctx)
 
-			return launchAgentOutput{
-				AgentRunID: run.ID,
-				Name:       run.Name,
-				Definition: run.Definition,
-				Cancelled:  true,
-			}, nil
-		}
-
-		ctxscope.GetLogger(parentCtx).Warn(
+	switch result.State {
+	case AgentRunStateCompleted:
+		logger.Info(
+			"child agent completed",
+			"agent_run_id", run.ID.String(),
+			"agent_name", run.Name,
+			"response_bytes", len(result.Response),
+			"response_sha256", hash(result.Response),
+		)
+	case AgentRunStateCancelled:
+		logger.Info(
+			"child agent cancelled",
+			"agent_run_id", run.ID.String(),
+			"agent_name", run.Name,
+		)
+	default:
+		logger.Warn(
 			"child agent failed",
 			"agent_run_id", run.ID.String(),
 			"agent_name", run.Name,
-			"state", state,
+			"state", result.State,
 			"err", runErr,
 		)
-
-		return launchAgentOutput{}, ctxerrors.Wrap(runErr, "run child agent")
 	}
-
-	ctxscope.GetLogger(parentCtx).Info(
-		"child agent completed",
-		"agent_run_id", run.ID.String(),
-		"agent_name", run.Name,
-		"response_bytes", len(response.Text),
-		"response_sha256", hash(response.Text),
-	)
-
-	return launchAgentOutput{
-		AgentRunID: run.ID,
-		Name:       run.Name,
-		Definition: run.Definition,
-		Response:   response.Text,
-	}, nil
 }
 
 func (r *Runtime) finalizeAgentRun(

@@ -109,6 +109,50 @@ func TestErrorKeepsAFullUserMessageQueueAcrossTheWire(t *testing.T) {
 	require.ErrorIs(t, received, commerr.ErrConflict)
 }
 
+// A message to an ended or unknown child keeps its reason across the wire, so
+// the WebSocket can tell the sender which one it was.
+func TestErrorKeepsAgentRunRefusalsAcrossTheWire(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		detail   error
+		class    error
+		wantCode Code
+	}{
+		{
+			name:     "finished",
+			detail:   session.ErrAgentRunFinished,
+			class:    commerr.ErrConflict,
+			wantCode: CodeAgentRunFinished,
+		},
+		{
+			name:     "not found",
+			detail:   session.ErrAgentRunNotFound,
+			class:    commerr.ErrNotFound,
+			wantCode: CodeAgentRunNotFound,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sent := ctxerrors.Wrap(
+				errors.Join(tc.class, tc.detail),
+				"message the agent run",
+			)
+
+			wire := NewError(sent)
+			assert.Equal(t, tc.wantCode, wire.Code)
+
+			received := wire.Unwrap()
+			require.ErrorIs(t, received, tc.detail)
+			require.ErrorIs(t, received, tc.class)
+		})
+	}
+}
+
 // A plain class still travels as that class and gains no detail.
 func TestErrorKeepsAPlainClassAcrossTheWire(t *testing.T) {
 	t.Parallel()

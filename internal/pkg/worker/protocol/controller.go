@@ -317,6 +317,13 @@ func (c *Controller) handleAgentRunCall(
 		))
 	case MethodCancelAgentRun:
 		return served(c.cancelAgentRun(ctx, payload))
+	case MethodOpenAgentRunQuestions:
+		return served(callSession(
+			ctx,
+			c,
+			payload,
+			c.store.OpenAgentRunQuestions,
+		))
 	default:
 		return c.handleAgentRunTranscriptCall(ctx, method, payload)
 	}

@@ -575,16 +575,18 @@ func newWebSocketEvent(
 }
 
 func webSocketMessageFailureFor(err error) webSocketMessageFailure {
-	if failure, found := harnessConfigurationFailureFor(err); found {
-		return failure
+	// A specific failure is checked before the class it also belongs to.
+	specificFailures := []func(error) (webSocketMessageFailure, bool){
+		harnessConfigurationFailureFor,
+		runningTurnFailureFor,
+		unknownSkillFailureFor,
+		agentRunFailureFor,
 	}
 
-	if failure, found := runningTurnFailureFor(err); found {
-		return failure
-	}
-
-	if failure, found := unknownSkillFailureFor(err); found {
-		return failure
+	for _, specificFailureFor := range specificFailures {
+		if failure, found := specificFailureFor(err); found {
+			return failure
+		}
 	}
 
 	switch {
@@ -625,6 +627,28 @@ func webSocketMessageFailureFor(err error) webSocketMessageFailure {
 			webSocketMessageFailedMessage,
 			"",
 		)
+	}
+}
+
+// agentRunFailureFor reports a message for a child agent that ended or never
+// existed. Both are checked before their classes, which would otherwise read
+// as a missing session or a busy one.
+func agentRunFailureFor(err error) (webSocketMessageFailure, bool) {
+	switch {
+	case errors.Is(err, session.ErrAgentRunFinished):
+		return newWebSocketMessageFailure(
+			ErrorCodeAgentFinished,
+			webSocketAgentFinishedMessage,
+			"",
+		), true
+	case errors.Is(err, session.ErrAgentRunNotFound):
+		return newWebSocketMessageFailure(
+			ErrorCodeAgentNotFound,
+			webSocketAgentNotFoundMessage,
+			"",
+		), true
+	default:
+		return webSocketMessageFailure{}, false
 	}
 }
 

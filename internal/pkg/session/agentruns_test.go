@@ -19,6 +19,8 @@ const (
 	agentRunTestInstructions = "use the available tools"
 	agentRunTestPrompt       = "system prompt"
 	agentRunTestModel        = "provider/model"
+	agentRunTestQuestion     = "agent.run.question"
+	agentRunTestAnswer       = "agent.run.answer"
 )
 
 func TestStoreAgentRunReplaySurvivesRestartAndPagesEveryRow(t *testing.T) {
@@ -173,6 +175,110 @@ func TestStoreAgentRunCancellationAndSessionIsolation(t *testing.T) {
 		ListAgentRunEventsOptions{Limit: 1},
 	)
 	require.ErrorIs(t, err, commerr.ErrNotFound)
+}
+
+// A run waits while its latest question has no later answer. The list can
+// keep only those runs, or only the children of one parent or of the root.
+func TestStoreAgentRunOpenQuestionsAndListFilters(t *testing.T) {
+	ctx := context.Background()
+	store, handle := openTestStore(t)
+	t.Cleanup(func() { require.NoError(t, handle.Close()) })
+	session := newTestSession(ctx, t, store)
+	lease := startAgentRunTestTurn(ctx, t, store, session.ID)
+
+	parent := createAgentRunForTest(ctx, t, store, session.ID, lease.TurnID, 0)
+	asking := createAgentRunForTest(ctx, t, store, session.ID, lease.TurnID, 1)
+	answered := createAgentRunForTest(ctx, t, store, session.ID, lease.TurnID, 2)
+
+	child, err := store.CreateAgentRun(ctx, session.ID, StartAgentRunInput{
+		ID:               uuid.New(),
+		ParentTurnID:     lease.TurnID,
+		ParentAgentRunID: &parent.ID,
+		RequestID:        uuid.New(),
+		Name:             "nested",
+		Definition:       models.AgentRunDefinitionStored,
+		Depth:            2,
+		Workspace:        testWorkspace,
+		ModelReference:   agentRunTestModel,
+		ModelID:          agentRunTestModel,
+		Task:             agentRunTestTask,
+		Instructions:     agentRunTestInstructions,
+		AllowedToolsJSON: `[]`,
+		SystemPrompt:     agentRunTestPrompt,
+	})
+	require.NoError(t, err)
+
+	appendEvent := func(run *models.AgentRun, eventType, payload string) {
+		t.Helper()
+
+		_, appendErr := store.AppendAgentRunEvent(
+			ctx,
+			session.ID,
+			run.ID,
+			AgentRunEventInput{EventType: eventType, PayloadJSON: payload},
+		)
+		require.NoError(t, appendErr)
+	}
+
+	appendEvent(asking, agentRunTestQuestion, `{"question":"first?"}`)
+	appendEvent(asking, agentRunTestAnswer, `{"answered":true}`)
+	appendEvent(asking, agentRunTestQuestion, `{"question":"second?"}`)
+	appendEvent(answered, agentRunTestQuestion, `{"question":"done?"}`)
+	appendEvent(answered, agentRunTestAnswer, `{"answered":false}`)
+
+	questions, err := store.OpenAgentRunQuestions(ctx, session.ID)
+	require.NoError(t, err)
+	assert.Equal(t, map[uuid.UUID]string{asking.ID: "second?"}, questions)
+
+	running := models.AgentRunStateRunning
+
+	testCases := []struct {
+		name    string
+		options ListAgentRunsOptions
+		want    []uuid.UUID
+	}{
+		{
+			name:    "waiting",
+			options: ListAgentRunsOptions{State: &running, IsWaiting: true},
+			want:    []uuid.UUID{asking.ID},
+		},
+		{
+			name:    "children of one run",
+			options: ListAgentRunsOptions{ParentAgentRunID: &parent.ID},
+			want:    []uuid.UUID{child.ID},
+		},
+		{
+			name:    "children of the root",
+			options: ListAgentRunsOptions{IsTopLevel: true},
+			want:    []uuid.UUID{parent.ID, asking.ID, answered.ID},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			page, listErr := store.ListAgentRuns(ctx, session.ID, tc.options)
+			require.NoError(t, listErr)
+			assert.ElementsMatch(t, tc.want, agentRunIDs(page.Items))
+		})
+	}
+
+	// A run that ends stops waiting, whatever question it left open.
+	_, err = store.FinalizeAgentRun(ctx, session.ID, asking.ID, FinalizeAgentRunInput{
+		State:                models.AgentRunStateCancelled,
+		ResponseMessagesJSON: `[]`,
+	})
+	require.NoError(t, err)
+
+	questions, err = store.OpenAgentRunQuestions(ctx, session.ID)
+	require.NoError(t, err)
+	assert.Empty(t, questions)
+
+	page, err := store.ListAgentRuns(ctx, session.ID, ListAgentRunsOptions{
+		State:     &running,
+		IsWaiting: true,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, page.Items)
 }
 
 func startAgentRunTestTurn(

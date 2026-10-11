@@ -250,6 +250,13 @@ type ListAgentRunsOptions struct {
 	Limit  int
 	Offset int
 	State  *models.AgentRunState
+
+	// IsWaiting keeps only running runs with a question nobody answered yet.
+	IsWaiting bool
+	// ParentAgentRunID keeps only the direct children of one run.
+	ParentAgentRunID *uuid.UUID
+	// IsTopLevel keeps only the children the root conversation launched.
+	IsTopLevel bool
 }
 
 // AgentRunPage is one complete child-run page.

@@ -697,6 +697,11 @@ export interface components {
 			 */
 			reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 			systemPrompt?: components["schemas"]["WebSocketMessageSystemPrompt"];
+			/**
+			 * Format: uuid
+			 * @description A running child agent run ID. The message goes to that child, which reads it after its current tool call, and starts no turn. It completes as queued and cannot carry model, reasoningEffort, or systemPrompt. A finished child fails it with AGENT_FINISHED, an unknown one with AGENT_NOT_FOUND, and a child with a full inbox with USER_MESSAGE_QUEUE_FULL.
+			 */
+			to?: string;
 		};
 		WebSocketMessageMetadata: {
 			/** Format: uuid */
@@ -1127,6 +1132,10 @@ export interface components {
 		AgentRun: {
 			/** Format: uuid */
 			agentRunId: string;
+			/** @description True while the run is running and waits for an answer to the question it asked. */
+			waiting: boolean;
+			/** @description The question a waiting run asked. Absent otherwise. */
+			question?: string | null;
 			/** Format: uuid */
 			sessionId: string;
 			/** Format: uuid */
@@ -1992,7 +2001,11 @@ export interface operations {
 			query?: {
 				limit?: components["parameters"]["Limit"];
 				offset?: components["parameters"]["Offset"];
-				state?: "running" | "completed" | "failed" | "cancelled";
+				/** @description Keep runs in one state. waiting keeps running runs whose question nobody has answered yet. */
+				state?:
+					"running" | "waiting" | "completed" | "failed" | "cancelled" | "interrupted";
+				/** @description Keep the direct children of one agent run, or root for the children the root conversation launched. */
+				parentAgentRunId?: string;
 			};
 			header: {
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];

@@ -68,6 +68,14 @@ type TurnRouter interface {
 		sessionID uuid.UUID,
 	) (bool, error)
 
+	// CancelSessionAgentRun reaches the worker running one child agent, for
+	// the same reason CancelSessionTurn does.
+	CancelSessionAgentRun(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		agentRunID uuid.UUID,
+	) (bool, error)
+
 	// SignalSessionJob reaches the worker whose process group holds the job. A
 	// nil response means no live worker holds it, which the caller records
 	// against the durable row instead.

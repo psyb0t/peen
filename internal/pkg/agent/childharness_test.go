@@ -93,27 +93,26 @@ func childHarnessFixture(t *testing.T, driver elelem.Driver) runtimeFixture {
 	return fixture
 }
 
-// launchChildDriver scripts a parent that delegates once, a child that answers
-// with childTurns, then the parent's closing message.
+// launchChildDriver scripts a parent that delegates once and waits, a child
+// that answers with childTurns, then the parent's closing message.
 func launchChildDriver(
 	t *testing.T,
 	childTurns ...elelemtest.Turn,
-) *elelemtest.ScriptedDriver {
+) *conversationDriver {
 	t.Helper()
 
-	turns := make([]elelemtest.Turn, 0, len(childTurns)+2)
-	turns = append(turns, elelemtest.ToolCall(
-		launchAgentCallID,
-		toolNameLaunchAgent,
-		launchAgentArguments(t, launchAgentInput{
-			Task:  "do the child task",
-			Agent: launchAgentChildName,
-		}),
-	))
-	turns = append(turns, childTurns...)
-	turns = append(turns, elelemtest.Text("parent done"))
-
-	return elelemtest.NewScriptedDriver(turns...)
+	return newConversationDriver(map[string]*elelemtest.ScriptedDriver{
+		rootConversation: elelemtest.NewScriptedDriver(launchAndWaitTurns(
+			t,
+			launchAgentCallID,
+			launchAgentInput{
+				Task:  "do the child task",
+				Agent: launchAgentChildName,
+			},
+			"parent done",
+		)...),
+		runtimeTestAgentName: elelemtest.NewScriptedDriver(childTurns...),
+	}).after(runtimeTestAgentName, rootConversation, 2)
 }
 
 // requestSystemPrompt returns the system message one driver request carried.
@@ -127,33 +126,36 @@ func requestSystemPrompt(request elelem.DriverRequest) string {
 	return ""
 }
 
-// splitChildRequests separates the child conversation's driver requests from
-// the root turn's. Parent and child share one scripted driver, so the system
-// prompt is what tells the two conversations apart.
+// splitChildRequests returns the child conversation's driver requests and
+// the root turn's. Each request's system prompt is checked too, so a request
+// routed to the wrong script fails here.
 func splitChildRequests(
 	t *testing.T,
-	driver *elelemtest.ScriptedDriver,
+	driver *conversationDriver,
 ) ([]elelem.DriverRequest, []elelem.DriverRequest) {
 	t.Helper()
 
-	child := make([]elelem.DriverRequest, 0, len(driver.Requests()))
-	root := make([]elelem.DriverRequest, 0, len(driver.Requests()))
-
-	for _, request := range driver.Requests() {
-		if strings.Contains(
-			requestSystemPrompt(request),
-			childHarnessChildInstructions,
-		) {
-			child = append(child, request)
-
-			continue
-		}
-
-		root = append(root, request)
-	}
+	child := driver.requests(runtimeTestAgentName)
+	root := driver.requests(rootConversation)
 
 	require.NotEmpty(t, child, "the child never reached the model")
 	require.NotEmpty(t, root, "the root turn never reached the model")
+
+	for _, request := range child {
+		require.Contains(
+			t,
+			requestSystemPrompt(request),
+			childHarnessChildInstructions,
+		)
+	}
+
+	for _, request := range root {
+		require.NotContains(
+			t,
+			requestSystemPrompt(request),
+			childHarnessChildInstructions,
+		)
+	}
 
 	return child, root
 }
@@ -279,15 +281,12 @@ func TestLaunchAgentChildPromptCarriesBaseSystemInstructions(t *testing.T) {
 // than trivially equal to their zero values.
 func TestLaunchAgentChildRunIsFullyReplayable(t *testing.T) {
 	ctx := context.Background()
-	driver := elelemtest.NewScriptedDriver(
-		elelemtest.ToolCall(
-			launchAgentCallID,
-			toolNameLaunchAgent,
-			launchAgentArguments(t, launchAgentInput{
-				Task:  childHarnessReplayTask,
-				Agent: launchAgentChildName,
-			}),
-		),
+	driver := launchedChildDriver(
+		t,
+		launchAgentInput{
+			Task:  childHarnessReplayTask,
+			Agent: launchAgentChildName,
+		},
 		elelemtest.ToolCall(
 			childHarnessReplayCallID,
 			toolNameReadFile,
@@ -297,7 +296,6 @@ func TestLaunchAgentChildRunIsFullyReplayable(t *testing.T) {
 			childHarnessReplayThinking,
 			childHarnessReplayResponse,
 		),
-		elelemtest.Text("parent done"),
 	)
 
 	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
@@ -659,9 +657,9 @@ preWriteFile:
 // turnStart, turnStop, and turnCancelled are parent-turn lifecycle events
 // rather than child-model-call events. They run from the turn's lease in
 // startLease, completeLease, and the cancellation path, all of which key on
-// the preparedTurn. A child is one model call inside that turn: it is launched
-// after turnStart already fired and it finishes before turnStop fires, so
-// firing them per child would report several turn starts for one turn.
+// the preparedTurn. A child is launched from inside a turn after turnStart
+// already fired, and it may end before or after turnStop, so firing them per
+// child would report turn starts and stops that no turn made.
 //
 // These events inject before the model, which lands them in the system prompt
 // of whichever conversation ran them. The root's prompt therefore carries them

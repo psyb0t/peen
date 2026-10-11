@@ -19,6 +19,7 @@ import {
 
 const eventID = "11111111-1111-4111-8111-111111111111";
 const sessionID = "22222222-2222-4222-8222-222222222222";
+const childAgentRunID = "33333333-3333-4333-8333-333333333333";
 const requestID = "33333333-3333-4333-8333-333333333333";
 const secretToken = "EXAMPLE-DO-NOT-USE-socket-token";
 const secretMessage = "private message text for the model";
@@ -279,6 +280,31 @@ describe("PeenSocket", () => {
 			session_id: sessionID,
 		});
 		expect(browserLogText(debug)).not.toContain(secretMessage);
+	});
+
+	it("sends a message to a child agent by its run and without turn settings", () => {
+		const socket = new PeenSocket({
+			onError: () => undefined,
+			onEvent: () => undefined,
+			onState: () => undefined,
+			token: "",
+		});
+		socket.connect();
+		const transport = TestWebSocket.instances[0];
+		transport?.open();
+		socket.send(
+			sessionID,
+			secretMessage,
+			{ model: "aigate/default", reasoningEffort: "high" },
+			childAgentRunID,
+		);
+
+		const sent: unknown = JSON.parse(transport?.sent[0] ?? "null");
+		expect(sent).toMatchObject({
+			data: { message: secretMessage, to: childAgentRunID },
+		});
+		expect(sent).not.toHaveProperty("data.model");
+		expect(sent).not.toHaveProperty("data.reasoningEffort");
 	});
 
 	it("does not log a send that never reached an open socket", () => {

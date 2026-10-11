@@ -27,6 +27,11 @@ type activeUserMessageQueue struct {
 	closed    bool
 	pending   []queuedUserMessage
 
+	// arrived is closed and replaced each time a message is queued, so the
+	// root's waitMessages and ask can block on whatever the current channel
+	// is.
+	arrived chan struct{}
+
 	// snapshot and skills resolve a :name in a queued message the way the
 	// turn's own first message was resolved. skills is the ledger of every
 	// skill the turn has already delivered.
@@ -72,6 +77,7 @@ func newActiveUserMessageQueue(
 		turn:           prepared.turn,
 		workspace:      prepared.workspace,
 		capacity:       capacity,
+		arrived:        make(chan struct{}),
 		snapshot:       prepared.snapshot,
 		skills:         prepared.skillLedger,
 		modelReference: prepared.modelReference,
@@ -166,6 +172,9 @@ func (q *activeUserMessageQueue) enqueue(
 		skills:        skills,
 	})
 
+	close(q.arrived)
+	q.arrived = make(chan struct{})
+
 	loggerContext := ctxscope.Set(
 		ctx,
 		ctxscope.Attr("session_id", q.turn.lease.SessionID.String()),
@@ -227,6 +236,15 @@ func (q *activeUserMessageQueue) emitAccepted(
 	}
 
 	return nil
+}
+
+// arrival reports how many queued messages no round has taken yet, and the
+// channel that closes when the next one is queued.
+func (q *activeUserMessageQueue) arrival() (int, <-chan struct{}) {
+	q.mutex.Lock()
+	defer q.mutex.Unlock()
+
+	return q.queue.Len(), q.arrived
 }
 
 func (q *activeUserMessageQueue) close() {

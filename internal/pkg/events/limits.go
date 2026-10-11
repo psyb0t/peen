@@ -58,9 +58,9 @@ func (l Limits) Validate(summary string, data json.RawMessage) error {
 	return nil
 }
 
-// truncateToRuneBoundary cuts text to at most maxBytes without leaving half of
+// TruncateToRuneBoundary cuts text to at most maxBytes without leaving half of
 // a multi-byte character at the end.
-func truncateToRuneBoundary(text string, maxBytes int) string {
+func TruncateToRuneBoundary(text string, maxBytes int) string {
 	if len(text) <= maxBytes {
 		return text
 	}

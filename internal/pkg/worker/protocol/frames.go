@@ -51,6 +51,10 @@ const (
 	// job's process group lives in the worker, so the controller cannot reach
 	// it and can only record what the worker reports back.
 	CommandSignalJob Command = "signalJob"
+	// CommandCancelAgentRun asks the worker to stop one running child agent.
+	// The child runs in the worker, so the controller's durable request
+	// alone never reaches it.
+	CommandCancelAgentRun Command = "cancelAgentRun"
 	// CommandShutdown asks the worker to finish and exit.
 	CommandShutdown Command = "shutdown"
 )
@@ -109,6 +113,10 @@ type RunTurn struct {
 	// it as a woken turn, so its prompt is stored as injected rather than as
 	// something a person typed.
 	Origin *TurnOrigin `json:"origin,omitempty"`
+
+	// To names a running child agent. The worker puts the message in that
+	// child's inbox and starts no turn.
+	To *uuid.UUID `json:"to,omitempty"`
 }
 
 // TurnOrigin names the session event that started a turn.
@@ -126,6 +134,11 @@ type TurnResult struct {
 // CancelResult is the worker's answer to a cancel command.
 type CancelResult struct {
 	CancelRequested bool `json:"cancelRequested"`
+}
+
+// CancelAgentRun names one child agent the controller wants stopped.
+type CancelAgentRun struct {
+	AgentRunID uuid.UUID `json:"agentRunId"`
 }
 
 // SignalJob names one job the controller wants signalled.

@@ -100,6 +100,21 @@ func (s *Server) CancelSessionAgentRun(
 		return nil, ctxerrors.Wrap(err, "cancel session agent run")
 	}
 
+	// The child runs in the session's worker, so the durable request alone
+	// never stops it.
+	if result.State == api.AgentRunCancelResponseStateRunning {
+		if _, err := s.deps.Turns.CancelSessionAgentRun(
+			ctx,
+			request.Params.XSessionID,
+			request.AgentRunId,
+		); err != nil {
+			return nil, ctxerrors.Wrap(
+				err,
+				"cancel the session worker agent run",
+			)
+		}
+	}
+
 	return api.CancelSessionAgentRun202JSONResponse{
 		Body: *result,
 		Headers: api.CancelSessionAgentRun202ResponseHeaders{

@@ -36,6 +36,8 @@ const (
 	CodeRunningTurnSettingsChange Code = "runningTurnSettingsChange"
 	CodeUserMessageQueueFull      Code = "userMessageQueueFull"
 	CodeUnknownSkill              Code = "unknownSkill"
+	CodeAgentRunFinished          Code = "agentRunFinished"
+	CodeAgentRunNotFound          Code = "agentRunNotFound"
 )
 
 // Error is one failure as it crosses the socket.
@@ -83,6 +85,16 @@ var detailedFailures = []detailedFailure{
 		code:   CodeUserMessageQueueFull,
 		detail: elelem.ErrUserMessageQueueFull,
 		class:  commerr.ErrConflict,
+	},
+	{
+		code:   CodeAgentRunFinished,
+		detail: session.ErrAgentRunFinished,
+		class:  commerr.ErrConflict,
+	},
+	{
+		code:   CodeAgentRunNotFound,
+		detail: session.ErrAgentRunNotFound,
+		class:  commerr.ErrNotFound,
 	},
 }
 

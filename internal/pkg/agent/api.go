@@ -196,6 +196,10 @@ func (r *Runtime) RunMessage(
 	requestID uuid.UUID,
 	sink EventSink,
 ) (*MessageRunResult, error) {
+	if request.To != nil {
+		return r.messageAgentRun(ctx, request)
+	}
+
 	input, err := messageRequestToTurnRequest(request, requestID)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "convert message request")
@@ -275,7 +279,9 @@ func (r *Runtime) ListMessages(
 	return &converted, nil
 }
 
-// CancelSession requests cancellation for the session's active turn.
+// CancelSession requests cancellation for the session's active turn and
+// stops every child agent still running in it, including children of turns
+// that already ended.
 func (r *Runtime) CancelSession(
 	ctx context.Context,
 	sessionID uuid.UUID,
@@ -285,7 +291,11 @@ func (r *Runtime) CancelSession(
 		return nil, ctxerrors.Wrap(err, "cancel session")
 	}
 
-	return &api.CancelResponse{CancelRequested: cancelRequested}, nil
+	agentsCancelled := r.CancelAgentRuns(ctx, sessionID) > 0
+
+	return &api.CancelResponse{
+		CancelRequested: cancelRequested || agentsCancelled,
+	}, nil
 }
 
 func messageRequestToTurnRequest(

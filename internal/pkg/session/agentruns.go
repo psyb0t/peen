@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"database/sql/driver"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -476,8 +477,6 @@ func (s *Store) GetAgentRun(
 }
 
 // ListAgentRuns returns a stable newest-first session-scoped child-run page.
-//
-//nolint:dupl // The generated AgentRun query has a distinct typed builder.
 func (s *Store) ListAgentRuns(
 	ctx context.Context,
 	sessionID uuid.UUID,
@@ -492,13 +491,20 @@ func (s *Store) ListAgentRuns(
 		return nil, ctxerrors.Wrap(err, "find session for agent run listing")
 	}
 
-	run := s.query.AgentRun
-
-	query := run.WithContext(ctx).Where(run.SessionID.Eq(sessionID))
-	if options.State != nil {
-		query = query.Where(run.State.Eq(string(*options.State)))
+	query, hasMatches, err := s.agentRunListQuery(ctx, sessionID, options)
+	if err != nil {
+		return nil, err
 	}
 
+	if !hasMatches {
+		return &AgentRunPage{
+			Items:  []*models.AgentRun{},
+			Limit:  options.Limit,
+			Offset: options.Offset,
+		}, nil
+	}
+
+	run := s.query.AgentRun
 	page := readPage{limit: options.Limit, offset: options.Offset}
 
 	items, hasMore, err := listReadPage(
@@ -523,6 +529,92 @@ func (s *Store) ListAgentRuns(
 		Offset:  options.Offset,
 		HasMore: hasMore,
 	}, nil
+}
+
+// agentRunListQuery applies the list filters. hasMatches is false when the
+// waiting filter already knows no run can match, because an empty ID set has
+// no valid IN clause.
+//
+//nolint:ireturn // The generated query builder is an interface.
+func (s *Store) agentRunListQuery(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	options ListAgentRunsOptions,
+) (repositories.IAgentRunDo, bool, error) {
+	run := s.query.AgentRun
+
+	query := run.WithContext(ctx).Where(run.SessionID.Eq(sessionID))
+	if options.State != nil {
+		query = query.Where(run.State.Eq(string(*options.State)))
+	}
+
+	if options.ParentAgentRunID != nil {
+		query = query.Where(run.ParentAgentRunID.Eq(*options.ParentAgentRunID))
+	}
+
+	if options.IsTopLevel {
+		query = query.Where(run.ParentAgentRunID.IsNull())
+	}
+
+	if !options.IsWaiting {
+		return query, true, nil
+	}
+
+	questions, err := s.OpenAgentRunQuestions(ctx, sessionID)
+	if err != nil {
+		return nil, false, err
+	}
+
+	if len(questions) == 0 {
+		return query, false, nil
+	}
+
+	waiting := make([]driver.Valuer, 0, len(questions))
+	for agentRunID := range questions {
+		waiting = append(waiting, agentRunID)
+	}
+
+	return query.Where(run.ID.In(waiting...)), true, nil
+}
+
+// agentRunQuestionPayload is the data of an agent.run.question event.
+type agentRunQuestionPayload struct {
+	Question string `json:"question"`
+}
+
+// OpenAgentRunQuestions returns the question each running child of the
+// session is waiting on, keyed by run. A run is waiting while its latest
+// agent.run.question event has no later agent.run.answer.
+func (s *Store) OpenAgentRunQuestions(
+	ctx context.Context,
+	sessionID uuid.UUID,
+) (map[uuid.UUID]string, error) {
+	events, err := s.query.AgentRunEvent.WithContext(ctx).
+		OpenQuestions(sessionID)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "list open agent run questions")
+	}
+
+	questions := make(map[uuid.UUID]string, len(events))
+
+	for _, event := range events {
+		payload := agentRunQuestionPayload{}
+		if err := json.Unmarshal(
+			[]byte(event.PayloadJSON),
+			&payload,
+		); err != nil {
+			return nil, ctxerrors.Wrap(
+				errors.Join(commerr.ErrParseFailed, err),
+				"decode agent run question",
+			)
+		}
+
+		// Events come oldest first, so a later open question replaces an
+		// earlier one.
+		questions[event.AgentRunID] = payload.Question
+	}
+
+	return questions, nil
 }
 
 // ListAgentRunEvents returns ordered durable replay data for one child run.

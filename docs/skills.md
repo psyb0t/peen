@@ -22,7 +22,7 @@ my-app/
 
 Peen reads `.claude/skills/<name>/SKILL.md` and `.agents/skills/<name>/SKILL.md`. Every entry in a `skills/` directory must be a directory. A stray file there is reported as "skill entry is not a directory".
 
-Peen ships two core skills of its own, `planning` and `freshness`. A skill you define with the same name does not replace one. Both exist, and [core and custom skills](#core-and-custom-skills) explains how a name picks between them.
+Peen ships four core skills of its own, `planning`, `freshness`, `delegation`, and `plan-and-delegate`. A skill you define with the same name does not replace one. Both exist, and [core and custom skills](#core-and-custom-skills) explains how a name picks between them.
 
 ## Format
 
@@ -56,7 +56,14 @@ The YAML is strict. An unknown key, a second YAML document, or a non-string valu
 
 ## Core and custom skills
 
-Skills come in two groups. Core skills are embedded in Peen: `planning` and `freshness`. Custom skills are the ones you write in a harness layer. The groups never replace each other.
+Skills come in two groups. Core skills are embedded in Peen. Custom skills are the ones you write in a harness layer. The groups never replace each other.
+
+| Core skill | What it tells the agent |
+| --- | --- |
+| `planning` | Write an evidence-based plan under `.plans/` before any change. |
+| `freshness` | Check facts that change over time against a current source instead of memory. |
+| `delegation` | Hand parts of a task to child agents, talk to them while they work, and collect their answers. See [running children](agents.md#running-children). |
+| `plan-and-delegate` | Plan a larger change, split it into parts that touch different files, delegate each part, and verify the combined result. |
 
 A core skill is addressed with the `core:` prefix: `core:planning` in `useSkill`, `:core:planning` in a message. A plain name means the custom skill when one exists and the core skill otherwise. With no custom `planning` skill, `:planning` loads the core one. Once you write `.agents/skills/planning/SKILL.md`, `:planning` loads yours and `:core:planning` still loads Peen's. A custom skill name cannot contain `:`.
 
@@ -69,7 +76,9 @@ Every turn the system prompt carries the catalogue. Core skills come first under
 ```text
 Available skills:
 Core skills (address as core:<name>):
+- core:delegation: Hand parts of a task to child agents, talk to them while they work, and collect their answers. (embedded://skills/delegation/SKILL.md)
 - core:freshness: Verify time-sensitive facts with current authoritative evidence before using them. (embedded://skills/freshness/SKILL.md)
+- core:plan-and-delegate: Plan a larger change, split it into independent parts, delegate them to child agents, and verify the combined result. (embedded://skills/plan-and-delegate/SKILL.md)
 - core:planning: Create evidence-based plans and test plans before any request that changes something. (embedded://skills/planning/SKILL.md)
 Custom skills (defined by you, no prefix):
 - release-notes: Write RELEASE_NOTES.md from the files and changes in this workspace. (/home/me/work/my-app/.agents/skills/release-notes/SKILL.md)

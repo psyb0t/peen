@@ -32,9 +32,37 @@ const (
 Handle this as the {{.Agent}} agent would.{{end}}
 </handler>`
 
+	// agentMessageTemplateText is a message one participant in a session
+	// sends another: a child's task, a message between agents, or the user
+	// writing to a child. The attributes name the sender. The body is the
+	// sender's own text and stays as written, because agents exchange code.
+	//
+	//nolint:lll // The opening tag is one line in the rendered message.
+	agentMessageTemplateText = `<message from="{{attr .From}}"{{if .Name}} name="{{attr .Name}}"{{end}}{{if .Run}} run="{{attr .Run}}"{{end}}{{if .Kind}} kind="{{attr .Kind}}"{{end}}>
+{{.Text}}
+</message>`
+
 	hookContextTemplateName  = "hook"
 	eventHandlerTemplateName = "handler"
+	agentMessageTemplateName = "message"
 	escapeFunctionName       = "esc"
+	attributeFunctionName    = "attr"
+
+	// messageSenderUser and messageSenderAgent are the from values of a
+	// message block.
+	messageSenderUser  = "user"
+	messageSenderAgent = "agent"
+	// rootAgentRunReference stands in for a run ID when the sender or
+	// recipient is the session's root conversation.
+	rootAgentRunReference = "root"
+
+	// messageKindQuestion marks a message that asks something.
+	// messageKindResult, messageKindFailed, and messageKindCancelled mark the
+	// message carrying how a child ended.
+	messageKindQuestion  = "question"
+	messageKindResult    = "result"
+	messageKindFailed    = "failed"
+	messageKindCancelled = "cancelled"
 
 	hookContextTextSeparator = "\n\n"
 )
@@ -65,6 +93,40 @@ var elementEscaper = strings.NewReplacer(
 
 func escapeElement(value string) string {
 	return elementEscaper.Replace(value)
+}
+
+// attributeEscaper escapes a value placed inside a double-quoted attribute,
+// so a sender name cannot end the attribute or the tag.
+//
+//nolint:gochecknoglobals // Immutable lookup table.
+var attributeEscaper = strings.NewReplacer(
+	"&", "&amp;",
+	"<", "&lt;",
+	">", "&gt;",
+	`"`, "&quot;",
+)
+
+func escapeAttribute(value string) string {
+	return attributeEscaper.Replace(value)
+}
+
+// agentMessage is what agentMessageTemplateText renders. Name and Run are
+// empty for a message from the user. Kind is empty for a plain message.
+type agentMessage struct {
+	From string
+	Name string
+	Run  string
+	Kind string
+	Text string
+}
+
+// renderAgentMessage wraps one message in a block naming its sender.
+func renderAgentMessage(message agentMessage) (string, error) {
+	return renderTemplate(
+		agentMessageTemplateName,
+		agentMessageTemplateText,
+		message,
+	)
 }
 
 // renderHookContext wraps the strings one hook event injected in a single
@@ -107,7 +169,10 @@ func renderTemplate(
 	data any,
 ) (string, error) {
 	parsed, err := template.New(name).
-		Funcs(template.FuncMap{escapeFunctionName: escapeElement}).
+		Funcs(template.FuncMap{
+			escapeFunctionName:    escapeElement,
+			attributeFunctionName: escapeAttribute,
+		}).
 		Parse(text)
 	if err != nil {
 		return "", ctxerrors.Wrapf(err, "parse %s template", name)

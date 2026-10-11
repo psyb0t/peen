@@ -84,6 +84,7 @@ type Runtime struct {
 	eventBus             *events.Bus
 	metrics              *metrics.Metrics
 	wakes                *wakeLimiter
+	askTimeout           time.Duration
 
 	// wakeRunnerMutex guards wakeRunner, which the controller sets after the
 	// runtime is built and events may already be arriving.
@@ -247,6 +248,7 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 		eventBus:             options.Events,
 		metrics:              options.Metrics,
 		wakes:                newWakeLimiter(options.MaxEventWakesPerHour),
+		askTimeout:           options.AskTimeout,
 		jobs:                 map[uuid.UUID]*tools.JobRegistry{},
 		agentLimits:          options.AgentLimits.withDefaults(),
 		configDirectory:      options.ConfigDirectory,
@@ -836,8 +838,129 @@ func (r *Runtime) launchAgentDeps(prepared *preparedTurn) *launchAgentDeps {
 		sessionID:          prepared.opened.Session.ID,
 		parentTurnID:       prepared.lease.TurnID,
 		requestID:          prepared.turn.requestID,
-		liveSink:           prepared.turn.sink,
+		liveSink:           prepared.turn.childSink(),
+		userMessages:       prepared.userMessages,
 	}
+}
+
+// childSink forwards a child agent's live events to the turn's sink until
+// the turn ends. A nil turn sink stays nil.
+func (t *runtimeTurn) childSink() EventSink {
+	if t.sink == nil {
+		return nil
+	}
+
+	return func(event Event) error {
+		t.childSinkMutex.Lock()
+		defer t.childSinkMutex.Unlock()
+
+		if t.isChildSinkClosed {
+			return nil
+		}
+
+		return t.sink(event)
+	}
+}
+
+func (t *runtimeTurn) closeChildSink() {
+	t.childSinkMutex.Lock()
+	defer t.childSinkMutex.Unlock()
+
+	t.isChildSinkClosed = true
+}
+
+// existingAgentRuns returns the session's agent run registry, or nil when no
+// child was ever launched in it.
+func (r *Runtime) existingAgentRuns(sessionID uuid.UUID) *AgentRunRegistry {
+	r.agentRunsMutex.Lock()
+	defer r.agentRunsMutex.Unlock()
+
+	return r.agentRuns[sessionID]
+}
+
+// CancelAgentRuns stops every running child agent in one session and reports
+// how many it signalled. Each child records its own cancellation as it ends.
+func (r *Runtime) CancelAgentRuns(
+	ctx context.Context,
+	sessionID uuid.UUID,
+) int {
+	registry := r.existingAgentRuns(sessionID)
+	if registry == nil {
+		return 0
+	}
+
+	cancelled := registry.CancelRunning()
+	if cancelled > 0 {
+		ctxscope.GetLogger(ctx).Info(
+			"child agents cancelled",
+			"reason", "session_cancelled",
+			"agent_runs", cancelled,
+		)
+	}
+
+	return cancelled
+}
+
+// CancelLocalAgentRun stops one running child this runtime holds, without
+// recording anything durably. It reports whether the child was running here.
+// A controller records the request itself and then reaches the worker running
+// the child through this.
+func (r *Runtime) CancelLocalAgentRun(sessionID, agentRunID uuid.UUID) bool {
+	registry := r.existingAgentRuns(sessionID)
+	if registry == nil {
+		return false
+	}
+
+	snapshot, found := registry.Cancel(agentRunID)
+
+	return found && snapshot.State == AgentRunStateRunning
+}
+
+// cancelTurnAgentRuns stops the children a cancelled turn started, directly or
+// through descendants.
+func (r *Runtime) cancelTurnAgentRuns(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	turnID uuid.UUID,
+) {
+	registry := r.existingAgentRuns(sessionID)
+	if registry == nil {
+		return
+	}
+
+	cancelled := registry.CancelTurn(turnID)
+	if cancelled > 0 {
+		ctxscope.GetLogger(ctx).Info(
+			"child agents cancelled",
+			"reason", "turn_cancelled",
+			"agent_runs", cancelled,
+		)
+	}
+}
+
+// ShutdownAgentRuns stops every running child agent this runtime started and
+// waits for each to record how it ended, or for ctx to end. Children run on
+// goroutines of this process, so none may outlive it unrecorded.
+func (r *Runtime) ShutdownAgentRuns(ctx context.Context) error {
+	r.agentRunsMutex.Lock()
+	registries := make([]*AgentRunRegistry, 0, len(r.agentRuns))
+
+	for _, registry := range r.agentRuns {
+		registries = append(registries, registry)
+	}
+	r.agentRunsMutex.Unlock()
+
+	for _, registry := range registries {
+		registry.CancelRunning()
+	}
+
+	for _, registry := range registries {
+		if err := registry.Wait(ctx); err != nil {
+			return ctxerrors.Wrap(err, "shut down child agents")
+		}
+	}
+
+	return nil
 }
 
 // sessionJobs returns the session's job registry, creating it on first use.
@@ -1470,6 +1593,8 @@ func (r *Runtime) runLease(
 ) (*TurnResult, error) {
 	ctx = prepared.scopedContext(ctx)
 
+	defer prepared.turn.closeChildSink()
+
 	if err := r.registerActiveUserMessageQueue(prepared); err != nil {
 		return nil, r.finalizeFailedTurn(ctx, prepared, err)
 	}
@@ -2022,6 +2147,36 @@ func (r *Runtime) finalizeCompletedLease(
 	return nil
 }
 
+// cancelledTurn stops the children a cancelled turn started and runs its
+// turnCancelled hooks. A hook failure joins the turn's own error.
+func (r *Runtime) cancelledTurn(
+	ctx context.Context,
+	prepared *preparedTurn,
+	classification string,
+	runErr error,
+) error {
+	r.cancelTurnAgentRuns(
+		ctx,
+		prepared.opened.Session.ID,
+		prepared.lease.TurnID,
+	)
+
+	hookErr := prepared.runLifecycleHook(
+		context.WithoutCancel(ctx),
+		r,
+		harness.HookEventTurnCancelled,
+		map[string]string{"reason": classification},
+	)
+	if hookErr == nil {
+		return runErr
+	}
+
+	return errors.Join(
+		runErr,
+		ctxerrors.Wrap(hookErr, "run turn-cancelled hooks"),
+	)
+}
+
 func (r *Runtime) finalizeFailedTurn(
 	ctx context.Context,
 	prepared *preparedTurn,
@@ -2029,18 +2184,7 @@ func (r *Runtime) finalizeFailedTurn(
 ) error {
 	state, classification, eventType := failedTurnState(runErr)
 	if state == models.TurnStateCancelled {
-		hookErr := prepared.runLifecycleHook(
-			context.WithoutCancel(ctx),
-			r,
-			harness.HookEventTurnCancelled,
-			map[string]string{"reason": classification},
-		)
-		if hookErr != nil {
-			runErr = errors.Join(
-				runErr,
-				ctxerrors.Wrap(hookErr, "run turn-cancelled hooks"),
-			)
-		}
+		runErr = r.cancelledTurn(ctx, prepared, classification, runErr)
 	}
 
 	eventErr := prepared.turn.emit(

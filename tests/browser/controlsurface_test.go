@@ -186,6 +186,20 @@ const (
 	browserLiveSkillScreenshot = "live-skill-marker"
 	browserHandlerScreenshot   = "handler-update"
 
+	browserAgentsWorkspaceName = "browser-child-agents"
+	browserAgentsMessage       = "launch a reviewer that asks first"
+	browserAgentsTask          = "ask which file to review"
+	browserAgentsQuestion      = "Which file should I review?"
+	browserAgentsRootAnswer    = "the reviewer is running"
+	browserAgentsCoreAgent     = "core:general-purpose"
+	browserAgentsPanelLabel    = "running agents"
+	browserAgentsAskPrefix     = "Asks: "
+	browserSelectorStopAgent   = `section.running-agents button[aria-label^="Stop "]`
+	browserAgentsCancelPrefix  = "/v1/session/agents/"
+	browserAgentsCancelSuffix  = "/cancel"
+	browserAgentsScreenshot    = "running-agents"
+	browserAgentsPollEvery     = 250 * time.Millisecond
+
 	browserLinkWorkspaceName  = "browser-session-link"
 	browserSessionLinkFormat  = "/?session=%s"
 	browserSelectorChatHeader = "header.chat-header h1"
@@ -586,6 +600,69 @@ func TestControlSurfaceOpensTheSessionALinkNames(t *testing.T) {
 		"the linked session's chat must be open after connecting",
 	)
 	requireNamedScreenshot(ctx, t, browserLinkScreenshot)
+}
+
+// A child that outlives its turn shows in a running-agents panel with the
+// question it waits on. Its Stop button cancels it through the API, and the
+// panel goes away once it ends.
+func TestControlSurfaceListsAWaitingChildAndStopsIt(t *testing.T) {
+	ctx := t.Context()
+	prepareBrowserTest(t)
+
+	openBrowserWorkspace(ctx, t, browserAgentsWorkspaceName)
+
+	integrationInfra.EnableScriptedToolTurn(testinfra.ScriptedToolTurn{
+		UserMessage: browserAgentsMessage,
+		Calls: []testinfra.ScriptedToolCall{{
+			Name: "launchAgent",
+			Arguments: map[string]any{
+				"agent": browserAgentsCoreAgent,
+				"task":  browserAgentsTask,
+			},
+		}},
+		FinalAnswer: browserAgentsRootAnswer,
+		Children: []testinfra.ScriptedToolTurn{{
+			UserMessage: browserAgentsTask,
+			Calls: []testinfra.ScriptedToolCall{{
+				Name:      "ask",
+				Arguments: map[string]any{"question": browserAgentsQuestion},
+			}},
+			FinalAnswer: browserAgentsRootAnswer,
+		}},
+	})
+	t.Cleanup(integrationInfra.DisableScriptedToolTurn)
+
+	sendBrowserMessage(ctx, t, browserAgentsMessage)
+	waitForBrowserText(ctx, t, browserAgentsRootAnswer)
+	waitForBrowserText(ctx, t, browserAgentsAskPrefix+browserAgentsQuestion)
+	require.Contains(
+		t,
+		strings.ToLower(browserText(ctx, t)),
+		browserAgentsPanelLabel,
+	)
+	requireNamedScreenshot(ctx, t, browserAgentsScreenshot)
+
+	clickBrowserElement(ctx, t, browserSelectorStopAgent)
+
+	require.Eventually(t, func() bool {
+		return !strings.Contains(
+			strings.ToLower(browserText(ctx, t)),
+			browserAgentsPanelLabel,
+		)
+	}, browserRequestTimeout, browserAgentsPollEvery)
+
+	isCancelCalled := false
+
+	for _, entry := range browserNetworkLog(ctx, t) {
+		path := networkPath(entry.URL)
+		if entry.Method == http.MethodPost &&
+			strings.HasPrefix(path, browserAgentsCancelPrefix) &&
+			strings.HasSuffix(path, browserAgentsCancelSuffix) {
+			isCancelCalled = true
+		}
+	}
+
+	require.True(t, isCancelCalled, "the Stop button never called the cancel API")
 }
 
 func prepareBrowserTest(t *testing.T) {

@@ -152,11 +152,7 @@ func TestResolverIncludesEmbeddedBaseHarness(t *testing.T) {
 	assert.Equal(t, embeddedInstructionSource, instructions[0].Source)
 	assert.Equal(t, embeddedInstructionPriority, instructions[0].Priority)
 	assert.Contains(t, instructions[0].Content, "trusted runtime context")
-	assert.Equal(
-		t,
-		[]string{CorePrefix + "freshness", CorePrefix + "planning"},
-		skillNames(snapshot.Skills()),
-	)
+	assert.Equal(t, allCoreSkillRefs(), skillNames(snapshot.Skills()))
 	assert.Equal(
 		t,
 		[]string{CorePrefix + embeddedGeneralPurposeAgentName},
@@ -164,15 +160,22 @@ func TestResolverIncludesEmbeddedBaseHarness(t *testing.T) {
 	)
 
 	manifest := snapshot.Manifest()
-	require.Len(t, manifest, 4)
+	require.Len(t, manifest, 6)
 	assert.Equal(t, embeddedInstructionSource, manifest[0].Source)
-	assert.Equal(t, embeddedSkillsSourcePrefix+"freshness/SKILL.md", manifest[1].Source)
-	assert.Equal(t, embeddedSkillsSourcePrefix+"planning/SKILL.md", manifest[2].Source)
+
+	for index, name := range allCoreSkillNames() {
+		assert.Equal(
+			t,
+			embeddedSkillsSourcePrefix+name+"/"+skillFileName,
+			manifest[index+1].Source,
+		)
+	}
+
 	assert.Equal(
 		t,
 		embeddedAgentsSourcePrefix+embeddedGeneralPurposeAgentName+
 			agentsFileExtension,
-		manifest[3].Source,
+		manifest[5].Source,
 	)
 }
 
@@ -367,7 +370,7 @@ func TestResolverProducesStableAndChangingHashes(t *testing.T) {
 	assert.Equal(t, first.Hash(), second.Hash())
 	assert.Equal(
 		t,
-		[]string{"alpha", "core:freshness", "core:planning", "zulu"},
+		append(append([]string{"alpha"}, allCoreSkillRefs()...), "zulu"),
 		skillNames(second.Skills()),
 	)
 
@@ -383,11 +386,7 @@ func TestResolverHandlesMissingInputsAndCanonicalPaths(t *testing.T) {
 	empty := resolveFixture(t, fixture)
 	require.Len(t, empty.Instructions(), 1)
 	assert.Equal(t, embeddedInstructionSource, empty.Instructions()[0].Source)
-	assert.Equal(
-		t,
-		[]string{"core:freshness", "core:planning"},
-		skillNames(empty.Skills()),
-	)
+	assert.Equal(t, allCoreSkillRefs(), skillNames(empty.Skills()))
 	assert.Equal(
 		t,
 		[]string{"core:general-purpose"},

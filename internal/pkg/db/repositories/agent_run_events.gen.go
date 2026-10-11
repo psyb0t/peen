@@ -7,6 +7,7 @@ package repositories
 import (
 	"context"
 	"database/sql"
+	"strings"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -18,6 +19,8 @@ import (
 	"gorm.io/plugin/dbresolver"
 
 	"github.com/psyb0t/peen/internal/pkg/db/models"
+
+	"github.com/google/uuid"
 )
 
 func newAgentRunEvent(db *gorm.DB, opts ...gen.DOOption) agentRunEvent {
@@ -174,6 +177,39 @@ type IAgentRunEventDo interface {
 	Returning(value interface{}, columns ...string) IAgentRunEventDo
 	UnderlyingDB() *gorm.DB
 	schema.Tabler
+
+	OpenQuestions(sessionID uuid.UUID) (result []*models.AgentRunEvent, err error)
+}
+
+// SELECT question.*
+//
+//	FROM @@table AS question
+//	INNER JOIN agent_runs AS run
+//		ON run.session_id = question.session_id
+//		AND run.id = question.agent_run_id
+//	WHERE question.session_id = @sessionID
+//	  AND run.state = 'running'
+//	  AND question.event_type = 'agent.run.question'
+//	  AND NOT EXISTS (
+//		  SELECT 1
+//		  FROM @@table AS answer
+//		  WHERE answer.agent_run_id = question.agent_run_id
+//		    AND answer.event_type = 'agent.run.answer'
+//		    AND answer.sequence > question.sequence
+//	  )
+//	ORDER BY question.agent_run_id ASC, question.sequence ASC
+func (a agentRunEventDo) OpenQuestions(sessionID uuid.UUID) (result []*models.AgentRunEvent, err error) {
+	var params []interface{}
+
+	var generateSQL strings.Builder
+	params = append(params, sessionID)
+	generateSQL.WriteString("SELECT question.* FROM agent_run_events AS question INNER JOIN agent_runs AS run ON run.session_id = question.session_id AND run.id = question.agent_run_id WHERE question.session_id = ? AND run.state = 'running' AND question.event_type = 'agent.run.question' AND NOT EXISTS ( SELECT 1 FROM agent_run_events AS answer WHERE answer.agent_run_id = question.agent_run_id AND answer.event_type = 'agent.run.answer' AND answer.sequence > question.sequence ) ORDER BY question.agent_run_id ASC, question.sequence ASC ")
+
+	var executeSQL *gorm.DB
+	executeSQL = a.UnderlyingDB().Raw(generateSQL.String(), params...).Find(&result) // ignore_security_alert
+	err = executeSQL.Error
+
+	return
 }
 
 func (a agentRunEventDo) Debug() IAgentRunEventDo {

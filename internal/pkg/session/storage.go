@@ -223,6 +223,10 @@ type agentRunStorage interface {
 		sessionID uuid.UUID,
 		agentRunID uuid.UUID,
 	) (*models.AgentRun, bool, error)
+	OpenAgentRunQuestions(
+		ctx context.Context,
+		sessionID uuid.UUID,
+	) (map[uuid.UUID]string, error)
 }
 
 // agentRunTranscriptStorage records one child agent's own conversation and the

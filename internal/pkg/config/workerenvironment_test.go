@@ -38,6 +38,16 @@ func TestWorkerEnvironmentCarriesRuntimeAndProviderConfiguration(t *testing.T) {
 	assert.NotContains(t, environment, "PEEN_WORKER_UID")
 }
 
+// The ask tool runs in the worker, so the worker has to see the bound.
+func TestWorkerEnvironmentCarriesTheAskTimeout(t *testing.T) {
+	t.Setenv("PEEN_ASK_TIMEOUT", "20m")
+
+	environment, err := testConfig(t).WorkerEnvironment()
+	require.NoError(t, err)
+
+	assert.Equal(t, "20m", environment["PEEN_ASK_TIMEOUT"])
+}
+
 func TestWorkerEnvironmentCarriesDisabledCoreSettings(t *testing.T) {
 	t.Setenv("PEEN_AGENT", "reviewer")
 	t.Setenv("PEEN_DISABLED_CORE_SKILLS", "planning")

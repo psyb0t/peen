@@ -189,6 +189,8 @@ type Config struct {
 	MaxAgentRunEventBytes            int `default:"65536" env:"PEEN_MAX_AGENT_RUN_EVENT_BYTES"`         //nolint:lll // Immutable env tag.
 	MaxAdHocAgentInstructionBytes    int `default:"65536" env:"PEEN_MAX_ADHOC_AGENT_INSTRUCTION_BYTES"` //nolint:lll // Immutable env tag.
 
+	AskTimeout time.Duration `default:"0" env:"PEEN_ASK_TIMEOUT"` //nolint:lll // Immutable env tag.
+
 	HTTPListenAddress    string `default:":8080"           env:"PEEN_HTTP_LISTEN_ADDRESS"`   //nolint:lll // Immutable env tag.
 	MetricsListenAddress string `default:"127.0.0.1:9090" env:"PEEN_METRICS_LISTEN_ADDRESS"` //nolint:lll // Immutable env tag.
 	APIToken             string `env:"PEEN_API_TOKEN"`
@@ -687,6 +689,13 @@ func (c Config) validateAgentRunLimits() error {
 				"agent run bound is negative",
 			)
 		}
+	}
+
+	if c.AskTimeout < 0 {
+		return ctxerrors.Wrap(
+			ErrInvalidConfig,
+			"PEEN_ASK_TIMEOUT must not be negative",
+		)
 	}
 
 	return nil

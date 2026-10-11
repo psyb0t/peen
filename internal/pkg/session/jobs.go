@@ -349,8 +349,6 @@ func (s *Store) GetJob(
 }
 
 // ListJobs returns a stable newest-first session-local process-job page.
-//
-//nolint:dupl // The generated Job query has a distinct typed builder.
 func (s *Store) ListJobs(
 	ctx context.Context,
 	sessionID uuid.UUID,

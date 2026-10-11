@@ -662,6 +662,10 @@ func (i *Infra) ModelDiscoveryObserved() bool {
 // calls in order, then answers with FinalAnswer. A request whose transcript
 // lacks UserMessage, such as a child agent's, gets the default text
 // completion instead.
+//
+// Children script child agent conversations the same way. A child script's
+// UserMessage is the task text, which the child receives inside a <message>
+// block naming its sender.
 type ScriptedToolTurn struct {
 	UserMessage         string
 	Calls               []ScriptedToolCall
@@ -670,6 +674,7 @@ type ScriptedToolTurn struct {
 	ApplyPatchArguments map[string]any
 	RunCommandArguments map[string]any
 	FinalAnswer         string
+	Children            []ScriptedToolTurn
 }
 
 // EnableScriptedToolTurn makes every subsequent provider completion follow

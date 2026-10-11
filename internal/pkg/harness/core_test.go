@@ -12,6 +12,8 @@ import (
 const (
 	testCorePlanningName     = CorePrefix + "planning"
 	testCoreFreshnessName    = CorePrefix + "freshness"
+	testCoreDelegationName   = CorePrefix + embeddedDelegationSkillName
+	testCorePlanDelegateName = CorePrefix + embeddedPlanAndDelegateSkillName
 	testCoreGeneralPurpose   = CorePrefix + embeddedGeneralPurposeAgentName
 	testCustomPlanningBody   = "custom planning content"
 	testCustomAgentBody      = "custom general purpose instructions"
@@ -95,7 +97,9 @@ func TestCoreAndCustomSkillsCoexistUnderOneName(t *testing.T) {
 	assert.Equal(
 		t,
 		[]string{
+			testCoreDelegationName,
 			testCoreFreshnessName,
+			testCorePlanDelegateName,
 			testCorePlanningName,
 			embeddedPlanningSkillName,
 		},
@@ -211,7 +215,15 @@ func TestDisabledCoreSkillIsGoneEverywhere(t *testing.T) {
 		WithDisabledCoreSkills([]string{embeddedPlanningSkillName}),
 	)
 
-	assert.Equal(t, []string{testCoreFreshnessName}, skillNames(snapshot.Skills()))
+	assert.Equal(
+		t,
+		[]string{
+			testCoreDelegationName,
+			testCoreFreshnessName,
+			testCorePlanDelegateName,
+		},
+		skillNames(snapshot.Skills()),
+	)
 
 	for _, name := range []string{
 		embeddedPlanningSkillName,
@@ -303,13 +315,13 @@ func TestParseDisabledCoreSelection(t *testing.T) {
 			name:  "all selects every core skill",
 			parse: ParseDisabledCoreSkills,
 			raw:   "all",
-			want:  []string{"freshness", "planning"},
+			want:  allCoreSkillNames(),
 		},
 		{
 			name:  "all among names selects every core skill",
 			parse: ParseDisabledCoreSkills,
 			raw:   "planning, all",
-			want:  []string{"freshness", "planning"},
+			want:  allCoreSkillNames(),
 		},
 		{
 			name:       "unknown skill names the entry and the valid names",
@@ -442,7 +454,7 @@ func TestManifestSeparatesCoreFromCustomEntries(t *testing.T) {
 		}
 	}
 
-	require.Len(t, byName, 5)
+	require.Len(t, byName, 7)
 	assert.True(t, strings.HasPrefix(
 		byName["skill "+testCorePlanningName].Source,
 		embeddedSourcePrefix,
@@ -651,7 +663,7 @@ func TestUnknownDisabledCoreNameMessageIsExact(t *testing.T) {
 		t,
 		err.Error(),
 		`core skill "bogus" does not exist, valid names are `+
-			`freshness, planning and all`,
+			`delegation, freshness, plan-and-delegate, planning and all`,
 	)
 
 	_, err = ParseDisabledCoreAgents("bogus")
@@ -768,9 +780,29 @@ func TestValidateCoreAgentReference(t *testing.T) {
 	assert.Contains(t, err.Error(), "PEEN_DISABLED_CORE_AGENTS")
 }
 
+// allCoreSkillNames is every embedded core skill, sorted.
+func allCoreSkillNames() []string {
+	return []string{
+		embeddedDelegationSkillName,
+		embeddedFreshnessSkillName,
+		embeddedPlanAndDelegateSkillName,
+		embeddedPlanningSkillName,
+	}
+}
+
+// allCoreSkillRefs is every embedded core skill under its core: name, sorted.
+func allCoreSkillRefs() []string {
+	return []string{
+		testCoreDelegationName,
+		testCoreFreshnessName,
+		testCorePlanDelegateName,
+		testCorePlanningName,
+	}
+}
+
 func TestCoreNamesAreSortedAndComplete(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, []string{"freshness", "planning"}, CoreSkillNames())
+	assert.Equal(t, allCoreSkillNames(), CoreSkillNames())
 	assert.Equal(t, []string{"general-purpose"}, CoreAgentNames())
 }

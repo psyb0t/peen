@@ -54,6 +54,8 @@ const (
 	MethodListAgentRunEvents  Method = "agentRun.listEvents"
 	MethodCancelAgentRun      Method = "agentRun.requestCancellation"
 
+	MethodOpenAgentRunQuestions Method = "agentRun.openQuestions"
+
 	MethodAppendAgentRunMessages   Method = "agentRun.appendMessages"
 	MethodListAgentRunMessages     Method = "agentRun.listMessages"
 	MethodAgentRunHistory          Method = "agentRun.history"

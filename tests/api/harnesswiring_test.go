@@ -83,7 +83,8 @@ postToolUse:
 	variantTestAgentsEnv   = "PEEN_DISABLED_CORE_AGENTS"
 	variantTestDisabledMsg = "use :core:planning here"
 	variantTestDisabledErr = `unknown skill "core:planning" in ` +
-		`:core:planning; available skills: core:freshness`
+		`:core:planning; available skills: core:delegation, ` +
+		`core:freshness, core:plan-and-delegate`
 	variantTestFreshnessMsg = "use :core:freshness here"
 )
 

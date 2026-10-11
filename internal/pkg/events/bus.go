@@ -185,7 +185,7 @@ func (b *Bus) applyDefaults(ctx context.Context, notice *Notice) {
 		notice.CreatedAt = time.Now().UTC()
 	}
 
-	notice.Summary = truncateToRuneBoundary(
+	notice.Summary = TruncateToRuneBoundary(
 		notice.Summary,
 		b.options.MaxSummaryBytes,
 	)

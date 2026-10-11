@@ -53,5 +53,9 @@ func main() {
 		func(AgentRunCompactionQuerier) {},
 		models.AgentRunCompaction{},
 	)
+	generator.ApplyInterface(
+		func(AgentRunEventQuerier) {},
+		models.AgentRunEvent{},
+	)
 	generator.Execute()
 }

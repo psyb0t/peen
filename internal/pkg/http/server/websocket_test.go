@@ -406,6 +406,30 @@ func TestWebSocketMessageFailureFor(t *testing.T) {
 			),
 		},
 		{
+			name: "finished agent",
+			err: errors.Join(
+				commerr.ErrConflict,
+				session.ErrAgentRunFinished,
+			),
+			want: newWebSocketMessageFailure(
+				ErrorCodeAgentFinished,
+				webSocketAgentFinishedMessage,
+				"",
+			),
+		},
+		{
+			name: "unknown agent",
+			err: errors.Join(
+				commerr.ErrNotFound,
+				session.ErrAgentRunNotFound,
+			),
+			want: newWebSocketMessageFailure(
+				ErrorCodeAgentNotFound,
+				webSocketAgentNotFoundMessage,
+				"",
+			),
+		},
+		{
 			name: "invalid skill",
 			err:  harness.ErrInvalidSkill,
 			want: harnessConfigurationFailure(webSocketInvalidSkillReason),

@@ -620,10 +620,12 @@ func (e ListMessagesParamsOrder) Valid() bool {
 
 // Defines values for ListSessionAgentRunsParamsState.
 const (
-	ListSessionAgentRunsParamsStateCancelled ListSessionAgentRunsParamsState = "cancelled"
-	ListSessionAgentRunsParamsStateCompleted ListSessionAgentRunsParamsState = "completed"
-	ListSessionAgentRunsParamsStateFailed    ListSessionAgentRunsParamsState = "failed"
-	ListSessionAgentRunsParamsStateRunning   ListSessionAgentRunsParamsState = "running"
+	ListSessionAgentRunsParamsStateCancelled   ListSessionAgentRunsParamsState = "cancelled"
+	ListSessionAgentRunsParamsStateCompleted   ListSessionAgentRunsParamsState = "completed"
+	ListSessionAgentRunsParamsStateFailed      ListSessionAgentRunsParamsState = "failed"
+	ListSessionAgentRunsParamsStateInterrupted ListSessionAgentRunsParamsState = "interrupted"
+	ListSessionAgentRunsParamsStateRunning     ListSessionAgentRunsParamsState = "running"
+	ListSessionAgentRunsParamsStateWaiting     ListSessionAgentRunsParamsState = "waiting"
 )
 
 // Valid indicates whether the value is a known member of the ListSessionAgentRunsParamsState enum.
@@ -635,7 +637,11 @@ func (e ListSessionAgentRunsParamsState) Valid() bool {
 		return true
 	case ListSessionAgentRunsParamsStateFailed:
 		return true
+	case ListSessionAgentRunsParamsStateInterrupted:
+		return true
 	case ListSessionAgentRunsParamsStateRunning:
+		return true
+	case ListSessionAgentRunsParamsStateWaiting:
 		return true
 	default:
 		return false
@@ -777,15 +783,21 @@ type AgentRun struct {
 	ParentToolCallId      *string             `json:"parentToolCallId,omitempty"`
 	ParentTurnId          openapi_types.UUID  `json:"parentTurnId"`
 	PromptTokenCount      int64               `json:"promptTokenCount"`
-	RequestId             openapi_types.UUID  `json:"requestId"`
-	ResponseMessages      []interface{}       `json:"responseMessages"`
-	ResponseText          string              `json:"responseText"`
-	ResponseThinking      string              `json:"responseThinking"`
-	SessionId             openapi_types.UUID  `json:"sessionId"`
-	StartedAt             time.Time           `json:"startedAt"`
-	State                 AgentRunState       `json:"state"`
-	SystemPrompt          string              `json:"systemPrompt"`
-	Task                  string              `json:"task"`
+
+	// Question The question a waiting run asked. Absent otherwise.
+	Question         *string            `json:"question,omitempty"`
+	RequestId        openapi_types.UUID `json:"requestId"`
+	ResponseMessages []interface{}      `json:"responseMessages"`
+	ResponseText     string             `json:"responseText"`
+	ResponseThinking string             `json:"responseThinking"`
+	SessionId        openapi_types.UUID `json:"sessionId"`
+	StartedAt        time.Time          `json:"startedAt"`
+	State            AgentRunState      `json:"state"`
+	SystemPrompt     string             `json:"systemPrompt"`
+	Task             string             `json:"task"`
+
+	// Waiting True while the run is running and waits for an answer to the question it asked.
+	Waiting bool `json:"waiting"`
 
 	// WorkerGenerationId Worker generation that ran this child agent.
 	WorkerGenerationId *string `json:"workerGenerationId,omitempty"`
@@ -1563,10 +1575,15 @@ type ListSessionAgentSpaceDecisionsParams struct {
 
 // ListSessionAgentRunsParams defines parameters for ListSessionAgentRuns.
 type ListSessionAgentRunsParams struct {
-	Limit      *Limit                           `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset     *Offset                          `form:"offset,omitempty" json:"offset,omitempty"`
-	State      *ListSessionAgentRunsParamsState `form:"state,omitempty" json:"state,omitempty"`
-	XSessionID SessionIDRequired                `json:"X-Session-ID"`
+	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// State Keep runs in one state. waiting keeps running runs whose question nobody has answered yet.
+	State *ListSessionAgentRunsParamsState `form:"state,omitempty" json:"state,omitempty"`
+
+	// ParentAgentRunId Keep the direct children of one agent run, or root for the children the root conversation launched.
+	ParentAgentRunId *string           `form:"parentAgentRunId,omitempty" json:"parentAgentRunId,omitempty"`
+	XSessionID       SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ListSessionAgentRunsParamsState defines parameters for ListSessionAgentRuns.
@@ -2941,6 +2958,18 @@ func NewListSessionAgentRunsRequest(server string, params *ListSessionAgentRunsP
 		if params.State != nil {
 
 			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "state", *params.State, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.ParentAgentRunId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "parentAgentRunId", *params.ParentAgentRunId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {

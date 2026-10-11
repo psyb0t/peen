@@ -22,18 +22,25 @@ const (
 )
 
 func TestRuntimeModelAuditPersistsRootAndChildProviderRounds(t *testing.T) {
-	driver := elelemtest.NewScriptedDriver(
-		elelemtest.ToolCall(
-			launchAgentCallID,
-			toolNameLaunchAgent,
-			launchAgentArguments(t, launchAgentInput{
-				Task:  "inspect this workspace",
-				Agent: launchAgentChildName,
-			}),
-		),
-		elelemtest.Thinking("child reasoning", "child result"),
-		elelemtest.Thinking("root reasoning", "root result"),
+	rootTurns := launchAndWaitTurns(
+		t,
+		launchAgentCallID,
+		launchAgentInput{
+			Task:  "inspect this workspace",
+			Agent: launchAgentChildName,
+		},
+		"",
 	)
+	rootTurns[len(rootTurns)-1] = elelemtest.Thinking(
+		"root reasoning",
+		"root result",
+	)
+	driver := newConversationDriver(map[string]*elelemtest.ScriptedDriver{
+		rootConversation: elelemtest.NewScriptedDriver(rootTurns...),
+		runtimeTestAgentName: elelemtest.NewScriptedDriver(
+			elelemtest.Thinking("child reasoning", "child result"),
+		),
+	}).after(runtimeTestAgentName, rootConversation, 2)
 	fixture := newLaunchAgentFixture(t, driver, launchAgentFixtureOptions{
 		AgentFiles: map[string]string{
 			launchAgentChildName: launchAgentChildAgentFile,
@@ -75,12 +82,12 @@ func TestRuntimeModelAuditPersistsRootAndChildProviderRounds(t *testing.T) {
 		session.ListModelCallsOptions{Limit: 10},
 	)
 	require.NoError(t, err)
-	require.Len(t, rootCalls.Items, 2)
-	assert.Equal(t, []int64{0, 1}, modelAuditRounds(rootCalls.Items))
+	require.Len(t, rootCalls.Items, 3)
+	assert.Equal(t, []int64{0, 1, 2}, modelAuditRounds(rootCalls.Items))
 	assert.Contains(t, rootCalls.Items[0].RequestToolsJSON, toolNameLaunchAgent)
 	assert.Contains(t, rootCalls.Items[1].RequestMessagesJSON, launchAgentCallID)
-	assert.Equal(t, models.ModelCallStateCompleted, rootCalls.Items[1].State)
-	assert.False(t, rootCalls.Items[1].CostKnown)
+	assert.Equal(t, models.ModelCallStateCompleted, rootCalls.Items[2].State)
+	assert.False(t, rootCalls.Items[2].CostKnown)
 
 	assert.NotNil(t, child.AgentRunID)
 	assert.Equal(t, models.ModelRunStateCompleted, child.State)

@@ -229,9 +229,9 @@ func (r *Runtime) Details(ctx context.Context) (SessionDetails, error) {
 	return toSessionDetails(*stored), nil
 }
 
-// Cancel requests cancellation of this workspace's active turn. It is
-// idempotent: cancelling with no active turn reports CancelRequested false
-// rather than failing.
+// Cancel requests cancellation of this workspace's active turn and every
+// child agent still running in it. It is idempotent: with no active turn and
+// no running child it reports CancelRequested false rather than failing.
 func (r *Runtime) Cancel(ctx context.Context) (CancelResult, error) {
 	response, err := r.internal.CancelSession(ctx, r.internal.SessionID())
 	if err != nil {

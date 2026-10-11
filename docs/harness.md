@@ -15,7 +15,7 @@ The harness is everything Peen tells the model besides your message: `AGENTS.md`
 
 Peen builds the harness from layers. It reads them in this order, and each later layer is more specific:
 
-1. The embedded base: Peen's own operating rules, the core skills `planning` and `freshness`, and the core root agent `general-purpose`.
+1. The embedded base: Peen's own operating rules, the core skills `planning`, `freshness`, `delegation`, and `plan-and-delegate`, and the core root agent `general-purpose`.
 2. `PEEN_CONFIG_DIR`, the trusted operator layer.
 3. Every directory from the filesystem root `/` down to the session's workspace, in that order.
 
@@ -45,7 +45,7 @@ Directory entries are sorted bytewise, so the order is stable. The `.claude/` pa
 
 ## Core and custom skills and agents
 
-Peen keeps two groups. Core skills and agents are embedded in the binary: the skills `planning` and `freshness` and the agent `general-purpose`. Custom skills and agents come from the layers above. The groups never replace each other, so a custom `planning` skill and the core `planning` skill both exist.
+Peen keeps two groups. Core skills and agents are embedded in the binary. They are the skills `planning`, `freshness`, `delegation`, and `plan-and-delegate`, and the agent `general-purpose`. Custom skills and agents come from the layers above. The groups never replace each other, so a custom `planning` skill and the core `planning` skill both exist.
 
 Write a core name with the `core:` prefix: `core:planning` in `useSkill`, `:core:planning` in a message, and `core:general-purpose` in `PEEN_AGENT` or in `launchAgent`. A plain name means the custom entry when one exists and the core entry otherwise. `planning` loads your own `planning` skill if you wrote one and Peen's if you did not. A custom name cannot contain `:`, so a custom entry can never take a `core:` name.
 

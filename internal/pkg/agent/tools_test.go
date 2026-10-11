@@ -89,8 +89,15 @@ func TestToolNamesAreCamelCase(t *testing.T) {
 
 	definitions := set.Definitions()
 
-	names := make([]string, 0, len(definitions)+1)
-	names = append(names, toolNameLaunchAgent)
+	names := make([]string, 0, len(definitions)+5)
+	names = append(
+		names,
+		toolNameLaunchAgent,
+		toolNameSendMessage,
+		toolNameWaitMessages,
+		toolNameStopAgent,
+		toolNameAsk,
+	)
 
 	for _, tool := range definitions {
 		names = append(names, tool.Name)
