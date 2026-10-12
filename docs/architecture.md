@@ -79,6 +79,10 @@ control-core  ->  control-api
 
 Servicepack stops the two in reverse order, so the API stops accepting work before `control-core` cancels active turns, stops running jobs, stops every session worker, and closes SQLite. Workers stop after jobs, so a container is not removed while a process still runs in it, and Peen records each stop, so no worker generation stays marked ready after its worker is gone. Servicepack handles the stop signal and the time limit on the whole shutdown.
 
+## In-process embedding
+
+The [Go embedding guide](../pkg/peen/README.md) describes running the same engine inside another process. That runtime owns its SQLite connection, jobs and child goroutines directly, and its caller closes it with Runtime.Close. Session handles expose stored replay and controls without starting the controller or worker transports. A supplied filesystem affects workspace tools, prompts and harness discovery; configuration, state and audit logs remain in separate host directories. Caller-provided logging and metrics stay local to that runtime.
+
 ## Terms
 
 Several words in these docs name different things on different pages. This is what each one means.

@@ -157,7 +157,7 @@ func (e *Executor) preparePatchAdd(
 		)
 	}
 
-	if _, err := os.Lstat(item.path); err == nil {
+	if _, err := e.filesystem.Lstat(item.path); err == nil {
 		return preparedPatchAction{}, ctxerrors.Wrap(
 			commerr.ErrAlreadyExists,
 			"patch add destination",
@@ -184,7 +184,7 @@ func (e *Executor) preparePatchUpdate(
 		return preparedPatchAction{}, err
 	}
 
-	content, mode, err := readRegularFile(
+	content, mode, err := e.readRegularFile(
 		item.path,
 		int64(e.limits.MaxPatchChangedBytes),
 	)
@@ -246,7 +246,7 @@ func (e *Executor) validatePatchUpdatePaths(item preparedPatchAction) error {
 		)
 	}
 
-	return checkDestinationFree(item.destination)
+	return e.checkDestinationFree(item.destination)
 }
 
 func (e *Executor) preparePatchDelete(
@@ -259,7 +259,7 @@ func (e *Executor) preparePatchDelete(
 		)
 	}
 
-	content, mode, err := readRegularFile(
+	content, mode, err := e.readRegularFile(
 		item.path,
 		int64(e.limits.MaxPatchChangedBytes),
 	)
@@ -385,7 +385,7 @@ func (e *Executor) applyPatchWrite(
 ) (ApplyPatchFileResult, error) {
 	if createParents {
 		parent := filepath.Dir(item.path)
-		if err := os.MkdirAll(parent, newDirectoryMode); err != nil {
+		if err := e.filesystem.MkdirAll(parent, newDirectoryMode); err != nil {
 			return ApplyPatchFileResult{}, wrapPathError(
 				err,
 				"create patch destination parent",
@@ -393,9 +393,9 @@ func (e *Executor) applyPatchWrite(
 		}
 	}
 
-	write := writeFileAtomic
+	write := e.writeFileAtomic
 	if createParents {
-		write = writeNewFileAtomic
+		write = e.writeNewFileAtomic
 	}
 
 	if err := write(item.path, item.newContent, item.mode); err != nil {
@@ -417,7 +417,7 @@ func (e *Executor) applyPatchWrite(
 func (e *Executor) applyPatchDelete(
 	item preparedPatchAction,
 ) (ApplyPatchFileResult, error) {
-	if err := os.Remove(item.path); err != nil {
+	if err := e.filesystem.Remove(item.path); err != nil {
 		return ApplyPatchFileResult{}, wrapPathError(err, "delete patched file")
 	}
 
@@ -432,14 +432,14 @@ func (e *Executor) applyPatchMove(
 	item preparedPatchAction,
 ) (ApplyPatchFileResult, error) {
 	parent := filepath.Dir(item.destination)
-	if err := os.MkdirAll(parent, newDirectoryMode); err != nil {
+	if err := e.filesystem.MkdirAll(parent, newDirectoryMode); err != nil {
 		return ApplyPatchFileResult{}, wrapPathError(
 			err,
 			"create patch move destination parent",
 		)
 	}
 
-	if err := writeNewFileAtomic(
+	if err := e.writeNewFileAtomic(
 		item.destination,
 		item.newContent,
 		item.mode,
@@ -461,7 +461,7 @@ func (e *Executor) applyPatchMove(
 		SHA256:      hash,
 	}
 
-	if err := os.Remove(item.path); err != nil {
+	if err := e.filesystem.Remove(item.path); err != nil {
 		return partial, wrapPathError(err, "remove patch move source")
 	}
 

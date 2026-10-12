@@ -15,9 +15,9 @@ import (
 	"github.com/psyb0t/commander"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
-	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 )
 
 const (
@@ -211,7 +211,7 @@ func (j *Job) requestStop(ctx context.Context, grace time.Duration) {
 	//nolint:contextcheck // Deliberately detached from ctx; see the comment
 	// above requestStop.
 	if err := j.process.Stop(stopCtx); err != nil {
-		ctxscope.GetLogger(ctx).Debug(
+		runtimecontext.Logger(ctx).Debug(
 			"job stop request finished",
 			"job_id", j.ID,
 			"err", err,
@@ -226,7 +226,7 @@ func (j *Job) requestKill(ctx context.Context) {
 	//nolint:contextcheck // Deliberately detached from ctx; see the comment
 	// above requestStop.
 	if err := j.process.Kill(context.Background()); err != nil {
-		ctxscope.GetLogger(ctx).Debug(
+		runtimecontext.Logger(ctx).Debug(
 			"job kill request finished",
 			"job_id", j.ID,
 			"err", err,
@@ -238,11 +238,13 @@ func (j *Job) requestKill(ctx context.Context) {
 // outliving any single turn: a job started in one turn stays visible,
 // readable, and killable from a later one.
 type JobRegistry struct {
-	sessionID uuid.UUID
-	publisher EventPublisher
-	limits    Limits
-	cmdr      commander.Commander
-	metrics   *metrics.Metrics
+	shutdownMu    sync.Mutex
+	shutdownStops map[uuid.UUID]pendingJobStop
+	sessionID     uuid.UUID
+	publisher     EventPublisher
+	limits        Limits
+	cmdr          commander.Commander
+	metrics       *metrics.Metrics
 
 	observerMu sync.RWMutex
 	observer   JobObserver
@@ -258,6 +260,13 @@ func (r *JobRegistry) SetObserver(observer JobObserver) {
 	defer r.observerMu.Unlock()
 
 	r.observer = observer
+}
+
+// SetCommandRunner selects the process backend before any jobs start.
+func (r *JobRegistry) SetCommandRunner(runner commander.Commander) {
+	if runner != nil {
+		r.cmdr = runner
+	}
 }
 
 // NewJobRegistry builds a session-scoped job registry. publisher may be nil,
@@ -354,7 +363,7 @@ func (r *JobRegistry) Start(
 		job.requestKill(persistCtx)
 
 		if waitErr := job.process.Wait(); waitErr != nil {
-			ctxscope.GetLogger(persistCtx).Debug(
+			runtimecontext.Logger(persistCtx).Debug(
 				"wait for unpersisted job after kill",
 				"err", waitErr,
 				"job_id", job.ID,
@@ -501,7 +510,7 @@ func (r *JobRegistry) recordOutput(
 
 	if err := r.observeOutput(ctx, job.Snapshot(), record); err != nil {
 		job.setPersistenceFailure(err)
-		ctxscope.GetLogger(ctx).Warn(
+		runtimecontext.Logger(ctx).Warn(
 			"persist job output",
 			"err", err,
 			"job_id", job.ID,
@@ -599,38 +608,6 @@ func (r *JobRegistry) SignalContext(
 	return snapshot, true, nil
 }
 
-// Shutdown stops every running job through commander's graceful stop, waits
-// the configured grace period, then lets commander's own escalation kill
-// the group. It returns only once every job that was running has fully
-// finalized state, so no job silently outlives the service.
-func (r *JobRegistry) Shutdown(ctx context.Context) error {
-	running := make([]*Job, 0)
-
-	for _, job := range r.List() {
-		if job.Snapshot().State == JobStateRunning {
-			running = append(running, job)
-		}
-	}
-
-	var wg sync.WaitGroup
-
-	for _, job := range running {
-		wg.Go(func() {
-			defer recoverAndLog(ctx, "job shutdown stop")
-
-			job.requestStop(ctx, r.limits.JobStopGracePeriod)
-		})
-	}
-
-	wg.Wait()
-
-	for _, job := range running {
-		<-job.Done()
-	}
-
-	return nil
-}
-
 // monitor blocks for the process to exit and finalizes state once it does.
 // Stream registration and the ring-buffer reader goroutines already started
 // synchronously in Start; this goroutine only waits for both to be done.
@@ -666,7 +643,7 @@ func (r *JobRegistry) finalize(ctx context.Context, job *Job, waitErr error) {
 
 	snapshot := job.Snapshot()
 	if err := r.observeFinished(ctx, snapshot); err != nil {
-		ctxscope.GetLogger(ctx).Warn(
+		runtimecontext.Logger(ctx).Warn(
 			"persist finished job",
 			"err", err,
 			"job_id", job.ID,
@@ -833,7 +810,7 @@ func (r *JobRegistry) publish(
 		Duration:   millisecondsDuration(durationMs),
 	})
 	if err != nil {
-		ctxscope.GetLogger(ctx).Warn(
+		runtimecontext.Logger(ctx).Warn(
 			"encode job completion event data",
 			"err", err,
 			"job_id", job.ID,
@@ -851,7 +828,7 @@ func (r *JobRegistry) publish(
 	}
 
 	if _, err := r.publisher.PublishContext(ctx, notice); err != nil {
-		ctxscope.GetLogger(ctx).Warn(
+		runtimecontext.Logger(ctx).Warn(
 			"publish job completion event",
 			"err", err,
 			"job_id", job.ID,
@@ -961,7 +938,7 @@ func recoverAndLog(ctx context.Context, label string) {
 		return
 	}
 
-	ctxscope.GetLogger(ctx).Error(
+	runtimecontext.Logger(ctx).Error(
 		label+" panicked",
 		"panic", r,
 		"stack", string(debug.Stack()),

@@ -14,6 +14,7 @@ import (
 // Config identifies the private directory and SQLite connection behavior.
 type Config struct {
 	Directory   string
+	InMemory    bool
 	BusyTimeout time.Duration
 	Metrics     *metrics.Metrics
 }

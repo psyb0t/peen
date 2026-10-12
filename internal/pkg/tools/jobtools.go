@@ -8,7 +8,7 @@ import (
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
-	"github.com/psyb0t/ctxscope"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 )
 
 // ListJobs reports this session's jobs, oldest first, bounded by
@@ -232,7 +232,7 @@ func (e *JobExecutor) SignalJob(
 	}
 
 	if snapshot.State == JobStateRunning {
-		ctxscope.GetLogger(ctx).Info(
+		runtimecontext.Logger(ctx).Info(
 			"signalJob dispatched",
 			"job_id", snapshot.ID,
 			"signal", signal,

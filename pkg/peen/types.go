@@ -2,9 +2,12 @@ package peen
 
 import (
 	"encoding/json"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/psyb0t/commander"
 	"github.com/psyb0t/elelem"
 )
 
@@ -37,8 +40,37 @@ const (
 // New never reads environment variables, starts Servicepack, opens an HTTP
 // listener, or touches global state; every dependency arrives here.
 type Options struct {
-	// ConfigDirectory must already exist. It holds the durable SQLite store
-	// plus the optional SYSTEM.md, APPEND_SYSTEM.md, and COMPACTION.md files.
+	// StateDirectory holds SQLite and hook state separately from harness
+	// configuration. Empty uses ConfigDirectory with a "-state" suffix.
+	StateDirectory string
+	// Workspace selects the initial session. Empty captures the working
+	// directory once when New runs.
+	Workspace string
+	// InMemoryStore keeps the transcript in memory. Hook state uses a private
+	// temporary directory removed by Close.
+	InMemoryStore      bool
+	BaseSystemPrompt   string
+	AppendSystemPrompt string
+	AskTimeout         time.Duration
+	DisabledCoreSkills []string
+	DisabledCoreAgents []string
+	ToolLimits         ToolLimits
+	AgentLimits        AgentLimits
+	HarnessLimits      HarnessLimits
+	EventLimits        EventLimits
+	Tools              []Tool
+	DisableTools       []string
+	ModelResolver      ModelResolver
+	Hooks              map[string]HookHandler
+	Filesystem         FS
+	WorkspaceID        string
+	Harness            []HarnessLayer
+	Logger             *slog.Logger
+	MetricsRegisterer  prometheus.Registerer
+	AuditLog           AuditLogOptions
+	CommandRunner      commander.Commander
+	// ConfigDirectory must already exist. It holds the optional SYSTEM.md,
+	// APPEND_SYSTEM.md, COMPACTION.md and trusted harness files.
 	ConfigDirectory string
 	// RootAgent names the base agent definition every session starts from.
 	RootAgent string
@@ -110,7 +142,8 @@ type Options struct {
 	MaxHookCommandOutput int
 
 	// MaxEventWakesPerHour bounds how often an external event may start a
-	// turn for one session. Zero or negative disables the bound.
+	// turn for one session. Zero takes the deployment default; negative
+	// disables the bound.
 	MaxEventWakesPerHour int
 
 	// Clock and NewID are deterministic seams for tests. Nil takes time.Now
@@ -140,6 +173,10 @@ type SystemPrompt struct {
 // MessageRequest describes one user message and its optional per-message
 // settings.
 type MessageRequest struct {
+	Model           string
+	ReasoningEffort string
+	RequestID       string
+	To              string
 	// Message is the user's text. It must not be empty or whitespace-only.
 	Message string
 	// SystemPrompt overrides or extends the base system prompt for only this
@@ -147,12 +184,7 @@ type MessageRequest struct {
 	SystemPrompt *SystemPrompt
 }
 
-// MessageResult carries the final assistant message.
-//
-// It names no session on purpose. This runtime is one workspace, and it owns
-// its durable session identity privately. Session IDs are a control-plane
-// concept: they exist so a controller can route between many workspaces, which
-// is not a problem a direct caller has.
+// MessageResult carries a final answer or acceptance into an active turn.
 type MessageResult struct {
 	Message string
 	// Queued reports that an active turn accepted the message. Message is empty
@@ -164,8 +196,10 @@ type MessageResult struct {
 // Peen's own turn lifecycle events, produced while a turn runs. Type is the
 // wire event name and Payload is its JSON-encoded body.
 type Event struct {
-	Type    string
-	Payload json.RawMessage
+	SessionID string
+	RequestID string
+	Type      string
+	Payload   json.RawMessage
 }
 
 // EventSink observes Stream's events in the order Peen produces them.
@@ -232,13 +266,9 @@ type ListMessagesResult struct {
 	HasMore bool
 }
 
-// SessionDetails is this workspace's read-only metadata.
-//
-// It carries no identifier on purpose. This runtime is one workspace and owns
-// its durable session privately, so there is nothing for a caller to address.
-// Session IDs are a control-plane concept: they exist so a controller can route
-// between many workspaces, which is not a problem a direct caller has.
+// SessionDetails reports durable identity, metadata and active work.
 type SessionDetails struct {
+	ID                 string
 	Agent              string
 	Model              string
 	Workspace          string

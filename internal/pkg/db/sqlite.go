@@ -14,14 +14,16 @@ import (
 	commonsqlite "github.com/psyb0t/common-go/db/sqlite"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
-	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/db/migrations"
-	"github.com/psyb0t/peen/internal/pkg/db/repositories"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
-const sqliteFileName = "peen.db"
+const (
+	sqliteFileName   = "peen.db"
+	sqliteMemoryPath = ":memory:"
+)
 
 // Open opens Peen's SQLite store, migrates it, and verifies its integrity.
 func Open(ctx context.Context, cfg Config) (*Handle, error) {
@@ -78,8 +80,7 @@ func Open(ctx context.Context, cfg Config) (*Handle, error) {
 		return nil, closeAfterOpenFailure(ctx, sqlDB, err)
 	}
 
-	repositories.SetDefault(database)
-	ctxscope.GetLogger(ctx).Info("sqlite ready", "driver", "sqlite")
+	runtimecontext.Logger(ctx).Info("sqlite ready", "driver", "sqlite")
 
 	return &Handle{
 		GormDB: database,
@@ -101,7 +102,7 @@ func closeAfterOpenFailure(
 	operationErr error,
 ) error {
 	if closeErr := closeSQLDB(sqlDB); closeErr != nil {
-		ctxscope.GetLogger(ctx).Warn(
+		runtimecontext.Logger(ctx).Warn(
 			"close sqlite after open failure",
 			"err",
 			closeErr,
@@ -134,6 +135,10 @@ func prepareSQLite(cfg Config) (string, int64, error) {
 			"sqlite busy timeout must not be negative, got %s",
 			busyTimeout,
 		)
+	}
+
+	if cfg.InMemory {
+		return sqliteMemoryPath, busyTimeout.Milliseconds(), nil
 	}
 
 	if cfg.Directory == "" ||
@@ -426,7 +431,7 @@ func migratedTableNames(
 
 	defer func() {
 		if closeErr := rows.Close(); closeErr != nil {
-			ctxscope.GetLogger(ctx).Warn(
+			runtimecontext.Logger(ctx).Warn(
 				"close sqlite table rows",
 				"err",
 				closeErr,
@@ -487,7 +492,7 @@ func assertForeignKeys(ctx context.Context, sqlDB *sql.DB) error {
 	}
 	defer func() {
 		if closeErr := rows.Close(); closeErr != nil {
-			ctxscope.GetLogger(ctx).Warn(
+			runtimecontext.Logger(ctx).Warn(
 				"close sqlite foreign key rows",
 				"err",
 				closeErr,

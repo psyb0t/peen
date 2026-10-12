@@ -1,25 +1,15 @@
-// Package peen is Peen's stable, supported programmatic entry point.
+// Package peen embeds the durable agent engine inside a Go process.
 //
-// It embeds the same durable agent runtime the HTTP service exposes, without
-// starting Servicepack or an HTTP listener. A caller builds Options (a config
-// directory holding the durable SQLite store plus optional SYSTEM.md,
-// APPEND_SYSTEM.md, and COMPACTION.md overrides, a default workspace, a root
-// agent, a named Elelem upstream registry, and qualified main and compaction
-// model references), constructs one Runtime with New, and then:
+// Construct a Runtime with explicit Options, use Session handles to send,
+// replay and control work, and call Close to release owned storage, jobs and
+// child agents. Legacy Runtime methods address the initial workspace session.
 //
-//   - collects a final answer for one turn with Message;
-//   - does the same while observing events as they happen with Stream;
-//   - reads the workspace's stored transcript with ListMessages;
-//   - reads the workspace's metadata with Details;
-//   - requests cancellation of the active turn with Cancel.
+// Tools, hooks, models, harness layers, command execution and workspace
+// filesystems can be supplied by the caller. SQLite and hook state remain
+// separate from trusted harness configuration, with an in-memory option for
+// ephemeral work. Live subscriptions include wake and child turns.
 //
-// No call takes or returns a session identifier. A Runtime is one workspace and
-// owns its durable session privately. Session IDs exist so a controller can
-// route between many workspaces, which a direct caller never has to do.
-//
-// New never reads environment variables, starts Servicepack, opens an HTTP
-// listener, or touches global state; every dependency arrives through
-// Options. This package does not expose transcript storage internals,
-// generated HTTP types, concrete tool implementations, Servicepack services,
-// or provider credentials. See README.md for a runnable embedding example.
+// New starts no HTTP listener or Servicepack services and reads no PEEN_
+// environment settings. Public records belong to this package. See README.md
+// and example_test.go for construction, extension and filesystem examples.
 package peen

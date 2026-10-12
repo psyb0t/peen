@@ -3,10 +3,12 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/psyb0t/commander"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
@@ -14,9 +16,11 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/config"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/hooks"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/tools"
+	"github.com/psyb0t/peen/internal/pkg/workspacefs"
 )
 
 const (
@@ -310,6 +314,18 @@ type MessageRunResult struct {
 
 // RuntimeOptions supplies Peen's transport-independent turn dependencies.
 type RuntimeOptions struct {
+	Logger              *slog.Logger
+	CommandRunner       commander.Commander
+	Filesystem          workspacefs.FS
+	VirtualFilesystem   bool
+	DisableProcessTools bool
+	HookCallback        hooks.Callback
+	HookCommandRunner   hooks.CommandRunner
+	Tools               []elelem.Tool
+	DisableTools        []string
+	// ObserveEvent receives durable root and child events independently of a
+	// single turn's sink. It must return promptly and must not block producers.
+	ObserveEvent func(uuid.UUID, Event)
 	// Store is the durable surface this runtime writes through. The control
 	// plane passes its SQLite store; a worker passes the protocol-backed one,
 	// which forwards every record to the controller.
@@ -347,7 +363,8 @@ type RuntimeOptions struct {
 	// BaseSystemPrompt overrides the deployment prompt. Empty reads SYSTEM.md
 	// and APPEND_SYSTEM.md from ConfigDirectory and otherwise takes the
 	// embedded default.
-	BaseSystemPrompt string
+	BaseSystemPrompt   string
+	AppendSystemPrompt string
 
 	// MaxSystemPromptBytes bounds a request's own prompt text. Zero takes the
 	// package default.
@@ -488,6 +505,7 @@ type HarnessResolver interface {
 // hooks for different calls run concurrently, so every mutation goes through
 // the mutex.
 type runtimeTurn struct {
+	observer          func(Event)
 	requestID         uuid.UUID
 	triggeringEventID uuid.UUID
 	sink              EventSink

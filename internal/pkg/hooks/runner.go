@@ -22,6 +22,7 @@ import (
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 )
 
 const (
@@ -43,6 +44,7 @@ const (
 
 // Runner executes one turn's immutable, resolved hook list.
 type Runner struct {
+	callback            func(context.Context, Invocation) (Outcome, error)
 	hooks               []harness.Hook
 	workspace           string
 	commandTimeout      time.Duration
@@ -87,6 +89,7 @@ func New(options Options) (Runner, error) {
 	}
 
 	return Runner{
+		callback:            options.Callback,
 		hooks:               options.Snapshot.Hooks(),
 		workspace:           filepath.Clean(options.Workspace),
 		commandTimeout:      options.CommandTimeout,
@@ -126,13 +129,13 @@ func (r Runner) Run(
 	matchedHookCount := 0
 	executedActionCount := 0
 
-	ctxscope.GetLogger(ctx).Debug(
+	runtimecontext.Logger(ctx).Debug(
 		"hook lifecycle event started",
 		"tool_name", invocation.Tool,
 		"tool_call_id", invocation.CallID,
 	)
 	defer func() {
-		ctxscope.GetLogger(ctx).Debug(
+		runtimecontext.Logger(ctx).Debug(
 			"hook lifecycle event finished",
 			"outcome", hookRunOutcome(runErr),
 			"matched_hook_count", matchedHookCount,
@@ -161,7 +164,7 @@ func (r Runner) Run(
 		hookStartedAt := time.Now()
 		executedBefore := executedActionCount
 		injectionsBefore := len(outcome.Injections)
-		ctxscope.GetLogger(hookCtx).Debug(
+		runtimecontext.Logger(hookCtx).Debug(
 			"hook group started",
 			"hook_source", hook.Source,
 			"hook_action_count", len(hook.Actions),
@@ -176,7 +179,7 @@ func (r Runner) Run(
 			&outcome,
 			&executedActionCount,
 		)
-		ctxscope.GetLogger(hookCtx).Debug(
+		runtimecontext.Logger(hookCtx).Debug(
 			"hook group finished",
 			"hook_source", hook.Source,
 			"outcome", hookRunOutcome(err),
@@ -189,6 +192,26 @@ func (r Runner) Run(
 
 		if err != nil {
 			return outcome, err
+		}
+	}
+
+	if r.callback != nil {
+		additional, err := r.callback(ctx, invocation)
+		if err != nil {
+			return outcome, ctxerrors.Wrap(err, "run Go hook callback")
+		}
+
+		outcome.Injections = append(
+			outcome.Injections,
+			additional.Injections...,
+		)
+		for _, notice := range additional.Events {
+			if err := r.publishEvent(ctx, emittedEvent{
+				Type: notice.Type, Summary: notice.Summary,
+				Data: notice.Data, Delivery: notice.Delivery,
+			}, invocation); err != nil {
+				return outcome, ctxerrors.Wrap(err, "publish Go hook event")
+			}
 		}
 	}
 
@@ -217,7 +240,7 @@ func (r Runner) runHookActions(
 		)
 		startedAt := time.Now()
 
-		ctxscope.GetLogger(actionCtx).Debug(
+		runtimecontext.Logger(actionCtx).Debug(
 			"hook action started",
 			"hook_action_type", action.Type,
 			"hook_source", hook.Source,
@@ -226,7 +249,7 @@ func (r Runner) runHookActions(
 		)
 
 		result, actionErr := r.runAction(actionCtx, action, invocation)
-		ctxscope.GetLogger(actionCtx).Debug(
+		runtimecontext.Logger(actionCtx).Debug(
 			"hook action finished",
 			"hook_action_type", action.Type,
 			"hook_source", hook.Source,
@@ -239,7 +262,7 @@ func (r Runner) runHookActions(
 
 		if actionErr != nil {
 			if errors.Is(actionErr, ErrDenied) {
-				ctxscope.GetLogger(actionCtx).Warn(
+				runtimecontext.Logger(actionCtx).Warn(
 					"hook action denied operation",
 					"hook_action_type", action.Type,
 					"hook_source", hook.Source,
@@ -358,13 +381,13 @@ func (r Runner) runCommandAction(
 
 	startedAt := time.Now()
 
-	ctxscope.GetLogger(ctx).Debug(
+	runtimecontext.Logger(ctx).Debug(
 		"hook command started",
 		"context_tokens", commandInvocation.ContextTokens,
 		"has_state_directory", commandInvocation.StateDirectory != "",
 	)
 	defer func() {
-		ctxscope.GetLogger(ctx).Debug(
+		runtimecontext.Logger(ctx).Debug(
 			"hook command finished",
 			"outcome", hookRunOutcome(runErr),
 			"duration_ms", time.Since(startedAt).Milliseconds(),
@@ -565,13 +588,13 @@ func (r Runner) publishEvent(
 ) (publishErr error) {
 	startedAt := time.Now()
 
-	ctxscope.GetLogger(ctx).Debug(
+	runtimecontext.Logger(ctx).Debug(
 		"hook session event started",
 		"hook_emitted_event_type", event.Type,
 		"hook_emitted_event_delivery", event.Delivery,
 	)
 	defer func() {
-		ctxscope.GetLogger(ctx).Debug(
+		runtimecontext.Logger(ctx).Debug(
 			"hook session event finished",
 			"hook_emitted_event_type", event.Type,
 			"hook_emitted_event_delivery", event.Delivery,
@@ -643,7 +666,7 @@ func (r Runner) recordActionFailure(
 	invocation Invocation,
 	cause error,
 ) {
-	ctxscope.GetLogger(ctx).Warn(
+	runtimecontext.Logger(ctx).Warn(
 		"hook action failed and continued",
 		"err", cause,
 		"hook_action_type", action.Type,
@@ -662,7 +685,7 @@ func (r Runner) recordActionFailure(
 		"source":     hook.Source,
 	})
 	if err != nil {
-		ctxscope.GetLogger(ctx).Warn(
+		runtimecontext.Logger(ctx).Warn(
 			"encode hook failure event data failed",
 			"err", err,
 		)
@@ -679,7 +702,7 @@ func (r Runner) recordActionFailure(
 		Delivery:  events.DeliveryQueue,
 	})
 	if err != nil {
-		ctxscope.GetLogger(ctx).Warn(
+		runtimecontext.Logger(ctx).Warn(
 			"publish hook failure event failed",
 			"err", err,
 		)

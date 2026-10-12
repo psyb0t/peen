@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/psyb0t/peen/internal/pkg/workspacefs"
 )
 
 // EntryType names what a listed path is on the host filesystem. It is an
@@ -24,6 +25,8 @@ const (
 
 // Options configures one per-turn executor.
 type Options struct {
+	Filesystem workspacefs.FS
+	Virtual    bool
 	// Workspace is the already canonicalized default directory for the turn.
 	Workspace string
 	Limits    Limits

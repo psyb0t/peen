@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -16,6 +17,8 @@ import (
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/hooks"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/tools"
 )
@@ -429,7 +432,7 @@ func (r *Runtime) superviseChildAgent(
 			return
 		}
 
-		ctxscope.GetLogger(runCtx).Error(
+		runtimecontext.Logger(runCtx).Error(
 			"child agent panicked",
 			"panic", recovered,
 			"stack", string(debug.Stack()),
@@ -482,7 +485,7 @@ func (r *Runtime) endChildAgentRun(
 	result := r.finishAgentRun(ctx, registry, sink, run, response, runErr)
 
 	if cancelled := registry.cancelDescendants(run.ID); cancelled > 0 {
-		ctxscope.GetLogger(ctx).Info(
+		runtimecontext.Logger(ctx).Info(
 			"child agent descendants cancelled",
 			"reason", "parent_ended",
 			"agent_runs", cancelled,
@@ -503,7 +506,7 @@ func recordUndeliveredMessages(
 		return
 	}
 
-	ctxscope.GetLogger(ctx).Warn(
+	runtimecontext.Logger(ctx).Warn(
 		"child agent ended with unread messages",
 		"reason", "agent_ended",
 		"messages", len(unread),
@@ -515,7 +518,7 @@ func recordUndeliveredMessages(
 			EventTypeAgentRunMessageUndelivered,
 			agentInboxMessagePayload{Message: text},
 		); err != nil {
-			ctxscope.GetLogger(ctx).Warn(
+			runtimecontext.Logger(ctx).Warn(
 				"record undelivered agent message",
 				"err", err,
 			)
@@ -536,7 +539,7 @@ func (r *Runtime) reportToParentRun(
 		return
 	}
 
-	logger := ctxscope.GetLogger(ctx)
+	logger := runtimecontext.Logger(ctx)
 
 	text, err := renderAgentMessage(agentMessage{
 		From: messageSenderAgent,
@@ -696,7 +699,7 @@ func childAgentContext(
 		ctxscope.Attr("agent_depth", depth),
 	)
 	childCtx = contextWithParentAgentRun(childCtx, run)
-	ctxscope.GetLogger(childCtx).Info(
+	runtimecontext.Logger(childCtx).Info(
 		"child agent started",
 		"agent_definition", definition.kind,
 		"task_bytes", len(task),
@@ -885,6 +888,10 @@ func (r *Runtime) bindChildHooks(
 		r.durableEventPublisher(),
 		nil,
 		modelTokenCounter(deps.model),
+		hooks.Options{
+			Callback:   r.hookCallback,
+			RunCommand: r.hookCommandRunner,
+		},
 	)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create child tool hooks")
@@ -1114,6 +1121,8 @@ func (r *Runtime) agentToolSet(
 		allowedTools = withoutTool(allowedTools, toolNameLaunchAgent)
 	}
 
+	toolSet, allowedTools = r.extendToolSet(toolSet, allowedTools, depth)
+
 	messaging := messageTools(deps, onPostRun)
 	for _, tool := range messaging {
 		toolSet.Add(instrumentTool(tool, r.metrics))
@@ -1153,6 +1162,12 @@ func withoutTool(tools []string, excluded string) []string {
 	return filtered
 }
 
+func isProcessTool(name string) bool {
+	return name == toolNameRunCommand || name == toolNameListJobs ||
+		name == toolNameReadJobOutput || name == toolNameWaitJob ||
+		name == toolNameSignalJob
+}
+
 // finishAgentRun records the run's terminal state and returns the outcome its
 // parent hears about. A run whose outcome cannot be recorded still ends, as
 // failed, so it never holds a concurrency slot.
@@ -1183,7 +1198,7 @@ func (r *Runtime) finishAgentRun(
 		classification,
 		runErr,
 	); err != nil {
-		ctxscope.GetLogger(ctx).Error(
+		runtimecontext.Logger(ctx).Error(
 			"persist child agent outcome",
 			"agent_run_id", run.ID.String(),
 			"err", err,
@@ -1206,7 +1221,7 @@ func (r *Runtime) finishAgentRun(
 		FailureClassification: classification,
 		FailureDetail:         result.FailureDetail,
 	}); err != nil {
-		ctxscope.GetLogger(ctx).Warn(
+		runtimecontext.Logger(ctx).Warn(
 			"persist child agent terminal event",
 			"agent_run_id", run.ID.String(),
 			"err", err,
@@ -1224,7 +1239,7 @@ func logChildAgentOutcome(
 	result AgentRunResult,
 	runErr error,
 ) {
-	logger := ctxscope.GetLogger(ctx)
+	logger := runtimecontext.Logger(ctx)
 
 	switch result.State {
 	case AgentRunStateCompleted:
@@ -1610,4 +1625,33 @@ type agentRunLivePayload struct {
 	ParentTurnID     uuid.UUID       `json:"parentTurnId"`
 	ParentAgentRunID *uuid.UUID      `json:"parentAgentRunId,omitempty"`
 	Event            json.RawMessage `json:"event"`
+}
+
+func (r *Runtime) extendToolSet(
+	toolSet *elelem.ToolSet,
+	allowedTools []string,
+	depth int,
+) (*elelem.ToolSet, []string) {
+	for _, tool := range r.extraTools {
+		if tool.Name == toolNameLaunchAgent && depth >= r.agentLimits.MaxDepth {
+			continue
+		}
+
+		toolSet.Add(instrumentTool(tool, r.metrics))
+	}
+
+	filtered := elelem.NewToolSet()
+
+	for _, tool := range toolSet.Definitions() {
+		if slices.Contains(r.disableTools, tool.Name) ||
+			(r.disableProcessTools && isProcessTool(tool.Name)) {
+			allowedTools = withoutTool(allowedTools, tool.Name)
+
+			continue
+		}
+
+		filtered.Add(tool)
+	}
+
+	return filtered, allowedTools
 }

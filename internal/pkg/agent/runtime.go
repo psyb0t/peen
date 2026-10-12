@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"runtime"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/psyb0t/commander"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
@@ -23,16 +25,33 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/hooks"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/tools"
+	"github.com/psyb0t/peen/internal/pkg/workspacefs"
 )
 
 // Runtime executes durable transport-neutral Peen turns.
 type Runtime struct {
-	store    session.Storage
-	resolver HarnessResolver
-	models   ModelResolver
+	logger              *slog.Logger
+	commandRunner       commander.Commander
+	filesystem          workspacefs.FS
+	virtualFilesystem   bool
+	disableProcessTools bool
+	hookCallback        func(
+		context.Context,
+		hooks.Invocation,
+	) (hooks.Outcome, error)
+	hookCommandRunner hooks.CommandRunner
+	extraTools        []elelem.Tool
+	disableTools      []string
+	observeEvent      func(uuid.UUID, Event)
+	lifecycle         runtimeLifecycle
+	store             session.Storage
+	resolver          HarnessResolver
+	models            ModelResolver
 
 	// workerGenerationID names the worker process this runtime runs inside. It
 	// is zero for the direct pkg/peen form, which has no control plane to
@@ -180,6 +199,7 @@ type preparedTurn struct {
 //
 //nolint:funlen // Option mapping stays together.
 func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
+	ctx = runtimecontext.WithLogger(ctx, options.Logger)
 	if err := options.validate(); err != nil {
 		return nil, err
 	}
@@ -213,10 +233,20 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 	}
 
 	return &Runtime{
-		store:              options.Store,
-		resolver:           options.Resolver,
-		models:             options.Models,
-		workerGenerationID: options.WorkerGenerationID,
+		filesystem:          options.Filesystem,
+		virtualFilesystem:   options.VirtualFilesystem,
+		disableProcessTools: options.DisableProcessTools,
+		hookCallback:        options.HookCallback,
+		hookCommandRunner:   options.HookCommandRunner,
+		logger:              options.Logger,
+		commandRunner:       options.CommandRunner,
+		extraTools:          options.Tools,
+		disableTools:        options.DisableTools,
+		observeEvent:        options.ObserveEvent,
+		store:               options.Store,
+		resolver:            options.Resolver,
+		models:              options.Models,
+		workerGenerationID:  options.WorkerGenerationID,
 
 		rootAgent:        options.RootAgent,
 		defaultModel:     options.DefaultModel,
@@ -335,16 +365,63 @@ func resumeStartupSession(
 }
 
 func resolveRuntimeBaseSystemPrompt(options *RuntimeOptions) error {
-	if options.BaseSystemPrompt != "" {
+	explicitBase := options.BaseSystemPrompt != ""
+	if options.BaseSystemPrompt == "" {
+		load := LoadSystemPrompt
+		if options.AppendSystemPrompt != "" {
+			load = loadBaseSystemPrompt
+		}
+
+		deploymentPrompt, err := load(options.ConfigDirectory)
+		if err != nil {
+			return ctxerrors.Wrap(err, "load deployment system prompt")
+		}
+
+		options.BaseSystemPrompt = deploymentPrompt
+	}
+
+	if options.VirtualFilesystem && !explicitBase {
+		if err := resolveWorkspaceSystemPrompt(options); err != nil {
+			return err
+		}
+	}
+
+	if options.AppendSystemPrompt != "" {
+		addition := systemSectionGap + options.AppendSystemPrompt
+		options.BaseSystemPrompt += addition
+	}
+
+	return nil
+}
+
+func resolveWorkspaceSystemPrompt(options *RuntimeOptions) error {
+	replacement, err := readFilesystemPrompt(
+		options.Filesystem,
+		systemPromptFileName,
+	)
+	if err != nil {
+		return ctxerrors.Wrap(err, "load workspace system prompt")
+	}
+
+	if replacement != "" {
+		options.BaseSystemPrompt = replacement
+	}
+
+	if options.AppendSystemPrompt != "" {
 		return nil
 	}
 
-	deploymentPrompt, err := LoadSystemPrompt(options.ConfigDirectory)
+	appended, err := readFilesystemPrompt(
+		options.Filesystem,
+		appendSystemPromptFileName,
+	)
 	if err != nil {
-		return ctxerrors.Wrap(err, "load deployment system prompt")
+		return ctxerrors.Wrap(err, "load workspace append prompt")
 	}
 
-	options.BaseSystemPrompt = deploymentPrompt
+	if appended != "" {
+		options.BaseSystemPrompt += systemSectionGap + appended
+	}
 
 	return nil
 }
@@ -360,6 +437,12 @@ func (r *Runtime) Run(
 	ctx context.Context,
 	input TurnRequest,
 ) (*TurnResult, error) {
+	ctx, finish, err := r.BeginOperation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer finish()
+
 	if err := r.validateTurnInput(input); err != nil {
 		return nil, err
 	}
@@ -460,7 +543,7 @@ func (r *Runtime) prepareTurn(
 		ctx,
 		ctxscope.Attr("request_id", input.RequestID.String()),
 	)
-	ctxscope.GetLogger(requestCtx).Info(
+	runtimecontext.Logger(requestCtx).Info(
 		"agent turn requested",
 		"user_message_bytes", len(input.Message),
 		"user_message_sha256", hash(input.Message),
@@ -487,6 +570,8 @@ func (r *Runtime) prepareTurn(
 	if err != nil {
 		return nil, err
 	}
+
+	turn.observer = r.sessionObserver(opening.opened.Session.ID)
 
 	prepared := &preparedTurn{
 		opened:          opening.opened,
@@ -617,7 +702,7 @@ func (r *Runtime) resolveContext(
 	}
 
 	for _, warning := range snapshot.Warnings() {
-		ctxscope.GetLogger(ctx).Warn(
+		runtimecontext.Logger(ctx).Warn(
 			"invalid optional harness configuration ignored",
 			"kind", warning.Kind,
 			"source", warning.Source,
@@ -784,7 +869,9 @@ func (r *Runtime) openTurnExecutor(
 	}
 
 	executor, err := tools.NewExecutor(tools.Options{
-		Workspace:   basis.workspace,
+		Workspace:   r.toolWorkspace(basis.workspace),
+		Filesystem:  r.filesystem,
+		Virtual:     r.virtualFilesystem,
 		Limits:      r.toolLimits,
 		Environment: r.commandEnvironment,
 	})
@@ -846,15 +933,19 @@ func (r *Runtime) launchAgentDeps(prepared *preparedTurn) *launchAgentDeps {
 // childSink forwards a child agent's live events to the turn's sink until
 // the turn ends. A nil turn sink stays nil.
 func (t *runtimeTurn) childSink() EventSink {
-	if t.sink == nil {
+	if t.sink == nil && t.observer == nil {
 		return nil
 	}
 
 	return func(event Event) error {
+		if t.observer != nil {
+			t.observer(event)
+		}
+
 		t.childSinkMutex.Lock()
 		defer t.childSinkMutex.Unlock()
 
-		if t.isChildSinkClosed {
+		if t.isChildSinkClosed || t.sink == nil {
 			return nil
 		}
 
@@ -891,7 +982,7 @@ func (r *Runtime) CancelAgentRuns(
 
 	cancelled := registry.CancelRunning()
 	if cancelled > 0 {
-		ctxscope.GetLogger(ctx).Info(
+		runtimecontext.Logger(ctx).Info(
 			"child agents cancelled",
 			"reason", "session_cancelled",
 			"agent_runs", cancelled,
@@ -930,7 +1021,7 @@ func (r *Runtime) cancelTurnAgentRuns(
 
 	cancelled := registry.CancelTurn(turnID)
 	if cancelled > 0 {
-		ctxscope.GetLogger(ctx).Info(
+		runtimecontext.Logger(ctx).Info(
 			"child agents cancelled",
 			"reason", "turn_cancelled",
 			"agent_runs", cancelled,
@@ -985,6 +1076,7 @@ func (r *Runtime) sessionJobs(
 	}
 
 	registry.SetObserver(durableJobObserver{store: r.store})
+	registry.SetCommandRunner(r.commandRunner)
 
 	r.jobs[sessionID] = registry
 
@@ -1663,7 +1755,7 @@ func (r *Runtime) startLease(
 		return ctxerrors.Wrap(err, "emit turn started")
 	}
 
-	ctxscope.GetLogger(ctx).Info(
+	runtimecontext.Logger(ctx).Info(
 		"agent turn started",
 		"model", prepared.modelReference,
 		"workspace", prepared.workspace,
@@ -1688,7 +1780,7 @@ func (p *preparedTurn) emitHarnessWarnings(ctx context.Context) error {
 		return ctxerrors.Wrap(err, "emit ignored harness sources")
 	}
 
-	ctxscope.GetLogger(ctx).Warn(
+	runtimecontext.Logger(ctx).Warn(
 		"harness configuration warnings emitted",
 		"warning_count", len(warnings),
 	)
@@ -2063,6 +2155,20 @@ func resolveCompactionPrompt(
 		return defaultCompactionPrompt, nil
 	}
 
+	if options.VirtualFilesystem {
+		prompt, err := readFilesystemPrompt(
+			options.Filesystem,
+			compactionPromptFileName,
+		)
+		if err != nil {
+			return "", ctxerrors.Wrap(err, "load workspace compaction prompt")
+		}
+
+		if prompt != "" {
+			return prompt, nil
+		}
+	}
+
 	prompt, err := LoadCompactionPrompt(options.ConfigDirectory)
 	if err != nil {
 		return "", ctxerrors.Wrap(err, "load compaction prompt")
@@ -2100,7 +2206,7 @@ func (r *Runtime) completeLease(
 		return nil, err
 	}
 
-	ctxscope.GetLogger(ctx).Info(
+	runtimecontext.Logger(ctx).Info(
 		"agent turn completed",
 		"model", prepared.modelReference,
 		"events", len(prepared.turn.events),
@@ -2221,7 +2327,7 @@ func (r *Runtime) finalizeFailedTurn(
 		runErr = errors.Join(runErr, wrappedFinalizeErr)
 	}
 
-	ctxscope.GetLogger(ctx).Warn(
+	runtimecontext.Logger(ctx).Warn(
 		"agent turn failed",
 		"classification", classification,
 		"err", runErr,
@@ -2324,7 +2430,7 @@ func (p *preparedTurn) onToolCallStart(
 ) error {
 	p.turn.markToolStarted(call.CallID)
 
-	ctxscope.GetLogger(ctx).Debug(
+	runtimecontext.Logger(ctx).Debug(
 		"host tool call started",
 		"tool_name", call.Name,
 		"tool_call_id", call.CallID,
@@ -2361,7 +2467,7 @@ func (p *preparedTurn) onToolResult(
 		Workspace:  p.workspace,
 	})
 
-	ctxscope.GetLogger(ctx).Info(
+	runtimecontext.Logger(ctx).Info(
 		"host tool call completed",
 		"tool_name", call.Name,
 		"tool_call_id", call.CallID,
@@ -2613,11 +2719,15 @@ func (t *runtimeTurn) publishInitialEvents() error {
 	t.mutex.Unlock()
 	t.sinkMutex.Unlock()
 
-	if sink == nil {
-		return nil
-	}
-
 	for _, event := range events {
+		if t.observer != nil {
+			t.observer(event)
+		}
+
+		if sink == nil {
+			continue
+		}
+
 		if err := sink(event); err != nil {
 			return ctxerrors.Wrap(err, "publish persisted runtime event")
 		}
@@ -2643,6 +2753,10 @@ func (t *runtimeTurn) record(ctx context.Context, event Event) error {
 		return ctxerrors.Wrap(err, "persist runtime event")
 	}
 	t.sinkMutex.Unlock()
+
+	if t.observer != nil {
+		t.observer(event)
+	}
 
 	if sink == nil {
 		return nil
@@ -2775,4 +2889,12 @@ func hash(value string) string {
 	digest := sha256.Sum256([]byte(value))
 
 	return hex.EncodeToString(digest[:])
+}
+
+func (r *Runtime) sessionObserver(sessionID uuid.UUID) func(Event) {
+	if r.observeEvent == nil {
+		return nil
+	}
+
+	return func(event Event) { r.observeEvent(sessionID, event) }
 }

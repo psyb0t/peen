@@ -9,10 +9,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
-	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -160,7 +160,11 @@ func (r *Runtime) PublishEvent(
 // considerWake decides whether this event starts a turn. It never fails the
 // publish: a wake that cannot happen leaves the event queued.
 func (r *Runtime) considerWake(ctx context.Context, notice events.Notice) {
-	logger := ctxscope.GetLogger(ctx)
+	if r.isClosing() {
+		return
+	}
+
+	logger := runtimecontext.Logger(ctx)
 
 	if r.store.IsActive(notice.SessionID) {
 		logger.Debug(
@@ -315,13 +319,19 @@ func (r *Runtime) startWakeTurn(
 	handler harness.EventHandler,
 ) {
 	sessionID := notice.SessionID
-	detached := context.WithoutCancel(ctx)
+
+	detached, finish, err := r.BeginOperation(context.WithoutCancel(ctx))
+	if err != nil {
+		return
+	}
+
 	runner := r.currentWakeRunner()
 
 	go func() {
+		defer finish()
 		defer func() {
 			if recovered := recover(); recovered != nil {
-				ctxscope.GetLogger(detached).Error(
+				runtimecontext.Logger(detached).Error(
 					"event wake turn panicked",
 					"event_type", notice.Type,
 					"panic", recovered,
@@ -330,7 +340,7 @@ func (r *Runtime) startWakeTurn(
 			}
 		}()
 
-		ctxscope.GetLogger(detached).Info(
+		runtimecontext.Logger(detached).Info(
 			"event wake turn started",
 			"event_type", notice.Type,
 			"session_id", sessionID.String(),
@@ -338,7 +348,7 @@ func (r *Runtime) startWakeTurn(
 
 		message, err := wakeMessage(handler)
 		if err != nil {
-			ctxscope.GetLogger(detached).Error(
+			runtimecontext.Logger(detached).Error(
 				"event wake message could not be built",
 				"event_type", notice.Type,
 				"session_id", sessionID.String(),
@@ -356,7 +366,7 @@ func (r *Runtime) startWakeTurn(
 				EventType: notice.Type,
 			},
 		}); err != nil {
-			ctxscope.GetLogger(detached).Error(
+			runtimecontext.Logger(detached).Error(
 				"event wake turn failed",
 				"event_type", notice.Type,
 				"session_id", sessionID.String(),

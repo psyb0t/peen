@@ -29,7 +29,7 @@ func (e *Executor) ListFiles(
 		return ListFilesOutput{}, ctxerrors.Wrap(err, "resolve list path")
 	}
 
-	info, err := os.Stat(resolved)
+	info, err := e.filesystem.Stat(resolved)
 	if err != nil {
 		return ListFilesOutput{}, wrapPathError(err, "stat list directory")
 	}
@@ -95,7 +95,7 @@ func (w *listWalker) walk(
 		return ctxerrors.Wrap(err, "list walk canceled")
 	}
 
-	dirEntries, err := os.ReadDir(dirAbs)
+	dirEntries, err := w.exec.filesystem.ReadDir(dirAbs)
 	if err != nil {
 		if isRoot {
 			return wrapPathError(err, "read list directory")

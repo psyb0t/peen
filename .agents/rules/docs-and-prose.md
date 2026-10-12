@@ -13,7 +13,7 @@
 | `docs/development.md` | Changing Peen itself. |
 | `pkg/peen/README.md` | The public Go API. |
 | `.agents/skills/peen/` | The published agent skill for operating Peen. |
-| `AGENTS.md`, `.agents/rules/` | Contributor instructions. |
+| `docs/contributing.md`, `.agents/rules/` | Contributor instructions. Local `AGENTS.md` files stay outside version control. |
 
 Each fact has one home. Link to it instead of copying it. User docs describe what Peen does and how to use it. Implementation detail belongs in code comments.
 

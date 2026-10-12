@@ -2,6 +2,20 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.22.0 (2026-10-12)
+
+Go embedders can own and close the engine, address multiple sessions, replay stored work, subscribe across turns, and supply tools, hooks, model resolution and workspace filesystems. Before upgrading an existing embedded runtime, set StateDirectory to its old database directory and move trusted harness configuration into a separate ConfigDirectory. HTTP, WebSocket and deployment configuration keep their existing contracts.
+
+- Breaking: separates embedded SQLite and hook state from ConfigDirectory. The default StateDirectory is ConfigDirectory with a `-state` suffix. Equal or nested directories are refused; explicitly migrate the old combined directory before upgrading.
+- Breaking: changes the embedded MaxEventWakesPerHour zero value to the deployment limit of 60. Set a negative value to retain unlimited wake turns.
+- Fixes embedded runtimes retaining SQLite, child agents and command jobs after their caller finishes. Runtime.Close refuses new work, drains calls, stops children and jobs, and releases owned resources; deadline cancellation can be followed by another Close to finish cleanup.
+- Adds explicit Workspace, in-memory SQLite with temporary hook state, tuning groups, prompt values, disabled core definitions, runtime-local logging, an audit sink and caller-owned Prometheus registration to embedding options.
+- Adds Session handles with open, resume, list, send, cancellation, transcript and provider replay, snapshots, notices, job controls and child-agent controls. Existing Runtime message methods continue to use the initial session.
+- Adds bounded live subscriptions carrying session and request IDs across root, wake and child turns. Slow consumers can detect dropped frames and replay durable records.
+- Adds schema-validated custom Go tools, disabled workspace tools, Go hook callbacks, dynamic model lookup, immutable harness layers and a command runner shared by jobs and executable hooks.
+- Adds OSFS, RootFS and read-only io/fs adapters for embedded workspace tools and harness discovery. Virtual workspaces use a caller-supplied identity and omit process tools and executable hooks unless a command runner is supplied.
+- Updates the embedding guide with lifecycle, session, extension and filesystem examples.
+
 ## v0.21.0 (2026-10-11)
 
 Child agents now run beside the agent that launched them instead of blocking it. `launchAgent` returns at once, a child keeps running after its turn ends, and agents talk to each other and to you with `sendMessage`, `waitMessages`, `stopAgent`, and `ask`. A child of the root reports its final answer through `agent.finished` or `agent.failed`, which now carry the answer and start a turn when the root is idle. Before you upgrade, change any prompt, skill, or hook that reads `response` or `cancelled` from a `launchAgent` tool result, and add an event handler with `delivery: queue` for `agent.finished` and `agent.failed` if you do not want a finished child to start a turn. No configuration or API migration is needed otherwise.

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/peen/internal/pkg/workspacefs"
 )
 
 const (
@@ -47,6 +48,8 @@ const (
 
 // Resolver discovers the layered harness context for one workspace at a time.
 type Resolver struct {
+	memoryLayers   []workspacefs.Reader
+	filesystem     workspacefs.Reader
 	configRoot     string
 	limits         Limits
 	disabledSkills []string
@@ -54,6 +57,7 @@ type Resolver struct {
 }
 
 type resolutionState struct {
+	reader                 workspacefs.Reader
 	limits                 Limits
 	files                  int
 	totalBytes             int64
@@ -122,6 +126,8 @@ func NewResolver(
 	}
 
 	return Resolver{
+		memoryLayers:   settings.memoryLayers,
+		filesystem:     settings.filesystem,
 		configRoot:     resolvedConfigRoot,
 		limits:         resolvedLimits,
 		disabledSkills: settings.disabledSkills,
@@ -131,6 +137,10 @@ func NewResolver(
 
 // Resolve rebuilds the harness snapshot for the selected workspace.
 func (r Resolver) Resolve(workspace string) (Snapshot, error) {
+	if r.filesystem != nil {
+		return r.resolveVirtual(workspace)
+	}
+
 	resolvedWorkspace, err := canonicalDirectory(workspace)
 	if err != nil {
 		return Snapshot{}, ctxerrors.Wrap(err, "canonicalize harness workspace")
@@ -175,6 +185,10 @@ func (r Resolver) Resolve(workspace string) (Snapshot, error) {
 			err,
 			"discover nested instruction files",
 		)
+	}
+
+	if err := r.discoverMemoryLayers(state, len(layers)+1); err != nil {
+		return Snapshot{}, err
 	}
 
 	snapshot, err := state.snapshot(r.configRoot, resolvedWorkspace)
@@ -481,7 +495,7 @@ func (s *resolutionState) discoverAgentsDirectory(
 ) error {
 	agentsDirectoryPath := filepath.Join(layer, agentsDirectoryName)
 
-	agentsDirectory, found, err := optionalDirectory(agentsDirectoryPath)
+	agentsDirectory, found, err := s.optionalDirectory(agentsDirectoryPath)
 	if err != nil {
 		if warningErr := s.discoverOptional(
 			SourceKindInstruction,
@@ -612,7 +626,7 @@ func (s *resolutionState) discoverNestedInstructions(
 ) error {
 	directories := 0
 
-	walkErr := filepath.WalkDir(
+	walkErr := s.walkDir(
 		workspace,
 		func(path string, entry fs.DirEntry, err error) error {
 			if err != nil {
@@ -747,7 +761,7 @@ func (s *resolutionState) discoverRuleDirectory(
 	directory string,
 	priority int,
 ) error {
-	rulesDirectory, found, err := optionalDirectory(directory)
+	rulesDirectory, found, err := s.optionalDirectory(directory)
 	if err != nil {
 		return s.discoverOptional(SourceKindRule, directory, func() error {
 			return ctxerrors.Wrap(err, "resolve rule directory")
@@ -758,7 +772,7 @@ func (s *resolutionState) discoverRuleDirectory(
 		return nil
 	}
 
-	entries, err := sortedDirectoryEntries(
+	entries, err := s.sortedDirectoryEntries(
 		rulesDirectory,
 		s.limits.MaxDirectoryEntries,
 	)
@@ -843,7 +857,7 @@ func (s *resolutionState) discoverRule(
 func (s *resolutionState) discoverSkillsDirectory(
 	skillsDirectory string,
 ) error {
-	resolvedDirectory, found, err := optionalDirectory(skillsDirectory)
+	resolvedDirectory, found, err := s.optionalDirectory(skillsDirectory)
 	if err != nil {
 		return s.discoverOptional(
 			SourceKindSkill,
@@ -858,7 +872,7 @@ func (s *resolutionState) discoverSkillsDirectory(
 		return nil
 	}
 
-	entries, err := sortedDirectoryEntries(
+	entries, err := s.sortedDirectoryEntries(
 		resolvedDirectory,
 		s.limits.MaxDirectoryEntries,
 	)
@@ -891,7 +905,7 @@ func (s *resolutionState) discoverSkill(
 	skillsDirectory string,
 	entryName string,
 ) error {
-	skillDirectory, err := canonicalDirectory(
+	skillDirectory, err := s.canonicalDirectory(
 		filepath.Join(skillsDirectory, entryName),
 	)
 	if err != nil {
@@ -981,7 +995,7 @@ func (s *resolutionState) discoverOptionalMarkdownDirectory(
 	directory, directoryDescription, entryDescription string,
 	discover func(directory, entryName string) error,
 ) error {
-	resolvedDirectory, found, err := optionalDirectory(directory)
+	resolvedDirectory, found, err := s.optionalDirectory(directory)
 	if err != nil {
 		return s.discoverOptional(
 			kind,
@@ -1000,7 +1014,7 @@ func (s *resolutionState) discoverOptionalMarkdownDirectory(
 		return nil
 	}
 
-	entries, err := sortedDirectoryEntries(
+	entries, err := s.sortedDirectoryEntries(
 		resolvedDirectory,
 		s.limits.MaxDirectoryEntries,
 	)
@@ -1160,7 +1174,7 @@ func (s *resolutionState) discoverEventHandler(
 func (s *resolutionState) readOptionalFile(
 	path string,
 ) (string, string, bool, error) {
-	canonicalPath, found, err := optionalCanonicalPath(path)
+	canonicalPath, found, err := s.optionalCanonicalPath(path)
 	if err != nil {
 		return "", "", false, ctxerrors.Wrap(err, "resolve file symlinks")
 	}
@@ -1179,7 +1193,7 @@ func (s *resolutionState) readOptionalFile(
 	remainingBytes := s.limits.MaxTotalContextBytes - s.totalBytes
 	readLimit := min(s.limits.MaxFileBytes, remainingBytes)
 
-	content, err := readRegularFileLimited(canonicalPath, readLimit)
+	content, err := s.readRegularFileLimited(canonicalPath, readLimit)
 	if err != nil {
 		return "", "", false, ctxerrors.Wrap(err, "read bounded file")
 	}

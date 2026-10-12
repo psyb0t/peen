@@ -28,7 +28,10 @@ func (e *Executor) ReadFile(
 		return ReadFileOutput{}, ctxerrors.Wrap(err, "resolve read path")
 	}
 
-	content, _, err := readRegularFile(resolved, int64(e.Limits().MaxReadBytes))
+	content, _, err := e.readRegularFile(
+		resolved,
+		int64(e.Limits().MaxReadBytes),
+	)
 	if err != nil {
 		return ReadFileOutput{}, ctxerrors.Wrap(err, "read file")
 	}

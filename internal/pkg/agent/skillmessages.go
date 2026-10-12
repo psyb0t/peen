@@ -12,10 +12,10 @@ import (
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
-	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -315,7 +315,7 @@ func buildSkillMessages(
 
 		messages = append(messages, message)
 
-		ctxscope.GetLogger(ctx).Info(
+		runtimecontext.Logger(ctx).Info(
 			"skill delivered as a message",
 			"skill_name", delivery.Skill.Name,
 			"skill_hash", delivery.Skill.Hash,

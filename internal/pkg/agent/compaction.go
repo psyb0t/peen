@@ -9,11 +9,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
-	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -296,14 +296,14 @@ func (c *compactor) handle(
 ) (handleErr error) {
 	startedAt := time.Now()
 
-	ctxscope.GetLogger(ctx).Debug(
+	runtimecontext.Logger(ctx).Debug(
 		"context compaction started",
 		"estimated_tokens", event.EstimatedTokens,
 		"budget_tokens", event.BudgetTokens,
 		"round", event.Round,
 	)
 	defer func() {
-		ctxscope.GetLogger(ctx).Debug(
+		runtimecontext.Logger(ctx).Debug(
 			"context compaction finished",
 			"outcome", compactionOutcome(handleErr),
 			"estimated_tokens", event.EstimatedTokens,
@@ -361,7 +361,7 @@ func (c *compactor) handle(
 		harness.HookEventPostCompact,
 		payload,
 	); err != nil {
-		ctxscope.GetLogger(ctx).Warn(
+		runtimecontext.Logger(ctx).Warn(
 			"post-compaction hook failed, continuing",
 			"err", err,
 			"units_covered", units,
@@ -369,7 +369,7 @@ func (c *compactor) handle(
 		)
 	}
 
-	ctxscope.GetLogger(ctx).Info(
+	runtimecontext.Logger(ctx).Info(
 		"replaced completed history with a stored summary",
 		"reason", compactionReasonBudgetExceeded,
 		"session_id", c.sessionID,

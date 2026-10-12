@@ -35,6 +35,9 @@ type CommandInput struct {
 	MaxOutput   int
 }
 
+// Callback runs beside file actions at a lifecycle boundary.
+type Callback func(context.Context, Invocation) (Outcome, error)
+
 // CommandRunner is a test seam around a direct executable invocation.
 type CommandRunner func(context.Context, CommandInput) ([]byte, error)
 
@@ -45,6 +48,7 @@ type ContextTokenCounter func(context.Context, Invocation) (int, error)
 
 // Options defines the execution policy for one turn's resolved hook list.
 type Options struct {
+	Callback            func(context.Context, Invocation) (Outcome, error)
 	Snapshot            harness.Snapshot
 	Workspace           string
 	CommandTimeout      time.Duration
@@ -87,6 +91,7 @@ type Invocation struct {
 // injected messages model-visible at its next safe protocol boundary.
 type Outcome struct {
 	Injections []string
+	Events     []events.Notice
 }
 
 type commandDecision struct {

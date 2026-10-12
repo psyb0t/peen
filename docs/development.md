@@ -1,6 +1,6 @@
 # Developing Peen
 
-This page is for changing Peen itself. To run an agent against a project, start with [Getting started](getting-started.md) instead. Contributor rules, including code style and when each test target applies, are in [AGENTS.md](../AGENTS.md).
+This page is for changing Peen itself. To run an agent against a project, start with [Getting started](getting-started.md) instead. The [contributor guide](contributing.md) and [topic rules](../.agents/rules/) cover code style and when each test target applies.
 
 ## Tooling
 
@@ -62,3 +62,7 @@ Never edit generated files by hand. `internal/pkg/http/api/api.gen.go`, the repo
 The WebSocket owns live messages. REST owns stored reads and control. The agent runtime owns turn behavior. The harness owns what enters model context. Tools own filesystem and process behavior. Keep a change in the smallest area that owns it, then test through the public boundary that can see it.
 
 Peen uses [Servicepack](https://github.com/psyb0t/servicepack) for application lifecycle. Read its repository when changing framework behavior.
+
+## Embedding changes
+
+The supported Go surface is documented in [the embedding guide](../pkg/peen/README.md). Its lifecycle, sessions, extension points and virtual filesystems use the same agent engine and SQLite schema as the controller. Change the owned public types and their boundary conversions together; keep generated HTTP types behind that boundary. Filesystem tools and harness discovery share `internal/pkg/workspacefs`, while runtime storage and hook state remain host files.

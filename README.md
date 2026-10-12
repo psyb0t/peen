@@ -219,6 +219,7 @@ openclaw skills install @psyb0t/peen
 | React to background jobs, child agents, and outside systems | [Session events](docs/events.md) |
 | Add hard checks or model instructions around actions | [Hooks](docs/hooks.md) |
 | Build a WebSocket or REST client | [API reference](docs/http-api.md) |
+| Embed Peen in a Go process | [Go embedding guide](pkg/peen/README.md) |
 | Change Peen itself | [Development](docs/development.md) |
 
 ## What Peen is built with

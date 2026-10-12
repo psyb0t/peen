@@ -1,6 +1,7 @@
 package peen
 
 import (
+	"encoding/json"
 	"math"
 
 	"github.com/google/uuid"
@@ -29,21 +30,6 @@ func staticRegistry(models map[string]ModelClient) (*agent.Registry, error) {
 	return registry, nil
 }
 
-// toTurnRequest converts one public message request into the internal
-// runtime's transport-neutral turn input.
-func toTurnRequest(request MessageRequest) agent.TurnRequest {
-	input := agent.TurnRequest{
-		Message: request.Message,
-	}
-
-	if request.SystemPrompt != nil {
-		input.SystemPrompt = request.SystemPrompt.Content
-		input.SystemPromptMode = agent.PromptMode(request.SystemPrompt.Mode)
-	}
-
-	return input
-}
-
 // toListMessagesParams converts one public page request into the internal
 // runtime's API parameters, which already enforce the page bounds.
 func toListMessagesParams(
@@ -59,6 +45,12 @@ func toListMessagesParams(
 		}
 
 		params.Limit = &limit
+	}
+
+	if request.Limit < 0 || request.Offset < 0 {
+		return api.ListMessagesParams{}, ctxerrors.Wrap(
+			commerr.ErrValidationFailed, "negative message page bounds",
+		)
 	}
 
 	if request.Offset > 0 {
@@ -206,6 +198,7 @@ func toMessageRole(role api.MessageRole) (MessageRole, error) {
 
 func toSessionDetails(stored api.Session) SessionDetails {
 	return SessionDetails{
+		ID:                 stored.Id.String(),
 		Agent:              stored.Agent,
 		Model:              stored.Model,
 		Workspace:          stored.Workspace,
@@ -216,4 +209,26 @@ func toSessionDetails(stored api.Session) SessionDetails {
 		CompletedTurnCount: stored.CompletedTurnCount,
 		ActiveTurn:         stored.ActiveTurn,
 	}
+}
+
+// convertRecord copies wire-compatible records into types owned by this
+// package. JSON preserves optional values and validates UUID serialization.
+//
+//nolint:ireturn // T is the caller-selected owned record type.
+func convertRecord[T any](value any, operationErr error) (T, error) {
+	var result T
+	if operationErr != nil {
+		return result, ctxerrors.Wrap(operationErr, "read embedded record")
+	}
+
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return result, ctxerrors.Wrap(err, "encode embedded record")
+	}
+
+	if err := json.Unmarshal(encoded, &result); err != nil {
+		return result, ctxerrors.Wrap(err, "decode embedded record")
+	}
+
+	return result, nil
 }

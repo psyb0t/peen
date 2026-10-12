@@ -9,6 +9,7 @@ import (
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/peen/internal/pkg/workspacefs"
 )
 
 const (
@@ -24,9 +25,11 @@ const (
 // including `..` segments, dotfiles, and symlink targets, are resolved and
 // used. Operating-system ownership and mode bits are the only restriction.
 type Executor struct {
-	workspace string
-	home      string
-	limits    Limits
+	filesystem workspacefs.FS
+	virtual    bool
+	workspace  string
+	home       string
+	limits     Limits
 
 	// environment is the base environment of every command. Nil means the
 	// process environment.
@@ -46,14 +49,19 @@ type observation struct {
 // NewExecutor validates the turn workspace and bounds. The workspace must be
 // an existing absolute directory; the runtime canonicalizes it beforehand.
 func NewExecutor(options Options) (*Executor, error) {
-	if !filepath.IsAbs(options.Workspace) {
+	if !options.Virtual && !filepath.IsAbs(options.Workspace) {
 		return nil, ctxerrors.Wrap(
 			ErrInvalidOptions,
 			"workspace must be absolute",
 		)
 	}
 
-	info, err := os.Stat(options.Workspace)
+	filesystem := options.Filesystem
+	if filesystem == nil {
+		filesystem = workspacefs.Host{}
+	}
+
+	info, err := filesystem.Stat(options.Workspace)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "stat tool workspace")
 	}
@@ -73,10 +81,12 @@ func NewExecutor(options Options) (*Executor, error) {
 	}
 
 	return &Executor{
-		workspace: filepath.Clean(options.Workspace),
-		home:      home,
-		limits:    limits,
-		observed:  map[string]observation{},
+		filesystem: filesystem,
+		virtual:    options.Virtual,
+		workspace:  filepath.Clean(options.Workspace),
+		home:       home,
+		limits:     limits,
+		observed:   map[string]observation{},
 
 		environment: slices.Clone(options.Environment),
 	}, nil
@@ -113,6 +123,28 @@ func (e *Executor) ResolvePath(raw string) (string, error) {
 // from the workspace, and an absolute path is used as given.
 func (e *Executor) resolvePath(raw string) (string, error) {
 	trimmed := strings.TrimSpace(raw)
+	if e.virtual {
+		if trimmed == "" {
+			return e.workspace, nil
+		}
+
+		if filepath.IsAbs(trimmed) {
+			return "", ctxerrors.Wrap(
+				ErrInvalidOptions,
+				"absolute virtual path",
+			)
+		}
+
+		name := filepath.ToSlash(filepath.Clean(trimmed))
+
+		resolved, err := workspacefs.ValidPath(name)
+		if err != nil {
+			return "", ctxerrors.Wrap(err, "resolve virtual tool path")
+		}
+
+		return resolved, nil
+	}
+
 	if trimmed == "" {
 		return e.workspace, nil
 	}
@@ -146,7 +178,7 @@ func (e *Executor) observeContent(path, hash string) {
 }
 
 func (e *Executor) record(path string, seen observation) {
-	key := observationKey(path)
+	key := e.observationKey(path)
 
 	e.observedMutex.Lock()
 	defer e.observedMutex.Unlock()
@@ -161,7 +193,7 @@ func (e *Executor) record(path string, seen observation) {
 
 // Observed reports whether this turn has already seen the resolved path.
 func (e *Executor) Observed(path string) bool {
-	key := observationKey(path)
+	key := e.observationKey(path)
 
 	e.observedMutex.RLock()
 	defer e.observedMutex.RUnlock()
@@ -180,7 +212,7 @@ func (e *Executor) requireObserved(path string) error {
 }
 
 func (e *Executor) requireObservedContent(path string, content []byte) error {
-	key := observationKey(path)
+	key := e.observationKey(path)
 
 	e.observedMutex.RLock()
 	seen, ok := e.observed[key]
@@ -209,8 +241,8 @@ func (e *Executor) requireObservedContent(path string, content []byte) error {
 
 // observationKey collapses symlinked spellings of one path onto a single
 // ledger entry so a read through a link satisfies a later mutation.
-func observationKey(path string) string {
-	resolved, err := filepath.EvalSymlinks(path)
+func (e *Executor) observationKey(path string) string {
+	resolved, err := e.filesystem.RealPath(path)
 	if err != nil {
 		return path
 	}

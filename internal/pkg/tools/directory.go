@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -62,7 +61,7 @@ func (e *Executor) makeDirectoryLocked(
 // ensureDirectory makes path a directory, reporting the ancestors it
 // actually created, deepest last. An existing directory reports none.
 func (e *Executor) ensureDirectory(path string) ([]string, error) {
-	info, err := os.Stat(path)
+	info, err := e.filesystem.Stat(path)
 	if err == nil {
 		if !info.IsDir() {
 			return nil, ctxerrors.Wrap(ErrNotDirectory, path)
@@ -75,7 +74,7 @@ func (e *Executor) ensureDirectory(path string) ([]string, error) {
 		return nil, wrapPathError(err, "stat directory path")
 	}
 
-	missing := missingAncestors(path)
+	missing := e.missingAncestors(path)
 	if len(missing) > e.Limits().MaxRemoveEntries {
 		return nil, ctxerrors.Wrap(
 			ErrLimitExceeded,
@@ -83,7 +82,7 @@ func (e *Executor) ensureDirectory(path string) ([]string, error) {
 		)
 	}
 
-	if err := os.MkdirAll(path, newDirectoryMode); err != nil {
+	if err := e.filesystem.MkdirAll(path, newDirectoryMode); err != nil {
 		return nil, wrapPathError(err, "create directory")
 	}
 
@@ -93,11 +92,11 @@ func (e *Executor) ensureDirectory(path string) ([]string, error) {
 // missingAncestors walks upward from path collecting the directories that do
 // not exist yet, ordered shallowest first so the deepest, the target itself,
 // comes last.
-func missingAncestors(path string) []string {
+func (e *Executor) missingAncestors(path string) []string {
 	var missing []string
 
 	for current := path; ; {
-		_, statErr := os.Stat(current)
+		_, statErr := e.filesystem.Stat(current)
 		if statErr == nil {
 			break
 		}

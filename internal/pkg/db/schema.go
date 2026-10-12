@@ -10,8 +10,8 @@ import (
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
-	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/db/migrations"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 )
 
 const (
@@ -102,7 +102,7 @@ func expectedSchemaSnapshot(ctx context.Context, version int) (string, error) {
 
 	defer func() {
 		if closeErr := memory.Close(); closeErr != nil {
-			ctxscope.GetLogger(ctx).Warn(
+			runtimecontext.Logger(ctx).Warn(
 				"close in-memory sqlite",
 				"err", closeErr,
 			)
@@ -422,7 +422,7 @@ func queryStrings(
 
 	defer func() {
 		if closeErr := rows.Close(); closeErr != nil {
-			ctxscope.GetLogger(ctx).Warn(
+			runtimecontext.Logger(ctx).Warn(
 				"close sqlite schema rows",
 				"err", closeErr,
 			)

@@ -40,6 +40,23 @@ func (s *Store) OpenWorkspace(
 		return nil, err
 	}
 
+	return s.OpenWorkspaceIdentity(ctx, canonicalWorkspace, options)
+}
+
+// OpenWorkspaceIdentity binds a caller-owned virtual identity without reading
+// the host filesystem. Host callers must use OpenWorkspace for canonical paths.
+func (s *Store) OpenWorkspaceIdentity(
+	ctx context.Context,
+	canonicalWorkspace string,
+	options OpenSessionOptions,
+) (*OpenSessionResult, error) {
+	if strings.TrimSpace(canonicalWorkspace) == "" {
+		return nil, ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"workspace identity",
+		)
+	}
+
 	session, err := s.findWorkspaceSession(ctx, canonicalWorkspace)
 	if err == nil {
 		return &OpenSessionResult{Session: session}, nil

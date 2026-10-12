@@ -10,13 +10,13 @@ import (
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
-	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/elelem/drivers/anthropic"
 	"github.com/psyb0t/elelem/drivers/openai"
 	"github.com/psyb0t/elelem/drivers/zaicoding"
 	"github.com/psyb0t/peen/internal/pkg/config"
 	"github.com/psyb0t/peen/internal/pkg/http/api"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 )
 
 const (
@@ -106,7 +106,7 @@ func NewRegistry(
 			options.MaxContextTokens,
 		)
 		if err != nil {
-			ctxscope.GetLogger(ctx).Warn(
+			runtimecontext.Logger(ctx).Warn(
 				"provider discovery failed",
 				"reason", reasonProviderDiscoveryFailed,
 				"provider", upstream.Name,

@@ -8,8 +8,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
-	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 )
 
 const (
@@ -194,7 +194,7 @@ func (b *Bus) applyDefaults(ctx context.Context, notice *Notice) {
 		return
 	}
 
-	ctxscope.GetLogger(ctx).Warn(
+	runtimecontext.Logger(ctx).Warn(
 		"event data dropped",
 		"reason", reasonEventDataTooLarge,
 		"event_type", notice.Type,

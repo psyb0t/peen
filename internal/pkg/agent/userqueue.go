@@ -12,6 +12,7 @@ import (
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -179,7 +180,7 @@ func (q *activeUserMessageQueue) enqueue(
 		ctx,
 		ctxscope.Attr("session_id", q.turn.lease.SessionID.String()),
 	)
-	ctxscope.GetLogger(loggerContext).Info(
+	runtimecontext.Logger(loggerContext).Info(
 		"active turn user message queued",
 		"message_bytes", len(input.Message),
 		"skill_messages", len(skills),

@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"github.com/psyb0t/ctxerrors"
-	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/events"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 )
 
 const (
@@ -67,7 +67,7 @@ func (p *preparedTurn) injectSessionEvents(
 		return nil, ctxerrors.Wrap(err, "emit delivered session events")
 	}
 
-	ctxscope.GetLogger(ctx).Info(
+	runtimecontext.Logger(ctx).Info(
 		"session events delivered",
 		"event_count", len(batch.Notices),
 		"dropped_count", batch.Dropped,

@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -72,41 +71,6 @@ func trimPartialRune(window []byte, total int) []byte {
 	}
 
 	return window
-}
-
-// readRegularFile reads one regular file whole, rejecting anything larger
-// than maxBytes so a tool cannot be used to pull an unbounded file into
-// memory.
-func readRegularFile(path string, maxBytes int64) ([]byte, fs.FileMode, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, 0, wrapPathError(err, "open file")
-	}
-
-	defer closeQuietly(file)
-
-	info, err := file.Stat()
-	if err != nil {
-		return nil, 0, wrapPathError(err, "stat open file")
-	}
-
-	if !info.Mode().IsRegular() {
-		return nil, 0, ctxerrors.Wrap(ErrNotRegularFile, path)
-	}
-
-	if info.Size() > maxBytes {
-		return nil, 0, ctxerrors.Wrap(
-			ErrLimitExceeded,
-			"file exceeds read bound",
-		)
-	}
-
-	content, err := io.ReadAll(file)
-	if err != nil {
-		return nil, 0, wrapPathError(err, "read file")
-	}
-
-	return content, info.Mode().Perm(), nil
 }
 
 // writeFileAtomic replaces path through a same-directory temporary file,

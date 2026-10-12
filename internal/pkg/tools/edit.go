@@ -57,7 +57,10 @@ func (e *Executor) applyEditsLocked(
 	path string,
 	edits []TextEdit,
 ) (EditFileOutput, error) {
-	content, mode, err := readRegularFile(path, int64(e.Limits().MaxWriteBytes))
+	content, mode, err := e.readRegularFile(
+		path,
+		int64(e.Limits().MaxWriteBytes),
+	)
 	if err != nil {
 		return EditFileOutput{}, ctxerrors.Wrap(err, "read file to edit")
 	}
@@ -89,7 +92,7 @@ func (e *Executor) applyEditsLocked(
 		e.Limits().MaxDiffBytes,
 	)
 
-	if err := writeFileAtomic(path, rewritten, mode); err != nil {
+	if err := e.writeFileAtomic(path, rewritten, mode); err != nil {
 		return EditFileOutput{}, ctxerrors.Wrap(err, "write edited file")
 	}
 

@@ -7,9 +7,9 @@ import (
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
-	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 )
 
 const (
@@ -93,7 +93,7 @@ func useSkillHandler(
 			return useSkillOutput{}, err
 		}
 
-		ctxscope.GetLogger(ctx).Info(
+		runtimecontext.Logger(ctx).Info(
 			"skill activated",
 			"skill_name", activated.Name,
 			"skill_hash", activated.Hash,

@@ -1,9 +1,7 @@
 # Codex / agent scratch, never commit
-# Nested project instruction files are local. The root AGENTS.md is the
-# committed contributor guide, and the builtin one is Peen's embedded baseline.
+# Contributor guide: docs/contributing.md. The builtin instructions are product text.
 AGENTS.md
 !internal/pkg/harness/builtin/AGENTS.md
-!/AGENTS.md
 CODEX.local.md
 .research_files/
 .agent_notes/

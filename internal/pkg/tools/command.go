@@ -2,14 +2,13 @@ package tools
 
 import (
 	"context"
-	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
-	"github.com/psyb0t/ctxscope"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 )
 
 // RunCommand executes one shell command immediately: no approval step, no
@@ -131,7 +130,7 @@ func (e *JobExecutor) resolveCommandDirectory(
 		return "", ctxerrors.Wrap(err, "resolve command directory")
 	}
 
-	info, err := os.Stat(resolved)
+	info, err := e.filesystem.Stat(resolved)
 	if err != nil {
 		return "", wrapPathError(err, "stat command directory")
 	}
@@ -233,7 +232,7 @@ func (e *JobExecutor) logJobStarted(
 ) {
 	snapshot := job.Snapshot()
 
-	ctxscope.GetLogger(ctx).Info(
+	runtimecontext.Logger(ctx).Info(
 		"runCommand finished",
 		"job_id", snapshot.ID,
 		"pid", snapshot.PID,

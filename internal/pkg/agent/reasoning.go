@@ -4,8 +4,8 @@ import (
 	"context"
 	"slices"
 
-	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/elelem"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 )
 
 const (
@@ -49,7 +49,7 @@ func turnReasoningEffort(
 		prepared.model.Client.Capabilities(model),
 	)
 	if reason != "" {
-		ctxscope.GetLogger(ctx).Info(
+		runtimecontext.Logger(ctx).Info(
 			"reasoning effort fitted to the model",
 			"model", prepared.modelReference,
 			"requested_reasoning_effort", prepared.reasoningEffort,

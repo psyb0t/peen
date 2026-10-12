@@ -2,12 +2,14 @@ package agent
 
 import (
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/peen/internal/pkg/workspacefs"
 )
 
 const (
@@ -30,15 +32,9 @@ const (
 // bound, because a deployment that meant to shape the agent and instead
 // silently shipped an empty file is worse than one that fails to start.
 func LoadSystemPrompt(configDirectory string) (string, error) {
-	base := defaultSystemPrompt
-
-	replacement, err := readPromptFile(configDirectory, systemPromptFileName)
+	base, err := loadBaseSystemPrompt(configDirectory)
 	if err != nil {
 		return "", err
-	}
-
-	if replacement != "" {
-		base = replacement
 	}
 
 	appended, err := readPromptFile(
@@ -54,6 +50,63 @@ func LoadSystemPrompt(configDirectory string) (string, error) {
 	}
 
 	return base + systemSectionGap + appended, nil
+}
+
+func loadBaseSystemPrompt(configDirectory string) (string, error) {
+	replacement, err := readPromptFile(configDirectory, systemPromptFileName)
+	if err != nil {
+		return "", err
+	}
+
+	if replacement != "" {
+		return replacement, nil
+	}
+
+	return defaultSystemPrompt, nil
+}
+
+func readFilesystemPrompt(
+	reader workspacefs.Reader,
+	name string,
+) (string, error) {
+	file, err := reader.Open(name)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	}
+
+	if err != nil {
+		return "", ctxerrors.Wrap(err, "open workspace prompt")
+	}
+
+	info, statErr := file.Stat()
+	if statErr != nil {
+		return "", errors.Join(ctxerrors.Wrap(
+			statErr,
+			"stat workspace prompt",
+		), file.Close())
+	}
+
+	if !info.Mode().IsRegular() || info.Size() > maxSystemPromptFileBytes {
+		return "", errors.Join(ErrSystemPromptInvalid, file.Close())
+	}
+
+	data, readErr := io.ReadAll(io.LimitReader(
+		file,
+		maxSystemPromptFileBytes+1,
+	))
+	if err := errors.Join(readErr, file.Close()); err != nil {
+		return "", ctxerrors.Wrap(err, "read workspace prompt")
+	}
+
+	content := strings.TrimSpace(string(data))
+	if content == "" || len(data) > maxSystemPromptFileBytes {
+		return "", ctxerrors.Wrap(
+			ErrSystemPromptInvalid,
+			"invalid workspace prompt",
+		)
+	}
+
+	return content, nil
 }
 
 // readPromptFile returns the trimmed contents of one optional prompt file, or

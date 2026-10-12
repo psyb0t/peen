@@ -52,7 +52,7 @@ func (e *Executor) SearchText(
 		return SearchTextOutput{}, ctxerrors.Wrap(err, "resolve search path")
 	}
 
-	info, err := os.Stat(resolved)
+	info, err := e.filesystem.Stat(resolved)
 	if err != nil {
 		return SearchTextOutput{}, wrapPathError(err, "stat search path")
 	}
@@ -148,7 +148,7 @@ func (w *searchWalker) walkDir(
 		return nil
 	}
 
-	dirEntries, err := os.ReadDir(dirAbs)
+	dirEntries, err := w.exec.filesystem.ReadDir(dirAbs)
 	if err != nil {
 		if isRoot {
 			return wrapPathError(err, "read search directory")
@@ -213,7 +213,10 @@ func (w *searchWalker) searchNamedFile(
 		return ctxerrors.Wrap(ErrLimitExceeded, "file exceeds search bound")
 	}
 
-	content, _, err := readRegularFile(path, w.exec.Limits().MaxSearchFileBytes)
+	content, _, err := w.exec.readRegularFile(
+		path,
+		w.exec.Limits().MaxSearchFileBytes,
+	)
 	if err != nil {
 		return err
 	}
@@ -252,7 +255,10 @@ func (w *searchWalker) processFile(
 		return nil
 	}
 
-	content, _, err := readRegularFile(path, w.exec.Limits().MaxSearchFileBytes)
+	content, _, err := w.exec.readRegularFile(
+		path,
+		w.exec.Limits().MaxSearchFileBytes,
+	)
 	if err != nil {
 		return nil //nolint:nilerr // One unreadable file is skipped, not fatal.
 	}

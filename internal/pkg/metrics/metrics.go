@@ -68,7 +68,8 @@ const OutcomeCancelled = outcomeCancelled
 // only labels that Peen controls, never request, session, workspace, command,
 // path, prompt, or SQL values.
 type Metrics struct {
-	registry *prometheus.Registry
+	collectors []prometheus.Collector
+	registry   *prometheus.Registry
 
 	buildInfo *prometheus.GaugeVec
 
@@ -117,6 +118,20 @@ func (m *Metrics) Registry() *prometheus.Registry {
 	}
 
 	return m.registry
+}
+
+// Describe exposes the owned collectors to an embedding caller's registry.
+func (m *Metrics) Describe(descriptions chan<- *prometheus.Desc) {
+	for _, collector := range m.collectors {
+		collector.Describe(descriptions)
+	}
+}
+
+// Collect forwards current values without using Prometheus's global registry.
+func (m *Metrics) Collect(values chan<- prometheus.Metric) {
+	for _, collector := range m.collectors {
+		collector.Collect(values)
+	}
 }
 
 // HTTPStarted marks one public HTTP request in flight.
@@ -523,7 +538,7 @@ func newMetrics(registry *prometheus.Registry) *Metrics {
 		Help:      "Events dropped by bounded delivery paths.",
 	}, []string{labelService, labelReason})
 
-	registry.MustRegister(
+	instance.collectors = []prometheus.Collector{
 		instance.buildInfo,
 		instance.httpRequests,
 		instance.httpDuration,
@@ -547,7 +562,8 @@ func newMetrics(registry *prometheus.Registry) *Metrics {
 		instance.activeJobs,
 		instance.outputDrops,
 		instance.eventDrops,
-	)
+	}
+	registry.MustRegister(instance.collectors...)
 
 	return instance
 }

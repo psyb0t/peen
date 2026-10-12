@@ -4,36 +4,44 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/agent"
 	internalconfig "github.com/psyb0t/peen/internal/pkg/config"
+	"github.com/psyb0t/peen/internal/pkg/db"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/session"
+	"github.com/psyb0t/peen/internal/pkg/tools"
 )
 
 const (
 	// defaultMaxContextTokens mirrors PEEN_MAX_CONTEXT_TOKENS's deployment
 	// default, so an embedding caller that leaves it unset behaves like the
 	// HTTP service's own default deployment.
-	defaultMaxContextTokens = 32768
+	defaultMaxContextTokens     = 32768
+	defaultMaxEventWakesPerHour = 60
 	// defaultTurnTimeout mirrors PEEN_TURN_TIMEOUT's deployment default.
-	defaultTurnTimeout = 10 * time.Minute
+	defaultTurnTimeout   = 10 * time.Minute
+	stateDirectorySuffix = "-state"
+	temporaryStatePrefix = "peen-state-"
 )
 
-// Runtime is Peen's embedding surface over the internal agent runtime.
-//
-// The public package sketch calls for a type alias to the internal runtime,
-// but agent.Runtime's exported method set includes RunMessage, ListSessionJobs,
-// CancelSessionAgentRun, ShutdownJobs, and more: aliasing it
-// would expose all of that, the opposite of the deliberately small surface
-// this package promises. Wrapping the internal runtime behind an unexported
-// field is how that narrow surface is actually delivered.
+// Runtime owns storage and execution for one or more durable sessions.
+// Call Close after the last operation to release its resources.
+// Runtime values must not be copied after construction.
 type Runtime struct {
-	internal *agent.Runtime
+	internal       *agent.Runtime
+	handle         *db.Handle
+	closeGate      chan struct{}
+	closed         atomic.Bool
+	store          *session.Store
+	options        Options
+	temporaryState string
+	eventHub       *eventHub
+	telemetry      *telemetry
 }
 
 // New builds one Runtime from explicit, validated dependencies.
@@ -44,19 +52,34 @@ func New(options Options) (*Runtime, error) {
 
 	options = options.withDefaults()
 
-	workspace, err := resolveStartupWorkspace()
+	workspace, virtual, err := resolveEmbeddingWorkspace(options)
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "resolve startup workspace")
+		return nil, err
 	}
 
-	configDirectory, err := filepath.Abs(options.ConfigDirectory)
+	configDirectory, stateDirectory, err := resolveEmbeddingDirectories(options)
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "resolve config directory")
+		return nil, err
 	}
 
-	models, err := staticRegistry(options.Models)
+	models, err := resolveEmbeddingModels(options)
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "create model registry")
+		return nil, err
+	}
+
+	extensions, err := prepareExtensions(options)
+	if err != nil {
+		return nil, err
+	}
+
+	hub := newEventHub(options.EventLimits.SubscriberBuffer)
+
+	configuration, err := configureEmbedding(
+		options, configDirectory, workspace, stateDirectory, virtual,
+		models, extensions.tools, extensions.callback, hub,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	// One assembly, shared with the HTTP service. Anything that must be true
@@ -65,51 +88,104 @@ func New(options Options) (*Runtime, error) {
 	// differently wired runtime than a deployment gets.
 	assembled, err := agent.Assemble(
 		context.Background(),
-		agent.AssembleOptions{
-			// A direct runtime owns its whole directory. The controller splits
-			// configuration from state because it mounts configuration into
-			// workers read-only; an embedding program has no worker to hand a
-			// mount to, so one directory holds both.
-			StateDirectory: configDirectory,
-			Runtime: runtimeOptions(
-				configDirectory,
-				workspace,
-				models,
-				options,
-			),
-			StoreOptions: session.Options{
-				Clock:                 options.Clock,
-				NewID:                 options.NewID,
-				MaxStoredMessageBytes: options.MaxStoredMessageBytes,
-			},
-		},
+		embeddingAssembly(options, configuration, extensions.readers),
 	)
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "assemble peen runtime")
+		return nil, errors.Join(
+			ctxerrors.Wrap(err, "assemble peen runtime"),
+			removeTemporaryState(configuration.temporaryState),
+			configuration.telemetry.close(),
+		)
 	}
 
-	return &Runtime{internal: assembled.Runtime}, nil
+	return &Runtime{
+		internal:       assembled.Runtime,
+		closeGate:      make(chan struct{}, 1),
+		handle:         assembled.Handle,
+		store:          assembled.Store,
+		options:        options,
+		temporaryState: configuration.temporaryState,
+		eventHub:       hub,
+		telemetry:      configuration.telemetry,
+	}, nil
 }
 
-// runtimeOptions converts the public Options plus the dependencies already
-// built from it into the internal runtime's construction options.
-// runtimeOptions maps the public Options onto the internal runtime's
-// construction options. Store and Resolver are left zero: Assemble fills them
-// from the same configuration directory, so this package and the HTTP service
-// cannot wire one and forget the other.
+// Close drains work and releases SQLite. Once closing starts, new calls fail
+// with ErrClosed. If ctx expires, admitted work is cancelled; call Close again
+// to finish cleanup after it ends. Repeated successful closes are harmless.
+func (r *Runtime) Close(ctx context.Context) error {
+	if r.closed.Load() {
+		return nil
+	}
+
+	select {
+	case r.closeGate <- struct{}{}:
+		defer func() { <-r.closeGate }()
+	case <-ctx.Done():
+		if err := r.internal.Shutdown(ctx); err != nil {
+			return ctxerrors.Wrap(err, "cancel closing runtime")
+		}
+
+		return nil
+	}
+
+	if r.closed.Load() {
+		return nil
+	}
+
+	if err := r.internal.Shutdown(ctx); err != nil {
+		return ctxerrors.Wrap(err, "shut down embedded runtime")
+	}
+
+	if err := r.handle.Close(); err != nil {
+		return ctxerrors.Wrap(err, "close embedded state")
+	}
+
+	if err := removeTemporaryState(r.temporaryState); err != nil {
+		return err
+	}
+
+	if err := r.telemetry.close(); err != nil {
+		return err
+	}
+
+	r.eventHub.close()
+	r.closed.Store(true)
+
+	return nil
+}
+
+func removeTemporaryState(path string) error {
+	if path == "" {
+		return nil
+	}
+
+	if err := os.RemoveAll(path); err != nil {
+		return ctxerrors.Wrap(err, "remove temporary hook state")
+	}
+
+	return nil
+}
+
+// runtimeOptions maps embedding values to the shared assembly pipeline.
 func runtimeOptions(
 	configDirectory string,
 	workspace string,
-	models *agent.Registry,
+	models agent.ModelResolver,
 	options Options,
 ) agent.RuntimeOptions {
 	return agent.RuntimeOptions{
-		Models:           models,
-		RootAgent:        options.RootAgent,
-		DefaultModel:     options.DefaultModel,
-		DefaultWorkspace: workspace,
-		MaxContextTokens: options.MaxContextTokens,
-		TurnTimeout:      options.TurnTimeout,
+		Models:             models,
+		RootAgent:          options.RootAgent,
+		DefaultModel:       options.DefaultModel,
+		DefaultWorkspace:   workspace,
+		MaxContextTokens:   options.MaxContextTokens,
+		TurnTimeout:        options.TurnTimeout,
+		BaseSystemPrompt:   options.BaseSystemPrompt,
+		AppendSystemPrompt: options.AppendSystemPrompt,
+		AskTimeout:         options.AskTimeout,
+		ToolLimits:         tools.Limits(options.ToolLimits),
+		AgentLimits:        agent.AgentRunLimits(options.AgentLimits),
 
 		MaxSystemPromptBytes:  options.MaxSystemPromptBytes,
 		MaxMessageBytes:       options.MaxMessageBytes,
@@ -132,8 +208,13 @@ func runtimeOptions(
 		MaxHookCommandOutput: options.MaxHookCommandOutput,
 
 		MaxEventWakesPerHour: options.MaxEventWakesPerHour,
-		Events:               events.NewBus(events.Options{}),
-		ConfigDirectory:      configDirectory,
+		Events: events.NewBus(events.Options{
+			MaxPendingPerSession: options.EventLimits.MaxPendingPerSession,
+			MaxSummaryBytes:      options.EventLimits.MaxSummaryBytes,
+			MaxDataBytes:         options.EventLimits.MaxDataBytes,
+			SubscriberBuffer:     options.EventLimits.SubscriberBuffer,
+		}),
+		ConfigDirectory: configDirectory,
 	}
 }
 
@@ -153,17 +234,7 @@ func (r *Runtime) Message(
 	ctx context.Context,
 	request MessageRequest,
 ) (MessageResult, error) {
-	input := toTurnRequest(request)
-
-	result, err := r.internal.Run(ctx, input)
-	if err != nil {
-		return MessageResult{}, translateTurnError(err)
-	}
-
-	return MessageResult{
-		Message: result.Text,
-		Queued:  result.Queued,
-	}, nil
+	return r.Session(r.internal.SessionID().String()).Send(ctx, request, nil)
 }
 
 // Stream runs one durable turn, delivering each event to sink as Peen
@@ -174,23 +245,7 @@ func (r *Runtime) Stream(
 	request MessageRequest,
 	sink EventSink,
 ) (MessageResult, error) {
-	input := toTurnRequest(request)
-
-	if sink != nil {
-		input.OnEvent = func(event agent.Event) error {
-			return sink(Event{Type: event.Type, Payload: event.Payload})
-		}
-	}
-
-	result, err := r.internal.Run(ctx, input)
-	if err != nil {
-		return MessageResult{}, translateTurnError(err)
-	}
-
-	return MessageResult{
-		Message: result.Text,
-		Queued:  result.Queued,
-	}, nil
+	return r.Session(r.internal.SessionID().String()).Send(ctx, request, sink)
 }
 
 // ListMessages reads one bounded page of this workspace's transcript.
@@ -198,9 +253,21 @@ func (r *Runtime) ListMessages(
 	ctx context.Context,
 	request ListMessagesRequest,
 ) (ListMessagesResult, error) {
+	ctx, finish, err := r.internal.BeginOperation(ctx)
+	if err != nil {
+		return ListMessagesResult{}, ctxerrors.Wrap(
+			err,
+			"read initial messages",
+		)
+	}
+	defer finish()
+
 	params, err := toListMessagesParams(request, r.internal.SessionID())
 	if err != nil {
-		return ListMessagesResult{}, err
+		return ListMessagesResult{}, ctxerrors.Wrap(
+			err,
+			"read initial messages",
+		)
 	}
 
 	page, err := r.internal.ListMessages(ctx, params)
@@ -221,6 +288,12 @@ func (r *Runtime) ListMessages(
 
 // Details reads this workspace's read-only metadata.
 func (r *Runtime) Details(ctx context.Context) (SessionDetails, error) {
+	ctx, finish, err := r.internal.BeginOperation(ctx)
+	if err != nil {
+		return SessionDetails{}, ctxerrors.Wrap(err, "read initial session")
+	}
+	defer finish()
+
 	stored, err := r.internal.Session(ctx, r.internal.SessionID())
 	if err != nil {
 		return SessionDetails{}, ctxerrors.Wrap(err, "get workspace details")
@@ -233,6 +306,12 @@ func (r *Runtime) Details(ctx context.Context) (SessionDetails, error) {
 // child agent still running in it. It is idempotent: with no active turn and
 // no running child it reports CancelRequested false rather than failing.
 func (r *Runtime) Cancel(ctx context.Context) (CancelResult, error) {
+	ctx, finish, err := r.internal.BeginOperation(ctx)
+	if err != nil {
+		return CancelResult{}, ctxerrors.Wrap(err, "cancel initial session")
+	}
+	defer finish()
+
 	response, err := r.internal.CancelSession(ctx, r.internal.SessionID())
 	if err != nil {
 		return CancelResult{}, ctxerrors.Wrap(err, "cancel the active turn")

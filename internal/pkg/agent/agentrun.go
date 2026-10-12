@@ -12,8 +12,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
-	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/events"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -132,6 +132,11 @@ func DefaultAgentRunLimits() AgentRunLimits {
 		MaxEventBytes:            defaultMaxAgentRunEventBytes,
 		MaxAdHocInstructionBytes: defaultMaxAdHocInstructionBytes,
 	}
+}
+
+// ValidateAgentRunLimits validates bounds before the first child is launched.
+func ValidateAgentRunLimits(limits AgentRunLimits) error {
+	return limits.withDefaults().validate()
 }
 
 func (l AgentRunLimits) withDefaults() AgentRunLimits {
@@ -819,7 +824,7 @@ func (r *AgentRunRegistry) publish(
 		r.eventDataLimit(),
 	)
 	if err != nil {
-		ctxscope.GetLogger(ctx).Warn(
+		runtimecontext.Logger(ctx).Warn(
 			"encode agent completion event data",
 			"err", err,
 			"run_id", run.ID,
@@ -846,7 +851,7 @@ func (r *AgentRunRegistry) publish(
 	}
 
 	if _, err := r.publisher.PublishContext(ctx, notice); err != nil {
-		ctxscope.GetLogger(ctx).Warn(
+		runtimecontext.Logger(ctx).Warn(
 			"publish agent completion event",
 			"err", err,
 			"run_id", run.ID,

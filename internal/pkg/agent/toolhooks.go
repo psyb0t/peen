@@ -10,10 +10,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
-	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/hooks"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 	"github.com/psyb0t/peen/internal/pkg/tools"
 )
 
@@ -67,12 +67,13 @@ func newToolHookRuntime(
 	publisher hooks.EventPublisher,
 	contextTokenCounter hooks.ContextTokenCounter,
 	tokenCounter elelem.TokenCounter,
+	extensions ...hooks.Options,
 ) (*toolHookRuntime, error) {
 	if tokenCounter == nil {
 		tokenCounter = elelem.DefaultTokenCounter()
 	}
 
-	runner, err := hooks.New(hooks.Options{
+	options := hooks.Options{
 		Snapshot:            snapshot,
 		Workspace:           workspace,
 		CommandTimeout:      commandTimeoutDuration,
@@ -80,7 +81,13 @@ func newToolHookRuntime(
 		Publisher:           publisher,
 		StateRoot:           hookStateRoot,
 		ContextTokenCounter: contextTokenCounter,
-	})
+	}
+	if len(extensions) > 0 {
+		options.Callback = extensions[0].Callback
+		options.RunCommand = extensions[0].RunCommand
+	}
+
+	runner, err := hooks.New(options)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create tool hook runner")
 	}
@@ -104,7 +111,7 @@ func (r *Runtime) newToolHookRuntime(
 ) (*toolHookRuntime, error) {
 	runner, err := newToolHookRuntime(
 		prepared.snapshot,
-		prepared.workspace,
+		prepared.executor.Workspace(),
 		r.hookStateRoot,
 		prepared.turn.requestID,
 		prepared.opened.Session.ID,
@@ -117,6 +124,10 @@ func (r *Runtime) newToolHookRuntime(
 		r.durableEventPublisher(),
 		prepared.hookContextTokens,
 		modelTokenCounter(prepared.model),
+		hooks.Options{
+			Callback:   r.hookCallback,
+			RunCommand: r.hookCommandRunner,
+		},
 	)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create turn hook runtime")
@@ -133,8 +144,10 @@ func (r *Runtime) appendPreUserHookContext(
 	systemPrompt string,
 ) (string, error) {
 	runner, err := hooks.New(hooks.Options{
+		Callback:         r.hookCallback,
+		RunCommand:       r.hookCommandRunner,
 		Snapshot:         snapshot,
-		Workspace:        workspace,
+		Workspace:        r.toolWorkspace(workspace),
 		CommandTimeout:   r.hookCommandTimeout,
 		MaxCommandOutput: r.maxHookCommandOutput,
 		Publisher:        r.durableEventPublisher(),
@@ -477,7 +490,7 @@ func (p *preparedTurn) runCompactionHook(
 	}
 
 	if len(outcome.Injections) > 0 {
-		ctxscope.GetLogger(ctx).Debug(
+		runtimecontext.Logger(ctx).Debug(
 			"compaction hook injections ignored",
 			"hook_event", event,
 			"injection_count", len(outcome.Injections),

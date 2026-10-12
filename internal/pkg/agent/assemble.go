@@ -5,9 +5,9 @@ import (
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
-	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/db"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -30,6 +30,7 @@ type Assembled struct {
 
 // AssembleOptions builds a runtime over one configuration directory.
 type AssembleOptions struct {
+	InMemoryStore bool
 	// Runtime carries the tuning and the model resolver. Store and Resolver
 	// are filled in by Assemble, so a caller leaves them zero.
 	Runtime RuntimeOptions
@@ -73,7 +74,8 @@ func Assemble(
 	ctx context.Context,
 	options AssembleOptions,
 ) (*Assembled, error) {
-	if options.StateDirectory == "" {
+	ctx = runtimecontext.WithLogger(ctx, options.Runtime.Logger)
+	if options.StateDirectory == "" && !options.InMemoryStore {
 		return nil, ctxerrors.Wrap(
 			commerr.ErrRequiredFieldNotSet,
 			"assemble requires a state directory for durable storage",
@@ -97,6 +99,7 @@ func Assemble(
 
 	handle, err := db.Open(ctx, db.Config{
 		Directory: options.StateDirectory,
+		InMemory:  options.InMemoryStore,
 		Metrics:   options.Runtime.Metrics,
 	})
 	if err != nil {
@@ -140,7 +143,20 @@ func assembleOver(
 
 	runtimeOptions := options.Runtime
 	runtimeOptions.Store = store
+
 	runtimeOptions.Resolver = resolver
+	if runtimeOptions.VirtualFilesystem {
+		opened, err := store.OpenWorkspaceIdentity(ctx,
+			runtimeOptions.DefaultWorkspace, session.OpenSessionOptions{
+				RootAgent: runtimeOptions.RootAgent,
+				ModelID:   runtimeOptions.DefaultModel,
+			})
+		if err != nil {
+			return nil, ctxerrors.Wrap(err, "open virtual workspace")
+		}
+
+		runtimeOptions.StartupSessionID = opened.Session.ID
+	}
 
 	runtime, err := NewRuntime(ctx, runtimeOptions)
 	if err != nil {
@@ -170,7 +186,7 @@ func recoverInterruptedTurns(ctx context.Context, store *session.Store) error {
 		return nil
 	}
 
-	ctxscope.GetLogger(ctx).Warn(
+	runtimecontext.Logger(ctx).Warn(
 		"marked turns left running by a previous process as interrupted",
 		"reason", reasonInterruptedTurnsRecovered,
 		"turn_count", recovered,
@@ -192,7 +208,7 @@ func recoverInterruptedAgentRuns(
 		return nil
 	}
 
-	ctxscope.GetLogger(ctx).Warn(
+	runtimecontext.Logger(ctx).Warn(
 		"marked child agents left running by a previous process as "+
 			"interrupted",
 		"reason", reasonInterruptedAgentRunsRecovered,
@@ -212,7 +228,7 @@ func recoverInterruptedJobs(ctx context.Context, store *session.Store) error {
 		return nil
 	}
 
-	ctxscope.GetLogger(ctx).Warn(
+	runtimecontext.Logger(ctx).Warn(
 		"marked jobs left running by a previous process as interrupted",
 		"reason", reasonInterruptedJobsRecovered,
 		"job_count", recovered,
@@ -234,7 +250,7 @@ func recoverInterruptedModelRuns(
 		return nil
 	}
 
-	ctxscope.GetLogger(ctx).Warn(
+	runtimecontext.Logger(ctx).Warn(
 		"marked model work left running by a previous process as "+
 			"interrupted",
 		"reason", reasonInterruptedModelRunsRecovered,
@@ -252,7 +268,7 @@ func closeHandleAfter(
 	cause error,
 ) error {
 	if err := handle.Close(); err != nil {
-		ctxscope.GetLogger(ctx).Error(
+		runtimecontext.Logger(ctx).Error(
 			"closing durable state after a failed assembly failed",
 			"err", err,
 		)

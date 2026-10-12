@@ -10,6 +10,7 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/config"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -239,7 +240,7 @@ func childCompactionHook(
 		// summarizing, so an injection here is recorded and dropped, the same
 		// way the parent turn treats one.
 		if len(outcome.Injections) > 0 {
-			ctxscope.GetLogger(scoped).Debug(
+			runtimecontext.Logger(scoped).Debug(
 				"child compaction hook injections ignored",
 				"hook_event", event,
 				"injection_count", len(outcome.Injections),

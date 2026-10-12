@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -50,7 +49,7 @@ func (e *Executor) MovePath(
 func (e *Executor) movePathLocked(
 	source, destination string,
 ) (MovePathOutput, error) {
-	info, err := os.Lstat(source)
+	info, err := e.filesystem.Lstat(source)
 	if err != nil {
 		return MovePathOutput{}, wrapPathError(err, "stat move source")
 	}
@@ -59,16 +58,16 @@ func (e *Executor) movePathLocked(
 		return MovePathOutput{}, err
 	}
 
-	if err := checkDestinationFree(destination); err != nil {
+	if err := e.checkDestinationFree(destination); err != nil {
 		return MovePathOutput{}, err
 	}
 
 	parent := filepath.Dir(destination)
-	if err := os.MkdirAll(parent, newDirectoryMode); err != nil {
+	if err := e.filesystem.MkdirAll(parent, newDirectoryMode); err != nil {
 		return MovePathOutput{}, wrapPathError(err, "create destination parent")
 	}
 
-	if err := renameNoReplace(source, destination); err != nil {
+	if err := e.filesystem.RenameNoReplace(source, destination); err != nil {
 		return MovePathOutput{}, wrapPathError(err, "rename path")
 	}
 
@@ -85,7 +84,7 @@ func (e *Executor) requireMoveObservation(
 		return e.requireObserved(source)
 	}
 
-	content, _, err := readRegularFile(
+	content, _, err := e.readRegularFile(
 		source,
 		int64(e.limits.MaxWriteBytes),
 	)
@@ -99,8 +98,8 @@ func (e *Executor) requireMoveObservation(
 // checkDestinationFree rejects a move whose destination already exists,
 // using Lstat so a destination that is itself a dangling symlink still
 // counts as occupied.
-func checkDestinationFree(destination string) error {
-	_, err := os.Lstat(destination)
+func (e *Executor) checkDestinationFree(destination string) error {
+	_, err := e.filesystem.Lstat(destination)
 	if err == nil {
 		return ctxerrors.Wrap(commerr.ErrAlreadyExists, "move destination")
 	}

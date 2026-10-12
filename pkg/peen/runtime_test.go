@@ -4,9 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"reflect"
-	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/psyb0t/ctxerrors/commerr"
@@ -220,6 +219,63 @@ func TestRuntimeDetails(t *testing.T) {
 	assert.False(t, details.ActiveTurn)
 }
 
+func TestRuntimeCloseRejectsFurtherWork(t *testing.T) {
+	runtime := newTestRuntime(t, elelemtest.NewScriptedDriver())
+	require.NoError(t, runtime.Close(context.Background()))
+	require.NoError(t, runtime.Close(context.Background()))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for range 32 {
+		require.NoError(t, runtime.Close(ctx))
+	}
+	_, err := runtime.Message(context.Background(), peen.MessageRequest{
+		Message: "after close",
+	})
+	require.ErrorIs(t, err, peen.ErrClosed)
+	_, err = runtime.Details(context.Background())
+	require.ErrorIs(t, err, peen.ErrClosed)
+}
+
+func TestRuntimeCloseDeadlineCancelsHeldTurn(t *testing.T) {
+	runtime := newTestRuntime(t, elelemtest.NewScriptedDriver(
+		elelemtest.Text("reply"),
+	))
+	started := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan streamOutcome, 1)
+	go func() {
+		result, err := runtime.Stream(
+			context.Background(),
+			peen.MessageRequest{Message: "hold"},
+			func(event peen.Event) error {
+				if event.Type == "turn.started" {
+					close(started)
+					<-release
+				}
+
+				return nil
+			},
+		)
+		done <- streamOutcome{result: result, err: err}
+	}()
+	select {
+	case <-started:
+	case <-time.After(testWaitTimeout):
+		t.Fatal("held turn did not start")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	require.ErrorIs(t, runtime.Close(ctx), context.Canceled)
+	close(release)
+	select {
+	case outcome := <-done:
+		require.ErrorIs(t, outcome.err, commerr.ErrCancelled)
+	case <-time.After(testWaitTimeout):
+		t.Fatal("close did not cancel the turn")
+	}
+	require.NoError(t, runtime.Close(context.Background()))
+}
+
 func TestRuntimeCancelHeldTurn(t *testing.T) {
 	driver := elelemtest.NewScriptedDriver(
 		elelemtest.Text("first reply"),
@@ -297,60 +353,6 @@ func TestRuntimeReadsNeedNoSessionIdentifier(t *testing.T) {
 	assert.False(t, cancelled.CancelRequested)
 }
 
-// The direct facade addresses one workspace, so nothing it hands back may name
-// a session. A session ID here would invite a caller to route on it, which is
-// a control-plane job this runtime does not do.
-func TestPublicTypesCarryNoSessionIdentifier(t *testing.T) {
-	t.Parallel()
-
-	testCases := []struct {
-		name  string
-		value any
-	}{
-		{name: "SessionDetails", value: peen.SessionDetails{}},
-		{name: "MessageResult", value: peen.MessageResult{}},
-		{name: "ListMessagesRequest", value: peen.ListMessagesRequest{}},
-		{name: "ListMessagesResult", value: peen.ListMessagesResult{}},
-		{name: "MessageRequest", value: peen.MessageRequest{}},
-		{name: "CancelResult", value: peen.CancelResult{}},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			fields := reflect.TypeOf(tc.value)
-			for field := range fields.Fields() {
-				field := field.Name
-				assert.NotContains(
-					t,
-					strings.ToLower(field),
-					"session",
-					"%s.%s names a session", tc.name, field,
-				)
-			}
-		})
-	}
-
-	assert.NotContains(
-		t,
-		exportedFieldNames(peen.SessionDetails{}),
-		"ID",
-		"SessionDetails still exposes a session identifier",
-	)
-}
-
-func exportedFieldNames(value any) []string {
-	valueType := reflect.TypeOf(value)
-	names := make([]string, 0, valueType.NumField())
-
-	for field := range valueType.Fields() {
-		names = append(names, field.Name)
-	}
-
-	return names
-}
-
 type streamOutcome struct {
 	result peen.MessageResult
 	err    error
@@ -426,6 +428,93 @@ func validOptions(t *testing.T) peen.Options {
 	}
 }
 
+func TestExplicitAppendPromptOverridesPromptFiles(t *testing.T) {
+	t.Parallel()
+	const (
+		configBase    = "Configuration base marker."
+		configAppend  = "Configuration append marker."
+		virtualBase   = "Virtual base marker."
+		virtualAppend = "Virtual append marker."
+		callerBase    = "Caller base marker."
+		callerAppend  = "Caller append marker."
+	)
+	testCases := []struct {
+		name          string
+		virtual       bool
+		workspaceBase bool
+		explicitBase  bool
+		wantBase      string
+	}{
+		{name: "host append override", wantBase: configBase},
+		{
+			name: "virtual replacement", virtual: true,
+			workspaceBase: true, wantBase: virtualBase,
+		},
+		{name: "virtual append only", virtual: true, wantBase: configBase},
+		{
+			name: "explicit base and append", virtual: true,
+			workspaceBase: true, explicitBase: true, wantBase: callerBase,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			options := validOptions(t)
+			options.Workspace = t.TempDir()
+			options.AppendSystemPrompt = callerAppend
+			writeTestFile(t, filepath.Join(options.ConfigDirectory,
+				"SYSTEM.md"), configBase)
+			writeTestFile(t, filepath.Join(options.ConfigDirectory,
+				"APPEND_SYSTEM.md"), configAppend)
+			if tc.virtual {
+				files := fstest.MapFS{
+					"APPEND_SYSTEM.md": {Data: []byte(virtualAppend)},
+				}
+				if tc.workspaceBase {
+					files["SYSTEM.md"] = &fstest.MapFile{
+						Data: []byte(virtualBase),
+					}
+				}
+				filesystem, err := peen.FromIOFS(files)
+				require.NoError(t, err)
+				options.Filesystem = filesystem
+				options.WorkspaceID = "prompt-workspace"
+			}
+			if tc.explicitBase {
+				options.BaseSystemPrompt = callerBase
+			}
+			options.Models[testModelReference] = peen.ModelClient{
+				Client: elelem.New(elelemtest.NewScriptedDriver(
+					elelemtest.Text("prompt applied"),
+				)), Model: elelem.Model{ID: testModelID},
+			}
+			runtime, err := peen.New(options)
+			require.NoError(t, err)
+			t.Cleanup(func() {
+				require.NoError(t, runtime.Close(context.Background()))
+			})
+			ctx := context.Background()
+			details, err := runtime.Details(ctx)
+			require.NoError(t, err)
+			session := runtime.Session(details.ID)
+			_, err = session.Send(ctx,
+				peen.MessageRequest{Message: "use configured prompt"}, nil)
+			require.NoError(t, err)
+			turns, err := session.Turns(ctx, peen.PageRequest{})
+			require.NoError(t, err)
+			require.Len(t, turns.Turns, 1)
+			require.NotNil(t, turns.Turns[0].PromptSnapshotHash)
+			prompt, err := session.PromptSnapshot(ctx,
+				*turns.Turns[0].PromptSnapshotHash)
+			require.NoError(t, err)
+			assert.Contains(t, prompt.EffectivePrompt, tc.wantBase)
+			assert.Contains(t, prompt.EffectivePrompt, callerAppend)
+			assert.NotContains(t, prompt.EffectivePrompt, configAppend)
+			assert.NotContains(t, prompt.EffectivePrompt, virtualAppend)
+		})
+	}
+}
+
 // newTestRuntime builds a Runtime over a real, temporary SQLite store, the
 // way an embedding caller would, using only exported pkg/peen surface.
 func newTestRuntime(t *testing.T, driver elelem.Driver) *peen.Runtime {
@@ -448,6 +537,10 @@ func newTestRuntime(t *testing.T, driver elelem.Driver) *peen.Runtime {
 		TurnTimeout:      time.Minute,
 	})
 	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		require.NoError(t, runtime.Close(context.Background()))
+	})
 
 	return runtime
 }

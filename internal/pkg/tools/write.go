@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -58,9 +57,9 @@ func (e *Executor) writeFileLocked(
 	content []byte,
 ) (WriteFileOutput, error) {
 	// Stat, not Lstat: a symlink to a regular file is a regular file to write
-	// to. writeFileAtomic resolves the link so the replacement lands on the
+	// to. e.writeFileAtomic resolves the link so the replacement lands on the
 	// target instead of clobbering the link.
-	info, err := os.Stat(path)
+	info, err := e.filesystem.Stat(path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return e.createFile(path, input, content)
@@ -89,11 +88,14 @@ func (e *Executor) createFile(
 		)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), newDirectoryMode); err != nil {
+	if err := e.filesystem.MkdirAll(
+		filepath.Dir(path),
+		newDirectoryMode,
+	); err != nil {
 		return WriteFileOutput{}, wrapPathError(err, "create parent directory")
 	}
 
-	if err := writeNewFileAtomic(path, content, newFileMode); err != nil {
+	if err := e.writeNewFileAtomic(path, content, newFileMode); err != nil {
 		return WriteFileOutput{}, ctxerrors.Wrap(err, "write new file")
 	}
 
@@ -111,7 +113,10 @@ func (e *Executor) replaceFile(
 		return WriteFileOutput{}, ctxerrors.Wrap(ErrHashRequired, path)
 	}
 
-	current, mode, err := readRegularFile(path, int64(e.Limits().MaxWriteBytes))
+	current, mode, err := e.readRegularFile(
+		path,
+		int64(e.Limits().MaxWriteBytes),
+	)
 	if err != nil {
 		return WriteFileOutput{}, err
 	}
@@ -124,7 +129,7 @@ func (e *Executor) replaceFile(
 		return WriteFileOutput{}, ctxerrors.Wrap(ErrStaleHash, path)
 	}
 
-	if err := writeFileAtomic(path, content, mode); err != nil {
+	if err := e.writeFileAtomic(path, content, mode); err != nil {
 		return WriteFileOutput{}, ctxerrors.Wrap(err, "replace file")
 	}
 

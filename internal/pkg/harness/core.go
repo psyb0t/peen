@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/peen/internal/pkg/workspacefs"
 )
 
 const (
@@ -28,8 +29,30 @@ const (
 type ResolverOption func(*resolverSettings)
 
 type resolverSettings struct {
+	memoryLayers   []workspacefs.Reader
+	filesystem     workspacefs.Reader
 	disabledSkills []string
 	disabledAgents []string
+}
+
+// WithMemoryLayers adds immutable layers after disk and workspace discovery.
+func WithMemoryLayers(layers []workspacefs.Reader) ResolverOption {
+	return func(settings *resolverSettings) {
+		settings.memoryLayers = slices.Clone(layers)
+	}
+}
+
+// WithWorkspaceFilesystem confines workspace discovery to a virtual root.
+// The trusted configuration directory is still read from the host.
+func WithWorkspaceFilesystem(
+	filesystem workspacefs.Reader,
+	virtual bool,
+) ResolverOption {
+	return func(settings *resolverSettings) {
+		if virtual {
+			settings.filesystem = filesystem
+		}
+	}
 }
 
 // WithDisabledCoreSkills removes the named core skills, given without the

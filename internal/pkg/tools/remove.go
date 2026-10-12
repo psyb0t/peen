@@ -3,8 +3,6 @@ package tools
 import (
 	"context"
 	"io/fs"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/psyb0t/ctxerrors"
@@ -59,7 +57,7 @@ func (e *Executor) removePathLocked(
 	path string,
 	input RemovePathInput,
 ) (RemovePathOutput, error) {
-	info, err := os.Lstat(path)
+	info, err := e.filesystem.Lstat(path)
 	if err != nil {
 		return RemovePathOutput{}, wrapPathError(err, "stat remove path")
 	}
@@ -74,7 +72,7 @@ func (e *Executor) removePathLocked(
 	case EntryTypeFile:
 		return e.removeFile(path, input)
 	case EntryTypeSymlink, EntryTypeOther:
-		return removeLink(path)
+		return e.removeLink(path)
 	}
 
 	return RemovePathOutput{}, ctxerrors.Wrap(ErrNotRegularFile, path)
@@ -90,7 +88,7 @@ func (e *Executor) removeFile(
 		return RemovePathOutput{}, ctxerrors.Wrap(ErrHashRequired, path)
 	}
 
-	content, _, err := readRegularFile(path, int64(e.Limits().MaxWriteBytes))
+	content, _, err := e.readRegularFile(path, int64(e.Limits().MaxWriteBytes))
 	if err != nil {
 		return RemovePathOutput{}, err
 	}
@@ -103,7 +101,7 @@ func (e *Executor) removeFile(
 		return RemovePathOutput{}, ctxerrors.Wrap(ErrStaleHash, path)
 	}
 
-	if err := os.Remove(path); err != nil {
+	if err := e.filesystem.Remove(path); err != nil {
 		return RemovePathOutput{}, wrapPathError(err, "remove file")
 	}
 
@@ -112,8 +110,8 @@ func (e *Executor) removeFile(
 
 // removeLink removes a symlink or other non-regular node as itself, never
 // following it, and requires no content hash.
-func removeLink(path string) (RemovePathOutput, error) {
-	if err := os.Remove(path); err != nil {
+func (e *Executor) removeLink(path string) (RemovePathOutput, error) {
+	if err := e.filesystem.Remove(path); err != nil {
 		return RemovePathOutput{}, wrapPathError(err, "remove link")
 	}
 
@@ -134,14 +132,14 @@ func (e *Executor) removeDirectory(
 	}
 
 	if !input.Recursive {
-		return removeEmptyDirectory(path)
+		return e.removeEmptyDirectory(path)
 	}
 
 	return e.removeDirectoryTree(path)
 }
 
-func removeEmptyDirectory(path string) (RemovePathOutput, error) {
-	entries, err := os.ReadDir(path)
+func (e *Executor) removeEmptyDirectory(path string) (RemovePathOutput, error) {
+	entries, err := e.filesystem.ReadDir(path)
 	if err != nil {
 		return RemovePathOutput{}, wrapPathError(err, "read directory")
 	}
@@ -150,7 +148,7 @@ func removeEmptyDirectory(path string) (RemovePathOutput, error) {
 		return RemovePathOutput{}, ctxerrors.Wrap(ErrDirectoryNotEmpty, path)
 	}
 
-	if err := os.Remove(path); err != nil {
+	if err := e.filesystem.Remove(path); err != nil {
 		return RemovePathOutput{}, wrapPathError(err, "remove empty directory")
 	}
 
@@ -158,7 +156,7 @@ func removeEmptyDirectory(path string) (RemovePathOutput, error) {
 }
 
 func (e *Executor) removeDirectoryTree(path string) (RemovePathOutput, error) {
-	total, err := countTreeEntries(path)
+	total, err := e.countTreeEntries(path)
 	if err != nil {
 		return RemovePathOutput{}, err
 	}
@@ -170,7 +168,7 @@ func (e *Executor) removeDirectoryTree(path string) (RemovePathOutput, error) {
 		)
 	}
 
-	if err := os.RemoveAll(path); err != nil {
+	if err := e.filesystem.RemoveAll(path); err != nil {
 		return RemovePathOutput{}, wrapPathError(err, "remove directory tree")
 	}
 
@@ -179,10 +177,10 @@ func (e *Executor) removeDirectoryTree(path string) (RemovePathOutput, error) {
 
 // countTreeEntries counts every filesystem node under root, root included,
 // so the reported total matches what a subsequent RemoveAll deletes.
-func countTreeEntries(root string) (int, error) {
+func (e *Executor) countTreeEntries(root string) (int, error) {
 	count := 0
 
-	err := filepath.WalkDir(
+	err := e.walkDir(
 		root,
 		func(_ string, _ fs.DirEntry, err error) error {
 			if err != nil {

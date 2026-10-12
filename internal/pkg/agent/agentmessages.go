@@ -11,9 +11,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
-	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/events"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 )
 
 const (
@@ -259,7 +259,7 @@ func (r *Runtime) messageAgentRun(
 		return nil, ctxerrors.Wrap(err, "message the agent run")
 	}
 
-	ctxscope.GetLogger(ctx).Info(
+	runtimecontext.Logger(ctx).Info(
 		"user message queued for a child agent",
 		"agent_run_id", runID.String(),
 		"message_bytes", len(request.Message),
@@ -655,7 +655,7 @@ func (d *launchAgentDeps) recordAnswer(
 		EventTypeAgentRunAnswer,
 		agentAnswerPayload{Answered: answered},
 	); err != nil {
-		ctxscope.GetLogger(ctx).Warn(
+		runtimecontext.Logger(ctx).Warn(
 			"record agent answer",
 			"agent_run_id", run.ID.String(),
 			"err", err,

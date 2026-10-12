@@ -100,6 +100,11 @@ func DefaultLimits() Limits {
 	}
 }
 
+// ValidateLimits validates zero-defaulted bounds before runtime construction.
+func ValidateLimits(limits Limits) error {
+	return limits.withDefaults().validate()
+}
+
 func (l Limits) withDefaults() Limits {
 	defaults := DefaultLimits()
 

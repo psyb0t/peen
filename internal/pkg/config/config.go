@@ -473,6 +473,15 @@ func (c Config) validateStateSeparation() error {
 	return refuseOverlap(config, state)
 }
 
+// ValidateStateDirectories applies the deployment's symlink-aware overlap
+// check to callers that supply configuration directly instead of environment.
+func ValidateStateDirectories(config, state string) error {
+	return (Config{
+		ConfigDirectory: config,
+		StateDirectory:  state,
+	}).validateStateSeparation()
+}
+
 func refuseOverlap(config, state string) error {
 	if config == state {
 		return ctxerrors.Wrap(
