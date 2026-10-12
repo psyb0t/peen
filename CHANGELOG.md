@@ -2,6 +2,14 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.23.0 (2026-10-12)
+
+Agents now load their harness from their current directory and its ancestors. Use `changeDirectory` before working in a subdirectory or another project. Move any instructions that must always apply into an ancestor or the configuration layer. No HTTP API or configuration migration is needed.
+
+- Breaking: stops loading descendant `AGENTS.md` files before an agent enters their directory. Directory hops reload rules, skills, named agents, event handlers and hooks together, and leaving a directory removes its local definitions from the active harness.
+- Adds `changeDirectory` for persistent agent directory changes, including `{"directory":"."}` to refresh edited harness files. Root hops survive later turns, compaction and restarts; child agents inherit the current directory and then change independently.
+- Fixes relative file paths in a nested virtual directory resolving from the virtual root instead of the agent's current directory.
+
 ## v0.22.0 (2026-10-12)
 
 Go embedders can own and close the engine, address multiple sessions, replay stored work, subscribe across turns, and supply tools, hooks, model resolution and workspace filesystems. Before upgrading an existing embedded runtime, set StateDirectory to its old database directory and move trusted harness configuration into a separate ConfigDirectory. HTTP, WebSocket and deployment configuration keep their existing contracts.

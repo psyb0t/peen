@@ -25,17 +25,18 @@ const (
 // including `..` segments, dotfiles, and symlink targets, are resolved and
 // used. Operating-system ownership and mode bits are the only restriction.
 type Executor struct {
-	filesystem workspacefs.FS
-	virtual    bool
-	workspace  string
-	home       string
-	limits     Limits
+	filesystem         workspacefs.FS
+	virtual            bool
+	workspace          string
+	protectedDirectory string
+	home               string
+	limits             Limits
 
 	// environment is the base environment of every command. Nil means the
 	// process environment.
 	environment []string
 
-	mutation sync.Mutex
+	mutation *sync.Mutex
 
 	observedMutex sync.RWMutex
 	observed      map[string]observation
@@ -80,13 +81,20 @@ func NewExecutor(options Options) (*Executor, error) {
 		home = ""
 	}
 
+	protectedDirectory := options.ProtectedDirectory
+	if protectedDirectory == "" {
+		protectedDirectory = options.Workspace
+	}
+
 	return &Executor{
-		filesystem: filesystem,
-		virtual:    options.Virtual,
-		workspace:  filepath.Clean(options.Workspace),
-		home:       home,
-		limits:     limits,
-		observed:   map[string]observation{},
+		filesystem:         filesystem,
+		virtual:            options.Virtual,
+		workspace:          filepath.Clean(options.Workspace),
+		protectedDirectory: filepath.Clean(protectedDirectory),
+		mutation:           &sync.Mutex{},
+		home:               home,
+		limits:             limits,
+		observed:           map[string]observation{},
 
 		environment: slices.Clone(options.Environment),
 	}, nil
@@ -135,7 +143,7 @@ func (e *Executor) resolvePath(raw string) (string, error) {
 			)
 		}
 
-		name := filepath.ToSlash(filepath.Clean(trimmed))
+		name := filepath.ToSlash(filepath.Join(e.workspace, trimmed))
 
 		resolved, err := workspacefs.ValidPath(name)
 		if err != nil {

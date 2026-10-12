@@ -463,7 +463,7 @@ func (s *resolutionState) discoverLayer(
 	priority int,
 	configLayer bool,
 ) error {
-	if err := requireReadableLayer(layer); err != nil {
+	if err := s.requireReadableLayer(layer); err != nil {
 		return ctxerrors.Wrap(err, "read harness layer")
 	}
 

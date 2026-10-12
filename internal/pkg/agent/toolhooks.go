@@ -147,7 +147,7 @@ func (r *Runtime) appendPreUserHookContext(
 		Callback:         r.hookCallback,
 		RunCommand:       r.hookCommandRunner,
 		Snapshot:         snapshot,
-		Workspace:        r.toolWorkspace(workspace),
+		Workspace:        workspace,
 		CommandTimeout:   r.hookCommandTimeout,
 		MaxCommandOutput: r.maxHookCommandOutput,
 		Publisher:        r.durableEventPublisher(),
@@ -595,6 +595,13 @@ func rawToolPaths(toolName string, arguments json.RawMessage) []string {
 		return paths
 	case toolNameRunCommand:
 		input := tools.RunCommandInput{}
+		if err := json.Unmarshal(arguments, &input); err != nil {
+			return nil
+		}
+
+		return nonEmptyPath(input.Directory)
+	case toolNameChangeDirectory:
+		input := changeDirectoryInput{}
 		if err := json.Unmarshal(arguments, &input); err != nil {
 			return nil
 		}

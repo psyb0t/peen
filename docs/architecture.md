@@ -47,7 +47,7 @@ Events reach clients only after they are stored. A worker's turn writes through 
 
 ## One turn
 
-The runtime resolves the workspace and its harness layers first. It builds the model context from the conversation, project rules, the names of the available skills and agents, and current runtime facts. The provider may then ask to use tools. Peen runs those tools, applies matching hooks, records the result, and returns it to the provider until the turn completes or fails.
+The runtime recovers the root agent's current directory and resolves its ancestor harness layers first. It builds the model context from the conversation, project rules, the names of the available skills and agents, and current runtime facts. The provider may then ask to use tools. Peen runs those tools, applies matching hooks, records the result, and returns it to the provider until the turn completes or fails.
 
 File changes follow one safety rule. A turn must read an existing file before it can change that file, and Peen checks the file's hash again right before the change. A new file must not exist yet. These checks stop a write based on an old or unread copy from replacing a file.
 
@@ -55,7 +55,7 @@ File changes follow one safety rule. A turn must read an existing file before it
 
 `AGENTS.md` carries project instructions in the agents.md format, and `.agents/rules` holds topic rules. `.agents/skills` lists named procedures that the model can load when needed. `.agents/agents` defines child agents for bounded jobs. `.agents/events` tells Peen how to wake a session for an outside event. `.agents/hooks.yaml` adds mechanical actions around turn and tool events.
 
-Peen applies the configuration directory first, then filesystem layers from the root down to the active workspace, so a layer closer to the workspace is more specific. Below the workspace, Peen reads only `AGENTS.md` files, each covering its own directory. [The harness guide](harness.md) describes the exact rules.
+Peen applies the configuration directory first, then filesystem layers from the root down to the agent's current directory. A `changeDirectory` call reloads every harness piece for that directory and its ancestors. Child agents change independently. [The harness guide](harness.md) describes the exact rules.
 
 ## Durable state and visibility
 

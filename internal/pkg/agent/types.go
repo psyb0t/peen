@@ -128,8 +128,7 @@ const (
 
 	// workspaceMetadataLead introduces the JSON-encoded workspace path that
 	// every relative tool path resolves from.
-	workspaceMetadataLead = "Current startup workspace, the directory " +
-		"relative tool paths resolve from: "
+	workspaceMetadataLead = "Current directory for relative tool paths: "
 
 	defaultMaxSystemPromptBytes  = 65536
 	defaultMaxMessageBytes       = 262144

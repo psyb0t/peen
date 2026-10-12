@@ -239,7 +239,14 @@ func (r *Runtime) wakeHandler(
 		)
 	}
 
-	snapshot, err := r.resolver.Resolve(stored.Workspace)
+	directory, err := r.currentDirectory(ctx, stored.ID, stored.Workspace)
+	if err != nil {
+		return harness.EventHandler{}, false, ctxerrors.Wrap(
+			err, "resolve wake directory",
+		)
+	}
+
+	snapshot, err := r.resolveDirectory(directory)
 	if err != nil {
 		return harness.EventHandler{}, false, ctxerrors.Wrap(
 			err,

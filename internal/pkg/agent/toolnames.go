@@ -7,6 +7,7 @@ func WorkspaceToolNames() []string {
 		toolNameListFiles, toolNameSearchText, toolNameReadFile,
 		toolNameWriteFile, toolNameEditFile, toolNameApplyPatch,
 		toolNameMovePath, toolNameMakeDirectory, toolNameRemovePath,
+		toolNameChangeDirectory,
 		toolNameRunCommand, toolNameListJobs, toolNameReadJobOutput,
 		toolNameWaitJob, toolNameSignalJob, toolNameUseSkill,
 		toolNameLaunchAgent,

@@ -140,7 +140,7 @@ A skill you force on a turn is not copied to the child agents it launches. The p
 
 ## When skills load
 
-Peen reads every skill at the start of every turn, so a new or edited skill is available on the next message. During a turn the skills do not change, and `useSkill` returns the content Peen read when the turn started.
+Peen reads every skill at the start of every turn, so a new or edited skill is available on the next message. A `changeDirectory` call reloads the skill catalogue for the new directory and its ancestors. `useSkill` returns that scope's winning definition. Previously delivered skill messages remain in the conversation history.
 
 ## How skills combine
 

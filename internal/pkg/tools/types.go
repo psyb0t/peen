@@ -29,7 +29,9 @@ type Options struct {
 	Virtual    bool
 	// Workspace is the already canonicalized default directory for the turn.
 	Workspace string
-	Limits    Limits
+	// ProtectedDirectory retains the session workspace removal guard on hops.
+	ProtectedDirectory string
+	Limits             Limits
 
 	// Environment is the base environment of every command, as KEY=VALUE
 	// entries. Nil means the process environment. A deployment that holds

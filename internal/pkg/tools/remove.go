@@ -40,7 +40,8 @@ func (e *Executor) RemovePath(
 		return RemovePathOutput{}, ctxerrors.Wrap(err, "resolve remove path")
 	}
 
-	if path == e.Workspace() || path == rootPath {
+	if path == e.Workspace() || path == e.protectedDirectory ||
+		path == rootPath {
 		return RemovePathOutput{}, ctxerrors.Wrap(
 			commerr.ErrValidationFailed,
 			"refusing to remove the workspace root or filesystem root",

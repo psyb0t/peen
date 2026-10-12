@@ -116,9 +116,9 @@ workspace/
     hooks.yaml
 ```
 
-Peen reads these files from the configuration directory and from every directory between `/` and the workspace, at the start of every turn. Edit one and the next message sees it. A broken file is skipped with a warning in the chat, and everything else keeps working. [The harness guide](docs/harness.md) has the layer order and limits.
+Peen reads these files from the configuration directory and from every directory between `/` and the agent's current directory, at the start of every turn and on each `changeDirectory` call. Enter a subdirectory to load all its harness pieces. Edit one and the next message or hop sees it. A broken file is skipped with a warning in the chat, and everything else keeps working. [The harness guide](docs/harness.md) has the layer order and limits.
 
-**AGENTS.md.** The project's instructions file, in the [agents.md](https://agents.md) format other coding agents read too. It holds build commands, conventions, and things the agent must not touch, and it goes into the system prompt on every turn. Files from every layer add up, so `~/work/AGENTS.md` covers all your projects and `~/work/my-app/AGENTS.md` adds to it. An `AGENTS.md` below the workspace covers its own directory, and the closest one wins. [AGENTS.md and rules](docs/rules.md)
+**AGENTS.md.** The project's instructions file, in the [agents.md](https://agents.md) format other coding agents read too. It holds build commands, conventions, and things the agent must not touch, and it goes into the system prompt on every turn. Files from every layer add up, so `~/work/AGENTS.md` covers all your projects and `~/work/my-app/AGENTS.md` adds to it. A directory's `AGENTS.md` loads when the agent enters it, and the closest one wins. [AGENTS.md and rules](docs/rules.md)
 
 **Rules.** Topic files in `.agents/rules/` or `.claude/rules/`, one subject each, such as `testing.md` or `go.md`. They also go into the system prompt on every turn and add up across layers. [AGENTS.md and rules](docs/rules.md#rules)
 
@@ -180,7 +180,7 @@ A worker container receives the workspace, `PEEN_CONFIG_DIR` read-only, its own 
 
 Tool calls and their results are recorded verbatim in the session transcript and sent live over the global WebSocket feed, like any other message. If the agent reads a file containing a secret, or a command prints one to stdout, that secret is now in the SQLite transcript and in every connected client that did not ask for one session only. Peen does not scan for or redact secret-shaped content in tool output. Treat the transcript and the event stream as sensitive as the files and commands the agent can reach.
 
-`removePath` has one built-in restriction, a guard against a typo rather than a permission system. It refuses to remove the filesystem root or the session's own workspace directory. Every other path, including everything named above, can be removed.
+`removePath` has one built-in restriction, a guard against a typo rather than a permission system. It refuses to remove the filesystem root, the session's original workspace directory, or the agent's current directory. Every other path, including everything named above, can be removed.
 
 Run Peen as a non-root user, in a container, with only the mounts, network access, and capabilities the deployment needs. The installer's default does this, and [Docker deployment](#docker-deployment) below says where to read more.
 

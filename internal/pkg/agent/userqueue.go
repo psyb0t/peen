@@ -270,6 +270,7 @@ func (q *activeUserMessageQueue) checkpointDelivered(
 
 	delivered := append([]queuedUserMessage(nil), q.pending[:count]...)
 	q.pending = q.pending[count:]
+	workspace := q.workspace
 	q.mutex.Unlock()
 
 	inputs := make([]session.MessageInput, 0, len(delivered))
@@ -277,11 +278,11 @@ func (q *activeUserMessageQueue) checkpointDelivered(
 		inputs = append(inputs, session.MessageInput{
 			Role:      models.MessageRoleUser,
 			Content:   message.message,
-			Workspace: q.workspace,
+			Workspace: workspace,
 		})
 
 		for _, skill := range message.skills {
-			inputs = append(inputs, skill.storedInput(q.workspace))
+			inputs = append(inputs, skill.storedInput(workspace))
 		}
 	}
 

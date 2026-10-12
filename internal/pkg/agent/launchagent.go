@@ -17,7 +17,6 @@ import (
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/harness"
-	"github.com/psyb0t/peen/internal/pkg/hooks"
 	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/tools"
@@ -167,6 +166,7 @@ type preparedChildLaunch struct {
 // the context's depth value and the run's own identity change as
 // launchAgent calls itself for a grandchild.
 type launchAgentDeps struct {
+	directoryScope     *directoryScope
 	runtime            *Runtime
 	executor           *tools.JobExecutor
 	snapshot           harness.Snapshot
@@ -229,6 +229,16 @@ func (r *Runtime) launchAgent(
 	if err != nil {
 		return launchAgentOutput{}, err
 	}
+
+	executor, err := deps.executor.Fork(ctx)
+	if err != nil {
+		return launchAgentOutput{}, ctxerrors.Wrap(err, "fork child directory")
+	}
+
+	childDeps := *deps
+	childDeps.executor = executor
+	childDeps.directoryScope = nil
+	deps = &childDeps
 
 	return r.startChildLaunch(ctx, deps, input, prepared)
 }
@@ -859,60 +869,6 @@ func (r *Runtime) childSystemPrompt(
 	return strings.Join(sections, systemSectionGap), nil
 }
 
-// bindChildHooks installs the child's tool hooks and returns its own
-// compactor, which is nil under drop-oldest.
-//
-// The hooks carry the launching request's ID. A child run belongs to the
-// request that launched it, and the durable run row already records that ID,
-// so a hook reading uuid.Nil could not correlate its own invocation with the
-// request every other record for this work is under.
-func (r *Runtime) bindChildHooks(
-	runCtx context.Context,
-	deps *launchAgentDeps,
-	run *AgentRun,
-	systemPrompt string,
-	childToolSet *elelem.ToolSet,
-) (*compactor, error) {
-	childHooks, err := newToolHookRuntime(
-		deps.snapshot,
-		deps.executor.Workspace(),
-		r.hookStateRoot,
-		deps.requestID,
-		deps.sessionID,
-		deps.parentTurnID,
-		&run.ID,
-		deps.executor,
-		nil,
-		r.hookCommandTimeout,
-		r.maxHookCommandOutput,
-		r.durableEventPublisher(),
-		nil,
-		modelTokenCounter(deps.model),
-		hooks.Options{
-			Callback:   r.hookCallback,
-			RunCommand: r.hookCommandRunner,
-		},
-	)
-	if err != nil {
-		return nil, ctxerrors.Wrap(err, "create child tool hooks")
-	}
-
-	bindToolHooks(childToolSet, childHooks)
-
-	childCompactor, err := r.newChildCompactor(
-		runCtx,
-		deps,
-		run,
-		systemPrompt,
-		childCompactionHook(run, childHooks),
-	)
-	if err != nil {
-		return nil, ctxerrors.Wrap(err, "create child compactor")
-	}
-
-	return childCompactor, nil
-}
-
 // childPrompt is the child's first request: its system prompt, the task, and
 // the skill messages that follow the task.
 func childPrompt(
@@ -943,27 +899,29 @@ func (r *Runtime) runChildAgent(
 	depth := launch.depth
 	systemPrompt := launch.systemPrompt
 
-	childToolSet, err := r.agentToolSet(
-		deps,
-		launch.skillLedger,
-		nil,
-		launch.definition.allowedTools,
-		depth,
-	)
+	scope, err := newDirectoryScope(runCtx, directoryScopeOptions{
+		runtime: r, deps: deps,
+		childInstructions: launch.definition.instructions,
+		allowedTools:      launch.definition.allowedTools,
+		depth:             depth, agentRunID: &run.ID,
+		initialPrompt: systemPrompt, skills: launch.skillLedger,
+	})
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "build child agent tool set")
+		return nil, ctxerrors.Wrap(err, "build child directory scope")
 	}
 
-	childCompactor, err := r.bindChildHooks(
+	childCompactor, err := r.newChildCompactor(
 		runCtx,
 		deps,
 		run,
 		systemPrompt,
-		childToolSet,
+		scope.childCompactionHook(run),
 	)
 	if err != nil {
 		return nil, err
 	}
+
+	scope.bindChildCompactor(childCompactor)
 
 	requestSettingsJSON, err := newModelAuditSettings(
 		deps.model.Model,
@@ -1008,7 +966,8 @@ func (r *Runtime) runChildAgent(
 	request := elelem.NewRequest(deps.model.Client).
 		WithModel(deps.model.Model).
 		WithPrompt(childPrompt(systemPrompt, task, launch.skills)).
-		WithTools(childToolSet).
+		WithTools(scope.context().tools).
+		WithToolProvider(scope.provideTools).
 		WithAutoToolCalls().
 		WithUserMessageQueue(run.inbox.queue).
 		WithMaxRounds(r.agentLimits.MaxChildTurns).
@@ -1018,7 +977,9 @@ func (r *Runtime) runChildAgent(
 		WithMaxContextTokens(r.maxContextTokens).
 		OnText(sink.onText).
 		OnReasoning(sink.onReasoning).
+		OnRoundStart(scope.beforeRound).
 		OnRoundStart(childRoundStart(run, audit)).
+		OnRoundEnd(scope.afterRound).
 		OnRoundEnd(audit.onRoundEnd).
 		OnAssistantMessage(func(
 			callbackCtx context.Context,
@@ -1056,7 +1017,9 @@ func (r *Runtime) runChildAgent(
 		request = request.PreMaxTokensReached(childCompactor.handle)
 	}
 
-	response, err := request.Run(depthCtx)
+	response, err := scope.run(
+		depthCtx, request, r.agentLimits.MaxChildTurns, 0,
+	)
 
 	persistCtx := context.WithoutCancel(depthCtx)
 	if auditErr := audit.finish(persistCtx, response, err); auditErr != nil {
@@ -1113,6 +1076,13 @@ func (r *Runtime) agentToolSet(
 		skills,
 		r.metrics,
 	)
+	if deps.directoryScope != nil {
+		toolSet.Add(instrumentTool(hostTool(
+			toolNameChangeDirectory, changeDirectoryDescription,
+			changeDirectorySchema, deps.directoryScope.change, onPostRun,
+		), r.metrics))
+	}
+
 	if depth < r.agentLimits.MaxDepth {
 		toolSet.Add(
 			instrumentTool(launchAgentTool(deps, onPostRun), r.metrics),

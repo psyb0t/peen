@@ -48,7 +48,7 @@ The body is the agent's instructions and must not be empty. The YAML is strict. 
 
 These are the tool names `allowed-tools` accepts:
 
-`listFiles`, `searchText`, `readFile`, `writeFile`, `editFile`, `applyPatch`, `movePath`, `makeDirectory`, `removePath`, `runCommand`, `listJobs`, `readJobOutput`, `waitJob`, `signalJob`, `useSkill`, `launchAgent`, `sendMessage`, `waitMessages`, `stopAgent`, `ask`
+`listFiles`, `searchText`, `readFile`, `writeFile`, `editFile`, `applyPatch`, `movePath`, `makeDirectory`, `removePath`, `changeDirectory`, `runCommand`, `listJobs`, `readJobOutput`, `waitJob`, `signalJob`, `useSkill`, `launchAgent`, `sendMessage`, `waitMessages`, `stopAgent`, `ask`
 
 An empty item or a repeated name makes the file invalid when Peen loads it. A misspelled tool name is caught later, when the agent runs, and that run fails with "agent allowed-tools names unavailable tool". The restriction applies to the agent wherever it runs, including when it is the root agent.
 
@@ -156,7 +156,7 @@ A child shares the parent's session, workspace, rules, and model. Its system pro
 4. The child's own instructions.
 5. The workspace path and runtime facts.
 
-It does not get the root agent's instructions or the message's `systemPrompt` override. It uses the harness snapshot of the turn that launched it, for its whole run. Session events are delivered to the root agent only, never to a child. Its task arrives as a `<message>` block naming the agent that launched it.
+It does not get the root agent's instructions or the message's `systemPrompt` override. It inherits the launching agent's current directory and harness. Its own `changeDirectory` calls reload its local harness without changing its parent or siblings. The launched agent's instructions and tool allowlist remain its own. Session events are delivered to the root agent only, never to a child. Its task arrives as a `<message>` block naming the agent that launched it.
 
 A skill you forced on the parent turn with `:skill-name` does not reach the child. The parent hands a skill over by naming it in the `task`. The task is treated like a user message. Each `:name` in it, and each skill those skills name, arrives as its own `<skill>` message right after the task, in the child's first request and in its stored transcript. An unknown name fails the `launchAgent` call and lists up to 10 of the skills that exist. See [Forcing a skill](skills.md#forcing-a-skill).
 

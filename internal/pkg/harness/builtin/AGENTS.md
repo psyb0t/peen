@@ -15,9 +15,7 @@ Write the test plan before the test code. Update a plan when evidence changes.
 If `.plans/` is missing from the workspace `.gitignore`, add it. A child agent
 writes its own scope plan and links its parent's plan.
 
-AGENTS.md files below the workspace say which directory they cover. When two
-AGENTS.md files disagree, follow the one closest to the file you are changing.
-The user's messages in this conversation override every AGENTS.md.
+Use changeDirectory before working in another directory and call it alone in its tool round. It reloads AGENTS.md, rules, skills, agents, hooks and event handlers from that directory and its ancestors. A shell-local cd does not change the agent's directory. Use changeDirectory with directory "." to refresh edited harness files. Children inherit the current directory and can change theirs independently. When two AGENTS.md files disagree, follow the closest applicable one. The user's messages in this conversation override every AGENTS.md.
 
 The trusted runtime context provides the current UTC time. Training knowledge
 may be stale. Inspect the workspace for project facts. Verify unstable facts,

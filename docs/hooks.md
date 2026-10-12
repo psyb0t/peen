@@ -8,7 +8,7 @@ Hooks live in `.agents/hooks.yaml` in any [harness layer](harness.md#where-peen-
 
 There is no switch that turns off a layer's hooks, the workspace's included. A workspace that should run no hooks has no `.agents/hooks.yaml`. A hook command runs inside the session's agent space with the agent's access, as the controller's user in `control` and inside the worker container in a Docker agent space. Only open workspaces whose hooks you trust.
 
-Peen re-reads `hooks.yaml` at the start of every turn, so an edit applies to the next message.
+Peen re-reads `hooks.yaml` at the start of every turn and on each `changeDirectory` call. A hop runs under the old scope's hooks; later calls use the new scope. Generic events such as `preToolUse` can match `changeDirectory` to deny a hop. A child uses its own current directory. See [directory changes](harness.md#when-it-is-read).
 
 ## File format
 
@@ -59,7 +59,7 @@ A hook event is a fixed point in a turn where hooks run, such as `preWriteFile`.
 The input fields mean:
 
 - `message`: the text of the user's message.
-- `workspace`: the session's absolute workspace path.
+- `workspace`: the agent's current directory.
 - `model` on `preUserMessage` and `postUserMessage`: the one-turn override the client sent in `data.model`. It is absent when the client sent none, which is the usual case.
 - `model` on `turnStart` and `turnStop`: the qualified model the turn runs, such as `zai/glm-5.3`. It is always present.
 - `finishReason`: why the model's last response ended, as the provider reports it, such as `stop` or `length`.
@@ -110,14 +110,14 @@ A group's `match`, and an action's `when`, decide whether it runs. Leave both ou
 | Field | Matches |
 | --- | --- |
 | `tool` | The exact tool name. |
-| `root` | Affected paths inside this directory, relative to the workspace or absolute. Without `root`, the workspace is the base. |
-| `path` | Affected paths matching this glob, relative to `root`, or to the workspace when `root` is unset. `*`, `**`, and `?` work. |
+| `root` | Affected paths inside this directory, relative to the current directory or absolute. Without `root`, the current directory is the base. |
+| `path` | Affected paths matching this glob, relative to `root`, or to the current directory when `root` is unset. `*`, `**`, and `?` work. |
 | `extensions` | Affected paths whose extension is in the list. Each entry starts with `.`, such as `.go`. `_test.go` is not an extension, so match it with `path`. |
 | `input` | A map from a JSON Pointer into the event input to a check: `exists: true`, `equals: <value>`, or `regex: <pattern>`. |
 
-The affected paths come from the tool's arguments: `path` for most file tools, `source` and `destination` for `movePath`, every file a patch touches for `applyPatch`, and `directory` for `runCommand`. When `root`, `path`, or `extensions` is set, at least one affected path must match. Lifecycle events have no paths, so a path matcher never matches them, but `input` works on their payload.
+The affected paths come from the tool's arguments: `path` for most file tools, `source` and `destination` for `movePath`, every file a patch touches for `applyPatch`, and `directory` for `runCommand` and `changeDirectory`. When `root`, `path`, or `extensions` is set, at least one affected path must match. Lifecycle events have no paths, so a path matcher never matches them, but `input` works on their payload.
 
-Only paths inside the base can match. Without `root`, a write to `/tmp/x.go` or any other path outside the workspace never matches `path` or `extensions`. Set `root: /` to match anywhere. `runCommand` has an affected path only when the call sets `directory`, which it usually does not, so a guard on commands should use `match.tool` with `input` instead of a path matcher.
+Only paths inside the base can match. Without `root`, a write to `/tmp/x.go` or any other path outside the current directory never matches `path` or `extensions`. Set `root: /` to match anywhere. `runCommand` has an affected path only when the call sets `directory`, which it usually does not, so a guard on commands should use `match.tool` with `input` instead of a path matcher.
 
 `input` has a few edge cases:
 
@@ -202,13 +202,13 @@ The published event's `source` is always `hooks`. A `summary` longer than `PEEN_
   timeout: 20s
 ```
 
-Runs an executable. `command` is required. `args`, `environment`, `workingDir` (relative to the workspace), and `timeout` are optional. See [the command protocol](#the-command-protocol).
+Runs an executable. `command` is required. `args`, `environment`, `workingDir` (relative to the agent's current directory), and `timeout` are optional. See [the command protocol](#the-command-protocol).
 
 `timeout` is a Go duration such as `20s`, `5m`, or `1h30m`. It must be positive. A hooks file with an unparsable, zero, or negative `timeout` is skipped with a warning. `timeout` has no upper cap. A command on a tool event still stops with the tool call at `PEEN_TOOL_TIMEOUT`. A command on a lifecycle event is not inside a tool call, so only `PEEN_TURN_TIMEOUT` bounds it.
 
 ## The command protocol
 
-Peen runs the executable directly, with no shell. The process gets only `PATH` plus your `environment` entries, and runs in the workspace unless `workingDir` says otherwise.
+Peen runs the executable directly, with no shell. The process gets only `PATH` plus your `environment` entries, and runs in the agent's current directory unless `workingDir` says otherwise.
 
 Standard input is one JSON object:
 

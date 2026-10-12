@@ -2,6 +2,7 @@ package harness
 
 import (
 	"errors"
+	"io"
 	"io/fs"
 	"path/filepath"
 	"slices"
@@ -17,6 +18,34 @@ const (
 	virtualNestedPriority    = 2
 	virtualMemoryPriority    = 3
 )
+
+func (s *resolutionState) requireReadableLayer(directory string) error {
+	if s.reader == nil {
+		return requireReadableLayer(directory)
+	}
+
+	file, err := s.reader.Open(directory)
+	if err != nil {
+		return ctxerrors.Wrap(err, "open virtual harness layer")
+	}
+
+	var readErr error
+	if directoryFile, ok := file.(fs.ReadDirFile); ok {
+		_, readErr = directoryFile.ReadDir(1)
+	} else {
+		_, readErr = s.reader.ReadDir(directory)
+	}
+
+	if errors.Is(readErr, io.EOF) {
+		readErr = nil
+	}
+
+	if err := errors.Join(readErr, file.Close()); err != nil {
+		return ctxerrors.Wrap(err, "read virtual harness layer")
+	}
+
+	return nil
+}
 
 func (r Resolver) resolveVirtual(identity string) (Snapshot, error) {
 	state := newResolutionState(r.limits)
@@ -81,6 +110,11 @@ func (s *resolutionState) canonicalDirectory(name string) (string, error) {
 	resolved, err := s.reader.RealPath(name)
 	if err != nil {
 		return "", ctxerrors.Wrap(err, "resolve virtual directory")
+	}
+
+	resolved, err = workspacefs.ValidPath(resolved)
+	if err != nil {
+		return "", ctxerrors.Wrap(err, "validate virtual directory")
 	}
 
 	info, err := s.reader.Stat(resolved)

@@ -53,7 +53,7 @@ const (
 	apiTestNestedInstructionsFile = "service/AGENTS.md"
 	apiTestNestedInstructions     = "Nested service instructions."
 	apiTestNestedScopeLine        = "Instructions from service/AGENTS.md. They apply to files under service/"
-	apiTestNestedMessage          = "prove nested AGENTS.md reaches the model"
+	apiTestNestedMessage          = "prove unvisited nested instructions stay unloaded"
 )
 
 // integrationInfra is the production stack TestMain starts once for the suite.
@@ -297,9 +297,8 @@ func TestProductionImageRestartsWithDurableStateAndFreshHarness(t *testing.T) {
 	assert.Contains(t, integrationInfra.LastSystemPrompt(), apiTestUpdatedRules)
 }
 
-// An AGENTS.md in a subdirectory of the workspace reaches the model request,
-// introduced by the directory it covers.
-func TestProductionImageSendsNestedInstructionsWithTheirScope(t *testing.T) {
+// Descendant instructions load only when the agent enters their directory.
+func TestProductionImageOmitsUnvisitedNestedInstructions(t *testing.T) {
 	require.NoError(t, integrationInfra.WriteWorkspaceFile(
 		t.Context(),
 		apiTestNestedInstructionsFile,
@@ -309,12 +308,8 @@ func TestProductionImageSendsNestedInstructionsWithTheirScope(t *testing.T) {
 	_ = sendAPIWebSocketMessage(t, apiTestNestedMessage)
 
 	prompt := integrationInfra.LastSystemPrompt()
-	scopeAt := strings.Index(prompt, apiTestNestedScopeLine)
-	contentAt := strings.Index(prompt, apiTestNestedInstructions)
-
-	require.NotEqual(t, -1, scopeAt, "the nested file names its directory")
-	require.NotEqual(t, -1, contentAt, "the nested file reaches the model")
-	assert.Less(t, scopeAt, contentAt)
+	assert.NotContains(t, prompt, apiTestNestedScopeLine)
+	assert.NotContains(t, prompt, apiTestNestedInstructions)
 	assert.Equal(
 		t,
 		1,

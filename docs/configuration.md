@@ -277,7 +277,7 @@ A child's inbox holds at most `PEEN_MAX_QUEUED_USER_MESSAGES` messages that it h
 
 ## Harness layering
 
-Rules, skills, named agents, event handlers, and hooks are files Peen reads from the configuration directory and from every directory between `/` and the workspace, fresh at the start of every turn. [The harness guide](harness.md) covers the layer order, how layers combine, what the model sees, and the limits. Each piece has its own page: [rules](rules.md), [skills](skills.md), [named agents](agents.md), [session events and event handlers](events.md), and [hooks](hooks.md).
+Rules, skills, named agents, event handlers, and hooks are files Peen reads from the configuration directory and from every directory between `/` and the agent's current directory, fresh at the start of every turn and on each `changeDirectory` call. [The harness guide](harness.md) covers the layer order, how layers combine, what the model sees, and the limits. Each piece has its own page: [rules](rules.md), [skills](skills.md), [named agents](agents.md), [session events and event handlers](events.md), and [hooks](hooks.md).
 
 Every root and child turn also receives the server's current local time, timezone, operating system, CPU architecture, logical CPU count, and Go runtime as trusted context. The built-in `freshness` skill tells the model to check local project facts and verify outside facts that may have changed.
 

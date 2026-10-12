@@ -131,14 +131,15 @@ type turnBasis struct {
 	// storedSession is the durable session this turn belongs to, resolved
 	// before the turn is recorded so a turn never runs against a session the
 	// caller is not entitled to or that does not exist.
-	storedSession  *models.Session
-	workspace      string
-	modelReference string
-	model          ModelClient
-	snapshot       harness.Snapshot
-	systemPrompt   string
-	contextHash    string
-	promptHash     string
+	storedSession     *models.Session
+	workspace         string
+	directorySequence int64
+	modelReference    string
+	model             ModelClient
+	snapshot          harness.Snapshot
+	systemPrompt      string
+	contextHash       string
+	promptHash        string
 }
 
 // promptAssembly is one turn's assembled prompt beside the map back to the
@@ -164,6 +165,7 @@ type turnOpening struct {
 }
 
 type preparedTurn struct {
+	input           TurnRequest
 	opened          *session.OpenSessionResult
 	lease           session.Lease
 	modelReference  string
@@ -561,6 +563,7 @@ func (r *Runtime) prepareTurn(
 		basis.systemPrompt,
 		basis.storedSession,
 		basis.snapshot,
+		basis.directorySequence,
 	)
 	if err != nil {
 		return nil, err
@@ -574,6 +577,7 @@ func (r *Runtime) prepareTurn(
 	turn.observer = r.sessionObserver(opening.opened.Session.ID)
 
 	prepared := &preparedTurn{
+		input:           input,
 		opened:          opening.opened,
 		lease:           lease,
 		modelReference:  basis.modelReference,
@@ -656,7 +660,14 @@ func (r *Runtime) resolveTurnBasis(
 		return turnBasis{}, ctxerrors.Wrap(err, "resolve input")
 	}
 
-	workspace := storedSession.Workspace
+	directory, err := r.currentDirectoryRecord(
+		ctx, storedSession.ID, storedSession.Workspace,
+	)
+	if err != nil {
+		return turnBasis{}, ctxerrors.Wrap(err, "resolve current directory")
+	}
+
+	workspace := directory.directory
 
 	model, err := r.models.ResolveModel(modelReference)
 	if err != nil {
@@ -677,14 +688,15 @@ func (r *Runtime) resolveTurnBasis(
 	}
 
 	return turnBasis{
-		storedSession:  storedSession,
-		workspace:      workspace,
-		modelReference: modelReference,
-		model:          model,
-		snapshot:       snapshot,
-		systemPrompt:   systemPrompt,
-		contextHash:    contextHash,
-		promptHash:     promptHash,
+		storedSession:     storedSession,
+		workspace:         workspace,
+		directorySequence: directory.sequence,
+		modelReference:    modelReference,
+		model:             model,
+		snapshot:          snapshot,
+		systemPrompt:      systemPrompt,
+		contextHash:       contextHash,
+		promptHash:        promptHash,
 	}, nil
 }
 
@@ -693,7 +705,7 @@ func (r *Runtime) resolveContext(
 	input TurnRequest,
 	workspace string,
 ) (harness.Snapshot, string, string, string, error) {
-	snapshot, err := r.resolver.Resolve(workspace)
+	snapshot, err := r.resolveDirectory(workspace)
 	if err != nil {
 		return harness.Snapshot{}, "", "", "", ctxerrors.Wrap(
 			err,
@@ -701,14 +713,7 @@ func (r *Runtime) resolveContext(
 		)
 	}
 
-	for _, warning := range snapshot.Warnings() {
-		runtimecontext.Logger(ctx).Warn(
-			"invalid optional harness configuration ignored",
-			"kind", warning.Kind,
-			"source", warning.Source,
-			"reason", warning.Reason,
-		)
-	}
+	logHarnessWarnings(ctx, snapshot.Warnings())
 
 	// A reference to a skill that does not exist refuses the message before
 	// anything is stored. The skill messages themselves are built once the
@@ -771,6 +776,7 @@ func (r *Runtime) openPrompt(
 	systemPrompt string,
 	stored *models.Session,
 	snapshot harness.Snapshot,
+	directorySequence int64,
 ) (*session.OpenSessionResult, promptAssembly, error) {
 	firstTurn, err := r.isFirstTurn(ctx, stored.ID)
 	if err != nil {
@@ -798,7 +804,14 @@ func (r *Runtime) openPrompt(
 			ctxerrors.Wrap(err, "assemble persisted history")
 	}
 
-	ledger := r.newTurnSkillLedger(history.Messages)
+	skillHistory := make([]*models.Message, 0, len(history.Messages))
+	for _, message := range history.Messages {
+		if message.Sequence > directorySequence {
+			skillHistory = append(skillHistory, message)
+		}
+	}
+
+	ledger := r.newTurnSkillLedger(skillHistory)
 
 	skills, err := buildSkillMessages(ctx, snapshot, ledger, input.Message)
 	if err != nil {
@@ -869,11 +882,12 @@ func (r *Runtime) openTurnExecutor(
 	}
 
 	executor, err := tools.NewExecutor(tools.Options{
-		Workspace:   r.toolWorkspace(basis.workspace),
-		Filesystem:  r.filesystem,
-		Virtual:     r.virtualFilesystem,
-		Limits:      r.toolLimits,
-		Environment: r.commandEnvironment,
+		Workspace:          basis.workspace,
+		ProtectedDirectory: r.toolWorkspace(basis.storedSession.Workspace),
+		Filesystem:         r.filesystem,
+		Virtual:            r.virtualFilesystem,
+		Limits:             r.toolLimits,
+		Environment:        r.commandEnvironment,
 	})
 	if err != nil {
 		return nil, uuid.Nil, ctxerrors.Wrap(err, "create the tool executor")
@@ -1132,6 +1146,7 @@ func (r *Runtime) openPromptWithEvents(
 	systemPrompt string,
 	stored *models.Session,
 	snapshot harness.Snapshot,
+	directorySequence int64,
 ) (turnOpening, error) {
 	opened, assembly, err := r.openPrompt(
 		ctx,
@@ -1139,6 +1154,7 @@ func (r *Runtime) openPromptWithEvents(
 		systemPrompt,
 		stored,
 		snapshot,
+		directorySequence,
 	)
 	if err != nil {
 		return turnOpening{}, ctxerrors.Wrap(err, "open prompt")
@@ -1767,7 +1783,13 @@ func (r *Runtime) startLease(
 }
 
 func (p *preparedTurn) emitHarnessWarnings(ctx context.Context) error {
-	warnings := p.snapshot.Warnings()
+	return p.emitWarnings(ctx, p.snapshot.Warnings())
+}
+
+func (p *preparedTurn) emitWarnings(
+	ctx context.Context,
+	warnings []harness.Warning,
+) error {
 	if len(warnings) == 0 {
 		return nil
 	}
@@ -1793,23 +1815,10 @@ func (r *Runtime) runProvider(
 	ctx context.Context,
 	prepared *preparedTurn,
 ) (*elelem.Response, error) {
-	rootAgent, err := prepared.snapshot.Agent(r.rootAgent)
+	scope, err := r.rootDirectoryScope(ctx, prepared)
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "resolve root agent tools")
+		return nil, ctxerrors.Wrap(err, "build root directory scope")
 	}
-
-	toolSet, err := r.agentToolSet(
-		r.launchAgentDeps(prepared),
-		prepared.skillLedger,
-		prepared.injectSessionEvents,
-		rootAgent.AllowedTools,
-		rootAgentDepth,
-	)
-	if err != nil {
-		return nil, ctxerrors.Wrap(err, "build root agent tool set")
-	}
-
-	bindToolHooks(toolSet, prepared.toolHooks)
 
 	requestSettingsJSON, err := newModelAuditSettings(
 		prepared.model.Model,
@@ -1852,19 +1861,29 @@ func (r *Runtime) runProvider(
 		WithPrompt(prepared.prompt).
 		WithMaxContextTokens(r.maxContextTokens).
 		WithTimeout(r.turnTimeout).
-		WithTools(toolSet).
+		WithTools(scope.context().tools).
+		WithToolProvider(scope.provideTools).
 		WithAutoToolCalls().
 		WithUserMessageQueue(prepared.userMessages.queue).
 		WithMaxRounds(r.maxToolRounds).
 		WithMaxConcurrentTools(r.maxConcurrentTools).
 		WithToolTimeout(r.toolTimeout).
 		WithMaxToolResultTokens(r.maxToolResultTokens).
+		OnRoundStart(scope.beforeRound).
 		OnRoundStart(prepared.rootRoundStartCallback(audit)).
+		OnRoundEnd(scope.afterRound).
 		OnRoundEnd(audit.onRoundEnd).
 		OnRetry(prepared.rootRetryCallback(audit)).
 		OnAssistantMessage(prepared.rootAssistantMessageCallback(audit)).
 		OnToolCallStart(prepared.onToolCallStart).
-		OnToolResult(prepared.onToolResult).
+		OnToolResult(func(
+			ctx context.Context,
+			call elelem.ToolCallEvent,
+		) error {
+			directory := scope.resultDirectory(call.CallID, prepared.workspace)
+
+			return prepared.recordToolResult(ctx, call, directory)
+		}).
 		OnMessageInjection(prepared.onMessageInjection).
 		OnDelta(func(_ context.Context, _ elelem.Delta) error {
 			firstDeltaOnce.Do(func() { firstDeltaAt = time.Now() })
@@ -1889,7 +1908,7 @@ func (r *Runtime) runProvider(
 		request = request.PreMaxTokensReached(prepared.compactor.handle)
 	}
 
-	response, err := request.Run(ctx)
+	response, err := scope.run(ctx, request, r.maxToolRounds, r.turnTimeout)
 
 	persistCtx := context.WithoutCancel(ctx)
 	if auditErr := audit.finish(persistCtx, response, err); auditErr != nil {
@@ -2445,11 +2464,12 @@ func (p *preparedTurn) onToolCallStart(
 	})
 }
 
-// onToolResult publishes the tool_result block and records the durable
+// recordToolResult publishes the tool_result block and records the durable
 // tool-role transcript message for the same call ID.
-func (p *preparedTurn) onToolResult(
+func (p *preparedTurn) recordToolResult(
 	ctx context.Context,
 	call elelem.ToolCallEvent,
+	directory string,
 ) error {
 	content := ""
 	isError := false
@@ -2464,7 +2484,7 @@ func (p *preparedTurn) onToolResult(
 		Content:    content,
 		ToolCallID: call.CallID,
 		IsError:    isError,
-		Workspace:  p.workspace,
+		Workspace:  directory,
 	})
 
 	runtimecontext.Logger(ctx).Info(
