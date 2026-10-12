@@ -46,7 +46,7 @@ result, err := session.Send(ctx, peen.MessageRequest{
 }, nil)
 ```
 
-Send accepts an optional model, reasoning effort, system prompt, UUID request ID and To child run ID. Settings apply to a new root turn. A message delivered to an active turn or child's inbox returns `Queued: true` and an empty answer. Queued input cannot override turn settings and is not replayed automatically after a restart.
+Send accepts an optional model, reasoning effort, system prompt, UUID request ID and To child run ID. Settings apply to a new root turn. A message delivered to an active turn or child's inbox returns `Queued: true` and an empty answer. Queued input cannot override turn settings. Queued root input is not replayed automatically after a restart; interrupted children restore accepted inbox messages through [child recovery](../../docs/agents.md#recovery-after-a-crash).
 
 SystemPrompt uses PromptModeAppend or PromptModeReplace for one message. BaseSystemPrompt and AppendSystemPrompt configure the runtime; absent values retain the deployment prompt files and embedded default. An explicit AppendSystemPrompt replaces file-based append text while preserving the selected base. CompactionPrompt configures the summarizer.
 

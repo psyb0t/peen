@@ -49,6 +49,8 @@ Events reach clients only after they are stored. A worker's turn writes through 
 
 The runtime recovers the root agent's current directory and resolves its ancestor harness layers first. It builds the model context from the conversation, project rules, the names of the available skills and agents, and current runtime facts. The provider may then ask to use tools. Peen runs those tools, applies matching hooks, records the result, and returns it to the provider until the turn completes or fails.
 
+A replacement worker restores interrupted child conversations before serving session work. Each child keeps its run identity and recorded progress; a replaced worker cannot write new child checkpoints after ownership transfers. [Child recovery](agents.md#recovery-after-a-crash) describes pending tools, messages and limits.
+
 File changes follow one safety rule. A turn must read an existing file before it can change that file, and Peen checks the file's hash again right before the change. A new file must not exist yet. These checks stop a write based on an old or unread copy from replacing a file.
 
 ## The harness

@@ -799,9 +799,11 @@ type AgentRun struct {
 	// Waiting True while the run is running and waits for an answer to the question it asked.
 	Waiting bool `json:"waiting"`
 
-	// WorkerGenerationId Worker generation that ran this child agent.
+	// WorkerGenerationId Worker generation currently running, or last to run, this child agent.
 	WorkerGenerationId *string `json:"workerGenerationId,omitempty"`
-	Workspace          string  `json:"workspace"`
+
+	// Workspace Current directory checkpointed by the child agent.
+	Workspace string `json:"workspace"`
 }
 
 // AgentRunDefinition defines model for AgentRun.Definition.
@@ -855,10 +857,12 @@ type AgentRunCompactionPage struct {
 
 // AgentRunEvent defines model for AgentRunEvent.
 type AgentRunEvent struct {
-	CreatedAt time.Time               `json:"createdAt"`
-	Payload   *map[string]interface{} `json:"payload,omitempty"`
-	Sequence  int64                   `json:"sequence"`
-	Type      string                  `json:"type"`
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Payload Child step data. Queued, delivered and undelivered message events carry message and an optional acceptanceId UUID linking the same accepted message. Question and answer events carry an optional callId linking the ask tool call. Older stored events omit these IDs.
+	Payload  *map[string]interface{} `json:"payload,omitempty"`
+	Sequence int64                   `json:"sequence"`
+	Type     string                  `json:"type"`
 }
 
 // AgentRunEventPage defines model for AgentRunEventPage.

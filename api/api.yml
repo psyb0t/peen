@@ -2320,7 +2320,7 @@ components:
           type: [string, 'null']
           format: uuid
         workerGenerationId:
-          description: Worker generation that ran this child agent.
+          description: Worker generation currently running, or last to run, this child agent.
           type: [string, 'null']
         name:
           type: string
@@ -2336,6 +2336,7 @@ components:
           type: integer
           format: int64
         workspace:
+          description: Current directory checkpointed by the child agent.
           type: string
         modelReference:
           type: string
@@ -2411,6 +2412,11 @@ components:
         type:
           type: string
         payload:
+          description: >
+            Child step data. Queued, delivered and undelivered message events
+            carry message and an optional acceptanceId UUID linking the same
+            accepted message. Question and answer events carry an optional
+            callId linking the ask tool call. Older stored events omit these IDs.
           type: object
           additionalProperties: true
         createdAt:

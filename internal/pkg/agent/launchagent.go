@@ -146,6 +146,9 @@ type childDefinition struct {
 }
 
 type preparedChildLaunch struct {
+	recoveredPrompt  *elelem.Prompt
+	completedRounds  int
+	maximumRounds    int
 	definition       childDefinition
 	depth            int
 	systemPrompt     string
@@ -490,7 +493,10 @@ func (r *Runtime) endChildAgentRun(
 ) {
 	ctx := context.WithoutCancel(runCtx)
 
-	recordUndeliveredMessages(ctx, sink, run.inbox.close())
+	unread := run.inbox.close()
+	recordUndeliveredMessages(
+		ctx, sink, unread, run.inbox.unreadAcceptanceIDs(),
+	)
 
 	result := r.finishAgentRun(ctx, registry, sink, run, response, runErr)
 
@@ -511,6 +517,7 @@ func recordUndeliveredMessages(
 	ctx context.Context,
 	sink *agentRunSink,
 	unread []string,
+	acceptanceIDs []*uuid.UUID,
 ) {
 	if len(unread) == 0 {
 		return
@@ -522,11 +529,16 @@ func recordUndeliveredMessages(
 		"messages", len(unread),
 	)
 
-	for _, text := range unread {
+	for index, text := range unread {
+		payload := agentInboxMessagePayload{Message: text}
+		if index < len(acceptanceIDs) {
+			payload.AcceptanceID = acceptanceIDs[index]
+		}
+
 		if err := sink.emit(
 			ctx,
 			EventTypeAgentRunMessageUndelivered,
-			agentInboxMessagePayload{Message: text},
+			payload,
 		); err != nil {
 			runtimecontext.Logger(ctx).Warn(
 				"record undelivered agent message",
@@ -922,11 +934,24 @@ func (r *Runtime) runChildAgent(
 	}
 
 	scope.bindChildCompactor(childCompactor)
+	scope.completedRounds = launch.completedRounds
+	scope.roundOffset = launch.completedRounds
+
+	maximumRounds := childConversationRounds(
+		launch, r.agentLimits.MaxChildTurns,
+	)
+
+	prompt, remainingRounds, err := childRequestPrompt(
+		launch, task, maximumRounds,
+	)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "prepare child request budget")
+	}
 
 	requestSettingsJSON, err := newModelAuditSettings(
 		deps.model.Model,
 		true,
-		r.agentLimits.MaxChildTurns,
+		maximumRounds,
 		r.maxContextTokens,
 		0,
 		r.maxConcurrentTools,
@@ -965,12 +990,12 @@ func (r *Runtime) runChildAgent(
 
 	request := elelem.NewRequest(deps.model.Client).
 		WithModel(deps.model.Model).
-		WithPrompt(childPrompt(systemPrompt, task, launch.skills)).
+		WithPrompt(prompt).
 		WithTools(scope.context().tools).
 		WithToolProvider(scope.provideTools).
 		WithAutoToolCalls().
 		WithUserMessageQueue(run.inbox.queue).
-		WithMaxRounds(r.agentLimits.MaxChildTurns).
+		WithMaxRounds(remainingRounds).
 		WithMaxConcurrentTools(r.maxConcurrentTools).
 		WithToolTimeout(r.toolTimeout).
 		WithMaxToolResultTokens(r.maxToolResultTokens).
@@ -981,21 +1006,18 @@ func (r *Runtime) runChildAgent(
 		OnRoundStart(childRoundStart(run, audit)).
 		OnRoundEnd(scope.afterRound).
 		OnRoundEnd(audit.onRoundEnd).
-		OnAssistantMessage(func(
-			callbackCtx context.Context,
-			message elelem.Message,
-		) error {
-			if err := sink.onAssistantMessage(
-				callbackCtx,
-				message,
-			); err != nil {
-				return ctxerrors.Wrap(err, "persist child assistant message")
-			}
-
-			return audit.onAssistantMessage(callbackCtx, message)
-		}).
+		OnAssistantMessage(childAssistantCallback(sink, audit)).
 		OnToolCallStart(sink.onToolCallStart).
-		OnToolResult(sink.onToolResult).
+		OnToolResult(func(
+			ctx context.Context,
+			call elelem.ToolCallEvent,
+		) error {
+			directory := scope.resultDirectory(call.CallID, "")
+
+			return sink.persistToolResult(
+				ctx, call, directory, scope.context().prompt,
+			)
+		}).
 		OnMessageInjection(sink.onMessageInjection).
 		OnRetry(func(
 			callbackCtx context.Context,
@@ -1018,7 +1040,7 @@ func (r *Runtime) runChildAgent(
 	}
 
 	response, err := scope.run(
-		depthCtx, request, r.agentLimits.MaxChildTurns, 0,
+		depthCtx, request, maximumRounds, 0,
 	)
 
 	persistCtx := context.WithoutCancel(depthCtx)
@@ -1042,6 +1064,19 @@ func (r *Runtime) runChildAgent(
 	}
 
 	return response, nil
+}
+
+func childAssistantCallback(
+	sink *agentRunSink,
+	audit *modelAuditRecorder,
+) func(context.Context, elelem.Message) error {
+	return func(ctx context.Context, message elelem.Message) error {
+		if err := sink.onAssistantMessage(ctx, message); err != nil {
+			return ctxerrors.Wrap(err, "persist child assistant message")
+		}
+
+		return audit.onAssistantMessage(ctx, message)
+	}
 }
 
 // childRoundStart records the inbox messages a round just took into the
@@ -1471,6 +1506,14 @@ func (s *agentRunSink) onToolResult(
 	ctx context.Context,
 	call elelem.ToolCallEvent,
 ) error {
+	return s.persistToolResult(ctx, call, "", "")
+}
+
+func (s *agentRunSink) persistToolResult(
+	ctx context.Context,
+	call elelem.ToolCallEvent,
+	directory, systemPrompt string,
+) error {
 	content, isError := "", false
 	if call.Result != nil {
 		content = call.Result.Content
@@ -1478,10 +1521,12 @@ func (s *agentRunSink) onToolResult(
 	}
 
 	if err := s.persistMessages(ctx, session.AgentRunMessageInput{
-		Role:       models.MessageRoleTool,
-		Content:    content,
-		ToolCallID: call.CallID,
-		IsError:    isError,
+		Role:         models.MessageRoleTool,
+		Content:      content,
+		ToolCallID:   call.CallID,
+		IsError:      isError,
+		Directory:    directory,
+		SystemPrompt: systemPrompt,
 	}); err != nil {
 		return err
 	}

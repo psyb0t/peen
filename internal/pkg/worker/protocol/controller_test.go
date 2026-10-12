@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db"
+	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -106,6 +107,92 @@ func TestControllerPublishesTurnStartEventsAfterTheWrite(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, stored.Items, 1)
 	assert.Equal(t, opening.EventType, stored.Items[0].EventType)
+}
+
+func TestControllerDirectoryStateIsSessionScoped(t *testing.T) {
+	t.Parallel()
+	controller, sessionID := newControllerFixture(t)
+	result, err := controller.HandleCall(context.Background(), string(MethodGetDirectoryState),
+		mustEncode(t, SessionRequest{SessionID: sessionID}))
+	require.NoError(t, err)
+	assert.Equal(t, &session.DirectoryState{}, result)
+	_, err = controller.HandleCall(context.Background(), string(MethodGetDirectoryState),
+		mustEncode(t, SessionRequest{SessionID: uuid.New()}))
+	require.ErrorIs(t, err, commerr.ErrPermissionDenied)
+}
+
+func TestControllerAcquisitionCanRecoverBeforeWorkerAcknowledgement(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name  string
+		owner string
+	}{
+		{name: "owner omitted"},
+		{name: "forged owner", owner: uuid.New().String()},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			controller, sessionID := newControllerFixture(t)
+			ctx := context.Background()
+			_, err := controller.HandleCall(ctx, string(MethodAcquireTurn),
+				mustEncode(t, InputRequest[session.StartTurnInput]{
+					SessionID: sessionID,
+					Input: session.StartTurnInput{
+						RequestID: uuid.New(), WorkerGenerationID: tc.owner,
+					},
+				}))
+			require.NoError(t, err)
+			count, err := controller.store.RecoverWorkerTurns(ctx, sessionID, controller.generationID)
+			require.NoError(t, err)
+			assert.Equal(t, 1, count)
+			assert.False(t, controller.store.IsActive(sessionID))
+			turns, err := controller.store.ListTurns(ctx, sessionID, session.ListTurnsOptions{})
+			require.NoError(t, err)
+			require.Len(t, turns.Items, 1)
+			assert.Equal(t, controller.generationID.String(), turns.Items[0].WorkerGenerationID)
+			assert.Equal(t, models.TurnStateInterrupted, turns.Items[0].State)
+		})
+	}
+}
+
+func TestControllerChildRecoveryRequiresTheCurrentSessionWorker(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name            string
+		state           string
+		wrongSession    bool
+		wrongGeneration bool
+		wantErr         error
+	}{
+		{name: "ready", state: "ready"},
+		{name: "starting", state: "starting"},
+		{name: "stopped", state: "stopped", wantErr: commerr.ErrPermissionDenied},
+		{name: "failed", state: "failed", wantErr: commerr.ErrPermissionDenied},
+		{name: "wrong session", state: "ready", wrongSession: true, wantErr: commerr.ErrPermissionDenied},
+		{name: "forged owner", state: "ready", wrongGeneration: true, wantErr: commerr.ErrPermissionDenied},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			controller, sessionID := newControllerFixture(t)
+			ctx := context.Background()
+			_, err := controller.store.CreateWorkerGeneration(ctx, sessionID, session.CreateWorkerGenerationInput{
+				ID: controller.generationID, Kind: "control", AgentSpace: "control", State: tc.state,
+				Workspace: "/workspace", SocketPath: "/example/worker.sock", CredentialHash: "EXAMPLE-HASH",
+			})
+			require.NoError(t, err)
+			generationID := controller.generationID
+			if tc.wrongGeneration {
+				generationID = uuid.New()
+			}
+			if tc.wrongSession {
+				sessionID = uuid.New()
+			}
+			_, err = controller.HandleCall(ctx, string(MethodPrepareAgentRunRecovery), mustEncode(t, InputRequest[uuid.UUID]{SessionID: sessionID, Input: generationID}))
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
 }
 
 // The private socket is only a real boundary because every request is checked

@@ -2,6 +2,16 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.24.0 (2026-10-12)
+
+Interrupted child agents resume when their session gets a replacement worker, keeping their run IDs and recorded progress. No configuration, API or database migration is needed.
+
+- Adds child recovery with saved instructions, model, tool allowlist, current directory, summaries, transcript and remaining round budget. Accepted inbox messages and pending passive waits survive a crash; uncertain unfinished tools return an error instead of repeating their effects automatically.
+- Fixes long-session directory recovery transferring every transcript page before a turn. Recovery reads only the latest successful paired directory result.
+- Fixes child directory changes losing their canonical path when tool output is truncated. The directory and its tool result now commit together.
+- Fixes a replaced worker being able to overwrite a recovered child's checkpoints, and allows cancellation of an interrupted child before it resumes.
+- Fixes a worker crash leaving its session busy, including a crash before the worker acknowledges turn acquisition. Peen records the worker owner when it creates the turn and releases that turn when the connection ends.
+
 ## v0.23.0 (2026-10-12)
 
 Agents now load their harness from their current directory and its ancestors. Use `changeDirectory` before working in a subdirectory or another project. Move any instructions that must always apply into an ancestor or the configuration layer. No HTTP API or configuration migration is needed.

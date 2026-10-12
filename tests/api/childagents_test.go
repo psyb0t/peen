@@ -3,7 +3,11 @@
 package api_test
 
 import (
+	"context"
+	"io"
 	"net/http"
+	"path"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -135,6 +139,103 @@ func TestAPIChildAgentAsksAndTheUserAnswersIt(t *testing.T) {
 
 	failure := awaitAPIWebSocketFailure(t, connection)
 	assert.Equal(t, childAgentsErrorFinished, failure.Code)
+}
+
+func TestAPIChildAgentRecoversAfterItsWorkerCrashes(t *testing.T) {
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+		defer cancel()
+		logs, err := integrationInfra.AppLogs(ctx)
+		require.NoError(t, err)
+		t.Logf("recovery failure container logs: %s", logs)
+	})
+	const nested = "recovery-child"
+	const marker = "Apply the recovery directory instructions."
+	const task = "enter the recovery directory and ask a question"
+	workspace := openFreshWorkspace(t, childAgentsWorkspacePrefix, map[string]string{
+		path.Join(nested, "AGENTS.md"): marker,
+	})
+	pidFile := path.Join(testinfra.ContainerWorkingDirectory, "recovery-worker-"+workspace.sessionID.String()+".pid")
+	connection := openSessionConnection(t, workspace.sessionID)
+	t.Cleanup(integrationInfra.DisableScriptedToolTurn)
+	integrationInfra.EnableScriptedToolTurn(testinfra.ScriptedToolTurn{
+		UserMessage: childAskMessage,
+		Calls:       []testinfra.ScriptedToolCall{{Name: "launchAgent", Arguments: map[string]any{"agent": childAgentsCoreAgent, "task": task}}},
+		FinalAnswer: childAskRootDone,
+		Children: []testinfra.ScriptedToolTurn{{
+			UserMessage: task,
+			Calls: []testinfra.ScriptedToolCall{
+				{Name: "changeDirectory", Arguments: map[string]any{"directory": nested}},
+				{Name: "runCommand", Arguments: map[string]any{
+					"command":     `printf '%s' "$PPID" > "$RECOVERY_FIXTURE_PID_PATH"`,
+					"purpose":     "record this test worker PID",
+					"environment": map[string]string{"RECOVERY_FIXTURE_PID_PATH": pidFile},
+				}},
+				{Name: "ask", Arguments: map[string]any{"question": childAskQuestion}},
+			},
+			FinalAnswer: childAskDone,
+		}},
+	})
+	sendSessionMessage(t, connection, workspace.sessionID, childAskMessage)
+	readFramesUntilTurnCompleted(t, connection)
+	child := awaitAgentRuns(t, workspace.sessionID, "?state=waiting", 1)[0]
+	assert.Equal(t, path.Join(workspace.directory, nested), child.Workspace)
+	before := len(integrationInfra.ProviderRequests())
+	crashFixtureWorker(t, pidFile)
+	require.NotNil(t, child.WorkerGenerationId)
+	require.Eventually(t, func() bool {
+		response := apiRequest(t, http.MethodGet, sessionPath+"/workers", nil,
+			withHeader(authenticatedHeaders(), headerSessionID, workspace.sessionID.String()))
+		requireAPIStatus(t, response, http.StatusOK)
+		page := decodeResponse[api.WorkerGenerationPage](t, response)
+		for _, generation := range page.Items {
+			if generation.Id.String() == *child.WorkerGenerationId {
+				return generation.State == api.WorkerGenerationStateFailed
+			}
+		}
+
+		return false
+	}, childAgentsPollTimeout, childAgentsPollEvery)
+	sendToAgentRun(t, connection, workspace.sessionID, child.AgentRunId)
+	finished := awaitAgentRunState(t, workspace.sessionID, child.AgentRunId, api.AgentRunStateCompleted)
+	assert.Equal(t, childAskDone, finished.ResponseText)
+	assert.Equal(t, child.StartedAt, finished.StartedAt)
+	assert.Equal(t, child.ParentTurnId, finished.ParentTurnId)
+	assert.Equal(t, child.Name, finished.Name)
+	childRequests := 0
+	for _, request := range providerRequestsSince(before) {
+		conversation := providerConversationText(request)
+		if !strings.Contains(conversation, task) {
+			continue
+		}
+		childRequests++
+		assert.Contains(t, request[0].Content, marker)
+		assert.Contains(t, conversation, childAskAnswer)
+	}
+	assert.Equal(t, 1, childRequests)
+}
+
+func crashFixtureWorker(t *testing.T, pidFile string) {
+	t.Helper()
+	workerPID := readContainerFile(t, pidFile)
+	pid, err := strconv.Atoi(workerPID)
+	require.NoError(t, err)
+	require.Greater(t, pid, 1)
+	code, reader, err := integrationInfra.App.Exec(t.Context(), []string{"cat", "/proc/" + workerPID + "/cmdline"})
+	require.NoError(t, err)
+	require.Zero(t, code)
+	command, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	require.Contains(t, strings.Split(string(command), "\x00"), "worker")
+	// The PID came from this test's child, and its command is the worker binary.
+	code, reader, err = integrationInfra.App.Exec(t.Context(), []string{"/bin/bash", "-c", `kill -KILL "$1"`, "recovery-fixture", workerPID})
+	require.NoError(t, err)
+	_, err = io.ReadAll(reader)
+	require.NoError(t, err)
+	require.Zero(t, code)
 }
 
 // Stopping one child through the API reaches the worker it runs in. Before

@@ -107,7 +107,17 @@ A child keeps running after the turn that launched it ends. It stops when it giv
 - `POST /v1/session/cancel` and the Cancel button stop the active turn and every child still running in the session. A turn that ends cancelled any other way, such as by its timeout, stops every child it started, directly or through its descendants.
 - `stopAgent`, `POST /v1/session/agents/{agentRunId}/cancel`, and the Stop button in the control surface stop one child.
 - When a child ends, Peen stops the children it launched, because their answers would have nowhere to go.
-- When the session's worker stops, its children stop with it and are recorded as cancelled, or as `interrupted` when the worker exits without the chance to record them.
+- A normal worker shutdown cancels its children. A crash records unfinished children as `interrupted`; they can resume when the session gets another worker.
+
+### Recovery after a crash
+
+When a session's worker starts, Peen resumes interrupted children under their existing run IDs. It restores their task, instructions, model, tool allowlist, current directory, summary and remaining transcript. The directory's harness is read again. Provider rounds already recorded still count against the child's original round limit; increasing the deployment limit does not give a recovered child extra rounds.
+
+Peen restores accepted child inbox messages and pending `ask` and `waitMessages` calls. A wait keeps its elapsed timeout, and a recorded question is not sent again. An unfinished `launchAgent` call returns the child ID it already created when that record exists. Peen supplies an error result for other unfinished tools because their effects may have happened before the crash. The agent must inspect the current state before retrying them.
+
+Completed, failed and cancelled children stay ended. A cancellation requested before recovery prevents a restart. A nested child resumes only while its parent is also running. In an [embedded runtime](../pkg/peen/README.md), recovery happens at startup for the initial session and when another session first receives work.
+
+Recovery checks every child's model, directory, tool allowlist and depth before claiming the batch. A missing model or directory, or a lower concurrent-run limit than the batch needs, refuses recovery and leaves the children interrupted. Restore the required configuration or directory, or cancel children to fit the limit, then retry.
 
 ### Answers come back as messages
 

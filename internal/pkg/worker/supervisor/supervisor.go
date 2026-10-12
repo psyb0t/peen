@@ -57,7 +57,8 @@ type Options struct {
 
 // Supervisor holds one live worker per session.
 type Supervisor struct {
-	options Options
+	lifecycle *session.AdmissionGate
+	options   Options
 
 	mutex    sync.Mutex
 	sessions map[uuid.UUID]*supervised
@@ -106,8 +107,9 @@ func New(options Options) (*Supervisor, error) {
 	}
 
 	return &Supervisor{
-		options:  options,
-		sessions: map[uuid.UUID]*supervised{},
+		lifecycle: session.NewAdmissionGate(),
+		options:   options,
+		sessions:  map[uuid.UUID]*supervised{},
 	}, nil
 }
 
@@ -140,8 +142,21 @@ func (s *Supervisor) Ensure(
 		)
 	}
 
+	release, err := s.lifecycle.Acquire(ctx, request.SessionID)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "serialize worker startup")
+	}
+	defer release()
+
 	if live, found := s.live(request.SessionID); found {
 		return live, nil
+	}
+
+	err = s.settleDisconnectedWorker(ctx, request.SessionID, uuid.Nil)
+	if err != nil {
+		return nil, ctxerrors.Wrap(
+			err, "settle disconnected worker before replacement",
+		)
 	}
 
 	agentSpace, err := s.options.AgentSpaces.Select(request.AgentSpaceName)
@@ -594,6 +609,12 @@ func (s *Supervisor) abandon(
 // Stop ends one session's worker and records the transition. Stopping a
 // session that has none is not an error.
 func (s *Supervisor) Stop(ctx context.Context, sessionID uuid.UUID) error {
+	release, err := s.lifecycle.Acquire(ctx, sessionID)
+	if err != nil {
+		return ctxerrors.Wrap(err, "serialize worker shutdown")
+	}
+	defer release()
+
 	s.mutex.Lock()
 	held, found := s.sessions[sessionID]
 

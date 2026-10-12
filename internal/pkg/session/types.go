@@ -15,6 +15,19 @@ const (
 	MaximumPageLimit = 200
 )
 
+// DirectoryState identifies the last accepted root directory change.
+// An empty directory means the session still uses its startup directory.
+type DirectoryState struct {
+	Directory string `json:"directory"`
+	Sequence  int64  `json:"sequence"`
+}
+
+type ClaimAgentRunInput struct {
+	GenerationID         uuid.UUID            `json:"generationId"`
+	PreviousGenerationID string               `json:"previousGenerationId"`
+	PreviousState        models.AgentRunState `json:"previousState"`
+}
+
 // Options supplies deterministic seams for the transport-neutral store.
 type Options struct {
 	Clock func() time.Time
@@ -46,10 +59,11 @@ type OpenSessionResult struct {
 
 // StartTurnInput describes the durable beginning of an agent turn.
 type StartTurnInput struct {
-	RequestID uuid.UUID
-	Workspace string
-	Messages  []MessageInput
-	Events    []EventInput
+	RequestID          uuid.UUID
+	Workspace          string
+	Messages           []MessageInput
+	Events             []EventInput
+	WorkerGenerationID string `json:"workerGenerationId,omitempty"`
 }
 
 // Lease uniquely identifies one active turn in a session.
@@ -118,8 +132,8 @@ type MessagePage struct {
 }
 
 // AgentRunMessageInput is one prompt-visible record in a child agent's own
-// transcript. It carries no turn or workspace: a child belongs to its agent
-// run, not to a session turn's message sequence.
+// transcript. A successful directory result also checkpoints the run's
+// current workspace and system prompt in the same transaction.
 type AgentRunMessageInput struct {
 	ID            uuid.UUID
 	Role          models.MessageRole
@@ -130,6 +144,8 @@ type AgentRunMessageInput struct {
 	ToolCallID    string
 	IsError       bool
 	Incomplete    bool
+	Directory     string `json:"directory,omitempty"`
+	SystemPrompt  string `json:"systemPrompt,omitempty"`
 }
 
 // ListAgentRunMessagesOptions bounds one child transcript page.

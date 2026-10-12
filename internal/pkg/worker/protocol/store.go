@@ -59,6 +59,15 @@ func NewStore(
 // A worker's store answers the same durable surface the control plane's does.
 var _ session.Storage = (*Store)(nil)
 
+func (s *Store) GetDirectoryState(
+	ctx context.Context,
+	sessionID uuid.UUID,
+) (*session.DirectoryState, error) {
+	return call[*session.DirectoryState](
+		ctx, s, MethodGetDirectoryState, SessionRequest{SessionID: sessionID},
+	)
+}
+
 func (s *Store) Get(
 	ctx context.Context,
 	sessionID uuid.UUID,
@@ -647,6 +656,37 @@ func (s *Store) GetAgentRun(
 		s,
 		MethodGetAgentRun,
 		ChildRequest{SessionID: sessionID, ChildID: agentRunID},
+	)
+}
+
+func (s *Store) ClaimAgentRun(
+	ctx context.Context,
+	sessionID, runID uuid.UUID,
+	input session.ClaimAgentRunInput,
+) (*models.AgentRun, error) {
+	if input.GenerationID != s.generationID {
+		return nil, ctxerrors.Wrap(commerr.ErrPermissionDenied, "child owner")
+	}
+
+	return call[*models.AgentRun](ctx, s, MethodClaimAgentRun,
+		ChildInputRequest[session.ClaimAgentRunInput]{
+			SessionID: sessionID, ChildID: runID, Input: input,
+		},
+	)
+}
+
+func (s *Store) PrepareAgentRunRecovery(
+	ctx context.Context,
+	sessionID, generationID uuid.UUID,
+) (int, error) {
+	if generationID != s.generationID {
+		return 0, ctxerrors.Wrap(
+			commerr.ErrPermissionDenied, "child recovery owner",
+		)
+	}
+
+	return call[int](ctx, s, MethodPrepareAgentRunRecovery,
+		InputRequest[uuid.UUID]{SessionID: sessionID, Input: generationID},
 	)
 }
 

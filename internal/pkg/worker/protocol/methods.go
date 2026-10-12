@@ -13,9 +13,10 @@ import (
 type Method string
 
 const (
-	MethodGetSession       Method = "session.get"
-	MethodCreateOrResume   Method = "session.createOrResume"
-	MethodCompletedHistory Method = "session.completedHistory"
+	MethodGetSession        Method = "session.get"
+	MethodGetDirectoryState Method = "session.directoryState"
+	MethodCreateOrResume    Method = "session.createOrResume"
+	MethodCompletedHistory  Method = "session.completedHistory"
 
 	MethodAcquireTurn      Method = "turn.acquire"
 	MethodAppendCheckpoint Method = "turn.appendCheckpoint"
@@ -46,13 +47,15 @@ const (
 	MethodRecordJobSignal       Method = "job.recordSignal"
 	MethodListJobSignalRequests Method = "job.listSignalRequests"
 
-	MethodCreateAgentRun      Method = "agentRun.create"
-	MethodFinalizeAgentRun    Method = "agentRun.finalize"
-	MethodGetAgentRun         Method = "agentRun.get"
-	MethodListAgentRuns       Method = "agentRun.list"
-	MethodAppendAgentRunEvent Method = "agentRun.appendEvent"
-	MethodListAgentRunEvents  Method = "agentRun.listEvents"
-	MethodCancelAgentRun      Method = "agentRun.requestCancellation"
+	MethodCreateAgentRun          Method = "agentRun.create"
+	MethodClaimAgentRun           Method = "agentRun.claim"
+	MethodPrepareAgentRunRecovery Method = "agentRun.prepareRecovery"
+	MethodFinalizeAgentRun        Method = "agentRun.finalize"
+	MethodGetAgentRun             Method = "agentRun.get"
+	MethodListAgentRuns           Method = "agentRun.list"
+	MethodAppendAgentRunEvent     Method = "agentRun.appendEvent"
+	MethodListAgentRunEvents      Method = "agentRun.listEvents"
+	MethodCancelAgentRun          Method = "agentRun.requestCancellation"
 
 	MethodOpenAgentRunQuestions Method = "agentRun.openQuestions"
 

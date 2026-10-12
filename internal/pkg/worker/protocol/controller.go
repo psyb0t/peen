@@ -9,6 +9,7 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/session"
+	"github.com/psyb0t/peen/internal/pkg/worker"
 )
 
 // Publisher receives durable records after the controller has written them.
@@ -71,6 +72,7 @@ func (c *Controller) HandleCall(
 	method string,
 	payload json.RawMessage,
 ) (any, error) {
+	ctx = c.agentRunMutationContext(ctx, Method(method))
 	handlers := []func(
 		context.Context,
 		Method,
@@ -81,6 +83,7 @@ func (c *Controller) HandleCall(
 		c.handleModelCall,
 		c.handleJobCall,
 		c.handleAgentRunCall,
+		c.handleAgentRunRecoveryCall,
 		c.handleRecordCall,
 	}
 
@@ -96,6 +99,21 @@ func (c *Controller) HandleCall(
 		"worker protocol method %q is not published",
 		method,
 	)
+}
+
+func (c *Controller) agentRunMutationContext(
+	ctx context.Context,
+	method Method,
+) context.Context {
+	//nolint:exhaustive // Only child-writing methods receive an owner fence.
+	switch method {
+	case MethodCreateAgentRun, MethodFinalizeAgentRun,
+		MethodAppendAgentRunEvent, MethodAppendAgentRunMessages,
+		MethodCreateAgentRunCompaction:
+		return session.WithAgentRunOwner(ctx, c.generationID)
+	default:
+		return ctx
+	}
 }
 
 // assertSession refuses a request naming a session other than the one this
@@ -125,6 +143,8 @@ func (c *Controller) handleSessionCall(
 	switch method {
 	case MethodGetSession:
 		return served(callSession(ctx, c, payload, c.store.Get))
+	case MethodGetDirectoryState:
+		return served(callSession(ctx, c, payload, c.store.GetDirectoryState))
 	case MethodCompletedHistory:
 		return served(callSession(ctx, c, payload, c.store.CompletedHistory))
 	case MethodDrainSessionNotices:
@@ -289,7 +309,7 @@ func (c *Controller) handleAgentRunCall(
 ) (any, bool, error) {
 	switch method {
 	case MethodCreateAgentRun:
-		return served(callInput(ctx, c, payload, c.store.CreateAgentRun))
+		return served(callInput(ctx, c, payload, c.createAgentRun))
 	case MethodFinalizeAgentRun:
 		return served(callChildInput(
 			ctx,
@@ -326,6 +346,103 @@ func (c *Controller) handleAgentRunCall(
 		))
 	default:
 		return c.handleAgentRunTranscriptCall(ctx, method, payload)
+	}
+}
+
+func (c *Controller) createAgentRun(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	input session.StartAgentRunInput,
+) (*models.AgentRun, error) {
+	if input.WorkerGenerationID != "" &&
+		input.WorkerGenerationID != c.generationID.String() {
+		return nil, ctxerrors.Wrap(
+			commerr.ErrPermissionDenied,
+			"child launch owner",
+		)
+	}
+
+	input.WorkerGenerationID = c.generationID.String()
+
+	created, err := c.store.CreateAgentRun(ctx, sessionID, input)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "create worker child")
+	}
+
+	return created, nil
+}
+
+func (c *Controller) claimAgentRun(
+	ctx context.Context,
+	sessionID, runID uuid.UUID,
+	input session.ClaimAgentRunInput,
+) (*models.AgentRun, error) {
+	if input.GenerationID != c.generationID {
+		return nil, ctxerrors.Wrap(
+			commerr.ErrPermissionDenied, "child recovery owner",
+		)
+	}
+
+	if err := c.requireRecoveryWorker(ctx, sessionID); err != nil {
+		return nil, ctxerrors.Wrap(err, "authorize child recovery worker")
+	}
+
+	claimed, err := c.store.ClaimAgentRun(ctx, sessionID, runID, input)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "claim worker child")
+	}
+
+	return claimed, nil
+}
+
+func (c *Controller) requireRecoveryWorker(
+	ctx context.Context,
+	sessionID uuid.UUID,
+) error {
+	generation, err := c.store.GetWorkerGeneration(
+		ctx, sessionID, c.generationID,
+	)
+	if err != nil {
+		return ctxerrors.Wrap(err, "find child recovery worker")
+	}
+
+	if generation.State != string(worker.StateStarting) &&
+		generation.State != string(worker.StateReady) {
+		return ctxerrors.Wrap(
+			commerr.ErrPermissionDenied, "child recovery worker is not active",
+		)
+	}
+
+	return nil
+}
+
+//nolint:exhaustive // Recovery methods have their own ownership checks.
+func (c *Controller) handleAgentRunRecoveryCall(
+	ctx context.Context,
+	method Method,
+	payload json.RawMessage,
+) (any, bool, error) {
+	switch method {
+	case MethodClaimAgentRun:
+		return served(callChildInput(ctx, c, payload, c.claimAgentRun))
+	case MethodPrepareAgentRunRecovery:
+		return served(callInput(ctx, c, payload, func(
+			ctx context.Context, sessionID, generationID uuid.UUID,
+		) (int, error) {
+			if generationID != c.generationID {
+				return 0, ctxerrors.Wrap(
+					commerr.ErrPermissionDenied, "child recovery owner",
+				)
+			}
+
+			if err := c.requireRecoveryWorker(ctx, sessionID); err != nil {
+				return 0, ctxerrors.Wrap(err, "authorize child recovery worker")
+			}
+
+			return c.store.PrepareAgentRunRecovery(ctx, sessionID, generationID)
+		}))
+	default:
+		return nil, false, nil
 	}
 }
 
@@ -454,6 +571,9 @@ func (c *Controller) acquireTurn(
 	if err := c.assertSession(request.SessionID); err != nil {
 		return nil, err
 	}
+
+	// Persist the authenticated owner before a disconnect can strand the lease.
+	request.Input.WorkerGenerationID = c.generationID.String()
 
 	lease, err := c.store.AcquireTurn(ctx, request.SessionID, request.Input)
 	if err != nil {

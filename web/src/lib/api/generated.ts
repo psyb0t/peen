@@ -1142,7 +1142,7 @@ export interface components {
 			parentTurnId: string;
 			/** Format: uuid */
 			parentAgentRunId?: string | null;
-			/** @description Worker generation that ran this child agent. */
+			/** @description Worker generation currently running, or last to run, this child agent. */
 			workerGenerationId?: string | null;
 			name: string;
 			/** @enum {string} */
@@ -1152,6 +1152,7 @@ export interface components {
 			requestId: string;
 			/** Format: int64 */
 			depth: number;
+			/** @description Current directory checkpointed by the child agent. */
 			workspace: string;
 			modelReference: string;
 			model: string;
@@ -1191,6 +1192,7 @@ export interface components {
 			/** Format: int64 */
 			sequence: number;
 			type: string;
+			/** @description Child step data. Queued, delivered and undelivered message events carry message and an optional acceptanceId UUID linking the same accepted message. Question and answer events carry an optional callId linking the ask tool call. Older stored events omit these IDs. */
 			payload?: {
 				[key: string]: unknown;
 			};

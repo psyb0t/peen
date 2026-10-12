@@ -35,6 +35,8 @@ import (
 
 // Runtime executes durable transport-neutral Peen turns.
 type Runtime struct {
+	childRecoveryMutex  sync.Mutex
+	recoveredSessions   map[uuid.UUID]bool
 	logger              *slog.Logger
 	commandRunner       commander.Commander
 	filesystem          workspacefs.FS
@@ -234,7 +236,8 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 		return nil, err
 	}
 
-	return &Runtime{
+	runtime := &Runtime{
+		recoveredSessions:   map[uuid.UUID]bool{},
 		filesystem:          options.Filesystem,
 		virtualFilesystem:   options.VirtualFilesystem,
 		disableProcessTools: options.DisableProcessTools,
@@ -285,7 +288,14 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 		agentLimits:          options.AgentLimits.withDefaults(),
 		configDirectory:      options.ConfigDirectory,
 		agentRuns:            map[uuid.UUID]*AgentRunRegistry{},
-	}, nil
+	}
+	if startup.id != uuid.Nil {
+		if err := runtime.recoverSessionChildren(ctx, startup.id); err != nil {
+			return nil, ctxerrors.Wrap(err, "recover startup children")
+		}
+	}
+
+	return runtime, nil
 }
 
 // startupSession is the session a runtime begins life attached to. Its zero
@@ -1492,6 +1502,10 @@ func (r *Runtime) resolveTurnSession(
 	stored, err := r.store.Get(ctx, sessionID)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "load turn session")
+	}
+
+	if err := r.recoverSessionChildren(ctx, sessionID); err != nil {
+		return nil, ctxerrors.Wrap(err, "recover session children before turn")
 	}
 
 	return stored, nil

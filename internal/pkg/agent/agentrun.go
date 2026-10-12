@@ -505,12 +505,12 @@ func (r *AgentRunRegistry) Start(
 		)
 	}
 
-	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-
-	runID := input.ID
-	if runID == uuid.Nil {
-		runID = uuid.New()
+	runID, err := r.availableRunID(input.ID)
+	if err != nil {
+		return nil, nil, ctxerrors.Wrap(err, "allocate child identity")
 	}
+
+	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 
 	startedAt := input.StartedAt
 	if startedAt.IsZero() {
@@ -549,6 +549,20 @@ func (r *AgentRunRegistry) Start(
 	r.runs[run.ID] = run
 
 	return run, runCtx, nil
+}
+
+func (r *AgentRunRegistry) availableRunID(id uuid.UUID) (uuid.UUID, error) {
+	if id == uuid.Nil {
+		id = uuid.New()
+	}
+
+	if _, exists := r.runs[id]; exists {
+		return uuid.Nil, ctxerrors.Wrap(
+			commerr.ErrConflict, "child already registered",
+		)
+	}
+
+	return id, nil
 }
 
 func cloneAgentRunID(value *uuid.UUID) *uuid.UUID {

@@ -116,13 +116,9 @@ func (s *Store) validateRunParents(
 		return nil
 	}
 
-	parent := query.AgentRun
-	if _, err := parent.WithContext(ctx).
-		Where(
-			parent.ID.Eq(*parentAgentRunID),
-			parent.SessionID.Eq(sessionID),
-		).
-		First(); err != nil {
+	if _, err := s.findAgentRunWithQuery(
+		ctx, query, sessionID, *parentAgentRunID,
+	); err != nil {
 		return ctxerrors.Wrap(err, "find parent agent run for "+kind)
 	}
 
@@ -426,7 +422,9 @@ func (s *Store) RequestAgentRunCancellation(
 
 		result = run
 
-		if run.State != models.AgentRunStateRunning || run.CancelRequested {
+		if (run.State != models.AgentRunStateRunning &&
+			run.State != models.AgentRunStateInterrupted) ||
+			run.CancelRequested {
 			return nil
 		}
 
@@ -436,7 +434,7 @@ func (s *Store) RequestAgentRunCancellation(
 			Where(
 				repository.ID.Eq(agentRunID),
 				repository.SessionID.Eq(sessionID),
-				repository.State.Eq(string(models.AgentRunStateRunning)),
+				repository.State.Eq(string(run.State)),
 				repository.CancelRequested.Is(false),
 			).
 			UpdateSimple(repository.CancelRequested.Value(true))
@@ -681,33 +679,8 @@ func (s *Store) RecoverInterruptedAgentRuns(ctx context.Context) (int, error) {
 		}
 
 		for _, item := range running {
-			if _, err := run.WithContext(ctx).
-				Where(
-					run.ID.Eq(item.ID),
-					run.State.Eq(string(models.AgentRunStateRunning)),
-				).
-				UpdateSimple(
-					run.State.Value(string(models.AgentRunStateInterrupted)),
-					run.FailureClassification.Value("interrupted"),
-					run.FailureDetail.Value(
-						"process stopped before child agent completed",
-					),
-					run.EndedAt.Value(s.now()),
-				); err != nil {
-				return ctxerrors.Wrap(err, "mark agent run interrupted")
-			}
-
-			// The child's own transcript is marked the same way an
-			// interrupted turn's is, so a reader can tell a record the child
-			// finished writing from one the process stopped mid-write.
-			message := tx.AgentRunMessage
-			if _, err := message.WithContext(ctx).
-				Where(message.AgentRunID.Eq(item.ID)).
-				UpdateSimple(message.Incomplete.Value(true)); err != nil {
-				return ctxerrors.Wrap(
-					err,
-					"mark interrupted child messages incomplete",
-				)
+			if err := s.interruptAgentRun(ctx, tx, item.ID); err != nil {
+				return ctxerrors.Wrap(err, "interrupt child run")
 			}
 
 			recovered++
@@ -793,6 +766,10 @@ func (s *Store) findAgentRunWithQuery(
 		return nil, ctxerrors.Wrap(err, "query agent run")
 	}
 
+	if err := requireAgentRunOwner(ctx, run); err != nil {
+		return nil, ctxerrors.Wrap(err, "check child worker ownership")
+	}
+
 	return run, nil
 }
 
@@ -845,4 +822,40 @@ func isAgentRunState(state models.AgentRunState) bool {
 		state == models.AgentRunStateFailed ||
 		state == models.AgentRunStateCancelled ||
 		state == models.AgentRunStateInterrupted
+}
+
+func (s *Store) interruptAgentRun(
+	ctx context.Context,
+	tx *repositories.Query,
+	runID uuid.UUID,
+) error {
+	run := tx.AgentRun
+	if _, err := run.WithContext(ctx).
+		Where(
+			run.ID.Eq(runID),
+			run.State.Eq(string(models.AgentRunStateRunning)),
+		).
+		UpdateSimple(
+			run.State.Value(string(models.AgentRunStateInterrupted)),
+			run.FailureClassification.Value("interrupted"),
+			run.FailureDetail.Value(
+				"process stopped before child agent completed",
+			),
+			run.EndedAt.Value(s.now()),
+		); err != nil {
+		return ctxerrors.Wrap(err, "mark agent run interrupted")
+	}
+
+	// Interrupted records stay available for audit and child reconstruction.
+	message := tx.AgentRunMessage
+	if _, err := message.WithContext(ctx).
+		Where(message.AgentRunID.Eq(runID)).
+		UpdateSimple(message.Incomplete.Value(true)); err != nil {
+		return ctxerrors.Wrap(
+			err,
+			"mark interrupted child messages incomplete",
+		)
+	}
+
+	return nil
 }

@@ -32,6 +32,10 @@ type Storage interface {
 
 // sessionStorage reads and opens sessions.
 type sessionStorage interface {
+	GetDirectoryState(
+		ctx context.Context,
+		sessionID uuid.UUID,
+	) (*DirectoryState, error)
 	Get(ctx context.Context, sessionID uuid.UUID) (*models.Session, error)
 	CreateOrResume(
 		ctx context.Context,
@@ -185,6 +189,16 @@ type jobStorage interface {
 
 // agentRunStorage records child-agent work.
 type agentRunStorage interface {
+	PrepareAgentRunRecovery(
+		ctx context.Context,
+		sessionID, generationID uuid.UUID,
+	) (int, error)
+	ClaimAgentRun(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		agentRunID uuid.UUID,
+		input ClaimAgentRunInput,
+	) (*models.AgentRun, error)
 	CreateAgentRun(
 		ctx context.Context,
 		sessionID uuid.UUID,

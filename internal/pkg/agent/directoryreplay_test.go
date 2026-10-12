@@ -2,61 +2,100 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/elelem/elelemtest"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
+	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestReplayDirectoryRequiresSuccessfulPairedCalls(t *testing.T) {
+type measuredDirectoryStore struct {
+	session.Storage
+	pageReads  int
+	stateReads int
+}
+
+func (s *measuredDirectoryStore) GetDirectoryState(ctx context.Context, id uuid.UUID) (*session.DirectoryState, error) {
+	s.stateReads++
+
+	return s.Storage.GetDirectoryState(ctx, id)
+}
+
+func (s *measuredDirectoryStore) ListMessages(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	options session.ListMessagesOptions,
+) (*session.MessagePage, error) {
+	s.pageReads++
+
+	return s.Storage.ListMessages(ctx, sessionID, options)
+}
+
+func TestDirectoryRecoveryDoesNotPageThroughUnchangedHistory(t *testing.T) {
 	t.Parallel()
 	testCases := []struct {
-		name      string
-		role      models.MessageRole
-		tool      string
-		isError   bool
-		wrongTurn bool
-		want      bool
+		name  string
+		rows  int
+		tools bool
 	}{
-		{name: "successful", role: models.MessageRoleTool, tool: toolNameChangeDirectory, want: true},
-		{name: "user spoof", role: models.MessageRoleUser, tool: toolNameChangeDirectory},
-		{name: "other tool", role: models.MessageRoleTool, tool: toolNameReadFile},
-		{name: "failed hop", role: models.MessageRoleTool, tool: toolNameChangeDirectory, isError: true},
-		{name: "other turn", role: models.MessageRoleTool, tool: toolNameChangeDirectory, wrongTurn: true},
+		{name: "short"},
+		{name: "long", rows: 1024},
+		{name: "long tool history", rows: 1024, tools: true},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			turnID := uuid.New()
-			resultTurnID := turnID
-			if tc.wrongTurn {
-				resultTurnID = uuid.New()
+			fixture := newRuntimeFixture(t, elelemtest.NewScriptedDriver(elelemtest.Text("done")))
+			ctx := context.Background()
+			result, err := fixture.runtime.Run(ctx, TurnRequest{Message: "initial"})
+			require.NoError(t, err)
+			query := repositories.Use(fixture.handle.GormDB)
+			turn, err := query.Turn.WithContext(ctx).Where(query.Turn.SessionID.Eq(result.SessionID)).First()
+			require.NoError(t, err)
+			messages := make([]*models.Message, 0, tc.rows)
+			for index := range tc.rows {
+				message := &models.Message{
+					ID: uuid.New(), SessionID: result.SessionID, TurnID: turn.ID,
+					Sequence: int64(index + 3), Role: models.MessageRoleUser,
+					Content: "unchanged history", ToolCallsJSON: "[]",
+				}
+				if tc.tools {
+					message.Role = models.MessageRoleAssistant
+					callID := fmt.Sprintf("call-%d", index/2)
+					message.ToolCallsJSON = directoryToolCalls(t, elelem.ToolCall{ID: callID, Name: toolNameReadFile})
+					if index%2 == 1 {
+						message.Role = models.MessageRoleTool
+						message.ToolCallID = callID
+						message.Workspace = fixture.workspace
+						message.ToolCallsJSON = "[]"
+					}
+				}
+				messages = append(messages, message)
 			}
-			pending := map[directoryResultKey]directoryResult{}
-			_, found := replayDirectory(&models.Message{
-				TurnID: resultTurnID, Role: tc.role, IsError: tc.isError,
-				ToolCallID: "hop", Workspace: "nested", Sequence: 2,
-				Content: "truncated output",
-			}, pending)
-			assert.False(t, found)
-			directory, found := replayDirectory(&models.Message{
-				TurnID: turnID, Role: models.MessageRoleAssistant, Sequence: 1,
-				ToolCallsJSON: directoryToolCalls(t, elelem.ToolCall{ID: "hop", Name: tc.tool}),
-			}, pending)
-			assert.Equal(t, tc.want, found)
-			if tc.want {
-				assert.Equal(t, "nested", directory)
+			if len(messages) > 0 {
+				require.NoError(t, query.Message.WithContext(ctx).CreateInBatches(messages, directoryReplayPageSize))
 			}
+			store := &measuredDirectoryStore{Storage: fixture.store}
+			fixture.runtime.store = store
+			started := time.Now()
+			directory, err := fixture.runtime.currentDirectory(ctx, result.SessionID, fixture.workspace)
+			require.NoError(t, err)
+			t.Logf("rows=%d page_reads=%d duration=%s", tc.rows, store.pageReads, time.Since(started))
+			assert.Equal(t, fixture.workspace, directory)
+			assert.Zero(t, store.pageReads)
+			assert.Equal(t, 1, store.stateReads)
 		})
 	}
 }
 
-func TestCurrentDirectoryWalksPagesIncludingCompactedRows(t *testing.T) {
+func TestCurrentDirectoryIncludesCompactedRows(t *testing.T) {
 	t.Parallel()
 	driver := elelemtest.NewScriptedDriver(elelemtest.Text("done"))
 	fixture := newRuntimeFixture(t, driver)
@@ -87,7 +126,7 @@ func TestCurrentDirectoryWalksPagesIncludingCompactedRows(t *testing.T) {
 			Role: models.MessageRoleTool, Workspace: "nested", ToolCallID: "hop", CompactionID: &compactionID, ToolCallsJSON: "[]",
 		},
 	}
-	// Put the result at the end of one page and its call on the next.
+	// Recovery must include old records after a long compacted history.
 	for sequence := int64(5); sequence <= int64(directoryReplayPageSize+3); sequence++ {
 		messages = append(messages, &models.Message{
 			ID: uuid.New(), SessionID: result.SessionID, TurnID: turn.ID,

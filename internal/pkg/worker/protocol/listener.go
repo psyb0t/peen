@@ -39,6 +39,10 @@ type Registrar interface {
 	WorkerConnected(sessionID, generationID uuid.UUID)
 }
 
+type disconnectObserver interface {
+	WorkerDisconnected(ctx context.Context, sessionID, generationID uuid.UUID)
+}
+
 // Listener is one session's private worker socket.
 //
 // It accepts exactly the worker its controller launched. A second connection
@@ -54,6 +58,8 @@ type Listener struct {
 
 	mutex     sync.Mutex
 	connected *Worker
+	closed    chan struct{}
+	closeOnce sync.Once
 }
 
 // Worker is a registered worker as the controller holds it.
@@ -103,6 +109,7 @@ func Listen(
 	}
 
 	return &Listener{
+		closed:     make(chan struct{}),
 		socketPath: socketPath,
 		sessionID:  sessionID,
 		registrar:  registrar,
@@ -121,8 +128,11 @@ func (l *Listener) Path() string {
 // closed.
 func (l *Listener) Serve(ctx context.Context) error {
 	go func() {
-		<-ctx.Done()
-		l.Close()
+		select {
+		case <-ctx.Done():
+			l.Close()
+		case <-l.closed:
+		}
 	}()
 
 	for {
@@ -163,7 +173,7 @@ func (l *Listener) serveConnection(ctx context.Context, socket net.Conn) {
 		return
 	}
 
-	defer l.disconnect(registered)
+	defer l.disconnect(ctx, registered)
 
 	if err := conn.Serve(ctx); err != nil {
 		logger.Warn(
@@ -299,12 +309,21 @@ func (l *Listener) refuse(conn *Conn, cause error) {
 	}
 }
 
-func (l *Listener) disconnect(registered *Worker) {
+func (l *Listener) disconnect(ctx context.Context, registered *Worker) {
 	l.mutex.Lock()
-	defer l.mutex.Unlock()
+	if l.connected != registered {
+		l.mutex.Unlock()
 
-	if l.connected == registered {
-		l.connected = nil
+		return
+	}
+
+	l.connected = nil
+	l.mutex.Unlock()
+
+	if observer, found := l.registrar.(disconnectObserver); found {
+		observer.WorkerDisconnected(
+			ctx, registered.SessionID, registered.GenerationID,
+		)
 	}
 }
 
@@ -313,18 +332,35 @@ func (l *Listener) Connected() (*Worker, bool) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	return l.connected, l.connected != nil
+	if l.connected == nil {
+		return nil, false
+	}
+
+	select {
+	case <-l.connected.conn.Done():
+		return nil, false
+	default:
+		return l.connected, true
+	}
 }
 
 // Close stops accepting and removes the socket file.
 func (l *Listener) Close() {
-	if err := l.net.Close(); err != nil && !isClosed(err) {
-		return
-	}
+	l.closeOnce.Do(func() {
+		defer close(l.closed)
 
-	if err := os.Remove(l.socketPath); err != nil && !os.IsNotExist(err) {
-		return
-	}
+		if err := l.net.Close(); err != nil && !isClosed(err) {
+			return
+		}
+
+		if registered, connected := l.Connected(); connected {
+			registered.Disconnect()
+		}
+
+		if err := os.Remove(l.socketPath); err != nil && !os.IsNotExist(err) {
+			return
+		}
+	})
 }
 
 // RunTurn hands one accepted user message to the worker and waits for its

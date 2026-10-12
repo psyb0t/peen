@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
@@ -28,7 +29,8 @@ type agentInbox struct {
 
 	// pending holds every accepted message that has not yet been recorded as
 	// delivered, oldest first.
-	pending []string
+	pending    []string
+	pendingIDs []*uuid.UUID
 
 	// arrived is closed and replaced each time a message is accepted, so a
 	// waiter can block on whatever the current channel is.
@@ -36,7 +38,8 @@ type agentInbox struct {
 }
 
 type agentInboxMessagePayload struct {
-	Message string `json:"message"`
+	Message      string     `json:"message"`
+	AcceptanceID *uuid.UUID `json:"acceptanceId,omitempty"`
 }
 
 func newAgentInbox(sink *agentRunSink, capacity int) (*agentInbox, error) {
@@ -73,10 +76,11 @@ func (i *agentInbox) deliver(ctx context.Context, text string) error {
 
 	// The record comes first, so the child's event log never shows a
 	// delivery whose acceptance is missing.
+	acceptanceID := uuid.New()
 	if err := i.sink.emit(
 		ctx,
 		EventTypeAgentRunMessageQueued,
-		agentInboxMessagePayload{Message: text},
+		agentInboxMessagePayload{Message: text, AcceptanceID: &acceptanceID},
 	); err != nil {
 		return ctxerrors.Wrap(err, "record queued agent message")
 	}
@@ -86,6 +90,7 @@ func (i *agentInbox) deliver(ctx context.Context, text string) error {
 	}
 
 	i.pending = append(i.pending, text)
+	i.pendingIDs = append(i.pendingIDs, &acceptanceID)
 
 	close(i.arrived)
 	i.arrived = make(chan struct{})
@@ -121,19 +126,44 @@ func (i *agentInbox) checkpointDelivered(
 		return ctxerrors.Wrap(err, "record delivered agent messages")
 	}
 
-	for _, text := range delivered {
+	for index, text := range delivered {
 		if err := i.sink.emit(
 			ctx,
 			EventTypeAgentRunMessageDelivered,
-			agentInboxMessagePayload{Message: text},
+			agentInboxMessagePayload{
+				Message: text, AcceptanceID: i.pendingID(index),
+			},
 		); err != nil {
 			return ctxerrors.Wrap(err, "record delivered agent message")
 		}
 	}
 
 	i.pending = i.pending[count:]
+	if len(i.pendingIDs) >= count {
+		i.pendingIDs = i.pendingIDs[count:]
+	}
 
 	return nil
+}
+
+func (i *agentInbox) pendingID(index int) *uuid.UUID {
+	if index >= len(i.pendingIDs) {
+		return nil
+	}
+
+	return i.pendingIDs[index]
+}
+
+func (i *agentInbox) unreadAcceptanceIDs() []*uuid.UUID {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+
+	unread := i.queue.Len()
+	if unread > len(i.pendingIDs) {
+		return nil
+	}
+
+	return append([]*uuid.UUID(nil), i.pendingIDs[len(i.pendingIDs)-unread:]...)
 }
 
 // arrival reports how many accepted messages no provider round has taken

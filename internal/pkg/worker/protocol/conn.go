@@ -179,6 +179,8 @@ func (c *Conn) Call(
 // It returns nil on a clean peer close, because a worker exiting after its
 // final transition is the normal end of a connection, not a failure.
 func (c *Conn) Serve(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	defer c.Close()
 
 	go func() {

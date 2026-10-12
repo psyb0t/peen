@@ -218,7 +218,45 @@ type IMessageDo interface {
 	UnderlyingDB() *gorm.DB
 	schema.Tabler
 
+	LatestDirectoryChange(sessionID uuid.UUID) (result []*models.Message, err error)
 	CompletedHistory(sessionID uuid.UUID, afterSequence int64) (result []*models.Message, err error)
+}
+
+// SELECT result.workspace, result.sequence
+//
+//	FROM @@table AS result
+//	WHERE result.session_id = @sessionID
+//	  AND result.role = 'tool'
+//	  AND result.is_error = FALSE
+//	  AND result.workspace <> ''
+//	  AND 'changeDirectory' = (
+//	    SELECT COALESCE(json_extract(entry.value, '$.Name'),
+//	      json_extract(entry.value, '$.name'))
+//	    FROM @@table AS call, json_each(call.tool_calls_json) AS entry
+//	    WHERE call.session_id = result.session_id
+//	      AND call.turn_id = result.turn_id
+//	      AND call.role = 'assistant'
+//	      AND call.sequence < result.sequence
+//	      AND CASE WHEN entry.type = 'object'
+//	        THEN COALESCE(json_extract(entry.value, '$.ID'),
+//	          json_extract(entry.value, '$.id')) END = result.tool_call_id
+//	    ORDER BY call.sequence DESC
+//	    LIMIT 1
+//	  )
+//	ORDER BY result.sequence DESC
+//	LIMIT 1
+func (m messageDo) LatestDirectoryChange(sessionID uuid.UUID) (result []*models.Message, err error) {
+	var params []interface{}
+
+	var generateSQL strings.Builder
+	params = append(params, sessionID)
+	generateSQL.WriteString("SELECT result.workspace, result.sequence FROM messages AS result WHERE result.session_id = ? AND result.role = 'tool' AND result.is_error = FALSE AND result.workspace <> '' AND 'changeDirectory' = ( SELECT COALESCE(json_extract(entry.value, '$.Name'), json_extract(entry.value, '$.name')) FROM messages AS call, json_each(call.tool_calls_json) AS entry WHERE call.session_id = result.session_id AND call.turn_id = result.turn_id AND call.role = 'assistant' AND call.sequence < result.sequence AND CASE WHEN entry.type = 'object' THEN COALESCE(json_extract(entry.value, '$.ID'), json_extract(entry.value, '$.id')) END = result.tool_call_id ORDER BY call.sequence DESC LIMIT 1 ) ORDER BY result.sequence DESC LIMIT 1 ")
+
+	var executeSQL *gorm.DB
+	executeSQL = m.UnderlyingDB().Raw(generateSQL.String(), params...).Find(&result) // ignore_security_alert
+	err = executeSQL.Error
+
+	return
 }
 
 // SELECT m.*

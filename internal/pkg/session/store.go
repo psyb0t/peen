@@ -204,12 +204,13 @@ func (s *Store) AcquireTurn(
 
 	if err := s.query.Transaction(func(tx *repositories.Query) error {
 		turn := &models.Turn{
-			ID:        lease.TurnID,
-			SessionID: lease.SessionID,
-			RequestID: input.RequestID,
-			Workspace: input.Workspace,
-			State:     models.TurnStateRunning,
-			StartedAt: s.now(),
+			ID:                 lease.TurnID,
+			SessionID:          lease.SessionID,
+			RequestID:          input.RequestID,
+			Workspace:          input.Workspace,
+			State:              models.TurnStateRunning,
+			StartedAt:          s.now(),
+			WorkerGenerationID: input.WorkerGenerationID,
 		}
 		if err := tx.Turn.WithContext(ctx).Create(turn); err != nil {
 			return ctxerrors.Wrap(err, "create running turn")

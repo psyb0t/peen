@@ -88,6 +88,16 @@ func (s *Store) createAgentRunMessages(
 	stored := make([]*models.AgentRunMessage, 0, len(inputs))
 
 	for _, input := range inputs {
+		if input.Directory != "" {
+			run := tx.AgentRun
+			if _, err := run.WithContext(ctx).
+				Where(run.ID.Eq(agentRunID), run.SessionID.Eq(sessionID)).
+				UpdateSimple(run.Workspace.Value(input.Directory),
+					run.SystemPrompt.Value(input.SystemPrompt)); err != nil {
+				return nil, ctxerrors.Wrap(err, "checkpoint child directory")
+			}
+		}
+
 		message := s.newAgentRunMessage(
 			sessionID,
 			agentRunID,
@@ -157,6 +167,13 @@ func (s *Store) newAgentRunMessage(
 }
 
 func validateAgentRunMessageInput(input AgentRunMessageInput) error {
+	if input.Directory != "" && (input.Role != models.MessageRoleTool ||
+		input.IsError || input.SystemPrompt == "" || input.ToolCallID == "") {
+		return ctxerrors.Wrap(
+			commerr.ErrValidationFailed, "child directory result",
+		)
+	}
+
 	switch input.Role {
 	case models.MessageRoleUser,
 		models.MessageRoleAssistant,

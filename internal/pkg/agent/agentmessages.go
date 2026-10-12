@@ -79,10 +79,12 @@ type agentNoticeData struct {
 
 type agentQuestionPayload struct {
 	Question string `json:"question"`
+	CallID   string `json:"callId,omitempty"`
 }
 
 type agentAnswerPayload struct {
-	Answered bool `json:"answered"`
+	Answered bool   `json:"answered"`
+	CallID   string `json:"callId,omitempty"`
 }
 
 // messageArrival reports how many messages wait unread, and the channel that
@@ -244,6 +246,10 @@ func (r *Runtime) messageAgentRun(
 	}
 
 	runID := *request.To
+
+	if err := r.recoverSessionChildren(ctx, sessionID); err != nil {
+		return nil, ctxerrors.Wrap(err, "recover child message recipient")
+	}
 
 	registry, err := r.sessionAgentRuns(sessionID)
 	if err != nil {
@@ -586,7 +592,9 @@ func (d *launchAgentDeps) askParent(
 	if err := run.inbox.sink.emit(
 		ctx,
 		EventTypeAgentRunQuestion,
-		agentQuestionPayload{Question: question},
+		agentQuestionPayload{
+			Question: question, CallID: parentToolCallIDFromContext(ctx),
+		},
 	); err != nil {
 		return askOutput{}, ctxerrors.Wrap(err, "record agent question")
 	}
@@ -653,7 +661,9 @@ func (d *launchAgentDeps) recordAnswer(
 	if err := run.inbox.sink.emit(
 		context.WithoutCancel(ctx),
 		EventTypeAgentRunAnswer,
-		agentAnswerPayload{Answered: answered},
+		agentAnswerPayload{
+			Answered: answered, CallID: parentToolCallIDFromContext(ctx),
+		},
 	); err != nil {
 		runtimecontext.Logger(ctx).Warn(
 			"record agent answer",
