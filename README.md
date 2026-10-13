@@ -7,7 +7,6 @@
 [![license](https://raw.githubusercontent.com/psyb0t/peen/badges/license.svg)](LICENSE)
 [![imported by](https://raw.githubusercontent.com/psyb0t/peen/badges/importers.svg)](https://github.com/psyb0t/peen/blob/badges/importers.md)
 [![Docker Pulls](https://img.shields.io/docker/pulls/psyb0t/peen?style=flat-square)](https://hub.docker.com/r/psyb0t/peen)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/psyb0t/peen)
 
 _peen goes in vageen_
 
