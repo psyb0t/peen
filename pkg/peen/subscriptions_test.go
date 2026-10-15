@@ -15,6 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const subscriptionWorkflowCompletionTimeout = time.Minute
+
 func TestSubscriptionContinuesAcrossTurnsAndCloses(t *testing.T) {
 	t.Parallel()
 	options := validOptions(t)
@@ -204,7 +206,7 @@ func TestSlowSubscriptionDropsWithoutBlockingAndCloses(t *testing.T) {
 	subscription, err := session.Subscribe(context.Background())
 	require.NoError(t, err)
 	t.Cleanup(subscription.Close)
-	ctx, cancel := context.WithTimeout(context.Background(), testWaitTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), subscriptionWorkflowCompletionTimeout)
 	t.Cleanup(cancel)
 	result, err := session.Send(ctx,
 		peen.MessageRequest{Message: "finish"}, nil)

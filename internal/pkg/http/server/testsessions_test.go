@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
@@ -118,8 +119,9 @@ func (r *testSessionRegistry) ListSessions(
 // A transport test cares only that the routed session and request reached the
 // router, so this records them and answers from the test runtime.
 type testTurnRouter struct {
-	runtime *testRuntime
-	runErr  error
+	cancelMu sync.Mutex
+	runtime  *testRuntime
+	runErr   error
 
 	// sessions records the session each routed turn named, so a routing test
 	// can assert the transport chose it rather than the message body.
@@ -204,6 +206,9 @@ func (r *testTurnRouter) CancelSessionTurn(
 	_ context.Context,
 	sessionID uuid.UUID,
 ) (bool, error) {
+	r.cancelMu.Lock()
+	defer r.cancelMu.Unlock()
+
 	r.cancelledSessions = append(r.cancelledSessions, sessionID)
 
 	if r.cancelErr != nil {

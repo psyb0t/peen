@@ -10,16 +10,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	commonsqlite "github.com/psyb0t/common-go/db/sqlite"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db/migrations"
+	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/db/repositories"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // sqliteMigrationCount is every migration in the sequence. Migrating down by
 // this many steps returns an opened database to an empty schema.
-const sqliteMigrationCount = 19
+const sqliteMigrationCount = 25
 
 // These tests do not call t.Parallel. Opening the store installs the generated
 // repositories as a package default, which is process-global state.
@@ -367,6 +370,46 @@ func TestOpenAcceptsAnOlderDatabaseWithTheMatchingSchema(t *testing.T) {
 
 	assert.Contains(t, schemaObjectNames(t, handle.SQLDB()), "worker_generations")
 	require.NoError(t, handle.Close())
+}
+
+func TestOpenPreservesRecordsAcrossWorkflowSchemaUpgrade(t *testing.T) {
+	const previousMigrationCount = 19
+	directory := t.TempDir()
+	handle, err := Open(t.Context(), Config{Directory: directory})
+	require.NoError(t, err)
+	query := repositories.Use(handle.GormDB)
+	now := time.Now().UTC()
+	session := &models.Session{
+		ID: uuid.New(), RootAgent: "exampleRoot", ModelID: "example/model",
+		CreatedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, query.Session.WithContext(t.Context()).Create(session))
+	turn := &models.Turn{
+		ID: uuid.New(), SessionID: session.ID, RequestID: uuid.New(),
+		Workspace: directory, State: models.TurnStateCompleted,
+		StartedAt: now, CompletedAt: &now,
+	}
+	require.NoError(t, query.Turn.WithContext(t.Context()).Create(turn))
+	require.NoError(t, commonsqlite.MigrateDown(handle.SQLDB(),
+		sqliteMigrationsPath, sqliteMigrationCount-previousMigrationCount,
+		&migrations.SQLiteFS))
+	require.NoError(t, handle.Close())
+	reopened, err := Open(t.Context(), Config{Directory: directory})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+	query = repositories.Use(reopened.GormDB)
+	storedSession, err := query.Session.WithContext(t.Context()).Where(
+		query.Session.ID.Eq(session.ID),
+	).First()
+	require.NoError(t, err)
+	assert.Equal(t, session.RootAgent, storedSession.RootAgent)
+	storedTurn, err := query.Turn.WithContext(t.Context()).Where(
+		query.Turn.ID.Eq(turn.ID),
+	).First()
+	require.NoError(t, err)
+	assert.Equal(t, models.TurnStateCompleted, storedTurn.State)
+	assert.Equal(t, turn.RequestID, storedTurn.RequestID)
+	assert.Contains(t, schemaObjectNames(t, reopened.SQLDB()), "executions")
 }
 
 // seedMigrationState writes a database file holding the given tables, created

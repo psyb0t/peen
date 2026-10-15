@@ -18,9 +18,9 @@ import (
 
 	"gorm.io/plugin/dbresolver"
 
-	"github.com/psyb0t/peen/internal/pkg/db/models"
-
 	"github.com/google/uuid"
+
+	"github.com/psyb0t/peen/internal/pkg/db/models"
 )
 
 func newCompaction(db *gorm.DB, opts ...gen.DOOption) compaction {

@@ -54,7 +54,7 @@ Assert what a caller can observe: return values, HTTP and WebSocket responses, r
 | `tests/dockerworker` | `dockerworker` | `make test-docker-worker-source` | The worker image entrypoint. |
 | `tests/real` | `real` | `make test-real` | Live providers. Opt-in, costs money, needs the gitignored `.env`. |
 
-`make test-coverage` runs every untagged and `integration` test and fails below 80 percent. Coverage leaves out `cmd/`, `tests/`, and `*.gen.go`. The targets set `-count=1` and a 30 minute timeout for anything that starts containers, and run without `-race`.
+`make test-coverage` runs every untagged and `integration` test and fails below 80 percent. Coverage leaves out `cmd/`, `tests/`, and `*.gen.go`. The targets set `-count=1` and a 30 minute timeout for anything that starts containers, and every Go test target runs with `-race`. Never disable race detection to make a failing test pass.
 
 ## Integration harness
 

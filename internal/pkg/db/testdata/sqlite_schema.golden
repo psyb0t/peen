@@ -179,6 +179,145 @@ table events
   constraint origin=u (session_id,sequence)
   index CREATE INDEX events_session_sequence_id_index ON events (session_id,sequence,id)
   index CREATE INDEX events_worker_generation_id_index ON events (worker_generation_id) WHERE worker_generation_id <> ''
+table execution_activities
+  column 0 id TEXT notnull=1 default=NULL pk=1
+  column 1 session_id TEXT notnull=1 default=NULL pk=0
+  column 2 execution_id TEXT notnull=1 default=NULL pk=0
+  column 3 step_id TEXT notnull=1 default=NULL pk=0
+  column 4 kind TEXT notnull=1 default=NULL pk=0
+  column 5 state TEXT notnull=1 default=NULL pk=0
+  column 6 replay_policy TEXT notnull=1 default=NULL pk=0
+  column 7 name TEXT notnull=1 default=NULL pk=0
+  column 8 input_json TEXT notnull=1 default=NULL pk=0
+  column 9 output_json TEXT notnull=0 default=NULL pk=0
+  column 10 context_json TEXT notnull=1 default='{}' pk=0
+  column 11 attempt INTEGER notnull=1 default=0 pk=0
+  column 12 owner_generation_id TEXT notnull=1 default='' pk=0
+  column 13 failure_detail TEXT notnull=1 default='' pk=0
+  column 14 resolution_json TEXT notnull=1 default='{}' pk=0
+  column 15 created_at DATETIME notnull=1 default=NULL pk=0
+  column 16 started_at DATETIME notnull=0 default=NULL pk=0
+  column 17 completed_at DATETIME notnull=0 default=NULL pk=0
+  CHECK (attempt >= 0)
+  CHECK (json_valid(context_json))
+  CHECK (json_valid(input_json))
+  CHECK (json_valid(resolution_json))
+  CHECK (kind IN ('model','tool','compaction','preparation'))
+  CHECK (output_json IS NULL OR json_valid(output_json))
+  CHECK (replay_policy IN ('retry','reconcile'))
+  CHECK (state <> 'completed' OR output_json IS NOT NULL)
+  CHECK (state IN ('scheduled','running','completed','failed','paused','uncertain','cancelled'))
+  foreign key (session_id,execution_id) -> executions(session_id,id) update=NO ACTION delete=NO ACTION
+  constraint origin=pk (id)
+  constraint origin=u (execution_id,step_id)
+  constraint origin=u (session_id,execution_id,id)
+  constraint origin=u (session_id,id)
+  index CREATE INDEX execution_activities_execution_created_at_id_index ON execution_activities (execution_id,created_at ASC,id ASC)
+  index CREATE INDEX execution_activities_state_owner_index ON execution_activities (state,owner_generation_id)
+table execution_events
+  column 0 id TEXT notnull=1 default=NULL pk=1
+  column 1 session_id TEXT notnull=1 default=NULL pk=0
+  column 2 execution_id TEXT notnull=1 default=NULL pk=0
+  column 3 sequence INTEGER notnull=1 default=NULL pk=0
+  column 4 event_type TEXT notnull=1 default=NULL pk=0
+  column 5 payload_json TEXT notnull=1 default=NULL pk=0
+  column 6 created_at DATETIME notnull=1 default=NULL pk=0
+  CHECK (json_valid(payload_json))
+  CHECK (sequence > 0)
+  foreign key (session_id,execution_id) -> executions(session_id,id) update=NO ACTION delete=NO ACTION
+  constraint origin=pk (id)
+  constraint origin=u (execution_id,sequence)
+  constraint origin=u (session_id,id)
+  index CREATE INDEX execution_events_execution_sequence_id_index ON execution_events (execution_id,sequence ASC,id ASC)
+table execution_inbox_messages
+  column 0 id TEXT notnull=1 default=NULL pk=1
+  column 1 session_id TEXT notnull=1 default=NULL pk=0
+  column 2 execution_id TEXT notnull=1 default=NULL pk=0
+  column 3 turn_id TEXT notnull=1 default=NULL pk=0
+  column 4 request_id TEXT notnull=1 default=NULL pk=0
+  column 5 source_event_id TEXT notnull=0 default=NULL pk=0
+  column 6 sequence INTEGER notnull=1 default=NULL pk=0
+  column 7 working_directory TEXT notnull=1 default=NULL pk=0
+  column 8 message TEXT notnull=1 default=NULL pk=0
+  column 9 parts_json TEXT notnull=1 default=NULL pk=0
+  column 10 state TEXT notnull=1 default=NULL pk=0
+  column 11 delivered_activity_id TEXT notnull=0 default=NULL pk=0
+  column 12 created_at DATETIME notnull=1 default=NULL pk=0
+  column 13 delivered_at DATETIME notnull=0 default=NULL pk=0
+  column 14 forwarded_execution_id TEXT notnull=0 default=NULL pk=0
+  column 15 stop_revision INTEGER notnull=1 default=0 pk=0
+  CHECK ((state = 'forwarded') = (forwarded_execution_id IS NOT NULL))
+  CHECK (json_valid(parts_json) AND json_type(parts_json) = 'array')
+  CHECK (sequence > 0)
+  CHECK (state <> 'delivered' OR (delivered_activity_id IS NOT NULL AND delivered_at IS NOT NULL))
+  CHECK (state IN ('queued','delivered','deferred','forwarded'))
+  CHECK (state NOT IN ('queued','deferred','forwarded') OR (delivered_activity_id IS NULL AND delivered_at IS NULL))
+  CHECK (stop_revision >= 0)
+  foreign key (session_id,execution_id,delivered_activity_id) -> execution_activities(session_id,execution_id,id) update=NO ACTION delete=NO ACTION
+  foreign key (session_id,execution_id,turn_id) -> executions(session_id,id,root_turn_id) update=NO ACTION delete=NO ACTION
+  foreign key (session_id,forwarded_execution_id) -> executions(session_id,id) update=NO ACTION delete=NO ACTION
+  constraint origin=pk (id)
+  constraint origin=u (execution_id,sequence)
+  constraint origin=u (session_id,id)
+  constraint origin=u (session_id,request_id)
+  index CREATE INDEX execution_inbox_messages_execution_state_sequence_index ON execution_inbox_messages (execution_id,state,sequence ASC)
+table execution_turn_leases
+  column 0 execution_id TEXT notnull=1 default=NULL pk=1
+  column 1 session_id TEXT notnull=1 default=NULL pk=0
+  column 2 turn_id TEXT notnull=1 default=NULL pk=0
+  column 3 lease_id TEXT notnull=1 default=NULL pk=0
+  column 4 owner_generation_id TEXT notnull=1 default=NULL pk=0
+  column 5 control_revision INTEGER notnull=1 default=NULL pk=0
+  column 6 worker_generation_id TEXT notnull=0 default=NULL pk=0
+  column 7 created_at DATETIME notnull=1 default=NULL pk=0
+  column 8 updated_at DATETIME notnull=1 default=NULL pk=0
+  CHECK (control_revision >= 0)
+  foreign key (session_id,execution_id,turn_id) -> executions(session_id,id,root_turn_id) update=NO ACTION delete=NO ACTION
+  foreign key (session_id,worker_generation_id) -> worker_generations(session_id,id) update=NO ACTION delete=NO ACTION
+  constraint origin=pk (execution_id)
+  constraint origin=u (lease_id)
+table executions
+  column 0 id TEXT notnull=1 default=NULL pk=1
+  column 1 session_id TEXT notnull=1 default=NULL pk=0
+  column 2 root_turn_id TEXT notnull=1 default=NULL pk=0
+  column 3 root_execution_id TEXT notnull=1 default=NULL pk=0
+  column 4 parent_execution_id TEXT notnull=0 default=NULL pk=0
+  column 5 agent_run_id TEXT notnull=0 default=NULL pk=0
+  column 6 kind TEXT notnull=1 default=NULL pk=0
+  column 7 state TEXT notnull=1 default=NULL pk=0
+  column 8 workflow_version TEXT notnull=1 default=NULL pk=0
+  column 9 workflow_execution_id TEXT notnull=1 default='' pk=0
+  column 10 task TEXT notnull=1 default=NULL pk=0
+  column 11 working_directory TEXT notnull=1 default=NULL pk=0
+  column 12 context_json TEXT notnull=1 default=NULL pk=0
+  column 13 event_count INTEGER notnull=1 default=0 pk=0
+  column 14 control_revision INTEGER notnull=1 default=0 pk=0
+  column 15 pause_reason TEXT notnull=1 default='' pk=0
+  column 16 failure_detail TEXT notnull=1 default='' pk=0
+  column 17 created_at DATETIME notnull=1 default=NULL pk=0
+  column 18 updated_at DATETIME notnull=1 default=NULL pk=0
+  column 19 paused_at DATETIME notnull=0 default=NULL pk=0
+  column 20 completed_at DATETIME notnull=0 default=NULL pk=0
+  CHECK ((kind = 'root' AND parent_execution_id IS NULL AND agent_run_id IS NULL AND root_execution_id = id) OR (kind = 'child' AND parent_execution_id IS NOT NULL AND agent_run_id IS NOT NULL AND root_execution_id <> id))
+  CHECK (control_revision >= 0)
+  CHECK (event_count >= 0)
+  CHECK (json_valid(context_json))
+  CHECK (kind IN ('root','child'))
+  CHECK (parent_execution_id IS NULL OR parent_execution_id <> id)
+  CHECK (state IN ('queued','running','paused','reconciling','completed','failed','cancelled'))
+  foreign key (session_id,agent_run_id) -> agent_runs(session_id,id) update=NO ACTION delete=NO ACTION
+  foreign key (session_id,parent_execution_id,root_turn_id) -> executions(session_id,id,root_turn_id) update=NO ACTION delete=NO ACTION
+  foreign key (session_id,root_execution_id,root_turn_id) -> executions(session_id,id,root_turn_id) update=NO ACTION delete=NO ACTION
+  foreign key (session_id,root_turn_id) -> turns(session_id,id) update=NO ACTION delete=NO ACTION
+  constraint origin=pk (id)
+  constraint origin=u (agent_run_id)
+  constraint origin=u (session_id,id)
+  constraint origin=u (session_id,id,root_turn_id)
+  index CREATE INDEX executions_parent_created_at_id_index ON executions (parent_execution_id,created_at ASC,id ASC)
+  index CREATE INDEX executions_root_created_at_id_index ON executions (root_execution_id,created_at ASC,id ASC)
+  index CREATE INDEX executions_session_created_at_id_index ON executions (session_id,created_at DESC,id DESC)
+  index CREATE INDEX executions_state_created_at_id_index ON executions (state,created_at DESC,id DESC)
+  index CREATE UNIQUE INDEX executions_root_turn_unique_index ON executions (root_turn_id) WHERE kind = 'root'
 table job_output_lines
   column 0 id TEXT notnull=0 default=NULL pk=1
   column 1 session_id TEXT notnull=1 default=NULL pk=0
@@ -223,9 +362,11 @@ table jobs
   column 11 started_at DATETIME notnull=1 default=NULL pk=0
   column 12 ended_at DATETIME notnull=0 default=NULL pk=0
   column 13 worker_generation_id TEXT notnull=1 default='' pk=0
+  column 14 agent_run_id TEXT notnull=0 default=NULL pk=0
   CHECK (pid > 0)
   CHECK (state IN ('running','exited','signalled','failed','interrupted'))
   foreign key (session_id) -> sessions(id) update=NO ACTION delete=NO ACTION
+  foreign key (session_id,agent_run_id) -> agent_runs(session_id,id) update=NO ACTION delete=NO ACTION
   foreign key (session_id,turn_id) -> turns(session_id,id) update=NO ACTION delete=NO ACTION
   constraint origin=pk (id)
   constraint origin=u (session_id,id)
@@ -412,11 +553,24 @@ table sessions
   column 9 model_id TEXT notnull=1 default=NULL pk=0
   column 10 workspace TEXT notnull=1 default='' pk=0
   column 11 agent_space TEXT notnull=1 default='' pk=0
+  column 12 stop_revision INTEGER notnull=1 default=0 pk=0
   CHECK (completed_turn_count >= 0)
   CHECK (last_completed_sequence >= 0)
   CHECK (message_count >= 0)
+  CHECK (stop_revision >= 0)
   constraint origin=pk (id)
   index CREATE UNIQUE INDEX sessions_workspace_unique_index ON sessions (workspace) WHERE workspace <> ''
+table turn_opening_notices
+  column 0 session_id TEXT notnull=1 default=NULL pk=0
+  column 1 turn_id TEXT notnull=1 default=NULL pk=1
+  column 2 notice_id TEXT notnull=1 default=NULL pk=2
+  column 3 source_sequence INTEGER notnull=1 default=NULL pk=0
+  CHECK (source_sequence > 0)
+  foreign key (session_id,notice_id) -> session_notices(session_id,id) update=NO ACTION delete=NO ACTION
+  foreign key (session_id,turn_id) -> turns(session_id,id) update=NO ACTION delete=NO ACTION
+  constraint origin=pk (turn_id,notice_id)
+  constraint origin=u (notice_id)
+  constraint origin=u (turn_id,source_sequence)
 table turns
   column 0 id TEXT notnull=0 default=NULL pk=1
   column 1 session_id TEXT notnull=1 default=NULL pk=0
@@ -430,7 +584,9 @@ table turns
   column 9 context_snapshot_hash TEXT notnull=0 default=NULL pk=0
   column 10 prompt_snapshot_hash TEXT notnull=0 default=NULL pk=0
   column 11 worker_generation_id TEXT notnull=1 default='' pk=0
+  column 12 stop_revision INTEGER notnull=1 default=0 pk=0
   CHECK (state IN ('running','completed','failed','cancelled','interrupted'))
+  CHECK (stop_revision >= 0)
   foreign key (context_snapshot_hash) -> context_snapshots(hash) update=NO ACTION delete=NO ACTION
   foreign key (prompt_snapshot_hash) -> prompt_snapshots(hash) update=NO ACTION delete=NO ACTION
   foreign key (session_id) -> sessions(id) update=NO ACTION delete=NO ACTION

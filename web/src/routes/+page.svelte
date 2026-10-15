@@ -131,6 +131,7 @@
 	$: syncSelectedModel(selectedSession);
 	$: modelNames = modelOptions(models, selectedSession?.model);
 	$: liveAgents = runningAgents(agents);
+	$: socket?.watchSession(selectedSessionID);
 	// A child that ends while it is the target drops back to the root.
 	$: sendTo = sendTarget(sendTo, liveAgents);
 	$: isSendingToAgent = sendTo !== SEND_TARGET_ROOT;

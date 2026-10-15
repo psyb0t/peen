@@ -24,6 +24,9 @@ func (s *Store) RecoverWorkerTurns(
 
 	var leases []Lease
 
+	s.activeMu.Lock()
+	defer s.activeMu.Unlock()
+
 	err := s.query.Transaction(func(tx *repositories.Query) error {
 		repository := tx.Turn
 
@@ -47,8 +50,9 @@ func (s *Store) RecoverWorkerTurns(
 				return ctxerrors.Wrap(err, "interrupt worker turn model audit")
 			}
 
+			active := s.active[sessionID]
 			leases = append(leases, Lease{
-				SessionID: sessionID, TurnID: turn.ID,
+				SessionID: sessionID, TurnID: turn.ID, ID: active.leaseID,
 			})
 		}
 
@@ -59,7 +63,9 @@ func (s *Store) RecoverWorkerTurns(
 	}
 
 	for _, lease := range leases {
-		s.ReleaseTurn(lease)
+		if s.hasLeaseLocked(lease) {
+			delete(s.active, lease.SessionID)
+		}
 	}
 
 	return len(leases), nil

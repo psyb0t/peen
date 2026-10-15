@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
@@ -46,16 +47,11 @@ func (p *preparedTurn) injectSessionEvents(
 		return nil, nil //nolint:nilnil
 	}
 
-	notices, err := p.turn.store.DrainSessionNotices(ctx, p.opened.Session.ID)
+	batch, err := p.drainSessionEvents(ctx)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "drain durable session notices")
 	}
 
-	if p.eventBus != nil {
-		p.eventBus.Drain(p.opened.Session.ID)
-	}
-
-	batch := sessionNoticeBatch(notices)
 	if len(batch.Notices) == 0 {
 		return nil, nil //nolint:nilnil // Nothing pending injects nothing.
 	}
@@ -77,6 +73,37 @@ func (p *preparedTurn) injectSessionEvents(
 		Type:    elelem.RoleUser,
 		Content: renderSessionEvents(batch),
 	}, nil
+}
+
+func (p *preparedTurn) drainSessionEvents(
+	ctx context.Context,
+) (events.Batch, error) {
+	if p.drainNotices != nil {
+		batch, err := p.drainNotices(ctx, p.opened.Session.ID)
+		if err != nil {
+			return events.Batch{}, ctxerrors.Wrap(err,
+				"consume runtime session notices")
+		}
+
+		return batch, nil
+	}
+
+	notices, err := p.turn.store.DrainSessionNotices(ctx, p.opened.Session.ID)
+	if err != nil {
+		return events.Batch{}, ctxerrors.Wrap(err,
+			"consume standalone session notices")
+	}
+
+	if p.eventBus != nil {
+		ids := make([]uuid.UUID, len(notices))
+		for index, notice := range notices {
+			ids[index] = notice.ID
+		}
+
+		p.eventBus.Discard(p.opened.Session.ID, ids)
+	}
+
+	return sessionNoticeBatch(notices), nil
 }
 
 func sessionNoticeBatch(notices []*models.SessionNotice) events.Batch {

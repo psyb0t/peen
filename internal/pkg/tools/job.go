@@ -36,7 +36,7 @@ const (
 	jobStreamChannelBuffer = 64
 
 	// jobEventSource identifies this package as the origin of job.* events.
-	jobEventSource = "tools.job"
+	jobEventSource = events.JobSource
 
 	// exitCodeMarker is the fixed prefix commander v0.5.8 folds a failed
 	// process's numeric exit code into, inside the message of the error its
@@ -71,12 +71,7 @@ type JobObserver interface {
 
 // jobEventData is the structured payload carried by every job.* notice.
 // Duration is DurationMs rendered as a Go duration string.
-type jobEventData struct {
-	JobID      uuid.UUID `json:"jobId"`
-	ExitCode   int       `json:"exitCode"`
-	DurationMs int64     `json:"durationMs"`
-	Duration   string    `json:"duration"`
-}
+type jobEventData = events.JobNoticeData
 
 // millisecondsDuration renders a millisecond count as a Go duration string.
 func millisecondsDuration(milliseconds int64) string {
@@ -92,6 +87,7 @@ type Job struct {
 	PID                int
 	SessionID          uuid.UUID
 	TurnID             uuid.UUID
+	AgentRunID         uuid.UUID
 	WorkerGenerationID string
 	ToolCallID         string
 	Purpose            string
@@ -125,6 +121,7 @@ type JobSnapshot struct {
 	PID                 int
 	SessionID           uuid.UUID
 	TurnID              uuid.UUID
+	AgentRunID          uuid.UUID
 	WorkerGenerationID  string
 	ToolCallID          string
 	Purpose             string
@@ -158,6 +155,7 @@ func (j *Job) Snapshot() JobSnapshot {
 		PID:                 j.PID,
 		SessionID:           j.SessionID,
 		TurnID:              j.TurnID,
+		AgentRunID:          j.AgentRunID,
 		WorkerGenerationID:  j.WorkerGenerationID,
 		ToolCallID:          j.ToolCallID,
 		Purpose:             j.Purpose,
@@ -311,6 +309,7 @@ type StartJobInput struct {
 	Env                []string
 	Purpose            string
 	TurnID             uuid.UUID
+	AgentRunID         uuid.UUID
 	WorkerGenerationID string
 	ToolCallID         string
 	// Awaited starts the job with a caller waiting on it. The caller calls
@@ -399,6 +398,7 @@ func (r *JobRegistry) newJob(
 		PID:                process.PID(),
 		SessionID:          r.sessionID,
 		TurnID:             input.TurnID,
+		AgentRunID:         input.AgentRunID,
 		WorkerGenerationID: input.WorkerGenerationID,
 		ToolCallID:         input.ToolCallID,
 		Purpose:            input.Purpose,
@@ -978,6 +978,7 @@ type JobExecutor struct {
 
 	jobs               *JobRegistry
 	turnID             uuid.UUID
+	agentRunID         uuid.UUID
 	workerGenerationID string
 }
 

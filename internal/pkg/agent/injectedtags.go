@@ -6,6 +6,7 @@ import (
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
 const (
@@ -51,7 +52,7 @@ Handle this as the {{.Agent}} agent would.{{end}}
 	// messageSenderUser and messageSenderAgent are the from values of a
 	// message block.
 	messageSenderUser  = "user"
-	messageSenderAgent = "agent"
+	messageSenderAgent = session.AgentMessageSenderAgent
 	// rootAgentRunReference stands in for a run ID when the sender or
 	// recipient is the session's root conversation.
 	rootAgentRunReference = "root"

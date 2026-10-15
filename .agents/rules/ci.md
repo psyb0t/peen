@@ -8,7 +8,7 @@ Runs on pushes to `main`, `v*` tags, pull requests to `main`, a weekly schedule 
 
 | Job | When | What it runs |
 | --- | --- | --- |
-| `code` | every run except draft pull requests | `make lint`, `make test-coverage test-browser`, `make sec`, and `make generate`. It uploads `coverage-percent.txt` and the `sec.sarif` report. |
+| `code` | every run except draft pull requests | `make lint`, `make test-coverage test-browser test-execution-forms test-installer`, `make sec`, and `make generate`. It uploads `coverage-percent.txt` and the `sec.sarif` report. |
 | `docker` | pushes and ready pull requests, after `code` | Multi-arch `linux/amd64,linux/arm64` image build and scan, published to Docker Hub as `psyb0t/peen`. |
 | `badges` | the default branch and tags, after `code` | Coverage, version, license, and importer badges on the `badges` branch. |
 | `release` | tags, after `code` | The GitHub release. |

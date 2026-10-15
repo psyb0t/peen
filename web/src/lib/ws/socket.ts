@@ -4,6 +4,7 @@ import {
 	WEBSOCKET_MESSAGE_SEND,
 	WEBSOCKET_PATH,
 	WEBSOCKET_PROTOCOL,
+	WEBSOCKET_SESSION_PARAMETER,
 } from "$lib/common/constants";
 import { isRecord } from "$lib/common/json";
 
@@ -31,6 +32,8 @@ export interface PeenSocketOptions {
 export class PeenSocket {
 	private readonly options: PeenSocketOptions;
 	private socket: WebSocket | undefined;
+	private presence: WebSocket | undefined;
+	private watchedSessionID = "";
 
 	public constructor(options: PeenSocketOptions) {
 		this.options = options;
@@ -50,13 +53,14 @@ export class PeenSocket {
 		socket.addEventListener("open", () => {
 			if (this.socket === socket) {
 				logBrowserEvent("socket.open", { socket_state: "open" });
-				this.options.onState("open");
+				this.connectPresence();
 			}
 		});
 
 		socket.addEventListener("close", () => {
 			if (this.socket === socket) {
 				this.socket = undefined;
+				this.closePresence();
 				logBrowserEvent("socket.close", { socket_state: "closed" });
 				this.options.onState("closed");
 			}
@@ -94,8 +98,58 @@ export class PeenSocket {
 	}
 
 	public close(): void {
-		this.socket?.close();
+		const previous = this.socket;
 		this.socket = undefined;
+		this.closePresence();
+		previous?.close();
+	}
+
+	public watchSession(sessionID: string): void {
+		if (this.watchedSessionID === sessionID) {
+			return;
+		}
+
+		this.watchedSessionID = sessionID;
+		this.closePresence();
+		if (this.socket?.readyState === WebSocket.OPEN) {
+			this.connectPresence();
+		}
+	}
+
+	private closePresence(): void {
+		const previous = this.presence;
+		this.presence = undefined;
+		previous?.close();
+	}
+
+	private connectPresence(): void {
+		if (this.watchedSessionID === "") {
+			this.options.onState("open");
+			return;
+		}
+
+		this.options.onState("connecting");
+		const presence = new WebSocket(
+			webSocketURL(this.watchedSessionID),
+			webSocketProtocols(this.options.token),
+		);
+		this.presence = presence;
+		presence.addEventListener("open", () => {
+			if (this.presence === presence) {
+				this.options.onState("open");
+			}
+		});
+		presence.addEventListener("close", () => {
+			if (this.presence === presence) {
+				this.presence = undefined;
+				this.options.onState("closed");
+			}
+		});
+		presence.addEventListener("error", () => {
+			if (this.presence === presence) {
+				this.options.onError("The session WebSocket connection failed.");
+			}
+		});
 	}
 
 	/**
@@ -113,6 +167,13 @@ export class PeenSocket {
 	): string {
 		if (this.socket?.readyState !== WebSocket.OPEN) {
 			throw new Error("The WebSocket is not connected.");
+		}
+		if (
+			this.watchedSessionID !== "" &&
+			(this.watchedSessionID !== sessionID ||
+				this.presence?.readyState !== WebSocket.OPEN)
+		) {
+			throw new Error("The session WebSocket is not connected.");
 		}
 
 		const data: MessageSendData = { message };
@@ -144,12 +205,15 @@ export class PeenSocket {
 	}
 }
 
-export function webSocketURL(): string {
+export function webSocketURL(sessionID?: string): string {
 	const url = new URL(window.location.href);
 	url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
 	url.pathname = WEBSOCKET_PATH;
 	url.search = "";
 	url.hash = "";
+	if (sessionID !== undefined) {
+		url.searchParams.set(WEBSOCKET_SESSION_PARAMETER, sessionID);
+	}
 
 	return url.toString();
 }

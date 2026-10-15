@@ -65,7 +65,7 @@ func (j Jobs) List(
 				params.State = &state
 			}
 
-			return j.session.runtime.internal.ListSessionJobs(ctx,
+			return j.session.core().ListSessionJobs(ctx,
 				j.session.id, params)
 		})
 }
@@ -96,7 +96,7 @@ func (j Jobs) Output(
 				params.Stream = &stream
 			}
 
-			return j.session.runtime.internal.ReadSessionJobOutput(ctx,
+			return j.session.core().ReadSessionJobOutput(ctx,
 				j.session.id, id, params)
 		})
 }
@@ -114,7 +114,7 @@ func (j Jobs) Signal(
 
 	return sessionRead[JobSignalResponse](ctx, j.session,
 		func(ctx context.Context) (any, error) {
-			return j.session.runtime.internal.SignalSessionJob(ctx,
+			return j.session.core().SignalSessionJob(ctx,
 				j.session.id, id,
 				api.JobSignalRequest{
 					Signal: api.JobSignalRequestSignal(signal),
@@ -140,7 +140,7 @@ func (j Jobs) Signals(
 
 	return sessionRead[JobSignalRecordPage](ctx, j.session,
 		func(ctx context.Context) (any, error) {
-			return j.session.runtime.internal.ListSessionJobSignalRequests(ctx,
+			return j.session.core().ListSessionJobSignalRequests(ctx,
 				j.session.id, id, api.ListSessionJobSignalRequestsParams{
 					XSessionID: j.session.id, Limit: limit, Offset: offset,
 				})

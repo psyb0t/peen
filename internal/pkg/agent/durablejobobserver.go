@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
@@ -24,9 +25,15 @@ func (o durableJobObserver) JobStarted(
 		return ctxerrors.Wrap(commerr.ErrRequiredFieldNotSet, "job store")
 	}
 
+	var agentRunID *uuid.UUID
+	if snapshot.AgentRunID != uuid.Nil {
+		agentRunID = &snapshot.AgentRunID
+	}
+
 	_, err := o.store.CreateJob(ctx, snapshot.SessionID, session.CreateJobInput{
 		ID:                 snapshot.ID,
 		TurnID:             snapshot.TurnID,
+		AgentRunID:         agentRunID,
 		WorkerGenerationID: snapshot.WorkerGenerationID,
 		ToolCallID:         snapshot.ToolCallID,
 		PID:                int64(snapshot.PID),

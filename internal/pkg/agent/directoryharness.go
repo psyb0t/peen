@@ -60,6 +60,7 @@ type directoryScopeOptions struct {
 	runtime           *Runtime
 	deps              *launchAgentDeps
 	rootInput         *TurnRequest
+	rootAgent         string
 	childInstructions string
 	allowedTools      []string
 	depth             int
@@ -99,8 +100,13 @@ func newDirectoryScope(
 		results: make(map[string]string),
 	}
 
+	executor := options.deps.executor.ForAgentRun(uuid.Nil)
+	if options.agentRunID != nil {
+		executor = executor.ForAgentRun(*options.agentRunID)
+	}
+
 	current, err := scope.buildContext(
-		ctx, options.deps.executor, options.deps.snapshot, true,
+		ctx, executor, options.deps.snapshot, true,
 	)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "build initial directory scope")
@@ -200,7 +206,7 @@ func (s *directoryScope) toolSet(
 
 	allowed := s.options.allowedTools
 	if s.options.rootInput != nil {
-		definition, err := snapshot.Agent(r.rootAgent)
+		definition, err := snapshot.Agent(s.options.rootAgent)
 		if err != nil {
 			return nil, ctxerrors.Wrap(err, "resolve directory root agent")
 		}
@@ -296,7 +302,8 @@ func (s *directoryScope) systemPrompt(
 ) (string, error) {
 	r := s.options.runtime
 	if s.options.rootInput != nil {
-		return r.systemPrompt(snapshot, *s.options.rootInput, directory)
+		return r.systemPromptForAgent(snapshot, *s.options.rootInput,
+			directory, s.options.rootAgent)
 	}
 
 	return r.childSystemPrompt(snapshot, s.options.childInstructions, directory)
@@ -306,10 +313,16 @@ func (r *Runtime) rootDirectoryScope(
 	ctx context.Context,
 	prepared *preparedTurn,
 ) (*directoryScope, error) {
+	rootAgent := prepared.rootAgent
+	if rootAgent == "" {
+		rootAgent = r.rootAgent
+	}
+
 	return newDirectoryScope(ctx, directoryScopeOptions{
 		runtime:       r,
 		deps:          r.launchAgentDeps(prepared),
 		rootInput:     &prepared.input,
+		rootAgent:     rootAgent,
 		initialPrompt: prepared.prompt.SystemMessage(),
 		initialHooks:  prepared.toolHooks,
 		skills:        prepared.skillLedger,

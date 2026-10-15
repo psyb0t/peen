@@ -278,6 +278,9 @@ default. It bounds how long THIS CALL WAITS, never how long the command may
 run. A command still running when the bound elapses is left running and you get
 a jobId back, with running true. That is how you start builds, servers, and
 long test runs. Use background true to skip the wait entirely.
+Cancellation or a turn/tool deadline while this call is still waiting kills
+the foreground process group. A returned job handle has detached and keeps
+running after later turn cancellation.
 Follow a running job with readJobOutput, block on it with waitJob, and
 stop it with signalJob. Clean up what you no longer need.
 stdout and stderr come back separately with the exit status. A non-zero exit

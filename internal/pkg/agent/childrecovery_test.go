@@ -149,6 +149,20 @@ func recoveryFixture(t *testing.T) (runtimeFixture, *models.AgentRun, *elelemtes
 	return fixture, run, driver
 }
 
+func TestChildRecoveryLeavesWorkerRunsForWorkflowRecovery(t *testing.T) {
+	t.Parallel()
+	fixture, run, driver := recoveryFixture(t)
+	restarted := restartRecoveryFixtureWithOptions(t, fixture,
+		func(options *RuntimeOptions) {
+			options.WorkerGenerationID = uuid.New()
+		})
+	stored, err := fixture.store.GetAgentRun(t.Context(), run.SessionID, run.ID)
+	require.NoError(t, err)
+	assert.Equal(t, models.AgentRunStateInterrupted, stored.State)
+	assert.Empty(t, driver.Requests())
+	assert.Empty(t, restarted.recoveredSessions)
+}
+
 func restartRecoveryFixture(t *testing.T, fixture runtimeFixture) *Runtime {
 	t.Helper()
 

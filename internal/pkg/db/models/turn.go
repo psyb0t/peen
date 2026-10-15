@@ -23,6 +23,7 @@ type Turn struct {
 	// WorkerGenerationID names the worker process that ran this turn. It is
 	// empty for a turn recorded before worker generations existed.
 	WorkerGenerationID string
+	StopRevision       int64
 }
 
 // TableName pins the schema-owned turns table name.

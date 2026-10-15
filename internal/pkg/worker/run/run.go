@@ -13,6 +13,7 @@ package run
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -128,14 +129,12 @@ func Run(ctx context.Context, options Options) error {
 		return err
 	}
 
-	handler.attach(runtime, connection.Store())
+	if err := handler.attachWorkflows(ctx, runtime, connection,
+		document); err != nil {
+		return ctxerrors.Wrap(err, "attach native workflow runtime")
+	}
 
-	ctxscope.GetLogger(ctx).Info(
-		"session worker ready",
-		"workspace", connection.Ack.Workspace,
-	)
-
-	return serve(ctx, stop, handler, served)
+	return handler.serveSession(ctx, stop, served, connection.Ack.Workspace)
 }
 
 // serve waits for the controller to stop the worker or for the connection to
@@ -157,15 +156,17 @@ func serve(
 	case <-ctx.Done():
 	}
 
+	workflowErr := handler.stopNativeWorkflows()
 	handler.shutdownAgentRuns(ctx)
 
 	stop()
 
 	if err := <-served; err != nil {
-		return ctxerrors.Wrap(err, "serve the controller protocol")
+		return errors.Join(workflowErr,
+			ctxerrors.Wrap(err, "serve the controller protocol"))
 	}
 
-	return nil
+	return workflowErr
 }
 
 // readLaunchDocument takes the one launch document this worker was given.
@@ -312,8 +313,9 @@ func workerHookStateRoot(document worker.LaunchDocument) string {
 // the runtime once that exists. A command arriving before the runtime is ready
 // is refused rather than served against a half-built worker.
 type commandHandler struct {
-	runtime *agent.Runtime
-	store   *protocol.Store
+	runtime       *agent.Runtime
+	store         *protocol.Store
+	stopWorkflows func() error
 
 	// ready closes once the runtime exists. A worker registers before it can
 	// build that runtime, because building it reads durable state over the
@@ -402,17 +404,11 @@ func (h *commandHandler) HandleCommand(
 	case protocol.CommandRunTurn:
 		return h.runTurn(ctx, payload)
 	case protocol.CommandCancel:
-		sessionID := h.runtime.SessionID()
-		turnCancelled := h.store.RequestLocalCancellation(sessionID)
-		agentsCancelled := h.runtime.CancelAgentRuns(ctx, sessionID) > 0
-
-		return protocol.CancelResult{
-			CancelRequested: turnCancelled || agentsCancelled,
-		}, nil
+		return h.cancelTurn(ctx)
 	case protocol.CommandSignalJob:
 		return h.signalJob(ctx, payload)
 	case protocol.CommandCancelAgentRun:
-		return h.cancelAgentRun(payload)
+		return h.cancelAgentRun(ctx, payload)
 	case protocol.CommandShutdown:
 		// Answered above, before the runtime wait.
 		h.stop()
@@ -465,7 +461,10 @@ func (h *commandHandler) signalJob(
 
 // cancelAgentRun stops one running child agent of this worker's session. The
 // controller has already recorded the request durably.
-func (h *commandHandler) cancelAgentRun(payload json.RawMessage) (any, error) {
+func (h *commandHandler) cancelAgentRun(
+	ctx context.Context,
+	payload json.RawMessage,
+) (any, error) {
 	request := protocol.CancelAgentRun{}
 	if err := json.Unmarshal(payload, &request); err != nil {
 		return nil, ctxerrors.Wrap(
@@ -474,12 +473,13 @@ func (h *commandHandler) cancelAgentRun(payload json.RawMessage) (any, error) {
 		)
 	}
 
-	return protocol.CancelResult{
-		CancelRequested: h.runtime.CancelLocalAgentRun(
-			h.runtime.SessionID(),
-			request.AgentRunID,
-		),
-	}, nil
+	result, err := h.runtime.CancelSessionAgentRun(ctx, h.runtime.SessionID(),
+		request.AgentRunID)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "cancel worker child workflow")
+	}
+
+	return protocol.CancelResult{CancelRequested: result.CancelRequested}, nil
 }
 
 // runTurn runs one accepted user message to completion.
@@ -515,10 +515,11 @@ func turnMessage(
 	request protocol.RunTurn,
 ) agent.MessageRequest {
 	message := agent.MessageRequest{
-		SessionID:    &sessionID,
-		Message:      request.Message,
-		SystemPrompt: systemPrompt(request),
-		To:           request.To,
+		ExpectedStopRevision: request.ExpectedStopRevision,
+		SessionID:            &sessionID,
+		Message:              request.Message,
+		SystemPrompt:         systemPrompt(request),
+		To:                   request.To,
 	}
 
 	if request.Model != "" {

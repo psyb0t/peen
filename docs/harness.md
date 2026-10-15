@@ -59,6 +59,8 @@ Peen's embedded operating rules are always on and have no switch. Later `AGENTS.
 
 Peen resolves the whole harness at the start of every turn, on every `changeDirectory` call, and when it checks whether a session event should wake an idle session. There is no file watcher. Calling `changeDirectory` with `{"directory":"."}` reloads files edited during the turn.
 
+Crash restoration reuses the interrupted execution's saved harness, prompt and delivered skills. It does not replace retained instructions with files edited after the checkpoint. A new turn or a successful directory hop resolves current files as described above.
+
 The directory must exist. Relative targets resolve from the agent's current directory; host paths resolve through symlinks, while virtual workspaces stop at their filesystem root. A failed hop keeps the previous directory and harness. The next model call gets the new system prompt and tool catalogue with the conversation history intact. Earlier user messages, skill deliveries and tool-hook injections remain history. Lifecycle context appended to the old system prompt is replaced with that prompt.
 
 Use `changeDirectory` for persistent hops and call it alone in its tool round, before tools that depend on the target directory. A bundled hop returns an error without changing scope. `runCommand` starts in the current directory, but a shell's `cd` and a command's `directory` argument affect only that command. Root directory changes survive later turns, compaction and restarts. The session keeps its original workspace identity. A child inherits its parent's current directory and harness, then changes independently. Existing command jobs keep their launch directory.

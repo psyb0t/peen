@@ -33,6 +33,7 @@ const (
 // Call Close after the last operation to release its resources.
 // Runtime values must not be copied after construction.
 type Runtime struct {
+	workflows      *embeddedWorkflows
 	internal       *agent.Runtime
 	handle         *db.Handle
 	closeGate      chan struct{}
@@ -98,16 +99,7 @@ func New(options Options) (*Runtime, error) {
 		)
 	}
 
-	return &Runtime{
-		internal:       assembled.Runtime,
-		closeGate:      make(chan struct{}, 1),
-		handle:         assembled.Handle,
-		store:          assembled.Store,
-		options:        options,
-		temporaryState: configuration.temporaryState,
-		eventHub:       hub,
-		telemetry:      configuration.telemetry,
-	}, nil
+	return newEmbeddedRuntime(assembled, configuration, options, hub)
 }
 
 // Close drains work and releases SQLite. Once closing starts, new calls fail
@@ -122,7 +114,7 @@ func (r *Runtime) Close(ctx context.Context) error {
 	case r.closeGate <- struct{}{}:
 		defer func() { <-r.closeGate }()
 	case <-ctx.Done():
-		if err := r.internal.Shutdown(ctx); err != nil {
+		if err := r.shutdown(ctx); err != nil {
 			return ctxerrors.Wrap(err, "cancel closing runtime")
 		}
 
@@ -133,7 +125,7 @@ func (r *Runtime) Close(ctx context.Context) error {
 		return nil
 	}
 
-	if err := r.internal.Shutdown(ctx); err != nil {
+	if err := r.shutdown(ctx); err != nil {
 		return ctxerrors.Wrap(err, "shut down embedded runtime")
 	}
 
@@ -313,6 +305,10 @@ func (r *Runtime) Cancel(ctx context.Context) (CancelResult, error) {
 	defer finish()
 
 	response, err := r.internal.CancelSession(ctx, r.internal.SessionID())
+	if err == nil {
+		_, err = r.internal.PauseSessionWorkflows(ctx)
+	}
+
 	if err != nil {
 		return CancelResult{}, ctxerrors.Wrap(err, "cancel the active turn")
 	}

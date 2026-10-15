@@ -34,6 +34,7 @@ type Controller struct {
 	publisher    Publisher
 	sessionID    uuid.UUID
 	generationID uuid.UUID
+	workflows    *workflowController
 }
 
 // NewController binds one worker connection to its session.
@@ -73,6 +74,14 @@ func (c *Controller) HandleCall(
 	payload json.RawMessage,
 ) (any, error) {
 	ctx = c.agentRunMutationContext(ctx, Method(method))
+	if Method(method) == methodWorkflowBackend {
+		return c.handleWorkflowCall(ctx, payload)
+	}
+
+	if Method(method) == methodExecutionStore {
+		return c.handleExecutionCall(ctx, payload)
+	}
+
 	handlers := []func(
 		context.Context,
 		Method,

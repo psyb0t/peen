@@ -32,8 +32,11 @@ type AdmissionTicket struct {
 	sessionID uuid.UUID
 
 	// admitted is closed when the ticket reaches the front of its line.
-	admitted    chan struct{}
-	releaseOnce sync.Once
+	admitted      chan struct{}
+	stopped       chan struct{}
+	cancellations []context.CancelFunc
+	preparing     bool
+	releaseOnce   sync.Once
 }
 
 // NewAdmissionGate builds a gate with every session's line empty.
@@ -52,6 +55,7 @@ func (g *AdmissionGate) Reserve(sessionID uuid.UUID) *AdmissionTicket {
 		gate:      g,
 		sessionID: sessionID,
 		admitted:  make(chan struct{}),
+		stopped:   make(chan struct{}),
 	}
 
 	g.mutex.Lock()
@@ -94,9 +98,15 @@ func (t *AdmissionTicket) SessionID() uuid.UUID {
 // caller that stops waiting cancels ctx, which returns the context error; the
 // ticket still holds its place until it is released.
 func (t *AdmissionTicket) Wait(ctx context.Context) error {
+	if err := t.checkCancellation(ctx); err != nil {
+		return ctxerrors.Wrap(err, "wait to admit a session message")
+	}
+
 	select {
 	case <-t.admitted:
-		return nil
+		return t.checkCancellation(ctx)
+	case <-t.stopped:
+		return ctxerrors.Wrap(context.Canceled, "session admission stopped")
 	case <-ctx.Done():
 		return ctxerrors.Wrap(ctx.Err(), "wait to admit a session message")
 	}
@@ -115,6 +125,9 @@ func (g *AdmissionGate) leave(ticket *AdmissionTicket) {
 	defer g.mutex.Unlock()
 
 	line := g.lines[ticket.sessionID]
+
+	ticket.cancellations = nil
+	ticket.preparing = false
 
 	position := slices.Index(line, ticket)
 	if position < 0 {

@@ -314,25 +314,7 @@ func (s *Store) CreateAgentRunCompaction(
 		normalized.ID = s.newID()
 	}
 
-	compaction := &models.AgentRunCompaction{
-		ID:                     normalized.ID,
-		SessionID:              sessionID,
-		AgentRunID:             agentRunID,
-		FromMessageID:          normalized.FromMessageID,
-		ToMessageID:            normalized.ToMessageID,
-		FromSequence:           normalized.FromSequence,
-		ToSequence:             normalized.ToSequence,
-		DirectFromSequence:     normalized.DirectFromSequence,
-		DirectToSequence:       normalized.DirectToSequence,
-		Summary:                normalized.Summary,
-		SourceMessageCount:     normalized.SourceMessageCount,
-		InputTokenCount:        normalized.InputTokenCount,
-		SummaryTokenCount:      normalized.SummaryTokenCount,
-		ModelID:                normalized.ModelID,
-		PromptHash:             normalized.PromptHash,
-		CreatedAt:              s.now(),
-		SupersedesCompactionID: normalized.SupersedesCompactionID,
-	}
+	compaction := s.agentRunCompactionRecord(sessionID, agentRunID, normalized)
 
 	if err := s.query.Transaction(func(tx *repositories.Query) error {
 		if _, err := s.findAgentRunWithQuery(
@@ -361,6 +343,11 @@ func (s *Store) createAgentRunCompaction(
 	compaction *models.AgentRunCompaction,
 	input AgentRunCompactionInput,
 ) error {
+	if err := validateAgentRunCompactionHistory(ctx, query, compaction,
+		input); err != nil {
+		return ctxerrors.Wrap(err, "validate child compaction history")
+	}
+
 	if err := query.AgentRunCompaction.WithContext(ctx).
 		Create(compaction); err != nil {
 		return ctxerrors.Wrap(err, "create child compaction")
@@ -370,12 +357,14 @@ func (s *Store) createAgentRunCompaction(
 
 	assigned, err := message.WithContext(ctx).
 		Where(
+			message.SessionID.Eq(compaction.SessionID),
 			message.AgentRunID.Eq(compaction.AgentRunID),
 			message.Sequence.Between(
 				input.DirectFromSequence,
 				input.DirectToSequence,
 			),
 			message.CompactionID.IsNull(),
+			message.Incomplete.Is(false),
 		).
 		UpdateSimple(message.CompactionID.Value(compaction.ID))
 	if err != nil {

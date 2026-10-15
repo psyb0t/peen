@@ -100,6 +100,59 @@ describe("PeenSocket", () => {
 		expect(webSocketProtocols("  ")).toEqual(["peen.v1"]);
 	});
 
+	it("keeps a selected session present until the client closes", () => {
+		const states: string[] = [];
+		const socket = new PeenSocket({
+			onError: vi.fn(),
+			onEvent: vi.fn(),
+			onState: (state) => states.push(state),
+			token: secretToken,
+		});
+		socket.watchSession(sessionID);
+		socket.connect();
+		const global = TestWebSocket.instances[0];
+		global?.open();
+		const presence = TestWebSocket.instances[1];
+		expect(presence?.url).toContain(`sessionId=${sessionID}`);
+		expect(presence?.requestedProtocols).toEqual(global?.requestedProtocols);
+		expect(states.at(-1)).toBe("connecting");
+		expect(() => socket.send(sessionID, "wait for presence")).toThrow();
+		presence?.open();
+		expect(states.at(-1)).toBe("open");
+		socket.watchSession(sessionID);
+		expect(TestWebSocket.instances).toHaveLength(2);
+		socket.send(sessionID, "continue current work");
+		expect(global?.sent).toHaveLength(1);
+		expect(presence?.sent).toEqual([]);
+		socket.close();
+		expect(global?.readyState).toBe(3);
+		expect(presence?.readyState).toBe(3);
+	});
+
+	it("reconnects session presence without sending a continuation", () => {
+		const socket = new PeenSocket({
+			onError: vi.fn(),
+			onEvent: vi.fn(),
+			onState: vi.fn(),
+			token: "",
+		});
+		socket.connect();
+		TestWebSocket.instances[0]?.open();
+		socket.watchSession(sessionID);
+		const original = TestWebSocket.instances[1];
+		original?.open();
+		socket.watchSession(childAgentRunID);
+		expect(original?.readyState).toBe(3);
+		expect(TestWebSocket.instances[2]?.url).toContain(childAgentRunID);
+		TestWebSocket.instances[2]?.open();
+		socket.connect();
+		TestWebSocket.instances[3]?.open();
+		TestWebSocket.instances[4]?.open();
+		expect(TestWebSocket.instances[4]?.url).toContain(childAgentRunID);
+		expect(TestWebSocket.instances.every((item) => item.sent.length === 0)).toBe(true);
+		socket.close();
+	});
+
 	it("sends a routed message command and accepts a valid global event", () => {
 		const events: unknown[] = [];
 		const errors: string[] = [];

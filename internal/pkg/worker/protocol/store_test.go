@@ -8,10 +8,95 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestStoreAdmitsOpeningNoticesAtomicallyOverRPC(t *testing.T) {
+	t.Parallel()
+	fixture := newWorkflowRPCFixture(t)
+	remote := NewStore(fixture.remote.conn, fixture.sessionID,
+		fixture.controller.generationID)
+	ids := make([]uuid.UUID, 0, 2)
+	for range cap(ids) {
+		notice, err := remote.CreateSessionNotice(t.Context(), fixture.sessionID,
+			session.CreateSessionNoticeInput{
+				Type: "app.ready", Source: "example", Summary: "ready",
+				DataJSON: `{}`, Delivery: models.NoticeDeliveryQueue,
+			})
+		require.NoError(t, err)
+		ids = append(ids, notice.ID)
+	}
+	input := session.StartTurnInput{
+		RequestID: uuid.New(), Workspace: rpcExecutionWorkspace,
+		NoticeIDs: ids[:1],
+		Messages: []session.MessageInput{{
+			Role: models.MessageRoleUser, Content: "pending notice context",
+		}},
+	}
+	_, err := remote.AcquireTurn(t.Context(), uuid.New(), input)
+	require.ErrorIs(t, err, commerr.ErrPermissionDenied)
+	lease, err := remote.AcquireTurn(t.Context(), fixture.sessionID, input)
+	require.NoError(t, err)
+	t.Cleanup(func() { remote.ReleaseTurn(lease) })
+	page, err := remote.ListSessionNotices(t.Context(), fixture.sessionID,
+		session.ListSessionNoticesOptions{})
+	require.NoError(t, err)
+	require.Len(t, page.Items, len(ids))
+	assert.Equal(t, models.NoticeStateDelivered, page.Items[0].State)
+	assert.Equal(t, models.NoticeStatePending, page.Items[1].State)
+	assert.NotNil(t, page.Items[0].DeliveredAt)
+	assert.Nil(t, page.Items[1].DeliveredAt)
+}
+
+func TestStorePendingNoticePagesOverRPC(t *testing.T) {
+	t.Parallel()
+	fixture := newWorkflowRPCFixture(t)
+	remote := NewStore(fixture.remote.conn, fixture.sessionID,
+		fixture.controller.generationID)
+	create := func(count int) []uuid.UUID {
+		t.Helper()
+		ids := make([]uuid.UUID, 0, count)
+		for range count {
+			notice, err := remote.CreateSessionNotice(t.Context(), fixture.sessionID,
+				session.CreateSessionNoticeInput{
+					Type: "app.ready", Source: "example", Summary: "ready",
+					DataJSON: `{}`, Delivery: models.NoticeDeliveryQueue,
+				})
+			require.NoError(t, err)
+			ids = append(ids, notice.ID)
+		}
+
+		return ids
+	}
+	create(3)
+	_, err := remote.DrainSessionNotices(t.Context(), fixture.sessionID)
+	require.NoError(t, err)
+	pending := create(13)
+	got := make([]uuid.UUID, 0, len(pending))
+	for index, offset := range []int{0, 5, 10, 13, 100} {
+		page, err := remote.ListSessionNotices(t.Context(), fixture.sessionID,
+			session.ListSessionNoticesOptions{
+				State: models.NoticeStatePending, Limit: 5, Offset: offset,
+			})
+		require.NoError(t, err)
+		assert.Equal(t, index < 2, page.HasMore)
+		want := 0
+		if offset < len(pending) {
+			want = min(5, len(pending)-offset)
+		}
+		require.Len(t, page.Items, want)
+		for _, row := range page.Items {
+			assert.Equal(t, models.NoticeStatePending, row.State)
+			got = append(got, row.ID)
+		}
+	}
+	assert.Equal(t, pending, got)
+}
 
 // fakeController stands in for the control plane on the other end of a worker's
 // socket. It records what the worker actually put on the wire, which is the
@@ -572,4 +657,149 @@ func TestWorkerStoreTracksItsLeaseAndLocalCancellation(t *testing.T) {
 
 	// A session this worker never leased has no goroutine to reach.
 	assert.False(t, store.RequestLocalCancellation(uuid.New()))
+}
+
+func TestStoreWakeAdmissionSnapshotOverRPC(t *testing.T) {
+	t.Parallel()
+	fixture := newWorkflowRPCFixture(t)
+	remote := NewStore(fixture.remote.conn, fixture.sessionID,
+		fixture.controller.generationID)
+	notice, err := remote.CreateSessionNotice(t.Context(), fixture.sessionID,
+		session.CreateSessionNoticeInput{
+			Type: "app.ready", Source: "example",
+			Summary: "ready", DataJSON: `{}`, Delivery: models.NoticeDeliveryWake,
+		})
+	require.NoError(t, err)
+	input := session.StartTurnInput{
+		RequestID: uuid.New(),
+		Workspace: rpcExecutionWorkspace, WakeNoticeID: &notice.ID,
+	}
+	_, err = remote.AcquireTurn(t.Context(), fixture.sessionID, input)
+	require.ErrorIs(t, err, commerr.ErrConflict)
+	assert.False(t, remote.IsActive(fixture.sessionID))
+	page, err := remote.ListSessionNotices(t.Context(), fixture.sessionID,
+		session.ListSessionNoticesOptions{State: models.NoticeStatePending})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	input.NoticeIDs = []uuid.UUID{notice.ID}
+	lease, err := remote.AcquireTurn(t.Context(), fixture.sessionID, input)
+	require.NoError(t, err)
+	remote.ReleaseTurn(lease)
+	page, err = remote.ListSessionNotices(t.Context(), fixture.sessionID,
+		session.ListSessionNoticesOptions{State: models.NoticeStatePending})
+	require.NoError(t, err)
+	assert.Empty(t, page.Items)
+}
+
+func TestStoreRefusesPausedAgentWakeOverRPC(t *testing.T) {
+	t.Parallel()
+	fixture, remote, child := executionChildRPCFixture(t)
+	source, err := remote.RestoreExecutionTurn(t.Context(), fixture.sessionID,
+		child.RootExecutionID, session.RestoreExecutionTurnInput{
+			OwnerGenerationID:  fixture.controller.generationID,
+			WorkerGenerationID: fixture.controller.generationID,
+		})
+	require.NoError(t, err)
+	remote.ReleaseTurn(source)
+	_, err = remote.PauseExecution(t.Context(), fixture.sessionID, child.ID,
+		rpcPauseReason)
+	require.NoError(t, err)
+	data, err := json.Marshal(events.AgentNoticeData{RunID: *child.AgentRunID})
+	require.NoError(t, err)
+	notice, err := remote.CreateSessionNotice(t.Context(), fixture.sessionID,
+		session.CreateSessionNoticeInput{
+			Type:   events.TypeAgentQuestion,
+			Source: events.AgentSource, Summary: "child needs input",
+			DataJSON: string(data), Delivery: models.NoticeDeliveryWake,
+		})
+	require.NoError(t, err)
+	input := session.StartTurnInput{
+		RequestID: uuid.New(),
+		Workspace: rpcExecutionWorkspace, NoticeIDs: []uuid.UUID{notice.ID},
+		WakeNoticeID: &notice.ID,
+	}
+	_, err = remote.AcquireTurn(t.Context(), fixture.sessionID, input)
+	require.ErrorIs(t, err, commerr.ErrInvalidState)
+	assert.False(t, remote.IsActive(fixture.sessionID))
+	_, err = remote.ResumeExecution(t.Context(), fixture.sessionID, child.ID)
+	require.NoError(t, err)
+	admitted, err := remote.AcquireTurn(t.Context(), fixture.sessionID, input)
+	require.NoError(t, err)
+	remote.ReleaseTurn(admitted)
+}
+
+func TestStoreJobOwnerAndWakeOverRPC(t *testing.T) {
+	t.Parallel()
+	fixture, remote, child := executionChildRPCFixture(t)
+	input := session.CreateJobInput{
+		ID: uuid.New(), TurnID: child.RootTurnID,
+		AgentRunID: child.AgentRunID, PID: 1, Purpose: "inspect files",
+		Command: "printf example", Directory: rpcExecutionWorkspace,
+	}
+	job, err := remote.CreateJob(t.Context(), fixture.sessionID, input)
+	require.NoError(t, err)
+	assert.Equal(t, child.AgentRunID, job.AgentRunID)
+	stored, err := remote.GetJob(t.Context(), fixture.sessionID, job.ID)
+	require.NoError(t, err)
+	assert.Equal(t, child.AgentRunID, stored.AgentRunID)
+	source, err := remote.RestoreExecutionTurn(t.Context(), fixture.sessionID,
+		child.RootExecutionID, session.RestoreExecutionTurnInput{
+			OwnerGenerationID:  fixture.controller.generationID,
+			WorkerGenerationID: fixture.controller.generationID,
+		})
+	require.NoError(t, err)
+	remote.ReleaseTurn(source)
+	_, err = remote.PauseExecution(t.Context(), fixture.sessionID, child.ID,
+		rpcPauseReason)
+	require.NoError(t, err)
+	data, err := json.Marshal(events.JobNoticeData{JobID: job.ID})
+	require.NoError(t, err)
+	notice, err := remote.CreateSessionNotice(t.Context(), fixture.sessionID,
+		session.CreateSessionNoticeInput{
+			Type:   events.TypeJobExited,
+			Source: events.JobSource, Summary: "job completed", DataJSON: string(data),
+			Delivery: models.NoticeDeliveryWake,
+		})
+	require.NoError(t, err)
+	opening := session.StartTurnInput{
+		RequestID: uuid.New(),
+		Workspace: rpcExecutionWorkspace, NoticeIDs: []uuid.UUID{notice.ID},
+		WakeNoticeID: &notice.ID,
+	}
+	_, err = remote.AcquireTurn(t.Context(), fixture.sessionID, opening)
+	require.ErrorIs(t, err, commerr.ErrInvalidState)
+	assert.False(t, remote.IsActive(fixture.sessionID))
+	_, err = remote.CreateJob(t.Context(), uuid.New(), input)
+	require.ErrorIs(t, err, commerr.ErrPermissionDenied)
+	_, err = remote.ResumeExecution(t.Context(), fixture.sessionID, child.ID)
+	require.NoError(t, err)
+	admitted, err := remote.AcquireTurn(t.Context(), fixture.sessionID, opening)
+	require.NoError(t, err)
+	remote.ReleaseTurn(admitted)
+}
+
+func TestStoreStopRevisionRejectsLateOpeningOverRPC(t *testing.T) {
+	t.Parallel()
+	fixture := newWorkflowRPCFixture(t)
+	remote := NewStore(fixture.remote.conn, fixture.sessionID,
+		fixture.controller.generationID)
+	old, err := remote.Get(t.Context(), fixture.sessionID)
+	require.NoError(t, err)
+	stopped, err := remote.Cancel(t.Context(), fixture.sessionID)
+	require.NoError(t, err)
+	assert.False(t, stopped)
+	input := session.StartTurnInput{
+		RequestID: uuid.New(),
+		Workspace: rpcExecutionWorkspace, ExpectedStopRevision: &old.StopRevision,
+	}
+	_, err = remote.AcquireTurn(t.Context(), fixture.sessionID, input)
+	require.ErrorIs(t, err, commerr.ErrConflict)
+	assert.False(t, remote.IsActive(fixture.sessionID))
+	current, err := remote.Get(t.Context(), fixture.sessionID)
+	require.NoError(t, err)
+	assert.Equal(t, old.StopRevision+1, current.StopRevision)
+	input.ExpectedStopRevision = &current.StopRevision
+	lease, err := remote.AcquireTurn(t.Context(), fixture.sessionID, input)
+	require.NoError(t, err)
+	remote.ReleaseTurn(lease)
 }

@@ -16,20 +16,20 @@ import (
 // provider rejects on a LATER request rather than at the call site, so the
 // boundary has to be decided here rather than by whatever counts tokens.
 type reconstructionUnit struct {
-	FromMessageID uuid.UUID
-	ToMessageID   uuid.UUID
-	FromSequence  int64
-	ToSequence    int64
-	TurnID        uuid.UUID
+	FromMessageID uuid.UUID `json:"fromMessageId"`
+	ToMessageID   uuid.UUID `json:"toMessageId"`
+	FromSequence  int64     `json:"fromSequence"`
+	ToSequence    int64     `json:"toSequence"`
+	TurnID        uuid.UUID `json:"turnId"`
 
 	// MessageCount is how many assembled messages this unit contributes. The
 	// durable-to-Elelem conversion is one to one, so it is also how many rows
 	// the unit covers.
-	MessageCount int
+	MessageCount int `json:"messageCount"`
 
 	// Roles is what the assembled messages must still look like when the limit
 	// fires. It is a check, never a way to find a boundary.
-	Roles []elelem.Role
+	Roles []elelem.Role `json:"roles"`
 }
 
 // reconstructionPlan positions the durable units inside one assembled Elelem
@@ -43,14 +43,14 @@ type reconstructionPlan struct {
 	// LeadCount is the index of the first unit's first message: past the
 	// leading system message when there is one, and past the synthetic summary
 	// message when a compaction is already active.
-	LeadCount int
+	LeadCount int `json:"leadCount"`
 
 	// HasSummary reports whether the message directly before LeadCount is the
 	// synthetic prior-conversation summary. A later compaction replaces that
 	// message rather than adding a second one.
-	HasSummary bool
+	HasSummary bool `json:"hasSummary"`
 
-	Units []reconstructionUnit
+	Units []reconstructionUnit `json:"units"`
 }
 
 // buildReconstructionPlan groups completed history into whole units and

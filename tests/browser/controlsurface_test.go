@@ -94,7 +94,7 @@ const (
 	browserThinkingMessage               = "browser control surface thinking fixture"
 	browserThinkingCompletion            = "integration completion 1"
 	browserTestMessage                   = "browser control surface fixture message"
-	browserCompletionText                = "integration completion"
+	browserCompletionText                = "browser tool turn completed"
 	browserFixtureName                   = "browser-control-surface.md"
 	browserFixturePath                   = testinfra.ContainerWorkingDirectory + "/" + browserFixtureName
 	browserFixtureContent                = "before\n"

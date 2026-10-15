@@ -3,7 +3,9 @@
 package api_test
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -21,7 +23,8 @@ const (
 	jobToolsMessage         = "start a job and wait for it in several ways"
 	jobToolsFinalAnswer     = "the job tools were exercised"
 	jobToolsOutputLine      = "job tool output line"
-	jobToolsCommand         = "sleep 2; echo '" + jobToolsOutputLine + "'"
+	jobToolsCommand         = `read -r signal < "$RELEASE_PIPE"; echo '` + jobToolsOutputLine + `'`
+	jobToolsReleaseCommand  = `printf 'continue\n' > "$RELEASE_PIPE"`
 	jobToolsPurpose         = "api job tool fixture"
 	jobToolsShortWait       = "300ms"
 	jobToolsLongWait        = "1m"
@@ -66,6 +69,81 @@ type jobToolsResult struct {
 	Stdout     string `json:"stdout"`
 }
 
+func TestAPIStopKillsForegroundCommandAndItsChild(t *testing.T) {
+	const task = "stop this foreground process tree"
+	const command = `sleep 3600 & child=$!; printf '%s %s' "$$" "$child" > "$PID_PATH"; wait`
+	workspace := openFreshWorkspace(t, "foreground-stop-", nil)
+	connection := openSessionConnection(t, workspace.sessionID)
+	keepChildAgentConnectionReading(t, connection)
+	pidPath := "/tmp/foreground-" + uuid.NewString()
+	t.Cleanup(integrationInfra.DisableScriptedToolTurn)
+	integrationInfra.EnableScriptedToolTurn(testinfra.ScriptedToolTurn{
+		UserMessage: task, FinalAnswer: "must remain interrupted",
+		Calls: []testinfra.ScriptedToolCall{{
+			Name: "runCommand", Arguments: map[string]any{
+				"command": command, "purpose": task, "timeout": "1h",
+				"environment": map[string]string{"PID_PATH": pidPath},
+			},
+		}},
+	})
+	sendSessionMessage(t, connection, workspace.sessionID, task)
+	awaitFixtureCommand(t, "test", "-s", pidPath)
+	pids := strings.Fields(readContainerFile(t, pidPath))
+	require.Len(t, pids, 2)
+	for _, pid := range pids {
+		require.Zero(t, fixtureCommandExitCode(t, "kill", "-0", pid))
+	}
+	before := len(integrationInfra.ProviderRequests())
+	response := apiRequest(t, http.MethodPost, sessionCancelPath, nil,
+		withHeader(authenticatedHeaders(), headerSessionID,
+			workspace.sessionID.String()))
+	requireAPIStatus(t, response, http.StatusAccepted)
+	for _, pid := range pids {
+		// A zombie has exited but can still answer kill -0 until reaped.
+		awaitFixtureCommand(t, "/bin/bash", "-c", `
+if ! test -r "/proc/$1/stat"; then exit 0; fi
+read -r pid name state rest < "/proc/$1/stat"
+case "$state" in Z|X) exit 0;; *) exit 1;; esac
+`, "foreground-stop", pid)
+	}
+	require.Eventually(t, func() bool {
+		return !getSession(t, workspace.sessionID).ActiveTurn
+	}, requestTimeout, jobNoticePoll)
+	assert.Len(t, integrationInfra.ProviderRequests(), before)
+}
+
+func awaitFixtureCommand(t *testing.T, command ...string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), requestTimeout)
+	defer cancel()
+	ticker := time.NewTicker(jobNoticePoll)
+	defer ticker.Stop()
+	for {
+		code, reader, err := integrationInfra.App.Exec(ctx, command)
+		require.NoError(t, err)
+		_, err = io.Copy(io.Discard, reader)
+		require.NoError(t, err)
+		if code == 0 {
+			return
+		}
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			t.Fatalf("fixture command did not succeed: %v", command)
+		}
+	}
+}
+
+func fixtureCommandExitCode(t *testing.T, command ...string) int {
+	t.Helper()
+	code, reader, err := integrationInfra.App.Exec(t.Context(), command)
+	require.NoError(t, err)
+	_, err = io.Copy(io.Discard, reader)
+	require.NoError(t, err)
+
+	return code
+}
+
 // waitJob waits for a real job up to its timeout: a short timeout reports it
 // still running, a long one reports how it exited with its output. A timeout
 // that is not a Go duration, and the retired timeoutSeconds argument, are
@@ -73,6 +151,9 @@ type jobToolsResult struct {
 func TestAPIWaitJobHonorsItsTimeoutThroughTheWorker(t *testing.T) {
 	workspace := openFreshWorkspace(t, jobToolsWorkspacePrefix, nil)
 	connection := openSessionConnection(t, workspace.sessionID)
+	releasePipe := testinfra.ContainerWorkingDirectory + "/job-wait-" + uuid.NewString()
+	require.Zero(t, fixtureCommandExitCode(t, "mkfifo", releasePipe))
+	environment := map[string]string{"RELEASE_PIPE": releasePipe}
 
 	jobID := func(results []string) string {
 		started := jobToolsResult{}
@@ -88,9 +169,10 @@ func TestAPIWaitJobHonorsItsTimeoutThroughTheWorker(t *testing.T) {
 			{
 				Name: "runCommand",
 				Arguments: map[string]any{
-					"command":    jobToolsCommand,
-					"purpose":    jobToolsPurpose,
-					"background": true,
+					"command":     jobToolsCommand,
+					"purpose":     jobToolsPurpose,
+					"background":  true,
+					"environment": environment,
 				},
 			},
 			{
@@ -100,6 +182,14 @@ func TestAPIWaitJobHonorsItsTimeoutThroughTheWorker(t *testing.T) {
 						"jobId":   jobID(results),
 						"timeout": jobToolsShortWait,
 					}
+				},
+			},
+			{
+				Name: "runCommand",
+				Arguments: map[string]any{
+					"command":     jobToolsReleaseCommand,
+					"purpose":     jobToolsPurpose,
+					"environment": environment,
 				},
 			},
 			{
@@ -153,7 +243,7 @@ func TestAPIWaitJobHonorsItsTimeoutThroughTheWorker(t *testing.T) {
 	readFramesUntilTurnCompleted(t, connection)
 
 	tools := toolMessages(t, workspace.sessionID)
-	require.Len(t, tools, 7)
+	require.Len(t, tools, 8)
 
 	for index, tool := range tools {
 		assert.Equal(t, testinfra.ScriptedCallID(index), *tool.ToolCallId)
@@ -168,30 +258,33 @@ func TestAPIWaitJobHonorsItsTimeoutThroughTheWorker(t *testing.T) {
 	assert.Equal(t, jobToolsStateRunning, stillRunning.State)
 	assert.Equal(t, started.JobID, stillRunning.JobID)
 
-	finished := decodeJobToolsResult(t, tools[2])
+	require.False(t, toolFailed(tools[2]))
+	finished := decodeJobToolsResult(t, tools[3])
 	assert.True(t, finished.Found)
 	assert.False(t, finished.Running)
 	assert.Equal(t, jobToolsStateExited, finished.State)
 	require.NotNil(t, finished.ExitCode)
 	assert.Equal(t, 0, *finished.ExitCode)
 	assert.Contains(t, finished.Stdout, jobToolsOutputLine)
-	assert.GreaterOrEqual(t, finished.DurationMs, int64(1000))
+	shortBound, err := time.ParseDuration(jobToolsShortWait)
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, finished.DurationMs, shortBound.Milliseconds())
 
 	parsed, err := time.ParseDuration(finished.Duration)
 	require.NoError(t, err)
 	assert.Equal(t, time.Duration(finished.DurationMs)*time.Millisecond, parsed)
 
-	assert.True(t, toolFailed(tools[3]))
-	assert.Equal(t, jobToolsBadTimeoutError, tools[3].Content)
-
 	assert.True(t, toolFailed(tools[4]))
-	assert.Equal(t, jobToolsOldArgumentError, tools[4].Content)
+	assert.Equal(t, jobToolsBadTimeoutError, tools[4].Content)
 
 	assert.True(t, toolFailed(tools[5]))
-	assert.Equal(t, jobToolsBadTimeoutError, tools[5].Content)
+	assert.Equal(t, jobToolsOldArgumentError, tools[5].Content)
 
 	assert.True(t, toolFailed(tools[6]))
-	assert.Equal(t, jobToolsOldArgumentError, tools[6].Content)
+	assert.Equal(t, jobToolsBadTimeoutError, tools[6].Content)
+
+	assert.True(t, toolFailed(tools[7]))
+	assert.Equal(t, jobToolsOldArgumentError, tools[7].Content)
 }
 
 // A job that ends after its runCommand call returned publishes job.exited
@@ -331,8 +424,11 @@ func TestAPILaunchAgentRunsACoreAgentWithATaskSkill(t *testing.T) {
 	assert.NotContains(t, final[0].Content, variantTestAgentBody)
 
 	conversation := providerConversationText(final)
-	assert.Contains(t, conversation, `"type":"agent.finished"`)
-	assert.Contains(t, conversation, `"response":"`+agentToolsTextPrefix)
+	assert.Contains(t, conversation, `<message from="agent"`)
+	assert.Contains(t, conversation, `name="`+output.Name+`"`)
+	assert.Contains(t, conversation, `run="`+output.AgentRunID.String()+`"`)
+	assert.Contains(t, conversation, `kind="result">`)
+	assert.Contains(t, conversation, agentToolsTextPrefix)
 }
 
 // childAgentRequest returns the one request a child agent made, told apart by

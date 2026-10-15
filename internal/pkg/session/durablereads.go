@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"math"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
@@ -118,6 +119,14 @@ func (s *Store) ListEvents(
 	event := s.query.Event
 
 	query := event.WithContext(ctx).Where(event.SessionID.Eq(sessionID))
+	if options.TurnID != uuid.Nil {
+		query = query.Where(event.TurnID.Eq(options.TurnID))
+	}
+
+	if len(options.EventTypes) != 0 {
+		query = query.Where(event.EventType.In(options.EventTypes...))
+	}
+
 	if options.Order == PageOrderAscending {
 		query = query.Order(event.Sequence.Asc(), event.ID.Asc())
 	} else {
@@ -279,6 +288,10 @@ func listReadPage[T any](
 	items, err := find(page.offset, page.limit)
 	if err != nil {
 		return nil, false, ctxerrors.Wrap(err, listOperation)
+	}
+
+	if len(items) < page.limit || page.offset > math.MaxInt-page.limit {
+		return items, false, nil
 	}
 
 	probe, err := find(page.offset+page.limit, 1)

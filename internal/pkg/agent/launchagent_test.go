@@ -111,7 +111,7 @@ func newLaunchAgentFixture(
 		RootAgent:        runtimeTestAgentName,
 		DefaultModel:     runtimeTestModelReference,
 		DefaultWorkspace: workspace,
-		MaxContextTokens: 8192,
+		MaxContextTokens: runtimeTestMaxContextTokens,
 		TurnTimeout:      runtimeTestTurnTimeout,
 		Events:           eventBus,
 		AgentLimits:      options.AgentLimits,
@@ -889,6 +889,10 @@ func TestLaunchAgentAllowedToolsExcludeWritesButKeepMessaging(t *testing.T) {
 		toolNameWaitMessages,
 		toolNameStopAgent,
 		toolNameAsk,
+		toolNameSearchExecutions,
+		toolNameReadExecution,
+		toolNameResumeExecution,
+		toolNameResolveExecutionActivity,
 	} {
 		assert.Contains(t, childTools, messaging)
 	}

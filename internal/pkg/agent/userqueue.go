@@ -20,13 +20,18 @@ import (
 // active turn's durable transcript. Its mutex serializes acceptance against
 // turn completion and preserves user-message order among concurrent callers.
 type activeUserMessageQueue struct {
-	mutex     sync.Mutex
-	queue     *elelem.UserMessageQueue
-	turn      *runtimeTurn
-	workspace string
-	capacity  int
-	closed    bool
-	pending   []queuedUserMessage
+	mutex           sync.Mutex
+	queue           *elelem.UserMessageQueue
+	turn            *runtimeTurn
+	workspace       string
+	capacity        int
+	closed          bool
+	pending         []queuedUserMessage
+	executionID     uuid.UUID
+	workflowPending map[uuid.UUID]int
+	stopRevision    int64
+	retired         chan struct{}
+	retireOnce      sync.Once
 
 	// arrived is closed and replaced each time a message is queued, so the
 	// root's waitMessages and ask can block on whatever the current channel
@@ -79,6 +84,8 @@ func newActiveUserMessageQueue(
 		workspace:      prepared.workspace,
 		capacity:       capacity,
 		arrived:        make(chan struct{}),
+		retired:        make(chan struct{}),
+		stopRevision:   prepared.opened.Session.StopRevision,
 		snapshot:       prepared.snapshot,
 		skills:         prepared.skillLedger,
 		modelReference: prepared.modelReference,
@@ -133,6 +140,26 @@ func (q *activeUserMessageQueue) enqueue(
 	input TurnRequest,
 ) error {
 	q.mutex.Lock()
+	isWorkflow := q.executionID != uuid.Nil
+	q.mutex.Unlock()
+
+	if isWorkflow {
+		return q.enqueueWorkflowMessage(ctx, input)
+	}
+
+	return q.enqueueLegacyMessage(ctx, input)
+}
+
+func (q *activeUserMessageQueue) enqueueLegacyMessage(
+	ctx context.Context,
+	input TurnRequest,
+) error {
+	q.mutex.Lock()
+	if q.executionID != uuid.Nil {
+		q.mutex.Unlock()
+
+		return q.enqueueWorkflowMessage(ctx, input)
+	}
 	defer q.mutex.Unlock()
 
 	if q.closed {
@@ -176,6 +203,16 @@ func (q *activeUserMessageQueue) enqueue(
 	close(q.arrived)
 	q.arrived = make(chan struct{})
 
+	q.logLegacyQueuedMessage(ctx, input, len(skills))
+
+	return nil
+}
+
+func (q *activeUserMessageQueue) logLegacyQueuedMessage(
+	ctx context.Context,
+	input TurnRequest,
+	skillCount int,
+) {
 	loggerContext := ctxscope.Set(
 		ctx,
 		ctxscope.Attr("session_id", q.turn.lease.SessionID.String()),
@@ -183,11 +220,9 @@ func (q *activeUserMessageQueue) enqueue(
 	runtimecontext.Logger(loggerContext).Info(
 		"active turn user message queued",
 		"message_bytes", len(input.Message),
-		"skill_messages", len(skills),
+		"skill_messages", skillCount,
 		"queued_depth", q.queue.Len(),
 	)
-
-	return nil
 }
 
 // enqueueWithSkills queues a user message and its skill messages together.
@@ -245,6 +280,15 @@ func (q *activeUserMessageQueue) arrival() (int, <-chan struct{}) {
 	q.mutex.Lock()
 	defer q.mutex.Unlock()
 
+	if q.executionID != uuid.Nil {
+		count := 0
+		for _, slots := range q.workflowPending {
+			count += slots
+		}
+
+		return count, q.arrived
+	}
+
 	return q.queue.Len(), q.arrived
 }
 
@@ -260,6 +304,11 @@ func (q *activeUserMessageQueue) checkpointDelivered(
 	messages []elelem.Message,
 ) error {
 	q.mutex.Lock()
+	if q.executionID != uuid.Nil {
+		q.mutex.Unlock()
+
+		return nil
+	}
 
 	count := queuedUserMessageCountAtEnd(messages, q.pending)
 	if count == 0 {
@@ -435,6 +484,8 @@ func (r *Runtime) closeActiveUserMessageQueue(prepared *preparedTurn) {
 	if r.userMessageQueues[sessionID] == prepared.userMessages {
 		delete(r.userMessageQueues, sessionID)
 	}
+
+	prepared.userMessages.retire()
 }
 
 // queueActiveUserMessage accepts a plain caller message only when its target
@@ -449,14 +500,12 @@ func (r *Runtime) queueActiveUserMessage(
 	ctx context.Context,
 	input TurnRequest,
 ) (*TurnResult, bool, error) {
-	// The queue is keyed by the session the request targets, not by the
-	// runtime's own, because a control surface runs many sessions at once and
-	// a message may only join the queue of the turn it belongs to.
 	sessionID := r.turnSessionID(input)
 
-	r.userMessageQueuesMutex.Lock()
-	queue := r.userMessageQueues[sessionID]
-	r.userMessageQueuesMutex.Unlock()
+	queue, err := r.admitUserMessageQueue(ctx, sessionID, input)
+	if err != nil {
+		return nil, true, ctxerrors.Wrap(err, "admit active message queue")
+	}
 
 	if queue == nil {
 		return nil, false, nil

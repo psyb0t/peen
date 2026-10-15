@@ -31,6 +31,8 @@ import (
 	"github.com/moby/moby/client"
 	"github.com/moby/moby/client/pkg/jsonmessage"
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/ctxscope"
 	"github.com/testcontainers/testcontainers-go"
 )
 
@@ -70,6 +72,7 @@ exec /app/app run`
 	appReadyPath              = "/ready"
 	appRequestTimeout         = 30 * time.Second
 	appRestartTimeout         = 30 * time.Second
+	appCrashSignal            = "SIGKILL"
 	appRestartPollInterval    = 10 * time.Millisecond
 	appCoverageDirectory      = "/tmp/peen-coverage"
 	appCoverageBuildArgument  = "PEEN_ENABLE_COVERAGE"
@@ -348,12 +351,16 @@ func buildAppImage(
 	ctx context.Context,
 	request testcontainers.ContainerRequest,
 ) (string, error) {
+	logger := ctxscope.GetLogger(ctx)
+	logger.Info("integration image build context started")
+
 	buildContext, err := request.GetContext()
 	if err != nil {
 		return "", ctxerrors.Wrap(err, "create app image build context")
 	}
 
 	image := request.GetRepo() + ":" + request.GetTag()
+	logger.Info("integration image build started", "image", image)
 
 	dockerClient, err := newDockerClient()
 	if err != nil {
@@ -373,7 +380,7 @@ func buildAppImage(
 		)
 	}
 
-	buildErr := jsonmessage.DisplayStream(response.Body, io.Discard)
+	buildErr := jsonmessage.DisplayStream(response.Body, os.Stderr)
 	responseCloseErr := response.Body.Close()
 	buildContextCloseErr := closeAppImageBuildContext(buildContext)
 
@@ -594,6 +601,54 @@ func (i *Infra) Restart(ctx context.Context) error {
 	return i.waitForReady(ctx)
 }
 
+// CrashAndRestart kills this fixture's container without graceful cleanup,
+// then starts it with the same files and waits for HTTP readiness.
+func (i *Infra) CrashAndRestart(ctx context.Context) (resultErr error) {
+	if i == nil || i.App == nil {
+		return ctxerrors.Wrap(commerr.ErrInvalidState,
+			"application container is unavailable")
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, appRestartTimeout)
+	defer cancel()
+
+	dockerClient, err := newDockerClient()
+	if err != nil {
+		return ctxerrors.Wrap(err, "connect to fixture container daemon")
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, closeDockerClient(dockerClient))
+	}()
+
+	// App is the exact container Setup created for this test suite.
+	id := i.App.GetContainerID()
+	if _, err := dockerClient.ContainerKill(ctx, id,
+		client.ContainerKillOptions{Signal: appCrashSignal}); err != nil {
+		return ctxerrors.Wrap(err, "kill fixture application container")
+	}
+
+	wait := dockerClient.ContainerWait(ctx, id, client.ContainerWaitOptions{
+		Condition: container.WaitConditionNotRunning,
+	})
+	select {
+	case stopped := <-wait.Result:
+		if stopped.Error != nil {
+			return ctxerrors.Wrap(commerr.ErrInvalidState,
+				"fixture container exit reported an error")
+		}
+	case err := <-wait.Error:
+		return ctxerrors.Wrap(err, "wait for killed fixture container")
+	case <-ctx.Done():
+		return ctxerrors.Wrap(ctx.Err(), "wait for fixture container exit")
+	}
+
+	if err := i.App.Start(ctx); err != nil {
+		return ctxerrors.Wrap(err, "restart killed fixture container")
+	}
+
+	return i.waitForReady(ctx)
+}
+
 // WriteWorkspaceFile adds or replaces one relative fixture file below the
 // production container's configured default workspace.
 func (i *Infra) WriteWorkspaceFile(
@@ -786,8 +841,9 @@ func (i *Infra) HoldNextCompletion() (*CompletionHold, error) {
 // CompletionHold exposes the point where a provider completion has reached the
 // mock and a release operation for tests that need an active agent turn.
 type CompletionHold struct {
-	Observed <-chan struct{}
-	release  func()
+	Observed  <-chan struct{}
+	Cancelled <-chan struct{}
+	release   func()
 }
 
 // Release allows the held provider completion to emit its deterministic stream.
@@ -894,6 +950,7 @@ func (m *openAIModelsMock) currentScript() *ScriptedToolTurn {
 
 type completionHold struct {
 	observed    chan struct{}
+	cancelled   chan struct{}
 	release     chan struct{}
 	releaseOnce sync.Once
 }
@@ -1202,6 +1259,8 @@ func (m *openAIModelsMock) awaitCompletionRelease(ctx context.Context) bool {
 
 	select {
 	case <-ctx.Done():
+		close(hold.cancelled)
+
 		return false
 	case <-hold.release:
 		return true
@@ -1236,13 +1295,15 @@ func (m *openAIModelsMock) HoldNextCompletion() (*CompletionHold, error) {
 	}
 
 	hold := &completionHold{
-		observed: make(chan struct{}),
-		release:  make(chan struct{}),
+		observed:  make(chan struct{}),
+		cancelled: make(chan struct{}),
+		release:   make(chan struct{}),
 	}
 	m.nextHold = hold
 
 	return &CompletionHold{
-		Observed: hold.observed,
+		Observed:  hold.observed,
+		Cancelled: hold.cancelled,
 		release: func() {
 			hold.releaseOnce.Do(func() {
 				close(hold.release)
@@ -1427,15 +1488,16 @@ func appEnvironment(
 	}
 
 	return map[string]string{
-		"PEEN_CONFIG_DIR":             appConfigDirectory,
-		"PEEN_STATE_DIR":              appStateDirectory,
-		"PEEN_AGENT":                  appAgentName,
-		"PEEN_HTTP_LISTEN_ADDRESS":    listenAddress,
-		"PEEN_METRICS_LISTEN_ADDRESS": metricsListenAddress,
-		"PEEN_UPSTREAMS":              string(upstreams),
-		"PEEN_DEFAULT_MODEL":          providerModelReference,
-		"PEEN_API_TOKEN":              TestAPIToken,
-		ProviderKeyEnvName:            TestProviderKey,
+		"PEEN_MAX_CONCURRENT_AGENT_RUNS": "7",
+		"PEEN_CONFIG_DIR":                appConfigDirectory,
+		"PEEN_STATE_DIR":                 appStateDirectory,
+		"PEEN_AGENT":                     appAgentName,
+		"PEEN_HTTP_LISTEN_ADDRESS":       listenAddress,
+		"PEEN_METRICS_LISTEN_ADDRESS":    metricsListenAddress,
+		"PEEN_UPSTREAMS":                 string(upstreams),
+		"PEEN_DEFAULT_MODEL":             providerModelReference,
+		"PEEN_API_TOKEN":                 TestAPIToken,
+		ProviderKeyEnvName:               TestProviderKey,
 	}, nil
 }
 

@@ -17,9 +17,9 @@ on_error() {
 trap on_error ERR
 
 section "Running Tests"
-info "Running all tests..."
+info "Running all tests with race detection..."
 
-if ! go test -timeout="${test_timeout}" ./...; then
+if ! go test -race -count=1 -timeout="${test_timeout}" ./...; then
 	error "Tests failed"
 	exit 1
 fi

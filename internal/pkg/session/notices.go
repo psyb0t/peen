@@ -30,36 +30,42 @@ func (s *Store) CreateSessionNotice(
 	var result *models.SessionNotice
 
 	if err := s.query.Transaction(func(tx *repositories.Query) error {
-		if _, err := s.findSessionWithQuery(ctx, tx, sessionID); err != nil {
-			return err
-		}
-
-		notice := tx.SessionNotice
-
-		sequence, err := nextSessionNoticeSequence(ctx, tx, sessionID)
+		result, err = s.createSessionNoticeWithQuery(ctx, tx, sessionID, input)
 		if err != nil {
-			return ctxerrors.Wrap(err, "find latest session notice")
-		}
-
-		result = &models.SessionNotice{
-			ID:        input.ID,
-			SessionID: sessionID,
-			Sequence:  sequence,
-			Type:      input.Type,
-			Source:    input.Source,
-			Summary:   input.Summary,
-			DataJSON:  input.DataJSON,
-			Delivery:  input.Delivery,
-			State:     models.NoticeStatePending,
-			CreatedAt: input.CreatedAt,
-		}
-		if err := notice.WithContext(ctx).Create(result); err != nil {
-			return ctxerrors.Wrap(err, "create session notice")
+			return ctxerrors.Wrap(err, "save session notice")
 		}
 
 		return nil
 	}); err != nil {
 		return nil, ctxerrors.Wrap(err, "create durable session notice")
+	}
+
+	return result, nil
+}
+
+func (s *Store) createSessionNoticeWithQuery(
+	ctx context.Context,
+	query *repositories.Query,
+	sessionID uuid.UUID,
+	input CreateSessionNoticeInput,
+) (*models.SessionNotice, error) {
+	if _, err := s.findSessionWithQuery(ctx, query, sessionID); err != nil {
+		return nil, ctxerrors.Wrap(err, "find notice session")
+	}
+
+	sequence, err := nextSessionNoticeSequence(ctx, query, sessionID)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "find latest session notice")
+	}
+
+	result := &models.SessionNotice{
+		ID: input.ID, SessionID: sessionID, Sequence: sequence,
+		Type: input.Type, Source: input.Source, Summary: input.Summary,
+		DataJSON: input.DataJSON, Delivery: input.Delivery,
+		State: models.NoticeStatePending, CreatedAt: input.CreatedAt,
+	}
+	if err := query.SessionNotice.WithContext(ctx).Create(result); err != nil {
+		return nil, ctxerrors.Wrap(err, "create session notice")
 	}
 
 	return result, nil
@@ -110,15 +116,17 @@ func nextSessionNoticeSequence(
 	})
 }
 
-// ListSessionNotices returns all notice history, pending and delivered, in
-// durable sequence order.
-//
-//nolint:dupl // The generated SessionNotice query has a distinct typed builder.
+// ListSessionNotices returns owned notice history in durable sequence order.
+// ID and state filters narrow the history without marking notices delivered.
 func (s *Store) ListSessionNotices(
 	ctx context.Context,
 	sessionID uuid.UUID,
 	options ListSessionNoticesOptions,
 ) (*NoticePage, error) {
+	if err := validateSessionNoticeReadOptions(options); err != nil {
+		return nil, err
+	}
+
 	page, err := normalizeReadPage(options.Limit, options.Offset)
 	if err != nil {
 		return nil, err
@@ -133,6 +141,14 @@ func (s *Store) ListSessionNotices(
 		Where(notice.SessionID.Eq(sessionID)).
 		Order(notice.Sequence.Asc(), notice.ID.Asc())
 
+	if options.ID != nil {
+		query = query.Where(notice.ID.Eq(*options.ID))
+	}
+
+	if options.State != "" {
+		query = query.Where(notice.State.Eq(string(options.State)))
+	}
+
 	items, hasMore, err := listReadPage(
 		page,
 		func(offset, limit int) ([]*models.SessionNotice, error) {
@@ -143,6 +159,13 @@ func (s *Store) ListSessionNotices(
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	if options.ValidateWakeSource && len(items) != 0 {
+		err := s.validatePendingWakeNotice(ctx, sessionID, items[0])
+		if err != nil {
+			return nil, ctxerrors.Wrap(err, "validate retained wake source")
+		}
 	}
 
 	return &NoticePage{

@@ -7,6 +7,52 @@ import (
 
 type MessageQuerier interface {
 	/*
+		SELECT COUNT(*)
+		FROM @@table AS m
+		INNER JOIN turns ON turns.session_id = m.session_id
+		  AND turns.id = m.turn_id
+		WHERE m.session_id = @sessionID
+		  AND turns.state = 'completed'
+		  AND m.sequence >= @fromSequence
+		  AND m.sequence <= @toSequence
+	*/
+	CountCompletedHistoryRange(
+		sessionID uuid.UUID,
+		fromSequence, toSequence int64,
+	) (int64, error)
+
+	/*
+		SELECT m.*
+		FROM @@table AS m
+		INNER JOIN turns ON turns.session_id = m.session_id
+		  AND turns.id = m.turn_id
+		WHERE m.session_id = @sessionID
+		  AND turns.state = 'completed'
+		  AND m.sequence >= @fromSequence
+		  AND m.sequence <= @toSequence
+		ORDER BY m.sequence ASC, m.id ASC
+	*/
+	CompletedHistoryRange(
+		sessionID uuid.UUID,
+		fromSequence, toSequence int64,
+	) ([]*models.Message, error)
+
+	/*
+		SELECT COUNT(*)
+		FROM @@table AS m
+		INNER JOIN turns ON turns.session_id = m.session_id
+		  AND turns.id = m.turn_id
+		WHERE m.session_id = @sessionID
+		  AND turns.state = 'completed'
+		  AND m.sequence > @afterSequence
+		  AND m.sequence < @beforeSequence
+	*/
+	CountCompletedHistoryBefore(
+		sessionID uuid.UUID,
+		afterSequence, beforeSequence int64,
+	) (int64, error)
+
+	/*
 		SELECT result.workspace, result.sequence
 		FROM @@table AS result
 		WHERE result.session_id = @sessionID

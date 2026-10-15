@@ -11,6 +11,48 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestDirectoryWorkflowBindingDoesNotRepeatPreHook(t *testing.T) {
+	t.Parallel()
+	preHooks, handlers := 0, 0
+	tool := elelem.Tool{
+		Name: toolNameReadFile,
+		PreRun: func(context.Context, *elelem.ToolEvent) error {
+			preHooks++
+
+			return nil
+		},
+		Handler: func(context.Context, elelem.ToolInput) (elelem.ToolResult, error) {
+			handlers++
+
+			return elelem.ToolResult{Content: "read completed"}, nil
+		},
+	}
+	scope := &directoryScope{
+		current: &directoryContext{tools: elelem.NewToolSet(tool)},
+		calls:   map[string]directoryCall{},
+	}
+	event := &elelem.ToolEvent{CallID: runtimeToolCallID, Tool: tool}
+	require.NoError(t, scope.bindWorkflowTool(t.Context(), event))
+	_, err := scope.handleTool(t.Context(), elelem.ToolInput{
+		CallID: event.CallID,
+	})
+	require.NoError(t, err)
+	assert.Zero(t, preHooks)
+	assert.Equal(t, 1, handlers)
+	duplicate := &elelem.ToolEvent{CallID: event.CallID, Tool: tool}
+	require.ErrorIs(t, scope.bindWorkflowTool(t.Context(), duplicate),
+		commerr.ErrConflict)
+	scope.finishTool(event.CallID)
+	require.NoError(t, scope.beforeTool(t.Context(), event))
+	assert.Equal(t, 1, preHooks)
+	scope.finishTool(event.CallID)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	t.Cleanup(cancel)
+	release, err := scope.gate.acquire(ctx, true)
+	require.NoError(t, err)
+	release()
+}
+
 func TestDirectoryToolLifecycleFailuresReleaseTheGate(t *testing.T) {
 	t.Parallel()
 	testCases := []struct {

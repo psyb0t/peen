@@ -5,6 +5,7 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/psyb0t/peen/internal/pkg/metrics"
@@ -23,15 +24,22 @@ type Config struct {
 type Handle struct {
 	GormDB *gorm.DB
 	sqlDB  *sql.DB
+	// Workflows shares the handle's lifetime when runtime assembly opens it.
+	Workflows *WorkflowStorage
 }
 
 // Close releases the database resources held by the handle.
 func (h *Handle) Close() error {
-	if h == nil || h.sqlDB == nil {
+	if h == nil {
 		return nil
 	}
 
-	return closeSQLDB(h.sqlDB)
+	workflowErr := h.Workflows.Close()
+	if h.sqlDB == nil {
+		return workflowErr
+	}
+
+	return errors.Join(workflowErr, closeSQLDB(h.sqlDB))
 }
 
 // SQLDB exposes the infrastructure connection for migration and integrity

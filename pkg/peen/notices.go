@@ -31,6 +31,6 @@ func (s *Session) PublishEvent(
 				input.Delivery = &delivery
 			}
 
-			return s.runtime.internal.PublishSessionNotice(ctx, s.id, input)
+			return s.core().PublishSessionNotice(ctx, s.id, input)
 		})
 }

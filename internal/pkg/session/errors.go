@@ -7,6 +7,9 @@ import (
 )
 
 var (
+	// ErrExecutionInboxPending requires continuation before successful finish.
+	// Storage and transport return it joined with commerr.ErrConflict.
+	ErrExecutionInboxPending = errors.New("execution inbox has pending work")
 	// ErrSessionBusy reports a concurrent turn attempt for one session.
 	ErrSessionBusy = commerr.ErrLockHeld
 	// ErrInvalidPage reports invalid transcript pagination arguments.

@@ -221,6 +221,30 @@ func (p *preparedTurn) runLifecycleHook(
 	return nil
 }
 
+func sessionStartHookInput() map[string]bool {
+	return map[string]bool{"created": true}
+}
+
+func (r *Runtime) prepareOpeningHooks(ctx context.Context,
+	prepared *preparedTurn,
+) error {
+	if r.nativeWorkflowRunner() != nil {
+		return nil
+	}
+
+	if prepared.opened.Created {
+		if err := prepared.runLifecycleHook(ctx, r,
+			harness.HookEventSessionStart,
+			sessionStartHookInput()); err != nil {
+			return ctxerrors.Wrap(err, "run session-start hooks")
+		}
+	}
+
+	return prepared.runLifecycleHook(ctx, r,
+		harness.HookEventPostUserMessage,
+		userMessageHookInput(prepared.input, prepared.workspace))
+}
+
 func (h *toolHookRuntime) runLifecycle(
 	ctx context.Context,
 	event harness.HookEvent,

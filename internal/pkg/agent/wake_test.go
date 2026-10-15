@@ -454,9 +454,15 @@ func TestRunMessageRecordsTheTurnOrigin(t *testing.T) {
 	))
 
 	sessionID := openWakeSession(t, fixture)
-	origin := TurnOrigin{EventID: uuid.New(), EventType: wakeTestHandlerType}
+	notice, err := fixture.runtime.persistAndPublishNotice(t.Context(),
+		events.Notice{
+			SessionID: sessionID, Type: wakeTestHandlerType,
+			Source: "example", Summary: "ready", Delivery: events.DeliveryQueue,
+		})
+	require.NoError(t, err)
+	origin := TurnOrigin{EventID: notice.ID, EventType: wakeTestHandlerType}
 
-	_, err := fixture.runtime.RunMessage(
+	_, err = fixture.runtime.RunMessage(
 		context.Background(),
 		MessageRequest{
 			SessionID: &sessionID,

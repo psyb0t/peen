@@ -12,8 +12,10 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
+	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
+	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
 const (
@@ -23,7 +25,7 @@ const (
 	messageToolTimeout = 30 * 24 * time.Hour
 
 	agentMessageSummaryFormat  = "agent %q run %s sent a message"
-	agentQuestionSummaryFormat = "agent %q run %s asked a question"
+	agentQuestionSummaryFormat = events.AgentQuestionSummaryFormat
 )
 
 type sendMessageInput struct {
@@ -71,16 +73,9 @@ type askOutput struct {
 
 // agentNoticeData is the data of an agent.message or agent.question event a
 // child sends the root conversation.
-type agentNoticeData struct {
-	RunID     uuid.UUID `json:"runId"`
-	AgentName string    `json:"agentName"`
-	Message   string    `json:"message"`
-}
+type agentNoticeData = events.AgentNoticeData
 
-type agentQuestionPayload struct {
-	Question string `json:"question"`
-	CallID   string `json:"callId,omitempty"`
-}
+type agentQuestionPayload = events.AgentQuestionPayload
 
 type agentAnswerPayload struct {
 	Answered bool   `json:"answered"`
@@ -91,9 +86,8 @@ type agentAnswerPayload struct {
 // closes when the next one arrives.
 type messageArrival func() (int, <-chan struct{})
 
-// messageTools are the tools every conversation in a session uses to talk to
-// the others. They touch nothing in the workspace, so an agent's
-// allowed-tools never removes them.
+// messageTools supplies session communication and retained execution reads.
+// These tools do not touch the workspace, so allowed-tools preserves them.
 func messageTools(
 	deps *launchAgentDeps,
 	onPostRun elelem.MessageInjector,
@@ -133,6 +127,15 @@ func messageTools(
 			onPostRun,
 		),
 		ask,
+		hostTool(toolNameSearchExecutions, searchExecutionsDescription,
+			searchExecutionsSchema, deps.searchExecutions, onPostRun),
+		hostTool(toolNameReadExecution, readExecutionDescription,
+			readExecutionSchema, deps.readExecution, onPostRun),
+		hostTool(toolNameResumeExecution, resumeExecutionDescription,
+			resumeExecutionSchema, deps.resumeExecution, onPostRun),
+		hostTool(toolNameResolveExecutionActivity,
+			resolveExecutionActivityDescription, resolveExecutionActivitySchema,
+			deps.resolveExecutionActivity, onPostRun),
 	}
 }
 
@@ -210,6 +213,11 @@ func (d *launchAgentDeps) deliverToRun(
 		return err
 	}
 
+	if handled, err := d.runtime.deliverNativeChildMessage(ctx, d.sessionID,
+		runID, uuid.New(), text); handled {
+		return err
+	}
+
 	err = registry.Deliver(ctx, runID, text)
 	if err == nil {
 		return nil
@@ -227,6 +235,7 @@ func (d *launchAgentDeps) deliverToRun(
 func (r *Runtime) messageAgentRun(
 	ctx context.Context,
 	request MessageRequest,
+	requestID uuid.UUID,
 ) (*MessageRunResult, error) {
 	if err := validateAgentRunMessage(request); err != nil {
 		return nil, err
@@ -256,7 +265,12 @@ func (r *Runtime) messageAgentRun(
 		return nil, err
 	}
 
-	err = registry.Deliver(ctx, runID, text)
+	handled, err := r.deliverNativeChildMessage(ctx, sessionID, runID,
+		requestID, text)
+	if !handled {
+		err = registry.Deliver(ctx, runID, text)
+	}
+
 	if errors.Is(err, commerr.ErrNotFound) {
 		err = r.unreachableAgentRun(ctx, sessionID, runID)
 	}
@@ -409,26 +423,62 @@ func (d *launchAgentDeps) waitRootMessages(
 	}
 
 	bus := d.runtime.eventBus
-	if bus == nil {
-		return waitForMessages(
-			ctx,
-			timeout,
-			d.userMessages.arrival,
-			nil,
-			noNotices,
-		)
+
+	var notices <-chan events.Notice
+
+	pendingNotices := noNotices
+
+	if bus != nil {
+		stream, stop := bus.Subscribe(d.sessionID)
+		defer stop()
+
+		notices = stream
+		pendingNotices = func() int { return bus.Pending(d.sessionID) }
 	}
 
-	notices, stop := bus.Subscribe(d.sessionID)
-	defer stop()
+	pending, err := d.runtime.pendingSessionNoticeCount(ctx, d.sessionID)
+	if err != nil {
+		return waitMessagesOutput{}, ctxerrors.Wrap(err,
+			"read retained notices before waiting")
+	}
+
+	if pending > 0 {
+		unread, _ := d.userMessages.arrival()
+
+		return waitMessagesOutput{Waiting: unread + pending}, nil
+	}
 
 	return waitForMessages(
 		ctx,
 		timeout,
 		d.userMessages.arrival,
 		notices,
-		func() int { return bus.Pending(d.sessionID) },
+		pendingNotices,
 	)
+}
+
+func (r *Runtime) pendingSessionNoticeCount(
+	ctx context.Context,
+	sessionID uuid.UUID,
+) (int, error) {
+	options := session.ListSessionNoticesOptions{
+		State: models.NoticeStatePending,
+	}
+	count := 0
+
+	for {
+		page, err := r.store.ListSessionNotices(ctx, sessionID, options)
+		if err != nil {
+			return 0, ctxerrors.Wrap(err, "count pending session notices")
+		}
+
+		count += len(page.Items)
+		if !page.HasMore {
+			return count, nil
+		}
+
+		options.Offset += len(page.Items)
+	}
 }
 
 func noNotices() int {
@@ -455,8 +505,9 @@ func waitForMessages(
 ) (waitMessagesOutput, error) {
 	var expired <-chan time.Time
 
-	if timeout > 0 {
-		timer := time.NewTimer(timeout)
+	deadline := workflowPassiveWaitDeadline(ctx, timeout)
+	if !deadline.IsZero() {
+		timer := time.NewTimer(time.Until(deadline))
 		defer timer.Stop()
 
 		expired = timer.C
@@ -589,6 +640,11 @@ func (d *launchAgentDeps) askParent(
 		)
 	}
 
+	wait, isNativeQuestion := parentWorkflowQuestionWait(ctx)
+	if isNativeQuestion {
+		return waitForWorkflowParentAnswer(ctx, run, wait, question, timeout)
+	}
+
 	if err := run.inbox.sink.emit(
 		ctx,
 		EventTypeAgentRunQuestion,
@@ -600,7 +656,9 @@ func (d *launchAgentDeps) askParent(
 	}
 
 	if err := d.sendQuestion(ctx, run, question); err != nil {
-		d.recordAnswer(ctx, run, false)
+		if !isWorkflowToolInterrupted(ctx, err) {
+			d.recordAnswer(ctx, run, false)
+		}
 
 		return askOutput{}, err
 	}
@@ -612,12 +670,11 @@ func (d *launchAgentDeps) askParent(
 		nil,
 		noNotices,
 	)
-
-	d.recordAnswer(ctx, run, err == nil && !waited.TimedOut)
-
 	if err != nil {
-		return askOutput{}, err
+		return askOutput{}, ctxerrors.Wrap(err, "wait for parent answer")
 	}
+
+	d.recordAnswer(ctx, run, !waited.TimedOut)
 
 	return askOutput{Answered: !waited.TimedOut, TimedOut: waited.TimedOut}, nil
 }
@@ -684,6 +741,10 @@ func (d *launchAgentDeps) askUser(
 		return askOutput{}, errNoRootQueue()
 	}
 
+	if hasRootWorkflowQuestion(ctx) {
+		return d.waitRootWorkflowQuestion(ctx, question, timeout)
+	}
+
 	turn := d.userMessages.turn
 
 	if err := turn.emit(
@@ -701,22 +762,18 @@ func (d *launchAgentDeps) askUser(
 		nil,
 		noNotices,
 	)
+	if err != nil {
+		return askOutput{}, ctxerrors.Wrap(err, "wait for user answer")
+	}
 
-	answered := err == nil && !waited.TimedOut
+	answered := !waited.TimedOut
 
-	if emitErr := turn.emit(
+	if err := turn.emit(
 		context.WithoutCancel(ctx),
 		EventTypeQuestionAnswered,
 		agentAnswerPayload{Answered: answered},
-	); emitErr != nil {
-		err = errors.Join(
-			err,
-			ctxerrors.Wrap(emitErr, "record root answer"),
-		)
-	}
-
-	if err != nil {
-		return askOutput{}, err
+	); err != nil {
+		return askOutput{}, ctxerrors.Wrap(err, "record root answer")
 	}
 
 	return askOutput{Answered: answered, TimedOut: waited.TimedOut}, nil

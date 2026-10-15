@@ -102,6 +102,8 @@ type HelloAck struct {
 // carries the routing identity and the text, never a session the worker may
 // choose.
 type RunTurn struct {
+	ExpectedStopRevision *int64 `json:"expectedStopRevision,omitempty"`
+
 	RequestID       uuid.UUID `json:"requestId"`
 	Message         string    `json:"message"`
 	Model           string    `json:"model,omitempty"`

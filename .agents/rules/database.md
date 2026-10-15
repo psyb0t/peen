@@ -1,6 +1,8 @@
 # Database
 
-Peen stores everything in one SQLite file, `peen.db` under `PEEN_STATE_DIR`, through gorm with the pure-Go `github.com/glebarez/sqlite` driver. Only the controller opens it. Workers reach durable state through the controller.
+Peen stores session state in one SQLite file, `peen.db` under `PEEN_STATE_DIR`, through GORM's SQLite dialect configured to use the pure-Go `modernc.org/sqlite` driver. The dialect translates modernc constraint errors into GORM sentinels. Only the controller opens it. Workers reach durable state through the controller.
+
+Runtime assembly also opens `workflows.db` in the state directory for go-workflows. The library owns that file's schema and migrations; never mix them with Peen's session migrations. The controller lends generation-bound backends over authenticated worker RPC and closes workflow storage with the session handle. Worker code never opens the file.
 
 ## Layout
 

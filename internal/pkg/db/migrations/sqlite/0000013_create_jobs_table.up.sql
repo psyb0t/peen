@@ -13,8 +13,10 @@ CREATE TABLE jobs (
     started_at DATETIME NOT NULL,
     ended_at DATETIME,
     worker_generation_id TEXT NOT NULL DEFAULT '',
+    agent_run_id TEXT,
     FOREIGN KEY (session_id) REFERENCES sessions (id),
     FOREIGN KEY (session_id, turn_id) REFERENCES turns (session_id, id),
+    FOREIGN KEY (session_id, agent_run_id) REFERENCES agent_runs (session_id, id),
     UNIQUE (session_id, id)
 );
 

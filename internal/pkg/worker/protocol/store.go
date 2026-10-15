@@ -38,6 +38,7 @@ type Store struct {
 // activeTurn is one running turn and the cancellation that reaches it.
 type activeTurn struct {
 	turnID          uuid.UUID
+	leaseID         uuid.UUID
 	cancel          context.CancelFunc
 	cancelRequested bool
 }
@@ -169,9 +170,7 @@ func (s *Store) AcquireTurn(
 		return session.Lease{}, err
 	}
 
-	s.activeMutex.Lock()
-	s.active[lease.SessionID] = activeTurn{turnID: lease.TurnID}
-	s.activeMutex.Unlock()
+	s.rememberTurnLease(lease)
 
 	return lease, nil
 }
@@ -248,11 +247,13 @@ func (s *Store) dropLocalTurn(lease session.Lease) bool {
 	defer s.activeMutex.Unlock()
 
 	active, held := s.active[lease.SessionID]
-	if held && active.turnID == lease.TurnID {
-		delete(s.active, lease.SessionID)
+	if !held || active.turnID != lease.TurnID || active.leaseID != lease.ID {
+		return false
 	}
 
-	return held
+	delete(s.active, lease.SessionID)
+
+	return true
 }
 
 // RegisterCancellation attaches this process's cancellation to a live lease.
@@ -265,7 +266,7 @@ func (s *Store) RegisterCancellation(
 	s.activeMutex.Lock()
 
 	active, held := s.active[lease.SessionID]
-	if !held || active.turnID != lease.TurnID {
+	if !held || active.turnID != lease.TurnID || active.leaseID != lease.ID {
 		s.activeMutex.Unlock()
 
 		return

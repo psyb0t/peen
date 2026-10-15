@@ -12,6 +12,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
+	"github.com/psyb0t/peen/internal/pkg/db"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -54,6 +55,7 @@ type Listener struct {
 	registrar  Registrar
 	store      *session.Store
 	publisher  Publisher
+	workflows  *db.WorkflowStorage
 	net        net.Listener
 
 	mutex     sync.Mutex
@@ -69,6 +71,14 @@ type Worker struct {
 	GenerationID uuid.UUID
 }
 
+type ListenerOption func(*Listener)
+
+// WithWorkflowStorage lends controller storage to authenticated generations.
+// The listener never closes the storage.
+func WithWorkflowStorage(storage *db.WorkflowStorage) ListenerOption {
+	return func(listener *Listener) { listener.workflows = storage }
+}
+
 // Listen opens one session's private socket.
 //
 // A stale socket file from a controller that died is removed first, because a
@@ -82,6 +92,7 @@ func Listen(
 	registrar Registrar,
 	store *session.Store,
 	publisher Publisher,
+	options ...ListenerOption,
 ) (*Listener, error) {
 	if err := os.MkdirAll(
 		filepath.Dir(socketPath),
@@ -108,7 +119,7 @@ func Listen(
 		)
 	}
 
-	return &Listener{
+	listener := &Listener{
 		closed:     make(chan struct{}),
 		socketPath: socketPath,
 		sessionID:  sessionID,
@@ -116,7 +127,12 @@ func Listen(
 		store:      store,
 		publisher:  publisher,
 		net:        socket,
-	}, nil
+	}
+	for _, option := range options {
+		option(listener)
+	}
+
+	return listener, nil
 }
 
 // Path is the socket a worker launch document points at.
@@ -237,7 +253,7 @@ func (l *Listener) register(
 		return nil, nil, refusal
 	}
 
-	registered, err := l.accept(conn, hello, ack)
+	registered, err := l.accept(ctx, conn, hello, ack)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -249,10 +265,20 @@ func (l *Listener) register(
 
 // accept installs the per-session handler and confirms registration.
 func (l *Listener) accept(
+	ctx context.Context,
 	conn *Conn,
 	hello Hello,
 	ack HelloAck,
 ) (*Worker, error) {
+	controller := NewController(
+		l.store, l.publisher, hello.SessionID, hello.GenerationID,
+	)
+	if l.workflows != nil {
+		if err := controller.BindWorkflows(ctx, l.workflows); err != nil {
+			return nil, ctxerrors.Wrap(err, "bind registered workflow worker")
+		}
+	}
+
 	registered := &Worker{
 		conn:         conn,
 		SessionID:    hello.SessionID,
@@ -276,12 +302,7 @@ func (l *Listener) accept(
 	l.connected = registered
 	l.mutex.Unlock()
 
-	conn.handler = NewController(
-		l.store,
-		l.publisher,
-		hello.SessionID,
-		hello.GenerationID,
-	)
+	conn.handler = controller
 
 	payload, err := json.Marshal(ack)
 	if err != nil {

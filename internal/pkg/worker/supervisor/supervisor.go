@@ -15,6 +15,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
+	"github.com/psyb0t/peen/internal/pkg/db"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/worker"
 	"github.com/psyb0t/peen/internal/pkg/worker/protocol"
@@ -34,6 +35,7 @@ const (
 // Options builds a supervisor.
 type Options struct {
 	Store       *session.Store
+	Workflows   *db.WorkflowStorage
 	AgentSpaces *worker.AgentSpaceSet
 
 	// Launchers holds one launcher per kind. A kind with no launcher cannot
@@ -308,6 +310,7 @@ func (s *Supervisor) start(
 		s,
 		s.options.Store,
 		s.options.Publisher,
+		protocol.WithWorkflowStorage(s.options.Workflows),
 	)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "open the worker socket")

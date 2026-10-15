@@ -126,12 +126,13 @@ func (o compactionOptions) validate() error {
 // Elelem calls the limit hook serially within a run, so the state needs no
 // lock.
 type compactor struct {
-	options   compactionOptions
-	sessionID uuid.UUID
-	turnID    uuid.UUID
-	plan      reconstructionPlan
-	sink      compactionSink
-	active    *compactionHead
+	workflowInput *workflowRoundInput
+	options       compactionOptions
+	sessionID     uuid.UUID
+	turnID        uuid.UUID
+	plan          reconstructionPlan
+	sink          compactionSink
+	active        *compactionHead
 
 	// agentRunID marks compaction model work done for a child agent. Session
 	// and parent-turn attribution stay either way, so a compaction run remains
@@ -163,10 +164,10 @@ type planRefresher func(
 // shape both a session compaction and a child compaction share, so one
 // compactor serves either without knowing which table it writes.
 type compactionHead struct {
-	ID                 uuid.UUID
-	FromMessageID      uuid.UUID
-	FromSequence       int64
-	SourceMessageCount int64
+	ID                 uuid.UUID `json:"id"`
+	FromMessageID      uuid.UUID `json:"fromMessageId"`
+	FromSequence       int64     `json:"fromSequence"`
+	SourceMessageCount int64     `json:"sourceMessageCount"`
 }
 
 // compactionSink stores one committed summary in the durable record that owns
@@ -545,14 +546,12 @@ func (c *compactor) commit(
 	return nil
 }
 
-// persist stores the immutable row describing exactly which durable messages
-// the summary replaced.
-func (c *compactor) persist(
-	ctx context.Context,
+// compactionInput names the durable messages the summary replaces.
+func (c *compactor) compactionInput(
 	units int,
 	text string,
 	summary compactionSummary,
-) (*compactionHead, error) {
+) session.CompactionInput {
 	covered := c.plan.Units[:units]
 	first := covered[0]
 	last := covered[len(covered)-1]
@@ -581,6 +580,17 @@ func (c *compactor) persist(
 		input.SourceMessageCount += c.active.SourceMessageCount
 		input.SupersedesCompactionID = &c.active.ID
 	}
+
+	return input
+}
+
+func (c *compactor) persist(
+	ctx context.Context,
+	units int,
+	text string,
+	summary compactionSummary,
+) (*compactionHead, error) {
+	input := c.compactionInput(units, text, summary)
 
 	stored, err := c.sink.persist(ctx, input)
 	if err != nil {
@@ -744,6 +754,14 @@ func (c *compactor) newCompactionAudit(
 			err,
 			"marshal compaction model request settings",
 		)
+	}
+
+	if c.workflowInput != nil {
+		settings, err = rootWorkflowAuditSettings(ctx, settings,
+			*c.workflowInput, nil)
+		if err != nil {
+			return nil, ctxerrors.Wrap(err, "link compaction activity audit")
+		}
 	}
 
 	audit, err := newModelAuditRecorder(ctx, modelAuditOptions{

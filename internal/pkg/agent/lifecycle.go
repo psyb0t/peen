@@ -97,6 +97,10 @@ func (r *Runtime) Shutdown(ctx context.Context) error {
 		return ctxerrors.Wrap(ctx.Err(), "drain runtime operations")
 	}
 
+	if _, err := r.PauseSessionWorkflows(ctx); err != nil {
+		return ctxerrors.Wrap(err, "pause closing runtime workflows")
+	}
+
 	if err := r.ShutdownAgentRuns(ctx); err != nil {
 		return ctxerrors.Wrap(err, "stop runtime children")
 	}

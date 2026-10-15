@@ -110,33 +110,11 @@ func (s *Store) ClaimAgentRun(
 			)
 		}
 
-		repository := tx.AgentRun
-
-		updated, err := repository.WithContext(ctx).Where(
-			repository.ID.Eq(agentRunID),
-			repository.SessionID.Eq(sessionID),
-			repository.State.Eq(string(run.State)),
-			repository.WorkerGenerationID.Eq(run.WorkerGenerationID),
-			repository.CancelRequested.Is(false),
-		).UpdateSimple(
-			repository.State.Value(string(models.AgentRunStateRunning)),
-			repository.WorkerGenerationID.Value(input.GenerationID.String()),
-			repository.FailureClassification.Value(""),
-			repository.FailureDetail.Value(""),
-			repository.EndedAt.Null(),
-		)
-		if err != nil {
-			return ctxerrors.Wrap(err, "claim interrupted child")
+		if err := claimAgentRunWithQuery(ctx, tx, run,
+			input.GenerationID); err != nil {
+			return ctxerrors.Wrap(err, "claim recovered child ownership")
 		}
 
-		if updated.RowsAffected != 1 {
-			return ctxerrors.Wrap(commerr.ErrConflict, "child claim lost")
-		}
-
-		run.State = models.AgentRunStateRunning
-		run.WorkerGenerationID = input.GenerationID.String()
-		run.FailureClassification, run.FailureDetail = "", ""
-		run.EndedAt = nil
 		result = run
 
 		return nil
@@ -146,6 +124,43 @@ func (s *Store) ClaimAgentRun(
 	}
 
 	return result, nil
+}
+
+func claimAgentRunWithQuery(
+	ctx context.Context,
+	tx *repositories.Query,
+	run *models.AgentRun,
+	generationID uuid.UUID,
+) error {
+	repository := tx.AgentRun
+
+	updated, err := repository.WithContext(ctx).Where(
+		repository.ID.Eq(run.ID),
+		repository.SessionID.Eq(run.SessionID),
+		repository.State.Eq(string(run.State)),
+		repository.WorkerGenerationID.Eq(run.WorkerGenerationID),
+		repository.CancelRequested.Is(false),
+	).UpdateSimple(
+		repository.State.Value(string(models.AgentRunStateRunning)),
+		repository.WorkerGenerationID.Value(generationID.String()),
+		repository.FailureClassification.Value(""),
+		repository.FailureDetail.Value(""),
+		repository.EndedAt.Null(),
+	)
+	if err != nil {
+		return ctxerrors.Wrap(err, "claim interrupted child")
+	}
+
+	if updated.RowsAffected != 1 {
+		return ctxerrors.Wrap(commerr.ErrConflict, "child claim lost")
+	}
+
+	run.State = models.AgentRunStateRunning
+	run.WorkerGenerationID = generationID.String()
+	run.FailureClassification, run.FailureDetail = "", ""
+	run.EndedAt = nil
+
+	return nil
 }
 
 func recoverableAgentRun(run *models.AgentRun, generationID uuid.UUID) bool {

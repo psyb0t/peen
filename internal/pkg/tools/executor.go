@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -38,13 +39,15 @@ type Executor struct {
 
 	mutation *sync.Mutex
 
-	observedMutex sync.RWMutex
-	observed      map[string]observation
+	observedMutex       sync.RWMutex
+	observed            map[string]observation
+	observationRevision uint64
 }
 
 type observation struct {
-	hash    string
-	hasHash bool
+	hash     string
+	hasHash  bool
+	revision uint64
 }
 
 // NewExecutor validates the turn workspace and bounds. The workspace must be
@@ -196,6 +199,11 @@ func (e *Executor) record(path string, seen observation) {
 		return
 	}
 
+	if e.observationRevision < math.MaxUint64 {
+		e.observationRevision++
+	}
+
+	seen.revision = e.observationRevision
 	e.observed[key] = seen
 }
 

@@ -59,53 +59,58 @@ type OpenSessionResult struct {
 
 // StartTurnInput describes the durable beginning of an agent turn.
 type StartTurnInput struct {
-	RequestID          uuid.UUID
-	Workspace          string
-	Messages           []MessageInput
-	Events             []EventInput
-	WorkerGenerationID string `json:"workerGenerationId,omitempty"`
+	RequestID            uuid.UUID
+	Workspace            string
+	Messages             []MessageInput
+	Events               []EventInput
+	NoticeIDs            []uuid.UUID `json:"noticeIds,omitempty"`
+	ExpectedStopRevision *int64      `json:"expectedStopRevision,omitempty"`
+	// WakeNoticeID binds automatic admission to its retained opening notice.
+	WakeNoticeID       *uuid.UUID `json:"wakeNoticeId,omitempty"`
+	WorkerGenerationID string     `json:"workerGenerationId,omitempty"`
 }
 
-// Lease uniquely identifies one active turn in a session.
+// Lease identifies one holder even when the original turn ID is reused.
 type Lease struct {
-	SessionID uuid.UUID
-	TurnID    uuid.UUID
+	ID        uuid.UUID `json:"id"`
+	SessionID uuid.UUID `json:"sessionId"`
+	TurnID    uuid.UUID `json:"turnId"`
 }
 
 // MessageInput describes a durable transcript record.
 type MessageInput struct {
-	ID            uuid.UUID
-	Workspace     string
-	Role          models.MessageRole
-	Content       string
-	ModelID       string
-	Thinking      string
-	ToolCallsJSON string
-	ToolCallID    string
-	IsError       bool
-	Incomplete    bool
-	Injected      bool
-	InjectedKind  models.InjectedKind
+	ID            uuid.UUID           `json:"id"`
+	Workspace     string              `json:"workspace"`
+	Role          models.MessageRole  `json:"role"`
+	Content       string              `json:"content"`
+	ModelID       string              `json:"modelId"`
+	Thinking      string              `json:"thinking"`
+	ToolCallsJSON string              `json:"toolCallsJson"`
+	ToolCallID    string              `json:"toolCallId"`
+	IsError       bool                `json:"isError"`
+	Incomplete    bool                `json:"incomplete"`
+	Injected      bool                `json:"injected"`
+	InjectedKind  models.InjectedKind `json:"injectedKind"`
 }
 
 // EventInput describes one exact internal or protocol event.
 type EventInput struct {
-	ID                 uuid.UUID
-	RequestID          uuid.UUID
-	WorkerGenerationID string
-	EventType          string
-	PayloadJSON        string
-	ParentToolCallID   string
+	ID                 uuid.UUID `json:"id"`
+	RequestID          uuid.UUID `json:"requestId"`
+	WorkerGenerationID string    `json:"workerGenerationId"`
+	EventType          string    `json:"eventType"`
+	PayloadJSON        string    `json:"payloadJson"`
+	ParentToolCallID   string    `json:"parentToolCallId"`
 }
 
 // FinalizeTurnInput describes terminal turn state and durable references.
 type FinalizeTurnInput struct {
-	State                 models.TurnState
-	FailureClassification string
-	ContextSnapshotHash   *string
-	PromptSnapshotHash    *string
-	Messages              []MessageInput
-	Events                []EventInput
+	State                 models.TurnState `json:"state"`
+	FailureClassification string           `json:"failureClassification"`
+	ContextSnapshotHash   *string          `json:"contextSnapshotHash"`
+	PromptSnapshotHash    *string          `json:"promptSnapshotHash"`
+	Messages              []MessageInput   `json:"messages"`
+	Events                []EventInput     `json:"events"`
 }
 
 // PageOrder controls transcript pagination direction.
@@ -135,17 +140,17 @@ type MessagePage struct {
 // transcript. A successful directory result also checkpoints the run's
 // current workspace and system prompt in the same transaction.
 type AgentRunMessageInput struct {
-	ID            uuid.UUID
-	Role          models.MessageRole
-	Content       string
-	ModelID       string
-	Thinking      string
-	ToolCallsJSON string
-	ToolCallID    string
-	IsError       bool
-	Incomplete    bool
-	Directory     string `json:"directory,omitempty"`
-	SystemPrompt  string `json:"systemPrompt,omitempty"`
+	ID            uuid.UUID          `json:"id"`
+	Role          models.MessageRole `json:"role"`
+	Content       string             `json:"content"`
+	ModelID       string             `json:"modelId"`
+	Thinking      string             `json:"thinking"`
+	ToolCallsJSON string             `json:"toolCallsJson"`
+	ToolCallID    string             `json:"toolCallId"`
+	IsError       bool               `json:"isError"`
+	Incomplete    bool               `json:"incomplete"`
+	Directory     string             `json:"directory,omitempty"`
+	SystemPrompt  string             `json:"systemPrompt,omitempty"`
 }
 
 // ListAgentRunMessagesOptions bounds one child transcript page.
@@ -203,20 +208,20 @@ type AgentRunCompactionPage struct {
 
 // CompactionInput stores one immutable replacement summary.
 type CompactionInput struct {
-	ID                     uuid.UUID
-	FromMessageID          uuid.UUID
-	ToMessageID            uuid.UUID
-	FromSequence           int64
-	ToSequence             int64
-	DirectFromSequence     int64
-	DirectToSequence       int64
-	Summary                string
-	SourceMessageCount     int64
-	InputTokenCount        int64
-	SummaryTokenCount      int64
-	ModelID                string
-	PromptHash             string
-	SupersedesCompactionID *uuid.UUID
+	ID                     uuid.UUID  `json:"id"`
+	FromMessageID          uuid.UUID  `json:"fromMessageId"`
+	ToMessageID            uuid.UUID  `json:"toMessageId"`
+	FromSequence           int64      `json:"fromSequence"`
+	ToSequence             int64      `json:"toSequence"`
+	DirectFromSequence     int64      `json:"directFromSequence"`
+	DirectToSequence       int64      `json:"directToSequence"`
+	Summary                string     `json:"summary"`
+	SourceMessageCount     int64      `json:"sourceMessageCount"`
+	InputTokenCount        int64      `json:"inputTokenCount"`
+	SummaryTokenCount      int64      `json:"summaryTokenCount"`
+	ModelID                string     `json:"modelId"`
+	PromptHash             string     `json:"promptHash"`
+	SupersedesCompactionID *uuid.UUID `json:"supersedesCompactionId"`
 }
 
 // StartAgentRunInput describes the immutable child-agent launch record.
@@ -255,10 +260,10 @@ type FinalizeAgentRunInput struct {
 
 // AgentRunEventInput is one immutable child-agent event.
 type AgentRunEventInput struct {
-	ID          uuid.UUID
-	EventType   string
-	PayloadJSON string
-	CreatedAt   time.Time
+	ID          uuid.UUID `json:"id"`
+	EventType   string    `json:"eventType"`
+	PayloadJSON string    `json:"payloadJson"`
+	CreatedAt   time.Time `json:"createdAt"`
 }
 
 // ListAgentRunsOptions controls a bounded child-run page.
@@ -361,9 +366,11 @@ type WorkspaceSessionPage struct {
 
 // ListEventsOptions controls a bounded page of durable protocol events.
 type ListEventsOptions struct {
-	Limit  int
-	Offset int
-	Order  PageOrder
+	Limit      int
+	Offset     int
+	Order      PageOrder
+	TurnID     uuid.UUID `json:"turnId,omitempty"`
+	EventTypes []string  `json:"eventTypes,omitempty"`
 }
 
 // EventPage is one complete session-local protocol event page.
@@ -402,8 +409,11 @@ type CreateSessionNoticeInput struct {
 
 // ListSessionNoticesOptions controls a bounded page of notice history.
 type ListSessionNoticesOptions struct {
-	Limit  int
-	Offset int
+	ValidateWakeSource bool `json:"validateWakeSource,omitempty"`
+	Limit              int
+	Offset             int
+	ID                 *uuid.UUID         `json:"id,omitempty"`
+	State              models.NoticeState `json:"state,omitempty"`
 }
 
 // NoticePage is one complete session-local notice page.
@@ -418,6 +428,7 @@ type NoticePage struct {
 type CreateJobInput struct {
 	ID                 uuid.UUID
 	TurnID             uuid.UUID
+	AgentRunID         *uuid.UUID
 	WorkerGenerationID string
 	ToolCallID         string
 	PID                int64
@@ -611,6 +622,7 @@ type History struct {
 }
 
 type activeTurn struct {
+	leaseID         uuid.UUID
 	turnID          uuid.UUID
 	cancel          context.CancelFunc
 	cancelRequested bool

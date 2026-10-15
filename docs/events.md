@@ -52,6 +52,8 @@ Event types are lowercase dotted names of 1 to 8 parts, up to 128 characters. Ea
 
 Jobs belong to the session, not the turn. The agent can check them later with `listJobs`, `readJobOutput`, `waitJob`, and `signalJob`, and every output line is stored in SQLite. When a background job ends, Peen publishes a `job.*` event, so the agent learns the result at its next tool boundary or next turn without polling. A command that finishes inside its own `runCommand` call publishes no event, because the tool result already reports it. On shutdown Peen stops every job, so none outlives the process. The API exposes jobs under `GET /v1/session/jobs`.
 
+Cancelling an active foreground `runCommand` kills its process group and records the signal without publishing it as a detached completion. A command whose job handle already returned keeps its detached behavior. Its eventual event still cannot wake a paused or cancelled source turn or subtree.
+
 ## How the model receives events
 
 Events with `delivery: queue` wait in the session until one of two points:
@@ -87,6 +89,8 @@ A new event starts a turn right away only when all of these hold:
 When any of them fails, the event stays queued and is delivered at the next turn or tool boundary instead. Without a handler an event never starts a turn, whatever its `delivery` says.
 
 The `agent.*` events from a child are the exception. A child of the root reports to an idle root without any handler file, because the root launched it to hear back. Peen publishes `agent.finished`, `agent.failed`, `agent.message`, and `agent.question` with `delivery: wake`, except `agent.failed` for a cancelled child, which queues, so cancelling a session does not wake it again. With no handler for the type, the woken turn starts with this built-in handler body: "A child agent you launched reported back. Read its event in this turn and continue the work it belongs to." A handler file for the type replaces it, and a handler with `delivery: queue` stops that type from waking the root. The wake cap applies as usual.
+
+Before admitting an automatic turn, Peen checks that its source notice is still pending in the turn's opening batch. A child event or process job completion cannot start a turn while its source run, source turn or any ancestor remains cancelled or paused, even when a handler requests `wake`. Job events use the stored job owner. The notice stays queued. Completion or failure alone does not block a report. Unrelated user work can still start and read queued notices without resuming the stopped tree.
 
 `PEEN_MAX_EVENT_WAKES_PER_HOUR=0` removes the cap. Peen keeps the count in memory, per process, so it starts over when Peen restarts.
 

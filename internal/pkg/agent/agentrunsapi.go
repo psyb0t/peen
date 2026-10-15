@@ -224,7 +224,12 @@ func (r *Runtime) CancelSessionAgentRun(
 		)
 	}
 
-	if requested {
+	if native := r.nativeWorkflowRunner(); native != nil &&
+		run.State == models.AgentRunStateCancelled {
+		if err := native.cancelChildTree(ctx, run); err != nil {
+			return nil, ctxerrors.Wrap(err, "interrupt cancelled child work")
+		}
+	} else if requested {
 		r.agentRunsMutex.Lock()
 		registry := r.agentRuns[sessionID]
 		r.agentRunsMutex.Unlock()

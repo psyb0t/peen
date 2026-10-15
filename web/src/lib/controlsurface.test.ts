@@ -158,6 +158,17 @@ async function connectAndOpenChat(): Promise<TestWebSocket | undefined> {
 	transport?.open();
 	await fireEvent.click(screen.getByRole("button", { name: "Open chat" }));
 	await screen.findByRole("heading", { name: "catalog" });
+	await waitFor(() => {
+		expect(TestWebSocket.instances).toHaveLength(2);
+	});
+	const presence = TestWebSocket.instances[1];
+	expect(presence?._url).toContain(`sessionId=${session.id}`);
+	presence?.open();
+	await waitFor(() => {
+		expect(
+			screen.getByRole<HTMLButtonElement>("button", { name: "Send" }).disabled,
+		).toBe(false);
+	});
 
 	return transport;
 }

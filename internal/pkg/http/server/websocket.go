@@ -80,6 +80,11 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 
+	if hasSessionFilter {
+		w = s.trackWebSocketPresence(context.WithoutCancel(r.Context()),
+			w, filteredClientID, filterSessionID)
+	}
+
 	s.webSocketUpgradeHandler.ServeHTTP(w, request)
 
 	if hasSessionFilter &&

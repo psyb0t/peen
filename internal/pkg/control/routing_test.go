@@ -146,8 +146,8 @@ func (w *routedWorker) runTurn(
 	store := w.connection.Store()
 
 	lease, err := store.AcquireTurn(ctx, w.sessionID, session.StartTurnInput{
-		RequestID: request.RequestID,
-		Workspace: w.workspace,
+		RequestID: request.RequestID, Workspace: w.workspace,
+		ExpectedStopRevision: request.ExpectedStopRevision,
 	})
 	if err != nil {
 		return nil, err

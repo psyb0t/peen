@@ -26,6 +26,7 @@ type agentInbox struct {
 	sink     *agentRunSink
 	capacity int
 	closed   bool
+	workflow *workflowChildInbox
 
 	// pending holds every accepted message that has not yet been recorded as
 	// delivered, oldest first.
@@ -67,6 +68,10 @@ func (i *agentInbox) deliver(ctx context.Context, text string) error {
 		return ctxerrors.Wrap(errAgentRunFinished(), "deliver agent message")
 	}
 
+	if i.workflow != nil {
+		return i.workflow.deliverText(ctx, text, i.capacity)
+	}
+
 	if i.queue.Len() >= i.capacity {
 		return ctxerrors.Wrap(
 			errors.Join(commerr.ErrConflict, elelem.ErrUserMessageQueueFull),
@@ -106,6 +111,11 @@ func (i *agentInbox) checkpointDelivered(
 ) error {
 	i.mutex.Lock()
 	defer i.mutex.Unlock()
+
+	if i.workflow != nil {
+		return ctxerrors.Wrap(commerr.ErrInvalidState,
+			"native child delivery belongs to the model activity")
+	}
 
 	count := deliveredInboxCount(messages, i.pending)
 	if count == 0 {
@@ -172,6 +182,10 @@ func (i *agentInbox) arrival() (int, <-chan struct{}) {
 	i.mutex.Lock()
 	defer i.mutex.Unlock()
 
+	if i.workflow != nil {
+		return i.workflow.arrival()
+	}
+
 	return i.queue.Len(), i.arrived
 }
 
@@ -182,6 +196,12 @@ func (i *agentInbox) close() []string {
 	defer i.mutex.Unlock()
 
 	i.closed = true
+
+	if i.workflow != nil {
+		i.workflow.close()
+
+		return nil
+	}
 
 	unread := i.queue.Len()
 	if unread == 0 {

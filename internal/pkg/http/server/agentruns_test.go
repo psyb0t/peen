@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/aichteeteapee"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -165,29 +166,56 @@ func TestServerSessionAgentRunEndpoints(t *testing.T) {
 // A child agent runs in its session's worker, so a cancel has to reach that
 // worker. The durable request alone never stopped it.
 func TestServerCancelSessionAgentRunReachesTheWorker(t *testing.T) {
-	sessionID := uuid.New()
-	runID := uuid.New()
-	router := &testTurnRouter{cancelRouted: true}
-
-	instance, err := newTestServer(Dependencies{
-		Runtime: &testRuntime{sessionID: sessionID},
-		Turns:   router,
-	})
-	require.NoError(t, err)
-
-	request := httptest.NewRequestWithContext(
-		t.Context(),
-		http.MethodPost,
-		agentRunCancelPath(runID),
-		nil,
-	)
-	request.Header.Set(headerSessionID, sessionID.String())
-
-	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(recorder, request)
-
-	assert.Equal(t, http.StatusAccepted, recorder.Code)
-	assert.Equal(t, []uuid.UUID{runID}, router.cancelledAgentRuns)
+	t.Parallel()
+	testCases := []struct {
+		name      string
+		state     api.AgentRunCancelResponseState
+		requested bool
+		forwarded bool
+	}{
+		{
+			name: "running", state: api.AgentRunCancelResponseStateRunning,
+			requested: true, forwarded: true,
+		},
+		{
+			name: "durably cancelled", state: api.AgentRunCancelResponseStateCancelled,
+			requested: true, forwarded: true,
+		},
+		{
+			name: "retry lost command", state: api.AgentRunCancelResponseStateCancelled,
+			forwarded: true,
+		},
+		{name: "completed", state: api.AgentRunCancelResponseStateCompleted},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			sessionID, runID := uuid.New(), uuid.New()
+			router := &testTurnRouter{cancelRouted: true}
+			instance, err := newTestServer(Dependencies{
+				Runtime: &testRuntime{
+					sessionID: sessionID,
+					agentRunCancelResponse: &api.AgentRunCancelResponse{
+						AgentRunId: runID, State: tc.state,
+						CancelRequested: tc.requested,
+					},
+				},
+				Turns: router,
+			})
+			require.NoError(t, err)
+			request := httptest.NewRequestWithContext(t.Context(),
+				http.MethodPost, agentRunCancelPath(runID), nil)
+			request.Header.Set(headerSessionID, sessionID.String())
+			recorder := httptest.NewRecorder()
+			instance.testHandler.ServeHTTP(recorder, request)
+			assert.Equal(t, http.StatusAccepted, recorder.Code)
+			if tc.forwarded {
+				assert.Equal(t, []uuid.UUID{runID}, router.cancelledAgentRuns)
+			} else {
+				assert.Empty(t, router.cancelledAgentRuns)
+			}
+		})
+	}
 }
 
 // Cancelling a child agent stops real work, so these routes must sit behind

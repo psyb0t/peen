@@ -3,19 +3,25 @@ package db
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	workflowsqlite "github.com/cschleiden/go-workflows/backend/sqlite"
 	"github.com/google/uuid"
 	commonsqlite "github.com/psyb0t/common-go/db/sqlite"
+	sqlitegorm "github.com/psyb0t/common-go/db/sqlite/gorm"
+	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db/migrations"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 func TestOpenUsesPrivateFilesystemState(t *testing.T) {
@@ -218,4 +224,111 @@ func TestOpenRebuildsDirectCompactionLinksAfterUpgrade(t *testing.T) {
 	assert.Equal(t, firstCompactionID, *messages[0].CompactionID)
 	assert.Equal(t, secondCompactionID, *messages[1].CompactionID)
 	assert.Nil(t, messages[2].CompactionID)
+}
+
+func TestSQLiteCoexistsWithNativeWorkflowBackend(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	handle, err := Open(ctx, Config{Directory: t.TempDir()})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, handle.Close()) })
+
+	storage := workflowsqlite.NewSqliteBackend(
+		filepath.Join(t.TempDir(), "workflows.db"),
+	)
+	t.Cleanup(func() { require.NoError(t, storage.Close()) })
+
+	require.NoError(t, handle.SQLDB().PingContext(ctx))
+}
+
+func TestSQLiteDialectorTranslatesNativeConstraints(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name    string
+		query   string
+		wantErr error
+	}{
+		{
+			name:    "primary key",
+			query:   "INSERT INTO parents VALUES (1, 'second')",
+			wantErr: gorm.ErrDuplicatedKey,
+		},
+		{
+			name:    "unique index",
+			query:   "INSERT INTO parents VALUES (2, 'first')",
+			wantErr: gorm.ErrDuplicatedKey,
+		},
+		{
+			name:    "foreign key",
+			query:   "INSERT INTO children VALUES (2)",
+			wantErr: gorm.ErrForeignKeyViolated,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			connection, err := sql.Open(sqliteDriverName, ":memory:")
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, connection.Close()) })
+			connection.SetMaxOpenConns(1)
+			_, err = connection.ExecContext(t.Context(), `
+PRAGMA foreign_keys = ON;
+CREATE TABLE parents (id INTEGER PRIMARY KEY, name TEXT UNIQUE);
+CREATE TABLE children (parent_id INTEGER REFERENCES parents(id));
+INSERT INTO parents VALUES (1, 'first');`)
+			require.NoError(t, err)
+			_, err = connection.ExecContext(t.Context(), tc.query)
+			require.Error(t, err)
+			translated := sqlitegorm.Open(":memory:").Translate(
+				ctxerrors.Wrap(err, "execute constraint probe"),
+			)
+			require.ErrorIs(t, translated, tc.wantErr)
+		})
+	}
+}
+
+func TestSQLiteDialectorPreservesOtherErrors(t *testing.T) {
+	t.Parallel()
+	dialector := sqlitegorm.Open(":memory:")
+	assert.NoError(t, dialector.Translate(nil))
+	assert.ErrorIs(t, dialector.Translate(commerr.ErrConflict),
+		commerr.ErrConflict)
+	connection, err := sql.Open(sqliteDriverName, ":memory:")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, connection.Close()) })
+	_, err = connection.ExecContext(t.Context(), "SELECT * FROM missing")
+	require.Error(t, err)
+	assert.Same(t, err, dialector.Translate(err))
+}
+
+func TestSQLiteDialectorPreservesRepositoryRecords(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	directory := t.TempDir()
+	handle, err := Open(ctx, Config{Directory: directory})
+	require.NoError(t, err)
+	query := repositories.Use(handle.GormDB)
+	record := &models.Session{
+		ID:        uuid.New(),
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+		RootAgent: "peen",
+		ModelID:   "provider/model",
+		Workspace: "/workspace",
+	}
+	require.NoError(t, query.Session.WithContext(ctx).Create(record))
+	err = query.Session.WithContext(ctx).Create(record)
+	require.ErrorIs(t, ctxerrors.Wrap(err, "create duplicate session"),
+		commerr.ErrAlreadyExists)
+	require.NoError(t, handle.Close())
+	handle, err = Open(ctx, Config{Directory: directory})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, handle.Close()) })
+	query = repositories.Use(handle.GormDB)
+	saved, err := query.Session.WithContext(ctx).
+		Where(query.Session.ID.Eq(record.ID)).First()
+	require.NoError(t, err)
+	assert.Equal(t, record.ID, saved.ID)
+	assert.Equal(t, record.ModelID, saved.ModelID)
+	assert.Equal(t, record.Workspace, saved.Workspace)
 }

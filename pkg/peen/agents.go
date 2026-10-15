@@ -43,7 +43,7 @@ func (a Agents) List(
 				params.ParentAgentRunId = &request.ParentAgentRunID
 			}
 
-			return a.session.runtime.internal.ListSessionAgentRuns(ctx,
+			return a.session.core().ListSessionAgentRuns(ctx,
 				a.session.id, params)
 		})
 }
@@ -57,7 +57,7 @@ func (a Agents) Get(ctx context.Context, runID string) (AgentRun, error) {
 
 	return sessionRead[AgentRun](ctx, a.session,
 		func(ctx context.Context) (any, error) {
-			return a.session.runtime.internal.GetSessionAgentRun(ctx,
+			return a.session.core().GetSessionAgentRun(ctx,
 				a.session.id, id)
 		})
 }
@@ -73,7 +73,7 @@ func (a Agents) Cancel(
 
 	return sessionRead[AgentRunCancelResponse](ctx, a.session,
 		func(ctx context.Context) (any, error) {
-			return a.session.runtime.internal.CancelSessionAgentRun(ctx,
+			return a.session.core().CancelSessionAgentRun(ctx,
 				a.session.id, id)
 		})
 }
@@ -103,7 +103,7 @@ func (a Agents) Events(
 
 	return sessionRead[AgentRunEventPage](ctx, a.session,
 		func(ctx context.Context) (any, error) {
-			return a.session.runtime.internal.ListSessionAgentRunEvents(ctx,
+			return a.session.core().ListSessionAgentRunEvents(ctx,
 				a.session.id, id, api.ListSessionAgentRunEventsParams{
 					XSessionID: a.session.id,
 					Limit:      limit,
@@ -130,7 +130,7 @@ func (a Agents) Messages(
 
 	return sessionRead[AgentRunMessagePage](ctx, a.session,
 		func(ctx context.Context) (any, error) {
-			return a.session.runtime.internal.ListSessionAgentRunMessages(ctx,
+			return a.session.core().ListSessionAgentRunMessages(ctx,
 				a.session.id, id, api.ListSessionAgentRunMessagesParams{
 					XSessionID: a.session.id, Limit: limit, Offset: offset,
 				})
@@ -155,7 +155,7 @@ func (a Agents) Compactions(
 
 	return sessionRead[AgentRunCompactionPage](ctx, a.session,
 		func(ctx context.Context) (any, error) {
-			return a.session.runtime.internal.ListSessionAgentRunCompactions(
+			return a.session.core().ListSessionAgentRunCompactions(
 				ctx,
 				a.session.id, id, api.ListSessionAgentRunCompactionsParams{
 					XSessionID: a.session.id, Limit: limit, Offset: offset,
@@ -179,7 +179,7 @@ func (a Agents) Compaction(
 	}
 
 	read := func(ctx context.Context) (any, error) {
-		return a.session.runtime.internal.GetSessionAgentRunCompaction(
+		return a.session.core().GetSessionAgentRunCompaction(
 			ctx, a.session.id, id, summaryID,
 		)
 	}

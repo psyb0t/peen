@@ -73,10 +73,12 @@ type skillInjectedPayload struct {
 // takes those skills away from the model, so the ledger forgets them with it.
 // The turn's own deliveries are never compacted and stay for the whole turn.
 type skillLedger struct {
-	mutex        sync.Mutex
-	history      []*models.Message
-	historyNames map[string]struct{}
-	delivered    map[string]struct{}
+	mutex            sync.Mutex
+	history          []*models.Message
+	historyNames     map[string]struct{}
+	delivered        map[string]struct{}
+	restoredHistory  []workflowSkillHistory
+	compactedThrough int64
 }
 
 func newSkillLedger(names ...string) *skillLedger {
@@ -129,7 +131,9 @@ func (l *skillLedger) forgetThrough(sequence int64) {
 	}
 
 	l.history = remaining
+	l.compactedThrough = max(l.compactedThrough, sequence)
 	l.historyNames = skillNameSet(remaining)
+	l.forgetRestoredSkillsThrough(sequence)
 }
 
 // held returns a copy of the delivered names. A nil ledger holds nothing.

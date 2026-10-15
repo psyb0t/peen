@@ -127,6 +127,7 @@ func configureEmbedding(
 	}
 
 	runtimeConfig := runtimeOptions(configDirectory, workspace, models, options)
+	runtimeConfig.WorkflowManaged = true
 	runtimeConfig.Logger = telemetry.logger
 	runtimeConfig.Metrics = telemetry.metrics
 	runtimeConfig.Filesystem = options.Filesystem

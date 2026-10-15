@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/glebarez/sqlite"
 	commonsqlite "github.com/psyb0t/common-go/db/sqlite"
+	sqlitegorm "github.com/psyb0t/common-go/db/sqlite/gorm"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db/migrations"
@@ -33,7 +33,7 @@ func Open(ctx context.Context, cfg Config) (*Handle, error) {
 	}
 
 	database, err := gorm.Open(
-		sqlite.Open(sqliteDSN(databasePath, busyTimeout)),
+		sqlitegorm.Open(sqliteDSN(databasePath, busyTimeout)),
 		&gorm.Config{
 			Logger:         logger.Discard,
 			TranslateError: true,
@@ -80,7 +80,7 @@ func Open(ctx context.Context, cfg Config) (*Handle, error) {
 		return nil, closeAfterOpenFailure(ctx, sqlDB, err)
 	}
 
-	runtimecontext.Logger(ctx).Info("sqlite ready", "driver", "sqlite")
+	runtimecontext.Logger(ctx).Info("sqlite ready", "driver", sqliteDriverName)
 
 	return &Handle{
 		GormDB: database,
@@ -124,6 +124,10 @@ func configureSQLite(ctx context.Context, sqlDB *sql.DB) error {
 }
 
 func prepareSQLite(cfg Config) (string, int64, error) {
+	return prepareSQLiteFile(cfg, sqliteFileName)
+}
+
+func prepareSQLiteFile(cfg Config, fileName string) (string, int64, error) {
 	busyTimeout := cfg.BusyTimeout
 	if busyTimeout == 0 {
 		busyTimeout = defaultSQLiteBusyTimeout
@@ -156,7 +160,7 @@ func prepareSQLite(cfg Config) (string, int64, error) {
 		return "", 0, ctxerrors.Wrap(err, "prepare sqlite directory")
 	}
 
-	databasePath := filepath.Join(directoryPath, sqliteFileName)
+	databasePath := filepath.Join(directoryPath, fileName)
 	if err := ensurePrivateDatabaseFile(databasePath); err != nil {
 		return "", 0, ctxerrors.Wrap(err, "prepare sqlite database file")
 	}

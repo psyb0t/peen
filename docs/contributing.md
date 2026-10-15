@@ -47,7 +47,7 @@ Every operation is a Make target. Targets run Go, Node, and the linters inside t
 | `make test-unit` | Untagged Go tests without Docker access. The fast loop. |
 | `make test` / `make test-integration` | Untagged Go tests with Docker access, for tests that start containers. |
 | `make test-stress` | The fast command and job tests in `internal/pkg/tools`, repeated 200 times with GOMAXPROCS set to 1 and then 4, to catch output races. Tests that depend on timing are skipped. Run it after touching `internal/pkg/tools` job or command code or bumping commander. Not part of CI. |
-| `make test-api` | `tests/api` through production HTTP and WebSocket wiring in the real image. |
+| `make test-api` | Verbose `tests/api` through production HTTP and WebSocket wiring in the real image, including Docker build progress during setup. |
 | `make test-execution-forms` | Source and installed binary contracts. |
 | `make test-browser` | The control surface in a real browser against a test controller. |
 | `make test-docker-worker-source` | Builds this checkout's image and probes the worker entrypoint. |
@@ -56,7 +56,7 @@ Every operation is a Make target. Targets run Go, Node, and the linters inside t
 | `make web-lint`, `make web-check`, `make web-test` | ESLint and Prettier, svelte-check and tsc, Vitest for `web/`. |
 | `make test-real` | Opt-in live provider tests. Costs money. Never a routine check. |
 
-Pick the tier that can see your change. A change inside one package needs `make test-unit` while you work. A change to HTTP, WebSocket, or wiring needs `make test-api`. A control surface change needs the web targets, `make web-build`, and `make test-browser`. A Dockerfile or entrypoint change needs `make test-docker-worker-source`. Before you call any change done, run `make lint` and `make test-coverage`, which is what `pre-commit.sh` and CI run. The Make targets run without the race detector. Dev container runs are capped with `--cpus` to 6 CPUs; set `DEV_CPUS`, for example `make test-coverage DEV_CPUS=4`, to change the cap. Run one lint, test, or build target at a time, never several in parallel, and never from several agents at once: parallel runs overload the machine. `make run-dev` is not capped. Containers that tests start themselves are not capped.
+Pick the tier that can see your change. A change inside one package needs `make test-unit` while you work. A change to HTTP, WebSocket, or wiring needs `make test-api`. A control surface change needs the web targets, `make web-build`, and `make test-browser`. A Dockerfile or entrypoint change needs `make test-docker-worker-source`. Before you call any change done, run `make lint` and `make test-coverage`, which is what `pre-commit.sh` and CI run. Every Go test target runs with `-race`. Fix reported races instead of disabling the detector. Dev container runs are capped with `--cpus` to 6 CPUs; set `DEV_CPUS`, for example `make test-coverage DEV_CPUS=4`, to change the cap. Run one lint, test, or build target at a time, never several in parallel, and never from several agents at once: parallel runs overload the machine. `make run-dev` is not capped. Containers that tests start themselves are not capped.
 
 `make run-dev` runs this checkout as a local controller on `http://localhost:8080`, with state under the gitignored `data/peen/`.
 

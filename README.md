@@ -12,7 +12,9 @@ _peen goes in vageen_
 
 Peen puts a coding agent in a real working directory and keeps the whole job alive after the first response. Connect a client over WebSocket, give it a task, and it can read code, edit files, run commands, use skills, launch child agents, and follow the `AGENTS.md` and rules sitting beside the project.
 
-Every conversation, tool call, agent event, context snapshot, compaction, and provider exchange lands in SQLite. Model records keep the request and response, thinking, usage, retries, cost, model identity, and connection name, never the provider credential. Reconnect after a restart and the history is still there. Every connected client receives the live feed for every session, then renders the conversations it wants from each event's session ID.
+Every conversation, tool call, agent event, context snapshot, compaction, and provider exchange lands in SQLite. Model records keep the request and response, thinking, usage, retries, cost, model identity, and connection name, never the provider credential. Reconnect after a restart and the history is still there. A global WebSocket receives every session's live feed; a session-filtered socket receives only that session.
+
+Root and nested agent conversations run through SQLite-backed go-workflows. After a controller or worker crash, Peen restores saved context and reuses completed activity results. Stop pauses unfinished work, and reconnecting leaves it paused. Ask an agent to inspect and explicitly continue the retained task; uncertain tool effects need inspection before retry. See [recovery and continuation](docs/agents.md#recovery-after-a-crash).
 
 One host runs one control plane. It owns SQLite, the API, and the event feed, and it starts a separate worker process per session to run that session's turns. Whether a worker is a child process or its own container is the operator's choice. See [Where it runs](docs/where-it-runs.md) and [Architecture](docs/architecture.md).
 
@@ -77,7 +79,7 @@ peen
 
 `peen` starts Peen when it is not running, opens the session for the current directory, and prints its link, `http://127.0.0.1:8080/?session=<id>`, opening it in your browser when it can. Run it again in the same directory and you get the same session back, with its history. Open `~/work/other-app` for a second project with its own agent. `peen status`, `peen logs`, `peen stop`, and `peen upgrade` manage the controller, and [Deployment](docs/deployment.md#the-peen-command) lists the rest.
 
-Peen keeps two directories under `~/.config/peen`. `config` holds the trusted harness layer, which Docker workers get read-only. `state` holds the database, audit logs, and worker sockets, which no Docker worker receives. Peen refuses a workspace that contains either directory, or sits inside the state directory, so with the default workspace root you open project directories, not your home directory itself. Everything survives a restart.
+Peen keeps two directories under `~/.config/peen`. `config` holds the trusted harness layer, which Docker workers get read-only. `state` holds the session and workflow databases, audit logs, and worker sockets, which no Docker worker receives. Peen refuses a workspace that contains either directory, or sits inside the state directory, so with the default workspace root you open project directories, not your home directory itself. Everything survives a restart.
 
 ## Use the control surface
 
@@ -85,7 +87,9 @@ Open the link `peen` printed, or `http://127.0.0.1:8080`, after Peen starts. If 
 
 The sidebar shows the workspace root. Type a workspace inside it, such as `$HOME/work/my-app`, and open the chat. Peen returns its existing session when that directory was opened before, and otherwise creates the one session for that workspace. Open `$HOME/work/other-app` for a second project with its own agent. The composer shows the model and reasoning level the next turn will use, starting from the session's model, and you can change either for that turn before you send the work. The input box spans the full width. Enter sends, and Shift+Enter starts a new line. Your messages show as bubbles on the right. The agent's replies take the full width with no bubble, stream in as the model writes them, and render as Markdown, with each tool call shown as one card next to its result. A message you send while a turn is running shows "Queued. Lands after the current step." until the agent receives it.
 
-The socket receives the live feed for every session. The control surface keeps that global feed intact, but shows the selected session's events and stored records in its own tab. It also offers cancellation, agent space changes, transcript messages, model runs, child agents, compactions, workers, jobs, and notices.
+The browser keeps a global event socket and a session-filtered socket for the selected chat. Closing the last filtered socket pauses that session; another filtered client keeps it running. Reconnecting does not resume paused work. The Stop control also pauses the session, while stopping one child permanently cancels its unfinished subtree.
+
+The global socket receives the live feed for every session. The control surface keeps that global feed intact, but shows the selected session's events and stored records in its own tab. It also offers cancellation, agent space changes, transcript messages, model runs, child agents, compactions, workers, jobs, and notices.
 
 The browser control surface is embedded in the Peen binary. There is no frontend service to run, and no token stored in the browser. Build another client against the [WebSocket and REST API guide](docs/http-api.md) when you need a different interface or automation.
 
@@ -156,7 +160,7 @@ peen session attach <session-id>
 peen session stop <session-id>
 ```
 
-`peen control status` reports whether the controller answers and starts nothing, so it tells "not running" apart from "running". `peen session open` prints the session ID, its workspace, and whether the call created the session or resumed one. `peen session attach` streams that session's live events and starts no turn. `peen session stop` cancels the session's active turn and says when there was nothing running. Through the `peen` command, the `session` commands start the controller first when it is not running.
+`peen control status` reports whether the controller answers and starts nothing, so it tells "not running" apart from "running". `peen session open` prints the session ID, its workspace, and whether the call created the session or resumed one. `peen session attach` streams that session's live events and starts no turn. `peen session stop` pauses unfinished session work and says when there was nothing to stop. Through the `peen` command, the `session` commands start the controller first when it is not running.
 
 A server binary you run yourself, from `make install` or a source build, takes the same commands and reads the same `PEEN_` environment as the controller, so a command and its controller agree on the address. Its `session` commands start `peen run` themselves when nothing answers. The commands reach the controller over HTTP only, not over a Unix socket.
 
@@ -228,5 +232,5 @@ openclaw skills install @psyb0t/peen
 - [Aichteeteapee](https://github.com/psyb0t/aichteeteapee) provides the HTTP server, REST error envelope, and WebSocket hub.
 - [Servicepack](https://github.com/psyb0t/servicepack) runs the process and its services. Its own docs live in that repository, and this one documents Peen.
 - [Gonfiguration](https://github.com/psyb0t/gonfiguration), [common-go](https://github.com/psyb0t/common-go), [commander](https://github.com/psyb0t/commander), [ctxerrors](https://github.com/psyb0t/ctxerrors), [ctxscope](https://github.com/psyb0t/ctxscope), [slogging](https://github.com/psyb0t/slogging), and [goenv](https://github.com/psyb0t/goenv) handle configuration, common utilities, process jobs, errors, scoped logs, log setup, and runtime environment detection.
-- [GORM](https://github.com/go-gorm/gorm) and [SQLite](https://sqlite.org/) hold stored state.
+- [go-workflows](https://github.com/cschleiden/go-workflows) schedules durable model, tool and hook activities. [GORM](https://github.com/go-gorm/gorm) and [SQLite](https://sqlite.org/) hold stored state.
 - [Prometheus' Go client](https://github.com/prometheus/client_golang), [Cobra](https://github.com/spf13/cobra), [kin-openapi](https://github.com/getkin/kin-openapi), and [oapi-codegen](https://github.com/oapi-codegen/oapi-codegen) provide metrics, the command line, OpenAPI validation, and generated API clients.

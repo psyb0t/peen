@@ -24,6 +24,11 @@ var (
 	Compaction                *compaction
 	ContextSnapshot           *contextSnapshot
 	Event                     *event
+	Execution                 *execution
+	ExecutionActivity         *executionActivity
+	ExecutionEvent            *executionEvent
+	ExecutionInboxMessage     *executionInboxMessage
+	ExecutionTurnLease        *executionTurnLease
 	Job                       *job
 	JobOutputLine             *jobOutputLine
 	JobSignalRequest          *jobSignalRequest
@@ -35,6 +40,7 @@ var (
 	SessionAgentSpaceDecision *sessionAgentSpaceDecision
 	SessionNotice             *sessionNotice
 	Turn                      *turn
+	TurnOpeningNotice         *turnOpeningNotice
 	WorkerGeneration          *workerGeneration
 )
 
@@ -47,6 +53,11 @@ func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 	Compaction = &Q.Compaction
 	ContextSnapshot = &Q.ContextSnapshot
 	Event = &Q.Event
+	Execution = &Q.Execution
+	ExecutionActivity = &Q.ExecutionActivity
+	ExecutionEvent = &Q.ExecutionEvent
+	ExecutionInboxMessage = &Q.ExecutionInboxMessage
+	ExecutionTurnLease = &Q.ExecutionTurnLease
 	Job = &Q.Job
 	JobOutputLine = &Q.JobOutputLine
 	JobSignalRequest = &Q.JobSignalRequest
@@ -58,6 +69,7 @@ func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 	SessionAgentSpaceDecision = &Q.SessionAgentSpaceDecision
 	SessionNotice = &Q.SessionNotice
 	Turn = &Q.Turn
+	TurnOpeningNotice = &Q.TurnOpeningNotice
 	WorkerGeneration = &Q.WorkerGeneration
 }
 
@@ -71,6 +83,11 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		Compaction:                newCompaction(db, opts...),
 		ContextSnapshot:           newContextSnapshot(db, opts...),
 		Event:                     newEvent(db, opts...),
+		Execution:                 newExecution(db, opts...),
+		ExecutionActivity:         newExecutionActivity(db, opts...),
+		ExecutionEvent:            newExecutionEvent(db, opts...),
+		ExecutionInboxMessage:     newExecutionInboxMessage(db, opts...),
+		ExecutionTurnLease:        newExecutionTurnLease(db, opts...),
 		Job:                       newJob(db, opts...),
 		JobOutputLine:             newJobOutputLine(db, opts...),
 		JobSignalRequest:          newJobSignalRequest(db, opts...),
@@ -82,6 +99,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		SessionAgentSpaceDecision: newSessionAgentSpaceDecision(db, opts...),
 		SessionNotice:             newSessionNotice(db, opts...),
 		Turn:                      newTurn(db, opts...),
+		TurnOpeningNotice:         newTurnOpeningNotice(db, opts...),
 		WorkerGeneration:          newWorkerGeneration(db, opts...),
 	}
 }
@@ -96,6 +114,11 @@ type Query struct {
 	Compaction                compaction
 	ContextSnapshot           contextSnapshot
 	Event                     event
+	Execution                 execution
+	ExecutionActivity         executionActivity
+	ExecutionEvent            executionEvent
+	ExecutionInboxMessage     executionInboxMessage
+	ExecutionTurnLease        executionTurnLease
 	Job                       job
 	JobOutputLine             jobOutputLine
 	JobSignalRequest          jobSignalRequest
@@ -107,6 +130,7 @@ type Query struct {
 	SessionAgentSpaceDecision sessionAgentSpaceDecision
 	SessionNotice             sessionNotice
 	Turn                      turn
+	TurnOpeningNotice         turnOpeningNotice
 	WorkerGeneration          workerGeneration
 }
 
@@ -124,6 +148,11 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		Compaction:                q.Compaction.clone(db),
 		ContextSnapshot:           q.ContextSnapshot.clone(db),
 		Event:                     q.Event.clone(db),
+		Execution:                 q.Execution.clone(db),
+		ExecutionActivity:         q.ExecutionActivity.clone(db),
+		ExecutionEvent:            q.ExecutionEvent.clone(db),
+		ExecutionInboxMessage:     q.ExecutionInboxMessage.clone(db),
+		ExecutionTurnLease:        q.ExecutionTurnLease.clone(db),
 		Job:                       q.Job.clone(db),
 		JobOutputLine:             q.JobOutputLine.clone(db),
 		JobSignalRequest:          q.JobSignalRequest.clone(db),
@@ -135,6 +164,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		SessionAgentSpaceDecision: q.SessionAgentSpaceDecision.clone(db),
 		SessionNotice:             q.SessionNotice.clone(db),
 		Turn:                      q.Turn.clone(db),
+		TurnOpeningNotice:         q.TurnOpeningNotice.clone(db),
 		WorkerGeneration:          q.WorkerGeneration.clone(db),
 	}
 }
@@ -157,6 +187,11 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		Compaction:                q.Compaction.replaceDB(db),
 		ContextSnapshot:           q.ContextSnapshot.replaceDB(db),
 		Event:                     q.Event.replaceDB(db),
+		Execution:                 q.Execution.replaceDB(db),
+		ExecutionActivity:         q.ExecutionActivity.replaceDB(db),
+		ExecutionEvent:            q.ExecutionEvent.replaceDB(db),
+		ExecutionInboxMessage:     q.ExecutionInboxMessage.replaceDB(db),
+		ExecutionTurnLease:        q.ExecutionTurnLease.replaceDB(db),
 		Job:                       q.Job.replaceDB(db),
 		JobOutputLine:             q.JobOutputLine.replaceDB(db),
 		JobSignalRequest:          q.JobSignalRequest.replaceDB(db),
@@ -168,6 +203,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		SessionAgentSpaceDecision: q.SessionAgentSpaceDecision.replaceDB(db),
 		SessionNotice:             q.SessionNotice.replaceDB(db),
 		Turn:                      q.Turn.replaceDB(db),
+		TurnOpeningNotice:         q.TurnOpeningNotice.replaceDB(db),
 		WorkerGeneration:          q.WorkerGeneration.replaceDB(db),
 	}
 }
@@ -180,6 +216,11 @@ type queryCtx struct {
 	Compaction                ICompactionDo
 	ContextSnapshot           IContextSnapshotDo
 	Event                     IEventDo
+	Execution                 IExecutionDo
+	ExecutionActivity         IExecutionActivityDo
+	ExecutionEvent            IExecutionEventDo
+	ExecutionInboxMessage     IExecutionInboxMessageDo
+	ExecutionTurnLease        IExecutionTurnLeaseDo
 	Job                       IJobDo
 	JobOutputLine             IJobOutputLineDo
 	JobSignalRequest          IJobSignalRequestDo
@@ -191,6 +232,7 @@ type queryCtx struct {
 	SessionAgentSpaceDecision ISessionAgentSpaceDecisionDo
 	SessionNotice             ISessionNoticeDo
 	Turn                      ITurnDo
+	TurnOpeningNotice         ITurnOpeningNoticeDo
 	WorkerGeneration          IWorkerGenerationDo
 }
 
@@ -203,6 +245,11 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		Compaction:                q.Compaction.WithContext(ctx),
 		ContextSnapshot:           q.ContextSnapshot.WithContext(ctx),
 		Event:                     q.Event.WithContext(ctx),
+		Execution:                 q.Execution.WithContext(ctx),
+		ExecutionActivity:         q.ExecutionActivity.WithContext(ctx),
+		ExecutionEvent:            q.ExecutionEvent.WithContext(ctx),
+		ExecutionInboxMessage:     q.ExecutionInboxMessage.WithContext(ctx),
+		ExecutionTurnLease:        q.ExecutionTurnLease.WithContext(ctx),
 		Job:                       q.Job.WithContext(ctx),
 		JobOutputLine:             q.JobOutputLine.WithContext(ctx),
 		JobSignalRequest:          q.JobSignalRequest.WithContext(ctx),
@@ -214,6 +261,7 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		SessionAgentSpaceDecision: q.SessionAgentSpaceDecision.WithContext(ctx),
 		SessionNotice:             q.SessionNotice.WithContext(ctx),
 		Turn:                      q.Turn.WithContext(ctx),
+		TurnOpeningNotice:         q.TurnOpeningNotice.WithContext(ctx),
 		WorkerGeneration:          q.WorkerGeneration.WithContext(ctx),
 	}
 }

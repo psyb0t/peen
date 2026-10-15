@@ -62,6 +62,10 @@ func (r *Runtime) OpenSession(
 		return nil, ctxerrors.Wrap(err, "open embedded session")
 	}
 
+	if _, err := r.workflows.ensure(ctx, opened.Session.ID); err != nil {
+		return nil, ctxerrors.Wrap(err, "start opened embedded session")
+	}
+
 	return &Session{runtime: r, id: opened.Session.ID}, nil
 }
 
@@ -135,7 +139,12 @@ func (s *Session) Send(
 		}
 	}
 
-	result, err := s.runtime.internal.RunMessage(ctx, input,
+	core, err := s.runtime.workflows.ensure(ctx, s.id)
+	if err != nil {
+		return MessageResult{}, ctxerrors.Wrap(err, "admit embedded workflow")
+	}
+
+	result, err := core.RunMessage(ctx, input,
 		requestID, internalSink)
 	if err != nil {
 		return MessageResult{}, translateTurnError(err)
@@ -152,7 +161,7 @@ func (s *Session) Details(ctx context.Context) (SessionDetails, error) {
 	}
 	defer finish()
 
-	value, err := s.runtime.internal.Session(ctx, s.id)
+	value, err := s.core().Session(ctx, s.id)
 	if err != nil {
 		return SessionDetails{}, ctxerrors.Wrap(err, "read embedded session")
 	}
@@ -168,7 +177,11 @@ func (s *Session) Cancel(ctx context.Context) (CancelResult, error) {
 	}
 	defer finish()
 
-	value, err := s.runtime.internal.CancelSession(ctx, s.id)
+	value, err := s.core().CancelSession(ctx, s.id)
+	if err == nil {
+		_, err = s.core().PauseSessionWorkflows(ctx)
+	}
+
 	if err != nil {
 		return CancelResult{}, ctxerrors.Wrap(err, "cancel embedded session")
 	}
@@ -191,7 +204,7 @@ func (s *Session) Messages(
 		return ListMessagesResult{}, err
 	}
 
-	page, err := s.runtime.internal.ListMessages(ctx, params)
+	page, err := s.core().ListMessages(ctx, params)
 	if err != nil {
 		return ListMessagesResult{}, ctxerrors.Wrap(
 			err,

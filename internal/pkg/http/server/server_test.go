@@ -515,7 +515,8 @@ type testRuntime struct {
 	eventsErr  error
 	jobsErr    error
 
-	agentRunsErr error
+	agentRunsErr           error
+	agentRunCancelResponse *api.AgentRunCancelResponse
 
 	// lastRequest records what the transport handed the runtime, so a routing
 	// test can assert which session a message was sent to.
@@ -877,6 +878,9 @@ func (r *testRuntime) CancelSessionAgentRun(
 ) (*api.AgentRunCancelResponse, error) {
 	if r.agentRunsErr != nil {
 		return nil, r.agentRunsErr
+	}
+	if r.agentRunCancelResponse != nil {
+		return r.agentRunCancelResponse, nil
 	}
 
 	return &api.AgentRunCancelResponse{

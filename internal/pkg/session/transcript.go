@@ -29,9 +29,11 @@ func (s *Store) AppendCheckpoint(
 	messages []MessageInput,
 	events []EventInput,
 ) error {
-	if !s.hasLease(lease) {
-		return ctxerrors.Wrap(commerr.ErrInvalidState, "inactive turn lease")
+	unlock, err := s.holdLease(lease)
+	if err != nil {
+		return err
 	}
+	defer unlock()
 
 	if err := s.query.Transaction(func(tx *repositories.Query) error {
 		_, err := s.appendTranscript(ctx, tx, lease, messages, events)
@@ -58,10 +60,12 @@ func (s *Store) FinalizeTurn(
 		)
 	}
 
-	if !s.hasLease(lease) {
-		return ctxerrors.Wrap(commerr.ErrInvalidState, "inactive turn lease")
+	unlock, err := s.holdLease(lease)
+	if err != nil {
+		return err
 	}
 	defer s.ReleaseTurn(lease)
+	defer unlock()
 
 	if err := s.query.Transaction(func(tx *repositories.Query) error {
 		appendResult, err := s.appendTranscript(
@@ -221,22 +225,7 @@ func (s *Store) CreateCompaction(
 		normalized.ID = s.newID()
 	}
 
-	compaction := &models.Compaction{
-		ID:                     normalized.ID,
-		SessionID:              sessionID,
-		FromMessageID:          normalized.FromMessageID,
-		ToMessageID:            normalized.ToMessageID,
-		FromSequence:           normalized.FromSequence,
-		ToSequence:             normalized.ToSequence,
-		Summary:                normalized.Summary,
-		SourceMessageCount:     normalized.SourceMessageCount,
-		InputTokenCount:        normalized.InputTokenCount,
-		SummaryTokenCount:      normalized.SummaryTokenCount,
-		ModelID:                normalized.ModelID,
-		PromptHash:             normalized.PromptHash,
-		CreatedAt:              s.now(),
-		SupersedesCompactionID: normalized.SupersedesCompactionID,
-	}
+	compaction := s.compactionRecord(sessionID, normalized)
 	if err := s.query.Transaction(func(tx *repositories.Query) error {
 		return s.createCompaction(ctx, tx, compaction, normalized)
 	}); err != nil {
@@ -244,6 +233,28 @@ func (s *Store) CreateCompaction(
 	}
 
 	return compaction, nil
+}
+
+func (s *Store) compactionRecord(
+	sessionID uuid.UUID,
+	input CompactionInput,
+) *models.Compaction {
+	return &models.Compaction{
+		ID:                     input.ID,
+		SessionID:              sessionID,
+		FromMessageID:          input.FromMessageID,
+		ToMessageID:            input.ToMessageID,
+		FromSequence:           input.FromSequence,
+		ToSequence:             input.ToSequence,
+		Summary:                input.Summary,
+		SourceMessageCount:     input.SourceMessageCount,
+		InputTokenCount:        input.InputTokenCount,
+		SummaryTokenCount:      input.SummaryTokenCount,
+		ModelID:                input.ModelID,
+		PromptHash:             input.PromptHash,
+		CreatedAt:              s.now(),
+		SupersedesCompactionID: input.SupersedesCompactionID,
+	}
 }
 
 func normalizeCompactionInput(input CompactionInput) (CompactionInput, error) {
@@ -280,34 +291,23 @@ func (s *Store) createCompaction(
 	compaction *models.Compaction,
 	input CompactionInput,
 ) error {
-	if err := query.Compaction.WithContext(ctx).Create(compaction); err != nil {
-		return ctxerrors.Wrap(err, "create compaction")
-	}
-
-	message := query.Message
-
-	assigned, err := message.WithContext(ctx).
-		Where(
-			message.SessionID.Eq(compaction.SessionID),
-			message.Sequence.Between(
-				input.DirectFromSequence,
-				input.DirectToSequence,
-			),
-			message.CompactionID.IsNull(),
-		).
-		UpdateSimple(message.CompactionID.Value(compaction.ID))
+	messages, err := query.Message.WithContext(ctx).CompletedHistoryRange(
+		compaction.SessionID, input.DirectFromSequence, input.DirectToSequence,
+	)
 	if err != nil {
-		return ctxerrors.Wrap(err, "assign direct message compaction")
+		return ctxerrors.Wrap(err, "read completed compaction sources")
 	}
 
-	if assigned.RowsAffected == 0 {
-		return ctxerrors.Wrap(
-			commerr.ErrInvalidState,
-			"compaction has no unassigned direct messages",
-		)
+	ids := make([]uuid.UUID, 0, len(messages))
+	for _, message := range messages {
+		if message.CompactionID != nil || message.Incomplete {
+			continue
+		}
+
+		ids = append(ids, message.ID)
 	}
 
-	return nil
+	return createCompactionForMessages(ctx, query, compaction, ids)
 }
 
 // LatestCompaction returns the current chain head, not a superseded row.
@@ -356,6 +356,9 @@ func (s *Store) CompletedHistory(
 func (s *Store) RecoverInterrupted(ctx context.Context) (int, error) {
 	var recoveredLeases []Lease
 
+	s.activeMu.Lock()
+	defer s.activeMu.Unlock()
+
 	if err := s.query.Transaction(func(tx *repositories.Query) error {
 		turn := tx.Turn
 
@@ -372,6 +375,7 @@ func (s *Store) RecoverInterrupted(ctx context.Context) (int, error) {
 			}
 
 			recoveredLeases = append(recoveredLeases, Lease{
+				ID:        s.active[runningTurn.SessionID].leaseID,
 				SessionID: runningTurn.SessionID,
 				TurnID:    runningTurn.ID,
 			})
@@ -383,7 +387,9 @@ func (s *Store) RecoverInterrupted(ctx context.Context) (int, error) {
 	}
 
 	for _, lease := range recoveredLeases {
-		s.ReleaseTurn(lease)
+		if s.hasLeaseLocked(lease) {
+			delete(s.active, lease.SessionID)
+		}
 	}
 
 	return len(recoveredLeases), nil
@@ -850,15 +856,6 @@ func isTerminalState(state models.TurnState) bool {
 	}
 
 	return false
-}
-
-func (s *Store) hasLease(lease Lease) bool {
-	s.activeMu.Lock()
-	defer s.activeMu.Unlock()
-
-	active, ok := s.active[lease.SessionID]
-
-	return ok && active.turnID == lease.TurnID
 }
 
 func isDuplicateKey(err error) bool {

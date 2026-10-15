@@ -197,34 +197,51 @@ func (s *Store) AcquireTurn(
 		return Lease{}, ctxerrors.Wrap(err, "find session for turn")
 	}
 
-	lease := Lease{SessionID: sessionID, TurnID: s.newID()}
+	lease, err := newTurnLease(sessionID, s.newID())
+	if err != nil {
+		return Lease{}, err
+	}
+
 	if err := s.reserveLease(lease); err != nil {
 		return Lease{}, err
 	}
 
 	if err := s.query.Transaction(func(tx *repositories.Query) error {
+		revision, err := s.admissionStopRevision(ctx, tx, sessionID,
+			input.ExpectedStopRevision)
+		if err != nil {
+			return ctxerrors.Wrap(err, "validate turn stop revision")
+		}
+
 		turn := &models.Turn{
-			ID:                 lease.TurnID,
-			SessionID:          lease.SessionID,
+			ID: lease.TurnID, SessionID: lease.SessionID,
 			RequestID:          input.RequestID,
 			Workspace:          input.Workspace,
 			State:              models.TurnStateRunning,
 			StartedAt:          s.now(),
 			WorkerGenerationID: input.WorkerGenerationID,
+			StopRevision:       revision,
 		}
 		if err := tx.Turn.WithContext(ctx).Create(turn); err != nil {
 			return ctxerrors.Wrap(err, "create running turn")
 		}
 
-		_, err := s.appendTranscript(
+		if _, err := s.appendTranscript(
 			ctx,
 			tx,
 			lease,
 			input.Messages,
 			input.Events,
-		)
+		); err != nil {
+			return ctxerrors.Wrap(err, "append initial turn transcript")
+		}
 
-		return err
+		_, err = s.deliverOpeningNotices(ctx, tx, lease, input)
+		if err != nil {
+			return ctxerrors.Wrap(err, "admit opening session notices")
+		}
+
+		return nil
 	}); err != nil {
 		s.ReleaseTurn(lease)
 
@@ -239,7 +256,7 @@ func (s *Store) RegisterCancellation(lease Lease, cancel context.CancelFunc) {
 	s.activeMu.Lock()
 
 	active, ok := s.active[lease.SessionID]
-	if !ok || active.turnID != lease.TurnID {
+	if !ok || active.turnID != lease.TurnID || active.leaseID != lease.ID {
 		s.activeMu.Unlock()
 
 		return
@@ -254,49 +271,13 @@ func (s *Store) RegisterCancellation(lease Lease, cancel context.CancelFunc) {
 	}
 }
 
-// Cancel requests cancellation for the active turn without waiting for it.
-func (s *Store) Cancel(ctx context.Context, sessionID uuid.UUID) (bool, error) {
-	if _, err := s.findSession(ctx, sessionID); err != nil {
-		return false, ctxerrors.Wrap(err, "find session for cancellation")
-	}
-
-	active, ok := s.activeTurn(sessionID)
-	if !ok {
-		return false, nil
-	}
-
-	turn := s.query.Turn
-
-	result, err := turn.WithContext(ctx).
-		Where(
-			turn.ID.Eq(active.turnID),
-			turn.SessionID.Eq(sessionID),
-			turn.State.Eq(string(models.TurnStateRunning)),
-		).
-		UpdateSimple(turn.CancelRequested.Value(true))
-	if err != nil {
-		return false, ctxerrors.Wrap(err, "record cancellation request")
-	}
-
-	if result.RowsAffected == 0 {
-		return false, nil
-	}
-
-	cancel, shouldCall := s.markCancelRequested(sessionID, active.turnID)
-	if shouldCall && cancel != nil {
-		cancel()
-	}
-
-	return true, nil
-}
-
 // ReleaseTurn removes a lease only when it is still the registered turn.
 func (s *Store) ReleaseTurn(lease Lease) {
 	s.activeMu.Lock()
 	defer s.activeMu.Unlock()
 
 	active, ok := s.active[lease.SessionID]
-	if !ok || active.turnID != lease.TurnID {
+	if !ok || active.turnID != lease.TurnID || active.leaseID != lease.ID {
 		return
 	}
 
@@ -376,7 +357,9 @@ func (s *Store) reserveLease(lease Lease) error {
 		return ctxerrors.Wrap(ErrSessionBusy, "session turn lease")
 	}
 
-	s.active[lease.SessionID] = activeTurn{turnID: lease.TurnID}
+	s.active[lease.SessionID] = activeTurn{
+		turnID: lease.TurnID, leaseID: lease.ID,
+	}
 
 	return nil
 }

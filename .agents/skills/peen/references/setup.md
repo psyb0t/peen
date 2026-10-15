@@ -40,7 +40,10 @@ const opened = await (await fetch("http://127.0.0.1:8080/v1/sessions/open", {
   body: JSON.stringify({ workspace: "/abs/path/to/project" }),
 })).json();
 const sessionId = opened.session.id;
-const socket = new WebSocket("ws://127.0.0.1:8080/v1/ws");
+const socket = new WebSocket(
+  `ws://127.0.0.1:8080/v1/ws?sessionId=${encodeURIComponent(sessionId)}`,
+  "peen.v1",
+);
 
 socket.addEventListener("message", ({ data }) => console.log(JSON.parse(data)));
 socket.addEventListener("open", () => {
@@ -55,7 +58,7 @@ socket.addEventListener("open", () => {
 });
 ```
 
-Keep `sessionId`. Never invent one, because Peen refuses an unknown session ID and starts no turn. Sending another `message.send` with that ID continues the session. Each accepted event carries `metadata.sessionId`, so clients sharing a global socket can render only the session tab they need. A `message.completed` event means that submitted message is done. It does not close the socket.
+Keep `sessionId`. Never invent one, because Peen refuses an unknown session ID and starts no turn. Sending another `message.send` with that ID starts or queues new work in the session. It does not resume an earlier paused task. Closing the final session-filtered socket pauses unfinished work, and reconnecting leaves it paused. Each accepted event carries `metadata.sessionId`, so clients sharing a global socket can render only the session tab they need. A `message.completed` event means that submitted message is done. It does not close the socket.
 
 With `PEEN_API_TOKEN` set, browser clients authenticate through the `peen.v1` and `peen.bearer.<base64url-token>` WebSocket subprotocols. Other clients can send the usual `Authorization: Bearer <token>` header with the upgrade request. Never put a token in the URL.
 
@@ -72,6 +75,8 @@ curl -X POST "http://127.0.0.1:8080/v1/session/cancel" \
 ```
 
 With the installer, `peen session list` and `peen session attach <session-id>` do the same from the command line. The API also lists protocol events, context and prompt snapshots, compaction lineage, model runs and calls, process jobs and output, child-agent runs, and outside notices. Use `wss://` and HTTPS when Peen is not local. The [API reference](https://github.com/psyb0t/peen/blob/main/docs/http-api.md) has every request and frame.
+
+Stop interrupts current activities and retains unfinished workflows as paused. The agent can inspect history with `searchExecutions` and `readExecution`, resolve inspected uncertain effects with `resolveExecutionActivity`, and explicitly continue with `resumeExecution`. See [retained work](https://github.com/psyb0t/peen/blob/main/docs/agents.md#inspecting-retained-work).
 
 ## Add a harness layer
 

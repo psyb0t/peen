@@ -47,14 +47,18 @@ A hook event is a fixed point in a turn where hooks run, such as `preWriteFile`.
 
 | Event | When it runs | Input |
 | --- | --- | --- |
-| `preUserMessage` | While Peen builds the prompt for a new turn, before the turn exists. | `{"message", "workspace", "model"}` |
+| `preUserMessage` | While Peen builds the prompt, before the first model call. | `{"message", "workspace", "model"}` |
 | `sessionStart` | On the first turn a session ever runs, when the session has no earlier turns. | `{"created": true}` |
 | `postUserMessage` | After the turn is prepared. | `{"message", "workspace", "model"}` |
 | `turnStart` | Right before `turn.started`. | `{"workspace", "model"}` |
 | `turnStop` | After a turn finishes successfully, before `turn.completed`. | `{"workspace", "model", "finishReason"}` |
-| `turnCancelled` | After the turn is cancelled. | `{"reason"}` |
+| `turnCancelled` | After a parent turn is permanently cancelled. Workflow Stop pauses work and does not invoke this hook. | `{"reason"}` |
 | `preCompact` | Before Peen summarizes old history. | `{"workspace", "estimatedTokens", "budgetTokens", "round", "unitsCovered", "messagesCovered"}` |
 | `postCompact` | After the summary is stored. | Same as `preCompact`, plus `summaryTokens` |
+
+Workflow roots retain separate opening checkpoints for `preUserMessage`, `sessionStart`, `postUserMessage` and `turnStart`, in that order. Each checkpoint exists before its hook runs and saves the resulting prompt. Completed hooks are reused after restart. An interrupted hook may have changed files or started a process, so Peen retains its uncertain outcome for inspection through `readExecution` and `resolveExecutionActivity` before continuation. A hook denial is recorded as a completed decision and fails the turn without calling the model.
+
+Root and child workflow compaction retain separate `preCompact` and `postCompact` checkpoints around the saved summary. A summary-model retry reuses the completed pre hook. The post hook runs after the summary commits, and its completed result survives restart with the summary. An interrupted hook requires inspection before continuation. A recorded pre-hook denial stops compaction; a recorded post-hook failure logs a warning and leaves the saved summary usable. Under-budget rounds run neither hook.
 
 The input fields mean:
 
@@ -100,6 +104,8 @@ For one tool call the order is:
 - before: `preToolUse`, then the tool's `pre<Tool>` event;
 - on success: the tool's `post<Tool>` event, then `postToolUse`;
 - on failure: `toolUseFailure`, then the tool's `<tool>Failure` event, then `postToolUse`.
+
+When a workflow tool handler is cancelled or its deadline expires, Peen runs resource cleanup and leaves the activity interrupted. It does not start success, failure or post hooks, or their message injectors, after that interruption. Ordinary handler errors still run the failure hooks above.
 
 The input of a tool event is the tool's own arguments, for example `{"path": "main.go", "content": "..."}` for `writeFile` or `{"command": "make test", "purpose": "run tests"}` for `runCommand`.
 
@@ -229,7 +235,7 @@ Standard input is one JSON object:
 }
 ```
 
-Fields that do not apply are left out. `sessionId`, `requestId`, and `turnId` are left out when there is no value, so `turnId` is absent on `preUserMessage`, which runs before the turn exists. `agentRunId`, `tool`, `callId`, `paths`, `input`, `result`, `error`, and `stateDirectory` are also left out when they do not apply. `result` and `error` appear on post and failure events. `stateDirectory` is a private directory for this session that keeps its contents between hook runs. It is only present when the session exists. Peen creates it under its writable state, never under `PEEN_CONFIG_DIR`. `contextTokens` is always present. It is Peen's estimate of the current context size, for local policy decisions, and may be `0`. The [identifiers](architecture.md#identifiers) section explains the ID fields.
+Fields that do not apply are left out. `sessionId`, `requestId`, and `turnId` are left out when there is no value. `preUserMessage` omits `turnId`; its saved opening checkpoint identifies the owning turn in execution history. `agentRunId`, `tool`, `callId`, `paths`, `input`, `result`, `error`, and `stateDirectory` are also left out when they do not apply. `result` and `error` appear on post and failure events. `stateDirectory` is a private directory for this session that keeps its contents between hook runs. It is only present when the session exists. Peen creates it under its writable state, never under `PEEN_CONFIG_DIR`. `contextTokens` is always present. It is Peen's estimate of the current context size, for local policy decisions, and may be `0`. The [identifiers](architecture.md#identifiers) section explains the ID fields.
 
 Standard output may be empty, plain text, or this JSON object:
 

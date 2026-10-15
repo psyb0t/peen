@@ -37,7 +37,7 @@ const (
 
 	// agentEventSource identifies this package as the origin of agent.*
 	// events, matching tools.jobEventSource for job.* events.
-	agentEventSource = "agent.launchAgent"
+	agentEventSource = events.AgentSource
 
 	// agentResultTruncatedNote ends a final answer cut to fit the event data
 	// bound. The run record keeps the whole text.
@@ -349,6 +349,7 @@ type AgentRun struct {
 	// isCancelSignalled records that the run's cancellation has fired, so a
 	// later sweep counts only the runs it actually stops.
 	isCancelSignalled atomic.Bool
+	isPaused          atomic.Bool
 
 	// inbox receives messages for the child while it runs. It is set before
 	// the run is registered and never changes, so reading it needs no lock.
@@ -579,7 +580,8 @@ func (r *AgentRunRegistry) runningCountLocked() int {
 	count := 0
 
 	for _, run := range r.runs {
-		if run.Snapshot().State == AgentRunStateRunning {
+		if run.Snapshot().State == AgentRunStateRunning &&
+			!run.isPaused.Load() {
 			count++
 		}
 	}

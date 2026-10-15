@@ -48,11 +48,15 @@ The body is the agent's instructions and must not be empty. The YAML is strict. 
 
 These are the tool names `allowed-tools` accepts:
 
-`listFiles`, `searchText`, `readFile`, `writeFile`, `editFile`, `applyPatch`, `movePath`, `makeDirectory`, `removePath`, `changeDirectory`, `runCommand`, `listJobs`, `readJobOutput`, `waitJob`, `signalJob`, `useSkill`, `launchAgent`, `sendMessage`, `waitMessages`, `stopAgent`, `ask`
+`listFiles`, `searchText`, `readFile`, `writeFile`, `editFile`, `applyPatch`, `movePath`, `makeDirectory`, `removePath`, `changeDirectory`, `runCommand`, `listJobs`, `readJobOutput`, `waitJob`, `signalJob`, `useSkill`, `launchAgent`, `sendMessage`, `waitMessages`, `stopAgent`, `ask`, `searchExecutions`, `readExecution`
 
 An empty item or a repeated name makes the file invalid when Peen loads it. A misspelled tool name is caught later, when the agent runs, and that run fails with "agent allowed-tools names unavailable tool". The restriction applies to the agent wherever it runs, including when it is the root agent.
 
 `allowed-tools` limits what an agent can do in the workspace. The messaging tools `sendMessage`, `waitMessages`, `stopAgent`, and `ask` only reach other agents in the session, so every agent has them whether `allowed-tools` lists them or not. A read-only reviewer can still ask a question and still collect the answers of children it launched.
+
+Every agent also has `searchExecutions` and `readExecution` for inspecting retained work in its own session. These reads do not change the workspace or resume paused work.
+
+Session-worker agents also have `resumeExecution` for explicitly continuing retained work and `resolveExecutionActivity` for recording inspected outcomes of uncertain steps. These tools control execution state within the session and do not change the workspace tool allowlist.
 
 ## How the main agent sees them
 
@@ -96,6 +100,8 @@ A call names either `agent` or `agentDefinition`, never both and never neither. 
 
 `parentAgentRunId` is the run ID of the agent that launched the child, or `root` for the session's root conversation. A session may have up to `PEEN_MAX_CONCURRENT_AGENT_RUNS` children running at once. A launch past that limit fails with "too many concurrent agent runs".
 
+Paused session-worker children release their active slots after their callbacks stop. New work can use those slots without resuming the paused children. If an explicitly resumed child finds every slot occupied, it stays paused with its saved context and results. Resume it again after another child stops.
+
 ## Running children
 
 A child runs on its own, beside the agent that launched it. The launcher keeps working, can start more children, and hears back when each one ends.
@@ -104,29 +110,51 @@ A child runs on its own, beside the agent that launched it. The launcher keeps w
 
 A child keeps running after the turn that launched it ends. It stops when it gives its final answer, when it runs out of tool rounds, or when something stops it:
 
-- `POST /v1/session/cancel` and the Cancel button stop the active turn and every child still running in the session. A turn that ends cancelled any other way, such as by its timeout, stops every child it started, directly or through its descendants.
+- `POST /v1/session/cancel` and the Cancel button pause unfinished session workflows and interrupt their activities. Embedded sessions use the same pause behavior.
 - `stopAgent`, `POST /v1/session/agents/{agentRunId}/cancel`, and the Stop button in the control surface stop one child.
-- When a child ends, Peen stops the children it launched, because their answers would have nowhere to go.
-- A normal worker shutdown cancels its children. A crash records unfinished children as `interrupted`; they can resume when the session gets another worker.
+- A child can keep running after its parent finishes. Its execution and final report remain stored in service and embedded sessions.
+- Normal shutdown pauses unfinished work. After a crash, a replacement worker restores unfinished children from their saved workflow history.
 
 ### Recovery after a crash
 
-When a session's worker starts, Peen resumes interrupted children under their existing run IDs. It restores their task, instructions, model, tool allowlist, current directory, summary and remaining transcript. The directory's harness is read again. Provider rounds already recorded still count against the child's original round limit; increasing the deployment limit does not give a recovered child extra rounds.
+Service and embedded sessions use one workflow definition with saved context and stable execution identities. Their workers restore children through workflow history.
 
-Peen restores accepted child inbox messages and pending `ask` and `waitMessages` calls. A wait keeps its elapsed timeout, and a recorded question is not sent again. An unfinished `launchAgent` call returns the child ID it already created when that record exists. Peen supplies an error result for other unfinished tools because their effects may have happened before the crash. The agent must inspect the current state before retrying them.
+After the controller or a worker crashes, a replacement worker resumes interrupted children and grandchildren with their original run IDs, ancestry, start times, directories and saved conversation. An interrupted model request retries with that context. Completed tool results are reused. A completed parent does not prevent its unfinished children from continuing. Recovery waits for an abandoned activity lease to expire before reclaiming its work. Paused children remain paused until explicitly resumed.
 
-Completed, failed and cancelled children stay ended. A cancellation requested before recovery prevents a restart. A nested child resumes only while its parent is also running. In an [embedded runtime](../pkg/peen/README.md), recovery happens at startup for the initial session and when another session first receives work.
+Restored conversations retain their task, instructions, model, tool selection, frozen harness, summary and accepted inbox messages. Recorded provider rounds still count against the original limit; increasing the deployment limit does not grant extra rounds. Pending `ask` and `waitMessages` calls keep their original deadlines and saved questions. Uncertain tool effects require inspection before retry or acceptance through the controls below.
 
-Recovery checks every child's model, directory, tool allowlist and depth before claiming the batch. A missing model or directory, or a lower concurrent-run limit than the batch needs, refuses recovery and leaves the children interrupted. Restore the required configuration or directory, or cancel children to fit the limit, then retry.
+Completed, failed and cancelled children stay ended. A cancellation requested before recovery prevents a restart. An embedded runtime starts workflow workers for its stored sessions at construction and for newly opened sessions. Closing it pauses unfinished work and drains its workers before closing storage.
+
+See [durable state](architecture.md#durable-state-and-visibility) for storage and recovery details.
+
+### Inspecting retained work
+
+An agent can use `searchExecutions` to find earlier work, including work you stopped. `text` searches task text, saved execution context, pause reasons and failures as a literal substring. Optional filters are `id`, `parentId`, `rootId`, `state`, `fromTime` and `toTime`. Times use RFC 3339, with an inclusive start and exclusive end. The states are `queued`, `running`, `paused`, `reconciling`, `completed`, `failed` and `cancelled`. Results return metadata and ancestry, with `limit`, `offset` and `hasMore` for pagination.
+
+`readExecution` takes an `executionId` from those results. Its optional `part` selects `execution` metadata, `activities` with step inputs and outputs, ordered `events`, or the accepted-message `inbox`. Each history part has its own `limit`, `offset` and `hasMore`. A page that exceeds the tool result budget returns a tool error. Request fewer records, or use the ordered events to find an activity and read its context in chunks.
+
+Use `part: "context"` for the saved conversation. Without `activityId`, it reads the execution's launch or terminal snapshot. Supply an `activityId` from the activity history to read that step's intermediate checkpoint. Context pages count bytes, default to at most 4096 bytes, preserve UTF-8 and return `nextOffset`. Follow `nextOffset` until `hasMore` is false to reconstruct the saved JSON. Inspect the current workspace before deciding how to continue. Reading retained work leaves it paused.
+
+### Continuing retained work
+
+When you ask an agent to continue an earlier task, it can call `resumeExecution` with that task's `executionId` and the `controlRevision` returned by its latest inspection. Peen resumes paused members of that subtree and preserves completed, failed and cancelled outcomes. A newer Stop or changed target refuses a stale request. The execution history records the calling execution and tool attempt.
+
+A message accepted after a root's completion boundary is retained in that root's inbox as deferred input. Peen starts it as a separate root after the current root finishes, or recovers it at worker startup. A later Stop leaves it stored. To continue one stopped message, inspect the completed source with `readExecution`, `part: "inbox"`, then call `resumeExecution` with that source's `executionId` and `controlRevision`. Copy the message's `requestId` and `stopRevision` into `deferredRequestId` and `deferredStopRevision`. Peen admits only that selected input and preserves an existing deferred turn's identity. It leaves the completed source and other stopped messages alone. The execution history records the selection and calling activity as `inbox.resumed`.
+
+A resumed root waits while another turn owns the session, then continues after that turn finishes. A resumed child can run alongside the current turn, subject to the child capacity limit. Worker startup restores signals for admitted unfinished work and leaves paused work paused. Resuming does not resolve uncertain tool effects.
+
+For an uncertain step, `resolveExecutionActivity` takes its `activityId`, saved `attempt`, the execution's inspected `controlRevision`, and `evidence` describing what the agent checked. `resolution: "retry"` permits another attempt when repeating the effect is safe. `resolution: "accept"` requires the complete inspected `output` and `context` checkpoint objects and retains that result without repeating the effect. The history records the decision and its caller. Resolution leaves paused work paused; continuing it still requires `resumeExecution`. Leave an outcome uncertain when inspection cannot establish what happened.
 
 ### Answers come back as messages
 
 A child's final answer goes to the agent that launched it.
 
+In session workers, a child question can also wake an idle root. Startup and root completion check retained pending questions, including ones published before a crash. Paused sources stay queued, and a configured queue-only event handler keeps holding the question. Reading or checking a question does not consume it; admitting the wake records its delivery with the new turn.
+
 - A child of the root conversation reports through an `agent.finished` [session event](events.md#agent-events), or `agent.failed` when it did not complete. The event data carries the final answer in `response`. The root reads the event at its next tool call, or a new turn starts for it when the root is idle.
 - A child of a child reports into its parent's conversation as a message, after the parent's current tool call. The message is `<message from="agent" name="<name>" run="<agentRunId>" kind="result">` with the final answer, or `kind="failed"` or `kind="cancelled"` with what stopped it.
 
-`waitMessages` blocks until a message waits for the caller, then returns how many wait. The messages reach the conversation right after the tool result. A parent that launched children uses it to wait for their answers. A child must collect the answers it needs before its own final answer, because its children stop when it ends. `waitMessages` takes an optional `timeout` as a Go duration, such as `"10m"`. Without one it waits until something arrives, for at most 30 days.
+`waitMessages` blocks until a message waits for the caller, then returns how many wait. For the root, pending session notices also count, including saved notices after a restart. Waiting leaves those notices pending until context delivery. The messages reach the conversation right after the tool result. A parent that launched children uses it to collect the answers it needs before giving its final answer. `waitMessages` takes an optional `timeout` as a Go duration, such as `"10m"`. Without one it waits until something arrives, for at most 30 days.
 
 ### Messages and sender tags
 
@@ -142,7 +170,7 @@ A child's task is the first such message, from the agent that launched it. `from
 
 `sendMessage` sends a message to another agent. `to` is `root` or the `agentRunId` of any running agent in the session, such as a child, or the parent named in the `run` attribute of the task. A message to a child or parent lands after its current tool call. A message to `root` from any child, at any depth, reaches the root as an `agent.message` session event. Sending to a child that has ended fails and says how it ended. Sending to a run ID the session never had fails as unknown.
 
-You can write to a running child yourself. Name its run ID in the `to` field of a WebSocket `message.send`, or pick it under Send to in the control surface. See [the WebSocket](http-api.md#send-and-watch-turns-over-websocket).
+You can write to a running child yourself. Name its run ID in the `to` field of a WebSocket `message.send`, or pick it under Send to in the control surface. Session workers retain accepted messages while reconstructing a child's conversation. See [the WebSocket](http-api.md#send-and-watch-turns-over-websocket).
 
 ### Questions
 
@@ -150,11 +178,13 @@ You can write to a running child yourself. Name its run ID in the `to` field of 
 
 The asker answers with `sendMessage` to the asking run, and you can answer a child's question directly with a message whose `to` names it. While a child waits on a question, `GET /v1/session/agents` shows it with `waiting: true` and the `question`, and `?state=waiting` lists only those runs.
 
-`PEEN_ASK_TIMEOUT` bounds how long `ask` waits, and a call's own `timeout` may shorten it. The default `0` sets no limit of its own, so `ask` waits up to the 30-day cap every messaging tool has, and a child whose question nobody answers holds one of the session's `PEEN_MAX_CONCURRENT_AGENT_RUNS` slots until someone answers or stops it. The root's `ask` still ends with its turn, at `PEEN_TURN_TIMEOUT`. A timed out `ask` returns `answered: false`.
+`PEEN_ASK_TIMEOUT` bounds how long `ask` waits, and a call's own `timeout` may shorten it. The default `0` sets no limit of its own, so `ask` waits up to the 30-day cap every messaging tool has, and a child whose question nobody answers holds one of the session's `PEEN_MAX_CONCURRENT_AGENT_RUNS` slots until someone answers or stops it. The root's `ask` still ends with its turn, at `PEEN_TURN_TIMEOUT`. A timed out `ask` returns `answered: false`. Interrupting a root or child wait leaves its recorded question open. Cancellation or a deadline interrupting delivery to the parent also leaves the child's question open; an ordinary delivery refusal closes it unanswered and returns the error.
 
 ### Stopping a child
 
 `stopAgent` takes an `agentRunId` and stops that child and its descendants. Stopping a child that already ended reports its state. An agent cannot stop itself. It gives its final answer instead.
+
+For session-worker workflows, stopping a child records `cancelled` on its unfinished subtree and activities before interrupting live work. Saved context and history remain available, late activity results are refused, and the parent receives one retained cancellation report. Completed descendants keep their outcomes. A replacement worker finishes any SDK cancellation that the previous worker did not receive. Session Stop keeps its separate pause behavior.
 
 ## What a child gets
 

@@ -343,6 +343,10 @@ func (r *Runtime) startChildLaunch(
 		return launchAgentOutput{}, ctxerrors.Wrap(err, "tag child task")
 	}
 
+	if native := r.nativeWorkflowRunner(); native != nil {
+		return native.launchChild(ctx, deps, input, prepared, task, sender)
+	}
+
 	run, runCtx, sink, err := r.startChildAgentRun(ctx, deps, input, prepared)
 	if err != nil {
 		return launchAgentOutput{}, err
@@ -909,44 +913,13 @@ func (r *Runtime) runChildAgent(
 	sink *agentRunSink,
 ) (*elelem.Response, error) {
 	depth := launch.depth
-	systemPrompt := launch.systemPrompt
 
-	scope, err := newDirectoryScope(runCtx, directoryScopeOptions{
-		runtime: r, deps: deps,
-		childInstructions: launch.definition.instructions,
-		allowedTools:      launch.definition.allowedTools,
-		depth:             depth, agentRunID: &run.ID,
-		initialPrompt: systemPrompt, skills: launch.skillLedger,
-	})
+	prepared, err := r.prepareChildConversation(runCtx, deps, launch, task, run)
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "build child directory scope")
+		return nil, ctxerrors.Wrap(err, "prepare child conversation")
 	}
 
-	childCompactor, err := r.newChildCompactor(
-		runCtx,
-		deps,
-		run,
-		systemPrompt,
-		scope.childCompactionHook(run),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	scope.bindChildCompactor(childCompactor)
-	scope.completedRounds = launch.completedRounds
-	scope.roundOffset = launch.completedRounds
-
-	maximumRounds := childConversationRounds(
-		launch, r.agentLimits.MaxChildTurns,
-	)
-
-	prompt, remainingRounds, err := childRequestPrompt(
-		launch, task, maximumRounds,
-	)
-	if err != nil {
-		return nil, ctxerrors.Wrap(err, "prepare child request budget")
-	}
+	scope, maximumRounds := prepared.scope, prepared.maximumRounds
 
 	requestSettingsJSON, err := newModelAuditSettings(
 		deps.model.Model,
@@ -990,12 +963,12 @@ func (r *Runtime) runChildAgent(
 
 	request := elelem.NewRequest(deps.model.Client).
 		WithModel(deps.model.Model).
-		WithPrompt(prompt).
+		WithPrompt(prepared.prompt).
 		WithTools(scope.context().tools).
 		WithToolProvider(scope.provideTools).
 		WithAutoToolCalls().
 		WithUserMessageQueue(run.inbox.queue).
-		WithMaxRounds(remainingRounds).
+		WithMaxRounds(prepared.remainingRounds).
 		WithMaxConcurrentTools(r.maxConcurrentTools).
 		WithToolTimeout(r.toolTimeout).
 		WithMaxToolResultTokens(r.maxToolResultTokens).
@@ -1035,8 +1008,8 @@ func (r *Runtime) runChildAgent(
 			return nil
 		})
 
-	if childCompactor != nil {
-		request = request.PreMaxTokensReached(childCompactor.handle)
+	if prepared.compactor != nil {
+		request = request.PreMaxTokensReached(prepared.compactor.handle)
 	}
 
 	response, err := scope.run(
@@ -1139,8 +1112,7 @@ func (r *Runtime) agentToolSet(
 	}
 
 	// allowed-tools limits what an agent can do in the workspace. The
-	// messaging tools only reach other agents in the session, and a child
-	// that launches its own children needs them to collect the answers.
+	// session tools read retained history and communicate with other agents.
 	for _, tool := range messaging {
 		if _, found := restricted.Get(tool.Name); found {
 			continue
@@ -1368,6 +1340,7 @@ type agentRunSink struct {
 	run            *AgentRun
 	liveSink       EventSink
 	modelReference string
+	phaseBuffer    *childPhaseBuffer
 	mu             sync.Mutex
 }
 
@@ -1420,6 +1393,12 @@ func (s *agentRunSink) emit(
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return ctxerrors.Wrap(err, "marshal agent run event")
+	}
+
+	if s.phaseBuffer != nil {
+		s.bufferPhaseEvent(eventType, string(encoded))
+
+		return nil
 	}
 
 	s.mu.Lock()
@@ -1590,6 +1569,15 @@ func (s *agentRunSink) persistMessages(
 	inputs ...session.AgentRunMessageInput,
 ) error {
 	if len(inputs) == 0 {
+		return nil
+	}
+
+	if s.phaseBuffer != nil {
+		s.mu.Lock()
+		s.phaseBuffer.Transcript.Messages = append(
+			s.phaseBuffer.Transcript.Messages, inputs...)
+		s.mu.Unlock()
+
 		return nil
 	}
 

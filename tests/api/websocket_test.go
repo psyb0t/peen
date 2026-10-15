@@ -59,6 +59,59 @@ type apiTestWebSocketResult struct {
 	Queued bool `json:"queued"`
 }
 
+func TestAPIWebSocketLastClientDisconnectCancelsProvider(t *testing.T) {
+	sessionID := createAPIWebSocketSession(t, "open disconnect test session")
+	connection := dialAPIWebSocket(t, &sessionID)
+	hold, err := integrationInfra.HoldNextCompletion()
+	require.NoError(t, err)
+	t.Cleanup(hold.Release)
+	require.NoError(t, writeAPIWebSocketMessage(t, connection,
+		"hold this request until disconnect"))
+	awaitAPIWebSocketProviderHold(t, hold)
+	require.NoError(t, connection.Close())
+	select {
+	case <-hold.Cancelled:
+	case <-time.After(requestTimeout):
+		t.Fatal("last session disconnect did not cancel the provider request")
+	}
+
+	require.Eventually(t, func() bool {
+		return !getSession(t, sessionID).ActiveTurn
+	}, requestTimeout, 10*time.Millisecond)
+	reconnected := dialAPIWebSocket(t, &sessionID)
+	t.Cleanup(func() { require.NoError(t, reconnected.Close()) })
+	assert.False(t, getSession(t, sessionID).ActiveTurn)
+	event := dabluveees.NewEvent(apiTestWebSocketMessageSend,
+		map[string]string{"message": "perform unrelated work after reconnect"}).
+		SetMetadata(apiTestWebSocketMetadataSessionID, sessionID.String())
+	require.NoError(t, reconnected.WriteJSON(event))
+	completed := awaitAPIWebSocketCompletionForEvent(t, reconnected, false,
+		event.ID)
+	assert.Equal(t, sessionID, completed.sessionID)
+}
+
+func TestAPIWebSocketRemainingClientContinuesProvider(t *testing.T) {
+	sessionID := createAPIWebSocketSession(t, "open shared client session")
+	first := dialAPIWebSocket(t, &sessionID)
+	second := dialAPIWebSocket(t, &sessionID)
+	t.Cleanup(func() { require.NoError(t, second.Close()) })
+	hold, err := integrationInfra.HoldNextCompletion()
+	require.NoError(t, err)
+	t.Cleanup(hold.Release)
+	require.NoError(t, writeAPIWebSocketMessage(t, first,
+		"keep running while another session client remains"))
+	awaitAPIWebSocketProviderHold(t, hold)
+	require.NoError(t, first.Close())
+	hold.Release()
+	completed := awaitAPIWebSocketCompletion(t, second, false)
+	assert.Equal(t, sessionID, completed.sessionID)
+	select {
+	case <-hold.Cancelled:
+		t.Fatal("disconnect cancelled work with another session client present")
+	default:
+	}
+}
+
 type apiTestWebSocketFailure struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
@@ -508,6 +561,18 @@ func awaitAPIWebSocketCompletion(
 ) apiTestWebSocketObservation {
 	t.Helper()
 
+	return awaitAPIWebSocketCompletionForEvent(t, connection, wantQueued,
+		uuid.Nil)
+}
+
+func awaitAPIWebSocketCompletionForEvent(
+	t *testing.T,
+	connection *websocket.Conn,
+	wantQueued bool,
+	triggeringEventID uuid.UUID,
+) apiTestWebSocketObservation {
+	t.Helper()
+
 	deadline := time.Now().Add(apiTestWebSocketReadTimeout)
 	agentEventTypes := make([]string, 0)
 	deliveredRequestIDs := make([]uuid.UUID, 0)
@@ -516,6 +581,10 @@ func awaitAPIWebSocketCompletion(
 
 		received := dabluveees.Event{}
 		require.NoError(t, connection.ReadJSON(&received))
+		if triggeringEventID != uuid.Nil && (received.TriggeredBy == nil ||
+			*received.TriggeredBy != triggeringEventID) {
+			continue
+		}
 
 		switch string(received.Type) {
 		case apiTestWebSocketMessageCompleted:

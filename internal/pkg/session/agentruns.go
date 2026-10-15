@@ -449,6 +449,10 @@ func (s *Store) RequestAgentRunCancellation(
 		result.CancelRequested = true
 		requested = true
 
+		if err := s.cancelNativeChildTree(ctx, tx, result); err != nil {
+			return ctxerrors.Wrap(err, "cancel native child tree")
+		}
+
 		return nil
 	}); err != nil {
 		return nil, false, ctxerrors.Wrap(

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"time"
@@ -17,10 +18,11 @@ import (
 //
 // A timeout here bounds only how long this call WAITS, never the process's
 // life: a command still running when the wait bound elapses, or started
-// with Background, is left running and reported as a job handle. Only
-// invalid input, a missing or non-directory working directory, caller
-// cancellation before the process starts, or a failure to launch return an
-// error; a non-zero exit or a job left running is reported in the output.
+// with Background, is left running and reported as a job handle. Invalid
+// input, an invalid working directory, caller cancellation or a launch
+// failure returns an error. Non-zero exits are reported in the output.
+// Caller cancellation while awaiting a foreground command kills its process
+// group. A returned job handle has detached and survives later cancellation.
 func (e *JobExecutor) RunCommand(
 	ctx context.Context,
 	input RunCommandInput,
@@ -31,10 +33,8 @@ func (e *JobExecutor) RunCommand(
 
 	purpose := strings.TrimSpace(input.Purpose)
 	if purpose == "" {
-		return RunCommandOutput{}, ctxerrors.Wrap(
-			commerr.ErrValidationFailed,
-			"purpose is required",
-		)
+		return RunCommandOutput{}, ctxerrors.Wrap(commerr.ErrValidationFailed,
+			"purpose is required")
 	}
 
 	if strings.TrimSpace(input.Command) == "" {
@@ -65,6 +65,7 @@ func (e *JobExecutor) RunCommand(
 		Env:                append(e.commandBaseEnvironment(), env...),
 		Purpose:            purpose,
 		TurnID:             e.turnID,
+		AgentRunID:         e.agentRunID,
 		WorkerGenerationID: e.workerGenerationID,
 		ToolCallID:         toolCallIDFromContext(ctx),
 		Awaited:            !input.Background,
@@ -74,7 +75,9 @@ func (e *JobExecutor) RunCommand(
 	}
 
 	if !input.Background {
-		waitForJob(ctx, job, waitBound)
+		if err := e.waitForForegroundCommand(ctx, job, waitBound); err != nil {
+			return jobRunOutput(job, false), err
+		}
 	}
 
 	e.logJobStarted(ctx, job, input.Background)
@@ -82,10 +85,51 @@ func (e *JobExecutor) RunCommand(
 	return jobRunOutput(job, input.Background), nil
 }
 
+func (e *JobExecutor) waitForForegroundCommand(
+	ctx context.Context,
+	job *Job,
+	bound time.Duration,
+) error {
+	waitForJob(ctx, job, bound)
+
+	if err := ctx.Err(); err != nil {
+		stopErr := e.stopForegroundCommand(ctx, job)
+
+		return ctxerrors.Wrap(errors.Join(err, stopErr),
+			"cancel foreground command")
+	}
+
+	return nil
+}
+
+func (e *JobExecutor) stopForegroundCommand(
+	ctx context.Context,
+	job *Job,
+) error {
+	_, _, signalErr := e.jobs.SignalContext(ctx, job.ID, JobSignalKill)
+	if signalErr != nil {
+		signalErr = ctxerrors.Wrap(signalErr, "record foreground cancellation")
+
+		job.requestKill(context.WithoutCancel(ctx))
+	}
+
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx),
+		e.jobs.limits.JobStopGracePeriod)
+	defer cancel()
+
+	select {
+	case <-job.Done():
+		return signalErr
+	case <-cleanup.Done():
+		return ctxerrors.Wrap(errors.Join(signalErr, cleanup.Err()),
+			"wait for cancelled foreground job")
+	}
+}
+
 // waitForJob blocks until job leaves the running state or bound elapses,
-// whichever comes first. Neither outcome kills job: the bound only ends
-// this call's wait. A job still running when the wait ends is released, so
-// its completion reaches the session as an event instead of this result.
+// whichever comes first. The normal wait bound releases a running job so its
+// completion reaches the session as an event. Caller cancellation leaves the
+// job's foreground ownership intact for its caller to settle.
 func waitForJob(ctx context.Context, job *Job, bound time.Duration) {
 	waitCtx, cancel := context.WithTimeout(ctx, bound)
 	defer cancel()
@@ -93,7 +137,9 @@ func waitForJob(ctx context.Context, job *Job, bound time.Duration) {
 	select {
 	case <-job.Done():
 	case <-waitCtx.Done():
-		job.Release()
+		if ctx.Err() == nil {
+			job.Release()
+		}
 	}
 }
 

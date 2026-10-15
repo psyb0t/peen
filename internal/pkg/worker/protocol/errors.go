@@ -27,6 +27,7 @@ const (
 	CodeNotFound         Code = "notFound"
 	CodeAlreadyExists    Code = "alreadyExists"
 	CodeConflict         Code = "conflict"
+	CodeInvalidState     Code = "invalidState"
 	CodeValidation       Code = "validationFailed"
 	CodePermissionDenied Code = "permissionDenied"
 	CodeLockHeld         Code = "lockHeld"
@@ -38,6 +39,7 @@ const (
 	CodeUnknownSkill              Code = "unknownSkill"
 	CodeAgentRunFinished          Code = "agentRunFinished"
 	CodeAgentRunNotFound          Code = "agentRunNotFound"
+	CodeExecutionInboxPending     Code = "executionInboxPending"
 )
 
 // Error is one failure as it crosses the socket.
@@ -55,6 +57,7 @@ var sentinels = map[Code]error{
 	CodeNotFound:         commerr.ErrNotFound,
 	CodeAlreadyExists:    commerr.ErrAlreadyExists,
 	CodeConflict:         commerr.ErrConflict,
+	CodeInvalidState:     commerr.ErrInvalidState,
 	CodeValidation:       commerr.ErrValidationFailed,
 	CodePermissionDenied: commerr.ErrPermissionDenied,
 	CodeLockHeld:         commerr.ErrLockHeld,
@@ -76,6 +79,11 @@ type detailedFailure struct {
 //
 //nolint:gochecknoglobals // A lookup table both directions read.
 var detailedFailures = []detailedFailure{
+	{
+		code:   CodeExecutionInboxPending,
+		detail: session.ErrExecutionInboxPending,
+		class:  commerr.ErrConflict,
+	},
 	{
 		code:   CodeRunningTurnSettingsChange,
 		detail: session.ErrRunningTurnSettingsChange,

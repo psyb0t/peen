@@ -191,10 +191,11 @@ func (s *installerSuite) readSocketGroup(_ context.Context) error {
 
 func (s *installerSuite) buildImage(ctx context.Context) error {
 	s.image = containerNamePrefix + "image-" + s.runID
+	// pushIndexRelease supplies the fixture's attestation and platform entries.
 	//nolint:gosec // Fixed arguments plus a tag this suite generated.
 	command := exec.CommandContext(
 		ctx,
-		"docker", "build", "--quiet", "--tag", s.image, "--file", "Dockerfile", ".",
+		"docker", "build", "--provenance=false", "--quiet", "--tag", s.image, "--file", "Dockerfile", ".",
 	)
 	command.Dir = s.repoRoot
 	command.Env = append(os.Environ(), "DOCKER_BUILDKIT=1")
@@ -318,7 +319,7 @@ func (s *installerSuite) manifestDescriptor(ctx context.Context, tag string) (de
 		return descriptor{}, ctxerrors.Wrap(err, "read the manifest")
 	}
 	if response.StatusCode != http.StatusOK {
-		return descriptor{}, ctxerrors.Wrapf(errRegistryNotReady, "manifest %s answered %d", tag, response.StatusCode)
+		return descriptor{}, ctxerrors.Wrapf(errRegistryNotReady, "manifest %s answered %d: %s", tag, response.StatusCode, body)
 	}
 
 	return descriptor{

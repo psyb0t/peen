@@ -106,7 +106,7 @@ linters:
             - github.com/sirupsen/logrus
             - github.com/google/uuid
             - github.com/getkin/kin-openapi
-            - github.com/glebarez/sqlite
+            - github.com/cschleiden/go-workflows
             - github.com/gorilla/websocket
             - github.com/moby/moby
             - github.com/prometheus/client_golang
@@ -119,8 +119,10 @@ linters:
             # image via testcontainers-go. Test-only; production never imports it.
             - github.com/testcontainers/testcontainers-go
             - golang.org/x/sys
+            - go.opentelemetry.io/otel/trace
             - gorm.io/gen
             - gorm.io/gorm
+            - modernc.org/sqlite
 
   exclusions:
     generated: lax

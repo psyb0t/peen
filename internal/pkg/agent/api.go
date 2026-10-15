@@ -197,7 +197,7 @@ func (r *Runtime) RunMessage(
 	sink EventSink,
 ) (*MessageRunResult, error) {
 	if request.To != nil {
-		return r.messageAgentRun(ctx, request)
+		return r.messageAgentRun(ctx, request, requestID)
 	}
 
 	input, err := messageRequestToTurnRequest(request, requestID)
@@ -286,6 +286,8 @@ func (r *Runtime) CancelSession(
 	ctx context.Context,
 	sessionID uuid.UUID,
 ) (*api.CancelResponse, error) {
+	pendingCancelled := r.admissions.CancelPending(sessionID) > 0
+
 	cancelRequested, err := r.store.Cancel(ctx, sessionID)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "cancel session")
@@ -294,7 +296,7 @@ func (r *Runtime) CancelSession(
 	agentsCancelled := r.CancelAgentRuns(ctx, sessionID) > 0
 
 	return &api.CancelResponse{
-		CancelRequested: cancelRequested || agentsCancelled,
+		CancelRequested: cancelRequested || agentsCancelled || pendingCancelled,
 	}, nil
 }
 
@@ -307,13 +309,14 @@ func messageRequestToTurnRequest(
 	}
 
 	input := TurnRequest{
-		Message:         request.Message,
-		Model:           optionalString(request.Model),
-		ReasoningEffort: optionalString(request.ReasoningEffort),
-		SessionID:       request.SessionID,
-		RequestID:       requestID,
-		SourceEventID:   request.SourceEventID,
-		Origin:          request.Origin,
+		Message:              request.Message,
+		Model:                optionalString(request.Model),
+		ReasoningEffort:      optionalString(request.ReasoningEffort),
+		SessionID:            request.SessionID,
+		RequestID:            requestID,
+		SourceEventID:        request.SourceEventID,
+		ExpectedStopRevision: request.ExpectedStopRevision,
+		Origin:               request.Origin,
 	}
 	if request.SystemPrompt != nil {
 		mode, err := promptModeFromMessageRequest(request.SystemPrompt)

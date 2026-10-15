@@ -16,7 +16,7 @@ useDefault = true
 # like `test_secret` suppresses any finding whose text happens to contain it,
 # including a genuine credential in a file that merely looks like a fixture.
 [[allowlists]]
-description = "Gitignored local state, build output, and vendored dependencies"
+description = "Gitignored local state and build output"
 paths = [
   '''(^|/)\.env$''',
   '''(^|/)\.telemetry(?:/|$)''',
@@ -24,7 +24,4 @@ paths = [
   '''(^|/)coverage-percent\.txt$''',
   '''(^|/)git-update\.sh$''',
   '''(^|/)CLAUDE\.md$''',
-  # Third-party source reproduced verbatim by `go mod vendor`. A finding here
-  # is an upstream test fixture we cannot edit, and it is committed on purpose.
-  '''(^|/)vendor(?:/|$)''',
 ]

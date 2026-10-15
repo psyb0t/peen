@@ -97,6 +97,10 @@ func TestToolNamesAreCamelCase(t *testing.T) {
 		toolNameWaitMessages,
 		toolNameStopAgent,
 		toolNameAsk,
+		toolNameSearchExecutions,
+		toolNameReadExecution,
+		toolNameResumeExecution,
+		toolNameResolveExecutionActivity,
 	)
 
 	for _, tool := range definitions {

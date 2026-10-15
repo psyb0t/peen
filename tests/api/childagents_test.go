@@ -4,7 +4,9 @@ package api_test
 
 import (
 	"context"
+	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"path"
 	"strconv"
@@ -14,7 +16,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/peen/internal/pkg/agent"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
+	"github.com/psyb0t/peen/internal/pkg/tools"
 	"github.com/psyb0t/peen/tests/testinfra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -200,6 +206,7 @@ func TestAPIChildAgentRecoversAfterItsWorkerCrashes(t *testing.T) {
 		return false
 	}, childAgentsPollTimeout, childAgentsPollEvery)
 	sendToAgentRun(t, connection, workspace.sessionID, child.AgentRunId)
+	keepChildAgentConnectionReading(t, connection)
 	finished := awaitAgentRunState(t, workspace.sessionID, child.AgentRunId, api.AgentRunStateCompleted)
 	assert.Equal(t, childAskDone, finished.ResponseText)
 	assert.Equal(t, child.StartedAt, finished.StartedAt)
@@ -216,6 +223,221 @@ func TestAPIChildAgentRecoversAfterItsWorkerCrashes(t *testing.T) {
 		assert.Contains(t, conversation, childAskAnswer)
 	}
 	assert.Equal(t, 1, childRequests)
+}
+
+func TestAPIChildAgentTreeRecoversAfterItsWorkerCrashes(t *testing.T) {
+	assertChildAgentTreeCrashRecovery(t, false)
+}
+
+func TestAPIChildAgentTreeRecoversAfterItsControllerCrashes(t *testing.T) {
+	assertChildAgentTreeCrashRecovery(t, true)
+}
+
+func assertChildAgentTreeCrashRecovery(t *testing.T, crashController bool) {
+	t.Helper()
+	t.Cleanup(func() {
+		if t.Failed() {
+			ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), requestTimeout)
+			defer cancel()
+			logs, err := integrationInfra.AppLogs(ctx)
+			require.NoError(t, err)
+			t.Logf("tree recovery container logs: %s", logs)
+		}
+	})
+	const message = "launch the crash recovery tree"
+	const marker = "Retain these tree directory instructions."
+	children := map[string][]string{
+		"branchA": {"leafA", "leafB", "leafC"},
+		"branchB": {"leafD"}, "branchC": nil,
+		"leafA": nil, "leafB": nil, "leafC": nil, "leafD": nil,
+	}
+	files := make(map[string]string, len(children))
+	for name := range children {
+		files[path.Join(name, "AGENTS.md")] = marker
+	}
+	workspace := openFreshWorkspace(t, childAgentsWorkspacePrefix, files)
+	pidFile := path.Join(testinfra.ContainerWorkingDirectory, "tree-worker-"+workspace.sessionID.String()+".pid")
+	script := testinfra.ScriptedToolTurn{
+		UserMessage: message, FinalAnswer: "tree root finished",
+		Calls: crashTreeLaunchCalls([]string{"branchA", "branchB", "branchC"}),
+	}
+	for name, descendants := range children {
+		calls := crashTreeLaunchCalls(descendants)
+		calls = append(calls,
+			testinfra.ScriptedToolCall{Name: "changeDirectory", Arguments: map[string]any{
+				"directory": path.Join(workspace.directory, name),
+			}},
+			testinfra.ScriptedToolCall{Name: "runCommand", Arguments: map[string]any{
+				"command": `printf '%s\n' completed >> "$TREE_EFFECT_PATH" && printf '%s' "$PPID" > "$TREE_WORKER_PID_PATH"`,
+				"purpose": "record a completed effect and this fixture's worker",
+				"environment": map[string]string{
+					"TREE_WORKER_PID_PATH": pidFile,
+					"TREE_EFFECT_PATH":     crashTreeEffectPath(workspace.sessionID, name),
+				},
+			}},
+			testinfra.ScriptedToolCall{Name: "waitMessages", Arguments: map[string]any{"timeout": "1h"}},
+		)
+		script.Children = append(script.Children, testinfra.ScriptedToolTurn{
+			UserMessage: name, Calls: calls, FinalAnswer: "finished " + name,
+		})
+	}
+	t.Cleanup(integrationInfra.DisableScriptedToolTurn)
+	integrationInfra.EnableScriptedToolTurn(script)
+	connection := openSessionConnection(t, workspace.sessionID)
+	sendSessionMessage(t, connection, workspace.sessionID, message)
+	readFramesUntilTurnCompleted(t, connection)
+	runs := awaitAgentRuns(t, workspace.sessionID, "?state=running", len(children))
+	byName := make(map[string]api.AgentRun, len(runs))
+	for _, run := range runs {
+		awaitCrashTreeWait(t, workspace.sessionID, run.AgentRunId)
+	}
+	for _, run := range listAgentRuns(t, workspace.sessionID, "") {
+		byName[run.Task] = run
+		assert.Equal(t, path.Join(workspace.directory, run.Task), run.Workspace)
+		assert.Equal(t, "completed\n", readContainerFile(t, crashTreeEffectPath(workspace.sessionID, run.Task)))
+	}
+	for parent, names := range children {
+		for _, name := range names {
+			run := byName[name]
+			require.NotNil(t, run.ParentAgentRunId)
+			assert.Equal(t, byName[parent].AgentRunId, *run.ParentAgentRunId)
+			assert.EqualValues(t, 2, run.Depth)
+		}
+	}
+
+	hold, err := integrationInfra.HoldNextCompletion()
+	require.NoError(t, err)
+	t.Cleanup(hold.Release)
+	sendToAgentRun(t, connection, workspace.sessionID, byName["leafA"].AgentRunId)
+	select {
+	case <-hold.Observed:
+	case <-time.After(requestTimeout):
+		t.Fatal("leaf final model request never reached the provider")
+	}
+	before := len(integrationInfra.ProviderRequests())
+	if crashController {
+		require.NoError(t, integrationInfra.CrashAndRestart(t.Context()))
+		connection = openSessionConnection(t, workspace.sessionID)
+	} else {
+		crashFixtureWorker(t, pidFile)
+	}
+	select {
+	case <-hold.Cancelled:
+	case <-time.After(requestTimeout):
+		t.Fatal("killed worker left its provider request active")
+	}
+	sendToAgentRun(t, connection, workspace.sessionID, byName["leafB"].AgentRunId)
+	keepChildAgentConnectionReading(t, connection)
+	for _, name := range []string{"leafA", "leafB"} {
+		awaitAgentRunState(t, workspace.sessionID, byName[name].AgentRunId, api.AgentRunStateCompleted)
+	}
+	// Completion reports wake their parents. Only still-running runs need input.
+	for _, name := range []string{"leafC", "leafD", "branchC", "branchA", "branchB"} {
+		current := listAgentRuns(t, workspace.sessionID, "")
+		for _, run := range current {
+			if run.AgentRunId == byName[name].AgentRunId && run.State != api.AgentRunStateCompleted {
+				require.NoError(t, writeAPIWebSocketSessionMessage(connection, workspace.sessionID,
+					map[string]string{"message": childAskAnswer, "to": run.AgentRunId.String()}))
+			}
+		}
+		awaitAgentRunState(t, workspace.sessionID, byName[name].AgentRunId, api.AgentRunStateCompleted)
+	}
+	finished := awaitAgentRuns(t, workspace.sessionID, "?state=completed", len(children))
+	for _, run := range finished {
+		original := byName[run.Task]
+		assert.Equal(t, original.AgentRunId, run.AgentRunId)
+		assert.Equal(t, original.ParentAgentRunId, run.ParentAgentRunId)
+		assert.Equal(t, original.ParentTurnId, run.ParentTurnId)
+		assert.Equal(t, original.StartedAt, run.StartedAt)
+		assert.Equal(t, original.Workspace, run.Workspace)
+		assert.NotEqual(t, original.WorkerGenerationId, run.WorkerGenerationId)
+		assert.Equal(t, "finished "+run.Task, run.ResponseText)
+		assert.Equal(t, "completed\n", readContainerFile(t, crashTreeEffectPath(workspace.sessionID, run.Task)))
+		assert.Contains(t, run.SystemPrompt, marker)
+	}
+	leafRequests := 0
+	for _, request := range providerRequestsSince(before) {
+		if strings.Contains(providerConversationText(request), "\nleafA\n</message>") {
+			leafRequests++
+			assert.Contains(t, providerConversationText(request), childAskAnswer)
+			assert.Contains(t, request[0].Content, marker)
+		}
+	}
+	assert.Equal(t, 1, leafRequests, "only the interrupted model request retries")
+}
+
+func crashTreeLaunchCalls(names []string) []testinfra.ScriptedToolCall {
+	calls := make([]testinfra.ScriptedToolCall, 0, len(names))
+	for _, name := range names {
+		calls = append(calls, testinfra.ScriptedToolCall{Name: "launchAgent", Arguments: map[string]any{
+			"agentDefinition": map[string]string{"name": name, "instructions": "Complete the assigned tree task."},
+			"task":            name,
+		}})
+	}
+
+	return calls
+}
+
+func crashTreeEffectPath(sessionID uuid.UUID, name string) string {
+	return path.Join(testinfra.ContainerWorkingDirectory, "tree-effect-"+sessionID.String()+"-"+name+".txt")
+}
+
+func awaitCrashTreeWait(t *testing.T, sessionID, runID uuid.UUID) {
+	t.Helper()
+	var page api.AgentRunEventPage
+	require.Eventually(t, func() bool {
+		response := apiRequest(t, http.MethodGet, agentRunsPath+"/"+runID.String()+"/events", nil,
+			withHeader(authenticatedHeaders(), headerSessionID, sessionID.String()))
+		requireAPIStatus(t, response, http.StatusOK)
+		page = decodeResponse[api.AgentRunEventPage](t, response)
+		for _, event := range page.Events {
+			if event.Type == agent.EventTypeAgentRunToolUse && event.Payload != nil && (*event.Payload)["name"] == "waitMessages" {
+				return true
+			}
+		}
+
+		return false
+	}, childAgentsPollTimeout, childAgentsPollEvery)
+	for _, event := range page.Events {
+		if event.Type != agent.EventTypeAgentRunToolResult || event.Payload == nil || (*event.Payload)["name"] != "runCommand" {
+			continue
+		}
+		payload := *event.Payload
+		require.Equal(t, false, payload["isError"], "command result: %v", payload)
+		content, ok := payload["content"].(string)
+		require.True(t, ok)
+		var result tools.RunCommandOutput
+		require.NoError(t, json.Unmarshal([]byte(content), &result))
+		require.Zero(t, result.ExitCode, "command output: %+v", result)
+	}
+}
+
+func keepChildAgentConnectionReading(t *testing.T, connection *websocket.Conn) {
+	t.Helper()
+	require.NoError(t, connection.SetReadDeadline(time.Time{}))
+	stopped := make(chan struct{})
+	var readErr error
+	go func() {
+		defer close(stopped)
+		defer func() {
+			if recover() != nil {
+				readErr = ctxerrors.Wrap(commerr.ErrInvalidState,
+					"child recovery websocket reader panicked")
+			}
+		}()
+		for {
+			if _, _, readErr = connection.ReadMessage(); readErr != nil {
+				return
+			}
+		}
+	}()
+	t.Cleanup(func() {
+		require.NoError(t, connection.UnderlyingConn().SetReadDeadline(time.Now()))
+		<-stopped
+		var timeout net.Error
+		require.ErrorAs(t, readErr, &timeout)
+		assert.True(t, timeout.Timeout())
+	})
 }
 
 func crashFixtureWorker(t *testing.T, pidFile string) {

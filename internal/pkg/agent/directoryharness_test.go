@@ -14,6 +14,7 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/session"
+	"github.com/psyb0t/peen/internal/pkg/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -518,4 +519,43 @@ func directoryToolCalls(t *testing.T, calls ...elelem.ToolCall) string {
 	require.NoError(t, err)
 
 	return string(data)
+}
+
+func TestDirectoryScopesBindChildJobOwnersAfterRestoration(t *testing.T) {
+	t.Parallel()
+	fixture, deps, launch, run, prepared := initialChildConversationFixture(t)
+	conversation, err := fixture.base.runtime.childWorkflowConversation(t.Context(),
+		deps, launch, run, prepared)
+	require.NoError(t, err)
+	_, restored, err := fixture.base.runtime.restoreChildWorkflowScope(t.Context(),
+		deps, run, conversation)
+	require.NoError(t, err)
+	testCases := []struct {
+		name     string
+		executor *tools.JobExecutor
+		child    bool
+	}{
+		{name: "fresh child", executor: prepared.scope.context().executor, child: true},
+		{name: "restored child", executor: restored.scope.context().executor, child: true},
+		{name: "parent view", executor: deps.executor},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			output, err := tc.executor.RunCommand(t.Context(), tools.RunCommandInput{
+				Command: "printf owner", Purpose: "inspect process attribution",
+			})
+			require.NoError(t, err)
+			assert.Equal(t, "owner", output.Stdout)
+			job, err := fixture.base.store.GetJob(t.Context(), run.SessionID,
+				output.JobID)
+			require.NoError(t, err)
+			if tc.child {
+				require.NotNil(t, job.AgentRunID)
+				assert.Equal(t, run.ID, *job.AgentRunID)
+			} else {
+				assert.Nil(t, job.AgentRunID)
+			}
+		})
+	}
 }

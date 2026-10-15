@@ -56,7 +56,7 @@ Peen keeps two directories apart, and refuses to start if they overlap.
 
 `PEEN_CONFIG_DIR` is the global configuration and harness layer: `AGENTS.md`, `.agents/`, and the optional `SYSTEM.md`, `APPEND_SYSTEM.md`, and `COMPACTION.md`. Every Docker worker receives this directory read-only, so anything inside it is readable by every session. A `control` worker runs as the controller's user and can write it.
 
-`PEEN_STATE_DIR` is the controller's own durable state: `peen.db`, the audit logs, and the worker socket directories. No Docker worker receives it. A `control` worker runs as the controller's user and can read it, every session's transcript included. See [where it runs](where-it-runs.md#agent-spaces).
+`PEEN_STATE_DIR` is the controller's own durable state: `peen.db`, `workflows.db`, the audit logs, and the worker socket directories. No Docker worker receives it. A `control` worker runs as the controller's user and can read it, every session's transcript included. See [where it runs](where-it-runs.md#agent-spaces).
 
 Peen refuses to start when the two are the same path, or when either sits inside the other. Without that rule, the read-only configuration mount would carry SQLite into every worker, and one session could read every other session's transcript.
 
@@ -285,9 +285,11 @@ Every root and child turn also receives the server's current local time, timezon
 
 `runCommand` never kills a process because a wait ran out. A command that exits within `PEEN_TOOL_COMMAND_TIMEOUT`, or a caller-requested `timeout` up to `PEEN_TOOL_MAX_COMMAND_TIMEOUT`, returns its exit status and output normally. A command still running when the wait ends keeps running, and the tool returns a job handle plus the output captured so far. The `background` argument skips the wait and returns the handle at once.
 
+Stop, caller cancellation or a turn/tool deadline while `runCommand` is still awaiting a foreground command kills that command's process group. Peen records the kill request and waits for job finalization within the job stop bound. A signal-recording failure still kills the process and is returned with the cancellation error. Cancellation keeps foreground completion out of detached-job wake events.
+
 `runCommand` and `waitJob` take `timeout` as a Go duration string such as `"90s"`, `"5m"`, or `"1h30m"`. Leaving it out uses the default, and `0s`, negative values, and bare numbers are rejected. For `runCommand` the default is `PEEN_TOOL_COMMAND_TIMEOUT`, and a value above `PEEN_TOOL_MAX_COMMAND_TIMEOUT` is lowered to that maximum rather than rejected. For `waitJob` the default is `30s`, and Peen lowers any value above `10m` to `10m`. No `PEEN_` variable changes these two `waitJob` limits.
 
-Jobs belong to the session, not the turn. A command started in one turn stays listable, readable, and signalable from a later turn, and cancelling the turn that started it does not stop it. Peen writes every stdout and stderr line to SQLite before it enters a small in-memory buffer, which only the active tool call reads. REST output replay, job details, and signal history come from SQLite and survive reconnects and restarts. On shutdown, Peen stops every running job, waits a grace period, then kills its process group, so no job outlives Peen. A job that finishes after its `runCommand` call returned publishes a `job.exited`, `job.signalled`, or `job.failed` [session event](events.md).
+Detached jobs belong to the session, not the turn. Once `runCommand` returns a running job handle, that command stays listable, readable and signalable from a later turn; cancelling the earlier turn does not stop it. Peen writes every stdout and stderr line to SQLite before it enters a small in-memory buffer, which only the active tool call reads. REST output replay, job details, and signal history come from SQLite and survive reconnects and restarts. On shutdown, Peen stops every running job, waits a grace period, then kills its process group, so no job outlives Peen. A job that finishes after its `runCommand` call returned publishes a `job.exited`, `job.signalled`, or `job.failed` [session event](events.md).
 
 ## Agent run observability
 

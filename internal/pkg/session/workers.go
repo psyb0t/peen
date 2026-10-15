@@ -12,15 +12,6 @@ import (
 	"gorm.io/gen/field"
 )
 
-// Worker generation states the store stamps timestamps for. They mirror the
-// worker package's own states, which the schema also constrains.
-const (
-	workerStateStarting = "starting"
-	workerStateReady    = "ready"
-	workerStateStopped  = "stopped"
-	workerStateFailed   = "failed"
-)
-
 // CreateWorkerGenerationInput records one worker before it launches, so a
 // controller that dies mid-launch still leaves a row an operator can
 // reconcile.
@@ -355,6 +346,12 @@ func (s *Store) RecordTurnWorkerGeneration(
 	lease Lease,
 	generationID uuid.UUID,
 ) error {
+	unlock, err := s.holdLease(lease)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
 	turn := s.query.Turn
 
 	result, err := turn.WithContext(ctx).

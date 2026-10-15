@@ -1,0 +1,2 @@
+# Uses the slugified absolute directory path as the session name.
+# Optional name override: name='custom-session'

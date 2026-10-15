@@ -24,6 +24,7 @@ WHERE_WE_ARE.md
 .telemetry/
 scripts/.post-update-temp
 git-update.sh
+git-update.sh.debot
 commit.txt
 
 # Build and generated local reports

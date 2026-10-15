@@ -29,18 +29,18 @@ const (
 	// EventTypeTurnStarted marks durable turn initialization.
 	EventTypeTurnStarted = "turn.started"
 	// EventTypeUserMessageCreated records a durably accepted user message.
-	EventTypeUserMessageCreated = "userMessage.created"
+	EventTypeUserMessageCreated = session.EventTypeUserMessageCreated
 	// EventTypeUserMessageQueued records an accepted message waiting for an
 	// active turn's next eligible provider round.
-	EventTypeUserMessageQueued = "userMessage.queued"
+	EventTypeUserMessageQueued = session.EventTypeUserMessageQueued
 	// EventTypeUserMessageDelivered records a queued message reaching the
 	// model at the active turn's next provider round, under the request ID it
 	// was sent with.
-	EventTypeUserMessageDelivered = "userMessage.delivered"
+	EventTypeUserMessageDelivered = session.EventTypeUserMessageDelivered
 	// EventTypeSkillInjected records a skill message, or the note that a
 	// skill is already loaded, reaching the model right after the user
 	// message that named the skill.
-	EventTypeSkillInjected = "skill.injected"
+	EventTypeSkillInjected = session.EventTypeSkillInjected
 	// EventTypeTextDelta carries one assistant text fragment.
 	EventTypeTextDelta = "text.delta"
 	// EventTypeThinkingDelta carries one assistant reasoning fragment.
@@ -79,11 +79,11 @@ const (
 	// EventTypeAgentRunProviderRetry records a retry within a child request.
 	EventTypeAgentRunProviderRetry = "agent.run.provider.retry"
 	// EventTypeAgentRunCompleted marks a successfully completed child.
-	EventTypeAgentRunCompleted = "agent.run.completed"
+	EventTypeAgentRunCompleted = session.EventTypeAgentRunCompleted
 	// EventTypeAgentRunFailed marks a failed child run.
-	EventTypeAgentRunFailed = "agent.run.failed"
+	EventTypeAgentRunFailed = session.EventTypeAgentRunFailed
 	// EventTypeAgentRunCancelled marks a separately cancelled child run.
-	EventTypeAgentRunCancelled = "agent.run.cancelled"
+	EventTypeAgentRunCancelled = session.EventTypeAgentRunCancelled
 	// EventTypeAgentRunMessageQueued records a message accepted into a
 	// running child's inbox.
 	EventTypeAgentRunMessageQueued = "agent.run.message.queued"
@@ -95,7 +95,7 @@ const (
 	EventTypeAgentRunMessageUndelivered = "agent.run.message.undelivered"
 	// EventTypeAgentRunQuestion records a question a child asked with ask.
 	// The child waits until a later EventTypeAgentRunAnswer.
-	EventTypeAgentRunQuestion = "agent.run.question"
+	EventTypeAgentRunQuestion = events.TypeAgentRunQuestion
 	// EventTypeAgentRunAnswer records that a child's ask ended, answered or
 	// timed out.
 	EventTypeAgentRunAnswer = "agent.run.answer"
@@ -211,6 +211,8 @@ const (
 // It stays transport-neutral so embedding callers and the live socket share
 // one validation and turn-conversion path.
 type MessageRequest struct {
+	ExpectedStopRevision *int64 `json:"-"`
+
 	Message         string               `json:"message"`
 	Model           *string              `json:"model,omitempty"`
 	ReasoningEffort *string              `json:"reasoningEffort,omitempty"`
@@ -263,6 +265,8 @@ type TurnOrigin struct {
 
 // TurnRequest describes one user message and its optional per-turn settings.
 type TurnRequest struct {
+	ExpectedStopRevision *int64
+
 	SessionID *uuid.UUID
 	RequestID uuid.UUID
 	Message   string
@@ -313,6 +317,8 @@ type MessageRunResult struct {
 
 // RuntimeOptions supplies Peen's transport-independent turn dependencies.
 type RuntimeOptions struct {
+	// WorkflowManaged leaves child recovery to the native workflow worker.
+	WorkflowManaged     bool
 	Logger              *slog.Logger
 	CommandRunner       commander.Commander
 	Filesystem          workspacefs.FS

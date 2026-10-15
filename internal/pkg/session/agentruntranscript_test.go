@@ -17,6 +17,95 @@ const (
 	agentRunMessageTestSummary = "child summary"
 )
 
+func TestStoreAgentRunCompactionRejectsInvalidHistory(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name    string
+		change  func(*AgentRunCompactionInput, []*models.AgentRunMessage)
+		wantErr error
+	}{
+		{
+			name: "foreign boundary", wantErr: commerr.ErrValidationFailed,
+			change: func(
+				input *AgentRunCompactionInput, messages []*models.AgentRunMessage,
+			) {
+				input.FromMessageID = messages[2].ID
+			},
+		},
+		{
+			name: "wrong boundary sequence", wantErr: commerr.ErrValidationFailed,
+			change: func(
+				input *AgentRunCompactionInput, messages []*models.AgentRunMessage,
+			) {
+				input.ToMessageID = messages[0].ID
+			},
+		},
+		{
+			name: "wrong source count", wantErr: commerr.ErrValidationFailed,
+			change: func(
+				input *AgentRunCompactionInput, _ []*models.AgentRunMessage,
+			) {
+				input.SourceMessageCount++
+			},
+		},
+		{name: "skipped prefix", wantErr: commerr.ErrConflict, change: func(
+			input *AgentRunCompactionInput, messages []*models.AgentRunMessage,
+		) {
+			input.FromMessageID = messages[1].ID
+			input.FromSequence = messages[1].Sequence
+			input.SourceMessageCount = 1
+		}},
+		{
+			name: "missing predecessor", wantErr: commerr.ErrConflict,
+			change: func(
+				input *AgentRunCompactionInput, _ []*models.AgentRunMessage,
+			) {
+				id := uuid.New()
+				input.SupersedesCompactionID = &id
+			},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			store, handle := openTestStore(t)
+			t.Cleanup(func() { require.NoError(t, handle.Close()) })
+			owner := newTestSession(ctx, t, store)
+			lease := startAgentRunTestTurn(ctx, t, store, owner.ID)
+			run := createAgentRunForTest(ctx, t, store, owner.ID, lease.TurnID, 0)
+			sibling := createAgentRunForTest(ctx, t, store, owner.ID,
+				lease.TurnID, 1)
+			messages := []*models.AgentRunMessage{
+				appendChildMessage(ctx, t, store, owner.ID, run.ID,
+					models.MessageRoleUser, agentRunMessageTestTask),
+				appendChildMessage(ctx, t, store, owner.ID, run.ID,
+					models.MessageRoleAssistant, agentRunMessageTestReply),
+				appendChildMessage(ctx, t, store, owner.ID, sibling.ID,
+					models.MessageRoleUser, agentRunMessageTestTask),
+			}
+			input := AgentRunCompactionInput{
+				FromMessageID: messages[0].ID, ToMessageID: messages[1].ID,
+				FromSequence: 1, ToSequence: 2,
+				Summary: agentRunMessageTestSummary, SourceMessageCount: 2,
+			}
+			tc.change(&input, messages)
+			_, err := store.CreateAgentRunCompaction(ctx, owner.ID, run.ID, input)
+			require.ErrorIs(t, err, tc.wantErr)
+			head, err := store.LatestAgentRunCompaction(ctx, owner.ID, run.ID)
+			require.NoError(t, err)
+			assert.Nil(t, head)
+			page, err := store.ListAgentRunMessages(ctx, owner.ID, run.ID,
+				ListAgentRunMessagesOptions{})
+			require.NoError(t, err)
+			for _, message := range page.Items {
+				assert.Nil(t, message.CompactionID)
+			}
+		})
+	}
+}
+
 func appendChildMessage(
 	ctx context.Context,
 	t *testing.T,

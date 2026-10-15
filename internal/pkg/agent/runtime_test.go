@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/elelem/elelemtest"
@@ -34,7 +35,7 @@ const (
 
 	// runtimeTestMaxContextTokens is far above anything the fixture's turns
 	// count to, so a test that does not set out to hit the limit never does.
-	runtimeTestMaxContextTokens = 8192
+	runtimeTestMaxContextTokens = 32768
 
 	runtimeTestAgentDocument = "---\nname: default\ndescription: test agent\n---\nFollow the test agent rules."
 	runtimeTestConfigRules   = "Follow config rules."
@@ -632,4 +633,70 @@ func containsBasePrompt(value string) bool {
 
 func containsRequestPrompt(value string) bool {
 	return strings.Contains(value, "request prompt")
+}
+
+type noticeDrainRaceStore struct {
+	*session.Store
+	onDrained func(context.Context) error
+}
+
+func (s *noticeDrainRaceStore) DrainSessionNotices(
+	ctx context.Context,
+	sessionID uuid.UUID,
+) ([]*models.SessionNotice, error) {
+	rows, err := s.Store.DrainSessionNotices(ctx, sessionID)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "drain fixture notices")
+	}
+
+	if s.onDrained != nil {
+		after := s.onDrained
+		s.onDrained = nil
+		if err := after(ctx); err != nil {
+			return nil, ctxerrors.Wrap(err, "publish racing notice")
+		}
+	}
+
+	return rows, nil
+}
+
+func TestDrainPendingEventsKeepsNewerNotice(t *testing.T) {
+	t.Parallel()
+	fixture := inboxTestFixture(t)
+	sessionID, _ := inboxSession(t, fixture)
+	old, err := fixture.runtime.PublishEvent(t.Context(), events.Notice{
+		SessionID: sessionID, Type: "app.changed", Source: "example",
+		Summary: "old notice", Delivery: events.DeliveryQueue,
+	})
+	require.NoError(t, err)
+	newID := uuid.New()
+	fixture.runtime.store = &noticeDrainRaceStore{
+		Store: fixture.store, onDrained: func(ctx context.Context) error {
+			row, err := fixture.store.CreateSessionNotice(ctx, sessionID,
+				session.CreateSessionNoticeInput{
+					ID: newID, Type: "app.changed", Source: "example",
+					Summary: "new notice", Delivery: models.NoticeDeliveryQueue,
+				})
+			if err != nil {
+				return ctxerrors.Wrap(err, "save racing notice")
+			}
+			_, err = fixture.eventBus.PublishContext(ctx, events.Notice{
+				ID: row.ID, SessionID: sessionID, Type: row.Type,
+				Source: row.Source, Summary: row.Summary,
+				Delivery: events.DeliveryQueue, CreatedAt: row.CreatedAt,
+			})
+			if err != nil {
+				return ctxerrors.Wrap(err, "publish racing notice")
+			}
+
+			return nil
+		},
+	}
+	batch, err := fixture.runtime.drainPendingEvents(t.Context(), sessionID)
+	require.NoError(t, err)
+	require.Len(t, batch.Notices, 1)
+	assert.Equal(t, old.ID, batch.Notices[0].ID)
+	pending := fixture.eventBus.Peek(sessionID)
+	require.Len(t, pending.Notices, 1)
+	assert.Equal(t, newID, pending.Notices[0].ID)
 }

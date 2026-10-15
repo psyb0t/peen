@@ -32,21 +32,21 @@ PREFIX ?= $(HOME)/bin
 install: build ## Install the built binary to PREFIX (default ~/bin)
 	@PREFIX="$(PREFIX)" bash scripts/make/install.sh
 
-test: ## Run every Go test without the race detector
+test: ## Run every Go test with race detection
 	@$(MAKE) dev-image
 	@$(call run_dind_script,test.sh)
 
-test-unit: dev-image ## Run unit tests without the race detector
-	@$(DEV_RUN) go test -timeout=$(TEST_TIMEOUT) ./...
+test-unit: dev-image ## Run unit tests with race detection
+	@$(DEV_RUN) go test -race -count=1 -timeout=$(TEST_TIMEOUT) ./...
 
-test-integration: dev-image ## Run integration tests without the race detector
-	@$(DEV_RUN_DIND) go test -count=1 -timeout=$(TEST_TIMEOUT) ./...
+test-integration: dev-image ## Run integration tests with race detection
+	@$(DEV_RUN_DIND) go test -race -count=1 -timeout=$(TEST_TIMEOUT) ./...
 
 test-stress: dev-image ## Repeat the fast command and job tests 200 times with GOMAXPROCS 1 and 4 to catch output races
-	@$(DEV_RUN) go test -count=200 -cpu 1,4 -timeout=$(TEST_TIMEOUT) -run 'Command|Job' -skip 'StillRunning|BoundExpires|JobSurvives|Escalates|FailedStart|IncrementalCursor|KeepsOutputWritten|OutliveTheCall|AwaitedJobPublishes' ./internal/pkg/tools/
+	@$(DEV_RUN) go test -race -count=200 -cpu 1,4 -timeout=$(TEST_TIMEOUT) -run 'Command|Job' -skip 'StillRunning|BoundExpires|JobSurvives|Escalates|FailedStart|IncrementalCursor|KeepsOutputWritten|OutliveTheCall|AwaitedJobPublishes' ./internal/pkg/tools/
 
 test-api: dev-image ## Run containerized API tests through production wiring
-	@$(DEV_RUN_DIND) go test -count=1 -tags=integration -timeout=$(TEST_TIMEOUT) ./tests/api
+	@$(DEV_RUN_DIND) go test -race -v -count=1 -tags=integration -timeout=$(TEST_TIMEOUT) ./tests/api
 
 # test-browser starts only the exact test-owned controller and Stealthy browser
 # containers. The browser has host networking only so it can reach the test
@@ -56,10 +56,10 @@ test-browser: dev-image ## Run the embedded control surface in a real browser
 	@mkdir -p "$(CURDIR)/.testing/browser-artifacts"
 	@$(DEV_RUN_DIND) env \
 		PEEN_BROWSER_TEST_ARTIFACT_ROOT="$(CURDIR)/.testing/browser-artifacts" \
-		go test -count=1 -tags=browser -timeout=$(TEST_TIMEOUT) -v ./tests/browser
+		go test -race -count=1 -tags=browser -timeout=$(TEST_TIMEOUT) -v ./tests/browser
 
 test-execution-forms: dev-image ## Run source and installed binary contract tests
-	@$(DEV_RUN) go test -count=1 -tags=integration -timeout=$(TEST_TIMEOUT) ./tests/executionforms
+	@$(DEV_RUN) go test -race -count=1 -tags=integration -timeout=$(TEST_TIMEOUT) ./tests/executionforms
 
 # test-docker-worker is the image-entrypoint contract test. It creates one real
 # container, so it takes the Docker socket and is deliberately not part of
@@ -82,7 +82,7 @@ test-docker-worker: dev-image ## Run the opt-in Docker image-entrypoint contract
 	@$(DEV_RUN_DIND) env \
 		PEEN_DOCKER_WORKER_TEST=true \
 		PEEN_DOCKER_WORKER_TEST_IMAGE=$(PEEN_DOCKER_WORKER_TEST_IMAGE) \
-		go test -count=1 -tags=dockerworker -timeout=$(TEST_TIMEOUT) \
+		go test -race -count=1 -tags=dockerworker -timeout=$(TEST_TIMEOUT) \
 		./tests/dockerworker
 
 # test-docker-worker-source builds the Dockerfile in this checkout and runs the
@@ -98,7 +98,7 @@ test-docker-worker-source: dev-image ## Build this checkout's worker image and p
 		env \
 			PEEN_DOCKER_WORKER_TEST=true \
 			PEEN_DOCKER_WORKER_TEST_LOCAL_IMAGE="$$source_image" \
-			go test -count=1 -tags=dockerworker -timeout=$(TEST_TIMEOUT) \
+			go test -race -count=1 -tags=dockerworker -timeout=$(TEST_TIMEOUT) \
 			./tests/dockerworker \
 	'
 
@@ -109,7 +109,7 @@ test-docker-worker-source: dev-image ## Build this checkout's worker image and p
 # at its literal host path, because the controller containers it starts bind
 # those paths through the host daemon.
 test-installer: dev-image ## Run the installer and peen command end to end in Docker
-	@$(DEV_RUN_DIND) go test -count=1 -tags=installer -timeout=$(TEST_TIMEOUT) -v ./tests/installer
+	@$(DEV_RUN_DIND) go test -race -count=1 -tags=installer -timeout=$(TEST_TIMEOUT) -v ./tests/installer
 
 test-real: ## Run opt-in real provider tests with the deployment .env
 	@bash scripts/make/test_real.sh

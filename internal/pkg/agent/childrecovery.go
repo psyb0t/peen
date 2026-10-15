@@ -31,6 +31,19 @@ func (r *Runtime) recoverSessionChildren(
 	ctx context.Context,
 	sessionID uuid.UUID,
 ) error {
+	// Worker children resume through the durable workflow history.
+	if r.workflowManaged || r.workerGenerationID != uuid.Nil ||
+		r.nativeWorkflowRunner() != nil {
+		return nil
+	}
+
+	return r.recoverEmbeddedSessionChildren(ctx, sessionID)
+}
+
+func (r *Runtime) recoverEmbeddedSessionChildren(
+	ctx context.Context,
+	sessionID uuid.UUID,
+) error {
 	r.childRecoveryMutex.Lock()
 	defer r.childRecoveryMutex.Unlock()
 

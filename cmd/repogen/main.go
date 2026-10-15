@@ -7,7 +7,11 @@ import (
 	"gorm.io/gen"
 )
 
-const defaultOutputPath = "internal/pkg/db/repositories"
+const (
+	defaultOutputPath   = "internal/pkg/db/repositories"
+	queryTimeImportPath = "time"
+	queryUUIDImportPath = "github.com/google/uuid"
+)
 
 func main() {
 	outputPath := flag.String(
@@ -26,6 +30,9 @@ func main() {
 			gen.WithQueryInterface,
 	})
 
+	// Fix import order before unordered custom parameter discovery.
+	generator.WithImportPkgPath(queryTimeImportPath, queryUUIDImportPath)
+
 	generator.ApplyBasic(
 		models.AgentRun{},
 		models.AgentRunCompaction{},
@@ -34,6 +41,11 @@ func main() {
 		models.Compaction{},
 		models.ContextSnapshot{},
 		models.Event{},
+		models.Execution{},
+		models.ExecutionActivity{},
+		models.ExecutionEvent{},
+		models.ExecutionInboxMessage{},
+		models.ExecutionTurnLease{},
 		models.Job{},
 		models.JobOutputLine{},
 		models.JobSignalRequest{},
@@ -45,10 +57,15 @@ func main() {
 		models.SessionNotice{},
 		models.SessionAgentSpaceDecision{},
 		models.Turn{},
+		models.TurnOpeningNotice{},
 		models.WorkerGeneration{},
 	)
 	generator.ApplyInterface(func(CompactionQuerier) {}, models.Compaction{})
 	generator.ApplyInterface(func(MessageQuerier) {}, models.Message{})
+	generator.ApplyInterface(func(ExecutionQuerier) {}, models.Execution{})
+	generator.ApplyInterface(
+		func(ExecutionInboxMessageQuerier) {}, models.ExecutionInboxMessage{},
+	)
 	generator.ApplyInterface(
 		func(AgentRunCompactionQuerier) {},
 		models.AgentRunCompaction{},

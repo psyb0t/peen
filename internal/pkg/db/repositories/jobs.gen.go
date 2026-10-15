@@ -31,6 +31,7 @@ func newJob(db *gorm.DB, opts ...gen.DOOption) job {
 	_job.ID = field.NewField(tableName, "id")
 	_job.SessionID = field.NewField(tableName, "session_id")
 	_job.TurnID = field.NewField(tableName, "turn_id")
+	_job.AgentRunID = field.NewField(tableName, "agent_run_id")
 	_job.WorkerGenerationID = field.NewString(tableName, "worker_generation_id")
 	_job.ToolCallID = field.NewString(tableName, "tool_call_id")
 	_job.PID = field.NewInt64(tableName, "pid")
@@ -55,6 +56,7 @@ type job struct {
 	ID                 field.Field
 	SessionID          field.Field
 	TurnID             field.Field
+	AgentRunID         field.Field
 	WorkerGenerationID field.String
 	ToolCallID         field.String
 	PID                field.Int64
@@ -85,6 +87,7 @@ func (j *job) updateTableName(table string) *job {
 	j.ID = field.NewField(table, "id")
 	j.SessionID = field.NewField(table, "session_id")
 	j.TurnID = field.NewField(table, "turn_id")
+	j.AgentRunID = field.NewField(table, "agent_run_id")
 	j.WorkerGenerationID = field.NewString(table, "worker_generation_id")
 	j.ToolCallID = field.NewString(table, "tool_call_id")
 	j.PID = field.NewInt64(table, "pid")
@@ -112,10 +115,11 @@ func (j *job) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (j *job) fillFieldMap() {
-	j.fieldMap = make(map[string]field.Expr, 14)
+	j.fieldMap = make(map[string]field.Expr, 15)
 	j.fieldMap["id"] = j.ID
 	j.fieldMap["session_id"] = j.SessionID
 	j.fieldMap["turn_id"] = j.TurnID
+	j.fieldMap["agent_run_id"] = j.AgentRunID
 	j.fieldMap["worker_generation_id"] = j.WorkerGenerationID
 	j.fieldMap["tool_call_id"] = j.ToolCallID
 	j.fieldMap["pid"] = j.PID

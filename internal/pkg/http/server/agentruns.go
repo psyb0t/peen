@@ -102,7 +102,8 @@ func (s *Server) CancelSessionAgentRun(
 
 	// The child runs in the session's worker, so the durable request alone
 	// never stops it.
-	if result.State == api.AgentRunCancelResponseStateRunning {
+	if result.State == api.AgentRunCancelResponseStateRunning ||
+		result.State == api.AgentRunCancelResponseStateCancelled {
 		if _, err := s.deps.Turns.CancelSessionAgentRun(
 			ctx,
 			request.Params.XSessionID,

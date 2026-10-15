@@ -51,6 +51,30 @@ func (s *directoryScope) beforeTool(
 	ctx context.Context,
 	event *elelem.ToolEvent,
 ) (err error) {
+	if err := s.bindWorkflowTool(ctx, event); err != nil {
+		return ctxerrors.Wrap(err, "bind current directory tool")
+	}
+	defer s.recoverHook(ctx, event, &err)
+
+	selected := event.Tool
+	if selected.PreRun == nil {
+		return nil
+	}
+
+	if err := selected.PreRun(ctx, event); err != nil {
+		s.finishTool(event.CallID)
+
+		return ctxerrors.Wrap(err, "run current directory pre-hook")
+	}
+
+	return nil
+}
+
+// Binding restores phase-local dispatch without repeating a saved pre-hook.
+func (s *directoryScope) bindWorkflowTool(
+	ctx context.Context,
+	event *elelem.ToolEvent,
+) error {
 	isHop := event.Tool.Name == toolNameChangeDirectory
 
 	release, err := s.gate.acquire(ctx, isHop)
@@ -81,18 +105,8 @@ func (s *directoryScope) beforeTool(
 	s.calls[event.CallID] = directoryCall{tool: selected, release: release}
 
 	s.callsMutex.Unlock()
-	defer s.recoverHook(ctx, event, &err)
 
 	event.Tool = selected
-	if selected.PreRun == nil {
-		return nil
-	}
-
-	if err := selected.PreRun(ctx, event); err != nil {
-		s.finishTool(event.CallID)
-
-		return ctxerrors.Wrap(err, "run current directory pre-hook")
-	}
 
 	return nil
 }

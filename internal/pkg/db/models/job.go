@@ -11,6 +11,7 @@ type Job struct {
 	ID                 uuid.UUID
 	SessionID          uuid.UUID
 	TurnID             uuid.UUID
+	AgentRunID         *uuid.UUID
 	WorkerGenerationID string
 	ToolCallID         string
 	PID                int64 `gorm:"column:pid"`

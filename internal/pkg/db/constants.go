@@ -6,6 +6,7 @@ import (
 )
 
 const (
+	sqliteDriverName         = "sqlite"
 	defaultSQLiteBusyTimeout = 5 * time.Second
 	sqliteDirectoryMode      = fs.FileMode(0o700)
 	sqliteFileMode           = fs.FileMode(0o600)

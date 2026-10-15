@@ -5,10 +5,13 @@ package api_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	dabluveees "github.com/psyb0t/aichteeteapee/serbewr/dabluvee-es"
 	"github.com/psyb0t/peen/tests/testinfra"
@@ -28,7 +31,9 @@ const (
 	wakeTestJobQueueHandler = "---\ntype: " + wakeTestJobEventType + "\ndelivery: queue\n---\nA background job ended."
 	wakeTestJobFixtureFile  = "job-wake-fixture.txt"
 	wakeTestJobMessage      = "start the app that crashes in the background"
-	wakeTestJobCommand      = "sleep 2; echo fatal >&2; exit 1"
+	wakeTestJobCommand      = "mkfifo %s && read -r release < %s; echo fatal >&2; exit 1"
+	wakeTestJobReleaseFile  = "job-wake-release-"
+	wakeTestJobRelease      = "printf 'release\\n' > \"$1\""
 	wakeTestJobPurpose      = "an app that crashes after its turn"
 	wakeTestJobFinalAnswer  = "the app is running"
 )
@@ -81,6 +86,10 @@ func TestAPIBackgroundJobExitWakesTheSession(t *testing.T) {
 
 	fixturePath := hostToolsContainerPath(wakeTestJobFixtureFile)
 	seedContainerFile(t, fixturePath, backgroundJobFixtureContent)
+	releasePath := hostToolsContainerPath(wakeTestJobReleaseFile +
+		uuid.NewString())
+	command := fmt.Sprintf(wakeTestJobCommand,
+		shellSingleQuote(releasePath), shellSingleQuote(releasePath))
 
 	integrationInfra.EnableScriptedToolTurn(testinfra.ScriptedToolTurn{
 		UserMessage:       wakeTestJobMessage,
@@ -93,7 +102,7 @@ func TestAPIBackgroundJobExitWakesTheSession(t *testing.T) {
 			}},
 		},
 		RunCommandArguments: map[string]any{
-			"command":    wakeTestJobCommand,
+			"command":    command,
 			"purpose":    wakeTestJobPurpose,
 			"background": true,
 		},
@@ -107,11 +116,24 @@ func TestAPIBackgroundJobExitWakesTheSession(t *testing.T) {
 	result := sendAPIWebSocketMessage(t, wakeTestJobMessage)
 	require.Equal(t, sessionID, result.sessionID)
 	integrationInfra.DisableScriptedToolTurn()
+	releaseWakeJob(t, releasePath)
 
 	origin := awaitWokenTurnStart(t, connection)
 	require.Equal(t, wakeTestJobEventType, origin)
 
 	awaitWebSocketEvent(t, connection, apiTestWebSocketTurnCompleted)
+}
+
+func releaseWakeJob(t *testing.T, releasePath string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), requestTimeout)
+	defer cancel()
+	exitCode, output, err := integrationInfra.App.Exec(ctx,
+		[]string{"sh", "-c", wakeTestJobRelease, "sh", releasePath})
+	require.NoError(t, err)
+	result, err := io.ReadAll(output)
+	require.NoError(t, err)
+	require.Zero(t, exitCode, "release background wake fixture: %s", result)
 }
 
 func queueJobExits(t *testing.T) {

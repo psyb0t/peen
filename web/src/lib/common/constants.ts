@@ -6,6 +6,7 @@ export const WEBSOCKET_PATH = "/v1/ws";
 export const WEBSOCKET_PROTOCOL = "peen.v1";
 export const WEBSOCKET_BEARER_PROTOCOL_PREFIX = "peen.bearer.";
 export const WEBSOCKET_MESSAGE_SEND = "message.send";
+export const WEBSOCKET_SESSION_PARAMETER = "sessionId";
 export const REASONING_EFFORTS = [
 	"minimal",
 	"low",

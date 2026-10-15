@@ -129,6 +129,9 @@ func (r *TurnRouter) RunReservedSessionMessage(
 ) (*agent.MessageRunResult, error) {
 	defer reservation.Release()
 
+	ctx, cancel := reservation.BindContext(ctx)
+	defer cancel()
+
 	// The worker would mint a request ID for a message without one, and the
 	// router could then never recognise that message's admission.
 	if requestID == uuid.Nil {
@@ -138,6 +141,11 @@ func (r *TurnRouter) RunReservedSessionMessage(
 	stored, err := r.registry.store.Get(ctx, reservation.SessionID())
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "load the routed session")
+	}
+
+	if err := session.ValidateStopRevision(request.ExpectedStopRevision,
+		stored.StopRevision); err != nil {
+		return nil, ctxerrors.Wrap(err, "validate routed stop revision")
 	}
 
 	if err := reservation.Wait(ctx); err != nil {
@@ -174,6 +182,15 @@ func runInWorker(
 	request agent.MessageRequest,
 	requestID uuid.UUID,
 ) (*agent.MessageRunResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, ctxerrors.Wrap(err, "admit worker command")
+	}
+
+	revision := stored.StopRevision
+	if request.ExpectedStopRevision != nil {
+		revision = *request.ExpectedStopRevision
+	}
+
 	ctxscope.GetLogger(ctx).Debug(
 		"routing a turn to the session worker",
 		"session_id", stored.ID.String(),
@@ -182,14 +199,15 @@ func runInWorker(
 	)
 
 	result, err := live.RunTurn(ctx, protocol.RunTurn{
-		RequestID:       requestID,
-		Message:         request.Message,
-		Model:           optionalString(request.Model),
-		ReasoningEffort: optionalString(request.ReasoningEffort),
-		SystemPrompt:    promptContent(request),
-		PromptMode:      promptMode(request),
-		Origin:          turnOrigin(request),
-		To:              request.To,
+		ExpectedStopRevision: &revision,
+		RequestID:            requestID,
+		Message:              request.Message,
+		Model:                optionalString(request.Model),
+		ReasoningEffort:      optionalString(request.ReasoningEffort),
+		SystemPrompt:         promptContent(request),
+		PromptMode:           promptMode(request),
+		Origin:               turnOrigin(request),
+		To:                   request.To,
 	})
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "run the turn in the session worker")
@@ -243,9 +261,11 @@ func (r *TurnRouter) CancelSessionTurn(
 	ctx context.Context,
 	sessionID uuid.UUID,
 ) (bool, error) {
+	pendingCancelled := r.admissions.CancelPending(sessionID) > 0
+
 	live, found := r.workers.Current(sessionID)
 	if !found {
-		return false, nil
+		return pendingCancelled, nil
 	}
 
 	cancelled, err := live.Cancel(ctx)
@@ -253,7 +273,7 @@ func (r *TurnRouter) CancelSessionTurn(
 		return false, ctxerrors.Wrap(err, "cancel the session worker turn")
 	}
 
-	return cancelled, nil
+	return cancelled || pendingCancelled, nil
 }
 
 // CancelSessionAgentRun asks the session's live worker to stop one running

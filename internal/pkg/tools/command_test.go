@@ -8,10 +8,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/stretchr/testify/assert"
@@ -148,6 +150,138 @@ func TestResolveCommandTimeout(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+type foregroundSignalObserver struct {
+	signalErr  error
+	signals    chan JobSignal
+	finishGate <-chan struct{}
+}
+
+func (*foregroundSignalObserver) JobStarted(context.Context, JobSnapshot) error { return nil }
+func (*foregroundSignalObserver) JobOutput(context.Context, JobSnapshot, JobOutputRecord) error {
+	return nil
+}
+
+func (o *foregroundSignalObserver) JobSignal(_ context.Context, _ JobSnapshot, signal JobSignal) error {
+	o.signals <- signal
+
+	return o.signalErr
+}
+
+func (o *foregroundSignalObserver) JobFinished(context.Context, JobSnapshot) error {
+	if o.finishGate != nil {
+		<-o.finishGate
+	}
+
+	return nil
+}
+
+func TestRunCommand_CancellationKillsForegroundProcessGroup(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name         string
+		deadline     bool
+		wantErr      error
+		signalErr    error
+		holdFinished bool
+	}{
+		{name: "caller cancellation", wantErr: context.Canceled},
+		{name: "caller deadline", deadline: true, wantErr: context.DeadlineExceeded},
+		{name: "signal persistence failure", wantErr: context.Canceled, signalErr: commerr.ErrFetchFailed},
+		{name: "bounded finalization wait", wantErr: context.Canceled, holdFinished: true},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			publisher := &stubPublisher{}
+			executor := newTestJobExecutorWithPublisher(t, publisher, Limits{JobStopGracePeriod: time.Second})
+			observer := &foregroundSignalObserver{signalErr: tc.signalErr, signals: make(chan JobSignal, 1)}
+			executor.jobs.SetObserver(observer)
+			t.Cleanup(func() {
+				cleanup, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), commandEventuallyWait)
+				defer cancel()
+				require.NoError(t, executor.jobs.Shutdown(cleanup))
+			})
+			releaseFinish := func() {}
+			if tc.holdFinished {
+				gate := make(chan struct{})
+				observer.finishGate = gate
+				releaseFinish = sync.OnceFunc(func() { close(gate) })
+				t.Cleanup(releaseFinish)
+			}
+			unrelated, err := executor.RunCommand(t.Context(), RunCommandInput{Purpose: commandTestPurpose, Command: "sleep 30", Background: true})
+			require.NoError(t, err)
+			marker := filepath.Join(t.TempDir(), "foreground-child-pid")
+			command := fmt.Sprintf("sleep 30 & echo $! > %s; wait", marker)
+			ctx, cancel := context.WithCancel(t.Context())
+			if tc.deadline {
+				cancel()
+				ctx, cancel = context.WithTimeout(t.Context(), time.Second)
+			}
+			defer cancel()
+			finished := make(chan error, 1)
+			go func() {
+				defer func() {
+					if recover() != nil {
+						finished <- ctxerrors.New("foreground test panicked")
+					}
+				}()
+				_, err := executor.RunCommand(ctx, RunCommandInput{Purpose: commandTestPurpose, Command: command, Timeout: "30s"})
+				finished <- err
+			}()
+			var childPID int
+			require.Eventually(t, func() bool {
+				content, err := os.ReadFile(marker)
+				if err != nil {
+					return false
+				}
+				childPID, err = strconv.Atoi(strings.TrimSpace(string(content)))
+
+				return err == nil && processAlive(t, childPID)
+			}, commandEventuallyWait, commandEventuallyTick)
+			var foreground *Job
+			require.Eventually(t, func() bool {
+				for _, job := range executor.jobs.List() {
+					if job.Command == command {
+						foreground = job
+
+						return true
+					}
+				}
+
+				return false
+			}, commandEventuallyWait, commandEventuallyTick)
+			parentPID := foreground.Snapshot().PID
+			if !tc.deadline {
+				cancel()
+			}
+			select {
+			case err := <-finished:
+				require.ErrorIs(t, err, tc.wantErr)
+				if tc.signalErr != nil {
+					assert.ErrorIs(t, err, tc.signalErr)
+				}
+				if tc.holdFinished {
+					assert.ErrorIs(t, err, context.DeadlineExceeded)
+				}
+			case <-time.After(commandEventuallyWait):
+				t.Fatal("cancelled foreground command did not return")
+			}
+			releaseFinish()
+			select {
+			case signal := <-observer.signals:
+				assert.Equal(t, JobSignalKill, signal)
+			default:
+				t.Fatal("foreground cancellation did not record its kill request")
+			}
+			assert.False(t, processAlive(t, parentPID), "foreground shell remains alive")
+			assert.Eventually(t, func() bool { return !processAlive(t, childPID) }, commandEventuallyWait, commandEventuallyTick, "foreground child remains alive")
+			assert.NotEqual(t, JobStateRunning, foreground.Snapshot().State)
+			assert.Empty(t, publisher.all(), "cancelled foreground work must not publish a detached completion")
+			assert.True(t, processAlive(t, unrelated.PID), "an unrelated detached job must keep running")
 		})
 	}
 }

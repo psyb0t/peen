@@ -35,7 +35,11 @@ import (
 
 // Runtime executes durable transport-neutral Peen turns.
 type Runtime struct {
+	workflowManaged     bool
+	workflowMutex       sync.RWMutex
+	workflowRunner      *nativeWorkflowRunner
 	childRecoveryMutex  sync.Mutex
+	childMessageMutex   sync.Mutex
 	recoveredSessions   map[uuid.UUID]bool
 	logger              *slog.Logger
 	commandRunner       commander.Commander
@@ -103,9 +107,12 @@ type Runtime struct {
 	maxHookCommandOutput int
 	hookStateRoot        string
 	eventBus             *events.Bus
-	metrics              *metrics.Metrics
-	wakes                *wakeLimiter
-	askTimeout           time.Duration
+	// Serialize notice publication with consumption of its durable row.
+	noticeGate               rootCallbackGate
+	publishedQuestionNotices map[uuid.UUID]struct{}
+	metrics                  *metrics.Metrics
+	wakes                    *wakeLimiter
+	askTimeout               time.Duration
 
 	// wakeRunnerMutex guards wakeRunner, which the controller sets after the
 	// runtime is built and events may already be arriving.
@@ -160,17 +167,21 @@ type promptAssembly struct {
 // turnOpening bundles what opening a turn's prompt produced, including any
 // events the session accumulated while nothing was running.
 type turnOpening struct {
-	opened        *session.OpenSessionResult
-	assembly      promptAssembly
-	pendingBatch  events.Batch
-	pendingEvents string
+	opened         *session.OpenSessionResult
+	assembly       promptAssembly
+	pendingBatch   events.Batch
+	pendingEvents  string
+	publishPending bool
 }
 
 type preparedTurn struct {
+	releaseTurnSlot func()
+	deferredInboxID *uuid.UUID
 	input           TurnRequest
 	opened          *session.OpenSessionResult
 	lease           session.Lease
 	modelReference  string
+	rootAgent       string
 	model           ModelClient
 	reasoningEffort elelem.ReasoningEffort
 	prompt          elelem.Prompt
@@ -192,11 +203,13 @@ type preparedTurn struct {
 	executor           *tools.JobExecutor
 	workerGenerationID string
 	eventBus           *events.Bus
+	drainNotices       func(context.Context, uuid.UUID) (events.Batch, error)
 	pendingEvents      string
 	snapshot           harness.Snapshot
 	skillLedger        *skillLedger
 	toolHooks          *toolHookRuntime
 	userMessages       *activeUserMessageQueue
+	workflowInbox      bool
 }
 
 // NewRuntime validates the dependencies shared by every Peen turn.
@@ -237,6 +250,7 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 	}
 
 	runtime := &Runtime{
+		workflowManaged:     options.WorkflowManaged,
 		recoveredSessions:   map[uuid.UUID]bool{},
 		filesystem:          options.Filesystem,
 		virtualFilesystem:   options.VirtualFilesystem,
@@ -459,14 +473,14 @@ func (r *Runtime) Run(
 		return nil, err
 	}
 
-	releaseAdmission, err := r.admissions.Acquire(
-		ctx,
-		r.turnSessionID(input),
-	)
+	ctx, admitted, err := r.admitRequest(ctx, input)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "admit the turn request")
 	}
-	defer releaseAdmission()
+	defer admitted.close()
+
+	input = admitted.input
+	releaseAdmission := admitted.ticket.Release
 
 	if result, handled, err := r.queueActiveUserMessage(ctx, input); handled {
 		return result, err
@@ -476,7 +490,11 @@ func (r *Runtime) Run(
 	if err != nil {
 		return nil, err
 	}
-	defer release()
+	defer func() {
+		if release != nil {
+			release()
+		}
+	}()
 
 	prepared, err := r.prepareTurn(ctx, input)
 	if err != nil {
@@ -487,25 +505,20 @@ func (r *Runtime) Run(
 	// optional live sink from one source of truth.
 	prepared.attachPublisher(ctx)
 
+	if runner := r.nativeWorkflowRunner(); runner != nil {
+		prepared.releaseTurnSlot = sync.OnceFunc(release)
+		release = nil
+
+		return runner.run(ctx, prepared, releaseAdmission)
+	}
+
 	return r.runLease(ctx, prepared, releaseAdmission)
 }
 
 // attachPublisher builds the turn's publisher over the sinks given, always
 // including the transcript sink, and binds a fresh adapter to it.
-func (p *preparedTurn) attachPublisher(
-	ctx context.Context,
-	sinks ...essessey.Sink,
-) {
-	// The transcript sink goes first. MultiSink emits in order, and recording
-	// an event is what triggers the progress frame describing it, so a
-	// transcript sink placed last would let the content reach the client
-	// before the status announcing it.
-	ordered := append(
-		[]essessey.Sink{transcriptSink{turn: p.turn}},
-		sinks...,
-	)
-
-	p.publisher = essessey.NewPublisher(ctx, essessey.NewMultiSink(ordered...))
+func (p *preparedTurn) attachPublisher(ctx context.Context) {
+	p.publisher = essessey.NewPublisher(ctx, transcriptSink{turn: p.turn})
 	p.adapter = elelemstream.New(p.publisher)
 }
 
@@ -579,7 +592,7 @@ func (r *Runtime) prepareTurn(
 		return nil, err
 	}
 
-	turn, lease, err := r.openTurn(ctx, input, basis.workspace, opening)
+	turn, lease, err := r.openTurn(ctx, input, basis.workspace, &opening)
 	if err != nil {
 		return nil, err
 	}
@@ -600,6 +613,7 @@ func (r *Runtime) prepareTurn(
 		promptHash:      basis.promptHash,
 		turn:            turn,
 		eventBus:        r.eventBus,
+		drainNotices:    r.drainPendingEvents,
 		pendingEvents:   opening.pendingEvents,
 		snapshot:        basis.snapshot,
 		skillLedger:     opening.assembly.ledger,
@@ -635,24 +649,7 @@ func (r *Runtime) prepareTurn(
 	}
 
 	prepared.compactor = turnCompactor
-
-	if opening.opened.Created {
-		if err := prepared.runLifecycleHook(
-			ctx,
-			r,
-			harness.HookEventSessionStart,
-			map[string]bool{"created": true},
-		); err != nil {
-			return nil, r.finalizeFailedTurn(ctx, prepared, err)
-		}
-	}
-
-	if err := prepared.runLifecycleHook(
-		ctx,
-		r,
-		harness.HookEventPostUserMessage,
-		userMessageHookInput(input, basis.workspace),
-	); err != nil {
+	if err := r.prepareOpeningHooks(ctx, prepared); err != nil {
 		return nil, r.finalizeFailedTurn(ctx, prepared, err)
 	}
 
@@ -678,6 +675,9 @@ func (r *Runtime) resolveTurnBasis(
 	}
 
 	workspace := directory.directory
+	if saved := deferredRootFromContext(ctx); saved != nil {
+		workspace = saved.request.Workspace
+	}
 
 	model, err := r.models.ResolveModel(modelReference)
 	if err != nil {
@@ -728,7 +728,7 @@ func (r *Runtime) resolveContext(
 	// A reference to a skill that does not exist refuses the message before
 	// anything is stored. The skill messages themselves are built once the
 	// session history says which skills the conversation already holds.
-	if err := requireKnownSkillReferences(snapshot, input.Message); err != nil {
+	if err := validateRootSkillReferences(ctx, snapshot, input); err != nil {
 		return harness.Snapshot{}, "", "", "", err
 	}
 
@@ -756,15 +756,14 @@ func (r *Runtime) resolveSystemPrompt(
 		return "", "", "", ctxerrors.Wrap(err, "build system prompt")
 	}
 
-	systemPrompt, err = r.appendPreUserHookContext(
-		ctx,
-		snapshot,
-		workspace,
-		input,
-		systemPrompt,
-	)
-	if err != nil {
-		return "", "", "", ctxerrors.Wrap(err, "run pre-user-message hooks")
+	if r.nativeWorkflowRunner() == nil {
+		systemPrompt, err = r.appendPreUserHookContext(
+			ctx, snapshot, workspace, input, systemPrompt,
+		)
+		if err != nil {
+			return "", "", "", ctxerrors.Wrap(err,
+				"run pre-user-message hooks")
+		}
 	}
 
 	contextHash, promptHash, err := r.saveSnapshots(
@@ -823,7 +822,7 @@ func (r *Runtime) openPrompt(
 
 	ledger := r.newTurnSkillLedger(skillHistory)
 
-	skills, err := buildSkillMessages(ctx, snapshot, ledger, input.Message)
+	skills, err := rootInputSkills(ctx, snapshot, ledger, input)
 	if err != nil {
 		return nil, promptAssembly{}, err
 	}
@@ -886,33 +885,10 @@ func (r *Runtime) openTurnExecutor(
 	opening turnOpening,
 	lease session.Lease,
 ) (*tools.JobExecutor, uuid.UUID, error) {
-	registry, err := r.sessionJobs(opening.opened.Session.ID)
+	jobExecutor, err := r.newTurnExecutor(basis, opening.opened.Session.ID,
+		lease.TurnID)
 	if err != nil {
 		return nil, uuid.Nil, err
-	}
-
-	executor, err := tools.NewExecutor(tools.Options{
-		Workspace:          basis.workspace,
-		ProtectedDirectory: r.toolWorkspace(basis.storedSession.Workspace),
-		Filesystem:         r.filesystem,
-		Virtual:            r.virtualFilesystem,
-		Limits:             r.toolLimits,
-		Environment:        r.commandEnvironment,
-	})
-	if err != nil {
-		return nil, uuid.Nil, ctxerrors.Wrap(err, "create the tool executor")
-	}
-
-	jobExecutor, err := tools.NewJobExecutor(
-		executor,
-		registry,
-		lease.TurnID,
-	)
-	if err != nil {
-		return nil, uuid.Nil, ctxerrors.Wrap(
-			err,
-			"open the turn tool executor",
-		)
 	}
 
 	// A runtime with no worker generation is the direct pkg/peen form, which
@@ -933,6 +909,42 @@ func (r *Runtime) openTurnExecutor(
 	}
 
 	return jobExecutor, r.workerGenerationID, nil
+}
+
+func (r *Runtime) newTurnExecutor(
+	basis turnBasis,
+	sessionID, turnID uuid.UUID,
+) (*tools.JobExecutor, error) {
+	registry, err := r.sessionJobs(sessionID)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "open session job registry")
+	}
+
+	executor, err := tools.NewExecutor(tools.Options{
+		Workspace:          basis.workspace,
+		ProtectedDirectory: r.toolWorkspace(basis.storedSession.Workspace),
+		Filesystem:         r.filesystem,
+		Virtual:            r.virtualFilesystem,
+		Limits:             r.toolLimits,
+		Environment:        r.commandEnvironment,
+	})
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "create the tool executor")
+	}
+
+	jobExecutor, err := tools.NewJobExecutor(
+		executor,
+		registry,
+		turnID,
+	)
+	if err != nil {
+		return nil, ctxerrors.Wrap(
+			err,
+			"open the turn tool executor",
+		)
+	}
+
+	return jobExecutor, nil
 }
 
 // launchAgentDeps bundles what this turn's launchAgent tool needs to run a
@@ -1069,6 +1081,11 @@ func (r *Runtime) ShutdownAgentRuns(ctx context.Context) error {
 		registry.CancelRunning()
 	}
 
+	if r.nativeWorkflowRunner() != nil {
+		// The worker drains callbacks. Paused actors keep their inboxes.
+		return nil
+	}
+
 	for _, registry := range registries {
 		if err := registry.Wait(ctx); err != nil {
 			return ctxerrors.Wrap(err, "shut down child agents")
@@ -1170,11 +1187,11 @@ func (r *Runtime) openPromptWithEvents(
 		return turnOpening{}, ctxerrors.Wrap(err, "open prompt")
 	}
 
-	pendingBatch, err := r.drainPendingEvents(ctx, opened.Session.ID)
+	pendingBatch, err := r.peekOpeningEvents(ctx, opened.Session.ID)
 	if err != nil {
 		return turnOpening{}, ctxerrors.Wrap(
 			err,
-			"drain pending session events",
+			"read pending session events",
 		)
 	}
 
@@ -1189,7 +1206,6 @@ func (r *Runtime) openPromptWithEvents(
 	}
 
 	opening.pendingEvents = renderSessionEvents(opening.pendingBatch)
-	opening.assembly.prompt = assembly.prompt.UserText(opening.pendingEvents)
 
 	return opening, nil
 }
@@ -1201,7 +1217,7 @@ func (r *Runtime) openTurn(
 	ctx context.Context,
 	input TurnRequest,
 	workspace string,
-	opening turnOpening,
+	opening *turnOpening,
 ) (*runtimeTurn, session.Lease, error) {
 	turn, lease, err := r.startTurn(
 		ctx,
@@ -1214,7 +1230,7 @@ func (r *Runtime) openTurn(
 		return nil, session.Lease{}, ctxerrors.Wrap(err, "start durable turn")
 	}
 
-	if len(opening.pendingBatch.Notices) == 0 {
+	if len(opening.pendingBatch.Notices) == 0 || !opening.publishPending {
 		return turn, lease, nil
 	}
 
@@ -1237,6 +1253,12 @@ func (r *Runtime) drainPendingEvents(
 	ctx context.Context,
 	sessionID uuid.UUID,
 ) (events.Batch, error) {
+	release, err := r.noticeGate.acquire(ctx, true)
+	if err != nil {
+		return events.Batch{}, ctxerrors.Wrap(err, "admit notice consumption")
+	}
+	defer release()
+
 	notices, err := r.store.DrainSessionNotices(ctx, sessionID)
 	if err != nil {
 		return events.Batch{}, ctxerrors.Wrap(
@@ -1245,11 +1267,10 @@ func (r *Runtime) drainPendingEvents(
 		)
 	}
 
-	if r.eventBus != nil {
-		r.eventBus.Drain(sessionID)
-	}
+	batch := sessionNoticeBatch(notices)
+	r.acknowledgeNoticeBatch(sessionID, batch)
 
-	return sessionNoticeBatch(notices), nil
+	return batch, nil
 }
 
 func (r *Runtime) startTurn(
@@ -1257,14 +1278,15 @@ func (r *Runtime) startTurn(
 	input TurnRequest,
 	sessionID uuid.UUID,
 	workspace string,
-	opening turnOpening,
+	opening *turnOpening,
 ) (*runtimeTurn, session.Lease, error) {
 	requestID := input.RequestID
 	if requestID == uuid.Nil {
 		requestID = uuid.New()
 	}
 
-	startEvents, startEventInputs, err := turnStartEvents(
+	startEvents, startEventInputs, err := rootStartEvents(
+		ctx,
 		input,
 		requestID,
 		opening.assembly.skills,
@@ -1279,37 +1301,29 @@ func (r *Runtime) startTurn(
 		sink:              input.OnEvent,
 	}
 
-	messages := turnStartMessages(
-		opening.pendingEvents,
-		workspace,
-		input.Message,
-		input.Origin != nil,
-		opening.assembly.skills,
-	)
-
-	lease, err := r.store.AcquireTurn(
+	admitted, err := r.admitRootOpening(
 		ctx,
 		sessionID,
-		session.StartTurnInput{
-			RequestID: requestID,
-			Workspace: workspace,
-			Messages:  messages,
-			Events:    startEventInputs,
-		},
+		opening.admissionInput(input, requestID, workspace, startEventInputs),
+		opening,
 	)
 	if err != nil {
 		return nil, session.Lease{}, ctxerrors.Wrap(err, "acquire session turn")
+	}
+
+	if !admitted.created {
+		startEvents = nil
 	}
 
 	// The user, skill, and pending-event messages went to AcquireTurn
 	// directly, not through turn.messages, so both checkpoint marks correctly
 	// start at zero.
 	turn.store = r.store
-	turn.lease = lease
+	turn.lease = admitted.lease
 	turn.events = startEvents
 	turn.checkpointedEvents = len(turn.events)
 
-	return &turn, lease, nil
+	return &turn, admitted.lease, nil
 }
 
 // turnStartEvents builds the events a turn opens with: the accepted user
@@ -1586,7 +1600,21 @@ func (r *Runtime) systemPrompt(
 	input TurnRequest,
 	workspace string,
 ) (string, error) {
-	blocks, err := snapshot.PromptBlocks(r.rootAgent)
+	prompt, err := r.systemPromptForAgent(snapshot, input, workspace,
+		r.rootAgent)
+	if err != nil {
+		return "", ctxerrors.Wrap(err, "build root system prompt")
+	}
+
+	return prompt, nil
+}
+
+func (r *Runtime) systemPromptForAgent(
+	snapshot harness.Snapshot,
+	input TurnRequest,
+	workspace, rootAgent string,
+) (string, error) {
+	blocks, err := snapshot.PromptBlocks(rootAgent)
 	if err != nil {
 		return "", ctxerrors.Wrap(err, "resolve prompt blocks")
 	}
@@ -1884,11 +1912,7 @@ func (r *Runtime) runProvider(
 		WithToolTimeout(r.toolTimeout).
 		WithMaxToolResultTokens(r.maxToolResultTokens).
 		OnRoundStart(scope.beforeRound).
-		OnRoundStart(prepared.rootRoundStartCallback(audit)).
 		OnRoundEnd(scope.afterRound).
-		OnRoundEnd(audit.onRoundEnd).
-		OnRetry(prepared.rootRetryCallback(audit)).
-		OnAssistantMessage(prepared.rootAssistantMessageCallback(audit)).
 		OnToolCallStart(prepared.onToolCallStart).
 		OnToolResult(func(
 			ctx context.Context,
@@ -1909,15 +1933,14 @@ func (r *Runtime) runProvider(
 	// production and Peen's own durability hooks both run. Peen no longer
 	// emits its own delta events: the adapter publishes content blocks and the
 	// transcript sink stores them under the names that went on the wire.
-	request = prepared.adapter.Bind(request)
+	request = prepared.bindRootModelCallbacks(request, audit)
 
 	if effort := turnReasoningEffort(ctx, prepared); effort != "" {
 		request = request.WithReasoningEffort(effort)
 	}
 
-	// Under drop-oldest no hook is installed at all, so Elelem applies its own
-	// whole-unit eviction. Installing one and calling DropOldestUnits from it
-	// would run both policies against the same request.
+	// Under drop-oldest Elelem evicts whole units without a Peen hook.
+	// Installing both policies would compact the same request twice.
 	if prepared.compactor != nil {
 		request = request.PreMaxTokensReached(prepared.compactor.handle)
 	}
@@ -2394,6 +2417,10 @@ func (p *preparedTurn) onRoundStart(
 	ctx context.Context,
 	event *elelem.RoundEvent,
 ) error {
+	if p.userMessages == nil {
+		return nil
+	}
+
 	if err := p.userMessages.checkpointDelivered(
 		ctx,
 		event.Messages,

@@ -3,7 +3,8 @@ package agent
 import "errors"
 
 var (
-	errDirectoryChanged = errors.New("agent directory changed")
+	errDirectoryChanged  = errors.New("agent directory changed")
+	errRootAdmissionBusy = errors.New("root turn admission is busy")
 	// ErrInvalidModelReference reports a malformed provider/model value.
 	ErrInvalidModelReference = errors.New("invalid qualified model reference")
 	// ErrModelUnavailable reports a model discovery did not find.

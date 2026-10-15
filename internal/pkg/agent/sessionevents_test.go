@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/elelem/elelemtest"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
@@ -16,6 +17,72 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestSessionEventInjectionKeepsNewerNotice(t *testing.T) {
+	t.Parallel()
+	fixture := newRuntimeFixture(t, elelemtest.NewScriptedDriver(
+		elelemtest.Text("unused response")))
+	prepared, err := fixture.runtime.prepareTurn(t.Context(), TurnRequest{
+		RequestID: uuid.New(), Workspace: fixture.workspace, Message: "start",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { fixture.store.ReleaseTurn(prepared.lease) })
+	assertSessionInjectionKeepsNewerNotice(t, fixture, prepared)
+}
+
+func TestRestoredSessionEventInjectionKeepsNewerNotice(t *testing.T) {
+	t.Parallel()
+	fixture, _, shared := rootModelProjectionFixture(t,
+		elelemtest.Text("unused response"))
+	assertSessionInjectionKeepsNewerNotice(t, fixture.base, shared.prepared)
+}
+
+func assertSessionInjectionKeepsNewerNotice(
+	t *testing.T,
+	fixture runtimeFixture,
+	prepared *preparedTurn,
+) {
+	t.Helper()
+	sessionID := prepared.lease.SessionID
+	old, err := fixture.runtime.PublishEvent(t.Context(), events.Notice{
+		SessionID: sessionID, Type: "app.changed", Source: "example",
+		Summary: "old notice", Delivery: events.DeliveryQueue,
+	})
+	require.NoError(t, err)
+	newID := uuid.New()
+	wrapped := &noticeDrainRaceStore{
+		Store: fixture.store, onDrained: func(ctx context.Context) error {
+			row, err := fixture.store.CreateSessionNotice(ctx, sessionID,
+				session.CreateSessionNoticeInput{
+					ID: newID, Type: "app.changed", Source: "example",
+					Summary: "new notice", Delivery: models.NoticeDeliveryQueue,
+				})
+			if err != nil {
+				return ctxerrors.Wrap(err, "save racing tool notice")
+			}
+			_, err = fixture.eventBus.PublishContext(ctx, events.Notice{
+				ID: row.ID, SessionID: sessionID, Type: row.Type,
+				Source: row.Source, Summary: row.Summary,
+				Delivery: events.DeliveryQueue, CreatedAt: row.CreatedAt,
+			})
+			if err != nil {
+				return ctxerrors.Wrap(err, "publish racing tool notice")
+			}
+
+			return nil
+		},
+	}
+	fixture.runtime.store = wrapped
+	prepared.turn.store = wrapped
+	injection, err := prepared.injectSessionEvents(t.Context(), nil)
+	require.NoError(t, err)
+	require.NotNil(t, injection)
+	assert.Contains(t, injection.Content, old.ID.String())
+	assert.NotContains(t, injection.Content, newID.String())
+	pending := fixture.eventBus.Peek(sessionID)
+	require.Len(t, pending.Notices, 1)
+	assert.Equal(t, newID, pending.Notices[0].ID)
+}
 
 const (
 	eventTestType    = "app.error"

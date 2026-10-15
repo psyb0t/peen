@@ -64,11 +64,15 @@ By default Peen runs in a container and each workspace's agent runs in its own c
 
 Peen starts with no sessions. Open a workspace with `POST /v1/sessions/open` and a body of `{"workspace":"<workspace_root>/my-app"}`, using the absolute host path. It returns the session, creating it the first time that directory is opened and resuming it afterwards. Never invent a session ID, because Peen refuses an unknown one and starts no turn.
 
-Send the returned ID as `metadata.sessionId` in a `message.send` WebSocket event, and reuse it to continue the conversation. A normal connection gets live events for every session, so the client builds tabs by filtering event metadata. `?sessionId=<uuid>` only limits which events the socket receives. It does not route a new message.
+Send the returned ID as `metadata.sessionId` in a `message.send` WebSocket event, and reuse it to continue the conversation. A normal connection gets live events for every session, so the client builds tabs by filtering event metadata. `?sessionId=<uuid>` filters events and keeps that session present. The final filtered connection closing pauses its unfinished workflows; another filtered client keeps them running. Global observer sockets do not keep a session running. Every sent message still needs `metadata.sessionId`.
 
 `GET /v1/sessions` lists what exists and needs no session header.
 
 Use REST to read stored state and control work. A message for the agent goes over the WebSocket. Send `X-Session-ID` to the session endpoints. For example, list messages with `GET /v1/messages` and ask a turn to stop with `POST /v1/session/cancel`. The [API reference](https://github.com/psyb0t/peen/blob/main/docs/http-api.md) has every frame and endpoint.
+
+## Inspect and continue retained work
+
+Stop pauses unfinished workflows and interrupts current activities. Reconnect does not resume them. Ask the agent to use `searchExecutions` and `readExecution` to find retained tasks, ancestry, context and activity history without starting work. After inspecting the workspace, it can use `resolveExecutionActivity` for uncertain tool outcomes and `resumeExecution` for explicit continuation. Completed results are reused after a crash. See [recovery and continuation](https://github.com/psyb0t/peen/blob/main/docs/agents.md#recovery-after-a-crash).
 
 ## Teach it the project
 

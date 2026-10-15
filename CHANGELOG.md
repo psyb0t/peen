@@ -2,6 +2,28 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.25.0 (2026-10-15)
+
+Peen runs root, child and grandchild conversations through SQLite-backed go-workflows, retaining context and completed activity results across crashes. Stop pauses unfinished work until explicit continuation. No configuration or API migration is needed.
+
+- Breaking: changes the session database schema for durable execution, inboxes, turn ownership and job ownership. Back up existing state before upgrading. If startup reports a schema mismatch, stop Peen and recreate `peen.db`, `peen.db-wal` and `peen.db-shm` from `PEEN_STATE_DIR`. Earlier development schemas are not migrated.
+- Adds separate `workflows.db` storage owned by the controller. Session workers use authenticated, generation-bound RPC; replaced workers cannot overwrite recovered work.
+- Preserves root and nested agent identities, ancestry, instructions, model settings, remaining round budgets, directories, skills, inboxes, summaries and transcripts after controller or worker loss. Completed model, tool and hook results are reused. Interrupted effects retain an uncertain outcome for inspection before retry.
+- Adds `searchExecutions` and `readExecution` for bounded, session-scoped history and context lookup across retained execution states. Reading history leaves stopped work stopped. Oversized reads return a tool error so the agent can request a smaller page or context chunk.
+- Adds `resumeExecution` and `resolveExecutionActivity` for explicit continuation and inspected resolution of uncertain effects. Resume preserves saved identity and round limits, and refuses stale activity attempts or control revisions.
+- Changes Stop to persist a pause before cancelling current activities. Paused trees remain inactive across restart, reconnect, child reports and job completion; unrelated user work can start another turn. Foreground `runCommand` cancellation kills its process group, while commands whose running job handles already returned remain detached.
+- Changes client disconnect behavior: losing the last session-filtered WebSocket pauses its work, while another connected client preserves continuity. The browser keeps its selected session connected separately from the global event feed. Reconnecting leaves paused work stopped.
+- Preserves accepted root and child input, questions, wait deadlines, completion reports and deferred messages across restart. Repeated requests reuse their saved identities, and messages arriving during finalization receive another model round within the existing budget.
+- Commits activity results with their transcript, stream and completion records. Recovery retains stream indexes and final event identities without repeating completed tool effects or terminal notifications.
+- Retains separate opening, tool, compaction and terminal hook checkpoints. Completed hooks and prompt injections survive retries; interrupted effects require inspection. Stop runs no success, failure or terminal hooks for the paused task.
+- Runs embedded sessions through the same durable workflow schedule. Restored roots respect shared turn capacity. Close pauses unfinished work and drains workers before closing storage; failed startup releases owned resources. Workflow logs retain the caller's logger and audit sink.
+- Preserves directory-hop harness state, effective prompts, file-read observations and virtual filesystem paths during restoration. Compaction retains completed history links and original summarizer settings while leaving interrupted messages intact.
+- Fixes child cancellation and exhausted round budgets leaving runs active. Cancellation stops the unfinished subtree, retains its history and reports its terminal outcome without restarting it.
+- Updates common-go to v0.8.0 and uses its shared modernc SQLite adapter, preserving pure-Go builds and constraint-error mapping alongside workflow storage.
+- Restores Go race detection in every Go test target, including the CI coverage run.
+- Keeps Docker build output in integration-test logs and shows setup progress during `make test-api`.
+- Updates OpenTelemetry modules to v1.45.0 for GO-2026-6505 (CVE-2026-81870), which addresses exporter endpoint URLs appearing in diagnostic logs.
+
 ## v0.24.0 (2026-10-12)
 
 Interrupted child agents resume when their session gets a replacement worker, keeping their run IDs and recorded progress. No configuration, API or database migration is needed.

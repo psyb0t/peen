@@ -41,6 +41,7 @@ func (s *Store) CreateJob(
 		ID:                 jobID,
 		SessionID:          sessionID,
 		TurnID:             input.TurnID,
+		AgentRunID:         input.AgentRunID,
 		WorkerGenerationID: input.WorkerGenerationID,
 		ToolCallID:         input.ToolCallID,
 		PID:                input.PID,
@@ -53,18 +54,8 @@ func (s *Store) CreateJob(
 	}
 
 	if err := s.query.Transaction(func(tx *repositories.Query) error {
-		if _, err := s.findSessionWithQuery(ctx, tx, sessionID); err != nil {
-			return err
-		}
-
-		turn := tx.Turn
-		if _, err := turn.WithContext(ctx).
-			Where(
-				turn.ID.Eq(input.TurnID),
-				turn.SessionID.Eq(sessionID),
-			).
-			First(); err != nil {
-			return ctxerrors.Wrap(err, "find parent turn for job")
+		if err := s.validateJobParents(ctx, tx, result); err != nil {
+			return ctxerrors.Wrap(err, "validate job ancestry")
 		}
 
 		if err := tx.Job.WithContext(ctx).Create(result); err != nil {

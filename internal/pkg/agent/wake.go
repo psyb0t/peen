@@ -107,6 +107,26 @@ func (r *Runtime) PublishEvent(
 	ctx context.Context,
 	notice events.Notice,
 ) (events.Notice, error) {
+	published, err := r.persistAndPublishNotice(ctx, notice)
+	if err != nil {
+		return events.Notice{}, ctxerrors.Wrap(err, "publish durable notice")
+	}
+
+	r.considerWake(ctx, published)
+
+	return published, nil
+}
+
+func (r *Runtime) persistAndPublishNotice(
+	ctx context.Context,
+	notice events.Notice,
+) (events.Notice, error) {
+	release, err := r.noticeGate.acquire(ctx, true)
+	if err != nil {
+		return events.Notice{}, ctxerrors.Wrap(err, "admit notice publication")
+	}
+	defer release()
+
 	if r.eventBus == nil {
 		return events.Notice{}, ctxerrors.Wrap(
 			ErrEventsUnavailable,
@@ -152,16 +172,14 @@ func (r *Runtime) PublishEvent(
 		)
 	}
 
-	r.considerWake(ctx, published)
-
 	return published, nil
 }
 
 // considerWake decides whether this event starts a turn. It never fails the
 // publish: a wake that cannot happen leaves the event queued.
-func (r *Runtime) considerWake(ctx context.Context, notice events.Notice) {
+func (r *Runtime) considerWake(ctx context.Context, notice events.Notice) bool {
 	if r.isClosing() {
-		return
+		return false
 	}
 
 	logger := runtimecontext.Logger(ctx)
@@ -173,7 +191,7 @@ func (r *Runtime) considerWake(ctx context.Context, notice events.Notice) {
 			"event_type", notice.Type,
 		)
 
-		return
+		return false
 	}
 
 	handler, found, err := r.wakeHandler(ctx, notice)
@@ -184,7 +202,7 @@ func (r *Runtime) considerWake(ctx context.Context, notice events.Notice) {
 			"err", err,
 		)
 
-		return
+		return false
 	}
 
 	if !found {
@@ -194,7 +212,7 @@ func (r *Runtime) considerWake(ctx context.Context, notice events.Notice) {
 			"event_type", notice.Type,
 		)
 
-		return
+		return false
 	}
 
 	// The handler decides last. A type whose handler declares wake starts a
@@ -207,7 +225,7 @@ func (r *Runtime) considerWake(ctx context.Context, notice events.Notice) {
 			"event_type", notice.Type,
 		)
 
-		return
+		return false
 	}
 
 	if !r.wakes.allow(notice.SessionID, time.Now()) {
@@ -217,10 +235,12 @@ func (r *Runtime) considerWake(ctx context.Context, notice events.Notice) {
 			"event_type", notice.Type,
 		)
 
-		return
+		return false
 	}
 
 	r.startWakeTurn(ctx, notice, handler)
+
+	return true
 }
 
 // wakeHandler resolves the handler for this event type from the workspace of

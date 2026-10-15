@@ -18,9 +18,9 @@ import (
 
 	"gorm.io/plugin/dbresolver"
 
-	"github.com/psyb0t/peen/internal/pkg/db/models"
-
 	"github.com/google/uuid"
+
+	"github.com/psyb0t/peen/internal/pkg/db/models"
 )
 
 func newMessage(db *gorm.DB, opts ...gen.DOOption) message {
@@ -218,8 +218,87 @@ type IMessageDo interface {
 	UnderlyingDB() *gorm.DB
 	schema.Tabler
 
+	CountCompletedHistoryRange(sessionID uuid.UUID, fromSequence int64, toSequence int64) (result int64, err error)
+	CompletedHistoryRange(sessionID uuid.UUID, fromSequence int64, toSequence int64) (result []*models.Message, err error)
+	CountCompletedHistoryBefore(sessionID uuid.UUID, afterSequence int64, beforeSequence int64) (result int64, err error)
 	LatestDirectoryChange(sessionID uuid.UUID) (result []*models.Message, err error)
 	CompletedHistory(sessionID uuid.UUID, afterSequence int64) (result []*models.Message, err error)
+}
+
+// SELECT COUNT(*)
+//
+//	FROM @@table AS m
+//	INNER JOIN turns ON turns.session_id = m.session_id
+//	  AND turns.id = m.turn_id
+//	WHERE m.session_id = @sessionID
+//	  AND turns.state = 'completed'
+//	  AND m.sequence >= @fromSequence
+//	  AND m.sequence <= @toSequence
+func (m messageDo) CountCompletedHistoryRange(sessionID uuid.UUID, fromSequence int64, toSequence int64) (result int64, err error) {
+	var params []interface{}
+
+	var generateSQL strings.Builder
+	params = append(params, sessionID)
+	params = append(params, fromSequence)
+	params = append(params, toSequence)
+	generateSQL.WriteString("SELECT COUNT(*) FROM messages AS m INNER JOIN turns ON turns.session_id = m.session_id AND turns.id = m.turn_id WHERE m.session_id = ? AND turns.state = 'completed' AND m.sequence >= ? AND m.sequence <= ? ")
+
+	var executeSQL *gorm.DB
+	executeSQL = m.UnderlyingDB().Raw(generateSQL.String(), params...).Take(&result) // ignore_security_alert
+	err = executeSQL.Error
+
+	return
+}
+
+// SELECT m.*
+//
+//	FROM @@table AS m
+//	INNER JOIN turns ON turns.session_id = m.session_id
+//	  AND turns.id = m.turn_id
+//	WHERE m.session_id = @sessionID
+//	  AND turns.state = 'completed'
+//	  AND m.sequence >= @fromSequence
+//	  AND m.sequence <= @toSequence
+//	ORDER BY m.sequence ASC, m.id ASC
+func (m messageDo) CompletedHistoryRange(sessionID uuid.UUID, fromSequence int64, toSequence int64) (result []*models.Message, err error) {
+	var params []interface{}
+
+	var generateSQL strings.Builder
+	params = append(params, sessionID)
+	params = append(params, fromSequence)
+	params = append(params, toSequence)
+	generateSQL.WriteString("SELECT m.* FROM messages AS m INNER JOIN turns ON turns.session_id = m.session_id AND turns.id = m.turn_id WHERE m.session_id = ? AND turns.state = 'completed' AND m.sequence >= ? AND m.sequence <= ? ORDER BY m.sequence ASC, m.id ASC ")
+
+	var executeSQL *gorm.DB
+	executeSQL = m.UnderlyingDB().Raw(generateSQL.String(), params...).Find(&result) // ignore_security_alert
+	err = executeSQL.Error
+
+	return
+}
+
+// SELECT COUNT(*)
+//
+//	FROM @@table AS m
+//	INNER JOIN turns ON turns.session_id = m.session_id
+//	  AND turns.id = m.turn_id
+//	WHERE m.session_id = @sessionID
+//	  AND turns.state = 'completed'
+//	  AND m.sequence > @afterSequence
+//	  AND m.sequence < @beforeSequence
+func (m messageDo) CountCompletedHistoryBefore(sessionID uuid.UUID, afterSequence int64, beforeSequence int64) (result int64, err error) {
+	var params []interface{}
+
+	var generateSQL strings.Builder
+	params = append(params, sessionID)
+	params = append(params, afterSequence)
+	params = append(params, beforeSequence)
+	generateSQL.WriteString("SELECT COUNT(*) FROM messages AS m INNER JOIN turns ON turns.session_id = m.session_id AND turns.id = m.turn_id WHERE m.session_id = ? AND turns.state = 'completed' AND m.sequence > ? AND m.sequence < ? ")
+
+	var executeSQL *gorm.DB
+	executeSQL = m.UnderlyingDB().Raw(generateSQL.String(), params...).Take(&result) // ignore_security_alert
+	err = executeSQL.Error
+
+	return
 }
 
 // SELECT result.workspace, result.sequence

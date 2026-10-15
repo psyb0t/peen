@@ -14,6 +14,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestErrorPreservesInvalidStateAcrossTheWire(t *testing.T) {
+	t.Parallel()
+	encoded, err := json.Marshal(NewError(ctxerrors.Wrap(
+		commerr.ErrInvalidState, "inactive turn lease")))
+	require.NoError(t, err)
+	var decoded Error
+	require.NoError(t, json.Unmarshal(encoded, &decoded))
+	assert.Equal(t, CodeInvalidState, decoded.Code)
+	require.ErrorIs(t, decoded.Unwrap(), commerr.ErrInvalidState)
+}
+
 // A refusal the controller shows a person must still be recognisable after it
 // crosses the socket, and must still match its broader class for callers that
 // only know the class.
@@ -165,4 +176,20 @@ func TestErrorKeepsAPlainClassAcrossTheWire(t *testing.T) {
 	received := wire.Unwrap()
 	require.ErrorIs(t, received, commerr.ErrValidationFailed)
 	assert.NotErrorIs(t, received, session.ErrRunningTurnSettingsChange)
+}
+
+func TestErrorKeepsPendingInboxIdentityAcrossJSON(t *testing.T) {
+	t.Parallel()
+	encoded, err := json.Marshal(NewError(ctxerrors.Wrap(
+		errors.Join(commerr.ErrConflict, session.ErrExecutionInboxPending),
+		"settle execution inbox")))
+	require.NoError(t, err)
+	var decoded Error
+	require.NoError(t, json.Unmarshal(encoded, &decoded))
+	assert.Equal(t, CodeExecutionInboxPending, decoded.Code)
+	require.ErrorIs(t, decoded.Unwrap(), session.ErrExecutionInboxPending)
+	require.ErrorIs(t, decoded.Unwrap(), commerr.ErrConflict)
+	plain := NewError(ctxerrors.Wrap(commerr.ErrConflict, "stale claim"))
+	assert.Equal(t, CodeConflict, plain.Code)
+	assert.NotErrorIs(t, plain.Unwrap(), session.ErrExecutionInboxPending)
 }

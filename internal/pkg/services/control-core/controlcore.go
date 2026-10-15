@@ -220,6 +220,7 @@ func (s *ControlCore) openCore(
 		config,
 		upstreams,
 		assembled.Store,
+		assembled.Handle.Workflows,
 		agentSpaces,
 		relay,
 	)
@@ -317,6 +318,7 @@ func newWorkerSupervisor(
 	config peenconfig.Config,
 	upstreams []peenconfig.Upstream,
 	store *session.Store,
+	workflows *db.WorkflowStorage,
 	agentSpaces *worker.AgentSpaceSet,
 	publisher protocol.Publisher,
 ) (*supervisor.Supervisor, error) {
@@ -346,6 +348,7 @@ func newWorkerSupervisor(
 	built, err := supervisor.New(supervisor.Options{
 		Publisher:       publisher,
 		Store:           store,
+		Workflows:       workflows,
 		AgentSpaces:     agentSpaces,
 		Launchers:       launchers,
 		SocketRoot:      config.WorkerSocketRoot(),

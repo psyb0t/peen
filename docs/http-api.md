@@ -12,7 +12,7 @@ Every operation is mounted under `/v1`. `Authorization: Bearer <token>` is requi
 
 ## Send and watch turns over WebSocket
 
-Messages for the agent go only over a WebSocket upgrade at `GET /v1/ws`. The endpoint is outside the OpenAPI document, because its contract is WebSocket frames, not HTTP request and response bodies. An optional `?sessionId={canonical-uuidv4}` asks the server to send that socket only one session's frames. It does not create, select, or authorize a session. Request logging leaves out query strings.
+Messages for the agent go only over a WebSocket upgrade at `GET /v1/ws`. The endpoint is outside the OpenAPI document, because its contract is WebSocket frames, not HTTP request and response bodies. An optional `?sessionId={canonical-uuidv4}` asks the server to send that socket only one session's frames. It does not create or authorize a session. Request logging leaves out query strings. Closing the final session-filtered connection requests a durable stop and routes cancellation to the session worker. Closing one of several connections for that session keeps the others running. Reconnecting does not request continuation. A reconnect to the same session waits for its pending stop; other sessions can connect independently. The browser keeps a filtered connection for its selected session alongside its global event feed. Global observer sockets alone do not keep a session running.
 
 The controller starts with no sessions. A client creates one by naming a workspace through `POST /v1/sessions/open`, the only operation that creates a session. Sessions are keyed by canonical workspace path, so opening the same directory again, by any of its names, resumes the existing session instead of making a second one. `GET /v1/sessions` lists them and takes no session header, because it is how a client finds them.
 
@@ -57,13 +57,15 @@ The accepted client event is `message.send`. Its `data` is strict JSON:
 
 `to` sends the message to a running child agent of the session instead of the root conversation. The child reads it after its current tool call, as a `<message from="user">` block, and it is stored in the child's transcript once it reaches the model. Such a message starts no turn and completes at once with `message.completed` `{"queued": true}`. It cannot carry `model`, `reasoningEffort`, or `systemPrompt`, and doing so fails with `VALIDATION_FAILED`. A child that has ended fails it with `AGENT_FINISHED`, a run ID the session never had fails with `AGENT_NOT_FOUND`, and a child whose inbox already holds `PEEN_MAX_QUEUED_USER_MESSAGES` messages fails it with `USER_MESSAGE_QUEUE_FULL`. Use it to answer a child's question or to steer it. See [running children](agents.md#running-children).
 
+Session workers accept messages into a child's durable inbox before reconstructing its live conversation. Repeating the same request ID and message reuses the saved acceptance, including its original directory. A paused child refuses new input until explicitly resumed. Acceptance does not resolve an interrupted tool that still requires reconciliation.
+
 `metadata.sessionId` is required on every client message. It routes the work to an existing session and does not grant access. `data.workspace` is rejected. A client learns a session ID from `POST /v1/sessions/open`, not from a special first socket frame.
 
 Write `:skill-name` at the start of a message or after a space to hand that skill to the model. A core skill is `:core:name`. Peen checks every name before it opens a turn or contacts a provider. Each skill reaches the model as its own user message right after your message, as a `<skill>` block with the skill's name, description, directory, and full `SKILL.md`. The directory is absolute for a custom skill and `embedded://skills/<name>` for a core skill. The skill is not part of the system prompt, and a child agent only gets it when the parent names it in the `launchAgent` task. A skill that names other skills with `:name` brings them too, and Peen does not repeat a skill the model already holds, as [Skills](skills.md#once-per-conversation) explains. An unknown name produces `message.failed` with `VALIDATION_FAILED`, and nothing is stored. Without this syntax, the model sees the skill catalogue and decides whether to load a matching skill with `useSkill`. See [Skills](skills.md#forcing-a-skill).
 
 Peen accepts the messages for one session in the order it receives them, from every connected client. The first starts a turn. Every `message.send` that arrives while that turn runs or is still starting, for example while the session's worker boots, joins the turn's user-message queue, first in first out. A queued message may repeat the running turn's `model` and `reasoningEffort`, but it cannot change them or set a `systemPrompt`, because those settings belong to the running turn, and that refusal answers `message.failed` with `VALIDATION_FAILED`. A queued message that names a skill with `:name` is resolved when Peen accepts it. An unknown name refuses that message with `VALIDATION_FAILED` and queues nothing. Otherwise the message and its skill messages are queued together, and they reach the model together. At most `PEEN_MAX_QUEUED_USER_MESSAGES` messages, 16 by default, can wait in the queue at once, counting each skill message or already-loaded note that follows a queued message, and a message that does not fit answers `USER_MESSAGE_QUEUE_FULL`. Queueing never interrupts a provider request in flight.
 
-A queued message gets its own request ID. Peen acknowledges it with `message.completed` `{"queued": true}` and emits `userMessage.created` and then `userMessage.queued`, both carrying that message's own `requestId`. When the running turn's current model round ends, after every tool call in that round has finished, Peen hands the queued message to the model and emits `userMessage.delivered` with that same `requestId` and `{"message": "<text>"}` to every connected client. Queued messages are delivered in the order they were sent, and `userMessage.delivered` fires once per message however many skill messages follow it. Each skill message that follows is announced with a `skill.injected` frame under the running turn's `requestId`. The queue lives in the worker's memory until delivery. If the turn ends without a `userMessage.delivered` for your message's `requestId`, for example after a restart or a cancellation, the message never reached the model, so resend it.
+A queued message gets its own request ID. Peen acknowledges it with `message.completed` `{"queued": true}` and emits `userMessage.created` and then `userMessage.queued`, both carrying that message's own `requestId`. When the running turn's current model round ends, after every tool call in that round has finished, Peen hands the queued message to the model and emits `userMessage.delivered` with that same `requestId` and `{"message": "<text>"}` to every connected client. Queued messages are delivered in the order they were sent, and `userMessage.delivered` fires once per message however many skill messages follow it. Each skill message that follows is announced with a `skill.injected` frame under the running turn's `requestId`. Accepted messages are retained in the durable workflow inbox until delivery, including their request IDs, directory and resolved skills. A missing delivery event does not mean the message was lost. Inspect retained work before resending. Stop leaves pending input stored until explicit continuation; input accepted after a completion boundary can start a separate root. See [continuing retained work](agents.md#continuing-retained-work).
 
 Every accepted `message.send` first emits a stored `userMessage.created` frame. Every server frame is a JSON object with `id`, `type`, `data`, `timestamp`, `metadata`, and `triggeredBy`, the same shape as the client frame above. `triggeredBy` is the `id` of the client frame that caused this frame. A frame from a turn an event woke has no client frame behind it and carries the all-zero UUID. Nothing causes a client frame, so a client sends `null`. All session frames carry `metadata.sessionId` and `metadata.requestId`. Every frame of one turn shares the turn's `requestId`, except the `userMessage.*` frames of a queued message, which carry that message's own:
 
@@ -109,8 +111,8 @@ A protocol event is a stored record of one step of a turn. Each one goes out liv
 | `turn.completed` | `{model, text}` | The turn finished. `text` is the final answer. |
 | `turn.failed` | `{reason}` | The turn failed. |
 | `turn.cancelled` | `{reason}` | The turn was cancelled. |
-| `question.asked` | `{question}` | The root conversation asked you a question with `ask`. Your next message is the answer. |
-| `question.answered` | `{answered}` | The root's `ask` ended. `answered` is `false` when it timed out. |
+| `question.asked` | `{question, callId?}` | The root conversation asked you a question with `ask`. Your next message is the answer. |
+| `question.answered` | `{answered, callId?}` | The root's `ask` ended. `answered` is `false` when it timed out. |
 | `agent.run.*` | `{agentRunId, parentTurnId, parentAgentRunId?, event}` | A step of a child agent run. The names are `agent.run.started`, `.text.delta`, `.thinking.delta`, `.tool.use`, `.tool.result`, `.assistant.message`, `.message.injected`, `.message.queued`, `.message.delivered`, `.message.undelivered`, `.question`, `.answer`, `.provider.retry`, `.completed`, `.failed`, and `.cancelled`. `event` holds the step's own payload. The queued, delivered and undelivered message steps carry `{message, acceptanceId?}`, where the optional UUID links one accepted message across its outcomes. `.question` carries `{question, callId?}` and `.answer` carries `{answered, callId?}`, where the optional call ID links the same `ask` call. Older stored events omit these IDs. These frames are not in `GET /v1/session/events`. Peen stores them with the run, and `GET /v1/session/agents/{agentRunId}/events` returns them. |
 
 `content_block_start`, `content_block_delta`, and `content_block_stop` carry the model's reply as shown above. `message.completed` and `message.failed` answer one client frame, as described below, and are not stored.
@@ -252,13 +254,15 @@ Reads one existing session. `X-Session-ID` is required.
 
 ## POST /v1/session/cancel
 
-Asks the session's active turn to stop, and stops every child agent still running in the session, including children of turns that already ended. `X-Session-ID` is required, and there is no body. It returns `202` whether or not anything was running, so repeating it is safe.
+Pauses unfinished session workflows and interrupts their current activities, including children of turns that already ended. `X-Session-ID` is required, and there is no body. It returns `202` whether or not anything was running, so repeating it is safe.
 
 ```json
 {"cancelRequested": true}
 ```
 
-`cancelRequested` is `true` only when this call found a running turn or a running child and signalled it. The endpoint does not wait for them to wind down.
+`cancelRequested` is `true` when this call cancels a pending admission, signals a running turn or child, or pauses an unfinished workflow. Stop records the pause before interrupting the worker. The endpoint does not wait for every activity to wind down. A request accepted before Stop cannot start afterward, and reconnecting does not resume paused work.
+
+An active foreground `runCommand` kills its process group when interrupted. Commands whose running job handles already returned keep their detached behavior. Their completion notices cannot wake the stopped source work. See [process jobs](configuration.md#process-jobs).
 
 ## POST /v1/session/reconfigure
 
@@ -394,8 +398,8 @@ Reads one child compaction record. `X-Session-ID` is required, and the record mu
 
 ## POST /v1/session/agents/{agentRunId}/cancel
 
-Cancels one child agent run without ending its parent turn. The children it launched stop with it. `X-Session-ID` is required, and there is no body. Peen records the request and reaches the session's worker, where the child runs. It behaves like `POST /v1/session/cancel` and is safe to repeat.
+Cancels one child agent run without ending its parent turn. The unfinished children it launched stop with it. `X-Session-ID` is required, and there is no body. Session-worker workflows record a terminal `cancelled` outcome and retain their context and history. Peen then interrupts their activities and cancels their SDK workflows. Repeating the request also retries delivery to the worker. A replacement worker applies retained cancellations before starting work. Session Stop pauses unfinished workflows instead. See [stopping a child](agents.md#stopping-a-child).
 
 ```json
-{"agentRunId": "uuid", "cancelRequested": true, "state": "running"}
+{"agentRunId": "uuid", "cancelRequested": true, "state": "cancelled"}
 ```

@@ -40,6 +40,7 @@ func newTurn(db *gorm.DB, opts ...gen.DOOption) turn {
 	_turn.ContextSnapshotHash = field.NewString(tableName, "context_snapshot_hash")
 	_turn.PromptSnapshotHash = field.NewString(tableName, "prompt_snapshot_hash")
 	_turn.WorkerGenerationID = field.NewString(tableName, "worker_generation_id")
+	_turn.StopRevision = field.NewInt64(tableName, "stop_revision")
 
 	_turn.fillFieldMap()
 
@@ -62,6 +63,7 @@ type turn struct {
 	ContextSnapshotHash   field.String
 	PromptSnapshotHash    field.String
 	WorkerGenerationID    field.String
+	StopRevision          field.Int64
 
 	fieldMap map[string]field.Expr
 }
@@ -90,6 +92,7 @@ func (t *turn) updateTableName(table string) *turn {
 	t.ContextSnapshotHash = field.NewString(table, "context_snapshot_hash")
 	t.PromptSnapshotHash = field.NewString(table, "prompt_snapshot_hash")
 	t.WorkerGenerationID = field.NewString(table, "worker_generation_id")
+	t.StopRevision = field.NewInt64(table, "stop_revision")
 
 	t.fillFieldMap()
 
@@ -106,7 +109,7 @@ func (t *turn) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (t *turn) fillFieldMap() {
-	t.fieldMap = make(map[string]field.Expr, 12)
+	t.fieldMap = make(map[string]field.Expr, 13)
 	t.fieldMap["id"] = t.ID
 	t.fieldMap["session_id"] = t.SessionID
 	t.fieldMap["request_id"] = t.RequestID
@@ -119,6 +122,7 @@ func (t *turn) fillFieldMap() {
 	t.fieldMap["context_snapshot_hash"] = t.ContextSnapshotHash
 	t.fieldMap["prompt_snapshot_hash"] = t.PromptSnapshotHash
 	t.fieldMap["worker_generation_id"] = t.WorkerGenerationID
+	t.fieldMap["stop_revision"] = t.StopRevision
 }
 
 func (t turn) clone(db *gorm.DB) turn {

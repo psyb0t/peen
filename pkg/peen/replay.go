@@ -52,7 +52,7 @@ func (s *Session) Turns(
 	}
 
 	read := func(ctx context.Context) (any, error) {
-		return s.runtime.internal.ListSessionTurns(ctx,
+		return s.core().ListSessionTurns(ctx,
 			api.ListSessionTurnsParams{
 				XSessionID: s.id, Limit: limit, Offset: offset,
 			})
@@ -72,7 +72,7 @@ func (s *Session) Events(
 
 	return sessionRead[TranscriptEventPage](ctx, s,
 		func(ctx context.Context) (any, error) {
-			return s.runtime.internal.ListSessionEvents(ctx,
+			return s.core().ListSessionEvents(ctx,
 				api.ListSessionEventsParams{
 					XSessionID: s.id, Limit: limit, Offset: offset,
 				})
@@ -90,7 +90,7 @@ func (s *Session) Compactions(
 
 	return sessionRead[CompactionPage](ctx, s,
 		func(ctx context.Context) (any, error) {
-			return s.runtime.internal.ListSessionCompactions(ctx,
+			return s.core().ListSessionCompactions(ctx,
 				api.ListSessionCompactionsParams{
 					XSessionID: s.id, Limit: limit, Offset: offset,
 				})
@@ -108,7 +108,7 @@ func (s *Session) ModelRuns(
 
 	return sessionRead[ModelRunPage](ctx, s,
 		func(ctx context.Context) (any, error) {
-			return s.runtime.internal.ListSessionModelRuns(ctx,
+			return s.core().ListSessionModelRuns(ctx,
 				api.ListSessionModelRunsParams{
 					XSessionID: s.id, Limit: limit, Offset: offset,
 				})
@@ -133,7 +133,7 @@ func (s *Session) ModelRunCalls(
 
 	return sessionRead[ModelCallPage](ctx, s,
 		func(ctx context.Context) (any, error) {
-			return s.runtime.internal.ListSessionModelRunCalls(ctx, s.id, id,
+			return s.core().ListSessionModelRunCalls(ctx, s.id, id,
 				api.ListSessionModelRunCallsParams{
 					XSessionID: s.id, Limit: limit, Offset: offset,
 				})
@@ -151,7 +151,7 @@ func (s *Session) Notices(
 
 	return sessionRead[SessionNoticePage](ctx, s,
 		func(ctx context.Context) (any, error) {
-			return s.runtime.internal.ListSessionNotices(ctx,
+			return s.core().ListSessionNotices(ctx,
 				api.ListSessionNoticesParams{
 					XSessionID: s.id, Limit: limit, Offset: offset,
 				})
@@ -169,7 +169,7 @@ func (s *Session) Compaction(
 	}
 
 	read := func(ctx context.Context) (any, error) {
-		return s.runtime.internal.GetSessionCompaction(ctx, s.id, id)
+		return s.core().GetSessionCompaction(ctx, s.id, id)
 	}
 
 	return sessionRead[Compaction](ctx, s, read)
@@ -181,7 +181,7 @@ func (s *Session) ContextSnapshot(
 	hash string,
 ) (ContextSnapshot, error) {
 	read := func(ctx context.Context) (any, error) {
-		return s.runtime.internal.GetSessionContextSnapshot(ctx, s.id, hash)
+		return s.core().GetSessionContextSnapshot(ctx, s.id, hash)
 	}
 
 	return sessionRead[ContextSnapshot](ctx, s, read)
@@ -193,7 +193,7 @@ func (s *Session) PromptSnapshot(
 	hash string,
 ) (PromptSnapshot, error) {
 	read := func(ctx context.Context) (any, error) {
-		return s.runtime.internal.GetSessionPromptSnapshot(ctx, s.id, hash)
+		return s.core().GetSessionPromptSnapshot(ctx, s.id, hash)
 	}
 
 	return sessionRead[PromptSnapshot](ctx, s, read)

@@ -23,9 +23,10 @@ const (
 // The caller owns closing Handle. Store is returned because a service needs it
 // for lifecycle work the runtime does not expose.
 type Assembled struct {
-	Runtime *Runtime
-	Store   *session.Store
-	Handle  *db.Handle
+	Runtime        *Runtime
+	Store          *session.Store
+	Handle         *db.Handle
+	runtimeOptions RuntimeOptions
 }
 
 // AssembleOptions builds a runtime over one configuration directory.
@@ -106,6 +107,18 @@ func Assemble(
 		return nil, ctxerrors.Wrap(err, "open durable state")
 	}
 
+	workflows, err := db.OpenWorkflowStorage(ctx, db.Config{
+		Directory: options.StateDirectory,
+		InMemory:  options.InMemoryStore,
+		Metrics:   options.Runtime.Metrics,
+	})
+	if err != nil {
+		return nil, closeHandleAfter(ctx, handle,
+			ctxerrors.Wrap(err, "open durable workflows"))
+	}
+
+	handle.Workflows = workflows
+
 	assembled, err := assembleOver(ctx, handle, resolver, options)
 	if err != nil {
 		return nil, closeHandleAfter(ctx, handle, err)
@@ -164,9 +177,10 @@ func assembleOver(
 	}
 
 	return &Assembled{
-		Runtime: runtime,
-		Store:   store,
-		Handle:  handle,
+		Runtime:        runtime,
+		Store:          store,
+		Handle:         handle,
+		runtimeOptions: runtimeOptions,
 	}, nil
 }
 

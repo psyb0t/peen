@@ -65,6 +65,47 @@ func TestVirtualPathsResolveFromCurrentDirectory(t *testing.T) {
 	}
 }
 
+func TestAtCanonicalDirectoryRestoresFromTheVirtualRoot(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name    string
+		from    string
+		to      string
+		invalid bool
+	}{
+		{name: "enter", from: ".", to: "nested"},
+		{name: "repeat", from: "nested", to: "nested"},
+		{name: "parent", from: "nested", to: "."},
+		{name: "sibling", from: "nested", to: "other"},
+		{name: "absolute virtual checkpoint", from: "nested", to: "/other", invalid: true},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			filesystem := workspacefs.ReadOnly{Source: fstest.MapFS{
+				"nested/file": {Data: []byte("nested")},
+				"other/file":  {Data: []byte("other")},
+			}}
+			base, err := NewExecutor(Options{
+				Workspace: tc.from, Filesystem: filesystem, Virtual: true,
+			})
+			require.NoError(t, err)
+			executor := &JobExecutor{Executor: base}
+			restored, err := executor.AtCanonicalDirectory(t.Context(), tc.to)
+			if tc.invalid {
+				require.Error(t, err)
+				assert.Nil(t, restored)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.to, restored.Workspace())
+			assert.Equal(t, tc.from, executor.Workspace())
+		})
+	}
+}
+
 func TestAtDirectoryCanonicalizesAliasesAndRejectsCancellation(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

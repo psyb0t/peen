@@ -68,7 +68,7 @@ merge_profiles() {
 }
 
 info "running unit and integration tests with coverage package_parallelism=${test_package_parallelism}..."
-if ! go test -count=1 -p="${test_package_parallelism}" -timeout="${test_timeout}" -tags=integration \
+if ! go test -race -count=1 -p="${test_package_parallelism}" -timeout="${test_timeout}" -tags=integration \
 	-coverpkg="${module}/..." -coverprofile="${profile_raw}" ./...; then
 	error "Tests failed"
 	exit 1

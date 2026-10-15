@@ -15,6 +15,65 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestStoreFilteredEventPagesRetainOnlyRequestedTurnAndTypes(t *testing.T) {
+	t.Parallel()
+	fixture := newExecutionFixture(t)
+	lease, err := fixture.store.RestoreExecutionTurn(t.Context(),
+		fixture.sessionID, fixture.root.ID,
+		RestoreExecutionTurnInput{OwnerGenerationID: uuid.New()})
+	require.NoError(t, err)
+	selected := "example.selected"
+	inputs := make([]EventInput, 0, 26)
+	for range 13 {
+		inputs = append(inputs, EventInput{
+			EventType: selected, PayloadJSON: `{}`,
+		}, EventInput{EventType: "example.other", PayloadJSON: `{}`})
+	}
+	require.NoError(t, fixture.store.AppendCheckpoint(t.Context(), lease,
+		nil, inputs))
+	require.NoError(t, fixture.store.FinalizeTurn(t.Context(), lease,
+		FinalizeTurnInput{State: models.TurnStateCompleted}))
+	other, err := fixture.store.AcquireTurn(t.Context(), fixture.sessionID,
+		StartTurnInput{
+			RequestID: uuid.New(), Workspace: testWorkspace,
+			Events: []EventInput{{EventType: selected, PayloadJSON: `{}`}},
+		})
+	require.NoError(t, err)
+	require.NoError(t, fixture.store.FinalizeTurn(t.Context(), other,
+		FinalizeTurnInput{State: models.TurnStateCompleted}))
+	all, err := fixture.store.ListEvents(t.Context(), fixture.sessionID,
+		ListEventsOptions{
+			TurnID: lease.TurnID, EventTypes: []string{selected},
+			Limit: MaximumPageLimit,
+		})
+	require.NoError(t, err)
+	expected := make([]uuid.UUID, 0, len(all.Items))
+	for _, item := range all.Items {
+		expected = append(expected, item.ID)
+	}
+	var seen []uuid.UUID
+	testCases := []struct{ offset, count int }{
+		{0, 5}, {5, 5}, {10, 3}, {13, 0}, {100, 0},
+	}
+	for _, tc := range testCases {
+		page, readErr := fixture.store.ListEvents(t.Context(), fixture.sessionID,
+			ListEventsOptions{
+				TurnID:     lease.TurnID,
+				EventTypes: []string{selected}, Limit: 5, Offset: tc.offset,
+			})
+		require.NoError(t, readErr)
+		assert.Len(t, page.Items, tc.count)
+		assert.Equal(t, tc.offset < 10, page.HasMore)
+		for _, item := range page.Items {
+			assert.Equal(t, lease.TurnID, item.TurnID)
+			assert.Equal(t, selected, item.EventType)
+			seen = append(seen, item.ID)
+		}
+	}
+	assert.Len(t, seen, 13)
+	assert.Equal(t, expected, seen)
+}
+
 func TestStoreDurableReplayReadsEverySessionOwnedTable(t *testing.T) {
 	ctx := context.Background()
 	stateDirectory := filepath.Join(t.TempDir(), "state")

@@ -1,6 +1,6 @@
 # Embedding Peen
 
-`pkg/peen` runs the durable agent engine inside a Go process. A `Runtime` owns SQLite, jobs, child agents, event delivery and harness resolution. A `Session` addresses one conversation. The engine starts no HTTP listener or Servicepack services and reads no `PEEN_` environment variables.
+`pkg/peen` runs the durable agent engine inside a Go process. A `Runtime` owns SQLite, in-process workflow workers, jobs, child agents, event delivery and harness resolution. A `Session` addresses one conversation. The engine starts no HTTP listener or Servicepack services and reads no `PEEN_` environment variables.
 
 ## Construct and close
 
@@ -24,7 +24,9 @@ if err != nil {
 
 The config directory must exist. SQLite and hook state live in StateDirectory; leaving it empty uses ConfigDirectory with a `-state` suffix. Equal, nested or symlink-overlapping config and state directories fail validation. Workspace selects the initial session; leaving it empty captures the working directory once.
 
-Call `runtime.Close(ctx)` after the last operation. Close refuses new work, waits for active calls, stops child agents and jobs, and closes SQLite, subscriptions and the private audit sink. If the context expires, Close cancels admitted calls and leaves resources available for a later Close to finish cleanup. Repeated successful calls are harmless. Each concurrent caller observes its own deadline. A synchronous event sink must return before its turn can finish; call Close outside a sink.
+Call `runtime.Close(ctx)` after the last operation. Close refuses new work, waits for active calls, pauses unfinished workflows, stops jobs, drains its workflow workers, and closes SQLite, subscriptions and the private audit sink. If the context expires, Close cancels admitted calls and leaves resources available for a later Close to finish cleanup. Repeated successful calls are harmless. Each concurrent caller observes its own deadline. A synchronous event sink must return before its turn can finish; call Close outside a sink.
+
+If `New` fails during workflow startup, it cancels admitted work, drains started workers and releases owned storage and telemetry before returning the error. Cleanup still runs when durable recovery or pausing fails.
 
 `InMemoryStore: true` uses the production SQLite schema in memory. Hook state uses a private temporary directory removed on Close. Runtime does not close caller-owned model clients, command runners or filesystems.
 
@@ -46,7 +48,7 @@ result, err := session.Send(ctx, peen.MessageRequest{
 }, nil)
 ```
 
-Send accepts an optional model, reasoning effort, system prompt, UUID request ID and To child run ID. Settings apply to a new root turn. A message delivered to an active turn or child's inbox returns `Queued: true` and an empty answer. Queued input cannot override turn settings. Queued root input is not replayed automatically after a restart; interrupted children restore accepted inbox messages through [child recovery](../../docs/agents.md#recovery-after-a-crash).
+Send accepts an optional model, reasoning effort, system prompt, UUID request ID and To child run ID. Settings apply to a new root turn. A message delivered to an active turn or child's inbox returns `Queued: true` and an empty answer. Queued input cannot override turn settings. Roots, children and grandchildren use the same durable workflow schedule. Startup restores unfinished work from saved context and accepted inbox messages. Stop preserves its pause until explicit continuation; an unrelated new request can start another turn. See [child recovery](../../docs/agents.md#recovery-after-a-crash).
 
 SystemPrompt uses PromptModeAppend or PromptModeReplace for one message. BaseSystemPrompt and AppendSystemPrompt configure the runtime; absent values retain the deployment prompt files and embedded default. An explicit AppendSystemPrompt replaces file-based append text while preserving the selected base. CompactionPrompt configures the summarizer.
 
@@ -65,7 +67,7 @@ All record types belong to `pkg/peen`. Reads return bounded pages with HasMore; 
 | `session.Jobs()` | List, Output, Signals, Signal |
 | `session.Agents()` | List, Get, Events, Messages, Compactions, Compaction, Cancel, Send |
 
-Job output and child events use sequence cursors; continue from NextCursor. Job signals accept `stop` or `kill`. Agent filters include `waiting`, `interrupted` and a direct parent run ID or `root`. Every record lookup checks the owning session. Cancel stops the active root turn and running children; jobs remain independent until explicitly signalled or the runtime closes.
+Job output and child events use sequence cursors; continue from NextCursor. Job signals accept `stop` or `kill`. Agent filters include `waiting`, `interrupted` and a direct parent run ID or `root`. Every record lookup checks the owning session. Cancel pauses unfinished session workflows and interrupts their activities. Paused work stays stopped until explicit continuation, while unrelated messages may start another turn. Cancelling an active foreground command kills its process group; commands whose running job handles already returned stay detached until signalled or the runtime closes.
 
 Filters and controls accept the owned constants directly, including JobStateExited, JobStreamStdout, JobSignalStop, AgentRunStateCompleted and DeliveryQueue. AgentRunStateWaiting selects waiting children; their stored state remains AgentRunStateRunning.
 
@@ -81,7 +83,7 @@ The root's ask tool publishes `question.asked`. Read it through Subscribe and an
 
 ## Extension points
 
-Options.Tools supplies custom Go handlers with a name, description and self-contained JSON object schema. Peen validates the schema at construction and each call's arguments before the handler runs. A custom tool with a built-in name replaces it. Hooks, tool timeouts, metrics, result bounds and agent allowed-tools apply to custom tools too. Messaging names `sendMessage`, `waitMessages`, `stopAgent` and `ask` remain reserved and always available. DisableTools removes selected workspace tools.
+Options.Tools supplies custom Go handlers with a name, description and self-contained JSON object schema. Peen validates the schema at construction and each call's arguments before the handler runs. A custom tool with a built-in name replaces it. Hooks, tool timeouts, metrics, result bounds and agent allowed-tools apply to custom tools too. Session tools `sendMessage`, `waitMessages`, `stopAgent`, `ask`, `searchExecutions`, `readExecution`, `resumeExecution` and `resolveExecutionActivity` remain reserved and available independently of workspace tool restrictions. DisableTools removes selected workspace tools.
 
 Options.Hooks maps a lifecycle event to a Go callback. File actions execute first, then the callback. Return HookOutcome with a denial, injected messages or external notices. A callback error denies the operation. Inputs contain the same lifecycle IDs, paths and JSON payloads as file hooks. See [hook events and actions](../../docs/hooks.md).
 
@@ -107,7 +109,7 @@ Custom writable adapters must implement atomic replacement and exclusive creatio
 
 ## Limits and telemetry
 
-The [option mapping](../../docs/embedding-options.md) lists deployment equivalents and defaults. ToolLimits, AgentLimits, HarnessLimits and EventLimits expose the corresponding in-process bounds. Zero values use their runtime defaults. Individual options cover concurrency, queue sizes, turn and tool timeouts, stored messages, prompt size, compaction and wake rates. `AskTimeout: 0` has no independent timeout. MaxConcurrentTurns and MaxEventWakesPerHour accept a negative value to disable their bound.
+The [option mapping](../../docs/embedding-options.md) lists deployment equivalents and defaults. ToolLimits, AgentLimits, HarnessLimits and EventLimits expose the corresponding in-process bounds. Zero values use their runtime defaults. Individual options cover concurrency, queue sizes, turn and tool timeouts, stored messages, prompt size, compaction and wake rates. `AskTimeout: 0` has no independent timeout. MaxConcurrentTurns and MaxEventWakesPerHour accept a negative value to disable their bound. A submitted root retains its turn slot if its caller cancels without Stop. Restored roots acquire the same shared capacity before preparing work. Completion and explicit pause release that capacity; children keep their separate run limit.
 
 DisabledCoreSkills and DisabledCoreAgents remove selected embedded definitions. Logger selects a runtime-local slog sink while preserving request and session scope. AuditLog enables a private daily JSON sink with a whole-day retention duration. MetricsRegisterer receives an owned Peen collector which Close unregisters. Separate runtimes need separate registries, or registerers with distinct constant labels, to avoid duplicate descriptors.
 

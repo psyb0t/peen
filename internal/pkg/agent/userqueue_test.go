@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/elelem/elelemtest"
@@ -22,7 +24,195 @@ const (
 	queuedUserMessageInitial = "inspect the workspace"
 	queuedUserMessageText    = "also inspect the tests"
 	queuedUserMessageFinal   = "queued message handled"
+	stoppedQueueToolName     = "stopQueueOperation"
+	queueCleanupObservation  = 50 * time.Millisecond
 )
+
+func TestRuntimeNewMessageWaitsForStoppedQueueCleanup(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name          string
+		factory       func(*testing.T, elelem.Driver) runtimeFixture
+		cancelWaiting bool
+		stopAgain     bool
+	}{
+		{name: "embedding", factory: newRuntimeFixture},
+		{name: "native worker", factory: newNativeRunnerFixture},
+		{
+			name: "embedding caller cancels", factory: newRuntimeFixture,
+			cancelWaiting: true,
+		},
+		{
+			name: "native caller cancels", factory: newNativeRunnerFixture,
+			cancelWaiting: true,
+		},
+		{
+			name: "embedding stops again", factory: newRuntimeFixture,
+			cancelWaiting: true, stopAgain: true,
+		},
+		{
+			name: "native stops again", factory: newNativeRunnerFixture,
+			cancelWaiting: true, stopAgain: true,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assertNewMessageAfterStop(t, tc.factory, tc.cancelWaiting,
+				tc.stopAgain)
+		})
+	}
+}
+
+type heldQueueRetirementStore struct {
+	*session.Store
+	holdRelease bool
+	started     chan struct{}
+	release     chan struct{}
+	once        sync.Once
+}
+
+func (s *heldQueueRetirementStore) waitForCleanup() {
+	s.once.Do(func() {
+		close(s.started)
+		<-s.release
+	})
+}
+
+func (s *heldQueueRetirementStore) FinalizeTurn(
+	ctx context.Context, lease session.Lease, input session.FinalizeTurnInput,
+) error {
+	if !s.holdRelease {
+		s.waitForCleanup()
+	}
+
+	return s.Store.FinalizeTurn(ctx, lease, input)
+}
+
+func (s *heldQueueRetirementStore) ReleaseTurn(lease session.Lease) {
+	if s.holdRelease {
+		s.waitForCleanup()
+	}
+	s.Store.ReleaseTurn(lease)
+}
+
+func assertNewMessageAfterStop(
+	t *testing.T,
+	factory func(*testing.T, elelem.Driver) runtimeFixture,
+	cancelWaiting, stopAgain bool,
+) {
+	t.Helper()
+	driver := elelemtest.NewScriptedDriver(
+		elelemtest.ToolCall("oldOperation", stoppedQueueToolName, `{}`),
+		elelemtest.Text("fresh task completed"))
+	fixture := factory(t, driver)
+	started := make(chan struct{})
+	stopped := make(chan struct{})
+	cleanup := make(chan struct{})
+	release := sync.OnceFunc(func() { close(cleanup) })
+	t.Cleanup(release)
+	held := &heldQueueRetirementStore{
+		Store: fixture.store, holdRelease: fixture.runtime.nativeWorkflowRunner() != nil,
+		started: make(chan struct{}), release: cleanup,
+	}
+	fixture.runtime.store = held
+	fixture.runtime.extraTools = []elelem.Tool{{
+		Name:            stoppedQueueToolName,
+		ArgumentsSchema: json.RawMessage(`{"type":"object"}`),
+		Handler: func(ctx context.Context, _ elelem.ToolInput) (
+			elelem.ToolResult, error,
+		) {
+			close(started)
+			<-ctx.Done()
+			close(stopped)
+
+			return elelem.ToolResult{}, ctxerrors.Wrap(ctx.Err(),
+				"finish stopped test operation")
+		},
+	}}
+	ctx, cancel := context.WithTimeout(t.Context(), runtimeTestTurnTimeout)
+	t.Cleanup(cancel)
+	old := runNativeTurnAsync(ctx, fixture.runtime)
+	select {
+	case <-started:
+	case <-ctx.Done():
+		t.Fatal("old operation did not start")
+	}
+	_, err := fixture.runtime.CancelSession(ctx, fixture.runtime.sessionID)
+	require.NoError(t, err)
+	select {
+	case <-stopped:
+	case <-ctx.Done():
+		t.Fatal("old operation did not receive cancellation")
+	}
+	select {
+	case <-held.started:
+	case <-ctx.Done():
+		t.Fatal("old turn did not reach cleanup")
+	}
+	type outcome struct {
+		result *TurnResult
+		err    error
+	}
+	fresh := make(chan outcome, 1)
+	freshContext, cancelFresh := context.WithCancel(ctx)
+	t.Cleanup(cancelFresh)
+	go func() {
+		defer func() {
+			if recover() != nil {
+				fresh <- outcome{err: commerr.ErrInvalidState}
+			}
+		}()
+		result, err := fixture.runtime.Run(freshContext, TurnRequest{
+			RequestID: uuid.New(), Message: "perform fresh task after stop",
+		})
+		fresh <- outcome{result: result, err: err}
+	}()
+	select {
+	case got := <-fresh:
+		release()
+		require.NoError(t, got.err)
+		t.Fatalf("new work returned before cleanup: queued=%v", got.result.Queued)
+	case <-time.After(queueCleanupObservation):
+	}
+	if cancelWaiting {
+		if stopAgain {
+			_, err := fixture.runtime.CancelSession(ctx, fixture.runtime.sessionID)
+			require.NoError(t, err)
+		} else {
+			cancelFresh()
+		}
+		select {
+		case got := <-fresh:
+			require.ErrorIs(t, got.err, context.Canceled)
+			assert.Nil(t, got.result)
+		case <-ctx.Done():
+			t.Fatal("waiting request did not cancel")
+		}
+	}
+	release()
+	require.ErrorIs(t, <-old, context.Canceled)
+	if cancelWaiting {
+		result, err := fixture.runtime.Run(ctx, TurnRequest{
+			RequestID: uuid.New(), Message: "perform another fresh task",
+		})
+		require.NoError(t, err)
+		assert.False(t, result.Queued)
+		assert.Equal(t, "fresh task completed", result.Text)
+		assert.Equal(t, 2, driver.Calls())
+
+		return
+	}
+	select {
+	case got := <-fresh:
+		require.NoError(t, got.err)
+		require.NotNil(t, got.result)
+		assert.False(t, got.result.Queued)
+		assert.Equal(t, "fresh task completed", got.result.Text)
+	case <-ctx.Done():
+		t.Fatal("fresh work did not start after cleanup")
+	}
+}
 
 func TestRuntimeQueuesUserMessageAtActiveTurnRoundBoundary(t *testing.T) {
 	driver := elelemtest.NewScriptedDriver(

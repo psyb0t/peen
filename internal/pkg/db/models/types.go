@@ -1,6 +1,12 @@
 package models
 
 type (
+	ExecutionKind        string
+	ExecutionState       string
+	ActivityKind         string
+	ActivityState        string
+	ActivityReplayPolicy string
+	InboxMessageState    string
 	// TurnState is the durable lifecycle state of one session turn.
 	TurnState string
 	// MessageRole identifies a transcript message source.
@@ -32,6 +38,38 @@ type (
 )
 
 const (
+	InboxMessageStateQueued    InboxMessageState = "queued"
+	InboxMessageStateDelivered InboxMessageState = "delivered"
+	InboxMessageStateDeferred  InboxMessageState = "deferred"
+	InboxMessageStateForwarded InboxMessageState = "forwarded"
+
+	ExecutionKindRoot  ExecutionKind = "root"
+	ExecutionKindChild ExecutionKind = "child"
+
+	ExecutionStateQueued      ExecutionState = "queued"
+	ExecutionStateRunning     ExecutionState = "running"
+	ExecutionStatePaused      ExecutionState = "paused"
+	ExecutionStateReconciling ExecutionState = "reconciling"
+	ExecutionStateCompleted   ExecutionState = "completed"
+	ExecutionStateFailed      ExecutionState = "failed"
+	ExecutionStateCancelled   ExecutionState = "cancelled"
+
+	ActivityKindModel       ActivityKind = "model"
+	ActivityKindTool        ActivityKind = "tool"
+	ActivityKindCompaction  ActivityKind = "compaction"
+	ActivityKindPreparation ActivityKind = "preparation"
+
+	ActivityStateScheduled ActivityState = "scheduled"
+	ActivityStateRunning   ActivityState = "running"
+	ActivityStateCompleted ActivityState = "completed"
+	ActivityStateFailed    ActivityState = "failed"
+	ActivityStatePaused    ActivityState = "paused"
+	ActivityStateUncertain ActivityState = "uncertain"
+	ActivityStateCancelled ActivityState = "cancelled"
+
+	ActivityReplayPolicyRetry     ActivityReplayPolicy = "retry"
+	ActivityReplayPolicyReconcile ActivityReplayPolicy = "reconcile"
+
 	TurnStateRunning     TurnState = "running"
 	TurnStateCompleted   TurnState = "completed"
 	TurnStateFailed      TurnState = "failed"

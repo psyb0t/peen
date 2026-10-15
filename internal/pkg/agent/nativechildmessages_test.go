@@ -1,0 +1,278 @@
+package agent
+
+import (
+	"context"
+	"encoding/json"
+	"path/filepath"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/db/repositories"
+	"github.com/psyb0t/peen/internal/pkg/session"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+type heldChildInboxRead struct {
+	*session.Store
+	executionID   uuid.UUID
+	read, release chan struct{}
+	once          sync.Once
+}
+
+func (s *heldChildInboxRead) ListExecutionMessages(
+	ctx context.Context,
+	sessionID, executionID uuid.UUID,
+	options session.ListExecutionInboxOptions,
+) (*session.ExecutionInboxPage, error) {
+	page, err := s.Store.ListExecutionMessages(ctx, sessionID, executionID,
+		options)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "read child inbox before hydration")
+	}
+
+	if executionID == s.executionID {
+		s.once.Do(func() {
+			close(s.read)
+			select {
+			case <-s.release:
+			case <-ctx.Done():
+			}
+		})
+	}
+
+	if err := ctx.Err(); err != nil {
+		return nil, ctxerrors.Wrap(err, "release held child inbox read")
+	}
+
+	return page, nil
+}
+
+func runChildIngressTask(t *testing.T, operation func() error) <-chan error {
+	t.Helper()
+	result := make(chan error, 1)
+	go func() {
+		defer func() {
+			if recover() != nil {
+				result <- ctxerrors.Wrap(commerr.ErrInvalidState,
+					"child ingress test operation panicked")
+			}
+		}()
+		result <- operation()
+	}()
+
+	return result
+}
+
+func coldChildMessageFixture(t *testing.T) (
+	executionLoopFixture, workflowRoundInput, uuid.UUID,
+) {
+	t.Helper()
+	fixture, deps, launch, run, prepared := initialChildConversationFixture(t)
+	runtime := fixture.base.runtime
+	conversation, err := runtime.childWorkflowConversation(t.Context(), deps,
+		launch, run, prepared)
+	require.NoError(t, err)
+	encoded, err := json.Marshal(conversation)
+	require.NoError(t, err)
+	execution, err := fixture.base.store.CreateExecution(t.Context(),
+		deps.sessionID, session.CreateExecutionInput{
+			ID:                uuid.NewSHA1(run.ID, []byte(childWorkflowIdentity)),
+			RootTurnID:        deps.parentTurnID,
+			ParentExecutionID: &fixture.input.ExecutionID, AgentRunID: &run.ID,
+			WorkflowVersion:  agentWorkflowName,
+			Task:             conversation.Child.Task,
+			WorkingDirectory: deps.executor.Workspace(), Context: encoded,
+		})
+	require.NoError(t, err)
+	dispatch := newWorkflowDispatch(t.Context(), runtime,
+		fixture.engine.options.GenerationID, nil)
+	backend, err := fixture.storage.WorkerBackend(t.Context(),
+		fixture.engine.options.GenerationID)
+	require.NoError(t, err)
+	require.NoError(t, runtime.bindWorkflowRunner(backend, dispatch,
+		fixture.engine, deps.sessionID))
+
+	return fixture, workflowRoundInput{Execution: workflowExecutionInput{
+		SessionID: deps.sessionID, ExecutionID: execution.ID, Context: encoded,
+		MaxRounds: prepared.remainingRounds,
+	}}, run.ID
+}
+
+func TestNativeChildMessageBeforeActorRestoration(t *testing.T) {
+	t.Parallel()
+	fixture, input, runID := coldChildMessageFixture(t)
+	runtime := fixture.base.runtime
+	requestID := uuid.New()
+	request := MessageRequest{To: &runID, Message: "continue interrupted child"}
+	for range 2 {
+		result, err := runtime.RunMessage(t.Context(), request, requestID, nil)
+		require.NoError(t, err)
+		assert.True(t, result.Queued)
+	}
+	page, err := fixture.base.store.ListExecutionMessages(t.Context(),
+		input.Execution.SessionID, input.Execution.ExecutionID,
+		session.ListExecutionInboxOptions{})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.Equal(t, requestID, page.Items[0].RequestID)
+	assert.Equal(t, fixture.base.workspace, page.Items[0].WorkingDirectory)
+	assert.Contains(t, page.Items[0].Message, request.Message)
+	actor, err := runtime.nativeWorkflowRunner().dispatch.child.resolve(
+		t.Context(), input)
+	require.NoError(t, err)
+	count, _ := actor.actor.run.inbox.arrival()
+	assert.Equal(t, 1, count)
+}
+
+func TestNativeChildMessageCannotMissActorHydration(t *testing.T) {
+	t.Parallel()
+	fixture, input, runID := coldChildMessageFixture(t)
+	runtime := fixture.base.runtime
+	held := &heldChildInboxRead{
+		Store: fixture.base.store, executionID: input.Execution.ExecutionID,
+		read: make(chan struct{}), release: make(chan struct{}),
+	}
+	release := sync.OnceFunc(func() { close(held.release) })
+	t.Cleanup(release)
+	runtime.store = held
+	callbacks := runtime.nativeWorkflowRunner().dispatch.child
+	hydrated := runChildIngressTask(t, func() error {
+		_, err := callbacks.resolve(t.Context(), input)
+
+		return err
+	})
+	select {
+	case <-held.read:
+	case <-time.After(10 * time.Second):
+		t.Fatal("child actor did not reach inbox hydration")
+	}
+	sent := runChildIngressTask(t, func() error {
+		_, err := runtime.RunMessage(t.Context(), MessageRequest{
+			To: &runID, Message: "message during actor hydration",
+		}, uuid.New(), nil)
+
+		return err
+	})
+	assert.Never(t, func() bool { return len(sent) != 0 },
+		50*time.Millisecond, 5*time.Millisecond)
+	release()
+	require.NoError(t, <-hydrated)
+	require.NoError(t, <-sent)
+	actor, err := callbacks.resolve(t.Context(), input)
+	require.NoError(t, err)
+	count, _ := actor.actor.run.inbox.arrival()
+	assert.Equal(t, 1, count)
+	page, err := fixture.base.store.ListExecutionMessages(t.Context(),
+		input.Execution.SessionID, input.Execution.ExecutionID,
+		session.ListExecutionInboxOptions{})
+	require.NoError(t, err)
+	assert.Len(t, page.Items, 1)
+}
+
+func TestNativeChildMessageLiveArrivalAndRetryAfterDirectoryHop(t *testing.T) {
+	t.Parallel()
+	fixture, input, runID := coldChildMessageFixture(t)
+	runtime := fixture.base.runtime
+	actor, err := runtime.nativeWorkflowRunner().dispatch.child.resolve(
+		t.Context(), input)
+	require.NoError(t, err)
+	inbox := actor.actor.run.inbox
+	_, arrived := inbox.arrival()
+	requestID := uuid.New()
+	request := MessageRequest{To: &runID, Message: "continue live child"}
+	_, err = runtime.RunMessage(t.Context(), request, requestID, nil)
+	require.NoError(t, err)
+	select {
+	case <-arrived:
+	default:
+		t.Fatal("live child message did not signal its waiter")
+	}
+	directory := filepath.Join(fixture.base.workspace, "nested")
+	require.NoError(t, inbox.workflow.refreshDirectory(directory))
+	_, unchanged := inbox.arrival()
+	_, err = runtime.RunMessage(t.Context(), request, requestID, nil)
+	require.NoError(t, err)
+	select {
+	case <-unchanged:
+		t.Fatal("repeated child message signalled another arrival")
+	default:
+	}
+	_, err = runtime.RunMessage(t.Context(), request, uuid.New(), nil)
+	require.NoError(t, err)
+	page, err := fixture.base.store.ListExecutionMessages(t.Context(),
+		input.Execution.SessionID, input.Execution.ExecutionID,
+		session.ListExecutionInboxOptions{})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 2)
+	assert.Equal(t, fixture.base.workspace, page.Items[0].WorkingDirectory)
+	assert.Equal(t, directory, page.Items[1].WorkingDirectory)
+	count, _ := inbox.arrival()
+	assert.Equal(t, 2, count)
+	request.Message = "changed repeated input"
+	_, err = runtime.RunMessage(t.Context(), request, requestID, nil)
+	require.ErrorIs(t, err, commerr.ErrConflict)
+}
+
+func TestNativeChildMessageRefusesUnavailableRecipients(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name                       string
+		state                      models.ExecutionState
+		foreignSession, missingRun bool
+		wantErr                    error
+	}{
+		{
+			name: "paused", state: models.ExecutionStatePaused,
+			wantErr: commerr.ErrInvalidState,
+		},
+		{
+			name: "completed", state: models.ExecutionStateCompleted,
+			wantErr: session.ErrAgentRunFinished,
+		},
+		{
+			name: "foreign session", foreignSession: true,
+			wantErr: commerr.ErrPermissionDenied,
+		},
+		{
+			name: "missing run", missingRun: true,
+			wantErr: session.ErrAgentRunNotFound,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fixture, input, runID := coldChildMessageFixture(t)
+			if tc.state != "" {
+				repository := repositories.Use(fixture.base.handle.GormDB).Execution
+				_, err := repository.WithContext(t.Context()).Where(
+					repository.ID.Eq(input.Execution.ExecutionID),
+				).UpdateSimple(repository.State.Value(string(tc.state)))
+				require.NoError(t, err)
+			}
+			request := MessageRequest{To: &runID, Message: "leave saved work"}
+			if tc.foreignSession {
+				id := uuid.New()
+				request.SessionID = &id
+			}
+			if tc.missingRun {
+				id := uuid.New()
+				request.To = &id
+			}
+			result, err := fixture.base.runtime.RunMessage(t.Context(), request,
+				uuid.New(), nil)
+			require.ErrorIs(t, err, tc.wantErr)
+			assert.Nil(t, result)
+			page, err := fixture.base.store.ListExecutionMessages(t.Context(),
+				input.Execution.SessionID, input.Execution.ExecutionID,
+				session.ListExecutionInboxOptions{})
+			require.NoError(t, err)
+			assert.Empty(t, page.Items)
+		})
+	}
+}
