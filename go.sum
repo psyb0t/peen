@@ -681,8 +681,8 @@ github.com/prometheus/procfs v0.1.3/go.mod h1:lV6e/gmhEcM9IjHGsFOCxxuZ+z1YqCvr4O
 github.com/prometheus/procfs v0.6.0/go.mod h1:cz+aTbrPOrUb4q7XlbU9ygM+/jj0fzG6c1xBZuNvfVA=
 github.com/prometheus/procfs v0.7.3 h1:4jVXhlkAyzOScmCkXBTOLRLTz8EeU+eyjrwB/EPq0VU=
 github.com/prometheus/procfs v0.7.3/go.mod h1:cz+aTbrPOrUb4q7XlbU9ygM+/jj0fzG6c1xBZuNvfVA=
-github.com/psyb0t/aichteeteapee v1.14.0 h1:ESfcEhHQ/2T7h1j8v8vAFFnlRm/f+onyTBP1Hvhg0iw=
-github.com/psyb0t/aichteeteapee v1.14.0/go.mod h1:qPVpUlHAwaz2v7vrx6I9jPHIleW4U4mX/a01/xIlVic=
+github.com/psyb0t/aichteeteapee v1.15.0 h1:xmyigf9EksNWLg/evKhseiHh/NvoM1AlkaFzT8wQHmU=
+github.com/psyb0t/aichteeteapee v1.15.0/go.mod h1:OXr3MTJvTSDo1pQQFI1vyl1gGey6GntPdNLiSDWyYqg=
 github.com/psyb0t/commander v0.6.0 h1:NXPybz3XSUYqz5batsl0mXw0DDhMAxzoT4UHE3aUA/Q=
 github.com/psyb0t/commander v0.6.0/go.mod h1:KKukwIRkpHPrAZ1N4w6AI9v7tlV9/R/HKJKUMFjaMG0=
 github.com/psyb0t/common-go v0.8.0 h1:i2TaqMAIea9ZrZ030MUI+q+nZT9b+loLvDJG2l7LCDY=
@@ -989,8 +989,8 @@ golang.org/x/net v0.0.0-20211015210444-4f30a5c0130f/go.mod h1:9nx3DQGgdP8bBQD5qx
 golang.org/x/net v0.0.0-20220225172249-27dd8689420f/go.mod h1:CfG3xpIq0wQ8r1q4Su4UZFWDARRcnwPjda9FqA0JpMk=
 golang.org/x/net v0.0.0-20220722155237-a158d28d115b/go.mod h1:XRhObCWvk6IyKnWLug+ECip1KBveYUHfp+8e9klMJ9c=
 golang.org/x/net v0.6.0/go.mod h1:2Tu9+aMcznHK/AK1HMvgo6xiTLG5rD5rZLDS+rp2Bjs=
-golang.org/x/net v0.58.0 h1:ynWG7rqYi4ccpTEuPZ2QGWHktVEM9DMCj9yzDE0Q7To=
-golang.org/x/net v0.58.0/go.mod h1:YwCddHnFlT7eLQqVprV19OnhLGtc5xOKgE0RyqgfWAU=
+golang.org/x/net v0.60.0 h1:79p50tfZlm0J9YfoDsSi639qSXNGVwEzOPLCxM2FsYU=
+golang.org/x/net v0.60.0/go.mod h1:2DA/G1UfVbCpQPeWTmMPGY7Cs2PkBkwu743bVX5PIVg=
 golang.org/x/oauth2 v0.0.0-20180821212333-d2e6202438be/go.mod h1:N/0e6XlmueqKjAGxoOufVs8QHGRruUQn6yWY3a++T0U=
 golang.org/x/oauth2 v0.0.0-20190226205417-e64efc72b421/go.mod h1:gOpvHmFTYa4IltrdGE7lF6nIHvwfUNPOp7c8zoXwtLw=
 golang.org/x/oauth2 v0.0.0-20190604053449-0f29369cfe45/go.mod h1:gOpvHmFTYa4IltrdGE7lF6nIHvwfUNPOp7c8zoXwtLw=
