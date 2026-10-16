@@ -35,7 +35,10 @@ func (s *Store) AppendCheckpoint(
 	}
 	defer unlock()
 
-	if err := s.query.Transaction(func(tx *repositories.Query) error {
+	if err := s.feedTransaction(ctx, func(
+		ctx context.Context,
+		tx *repositories.Query,
+	) error {
 		_, err := s.appendTranscript(ctx, tx, lease, messages, events)
 
 		return err
@@ -67,7 +70,10 @@ func (s *Store) FinalizeTurn(
 	defer s.ReleaseTurn(lease)
 	defer unlock()
 
-	if err := s.query.Transaction(func(tx *repositories.Query) error {
+	if err := s.feedTransaction(ctx, func(
+		ctx context.Context,
+		tx *repositories.Query,
+	) error {
 		appendResult, err := s.appendTranscript(
 			ctx,
 			tx,
@@ -580,10 +586,41 @@ func (s *Store) appendEvents(
 		return ctxerrors.Wrap(err, "get latest event sequence")
 	}
 
+	firstFeedSequence, err := s.allocateFeedSequences(
+		ctx, tx, lease.SessionID, len(inputs),
+	)
+	if err != nil {
+		return ctxerrors.Wrap(err, "allocate event feed sequence")
+	}
+
+	events, err := s.buildEventRows(
+		lease, currentSequence, firstFeedSequence, inputs,
+	)
+	if err != nil {
+		return err
+	}
+
+	if err := event.WithContext(ctx).
+		CreateInBatches(events, len(events)); err != nil {
+		return ctxerrors.Wrap(err, "append transcript events")
+	}
+
+	return nil
+}
+
+// buildEventRows assigns the next per-session sequence and the already
+// allocated feed sequence to each input, in insert order.
+func (s *Store) buildEventRows(
+	lease Lease,
+	currentSequence int64,
+	firstFeedSequence int64,
+	inputs []EventInput,
+) ([]*models.Event, error) {
 	events := make([]*models.Event, 0, len(inputs))
+
 	for index, input := range inputs {
 		if !json.Valid([]byte(input.PayloadJSON)) {
-			return ctxerrors.Wrap(
+			return nil, ctxerrors.Wrap(
 				commerr.ErrValidationFailed,
 				"invalid event payload JSON",
 			)
@@ -600,6 +637,7 @@ func (s *Store) appendEvents(
 			TurnID:             lease.TurnID,
 			WorkerGenerationID: input.WorkerGenerationID,
 			Sequence:           currentSequence + int64(index) + 1,
+			FeedSequence:       firstFeedSequence + int64(index),
 			RequestID:          input.RequestID,
 			EventType:          input.EventType,
 			PayloadJSON:        input.PayloadJSON,
@@ -608,12 +646,7 @@ func (s *Store) appendEvents(
 		})
 	}
 
-	if err := event.WithContext(ctx).
-		CreateInBatches(events, len(events)); err != nil {
-		return ctxerrors.Wrap(err, "append transcript events")
-	}
-
-	return nil
+	return events, nil
 }
 
 func (s *Store) finishTurn(

@@ -58,17 +58,20 @@ const (
 
 	// realHarnessMaxEvents bounds the durable event walk. It is a runaway
 	// guard, not a limit on what a turn may emit.
-	realHarnessMaxEvents        = 100000
-	realHarnessDirectoryMode    = 0o700
-	realHarnessFileMode         = 0o600
-	realHarnessBinaryName       = "peen-real-harness"
-	realHarnessCommandPackage   = "./cmd"
-	realHarnessRunCommand       = "run"
-	realHarnessNetwork          = "tcp"
-	realHarnessLoopback         = "127.0.0.1:0"
-	realHarnessAPIPath          = "/v1"
+	realHarnessMaxEvents      = 100000
+	realHarnessDirectoryMode  = 0o700
+	realHarnessFileMode       = 0o600
+	realHarnessBinaryName     = "peen-real-harness"
+	realHarnessCommandPackage = "./cmd"
+	realHarnessRunCommand     = "run"
+	realHarnessNetwork        = "tcp"
+	realHarnessLoopback       = "127.0.0.1:0"
+	realHarnessAPIPath        = "/api/v1"
+	// realHarnessWebSocketPath is its own literal, not derived from
+	// realHarnessAPIPath: the WebSocket and the REST API are separate
+	// surfaces with separate paths.
+	realHarnessWebSocketPath    = "/ws/v1"
 	realHarnessMessagesPath     = realHarnessAPIPath + "/messages"
-	realHarnessWebSocketPath    = realHarnessAPIPath + "/ws"
 	realHarnessSessionPath      = realHarnessAPIPath + "/session"
 	realHarnessEventsPath       = realHarnessSessionPath + "/events"
 	realHarnessNoticesPath      = realHarnessSessionPath + "/notices"

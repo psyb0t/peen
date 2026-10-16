@@ -13,7 +13,7 @@ import (
 )
 
 // ListSessionAgentRuns reports the child agents a session has launched, newest
-// first, with the same bounded limit/offset paging as GET /v1/messages. A
+// first, with the same bounded limit/offset paging as GET /api/v1/messages. A
 // session that never launched one returns an empty list rather than an error.
 func (r *Runtime) ListSessionAgentRuns(
 	ctx context.Context,
@@ -206,7 +206,7 @@ func (r *Runtime) GetSessionAgentRun(
 
 // CancelSessionAgentRun cancels one child agent without ending its parent
 // turn. Cancelling an unknown, completed, or already cancelled run reports the
-// current state rather than failing, matching POST /v1/session/cancel.
+// current state rather than failing, matching POST /api/v1/session/cancel.
 func (r *Runtime) CancelSessionAgentRun(
 	ctx context.Context,
 	sessionID uuid.UUID,

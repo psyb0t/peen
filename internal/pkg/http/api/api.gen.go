@@ -1017,6 +1017,36 @@ type Error struct {
 	Message string                  `json:"message"`
 }
 
+// FeedFrame One sequenced frame of a session's live feed, as it was sent over the WebSocket.
+type FeedFrame struct {
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Data The frame's data, exactly as sent live.
+	Data interface{} `json:"data"`
+
+	// Id ID of the stored record, also the live frame's id.
+	Id        openapi_types.UUID  `json:"id"`
+	RequestId *openapi_types.UUID `json:"requestId"`
+
+	// Sequence Position in the session feed. Consecutive, starting at 1.
+	Sequence  int64              `json:"sequence"`
+	SessionId openapi_types.UUID `json:"sessionId"`
+	Type      string             `json:"type"`
+}
+
+// FeedPage defines model for FeedPage.
+type FeedPage struct {
+	HasMore bool `json:"hasMore"`
+
+	// Head The session's newest feed sequence when the page was read.
+	Head  int64       `json:"head"`
+	Items []FeedFrame `json:"items"`
+	Limit int32       `json:"limit"`
+
+	// NextCursor Pass back as cursor to continue from here.
+	NextCursor int64 `json:"nextCursor"`
+}
+
 // Job defines model for Job.
 type Job struct {
 	Command   string     `json:"command"`
@@ -1330,19 +1360,25 @@ type ReconfigureSessionRequest struct {
 
 // Session defines model for Session.
 type Session struct {
-	ActiveTurn bool   `json:"activeTurn"`
-	Agent      string `json:"agent"`
+	ActiveTurn bool `json:"activeTurn"`
+
+	// ActiveTurnFeedSequence First feed sequence of the running turn. Set only by GET /session while a turn runs; replay from the sequence before it to rebuild that turn's live view.
+	ActiveTurnFeedSequence *int64 `json:"activeTurnFeedSequence,omitempty"`
+	Agent                  string `json:"agent"`
 
 	// AgentSpace The agent space this session's tools run in, `control` or `docker:<profile>`.
-	AgentSpace         *string            `json:"agentSpace,omitempty"`
-	CompletedTurnCount int64              `json:"completedTurnCount"`
-	CreatedAt          time.Time          `json:"createdAt"`
-	Id                 openapi_types.UUID `json:"id"`
-	LastMessageAt      *time.Time         `json:"lastMessageAt,omitempty"`
-	MessageCount       int64              `json:"messageCount"`
-	Model              string             `json:"model"`
-	UpdatedAt          time.Time          `json:"updatedAt"`
-	Workspace          string             `json:"workspace"`
+	AgentSpace         *string   `json:"agentSpace,omitempty"`
+	CompletedTurnCount int64     `json:"completedTurnCount"`
+	CreatedAt          time.Time `json:"createdAt"`
+
+	// FeedSequence The session's newest feed sequence.
+	FeedSequence  int64              `json:"feedSequence"`
+	Id            openapi_types.UUID `json:"id"`
+	LastMessageAt *time.Time         `json:"lastMessageAt,omitempty"`
+	MessageCount  int64              `json:"messageCount"`
+	Model         string             `json:"model"`
+	UpdatedAt     time.Time          `json:"updatedAt"`
+	Workspace     string             `json:"workspace"`
 }
 
 // SessionAgentSpaceDecision defines model for SessionAgentSpaceDecision.
@@ -1662,6 +1698,14 @@ type ListSessionEventsParams struct {
 // ListSessionEventsParamsOrder defines parameters for ListSessionEvents.
 type ListSessionEventsParamsOrder string
 
+// ListSessionFeedParams defines parameters for ListSessionFeed.
+type ListSessionFeedParams struct {
+	// Cursor Return items with a sequence greater than this value.
+	Cursor     *int64            `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit      *int32            `form:"limit,omitempty" json:"limit,omitempty"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
 // ListSessionJobsParams defines parameters for ListSessionJobs.
 type ListSessionJobsParams struct {
 	Limit      *Limit                      `form:"limit,omitempty" json:"limit,omitempty"`
@@ -1825,6 +1869,9 @@ type ServerInterface interface {
 	// ListSessionEvents List durable protocol events
 	// (GET /session/events)
 	ListSessionEvents(w http.ResponseWriter, r *http.Request, params ListSessionEventsParams)
+	// ListSessionFeed Replay a session's live feed from a sequence
+	// (GET /session/feed)
+	ListSessionFeed(w http.ResponseWriter, r *http.Request, params ListSessionFeedParams)
 	// ListSessionJobs List the commands this session has started
 	// (GET /session/jobs)
 	ListSessionJobs(w http.ResponseWriter, r *http.Request, params ListSessionJobsParams)
@@ -2925,6 +2972,77 @@ func (siw *ServerInterfaceWrapper) ListSessionEvents(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
+// ListSessionFeed operation middleware
+func (siw *ServerInterfaceWrapper) ListSessionFeed(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSessionFeedParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Session-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
+		var XSessionID SessionIDRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
+			return
+		}
+
+		params.XSessionID = XSessionID
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSessionFeed(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListSessionJobs operation middleware
 func (siw *ServerInterfaceWrapper) ListSessionJobs(w http.ResponseWriter, r *http.Request) {
 
@@ -3976,6 +4094,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session", wrapper.GetSession)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/session/cancel", wrapper.CancelSession)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/events", wrapper.ListSessionEvents)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/feed", wrapper.ListSessionFeed)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/notices", wrapper.ListSessionNotices)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/session/notices", wrapper.PublishSessionNotice)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/jobs", wrapper.ListSessionJobs)
@@ -5455,6 +5574,94 @@ func (response ListSessionEvents500JSONResponse) VisitListSessionEventsResponse(
 	return err
 }
 
+type ListSessionFeedRequestObject struct {
+	Params ListSessionFeedParams
+}
+
+type ListSessionFeedResponseObject interface {
+	VisitListSessionFeedResponse(w http.ResponseWriter) error
+}
+
+type ListSessionFeed200ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListSessionFeed200JSONResponse struct {
+	Body    FeedPage
+	Headers ListSessionFeed200ResponseHeaders
+}
+
+func (response ListSessionFeed200JSONResponse) VisitListSessionFeedResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionFeed400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response ListSessionFeed400JSONResponse) VisitListSessionFeedResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionFeed401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response ListSessionFeed401JSONResponse) VisitListSessionFeedResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionFeed404JSONResponse struct{ ErrorNotFoundJSONResponse }
+
+func (response ListSessionFeed404JSONResponse) VisitListSessionFeedResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionFeed500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response ListSessionFeed500JSONResponse) VisitListSessionFeedResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListSessionJobsRequestObject struct {
 	Params ListSessionJobsParams
 }
@@ -6831,6 +7038,9 @@ type StrictServerInterface interface {
 	// ListSessionEvents List durable protocol events
 	// (GET /session/events)
 	ListSessionEvents(ctx context.Context, request ListSessionEventsRequestObject) (ListSessionEventsResponseObject, error)
+	// ListSessionFeed Replay a session's live feed from a sequence
+	// (GET /session/feed)
+	ListSessionFeed(ctx context.Context, request ListSessionFeedRequestObject) (ListSessionFeedResponseObject, error)
 	// ListSessionJobs List the commands this session has started
 	// (GET /session/jobs)
 	ListSessionJobs(ctx context.Context, request ListSessionJobsRequestObject) (ListSessionJobsResponseObject, error)
@@ -7357,6 +7567,32 @@ func (sh *strictHandler) ListSessionEvents(w http.ResponseWriter, r *http.Reques
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListSessionEventsResponseObject); ok {
 		if err := validResponse.VisitListSessionEventsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListSessionFeed operation middleware
+func (sh *strictHandler) ListSessionFeed(w http.ResponseWriter, r *http.Request, params ListSessionFeedParams) {
+	var request ListSessionFeedRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSessionFeed(ctx, request.(ListSessionFeedRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSessionFeed")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSessionFeedResponseObject); ok {
+		if err := validResponse.VisitListSessionFeedResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

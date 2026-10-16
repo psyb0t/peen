@@ -13,6 +13,7 @@ type Event struct {
 	TurnID             uuid.UUID
 	WorkerGenerationID string
 	Sequence           int64
+	FeedSequence       int64
 	RequestID          uuid.UUID
 	EventType          string
 	PayloadJSON        string

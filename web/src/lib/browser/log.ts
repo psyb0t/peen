@@ -17,6 +17,11 @@ export const BROWSER_LOG_EVENTS = [
 	"controller.refresh.complete",
 	"controller.refresh.fail",
 	"controller.refresh.start",
+	"feed.catchup.complete",
+	"feed.catchup.fail",
+	"feed.catchup.start",
+	"feed.frame.invalid",
+	"feed.resync",
 	"message.send.fail",
 	"message.send.start",
 	"session.cancel.complete",
@@ -26,6 +31,7 @@ export const BROWSER_LOG_EVENTS = [
 	"session.load.fail",
 	"session.load.start",
 	"session.load.superseded",
+	"session.reconcile.fail",
 	"session.reconfigure.complete",
 	"session.reconfigure.fail",
 	"session.reconfigure.start",
@@ -35,9 +41,11 @@ export const BROWSER_LOG_EVENTS = [
 	"socket.connect.start",
 	"socket.error",
 	"socket.event.received",
+	"socket.frame.invalid",
 	"socket.frame.rejected",
 	"socket.message.sent",
 	"socket.open",
+	"socket.reconnect.scheduled",
 	"ui.error",
 	"workspace.open.complete",
 	"workspace.open.fail",
@@ -57,7 +65,12 @@ export const BROWSER_LOG_OPERATIONS = [
 	"workspace.open",
 ] as const;
 
-export const BROWSER_SOCKET_STATES = ["closed", "connecting", "open"] as const;
+export const BROWSER_SOCKET_STATES = [
+	"closed",
+	"connecting",
+	"open",
+	"reconnecting",
+] as const;
 
 export const BROWSER_FRAME_REJECT_REASONS = ["invalid_event", "non_text"] as const;
 
@@ -79,6 +92,7 @@ export interface BrowserLogMetadata {
 	reason?: BrowserFrameRejectReason;
 	reasoning_effort?: string;
 	request_id?: string;
+	sequence?: number;
 	session_id?: string;
 	socket_state?: BrowserSocketState;
 	status?: number;
@@ -137,6 +151,7 @@ function safeMetadata(metadata: unknown): BrowserLogMetadata {
 		reason: oneOf<BrowserFrameRejectReason>(metadata.reason, allowedRejectReasons),
 		reasoning_effort: oneOf<string>(metadata.reasoning_effort, allowedReasoningEfforts),
 		request_id: matching(metadata.request_id, UUID_PATTERN),
+		sequence: safeCount(metadata.sequence),
 		session_id: matching(metadata.session_id, UUID_PATTERN),
 		socket_state: oneOf<BrowserSocketState>(metadata.socket_state, allowedSocketStates),
 		status: safeStatus(metadata.status),

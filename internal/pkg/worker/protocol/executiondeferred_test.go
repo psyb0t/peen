@@ -12,15 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDeferredRPCStoresFrozenInputAndPublishesOnce(t *testing.T) {
+func TestDeferredRPCStoresFrozenInput(t *testing.T) {
 	t.Parallel()
 	fixture, remote, execution := newExecutionRPCFixture(t)
 	lease, claim := rpcCompletionClaim(t, fixture, remote, execution)
 	_, err := remote.ReserveExecutionCompletion(t.Context(), fixture.sessionID,
 		claim.Lease)
 	require.NoError(t, err)
-	publisher := &recordingPublisher{}
-	fixture.controller.publisher = publisher
 	input := session.AcceptExecutionMessageInput{
 		RequestID: uuid.New(), WorkingDirectory: rpcExecutionWorkspace,
 		Message: "next root task", Capacity: 2,
@@ -38,7 +36,6 @@ func TestDeferredRPCStoresFrozenInputAndPublishesOnce(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, first.Message, repeated.Message)
 	assert.Empty(t, repeated.Events)
-	assert.Len(t, publisher.events, 2)
 	page, err := remote.ListExecutionMessages(t.Context(), fixture.sessionID,
 		execution.ID, session.ListExecutionInboxOptions{
 			State: models.InboxMessageStateDeferred,

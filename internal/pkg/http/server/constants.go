@@ -6,11 +6,22 @@ import "github.com/psyb0t/aichteeteapee"
 // than being retyped here. Only X-Session-ID is Peen's own, so it is the only
 // one defined locally.
 const (
-	apiBaseURL         = "/v1"
-	apiMountPattern    = apiBaseURL + "/{path...}"
-	spaMountPattern    = "/{path...}"
-	webSocketPath      = apiBaseURL + "/ws"
+	apiBaseURL      = "/api/v1"
+	apiMountPattern = apiBaseURL + "/{path...}"
+	spaMountPattern = "/{path...}"
+
+	// webSocketPath is its own literal, not derived from apiBaseURL: the
+	// WebSocket and the REST API are separate surfaces with separate paths.
+	webSocketPath      = "/ws/v1"
 	privateMetricsPath = "/metrics"
+
+	// staleAPIPathV1, staleAPIPathAPI, and staleAPIPathWS name the prefixes a
+	// client built against the previous /v1 split would still request. The
+	// SPA catch-all answers these with a JSON 404 instead of index.html, so a
+	// stale client fails loudly rather than silently receiving the app shell.
+	staleAPIPathV1  = "/v1"
+	staleAPIPathAPI = "/api"
+	staleAPIPathWS  = "/ws"
 
 	webDistRoot       = "web/dist"
 	spaIndexFile      = "index.html"
@@ -41,6 +52,7 @@ const (
 	webSocketSubprotocol        = "peen.v1"
 	webSocketMetadataSessionID  = "sessionId"
 	webSocketMetadataRequestID  = "requestId"
+	webSocketMetadataSequence   = "sequence"
 	//nolint:gosec // Public protocol label, not a credential.
 	webSocketBearerSubprotocolPrefix   = "peen.bearer."
 	webSocketMessageSendEventType      = "message.send"
@@ -73,6 +85,7 @@ const (
 	webSocketHarnessLimitReason          = "Reduce the number or size of files in the workspace agent configuration."                        //nolint:lll // Client-safe text must remain one sentence.
 	webSocketUnreadableHarnessReason     = "Check that the workspace agent configuration files are readable."                                //nolint:lll // Client-safe text must remain one sentence.
 	unsupportedResponseMessage           = "unsupported response representation"
+	staleAPIPathMessage                  = "no such path"
 	httpRequestRejectedLogMessage        = "HTTP request rejected"
 	httpRequestFailedLogMessage          = "HTTP request failed"
 

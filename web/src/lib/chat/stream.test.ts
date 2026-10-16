@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { PeenSocketEvent } from "$lib/ws/socket";
+import type { ServerEvent } from "$lib/ws/generated";
 
 import { applyStreamEvent, type LiveTurn } from "./stream";
 
@@ -9,12 +9,36 @@ const otherSessionID = "33333333-3333-4333-8333-333333333333";
 const firstRequestID = "44444444-4444-4444-8444-444444444444";
 const secondRequestID = "55555555-5555-4555-8555-555555555555";
 
+// A turn.started frame's data must fit TurnStartedData: sessionId, model,
+// and workspace are all required by the generated contract. Callers that
+// care about originEventType spread this and add it.
+function turnStartedData(): Record<string, unknown> {
+	return { model: "aigate/model", sessionId: sessionID, workspace: "/workspace" };
+}
+
+// Each terminal type's data shape, as the generated contract requires it.
+function terminalData(type: string): unknown {
+	switch (type) {
+		case "turn.completed":
+			return { model: "aigate/model", text: "done" };
+		case "turn.failed":
+			return { reason: "agentRun" };
+		case "turn.cancelled":
+			return { reason: "cancelled" };
+		default:
+			throw new Error(`unknown terminal type ${type}`);
+	}
+}
+
+// A pragmatic cast: `applyStreamEvent` never validates `data` against the
+// contract (that happens once, at the socket/feed boundary, before an event
+// ever reaches here), so these fixtures only need the shape each case reads.
 function event(
 	type: string,
 	data: unknown,
 	requestID = firstRequestID,
 	session: string | null = sessionID,
-): PeenSocketEvent {
+): ServerEvent {
 	return {
 		data,
 		id: crypto.randomUUID(),
@@ -25,7 +49,7 @@ function event(
 		timestamp: 1,
 		triggeredBy: null,
 		type,
-	};
+	} as ServerEvent;
 }
 
 function blockStart(index: number, block: Record<string, unknown>, requestID?: string) {
@@ -48,7 +72,7 @@ function blockStop(index: number, requestID?: string) {
 	return event("content_block_stop", { index, type: "content_block_stop" }, requestID);
 }
 
-function fold(events: PeenSocketEvent[]): LiveTurn[] {
+function fold(events: ServerEvent[]): LiveTurn[] {
 	return events.reduce(applyStreamEvent, [] as LiveTurn[]);
 }
 
@@ -169,7 +193,10 @@ describe("live stream reducer", () => {
 	it.each(["turn.completed", "turn.failed", "turn.cancelled"])(
 		"marks the turn finished on %s",
 		(terminalType) => {
-			const turns = fold([event("turn.started", {}), event(terminalType, {})]);
+			const turns = fold([
+				event("turn.started", turnStartedData()),
+				event(terminalType, terminalData(terminalType)),
+			]);
 
 			expect(turns[0]?.isFinished).toBe(true);
 		},
@@ -178,7 +205,10 @@ describe("live stream reducer", () => {
 	it("records which event started a turn", () => {
 		const turns = fold([
 			event("userMessage.created", { message: "fix CI" }),
-			event("turn.started", { originEventType: "ci.build.failed" }),
+			event("turn.started", {
+				...turnStartedData(),
+				originEventType: "ci.build.failed",
+			}),
 		]);
 
 		expect(turns[0]?.originEventType).toBe("ci.build.failed");
@@ -186,7 +216,7 @@ describe("live stream reducer", () => {
 	});
 
 	it("leaves a typed turn without an origin", () => {
-		const turns = fold([event("turn.started", { model: "aigate/model" })]);
+		const turns = fold([event("turn.started", turnStartedData())]);
 
 		expect(turns[0]?.originEventType).toBeUndefined();
 	});
@@ -233,27 +263,24 @@ describe("live stream reducer", () => {
 			"a tool result for an unknown call",
 			[blockStart(0, { tool_use_id: "missing", type: "tool_result" })],
 		],
-		["a non-record payload", [event("content_block_start", "garbage")]],
-		[
-			"a missing index",
-			[event("content_block_start", { content_block: { type: "text" } })],
-		],
-		[
-			"a non-integer index",
-			[event("content_block_start", { content_block: { type: "text" }, index: "0" })],
-		],
-		["an unknown block type", [blockStart(0, { type: "image" })]],
+		// A non-record payload, a missing or non-integer index, and an unknown
+		// block type are all shapes the generated contract forbids: a frame
+		// like that fails validation at the socket/feed boundary and never
+		// reaches this reducer, so those cases no longer apply here.
 	])("ignores %s without adding content", (_name, events) => {
 		const turns = fold(events);
 
 		expect(turns.flatMap((turn) => turn.blocks)).toEqual([]);
 	});
 
-	it("ignores unknown delta types and empty text", () => {
+	// An unknown delta type is also a contract-forbidden shape (the generated
+	// Delta union only knows text_delta/thinking_delta/input_json_delta/
+	// json_partial), so only the empty-text and kind-mismatch drops remain
+	// reachable here.
+	it("ignores empty text and a delta that targets a different block kind", () => {
 		const turns = fold([
 			blockStart(0, { type: "text" }),
 			blockDelta(0, { text: "kept", type: "text_delta" }),
-			blockDelta(0, { text: "dropped", type: "mystery_delta" }),
 			blockDelta(0, { text: "", type: "text_delta" }),
 			blockDelta(0, { text: "dropped", type: "thinking_delta" }),
 		]);
@@ -307,7 +334,7 @@ describe("live stream reducer", () => {
 		it("puts the skill of a delivered queued message after its user block", () => {
 			const turns = fold([
 				event("userMessage.created", { message: "go" }, firstRequestID),
-				event("turn.started", {}, firstRequestID),
+				event("turn.started", turnStartedData(), firstRequestID),
 				blockStart(0, { type: "text" }, firstRequestID),
 				event("userMessage.created", { message: "then :planning" }, secondRequestID),
 				event("userMessage.queued", { message: "then :planning" }, secondRequestID),
@@ -326,18 +353,13 @@ describe("live stream reducer", () => {
 				{ kind: "skill", name: "planning", text: skillContent },
 			]);
 		});
-
-		it("ignores a skill event without a name or content", () => {
-			expect(fold([event("skill.injected", {})])).toEqual([]);
-			expect(fold([event("skill.injected", { name: "planning" })])).toEqual([]);
-		});
 	});
 
 	describe("queued messages", () => {
 		const runningTurn = [
 			event("userMessage.created", { message: "inspect" }),
-			event("turn.started", {}),
-			blockStart(0, { id: "call-1", name: "listFiles", type: "tool_use" }),
+			event("turn.started", turnStartedData()),
+			blockStart(0, { id: "call-1", input: {}, name: "listFiles", type: "tool_use" }),
 		];
 		const queued = [
 			event("userMessage.created", { message: "also check tests" }, secondRequestID),

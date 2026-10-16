@@ -11,7 +11,8 @@ CREATE TABLE sessions (
     model_id TEXT NOT NULL,
     workspace TEXT NOT NULL DEFAULT '',
     agent_space TEXT NOT NULL DEFAULT '',
-    stop_revision INTEGER NOT NULL DEFAULT 0 CHECK (stop_revision >= 0)
+    stop_revision INTEGER NOT NULL DEFAULT 0 CHECK (stop_revision >= 0),
+    feed_sequence INTEGER NOT NULL DEFAULT 0 CHECK (feed_sequence >= 0)
 );
 
 CREATE UNIQUE INDEX sessions_workspace_unique_index

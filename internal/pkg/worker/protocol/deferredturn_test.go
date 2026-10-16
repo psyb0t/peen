@@ -65,7 +65,7 @@ func TestDeferredTurnRPCRetainsOpeningBatch(t *testing.T) {
 	assert.Equal(t, newer.ID, pending.Items[0].ID)
 }
 
-func TestDeferredTurnRPCPublishesOnceAndFencesSession(t *testing.T) {
+func TestDeferredTurnRPCIsIdempotentAndFencesSession(t *testing.T) {
 	t.Parallel()
 	fixture, remote, execution := newExecutionRPCFixture(t)
 	lease, hook := rpcCompletionClaim(t, fixture, remote, execution)
@@ -79,8 +79,6 @@ func TestDeferredTurnRPCPublishesOnceAndFencesSession(t *testing.T) {
 		})
 	require.NoError(t, err)
 	finishDeferredRPCSource(t, fixture, remote, execution.ID, lease, hook)
-	publisher := &recordingPublisher{}
-	fixture.controller.publisher = publisher
 	input := session.StartTurnInput{
 		RequestID: accepted.Message.RequestID,
 		Workspace: accepted.Message.WorkingDirectory,
@@ -97,7 +95,6 @@ func TestDeferredTurnRPCPublishesOnceAndFencesSession(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, first.Lease, repeated.Lease)
 	assert.Empty(t, repeated.Events)
-	assert.Len(t, publisher.events, 1)
 	_, err = remote.AcquireDeferredExecutionTurn(t.Context(), uuid.New(),
 		accepted.Message.ID, input)
 	require.ErrorIs(t, err, commerr.ErrPermissionDenied)

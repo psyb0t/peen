@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/cschleiden/go-workflows/client"
 	"github.com/google/uuid"
@@ -124,7 +123,7 @@ func TestRootFactoryRetainsOriginalAgentAfterDefaultChanges(t *testing.T) {
 	callbacks.bind(&fixture.engine.options)
 	instance := fixture.start(t)
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, "continued retained work", result.Text)
 	assert.EqualValues(t, 1, completed.Load())

@@ -13,7 +13,7 @@ import (
 
 const (
 	testModel        = "aigate/test-model"
-	testRoute        = "/v1/messages"
+	testRoute        = "/api/v1/messages"
 	testStatusOK     = "200"
 	testTool         = "readFile"
 	testOperation    = "query"

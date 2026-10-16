@@ -9,11 +9,11 @@ A session event, also called a notice, is a record of something that happened ou
 | Background jobs | `tools.job` | `job.exited`, `job.signalled`, `job.failed` | A command ends after its `runCommand` call has already returned, because it ran in the background or outlived its timeout. |
 | Child agents | `agent.launchAgent` | `agent.finished`, `agent.failed`, `agent.message`, `agent.question` | A child of the root conversation ends or asks the root a question, or a child at any depth sends the root a message. A cancelled run counts as `agent.failed`. |
 | Hooks | `hooks` | any type except `job.*` and `agent.*`, plus `hook.action.failed` | An `emitEvent` action runs, a hook command prints `events`, or a post-event hook action fails. See [Hooks](hooks.md). |
-| Outside callers | `api` | any type except `job.*` and `agent.*` | Something calls `POST /v1/session/notices`. |
+| Outside callers | `api` | any type except `job.*` and `agent.*` | Something calls `POST /api/v1/session/notices`. |
 
-`job.*` and `agent.*` are reserved for Peen. `POST /v1/session/notices` rejects them, a `hooks.yaml` file whose `emitEvent` action names one is invalid, and a hook command that prints one fails its action. Only Peen's own jobs and child agents produce them.
+`job.*` and `agent.*` are reserved for Peen. `POST /api/v1/session/notices` rejects them, a `hooks.yaml` file whose `emitEvent` action names one is invalid, and a hook command that prints one fails its action. Only Peen's own jobs and child agents produce them.
 
-An event has a `type`, a `summary`, an optional JSON object `data`, and a `delivery` mode, `queue` or `wake`. Peen adds the `source`, an ID, and a timestamp. `POST /v1/session/notices` requires a non-empty `summary`. A hook may leave it empty. Peen does not check that a summary is one line, but keep it to one, because the model reads it as a headline. The built-in events look like this:
+An event has a `type`, a `summary`, an optional JSON object `data`, and a `delivery` mode, `queue` or `wake`. Peen adds the `source`, an ID, and a timestamp. Every recorded notice also goes out live over the WebSocket as a `notice.created` frame carrying the stored notice, whatever its `delivery` mode and whether or not it has reached the model yet. See [protocol event types](http-api.md#protocol-event-types). `POST /api/v1/session/notices` requires a non-empty `summary`. A hook may leave it empty. Peen does not check that a summary is one line, but keep it to one, because the model reads it as a headline. The built-in events look like this:
 
 | Type | Summary | Data |
 | --- | --- | --- |
@@ -31,7 +31,7 @@ An event has a `type`, a `summary`, an optional JSON object `data`, and a `deliv
 
 The `agent.*` events are how children talk to the root. `agent.finished`, `agent.failed`, and `agent.question` come only from children of the root conversation. A deeper child reports its final answer and asks its questions with messages in its parent's conversation, which publish no session event. `agent.message` comes from any child, at any depth, that sends a message to `root`. See [running children](agents.md#running-children).
 
-- `agent.finished` carries the child's final answer in `response`. An answer too large for `PEEN_MAX_EVENT_DATA_BYTES` is cut, ends with a note that the whole answer is in the run record, and sets `responseTruncated`. `GET /v1/session/agents/{agentRunId}` returns the whole `responseText`.
+- `agent.finished` carries the child's final answer in `response`. An answer too large for `PEEN_MAX_EVENT_DATA_BYTES` is cut, ends with a note that the whole answer is in the run record, and sets `responseTruncated`. `GET /api/v1/session/agents/{agentRunId}` returns the whole `responseText`.
 - `agent.failed` carries `state`, `failed` or `cancelled`, and `failureDetail`, the error cut to 1024 bytes.
 - `agent.message` carries a message the child sent the root with `sendMessage`.
 - `agent.question` carries a question the child asked with `ask`. The child waits until a message reaches it. Answer with `sendMessage`, or with a WebSocket message whose `to` names the run.
@@ -42,7 +42,7 @@ Event types are lowercase dotted names of 1 to 8 parts, up to 128 characters. Ea
 
 `PEEN_MAX_EVENT_SUMMARY_BYTES` (4096) limits `summary` and `PEEN_MAX_EVENT_DATA_BYTES` (65536) limits the encoded `data`. What happens over a limit depends on who sent the event:
 
-- `POST /v1/session/notices` rejects the request with `400 VALIDATION_FAILED`.
+- `POST /api/v1/session/notices` rejects the request with `400 VALIDATION_FAILED`.
 - A hook `emitEvent` action or command-printed event fails that action, and the normal [hook failure rules](hooks.md#failures) apply.
 - Peen's own `job.*` and `agent.*` events are never rejected. Peen shortens an over-long summary to the limit without splitting a character, and leaves out over-size data.
 
@@ -50,7 +50,7 @@ Event types are lowercase dotted names of 1 to 8 parts, up to 128 characters. Ea
 
 `runCommand` takes `command`, `purpose`, and optionally `directory`, `timeout`, and `background`. `timeout` is a Go duration string such as `"90s"`, `"5m"`, or `"1h30m"`. `waitJob` takes `timeout` in the same format. It defaults to `30s`, and Peen lowers any value above `10m` to `10m`. These two `waitJob` bounds are fixed. For `runCommand`, a value above `PEEN_TOOL_MAX_COMMAND_TIMEOUT` is lowered to that maximum rather than rejected. A command that finishes within its timeout returns its exit code and output normally. A command still running when the timeout passes is not killed. Peen leaves it running as a job and returns a job handle with the output so far. `background: true` returns the handle right away.
 
-Jobs belong to the session, not the turn. The agent can check them later with `listJobs`, `readJobOutput`, `waitJob`, and `signalJob`, and every output line is stored in SQLite. When a background job ends, Peen publishes a `job.*` event, so the agent learns the result at its next tool boundary or next turn without polling. A command that finishes inside its own `runCommand` call publishes no event, because the tool result already reports it. On shutdown Peen stops every job, so none outlives the process. The API exposes jobs under `GET /v1/session/jobs`.
+Jobs belong to the session, not the turn. The agent can check them later with `listJobs`, `readJobOutput`, `waitJob`, and `signalJob`, and every output line is stored in SQLite. When a background job ends, Peen publishes a `job.*` event, so the agent learns the result at its next tool boundary or next turn without polling. A command that finishes inside its own `runCommand` call publishes no event, because the tool result already reports it. On shutdown Peen stops every job, so none outlives the process. The API exposes jobs under `GET /api/v1/session/jobs`.
 
 Cancelling an active foreground `runCommand` kills its process group and records the signal without publishing it as a detached completion. A command whose job handle already returned keeps its detached behavior. Its eventual event still cannot wake a paused or cancelled source turn or subtree.
 
@@ -75,7 +75,7 @@ Each event is one `<event>` element holding a JSON object. JSON encoding escapes
 
 That message is stored with `injected: true`, so the control surface shows it as a collapsed "Session events" update with one `type: summary` line per event, instead of as something you typed. An event it cannot parse shows as "unreadable event". Only the root agent receives events. A child agent never does.
 
-Over the WebSocket a delivery arrives as a `session.events` frame with `{"notices": [...], "dropped": 0}`. `dropped` is kept for compatibility and is always `0`, because Peen delivers every stored event. `GET /v1/session/notices` lists every stored notice. `GET /v1/session/events` is the separate protocol transcript and never consumes notices.
+Over the WebSocket a delivery arrives as a `session.events` frame with `{"notices": [...], "dropped": 0}`. `dropped` is kept for compatibility and is always `0`, because Peen delivers every stored event. `GET /api/v1/session/notices` lists every stored notice. `GET /api/v1/session/events` is the separate protocol transcript and never consumes notices.
 
 ## Waking an idle session
 
@@ -136,7 +136,7 @@ A `:name` in a handler body works as it does in a message you send. Each named s
 ## Posting an event
 
 ```bash
-curl -X POST http://localhost:8080/v1/session/notices \
+curl -X POST http://localhost:8080/api/v1/session/notices \
   -H "X-Session-ID: <session-id>" \
   -H "Content-Type: application/json" \
   -d '{"type":"ci.build.failed","summary":"main is red: TestParse failed","data":{"run":1234},"delivery":"wake"}'

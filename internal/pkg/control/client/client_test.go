@@ -166,7 +166,7 @@ func TestCancelSessionAddressesTheNamedSession(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, sessionID.String(), gotSessionID)
-	assert.Equal(t, "/v1/session/cancel", gotPath)
+	assert.Equal(t, "/api/v1/session/cancel", gotPath)
 	assert.True(t, result.CancelRequested)
 }
 

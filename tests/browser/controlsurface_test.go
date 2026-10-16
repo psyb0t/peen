@@ -24,6 +24,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/tests/testinfra"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 )
@@ -78,11 +79,11 @@ const (
 	browserNetworkRequest                = "request"
 	browserNetworkResponse               = "response"
 	browserConsoleError                  = "error"
-	browserWebSocketPath                 = "/v1/ws"
-	browserModelsPath                    = "/v1/models"
-	browserWorkspaceRootsPath            = "/v1/workspace-roots"
-	browserSessionsOpenPath              = "/v1/sessions/open"
-	browserMessagesPath                  = "/v1/messages"
+	browserWebSocketPath                 = "/ws/v1"
+	browserModelsPath                    = "/api/v1/models"
+	browserWorkspaceRootsPath            = "/api/v1/workspace-roots"
+	browserSessionsOpenPath              = "/api/v1/sessions/open"
+	browserMessagesPath                  = "/api/v1/messages"
 	browserTestWorkspace                 = "/tmp"
 	browserChildWorkspaceName            = "browser-child-workspace"
 	browserChildWorkspace                = browserTestWorkspace + "/" + browserChildWorkspaceName
@@ -179,7 +180,7 @@ const (
 	browserHandlerPosition     = 1
 	browserEventsPosition      = 2
 	browserSessionIDHeader     = "X-Session-ID"
-	browserSessionNoticesPath  = "/v1/session/notices"
+	browserSessionNoticesPath  = "/api/v1/session/notices"
 	browserBearerPrefix        = "Bearer "
 	browserScreenshotBaseName  = "control-surface"
 	browserSkillScreenshot     = "skill-marker"
@@ -195,7 +196,7 @@ const (
 	browserAgentsPanelLabel    = "running agents"
 	browserAgentsAskPrefix     = "Asks: "
 	browserSelectorStopAgent   = `section.running-agents button[aria-label^="Stop "]`
-	browserAgentsCancelPrefix  = "/v1/session/agents/"
+	browserAgentsCancelPrefix  = "/api/v1/session/agents/"
 	browserAgentsCancelSuffix  = "/cancel"
 	browserAgentsScreenshot    = "running-agents"
 	browserAgentsPollEvery     = 250 * time.Millisecond
@@ -204,6 +205,45 @@ const (
 	browserSessionLinkFormat  = "/?session=%s"
 	browserSelectorChatHeader = "header.chat-header h1"
 	browserLinkScreenshot     = "session-link"
+
+	browserActionEval             = "eval"
+	browserExpressionKey          = "expression"
+	browserReconnectWorkspaceName = "browser-reconnect-midturn"
+	browserReconnectMessage       = "hold this websocket turn across a drop"
+	browserReconnectScreenshot    = "reconnect-midturn"
+
+	// browserEvalInstallSocketCapture wraps the global WebSocket constructor
+	// so every socket the page opens is reachable afterward, since the
+	// control surface keeps its own socket private. It installs once: a
+	// second install is a no-op that reports the socket list already in
+	// place.
+	browserEvalInstallSocketCapture = `(() => {
+		if (window.__peenOriginalWebSocket) {
+			return "already-installed";
+		}
+		window.__peenOriginalWebSocket = window.WebSocket;
+		window.__peenSockets = [];
+		window.WebSocket = class extends window.__peenOriginalWebSocket {
+			constructor(...args) {
+				super(...args);
+				window.__peenSockets.push(this);
+			}
+		};
+		return "installed";
+	})()`
+
+	// browserEvalDropLastSocket closes the most recently opened captured
+	// socket from the page's own side, the way a dropped connection looks to
+	// the control surface: an unexpected close it did not request itself.
+	browserEvalDropLastSocket = `(() => {
+		const sockets = window.__peenSockets || [];
+		const socket = sockets[sockets.length - 1];
+		if (!socket) {
+			return false;
+		}
+		socket.close();
+		return true;
+	})()`
 )
 
 func expectedBrowserDiagnostics() []string {
@@ -663,6 +703,122 @@ func TestControlSurfaceListsAWaitingChildAndStopsIt(t *testing.T) {
 	}
 
 	require.True(t, isCancelCalled, "the Stop button never called the cancel API")
+}
+
+// A dropped WebSocket mid-turn recovers on its own: the control surface
+// reconnects with no explicit retry from the person using it, catches up
+// through the session feed, and the turn's final reply renders exactly
+// once, with no page reload.
+func TestControlSurfaceRecoversADroppedSocketMidTurn(t *testing.T) {
+	ctx := t.Context()
+	prepareBrowserTest(t)
+
+	require.NoError(t, integrationInfra.WriteWorkspaceFile(
+		ctx,
+		browserReconnectWorkspaceName+"/"+browserWorkspaceKeepFile,
+		[]byte(browserWorkspaceKeepContent),
+	))
+
+	browserAction(ctx, t, browserActionGoto, map[string]any{
+		"url":               integrationInfra.APIURL("/"),
+		browserWaitUntilKey: browserWaitUntilDOM,
+	})
+	waitForBrowserText(ctx, t, browserMainHeading)
+	// Installed before Connect is clicked, so the hook is in place before the
+	// page ever opens its one global WebSocket.
+	installBrowserSocketCapture(ctx, t)
+
+	browserAction(ctx, t, browserActionFill, map[string]any{
+		browserSelectorKey: browserSelectorToken,
+		browserValueKey:    testinfra.TestAPIToken,
+	})
+	browserAction(ctx, t, browserActionClick, map[string]any{
+		browserSelectorKey: browserSelectorConnect,
+	})
+	browserAction(ctx, t, browserActionWaitForElement, map[string]any{
+		browserSelectorKey: browserSelectorSocketOpen,
+		browserTimeoutKey:  browserRequestTimeout.Seconds(),
+	})
+	browserAction(ctx, t, browserActionFill, map[string]any{
+		browserSelectorKey: browserSelectorWorkspace,
+		browserValueKey: browserTestWorkspace + "/" +
+			browserReconnectWorkspaceName,
+	})
+	browserAction(ctx, t, browserActionClick, map[string]any{
+		browserSelectorKey: browserSelectorOpen,
+	})
+	waitForBrowserText(ctx, t, browserModelReference)
+
+	hold := holdNextProviderCompletion(t)
+	sendBrowserMessage(ctx, t, browserReconnectMessage)
+	awaitProviderCompletionHold(t, hold)
+
+	dropBrowserWebSocket(ctx, t)
+
+	browserAction(ctx, t, browserActionWaitForElement, map[string]any{
+		browserSelectorKey: browserSelectorSocketOpen,
+		browserTimeoutKey:  browserRequestTimeout.Seconds(),
+	})
+
+	hold.Release()
+	waitForBrowserText(ctx, t, browserCompletionPrefix)
+
+	page := browserText(ctx, t)
+	require.Contains(t, page, browserReconnectMessage)
+	assert.Equal(
+		t,
+		1,
+		strings.Count(page, browserCompletionPrefix),
+		"the final reply must render exactly once after a reconnect",
+	)
+
+	requireNamedScreenshot(ctx, t, browserReconnectScreenshot)
+}
+
+// installBrowserSocketCapture wraps the page's global WebSocket constructor
+// so a later dropBrowserWebSocket call can reach the instance the control
+// surface opened, which it otherwise keeps private.
+func installBrowserSocketCapture(ctx context.Context, t *testing.T) {
+	t.Helper()
+
+	result := browserEvalStringResult(ctx, t, browserEvalInstallSocketCapture)
+	require.Contains(t, []string{"installed", "already-installed"}, result)
+}
+
+// dropBrowserWebSocket closes the most recently captured WebSocket from the
+// page's own side, simulating a dropped connection the control surface did
+// not ask for.
+func dropBrowserWebSocket(ctx context.Context, t *testing.T) {
+	t.Helper()
+
+	data := browserAction(ctx, t, browserActionEval, map[string]any{
+		browserExpressionKey: browserEvalDropLastSocket,
+	})
+
+	result := struct {
+		Result bool `json:"result"`
+	}{}
+	require.NoError(t, json.Unmarshal(data, &result))
+	require.True(t, result.Result, "the page had no captured WebSocket to drop")
+}
+
+func browserEvalStringResult(
+	ctx context.Context,
+	t *testing.T,
+	expression string,
+) string {
+	t.Helper()
+
+	data := browserAction(ctx, t, browserActionEval, map[string]any{
+		browserExpressionKey: expression,
+	})
+
+	result := struct {
+		Result string `json:"result"`
+	}{}
+	require.NoError(t, json.Unmarshal(data, &result))
+
+	return result.Result
 }
 
 func prepareBrowserTest(t *testing.T) {

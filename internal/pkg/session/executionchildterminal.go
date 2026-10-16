@@ -35,6 +35,12 @@ func (s *Store) recordExecutionChildTerminal(
 			"allocate child terminal event sequence")
 	}
 
+	feedSequence, err := s.allocateFeedSequences(ctx, tx, run.SessionID, 1)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err,
+			"allocate child terminal event feed sequence")
+	}
+
 	payload, err := json.Marshal(executionChildTerminalPayload{
 		AgentRunID: run.ID, State: run.State,
 		FailureClass:  run.FailureClassification,
@@ -55,7 +61,7 @@ func (s *Store) recordExecutionChildTerminal(
 
 	event := &models.AgentRunEvent{
 		ID: s.newID(), SessionID: run.SessionID, AgentRunID: run.ID,
-		Sequence: sequence, EventType: kind,
+		Sequence: sequence, FeedSequence: feedSequence, EventType: kind,
 		PayloadJSON: string(payload), CreatedAt: s.now(),
 	}
 	if err := tx.AgentRunEvent.WithContext(ctx).Create(event); err != nil {

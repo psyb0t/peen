@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1537,7 +1538,11 @@ func (s *agentRunSink) onAssistantMessage(
 		return err
 	}
 
-	return s.emit(ctx, EventTypeAgentRunAssistantMessage, message)
+	return s.emit(
+		ctx,
+		EventTypeAgentRunAssistantMessage,
+		newAgentRunAssistantMessagePayload(message),
+	)
 }
 
 func (s *agentRunSink) onMessageInjection(
@@ -1556,7 +1561,18 @@ func (s *agentRunSink) onMessageInjection(
 		return err
 	}
 
-	return s.emit(ctx, EventTypeAgentRunMessageInjected, injection)
+	return s.emit(
+		ctx,
+		EventTypeAgentRunMessageInjected,
+		agentRunMessageInjectedPayload{
+			Type:    injection.Type,
+			Content: injection.Content,
+			Phase:   injection.Phase,
+			Tool:    injection.Tool,
+			CallID:  injection.CallID,
+			Round:   injection.Round,
+		},
+	)
 }
 
 // persistMessages writes prompt-visible child records before the caller lets
@@ -1603,6 +1619,95 @@ func (s *agentRunSink) onRetry(
 		Status:  attempt.Status,
 		DelayMS: attempt.Delay.Milliseconds(),
 	})
+}
+
+// agentRunAssistantToolCallPayload is one tool call on a child's assistant
+// message. The vendored elelem.ToolCall has no JSON tags, so this is what
+// reaches the stored row and the live socket frame instead of PascalCase
+// keys.
+type agentRunAssistantToolCallPayload struct {
+	ID        string          `json:"id"`
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments"`
+}
+
+// agentRunAssistantMessagePayload is a Peen-owned camelCase encoding of a
+// child's assistant message, replacing a raw elelem.Message so the stored
+// row and the live socket frame never leak the vendored struct. ToolCallID,
+// ToolResultIsError, Injection and CacheHint are not carried: elelem only
+// ever sets them on a RoleTool message or an injection-origin message,
+// never on the message this callback receives.
+type agentRunAssistantMessagePayload struct {
+	Role    string         `json:"role"`
+	Content elelem.Content `json:"content"`
+
+	ToolCalls []agentRunAssistantToolCallPayload `json:"toolCalls"`
+
+	Reasoning         string          `json:"reasoning,omitempty"`
+	ProviderReasoning json.RawMessage `json:"providerReasoning,omitempty"`
+	Origin            string          `json:"origin,omitempty"`
+}
+
+// newAgentRunAssistantMessagePayload builds the Peen-owned payload from the
+// vendored message. Content and ToolCalls are always encoded as an array,
+// never null, and ProviderReasoning is dropped when elelem left it empty or
+// set to the JSON literal null.
+func newAgentRunAssistantMessagePayload(
+	message elelem.Message,
+) agentRunAssistantMessagePayload {
+	content := message.Content
+	if content == nil {
+		content = elelem.Content{}
+	}
+
+	toolCalls := make(
+		[]agentRunAssistantToolCallPayload,
+		len(message.ToolCalls),
+	)
+	for i, call := range message.ToolCalls {
+		toolCalls[i] = agentRunAssistantToolCallPayload{
+			ID:        call.ID,
+			Name:      call.Name,
+			Arguments: call.Arguments,
+		}
+	}
+
+	payload := agentRunAssistantMessagePayload{
+		Role:      message.Role,
+		Content:   content,
+		ToolCalls: toolCalls,
+		Reasoning: message.Reasoning,
+		Origin:    message.Origin,
+	}
+
+	if !isEmptyOrNullRawJSON(message.ProviderReasoning) {
+		payload.ProviderReasoning = message.ProviderReasoning
+	}
+
+	return payload
+}
+
+// jsonNullLiteral is the JSON encoding of null.
+const jsonNullLiteral = "null"
+
+// isEmptyOrNullRawJSON reports whether raw is absent or carries only the
+// JSON literal null, which omitempty alone cannot tell from a meaningful
+// one-token value.
+func isEmptyOrNullRawJSON(raw json.RawMessage) bool {
+	trimmed := bytes.TrimSpace(raw)
+
+	return len(trimmed) == 0 || string(trimmed) == jsonNullLiteral
+}
+
+// agentRunMessageInjectedPayload is a Peen-owned camelCase encoding of a
+// child's tool-injected message, replacing a raw elelem.MessageInjection.
+type agentRunMessageInjectedPayload struct {
+	Type    string `json:"type"`
+	Content string `json:"content"`
+	Phase   string `json:"phase"`
+	Tool    string `json:"tool"`
+	CallID  string `json:"callId"`
+	Round   int    `json:"round"`
 }
 
 type agentRunStartedPayload struct {

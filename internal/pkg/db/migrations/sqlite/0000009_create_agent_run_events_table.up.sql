@@ -3,12 +3,14 @@ CREATE TABLE agent_run_events (
     session_id TEXT NOT NULL,
     agent_run_id TEXT NOT NULL,
     sequence INTEGER NOT NULL CHECK (sequence > 0),
+    feed_sequence INTEGER NOT NULL CHECK (feed_sequence > 0),
     event_type TEXT NOT NULL,
     payload_json TEXT NOT NULL CHECK (json_valid(payload_json)),
     created_at DATETIME NOT NULL,
     FOREIGN KEY (session_id, agent_run_id) REFERENCES agent_runs (session_id, id),
     UNIQUE (session_id, id),
-    UNIQUE (agent_run_id, sequence)
+    UNIQUE (agent_run_id, sequence),
+    UNIQUE (session_id, feed_sequence)
 );
 
 CREATE INDEX agent_run_events_run_sequence_id_index

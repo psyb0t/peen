@@ -37,10 +37,10 @@ type Core struct {
 	// control plane routes work; it does not run the model loop.
 	Turns *TurnRouter
 
-	// Events carries durable worker events to the live feed. control-core
-	// creates it and control-api registers the delivery path, so a record is
-	// written before any client can see it.
-	Events *EventRelay
+	// Feed carries every committed feed row to the live feed, in sequence
+	// order. control-core creates it and control-api registers the delivery
+	// path, so a record is written before any client can see it.
+	Feed *FeedPump
 
 	Metrics *metrics.Metrics
 }
@@ -48,7 +48,7 @@ type Core struct {
 func (c *Core) validate() error {
 	if c.Runtime == nil || c.Store == nil || c.Handle == nil ||
 		c.Sessions == nil || c.AgentSpaces == nil || c.Metrics == nil ||
-		c.Workers == nil || c.Turns == nil || c.Events == nil {
+		c.Workers == nil || c.Turns == nil || c.Feed == nil {
 		return ctxerrors.Wrap(commerr.ErrRequiredFieldNotSet, "control core")
 	}
 

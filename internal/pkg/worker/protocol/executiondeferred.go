@@ -69,7 +69,5 @@ func (c *Controller) deferExecutionMessage(
 		return nil, ctxerrors.Wrap(err, "defer worker inbox message")
 	}
 
-	c.publish(ctx, result.Events)
-
 	return result, nil
 }

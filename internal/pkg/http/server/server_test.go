@@ -14,6 +14,7 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/agent"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
+	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -514,6 +515,13 @@ type testRuntime struct {
 	cancelErr  error
 	eventsErr  error
 	jobsErr    error
+	feedErr    error
+	feedPage   *session.FeedPage
+	feedLimit  int32
+
+	// cancelSessionCalls counts CancelSession invocations, so a disconnect
+	// test can prove the durable stop boundary was never reached.
+	cancelSessionCalls int
 
 	agentRunsErr           error
 	agentRunCancelResponse *api.AgentRunCancelResponse
@@ -587,6 +595,8 @@ func (r *testRuntime) CancelSession(
 	_ context.Context,
 	_ uuid.UUID,
 ) (*api.CancelResponse, error) {
+	r.cancelSessionCalls++
+
 	if r.cancelErr != nil {
 		return nil, r.cancelErr
 	}
@@ -603,6 +613,21 @@ func (r *testRuntime) ListSessionEvents(
 	}
 
 	return &api.TranscriptEventPage{Events: []api.TranscriptEvent{}}, nil
+}
+
+func (r *testRuntime) ListSessionFeed(
+	_ context.Context,
+	_ api.ListSessionFeedParams,
+) (*session.FeedPage, int32, error) {
+	if r.feedErr != nil {
+		return nil, 0, r.feedErr
+	}
+
+	if r.feedPage != nil {
+		return r.feedPage, r.feedLimit, nil
+	}
+
+	return &session.FeedPage{}, r.feedLimit, nil
 }
 
 func (r *testRuntime) ListSessionNotices(

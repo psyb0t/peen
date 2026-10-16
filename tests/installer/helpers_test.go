@@ -522,7 +522,7 @@ func apiCall(t *testing.T, instance *install, method, path string, body any) (in
 func defaultAgentSpace(t *testing.T, instance *install) string {
 	t.Helper()
 
-	status, body := apiCall(t, instance, http.MethodGet, "/v1/agent-spaces", nil)
+	status, body := apiCall(t, instance, http.MethodGet, "/api/v1/agent-spaces", nil)
 	require.Equal(t, http.StatusOK, status, string(body))
 	var spaces struct {
 		Default string `json:"default"`
@@ -537,7 +537,7 @@ func defaultAgentSpace(t *testing.T, instance *install) string {
 func sessionAgentSpace(t *testing.T, instance *install, workspace string) (string, string) {
 	t.Helper()
 
-	status, body := apiCall(t, instance, http.MethodPost, "/v1/sessions/open", map[string]string{"workspace": workspace})
+	status, body := apiCall(t, instance, http.MethodPost, "/api/v1/sessions/open", map[string]string{"workspace": workspace})
 	require.Equal(t, http.StatusOK, status, string(body))
 	var opened struct {
 		Session struct {
@@ -581,7 +581,7 @@ func sendTurn(t *testing.T, instance *install, session string) {
 	}
 	connection, response, err := dialer.DialContext(
 		t.Context(),
-		"ws://"+instance.listen()+"/v1/ws",
+		"ws://"+instance.listen()+"/ws/v1",
 		nil,
 	)
 	if response != nil {

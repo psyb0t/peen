@@ -4,7 +4,7 @@ info:
   version: 1.0.0
   description: Stateful agent sessions with durable SQLite reads and WebSocket turns.
 servers:
-  - url: /v1
+  - url: /api/v1
 security:
   - bearerAuth: []
   - {}
@@ -366,6 +366,57 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TranscriptEventPage'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/feed:
+    get:
+      operationId: listSessionFeed
+      summary: Replay a session's live feed from a sequence
+      description: >-
+        Returns the session's sequenced live frames after `cursor`, oldest
+        first: root protocol events, child agent run steps, and notices. Each
+        item has the same type, data and sequence its live WebSocket frame
+        carried, so a client that reconnects passes the last sequence it applied
+        and continues without a gap or a duplicate. A cursor at or past the head
+        returns an empty page.
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - name: cursor
+          in: query
+          required: false
+          description: Return items with a sequence greater than this value.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 200
+            default: 100
+      responses:
+        '200':
+          description: Feed page
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedPage'
         '400':
           $ref: '#/components/responses/ErrorBadRequest'
         '401':
@@ -1256,7 +1307,7 @@ components:
       type: object
       additionalProperties: false
       required:
-        [id, createdAt, updatedAt, messageCount, completedTurnCount, activeTurn, agent, model, workspace]
+        [id, createdAt, updatedAt, messageCount, completedTurnCount, activeTurn, feedSequence, agent, model, workspace]
       properties:
         id:
           type: string
@@ -1280,6 +1331,19 @@ components:
           minimum: 0
         activeTurn:
           type: boolean
+        feedSequence:
+          description: The session's newest feed sequence.
+          type: integer
+          format: int64
+          minimum: 0
+        activeTurnFeedSequence:
+          description: >-
+            First feed sequence of the running turn. Set only by GET /session
+            while a turn runs; replay from the sequence before it to rebuild
+            that turn's live view.
+          type: [integer, 'null']
+          format: int64
+          minimum: 1
         agent:
           type: string
         model:
@@ -1457,6 +1521,14 @@ components:
         requestId:
           type: string
           format: uuid
+        sequence:
+          description: >-
+            The frame's position in the session feed. Absent on
+            message.completed and message.failed, which acknowledge one request
+            and are not replayed.
+          type: integer
+          format: int64
+          minimum: 1
     WebSocketMessageSendEvent:
       type: object
       additionalProperties: false
@@ -1743,6 +1815,62 @@ components:
           format: int32
         hasMore:
           type: boolean
+    FeedFrame:
+      type: object
+      additionalProperties: false
+      description: >-
+        One sequenced frame of a session's live feed, as it was sent over the
+        WebSocket.
+      required: [sequence, id, type, sessionId, requestId, data, createdAt]
+      properties:
+        sequence:
+          description: Position in the session feed. Consecutive, starting at 1.
+          type: integer
+          format: int64
+          minimum: 1
+        id:
+          description: ID of the stored record, also the live frame's id.
+          type: string
+          format: uuid
+        type:
+          type: string
+        sessionId:
+          type: string
+          format: uuid
+        requestId:
+          type: [string, 'null']
+          format: uuid
+        data:
+          description: The frame's data, exactly as sent live.
+        createdAt:
+          type: string
+          format: date-time
+    FeedPage:
+      type: object
+      additionalProperties: false
+      required: [items, limit, nextCursor, hasMore, head]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FeedFrame'
+        limit:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 200
+        nextCursor:
+          description: Pass back as cursor to continue from here.
+          type: integer
+          format: int64
+          minimum: 0
+        hasMore:
+          type: boolean
+        head:
+          description: The session's newest feed sequence when the page was read.
+          type: integer
+          format: int64
+          minimum: 0
     TranscriptEvent:
       type: object
       additionalProperties: false

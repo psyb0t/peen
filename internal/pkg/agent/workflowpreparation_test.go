@@ -49,7 +49,7 @@ func TestExecutionWorkflowModelRetryReusesPreparedInput(t *testing.T) {
 	}
 	instance := fixture.start(t)
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, "done", result.Text)
 	assert.EqualValues(t, 1, calls.Load())
@@ -147,7 +147,7 @@ func TestExecutionWorkflowPausePreventsPreparation(t *testing.T) {
 		fmt.Sprintf("%s/%s", fixture.input.SessionID, fixture.input.ExecutionID),
 		workflowResumeSignal, struct{}{}))
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, "done", result.Text)
 	assert.EqualValues(t, 1, calls.Load())

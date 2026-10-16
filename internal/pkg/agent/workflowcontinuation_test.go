@@ -6,7 +6,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/cschleiden/go-workflows/client"
 	"github.com/google/uuid"
@@ -51,7 +50,7 @@ func TestWorkflowFinalContinuationKeepsRoundBudget(t *testing.T) {
 	fixture := newFinalAcceptanceFixture(t, driver, 1, 1)
 	instance := fixture.start(t)
 	_, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.Error(t, err)
 	assert.Equal(t, 1, driver.Calls())
 	execution, err := fixture.base.store.GetExecution(t.Context(),
@@ -74,7 +73,7 @@ func TestWorkflowRepeatedFinalArrivalsUseDistinctDecisions(t *testing.T) {
 	fixture := newFinalAcceptanceFixture(t, driver, 3, 2)
 	instance := fixture.start(t)
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, "third", result.Text)
 	assert.Equal(t, 3, driver.Calls())
@@ -122,7 +121,7 @@ func TestWorkflowFinishContinuesAfterRecordedModelResult(t *testing.T) {
 	}
 	instance := fixture.start(t)
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, "continued answer", result.Text)
 	assert.Equal(t, 2, driver.Calls())

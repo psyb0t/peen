@@ -110,8 +110,8 @@ A child runs on its own, beside the agent that launched it. The launcher keeps w
 
 A child keeps running after the turn that launched it ends. It stops when it gives its final answer, when it runs out of tool rounds, or when something stops it:
 
-- `POST /v1/session/cancel` and the Cancel button pause unfinished session workflows and interrupt their activities. Embedded sessions use the same pause behavior.
-- `stopAgent`, `POST /v1/session/agents/{agentRunId}/cancel`, and the Stop button in the control surface stop one child.
+- `POST /api/v1/session/cancel` and the Cancel button pause unfinished session workflows and interrupt their activities. Embedded sessions use the same pause behavior.
+- `stopAgent`, `POST /api/v1/session/agents/{agentRunId}/cancel`, and the Stop button in the control surface stop one child.
 - A child can keep running after its parent finishes. Its execution and final report remain stored in service and embedded sessions.
 - Normal shutdown pauses unfinished work. After a crash, a replacement worker restores unfinished children from their saved workflow history.
 
@@ -176,7 +176,7 @@ You can write to a running child yourself. Name its run ID in the `to` field of 
 
 `ask` sends a question and waits for the next message, which is normally the answer. A child asks the agent that launched it. A child of the root asks through an `agent.question` session event, which starts a turn when the root is idle. A deeper child asks with a `<message kind="question">` in its parent's conversation. The root conversation asks you. The question shows above the composer, and your next message is the answer.
 
-The asker answers with `sendMessage` to the asking run, and you can answer a child's question directly with a message whose `to` names it. While a child waits on a question, `GET /v1/session/agents` shows it with `waiting: true` and the `question`, and `?state=waiting` lists only those runs.
+The asker answers with `sendMessage` to the asking run, and you can answer a child's question directly with a message whose `to` names it. While a child waits on a question, `GET /api/v1/session/agents` shows it with `waiting: true` and the `question`, and `?state=waiting` lists only those runs.
 
 `PEEN_ASK_TIMEOUT` bounds how long `ask` waits, and a call's own `timeout` may shorten it. The default `0` sets no limit of its own, so `ask` waits up to the 30-day cap every messaging tool has, and a child whose question nobody answers holds one of the session's `PEEN_MAX_CONCURRENT_AGENT_RUNS` slots until someone answers or stops it. The root's `ask` still ends with its turn, at `PEEN_TURN_TIMEOUT`. A timed out `ask` returns `answered: false`. Interrupting a root or child wait leaves its recorded question open. Cancellation or a deadline interrupting delivery to the parent also leaves the child's question open; an ordinary delivery refusal closes it unanswered and returns the error.
 
@@ -215,6 +215,6 @@ At most 64 named agents across all layers. See [the harness limits](harness.md#m
 
 ## Watching a child
 
-Every child run is stored in SQLite with its own messages, events, and compactions. A message a child received from another agent or from you is part of its stored transcript from the moment it reached the model. The control surface shows the running children above the composer, with the question each one waits on and a Stop button, and lists every run in the details panel. The API has `GET /v1/session/agents`, which filters by `state`, including `waiting`, and by `parentAgentRunId`. It also has `GET /v1/session/agents/{agentRunId}/messages`, `GET /v1/session/agents/{agentRunId}/events`, and `POST /v1/session/agents/{agentRunId}/cancel`. See the [API reference](http-api.md#get-v1sessionagents).
+Every child run is stored in SQLite with its own messages, events, and compactions. A message a child received from another agent or from you is part of its stored transcript from the moment it reached the model. The control surface shows the running children above the composer, with the question each one waits on and a Stop button, and lists every run in the details panel. The API has `GET /api/v1/session/agents`, which filters by `state`, including `waiting`, and by `parentAgentRunId`. It also has `GET /api/v1/session/agents/{agentRunId}/messages`, `GET /api/v1/session/agents/{agentRunId}/events`, and `POST /api/v1/session/agents/{agentRunId}/cancel`. See the [API reference](http-api.md#get-apiv1sessionagents).
 
 When a child of the root conversation ends, Peen publishes an `agent.finished` or `agent.failed` [session event](events.md#agent-events) with the run ID, agent name, state, duration, and the final answer. That event is how the root hears the answer. A deeper child reports into its parent's conversation instead and publishes no session event.

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -241,17 +242,28 @@ func (p *routedProcess) Wait() (int, error) {
 	return 0, nil
 }
 
-// publishedEvents records what the controller handed to the live feed.
+// publishedEvents records what the pump handed to the live feed.
 type publishedEvents struct {
-	events []session.EventInput
+	mu     sync.Mutex
+	events []session.FeedItem
 }
 
-func (p *publishedEvents) PublishSessionEvents(
+func (p *publishedEvents) deliver(
 	_ context.Context,
 	_ uuid.UUID,
-	events []session.EventInput,
+	items []session.FeedItem,
 ) {
-	p.events = append(p.events, events...)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.events = append(p.events, items...)
+}
+
+func (p *publishedEvents) snapshot() []session.FeedItem {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return append([]session.FeedItem(nil), p.events...)
 }
 
 type routingFixture struct {
@@ -305,10 +317,11 @@ func newRoutingFixture(t *testing.T) routingFixture {
 	launcher := &routedLauncher{t: t, workspace: root}
 	published := &publishedEvents{}
 
-	// The relay sits between the workers and the recorded feed exactly as it
+	// The pump sits between the store and the recorded feed exactly as it
 	// does in control-core, so the router hears about admission the same way.
-	relay := control.NewEventRelay()
-	relay.SetSink(published.PublishSessionEvents)
+	feed := control.NewFeedPump(t.Context(), store)
+	feed.SetSink(published.deliver)
+	store.SetFeedSignal(feed.Signal)
 
 	supervised, err := supervisor.New(supervisor.Options{
 		Store:       store,
@@ -316,7 +329,6 @@ func newRoutingFixture(t *testing.T) routingFixture {
 		Launchers: map[worker.Kind]worker.Launcher{
 			worker.KindControl: launcher,
 		},
-		Publisher:       relay,
 		SocketRoot:      routingSocketRoot(t),
 		ConfigDirectory: t.TempDir(),
 		ReadyTimeout:    routingReadyWait,
@@ -341,7 +353,7 @@ func newRoutingFixture(t *testing.T) routingFixture {
 	opened, err := registry.Open(t.Context(), root, worker.AgentSpaceControl)
 	require.NoError(t, err)
 
-	router, err := control.NewTurnRouter(registry, supervised, relay)
+	router, err := control.NewTurnRouter(registry, supervised, feed)
 	require.NoError(t, err)
 
 	return routingFixture{
@@ -588,11 +600,10 @@ func TestRoutedTurnPublishesOnlyDurableEvents(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	require.NotEmpty(
-		t,
-		fixture.published.events,
-		"the worker's events must reach the live feed",
-	)
+	require.Eventually(t, func() bool {
+		return len(fixture.published.snapshot()) > 0
+	}, routingReadyWait, time.Millisecond,
+		"the worker's events must reach the live feed")
 
 	stored, err := fixture.store.ListEvents(
 		t.Context(),
@@ -606,7 +617,7 @@ func TestRoutedTurnPublishesOnlyDurableEvents(t *testing.T) {
 		durable[event.EventType] = true
 	}
 
-	for _, published := range fixture.published.events {
+	for _, published := range fixture.published.snapshot() {
 		assert.True(
 			t,
 			durable[published.EventType],

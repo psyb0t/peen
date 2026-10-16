@@ -50,7 +50,10 @@ func (s *Store) CompleteExecutionActivityReceipt(
 
 	var result *models.ExecutionActivity
 
-	err := s.query.Transaction(func(tx *repositories.Query) error {
+	err := s.feedTransaction(ctx, func(
+		ctx context.Context,
+		tx *repositories.Query,
+	) error {
 		var err error
 
 		result, err = s.completeActivityWithQuery(ctx, tx, sessionID,

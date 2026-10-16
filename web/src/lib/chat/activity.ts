@@ -1,7 +1,14 @@
-import type { PeenSocketEvent } from "$lib/ws/socket";
-
 import { isStreamProtocolEvent } from "$lib/chat/stream";
-import { isRecord, stringField } from "$lib/common/json";
+import { EVENT_TYPE_NOTICE_CREATED } from "$lib/common/constants";
+import type {
+	AgentRunToolResult,
+	AgentRunToolUse,
+	HarnessWarning,
+	HarnessWarningItem,
+	MessageFailed,
+	NoticeCreated,
+	ServerEvent,
+} from "$lib/ws/generated";
 
 const EVENT_TYPE_TOOL_USE = "tool.use";
 const EVENT_TYPE_TOOL_RESULT = "tool.result";
@@ -50,7 +57,7 @@ export interface AgentActivity {
 
 // Events the live reply or the persisted messages already show. Listing them
 // as activity rows would repeat the chat.
-const EVENT_TYPES_SHOWN_ELSEWHERE = new Set([
+const EVENT_TYPES_SHOWN_ELSEWHERE = new Set<string>([
 	EVENT_TYPE_TOOL_USE,
 	EVENT_TYPE_TOOL_RESULT,
 	EVENT_TYPE_TURN_STARTED,
@@ -70,20 +77,24 @@ const EVENT_TYPES_SHOWN_ELSEWHERE = new Set([
  * Reports whether an event belongs in the activity list. Stream protocol
  * events and events the chat already renders do not.
  */
-export function isActivityEvent(event: PeenSocketEvent): boolean {
+export function isActivityEvent(event: ServerEvent): boolean {
 	return !isStreamProtocolEvent(event) && !EVENT_TYPES_SHOWN_ELSEWHERE.has(event.type);
 }
 
-export function activities(events: PeenSocketEvent[]): AgentActivity[] {
+export function activities(events: ServerEvent[]): AgentActivity[] {
 	return events.filter(isActivityEvent).map(activityForEvent);
 }
 
-function activityForEvent(event: PeenSocketEvent): AgentActivity {
+function activityForEvent(event: ServerEvent): AgentActivity {
 	switch (event.type) {
 		case EVENT_TYPE_AGENT_RUN_TOOL_USE:
 			return toolActivity(event, CHILD_AGENT_TITLE, "default");
 		case EVENT_TYPE_AGENT_RUN_TOOL_RESULT:
-			return toolActivity(event, CHILD_AGENT_TITLE, toolResultTone(event.data));
+			return toolActivity(
+				event,
+				CHILD_AGENT_TITLE,
+				event.data.event.isError ? "error" : "success",
+			);
 		case EVENT_TYPE_TURN_FAILED:
 			return simpleActivity(event, AGENT_FINISHED_TITLE, FAILED_DETAIL, "error");
 		case EVENT_TYPE_TURN_CANCELLED:
@@ -102,88 +113,72 @@ function activityForEvent(event: PeenSocketEvent): AgentActivity {
 			return simpleActivity(event, CHILD_AGENT_TITLE, FAILED_DETAIL, "error");
 		case EVENT_TYPE_AGENT_RUN_CANCELLED:
 			return simpleActivity(event, CHILD_AGENT_TITLE, CANCELLED_DETAIL, "warning");
+		case EVENT_TYPE_NOTICE_CREATED:
+			return noticeActivity(event);
 		default:
 			return simpleActivity(event, event.type, undefined, "default");
 	}
 }
 
-function messageFailureActivity(event: PeenSocketEvent): AgentActivity {
+function noticeActivity(event: NoticeCreated): AgentActivity {
 	return {
-		code: stringField(event.data, "code"),
 		data: event.data,
-		detail: stringField(event.data, "message") ?? "Peen could not start this turn.",
+		detail: event.data.summary,
 		id: event.id,
-		reason: stringField(event.data, "reason"),
+		title: event.data.type,
+		tone: "default",
+	};
+}
+
+function messageFailureActivity(event: MessageFailed): AgentActivity {
+	return {
+		code: event.data.code,
+		data: event.data,
+		detail: event.data.message,
+		id: event.id,
+		reason: event.data.reason,
 		title: "Peen could not start this turn",
 		tone: "error",
 	};
 }
 
-function harnessWarningActivity(event: PeenSocketEvent): AgentActivity {
-	const warnings = harnessWarningDetails(event.data);
-
+function harnessWarningActivity(event: HarnessWarning): AgentActivity {
 	return {
 		data: event.data,
 		detail:
 			"Peen ignored invalid optional workspace configuration and loaded the rest.",
 		id: event.id,
-		reason: warnings.join("\n"),
+		reason: harnessWarningDetails(event.data.warnings),
 		title: "Workspace configuration warning",
 		tone: "warning",
 	};
 }
 
-function harnessWarningDetails(data: unknown): string[] {
-	if (!isRecord(data) || !Array.isArray(data.warnings)) {
-		return ["Peen did not receive details for the ignored configuration."];
-	}
-
-	const details: string[] = [];
-	for (const warning of data.warnings) {
-		if (!isRecord(warning)) {
-			continue;
-		}
-
-		const kind = stringField(warning, "kind") ?? "configuration";
-		const source = stringField(warning, "source") ?? "an unknown source";
-		const reason = stringField(warning, "reason") ?? "is invalid";
-		details.push(`${kind} at ${source}: ${reason}`);
-	}
-
-	return details.length > 0
-		? details
-		: ["Peen did not receive details for the ignored configuration."];
+function harnessWarningDetails(warnings: HarnessWarningItem[]): string {
+	return warnings
+		.map((warning) => `${warning.kind} at ${warning.source}: ${warning.reason}`)
+		.join("\n");
 }
 
 function toolActivity(
-	event: PeenSocketEvent,
+	event: AgentRunToolResult | AgentRunToolUse,
 	detail: string,
 	tone: ActivityTone,
 ): AgentActivity {
-	const name = stringField(event.data, "name") ?? "Tool";
-
 	return {
-		data: event.data,
+		data: event.data.event,
 		detail,
 		id: event.id,
-		title: name,
+		title: event.data.event.name,
 		tone,
 	};
 }
 
 function simpleActivity(
-	event: PeenSocketEvent,
+	event: ServerEvent,
 	title: string,
 	detail: string | undefined,
 	tone: ActivityTone,
 ): AgentActivity {
 	return { data: event.data, detail, id: event.id, title, tone };
-}
-
-function toolResultTone(data: unknown): ActivityTone {
-	return isError(data) ? "error" : "success";
-}
-
-function isError(data: unknown): boolean {
-	return isRecord(data) && data.isError === true;
 }

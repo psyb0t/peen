@@ -39,14 +39,17 @@ table agent_run_events
   column 1 session_id TEXT notnull=1 default=NULL pk=0
   column 2 agent_run_id TEXT notnull=1 default=NULL pk=0
   column 3 sequence INTEGER notnull=1 default=NULL pk=0
-  column 4 event_type TEXT notnull=1 default=NULL pk=0
-  column 5 payload_json TEXT notnull=1 default=NULL pk=0
-  column 6 created_at DATETIME notnull=1 default=NULL pk=0
+  column 4 feed_sequence INTEGER notnull=1 default=NULL pk=0
+  column 5 event_type TEXT notnull=1 default=NULL pk=0
+  column 6 payload_json TEXT notnull=1 default=NULL pk=0
+  column 7 created_at DATETIME notnull=1 default=NULL pk=0
+  CHECK (feed_sequence > 0)
   CHECK (json_valid(payload_json))
   CHECK (sequence > 0)
   foreign key (session_id,agent_run_id) -> agent_runs(session_id,id) update=NO ACTION delete=NO ACTION
   constraint origin=pk (id)
   constraint origin=u (agent_run_id,sequence)
+  constraint origin=u (session_id,feed_sequence)
   constraint origin=u (session_id,id)
   index CREATE INDEX agent_run_events_run_sequence_id_index ON agent_run_events (agent_run_id,sequence ASC,id ASC)
 table agent_run_messages
@@ -164,20 +167,24 @@ table events
   column 1 session_id TEXT notnull=1 default=NULL pk=0
   column 2 turn_id TEXT notnull=1 default=NULL pk=0
   column 3 sequence INTEGER notnull=1 default=NULL pk=0
-  column 4 request_id TEXT notnull=1 default=NULL pk=0
-  column 5 event_type TEXT notnull=1 default=NULL pk=0
-  column 6 payload_json TEXT notnull=1 default=NULL pk=0
-  column 7 parent_tool_call_id TEXT notnull=1 default='' pk=0
-  column 8 created_at DATETIME notnull=1 default=NULL pk=0
-  column 9 worker_generation_id TEXT notnull=1 default='' pk=0
+  column 4 feed_sequence INTEGER notnull=1 default=NULL pk=0
+  column 5 request_id TEXT notnull=1 default=NULL pk=0
+  column 6 event_type TEXT notnull=1 default=NULL pk=0
+  column 7 payload_json TEXT notnull=1 default=NULL pk=0
+  column 8 parent_tool_call_id TEXT notnull=1 default='' pk=0
+  column 9 created_at DATETIME notnull=1 default=NULL pk=0
+  column 10 worker_generation_id TEXT notnull=1 default='' pk=0
+  CHECK (feed_sequence > 0)
   CHECK (json_valid(payload_json))
   CHECK (sequence > 0)
   foreign key (session_id) -> sessions(id) update=NO ACTION delete=NO ACTION
   foreign key (session_id,turn_id) -> turns(session_id,id) update=NO ACTION delete=NO ACTION
   constraint origin=pk (id)
+  constraint origin=u (session_id,feed_sequence)
   constraint origin=u (session_id,id)
   constraint origin=u (session_id,sequence)
   index CREATE INDEX events_session_sequence_id_index ON events (session_id,sequence,id)
+  index CREATE INDEX events_session_turn_feed_sequence_index ON events (session_id,turn_id,feed_sequence)
   index CREATE INDEX events_worker_generation_id_index ON events (worker_generation_id) WHERE worker_generation_id <> ''
 table execution_activities
   column 0 id TEXT notnull=1 default=NULL pk=1
@@ -522,20 +529,23 @@ table session_notices
   column 0 id TEXT notnull=0 default=NULL pk=1
   column 1 session_id TEXT notnull=1 default=NULL pk=0
   column 2 sequence INTEGER notnull=1 default=NULL pk=0
-  column 3 type TEXT notnull=1 default=NULL pk=0
-  column 4 source TEXT notnull=1 default=NULL pk=0
-  column 5 summary TEXT notnull=1 default=NULL pk=0
-  column 6 data_json TEXT notnull=1 default='{}' pk=0
-  column 7 delivery TEXT notnull=1 default=NULL pk=0
-  column 8 state TEXT notnull=1 default=NULL pk=0
-  column 9 created_at DATETIME notnull=1 default=NULL pk=0
-  column 10 delivered_at DATETIME notnull=0 default=NULL pk=0
+  column 3 feed_sequence INTEGER notnull=1 default=NULL pk=0
+  column 4 type TEXT notnull=1 default=NULL pk=0
+  column 5 source TEXT notnull=1 default=NULL pk=0
+  column 6 summary TEXT notnull=1 default=NULL pk=0
+  column 7 data_json TEXT notnull=1 default='{}' pk=0
+  column 8 delivery TEXT notnull=1 default=NULL pk=0
+  column 9 state TEXT notnull=1 default=NULL pk=0
+  column 10 created_at DATETIME notnull=1 default=NULL pk=0
+  column 11 delivered_at DATETIME notnull=0 default=NULL pk=0
   CHECK (delivery IN ('queue','wake'))
+  CHECK (feed_sequence > 0)
   CHECK (json_valid(data_json))
   CHECK (sequence > 0)
   CHECK (state IN ('pending','delivered'))
   foreign key (session_id) -> sessions(id) update=NO ACTION delete=NO ACTION
   constraint origin=pk (id)
+  constraint origin=u (session_id,feed_sequence)
   constraint origin=u (session_id,id)
   constraint origin=u (session_id,sequence)
   index CREATE INDEX session_notices_session_sequence_id_index ON session_notices (session_id,sequence,id)
@@ -554,7 +564,9 @@ table sessions
   column 10 workspace TEXT notnull=1 default='' pk=0
   column 11 agent_space TEXT notnull=1 default='' pk=0
   column 12 stop_revision INTEGER notnull=1 default=0 pk=0
+  column 13 feed_sequence INTEGER notnull=1 default=0 pk=0
   CHECK (completed_turn_count >= 0)
+  CHECK (feed_sequence >= 0)
   CHECK (last_completed_sequence >= 0)
   CHECK (message_count >= 0)
   CHECK (stop_revision >= 0)

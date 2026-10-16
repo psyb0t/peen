@@ -31,6 +31,7 @@ func newSessionNotice(db *gorm.DB, opts ...gen.DOOption) sessionNotice {
 	_sessionNotice.ID = field.NewField(tableName, "id")
 	_sessionNotice.SessionID = field.NewField(tableName, "session_id")
 	_sessionNotice.Sequence = field.NewInt64(tableName, "sequence")
+	_sessionNotice.FeedSequence = field.NewInt64(tableName, "feed_sequence")
 	_sessionNotice.Type = field.NewString(tableName, "type")
 	_sessionNotice.Source = field.NewString(tableName, "source")
 	_sessionNotice.Summary = field.NewString(tableName, "summary")
@@ -48,18 +49,19 @@ func newSessionNotice(db *gorm.DB, opts ...gen.DOOption) sessionNotice {
 type sessionNotice struct {
 	sessionNoticeDo
 
-	ALL         field.Asterisk
-	ID          field.Field
-	SessionID   field.Field
-	Sequence    field.Int64
-	Type        field.String
-	Source      field.String
-	Summary     field.String
-	DataJSON    field.String
-	Delivery    field.String
-	State       field.String
-	CreatedAt   field.Time
-	DeliveredAt field.Time
+	ALL          field.Asterisk
+	ID           field.Field
+	SessionID    field.Field
+	Sequence     field.Int64
+	FeedSequence field.Int64
+	Type         field.String
+	Source       field.String
+	Summary      field.String
+	DataJSON     field.String
+	Delivery     field.String
+	State        field.String
+	CreatedAt    field.Time
+	DeliveredAt  field.Time
 
 	fieldMap map[string]field.Expr
 }
@@ -79,6 +81,7 @@ func (s *sessionNotice) updateTableName(table string) *sessionNotice {
 	s.ID = field.NewField(table, "id")
 	s.SessionID = field.NewField(table, "session_id")
 	s.Sequence = field.NewInt64(table, "sequence")
+	s.FeedSequence = field.NewInt64(table, "feed_sequence")
 	s.Type = field.NewString(table, "type")
 	s.Source = field.NewString(table, "source")
 	s.Summary = field.NewString(table, "summary")
@@ -103,10 +106,11 @@ func (s *sessionNotice) GetFieldByName(fieldName string) (field.OrderExpr, bool)
 }
 
 func (s *sessionNotice) fillFieldMap() {
-	s.fieldMap = make(map[string]field.Expr, 11)
+	s.fieldMap = make(map[string]field.Expr, 12)
 	s.fieldMap["id"] = s.ID
 	s.fieldMap["session_id"] = s.SessionID
 	s.fieldMap["sequence"] = s.Sequence
+	s.fieldMap["feed_sequence"] = s.FeedSequence
 	s.fieldMap["type"] = s.Type
 	s.fieldMap["source"] = s.Source
 	s.fieldMap["summary"] = s.Summary

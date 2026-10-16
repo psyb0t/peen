@@ -120,15 +120,15 @@ func (s *ControlAPI) Run(ctx context.Context) error {
 		return ctxerrors.Wrap(err, "create control API server")
 	}
 
-	// Registering the sink here is what connects a worker's durable write to
-	// the live feed. Until it happens the controller still records everything;
-	// it simply has nowhere to deliver yet.
-	core.Events.SetSink(func(
-		_ context.Context,
+	// Registering the sink here is what connects a committed feed row to the
+	// live feed. Until it happens the pump still reads; it simply has nowhere
+	// to deliver yet.
+	core.Feed.SetSink(func(
+		ctx context.Context,
 		sessionID uuid.UUID,
-		events []session.EventInput,
+		items []session.FeedItem,
 	) {
-		server.BroadcastDurableSessionEvents(sessionID, events)
+		server.BroadcastFeedItems(ctx, sessionID, items)
 	})
 
 	metricsServer, err := metrics.NewServer(core.Metrics)

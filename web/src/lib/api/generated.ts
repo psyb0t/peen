@@ -232,6 +232,26 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	"/session/feed": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Replay a session's live feed from a sequence
+		 * @description Returns the session's sequenced live frames after `cursor`, oldest first: root protocol events, child agent run steps, and notices. Each item has the same type, data and sequence its live WebSocket frame carried, so a client that reconnects passes the last sequence it applied and continues without a gap or a duplicate. A cursor at or past the head returns an empty page.
+		 */
+		get: operations["listSessionFeed"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	"/session/notices": {
 		parameters: {
 			query?: never;
@@ -624,6 +644,16 @@ export interface components {
 			/** Format: int64 */
 			completedTurnCount: number;
 			activeTurn: boolean;
+			/**
+			 * Format: int64
+			 * @description The session's newest feed sequence.
+			 */
+			feedSequence: number;
+			/**
+			 * Format: int64
+			 * @description First feed sequence of the running turn. Set only by GET /session while a turn runs; replay from the sequence before it to rebuild that turn's live view.
+			 */
+			activeTurnFeedSequence?: number | null;
 			agent: string;
 			model: string;
 			workspace: string;
@@ -712,6 +742,11 @@ export interface components {
 			sessionId?: string;
 			/** Format: uuid */
 			requestId?: string;
+			/**
+			 * Format: int64
+			 * @description The frame's position in the session feed. Absent on message.completed and message.failed, which acknowledge one request and are not replayed.
+			 */
+			sequence?: number;
 		};
 		/** @description The only client-to-server WebSocket command. sessionId is routing metadata, not a permission grant. The server persists accepted work and broadcasts its resulting session events to all global sockets. */
 		WebSocketMessageSendEvent: {
@@ -845,6 +880,44 @@ export interface components {
 			/** Format: int32 */
 			offset: number;
 			hasMore: boolean;
+		};
+		/** @description One sequenced frame of a session's live feed, as it was sent over the WebSocket. */
+		FeedFrame: {
+			/**
+			 * Format: int64
+			 * @description Position in the session feed. Consecutive, starting at 1.
+			 */
+			sequence: number;
+			/**
+			 * Format: uuid
+			 * @description ID of the stored record, also the live frame's id.
+			 */
+			id: string;
+			type: string;
+			/** Format: uuid */
+			sessionId: string;
+			/** Format: uuid */
+			requestId: string | null;
+			/** @description The frame's data, exactly as sent live. */
+			data: unknown;
+			/** Format: date-time */
+			createdAt: string;
+		};
+		FeedPage: {
+			items: components["schemas"]["FeedFrame"][];
+			/** Format: int32 */
+			limit: number;
+			/**
+			 * Format: int64
+			 * @description Pass back as cursor to continue from here.
+			 */
+			nextCursor: number;
+			hasMore: boolean;
+			/**
+			 * Format: int64
+			 * @description The session's newest feed sequence when the page was read.
+			 */
+			head: number;
 		};
 		TranscriptEvent: {
 			/** Format: uuid */
@@ -1794,6 +1867,38 @@ export interface operations {
 				};
 				content: {
 					"application/json": components["schemas"]["TranscriptEventPage"];
+				};
+			};
+			400: components["responses"]["ErrorBadRequest"];
+			401: components["responses"]["ErrorUnauthorized"];
+			404: components["responses"]["ErrorNotFound"];
+			500: components["responses"]["ErrorInternal"];
+		};
+	};
+	listSessionFeed: {
+		parameters: {
+			query?: {
+				/** @description Return items with a sequence greater than this value. */
+				cursor?: number;
+				limit?: number;
+			};
+			header: {
+				"X-Session-ID": components["parameters"]["SessionIDRequired"];
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Feed page */
+			200: {
+				headers: {
+					"X-Session-ID": components["headers"]["SessionID"];
+					"X-Request-ID": components["headers"]["RequestID"];
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["FeedPage"];
 				};
 			};
 			400: components["responses"]["ErrorBadRequest"];

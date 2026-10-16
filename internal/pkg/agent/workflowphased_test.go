@@ -135,7 +135,7 @@ func TestPhasedWorkflowRunsModelAndSeparateToolPhases(t *testing.T) {
 	}
 	instance := startPhasedWorkflow(t, fixture)
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, runtimeToolFinalText, result.Text)
 	assert.Equal(t, []workflowToolPhase{
@@ -183,7 +183,7 @@ func TestPhasedWorkflowProjectsEarlyFailureWithoutMoreEffects(t *testing.T) {
 	}
 	instance := startPhasedWorkflow(t, fixture)
 	_, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.Error(t, err)
 	assert.Equal(t, []workflowToolPhase{
 		workflowToolPhasePre, workflowToolPhaseProject,
@@ -263,7 +263,7 @@ func TestPhasedWorkflowBoundsConcurrentToolHandlers(t *testing.T) {
 	}
 	closeRelease()
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, runtimeToolFinalText, result.Text)
 	assert.Equal(t, 2, driver.Calls())
@@ -327,7 +327,7 @@ func TestPhasedWorkflowResumesAfterCommittedPreHook(t *testing.T) {
 	require.NoError(t, fixture.api.SignalWorkflow(t.Context(),
 		instance.InstanceID, workflowResumeSignal, struct{}{}))
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, runtimeToolFinalText, result.Text)
 	assert.Equal(t, int64(1), preHooks.Load())

@@ -25,6 +25,7 @@ func SessionToAPI(
 		Agent:              stored.RootAgent,
 		CompletedTurnCount: stored.CompletedTurnCount,
 		CreatedAt:          stored.CreatedAt,
+		FeedSequence:       stored.FeedSequence,
 		Id:                 stored.ID,
 		LastMessageAt:      stored.LastMessageAt,
 		MessageCount:       stored.MessageCount,

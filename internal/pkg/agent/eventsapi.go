@@ -52,7 +52,7 @@ func (r *Runtime) ListSessionNotices(
 		Offset:  pageOffset,
 	}
 	for _, notice := range stored.Items {
-		converted, convertErr := sessionNoticeModelToAPI(notice)
+		converted, convertErr := SessionNoticeModelToAPI(notice)
 		if convertErr != nil {
 			return nil, convertErr
 		}
@@ -188,7 +188,11 @@ func sessionNoticeToAPI(notice events.Notice) (api.SessionNotice, error) {
 	return converted, nil
 }
 
-func sessionNoticeModelToAPI(
+// SessionNoticeModelToAPI maps one stored notice onto its API representation.
+// It is exported so the live feed renderer builds a notice.created frame
+// from the exact same mapping GET /api/v1/session/notices returns, rather
+// than keeping a second one that could drift from it.
+func SessionNoticeModelToAPI(
 	notice *models.SessionNotice,
 ) (api.SessionNotice, error) {
 	return sessionNoticeToAPI(events.Notice{

@@ -36,7 +36,7 @@ Hooks from every layer run in the session's worker with the agent's access, the 
 
 ## Untrusted input
 
-- Every `/v1` request is validated against `api/api.yml` before a handler runs, behind authentication and a body size limit. A new endpoint inherits this by living in the spec.
+- Every `/api/v1` request is validated against `api/api.yml` before a handler runs, behind authentication and a body size limit. A new endpoint inherits this by living in the spec.
 - Bind requests to the generated types. Never decode a body straight into a database model.
 - Start processes with an argument list (`exec.CommandContext(ctx, name, args...)`). Only `runCommand` runs a shell, because running the model's command is its job. Nothing else builds a shell string from request, config, or model data.
 - SQL goes through gorm/gen with bound parameters. See `database.md`.

@@ -7,8 +7,7 @@ import {
 	EVENT_TYPE_QUESTION_ASKED,
 	SEND_TARGET_ROOT,
 } from "$lib/common/constants";
-import { isRecord } from "$lib/common/json";
-import type { PeenSocketEvent } from "$lib/ws/socket";
+import type { ServerEvent } from "$lib/ws/generated";
 
 type AgentRun = components["schemas"]["AgentRun"];
 
@@ -40,12 +39,12 @@ export function sendTarget(selected: string, running: AgentRun[]): string {
  * The question the root conversation asked the user and still waits on, read
  * from the live feed. An answer or the end of the turn closes it.
  */
-export function openRootQuestion(events: PeenSocketEvent[]): string | undefined {
+export function openRootQuestion(events: ServerEvent[]): string | undefined {
 	let question: string | undefined;
 
 	for (const event of events) {
 		if (event.type === EVENT_TYPE_QUESTION_ASKED) {
-			question = questionText(event.data);
+			question = event.data.question;
 
 			continue;
 		}
@@ -56,12 +55,4 @@ export function openRootQuestion(events: PeenSocketEvent[]): string | undefined 
 	}
 
 	return question;
-}
-
-function questionText(data: unknown): string | undefined {
-	if (!isRecord(data) || typeof data.question !== "string") {
-		return undefined;
-	}
-
-	return data.question;
 }

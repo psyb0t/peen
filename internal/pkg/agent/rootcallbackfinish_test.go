@@ -56,7 +56,7 @@ func TestRootCallbackFinalEventSurvivesRegisteredRetry(t *testing.T) {
 			}
 			instance := fixture.start(t)
 			_, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-				fixture.api, instance, 10*time.Second)
+				fixture.api, instance, workflowTestResultTimeout)
 			require.Equal(t, tc.isFailed, err != nil)
 			turn, err := fixture.base.store.GetExecutionRootTurn(t.Context(),
 				fixture.input.SessionID, fixture.input.ExecutionID)
@@ -174,7 +174,7 @@ func TestRootCallbackFinishRunsThroughRegisteredWorkflow(t *testing.T) {
 	fixture, callbacks, shared := newRootCallbackFixture(t, driver)
 	instance := fixture.start(t)
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, "finished", result.Text)
 	assert.Equal(t, 1, driver.Calls())

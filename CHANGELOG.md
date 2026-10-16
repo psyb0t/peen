@@ -2,6 +2,26 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.26.0 (2026-10-16)
+
+Session work keeps running after every client disconnects, and a client that reconnects replays what it missed from a new per-session feed. REST moves to `/api/v1`, the WebSocket moves to `/ws/v1`, and `api/asyncapi.yaml` now defines the WebSocket contract. Before upgrading, back up `PEEN_STATE_DIR`, update every client's URLs, and give the generated Go client the new server URL. The session database schema changes again, so the old databases have to be removed; the breaking changes below list the exact files.
+
+- Breaking: moves REST from `/v1/...` to `/api/v1/...`. An old path now answers a JSON `404 NOT_FOUND` instead of the API or the browser app. Pass `.../api/v1` as the server URL to the generated Go client in `pkg/http/api/client`. Metric route labels change to match.
+- Breaking: moves the WebSocket from `/v1/ws` to `/ws/v1`.
+- Breaking: changes two `agent.run.*` event payloads to Peen-owned camelCase. `agent.run.assistant.message`'s `event` is now `{role, content, toolCalls, reasoning?, providerReasoning?, origin?}`. `agent.run.message.injected`'s `event` is now `{type, content, phase, tool, callId, round}`.
+- Breaking: a feed frame's `timestamp` is now the stored row's creation time rather than the time it was rendered, the same live and on replay.
+- Breaking: changes the session database schema again, adding feed sequence columns. Back up existing state before upgrading. If startup reports a schema mismatch, stop Peen and remove `peen.db`, `peen.db-wal`, `peen.db-shm`, `workflows.db`, `workflows.db-wal` and `workflows.db-shm` from `PEEN_STATE_DIR`. Keeping `workflows.db` still starts, but leaves the removed sessions' workflow instances orphaned in it. The startup error now names all six files. Earlier development schemas are not migrated.
+- Breaking: a session's work no longer stops when every client disconnects, including the last session-filtered WebSocket. Only `POST /api/v1/session/cancel`, the browser Stop control, `peen session stop`, cancelling a child, `peen stop`, an embedded `Close`, a failed turn, or a crash stop it now. An unattended session keeps calling the model and spending provider budget; see [Security](README.md#security) and [Things worth knowing](README.md#things-worth-knowing).
+- Breaking: a live WebSocket frame's `id` is now the stored record's id instead of a random value, and every sequenced frame carries a new `metadata.sequence`, its position in the session's feed. Sequenced frames carry `triggeredBy: null` instead of the all-zero UUID. `message.completed` and `message.failed` stay unsequenced, keep a random `id`, and still name the client frame in `triggeredBy`.
+- Breaking: `peen session attach` now prints `sequence<TAB>type<TAB>data` per line instead of its previous format, and reconnects automatically after an unexpected drop, catching up from the session feed. Its new `--cursor <n>` flag replays from sequence `n` first.
+- Adds `GET /api/v1/session/feed?cursor=&limit=`, which replays a session's sequenced live frames after `cursor`, oldest first: `{items, limit, nextCursor, hasMore, head}`. A client that reconnects tracks the last sequence it applied, drops anything at or before it, and pages the feed from there until `hasMore` is false.
+- Adds `feedSequence` and `activeTurnFeedSequence` to `GET /api/v1/session`. `feedSequence` is the session's newest feed sequence, and `activeTurnFeedSequence`, set only while a turn runs, is that turn's first feed sequence, so a client can replay from the sequence before it to rebuild the running turn's live view.
+- Adds a `notice.created` live frame for every session notice Peen records, including notices that never reach the model. Its data is the stored notice.
+- Adds `api/asyncapi.yaml`, the AsyncAPI 3.0.0 contract for the WebSocket, with generated Go types in `internal/pkg/http/wsapi` and TypeScript types in `web/src/lib/ws/generated.ts`. Peen validates every outgoing frame against it and logs a mismatch instead of dropping the frame; the web client skips a frame that fails validation and still advances its cursor past it.
+- Fixes `agent.run.*` steps, documented as live WebSocket frames but never sent in the worker architecture. Every connected client now receives them live, each with a sequence.
+- Changes the browser control surface to drop its session-filtered WebSocket. It reconnects to the global socket automatically with backoff and catches up from the session feed; `?sessionId=` on `GET /ws/v1` remains a pure filter that does not affect whether work continues.
+- Updates the build tooling to add `github.com/psyb0t/gen-asyncapi` v0.2.0, which generates the WebSocket's Go and TypeScript contract types from `api/asyncapi.yaml`.
+
 ## v0.25.0 (2026-10-15)
 
 Peen runs root, child and grandchild conversations through SQLite-backed go-workflows, retaining context and completed activity results across crashes. Stop pauses unfinished work until explicit continuation. No configuration or API migration is needed.

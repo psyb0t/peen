@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/cschleiden/go-workflows/client"
 	"github.com/google/uuid"
@@ -54,7 +53,7 @@ func TestRootWorkflowParallelReadSnapshotsSurviveReverseCompletion(t *testing.T)
 	}
 	instance := fixture.start(t)
 	_, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	var conversation workflowConversation
 	require.NoError(t, json.Unmarshal(<-preparedContext, &conversation))
@@ -81,7 +80,7 @@ func TestRootWorkflowToolSavesDeliveredSkills(t *testing.T) {
 	fixture, _ := newRootModelWorkflowFixture(t, driver)
 	instance := fixture.start(t)
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	var conversation workflowConversation
 	require.NoError(t, json.Unmarshal(result.Context, &conversation))
@@ -140,7 +139,7 @@ func TestRootWorkflowToolPersistsTranscriptStreamAndReadState(t *testing.T) {
 	writeRuntimeFile(t, path, runtimeToolFileBody)
 	instance := fixture.start(t)
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, runtimeToolFinalText, result.Text)
 	messages, err := fixture.base.store.ListMessages(t.Context(),
@@ -203,7 +202,7 @@ func TestRootWorkflowToolReusesSavedReadAfterDatabaseReopen(t *testing.T) {
 	writeRuntimeFile(t, path, runtimeToolFileBody)
 	instance := fixture.start(t)
 	_, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	page, err := fixture.base.store.ListExecutionActivities(t.Context(),
 		fixture.input.SessionID, fixture.input.ExecutionID,

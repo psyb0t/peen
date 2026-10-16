@@ -73,7 +73,7 @@ Every option is optional except `name`. `docker` defaults to `none` and `sudo` t
 | `docker` | `none` | How much of the host Docker daemon the agent reaches. `none` gives it nothing. `readonly` gives it a Docker API that answers only read requests, described [below](#docker-readonly). `full` mounts the controller's Docker socket at `/var/run/docker.sock` in the container and adds the socket's group to the agent's account, which is host root. |
 | `network` | `bridge` | The container's network. `bridge` is Docker's default network. `none` disables networking, which also stops the agent from calling its model provider. `host` shares the host's network, so the agent can reach every service the host can. |
 | `sudo` | `false` | `true` gives the agent passwordless sudo inside the container and removes the container's `no-new-privileges` guard. |
-| `revision` | `0` | A number you raise by hand when you change the profile. Peen stores it with every worker it starts, which `GET /v1/session/workers` lists, so the record shows which definition ran. Peen does not check it. |
+| `revision` | `0` | A number you raise by hand when you change the profile. Peen stores it with every worker it starts, which `GET /api/v1/session/workers` lists, so the record shows which definition ran. Peen does not check it. |
 
 A profile named `default` always exists with no Docker access, the `bridge` network, and no sudo. Defining a profile named `default` replaces the built-in one, which is how you give the default agent space an image, a mount, or Docker access. Defining a key Peen does not know, such as the removed `allowNetwork`, stops startup.
 
@@ -83,7 +83,7 @@ The agent gets a Docker API at a socket in its own session directory, and `DOCKE
 
 The proxy answers only `GET` and `HEAD` requests to these endpoints: ping, version, info, events, disk usage, the container, image, network, and volume lists, container and image inspect, network and volume inspect, and container stats. It answers everything else with `403` and never passes it to the daemon. That includes creating, starting, stopping, or removing anything, `exec`, `attach`, container logs, `top`, file copies and exports, image pulls, pushes, and builds, and the Swarm, plugin, and secret endpoints. Container and image inspect output keeps each environment variable's name and replaces its value with `<redacted>`.
 
-The agent can still see every container, image, network, and volume on the host, their configuration apart from environment values, their resource use, and the daemon's event stream. `readonly` is not host root, so `GET /v1/agent-spaces` reports it with `hostRootEquivalent` false and one sentence in `capabilityWarnings`.
+The agent can still see every container, image, network, and volume on the host, their configuration apart from environment values, their resource use, and the daemon's event stream. `readonly` is not host root, so `GET /api/v1/agent-spaces` reports it with `hostRootEquivalent` false and one sentence in `capabilityWarnings`.
 
 ### `docker: full`
 
@@ -91,17 +91,17 @@ The agent can still see every container, image, network, and volume on the host,
 
 ### Grants Peen warns about
 
-Four grants widen what the agent can reach, and Peen says so. `docker: full` is host root, `docker: readonly` shows every container on the host, `network: host` removes the network boundary, and `sudo: true` gives the agent root inside its container. `GET /v1/agent-spaces` reports each Docker space with its grants, a `hostRootEquivalent` flag, and one sentence per such grant in `capabilityWarnings`. The control surface shows the grants next to each name, for example `ops (docker: readonly, network: host, sudo: no)` and `builder (docker: full = host root, network: bridge, sudo: yes)`. You see them in the dropdown where you open a workspace and in the form that changes a session's agent space.
+Four grants widen what the agent can reach, and Peen says so. `docker: full` is host root, `docker: readonly` shows every container on the host, `network: host` removes the network boundary, and `sudo: true` gives the agent root inside its container. `GET /api/v1/agent-spaces` reports each Docker space with its grants, a `hostRootEquivalent` flag, and one sentence per such grant in `capabilityWarnings`. The control surface shows the grants next to each name, for example `ops (docker: readonly, network: host, sudo: no)` and `builder (docker: full = host root, network: bridge, sudo: yes)`. You see them in the dropdown where you open a workspace and in the form that changes a session's agent space.
 
 Peen reads `PEEN_DOCKER_PROFILES` at startup, so a profile change needs `peen restart`. A restart stops every worker, and each session's next turn starts a worker under the new definition.
 
 ## Choosing an agent space for a workspace
 
-A workspace gets its agent space once, when its session is created, and keeps it. `peen` creates the session in the default agent space. To create it in another one, open the workspace for the first time in the control surface and choose an agent space in the "Agent space" dropdown, or send `agentSpace` to `POST /v1/sessions/open`. Opening a workspace that already has a session never moves it, so for a workspace you opened before, use the move described below. Peen still checks the name on every open. A name the deployment does not offer returns `403 AGENT_SPACE_NOT_ALLOWED` and creates nothing, even for a workspace that already has a session.
+A workspace gets its agent space once, when its session is created, and keeps it. `peen` creates the session in the default agent space. To create it in another one, open the workspace for the first time in the control surface and choose an agent space in the "Agent space" dropdown, or send `agentSpace` to `POST /api/v1/sessions/open`. Opening a workspace that already has a session never moves it, so for a workspace you opened before, use the move described below. Peen still checks the name on every open. A name the deployment does not offer returns `403 AGENT_SPACE_NOT_ALLOWED` and creates nothing, even for a workspace that already has a session.
 
-Moving a session later is `POST /v1/session/reconfigure`, or the "Change agent space" form in the details panel. It needs a reason, refuses a session with a turn in flight, stops the session's current worker, and records the move in the session's agent space history, which `GET /v1/session/agent-space-decisions` returns. The next turn starts a new worker in the new agent space. The [API reference](http-api.md#get-v1agent-spaces) has the request and response shapes.
+Moving a session later is `POST /api/v1/session/reconfigure`, or the "Change agent space" form in the details panel. It needs a reason, refuses a session with a turn in flight, stops the session's current worker, and records the move in the session's agent space history, which `GET /api/v1/session/agent-space-decisions` returns. The next turn starts a new worker in the new agent space. The [API reference](http-api.md#get-apiv1agent-spaces) has the request and response shapes.
 
-A session keeps the agent space it was opened in. The deployment can stop offering it later, because you removed the profile or because the controller can now reach a Docker daemon and `control` is gone. Every turn in that session then fails with `AGENT_SPACE_NOT_ALLOWED` until you move it with `POST /v1/session/reconfigure`.
+A session keeps the agent space it was opened in. The deployment can stop offering it later, because you removed the profile or because the controller can now reach a Docker daemon and `control` is gone. Every turn in that session then fails with `AGENT_SPACE_NOT_ALLOWED` until you move it with `POST /api/v1/session/reconfigure`.
 
 ## The Docker socket rule
 
@@ -146,7 +146,7 @@ A default of `docker:<profile>` on a controller with no Docker daemon in reach p
 
 ## Questions this page answers
 
-- Where does my agent run? In the agent space of its workspace: `control` next to Peen, or `docker:<profile>` in its own container. `peen status` shows the default, and the session list and `GET /v1/session` report each session's `agentSpace`.
+- Where does my agent run? In the agent space of its workspace: `control` next to Peen, or `docker:<profile>` in its own container. `peen status` shows the default, and the session list and `GET /api/v1/session` report each session's `agentSpace`.
 - What can it touch? See [the four combinations](#the-four-combinations), [Agent spaces](#agent-spaces) for `control`, and the profile's `mounts`, `docker`, `network`, and `sudo` for a Docker space.
 - How do I give each workspace its own container? Install with `--agent-space docker`, or run `peen setup --agent-space docker && peen restart`. Every workspace then runs in a `docker:<profile>` container, `docker:default` unless you pick another. You cannot keep some workspaces on `control`, because a reachable daemon removes it for all of them.
 - How do I give an agent Docker access? Set `docker: readonly` in its profile to let it list and inspect containers, or `docker: full` for the whole daemon, which is host root.

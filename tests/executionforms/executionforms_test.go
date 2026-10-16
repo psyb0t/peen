@@ -30,11 +30,11 @@ import (
 )
 
 const (
-	executionFormsAPIMessagesPath    = "/v1/messages"
-	executionFormsAPIOpenSessionPath = "/v1/sessions/open"
+	executionFormsAPIMessagesPath    = "/api/v1/messages"
+	executionFormsAPIOpenSessionPath = "/api/v1/sessions/open"
 	executionFormsContentTypeJSON    = "application/json"
 	executionFormsHeaderContentType  = "Content-Type"
-	executionFormsWebSocketPath      = "/v1/ws"
+	executionFormsWebSocketPath      = "/ws/v1"
 	executionFormsReadyPath          = "/ready"
 	executionFormsMetricsPath        = "/metrics"
 

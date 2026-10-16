@@ -28,6 +28,7 @@
 		AGENT_POLL_INTERVAL_MS,
 		AGENT_SPACE_DEFAULT_OPTION,
 		DEFAULT_REASONING_EFFORT,
+		FEED_PAGE_LIMIT,
 		MAX_LIVE_EVENTS,
 		REASONING_EFFORTS,
 		SEND_TARGET_ROOT,
@@ -38,9 +39,11 @@
 	} from "$lib/common/constants";
 	import { formatJSON } from "$lib/common/json";
 	import { sessionFromLink } from "$lib/common/sessionlink";
+	import type { ServerEvent } from "$lib/ws/generated";
+	import { FeedCursor } from "$lib/ws/feedcursor";
 	import {
 		PeenSocket,
-		type PeenSocketEvent,
+		type IncomingFrame,
 		type ReasoningEffort,
 		type SocketState,
 	} from "$lib/ws/socket";
@@ -70,6 +73,11 @@
 	let api: PeenAPI | undefined;
 	let socket: PeenSocket | undefined;
 	let socketState: SocketState = "closed";
+	// feedCursor tracks the selected session's position in its live feed:
+	// dedupe, gap detection, and catch-up. It is replaced whenever a new
+	// session load starts, so a frame for a session no longer selected falls
+	// through to the plain apply-and-refresh path below.
+	let feedCursor: FeedCursor | undefined;
 	let error = "";
 	let loading = false;
 	let showInspector = false;
@@ -107,8 +115,8 @@
 	// liveEvents is the raw socket feed for the Details panel. Activity cards
 	// read their own list, so a burst of streamed deltas cannot push a failure
 	// or warning out of the capped feed before the chat shows it.
-	let liveEvents: PeenSocketEvent[] = [];
-	let activityEvents: PeenSocketEvent[] = [];
+	let liveEvents: ServerEvent[] = [];
+	let activityEvents: ServerEvent[] = [];
 	let liveTurns: LiveTurn[] = [];
 	let sessionLoadGeneration = 0;
 	let conversationElement: HTMLDivElement | undefined;
@@ -131,7 +139,6 @@
 	$: syncSelectedModel(selectedSession);
 	$: modelNames = modelOptions(models, selectedSession?.model);
 	$: liveAgents = runningAgents(agents);
-	$: socket?.watchSession(selectedSessionID);
 	// A child that ends while it is the target drops back to the root.
 	$: sendTo = sendTarget(sendTo, liveAgents);
 	$: isSendingToAgent = sendTo !== SEND_TARGET_ROOT;
@@ -215,7 +222,13 @@
 		return sessionID === selectedSessionID;
 	}
 
-	function onSocketEvent(event: PeenSocketEvent): void {
+	/**
+	 * Applies one frame to the chat state. Both a live socket frame and a
+	 * frame replayed from GET /session/feed during catch-up go through this
+	 * one reducer, so replay can never diverge from what a live frame would
+	 * have done.
+	 */
+	function applyLiveEvent(event: ServerEvent): void {
 		liveEvents = [...liveEvents, event].slice(-MAX_LIVE_EVENTS);
 		liveTurns = applyStreamEvent(liveTurns, event);
 		if (isActivityEvent(event)) {
@@ -234,6 +247,75 @@
 		}
 	}
 
+	// Frames for the session the current feed cursor tracks go through it for
+	// dedupe and gap handling. Every other session keeps the plain behavior:
+	// apply once and refresh the session list on turn end. A frame that failed
+	// contract validation never applies: isActivityEvent/applyStreamEvent never
+	// see it, and only its sequence number (if any) reaches the cursor.
+	function routeSocketEvent(frame: IncomingFrame): void {
+		const sessionId =
+			frame.kind === "valid" ? frame.event.metadata.sessionId : frame.invalid.sessionId;
+		if (feedCursor !== undefined && sessionId === feedCursor.sessionID) {
+			feedCursor.accept(frame);
+
+			return;
+		}
+
+		if (frame.kind === "valid") {
+			applyLiveEvent(frame.event);
+		}
+	}
+
+	function createFeedCursor(sessionID: string): FeedCursor {
+		return new FeedCursor({
+			applyFrame: applyLiveEvent,
+			fetchPage: (cursor) =>
+				requireData(
+					controller().GET("/session/feed", {
+						params: {
+							header: { [SESSION_ID_HEADER]: sessionID },
+							query: { cursor, limit: FEED_PAGE_LIMIT },
+						},
+					}),
+				),
+			onResync: () => {
+				if (sessionID === selectedSessionID) {
+					void loadSession();
+				}
+			},
+			sessionID,
+		});
+	}
+
+	// A crash leaves a turn with no terminal event, so after any catch-up the
+	// session is re-read: no active turn there means every still-open live
+	// turn of that session is actually finished.
+	async function reconcileAfterCatchUp(sessionID: string): Promise<void> {
+		if (!api) {
+			return;
+		}
+
+		try {
+			const current = await requireData(
+				controller().GET("/session", {
+					params: { header: { [SESSION_ID_HEADER]: sessionID } },
+				}),
+			);
+			if (current.activeTurn) {
+				return;
+			}
+
+			liveTurns = liveTurns.map((turn) =>
+				turn.sessionID === sessionID && !turn.isFinished
+					? { ...turn, isFinished: true }
+					: turn,
+			);
+		} catch {
+			// Best-effort: the next catch-up or session load retries this.
+			logBrowserEvent("session.reconcile.fail", { session_id: sessionID });
+		}
+	}
+
 	async function connect(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
 		error = "";
@@ -241,9 +323,21 @@
 		socket?.close();
 		socket = new PeenSocket({
 			onError: (message) => showError("socket", message),
-			onEvent: onSocketEvent,
+			onEvent: routeSocketEvent,
 			onState: (state) => {
+				const wasOpen = socketState === "open";
 				socketState = state;
+				// A reconnect misses whatever happened while the socket was down,
+				// so every (re)open of the socket catches the selected session up.
+				if (state === "open" && !wasOpen && feedCursor !== undefined) {
+					const cursor = feedCursor;
+					void (async () => {
+						await cursor.catchUp();
+						if (cursor === feedCursor) {
+							await reconcileAfterCatchUp(cursor.sessionID);
+						}
+					})();
+				}
 			},
 			token: apiToken,
 		});
@@ -366,6 +460,11 @@
 		const loadingSessionID = selectedSessionID;
 		sessionLoadGeneration += 1;
 		const generation = sessionLoadGeneration;
+		// Installed before anything awaits, so a frame for this session that
+		// arrives mid-load buffers in the new cursor instead of racing a stale
+		// one or the plain apply-and-refresh path below.
+		const cursor = createFeedCursor(loadingSessionID);
+		feedCursor = cursor;
 		// A live turn that had already finished when this load started is in
 		// the persisted messages the load returns, so it gives way to them.
 		const persistedRequestIDs = new Set(
@@ -444,6 +543,22 @@
 				duration_ms: elapsed(),
 				session_id: loadingSessionID,
 			});
+
+			// A running turn replays from just before it started, to rebuild its
+			// live view. Otherwise the cursor starts at the head: the stored
+			// snapshot above already covers everything up to it.
+			const activeTurnFrom = session.activeTurnFeedSequence;
+			await cursor.open(
+				activeTurnFrom === null || activeTurnFrom === undefined
+					? session.feedSequence
+					: activeTurnFrom - 1,
+			);
+			if (
+				generation === sessionLoadGeneration &&
+				loadingSessionID === selectedSessionID
+			) {
+				await reconcileAfterCatchUp(loadingSessionID);
+			}
 		} catch (cause) {
 			logBrowserEvent("session.load.fail", {
 				...failure(cause, elapsed),

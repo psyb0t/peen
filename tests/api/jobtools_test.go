@@ -74,7 +74,6 @@ func TestAPIStopKillsForegroundCommandAndItsChild(t *testing.T) {
 	const command = `sleep 3600 & child=$!; printf '%s %s' "$$" "$child" > "$PID_PATH"; wait`
 	workspace := openFreshWorkspace(t, "foreground-stop-", nil)
 	connection := openSessionConnection(t, workspace.sessionID)
-	keepChildAgentConnectionReading(t, connection)
 	pidPath := "/tmp/foreground-" + uuid.NewString()
 	t.Cleanup(integrationInfra.DisableScriptedToolTurn)
 	integrationInfra.EnableScriptedToolTurn(testinfra.ScriptedToolTurn{

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/cschleiden/go-workflows/client"
 	"github.com/google/uuid"
@@ -185,7 +184,7 @@ func TestChildWorkflowQuestionUsesActualSDKPhaseSchedule(t *testing.T) {
 	fixture.input.Context = json.RawMessage(execution.ContextJSON)
 	instance := startPhasedWorkflow(t, fixture)
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, runtimeToolFinalText, result.Text)
 	page, err := fixture.base.store.ListExecutionActivities(t.Context(),

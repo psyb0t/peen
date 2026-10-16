@@ -33,6 +33,7 @@ func newEvent(db *gorm.DB, opts ...gen.DOOption) event {
 	_event.TurnID = field.NewField(tableName, "turn_id")
 	_event.WorkerGenerationID = field.NewString(tableName, "worker_generation_id")
 	_event.Sequence = field.NewInt64(tableName, "sequence")
+	_event.FeedSequence = field.NewInt64(tableName, "feed_sequence")
 	_event.RequestID = field.NewField(tableName, "request_id")
 	_event.EventType = field.NewString(tableName, "event_type")
 	_event.PayloadJSON = field.NewString(tableName, "payload_json")
@@ -53,6 +54,7 @@ type event struct {
 	TurnID             field.Field
 	WorkerGenerationID field.String
 	Sequence           field.Int64
+	FeedSequence       field.Int64
 	RequestID          field.Field
 	EventType          field.String
 	PayloadJSON        field.String
@@ -79,6 +81,7 @@ func (e *event) updateTableName(table string) *event {
 	e.TurnID = field.NewField(table, "turn_id")
 	e.WorkerGenerationID = field.NewString(table, "worker_generation_id")
 	e.Sequence = field.NewInt64(table, "sequence")
+	e.FeedSequence = field.NewInt64(table, "feed_sequence")
 	e.RequestID = field.NewField(table, "request_id")
 	e.EventType = field.NewString(table, "event_type")
 	e.PayloadJSON = field.NewString(table, "payload_json")
@@ -100,12 +103,13 @@ func (e *event) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (e *event) fillFieldMap() {
-	e.fieldMap = make(map[string]field.Expr, 10)
+	e.fieldMap = make(map[string]field.Expr, 11)
 	e.fieldMap["id"] = e.ID
 	e.fieldMap["session_id"] = e.SessionID
 	e.fieldMap["turn_id"] = e.TurnID
 	e.fieldMap["worker_generation_id"] = e.WorkerGenerationID
 	e.fieldMap["sequence"] = e.Sequence
+	e.fieldMap["feed_sequence"] = e.FeedSequence
 	e.fieldMap["request_id"] = e.RequestID
 	e.fieldMap["event_type"] = e.EventType
 	e.fieldMap["payload_json"] = e.PayloadJSON

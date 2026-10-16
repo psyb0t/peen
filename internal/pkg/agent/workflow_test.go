@@ -207,7 +207,7 @@ func TestExecutionWorkflowUsesSeparateModelAndToolActivities(t *testing.T) {
 				runtimeToolFileName), runtimeToolFileBody)
 			instance := fixture.start(t)
 			result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-				fixture.api, instance, 10*time.Second)
+				fixture.api, instance, workflowTestResultTimeout)
 			require.NoError(t, err)
 			assert.Equal(t, runtimeToolFinalText, result.Text)
 			assert.Equal(t, []bool{streaming, streaming}, driver.Streamed())
@@ -302,7 +302,7 @@ func TestExecutionWorkflowParallelToolsRetainHookInjections(t *testing.T) {
 	assert.Equal(t, 1, driver.Calls())
 	close(release)
 	_, err = client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	requests := driver.Requests()
 	require.Len(t, requests, 2)
@@ -402,7 +402,7 @@ func TestExecutionWorkflowJoinsOtherToolsAfterOneClaimFails(t *testing.T) {
 	}, 500*time.Millisecond, 10*time.Millisecond)
 	finish()
 	_, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.Error(t, err)
 	page, err := fixture.base.store.ListExecutionActivities(t.Context(),
 		fixture.input.SessionID, fixture.input.ExecutionID,
@@ -514,7 +514,7 @@ func TestExecutionWorkflowOneResumeSignalContinuesParallelPausedTools(
 	require.NoError(t, fixture.api.SignalWorkflow(t.Context(), instance.InstanceID,
 		workflowResumeSignal, struct{}{}))
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, runtimeToolFinalText, result.Text)
 	assert.EqualValues(t, 2, calls.Load())

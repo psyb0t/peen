@@ -341,6 +341,9 @@ func TestOpenRefusesDatabaseWithADifferentSchema(t *testing.T) {
 			assert.Contains(t, err.Error(), sqliteFileName)
 			assert.Contains(t, err.Error(), sqliteFileName+"-wal")
 			assert.Contains(t, err.Error(), sqliteFileName+"-shm")
+			assert.Contains(t, err.Error(), workflowSQLiteFileName)
+			assert.Contains(t, err.Error(), workflowSQLiteFileName+"-wal")
+			assert.Contains(t, err.Error(), workflowSQLiteFileName+"-shm")
 		})
 	}
 }

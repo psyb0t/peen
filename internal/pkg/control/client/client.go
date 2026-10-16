@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -26,9 +27,11 @@ const (
 	defaultRequestTimeout = 30 * time.Second
 
 	readyPath         = "/ready"
-	sessionsPath      = "/v1/sessions"
-	openSessionPath   = "/v1/sessions/open"
-	cancelSessionPath = "/v1/session/cancel"
+	sessionsPath      = "/api/v1/sessions"
+	openSessionPath   = "/api/v1/sessions/open"
+	sessionPath       = "/api/v1/session"
+	sessionFeedPath   = "/api/v1/session/feed"
+	cancelSessionPath = "/api/v1/session/cancel"
 
 	// headerSessionID selects the durable session for a session-scoped
 	// endpoint. It is Peen's own header and has no shared-library equivalent.
@@ -134,6 +137,51 @@ func (c *Client) ListSessions(ctx context.Context) (api.SessionPage, error) {
 		&page,
 	); err != nil {
 		return api.SessionPage{}, err
+	}
+
+	return page, nil
+}
+
+// GetSession reads one durable session, including its feed head
+// (feedSequence) and whether a turn is currently running.
+func (c *Client) GetSession(
+	ctx context.Context,
+	sessionID uuid.UUID,
+) (api.Session, error) {
+	result := api.Session{}
+	if err := c.callSessionJSON(
+		ctx,
+		http.MethodGet,
+		sessionPath,
+		sessionID,
+		http.StatusOK,
+		&result,
+	); err != nil {
+		return api.Session{}, err
+	}
+
+	return result, nil
+}
+
+// ListSessionFeed reads one page of the session's feed after cursor, oldest
+// first, at the server's default page size.
+func (c *Client) ListSessionFeed(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	cursor int64,
+) (api.FeedPage, error) {
+	path := sessionFeedPath + "?cursor=" + strconv.FormatInt(cursor, 10)
+
+	page := api.FeedPage{}
+	if err := c.callSessionJSON(
+		ctx,
+		http.MethodGet,
+		path,
+		sessionID,
+		http.StatusOK,
+		&page,
+	); err != nil {
+		return api.FeedPage{}, err
 	}
 
 	return page, nil

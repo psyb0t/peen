@@ -12,18 +12,6 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/worker"
 )
 
-// Publisher receives durable records after the controller has written them.
-//
-// Publication happens after the write, never before, so a client can never see
-// an event the database does not already hold.
-type Publisher interface {
-	PublishSessionEvents(
-		ctx context.Context,
-		sessionID uuid.UUID,
-		events []session.EventInput,
-	)
-}
-
 // Controller answers one registered worker's durable calls.
 //
 // It is constructed per connection and holds that worker's session and
@@ -31,7 +19,6 @@ type Publisher interface {
 // session it was not launched for is refused rather than served.
 type Controller struct {
 	store        *session.Store
-	publisher    Publisher
 	sessionID    uuid.UUID
 	generationID uuid.UUID
 	workflows    *workflowController
@@ -40,13 +27,11 @@ type Controller struct {
 // NewController binds one worker connection to its session.
 func NewController(
 	store *session.Store,
-	publisher Publisher,
 	sessionID uuid.UUID,
 	generationID uuid.UUID,
 ) *Controller {
 	return &Controller{
 		store:        store,
-		publisher:    publisher,
 		sessionID:    sessionID,
 		generationID: generationID,
 	}
@@ -565,9 +550,9 @@ func (c *Controller) createOrResume(
 	return opened, nil
 }
 
-// acquireTurn starts a turn and publishes the events it opens with, such as
-// userMessage.created, after they are written. They never pass through a
-// checkpoint, so without this a client would not see them until it reloaded.
+// acquireTurn starts a turn and writes the events it opens with, such as
+// userMessage.created. The store signals the live feed after the write
+// commits, so this never has to publish them itself.
 func (c *Controller) acquireTurn(
 	ctx context.Context,
 	payload json.RawMessage,
@@ -588,8 +573,6 @@ func (c *Controller) acquireTurn(
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "acquire the session turn")
 	}
-
-	c.publish(ctx, request.Input.Events)
 
 	return lease, nil
 }
@@ -615,10 +598,6 @@ func (c *Controller) appendCheckpoint(
 	); err != nil {
 		return nil, ctxerrors.Wrap(err, "append the turn checkpoint")
 	}
-
-	// Publication follows the write, so a client never sees an event the
-	// database does not already hold.
-	c.publish(ctx, request.Events)
 
 	return Ack{}, nil
 }
@@ -795,17 +774,6 @@ func (c *Controller) savePromptSnapshot(
 	}
 
 	return Ack{}, nil
-}
-
-func (c *Controller) publish(
-	ctx context.Context,
-	events []session.EventInput,
-) {
-	if c.publisher == nil || len(events) == 0 {
-		return
-	}
-
-	c.publisher.PublishSessionEvents(ctx, c.sessionID, events)
 }
 
 // served adapts a two-value handler result to the three-value dispatch shape.

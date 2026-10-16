@@ -27,6 +27,9 @@ type Store struct {
 
 	activeMu sync.Mutex
 	active   map[uuid.UUID]activeTurn
+
+	feedSignalMu sync.RWMutex
+	feedSignal   FeedSignalFunc
 }
 
 // OpenWorkspace returns the one durable session belonging to workspace.
@@ -206,42 +209,11 @@ func (s *Store) AcquireTurn(
 		return Lease{}, err
 	}
 
-	if err := s.query.Transaction(func(tx *repositories.Query) error {
-		revision, err := s.admissionStopRevision(ctx, tx, sessionID,
-			input.ExpectedStopRevision)
-		if err != nil {
-			return ctxerrors.Wrap(err, "validate turn stop revision")
-		}
-
-		turn := &models.Turn{
-			ID: lease.TurnID, SessionID: lease.SessionID,
-			RequestID:          input.RequestID,
-			Workspace:          input.Workspace,
-			State:              models.TurnStateRunning,
-			StartedAt:          s.now(),
-			WorkerGenerationID: input.WorkerGenerationID,
-			StopRevision:       revision,
-		}
-		if err := tx.Turn.WithContext(ctx).Create(turn); err != nil {
-			return ctxerrors.Wrap(err, "create running turn")
-		}
-
-		if _, err := s.appendTranscript(
-			ctx,
-			tx,
-			lease,
-			input.Messages,
-			input.Events,
-		); err != nil {
-			return ctxerrors.Wrap(err, "append initial turn transcript")
-		}
-
-		_, err = s.deliverOpeningNotices(ctx, tx, lease, input)
-		if err != nil {
-			return ctxerrors.Wrap(err, "admit opening session notices")
-		}
-
-		return nil
+	if err := s.feedTransaction(ctx, func(
+		ctx context.Context,
+		tx *repositories.Query,
+	) error {
+		return s.admitTurn(ctx, tx, sessionID, lease, input)
 	}); err != nil {
 		s.ReleaseTurn(lease)
 
@@ -249,6 +221,51 @@ func (s *Store) AcquireTurn(
 	}
 
 	return lease, nil
+}
+
+// admitTurn writes a new running turn, its initial transcript, and any
+// opening notices it admits, all inside the caller's feed transaction.
+func (s *Store) admitTurn(
+	ctx context.Context,
+	tx *repositories.Query,
+	sessionID uuid.UUID,
+	lease Lease,
+	input StartTurnInput,
+) error {
+	revision, err := s.admissionStopRevision(ctx, tx, sessionID,
+		input.ExpectedStopRevision)
+	if err != nil {
+		return ctxerrors.Wrap(err, "validate turn stop revision")
+	}
+
+	turn := &models.Turn{
+		ID: lease.TurnID, SessionID: lease.SessionID,
+		RequestID:          input.RequestID,
+		Workspace:          input.Workspace,
+		State:              models.TurnStateRunning,
+		StartedAt:          s.now(),
+		WorkerGenerationID: input.WorkerGenerationID,
+		StopRevision:       revision,
+	}
+	if err := tx.Turn.WithContext(ctx).Create(turn); err != nil {
+		return ctxerrors.Wrap(err, "create running turn")
+	}
+
+	if _, err := s.appendTranscript(
+		ctx,
+		tx,
+		lease,
+		input.Messages,
+		input.Events,
+	); err != nil {
+		return ctxerrors.Wrap(err, "append initial turn transcript")
+	}
+
+	if _, err := s.deliverOpeningNotices(ctx, tx, lease, input); err != nil {
+		return ctxerrors.Wrap(err, "admit opening session notices")
+	}
+
+	return nil
 }
 
 // RegisterCancellation associates cancellation with one exact active lease.

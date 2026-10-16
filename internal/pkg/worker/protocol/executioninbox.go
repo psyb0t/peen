@@ -168,8 +168,6 @@ func (c *Controller) acceptExecutionMessage(
 		return nil, ctxerrors.Wrap(err, "accept worker inbox message")
 	}
 
-	c.publish(ctx, result.Events)
-
 	return result, nil
 }
 
@@ -190,8 +188,6 @@ func (c *Controller) deliverExecutionMessages(
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "deliver worker inbox messages")
 	}
-
-	c.publish(ctx, receipt.Events)
 
 	return receipt, nil
 }

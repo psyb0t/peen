@@ -20,6 +20,7 @@ require (
 	github.com/psyb0t/ctxscope v1.0.3
 	github.com/psyb0t/elelem v0.9.1
 	github.com/psyb0t/essessey v0.7.5
+	github.com/psyb0t/gen-asyncapi v0.2.0
 	github.com/psyb0t/goenv v1.0.10
 	github.com/psyb0t/gonfiguration v1.6.4
 	github.com/psyb0t/slogging v1.7.1
@@ -231,6 +232,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
 	github.com/prometheus/procfs v0.7.3 // indirect
+	github.com/psyb0t/go-asyncapi v0.1.0 // indirect
 	github.com/psyb0t/gofindimpl v1.0.12 // indirect
 	github.com/psyb0t/oapixconstgen v1.1.6 // indirect
 	github.com/quasilyte/go-ruleguard v0.4.5 // indirect
@@ -336,6 +338,7 @@ require (
 tool (
 	github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 	github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
+	github.com/psyb0t/gen-asyncapi/cmd/gen-asyncapi
 	github.com/psyb0t/gofindimpl
 	github.com/psyb0t/oapixconstgen
 	github.com/psyb0t/peen/cmd/envexample

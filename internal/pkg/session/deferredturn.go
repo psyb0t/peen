@@ -56,7 +56,10 @@ func (s *Store) AcquireDeferredExecutionTurn(
 
 	result := &DeferredTurnAdmission{Lease: lease}
 
-	if err := s.query.Transaction(func(tx *repositories.Query) error {
+	if err := s.feedTransaction(ctx, func(
+		ctx context.Context,
+		tx *repositories.Query,
+	) error {
 		return s.admitDeferredTurn(ctx, tx, inboxID, input, result)
 	}); err != nil {
 		return nil, ctxerrors.Wrap(err, "admit deferred turn transaction")

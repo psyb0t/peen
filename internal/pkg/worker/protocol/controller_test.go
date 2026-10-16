@@ -29,7 +29,7 @@ func newControllerFixture(t *testing.T) (*Controller, uuid.UUID) {
 	opened, err := store.CreateOrResume(ctx, nil, session.OpenSessionOptions{})
 	require.NoError(t, err)
 
-	controller := NewController(store, nil, opened.Session.ID, uuid.New())
+	controller := NewController(store, opened.Session.ID, uuid.New())
 
 	return controller, opened.Session.ID
 }
@@ -43,24 +43,10 @@ func mustEncode(t *testing.T, value any) json.RawMessage {
 	return encoded
 }
 
-type recordingPublisher struct {
-	sessionIDs []uuid.UUID
-	events     []session.EventInput
-}
-
-func (p *recordingPublisher) PublishSessionEvents(
-	_ context.Context,
-	sessionID uuid.UUID,
-	events []session.EventInput,
-) {
-	p.sessionIDs = append(p.sessionIDs, sessionID)
-	p.events = append(p.events, events...)
-}
-
 // A turn's opening events, such as the user's own message, are written by
-// AcquireTurn rather than a checkpoint. They must still reach live clients,
-// and only after the database holds them.
-func TestControllerPublishesTurnStartEventsAfterTheWrite(t *testing.T) {
+// AcquireTurn rather than a checkpoint. The store's feed signal, not this
+// call, is what reaches live clients; this proves only that the write lands.
+func TestControllerWritesTurnStartEvents(t *testing.T) {
 	ctx := context.Background()
 
 	handle, err := db.Open(ctx, db.Config{Directory: t.TempDir()})
@@ -73,8 +59,7 @@ func TestControllerPublishesTurnStartEventsAfterTheWrite(t *testing.T) {
 	opened, err := store.CreateOrResume(ctx, nil, session.OpenSessionOptions{})
 	require.NoError(t, err)
 
-	publisher := &recordingPublisher{}
-	controller := NewController(store, publisher, opened.Session.ID, uuid.New())
+	controller := NewController(store, opened.Session.ID, uuid.New())
 
 	requestID := uuid.New()
 	opening := session.EventInput{
@@ -98,15 +83,11 @@ func TestControllerPublishesTurnStartEventsAfterTheWrite(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 
-	require.Len(t, publisher.events, 1)
-	assert.Equal(t, []uuid.UUID{opened.Session.ID}, publisher.sessionIDs)
-	assert.Equal(t, opening.EventType, publisher.events[0].EventType)
-	assert.Equal(t, requestID, publisher.events[0].RequestID)
-
 	stored, err := store.ListEvents(ctx, opened.Session.ID, session.ListEventsOptions{})
 	require.NoError(t, err)
 	require.Len(t, stored.Items, 1)
 	assert.Equal(t, opening.EventType, stored.Items[0].EventType)
+	assert.Equal(t, requestID, stored.Items[0].RequestID)
 }
 
 func TestControllerDirectoryStateIsSessionScoped(t *testing.T) {

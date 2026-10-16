@@ -38,7 +38,7 @@ func TestHandlerServesMetricsOnlyAtMetricsPath(t *testing.T) {
 	notFoundRequest := httptest.NewRequestWithContext(
 		t.Context(),
 		http.MethodGet,
-		"/v1/messages",
+		"/api/v1/messages",
 		nil,
 	)
 	notFoundRecorder := httptest.NewRecorder()

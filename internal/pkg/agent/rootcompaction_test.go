@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/cschleiden/go-workflows/client"
 	"github.com/google/uuid"
@@ -194,7 +193,7 @@ func TestNativeRootCompactionSDKReusesSavedSummary(t *testing.T) {
 	assert.Equal(t, 4, driver.Calls())
 	instance := startCompactingWorkflow(t, fixture)
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, "continued answer", result.Text)
 	assert.Equal(t, 5, driver.Calls())

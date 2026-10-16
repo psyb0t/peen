@@ -20,6 +20,7 @@ type Session struct {
 	ModelID               string
 	Workspace             string
 	StopRevision          int64
+	FeedSequence          int64
 
 	// AgentSpace is the agent space this session's tools run in: `control` or
 	// `docker:<profile>`. It is empty for a session recorded before agent

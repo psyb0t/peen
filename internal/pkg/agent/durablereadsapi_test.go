@@ -7,6 +7,7 @@ import (
 	"github.com/psyb0t/elelem/elelemtest"
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
+	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -124,6 +125,39 @@ func TestRuntimeServesTheDurableReadsOfACompletedTurn(t *testing.T) {
 		assert.Equal(t, *stored.PromptSnapshotHash, prompt.Hash)
 		assert.NotEmpty(t, prompt.EffectivePrompt)
 	})
+
+	t.Run("feed", func(t *testing.T) {
+		page, limit, err := fixture.runtime.ListSessionFeed(
+			ctx,
+			api.ListSessionFeedParams{XSessionID: turnResult.SessionID},
+		)
+		require.NoError(t, err)
+		assert.EqualValues(t, feedDefaultLimit, limit)
+		require.NotEmpty(
+			t,
+			page.Items,
+			"a completed turn's events are on the session feed",
+		)
+		assert.False(t, page.HasMore)
+		assert.Equal(t, page.Head, page.NextCursor)
+
+		for _, item := range page.Items {
+			assert.Equal(t, session.FeedKindEvent, item.Kind)
+			assert.Positive(t, item.Sequence)
+		}
+
+		limit32 := int32(1)
+		first, _, err := fixture.runtime.ListSessionFeed(
+			ctx,
+			api.ListSessionFeedParams{
+				XSessionID: turnResult.SessionID,
+				Limit:      &limit32,
+			},
+		)
+		require.NoError(t, err)
+		require.Len(t, first.Items, 1)
+		assert.True(t, first.HasMore)
+	})
 }
 
 // An unknown hash is a not-found read rather than an empty snapshot, so a
@@ -193,4 +227,30 @@ func TestRuntimeRejectsMalformedDurableReadPaging(t *testing.T) {
 	)
 	require.Error(t, err)
 	assert.Nil(t, turns)
+
+	negativeCursor := int64(-1)
+
+	feedPage, feedLimit, err := fixture.runtime.ListSessionFeed(
+		ctx,
+		api.ListSessionFeedParams{
+			XSessionID: turnResult.SessionID,
+			Cursor:     &negativeCursor,
+		},
+	)
+	require.Error(t, err)
+	assert.Nil(t, feedPage)
+	assert.Zero(t, feedLimit)
+
+	tooLarge := int32(session.MaximumFeedLimit + 1)
+
+	feedPage, feedLimit, err = fixture.runtime.ListSessionFeed(
+		ctx,
+		api.ListSessionFeedParams{
+			XSessionID: turnResult.SessionID,
+			Limit:      &tooLarge,
+		},
+	)
+	require.Error(t, err)
+	assert.Nil(t, feedPage)
+	assert.Zero(t, feedLimit)
 }

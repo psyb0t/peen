@@ -34,13 +34,14 @@ const (
 	webSocketClientPollInterval = 5 * time.Millisecond
 )
 
-// A worker's events reach every global client through the durable relay.
+// A committed feed row reaches every global client through the feed pump's
+// sink, rendered with the stored row's id and sequence.
 //
 // The turn itself runs in a worker, so the transport no longer sees per-event
-// callbacks. The controller writes each event, then hands the same records here
-// for delivery, which is what keeps a client from ever seeing an event the
-// database does not already hold.
-func TestWebSocketBroadcastsSessionEventsToGlobalClients(t *testing.T) {
+// callbacks. The store signals the pump only after the write commits, and the
+// pump hands the same rows here for delivery, which is what keeps a client
+// from ever seeing a row the database does not already hold.
+func TestWebSocketBroadcastsFeedItemsToGlobalClients(t *testing.T) {
 	sessionID := uuid.New()
 	instance, err := newTestServer(Dependencies{
 		Runtime:  newTestRuntime(sessionID),
@@ -59,21 +60,13 @@ func TestWebSocketBroadcastsSessionEventsToGlobalClients(t *testing.T) {
 
 	waitForWebSocketClients(t, instance, sessionID, 2)
 
-	requestID := uuid.New()
-	durable := agent.Event{
-		Type:      testWebSocketAgentEvent,
-		Payload:   json.RawMessage(`{"text":"hello"}`),
-		RequestID: requestID,
-	}
+	item := testFeedEventItem(sessionID, testWebSocketAgentEvent,
+		`{"text":"hello"}`)
 
-	instance.BroadcastDurableSessionEvents(sessionID, []session.EventInput{{
-		RequestID:   requestID,
-		EventType:   testWebSocketAgentEvent,
-		PayloadJSON: `{"text":"hello"}`,
-	}})
+	instance.BroadcastFeedItems(t.Context(), sessionID, []session.FeedItem{item})
 
-	assertWebSocketAgentEvent(t, first, sessionID, uuid.Nil, durable)
-	assertWebSocketAgentEvent(t, second, sessionID, uuid.Nil, durable)
+	assertFeedWebSocketFrame(t, first, item)
+	assertFeedWebSocketFrame(t, second, item)
 }
 
 // A client that asked for one session's feed sees only that session's durable
@@ -107,21 +100,13 @@ func TestWebSocketFiltersOutboundEventsBySession(t *testing.T) {
 	waitForWebSocketClients(t, instance, sessionID, 2)
 	waitForWebSocketClients(t, instance, otherSessionID, 2)
 
-	requestID := uuid.New()
-	durable := agent.Event{
-		Type:      testWebSocketAgentEvent,
-		Payload:   json.RawMessage(`{"text":"hello"}`),
-		RequestID: requestID,
-	}
+	item := testFeedEventItem(sessionID, testWebSocketAgentEvent,
+		`{"text":"hello"}`)
 
-	instance.BroadcastDurableSessionEvents(sessionID, []session.EventInput{{
-		RequestID:   requestID,
-		EventType:   testWebSocketAgentEvent,
-		PayloadJSON: `{"text":"hello"}`,
-	}})
+	instance.BroadcastFeedItems(t.Context(), sessionID, []session.FeedItem{item})
 
-	assertWebSocketAgentEvent(t, global, sessionID, uuid.Nil, durable)
-	assertWebSocketAgentEvent(t, matching, sessionID, uuid.Nil, durable)
+	assertFeedWebSocketFrame(t, global, item)
+	assertFeedWebSocketFrame(t, matching, item)
 	assertNoWebSocketEvent(t, nonMatching)
 }
 
@@ -151,6 +136,39 @@ func TestWebSocketKeepsAFilterRecordedBeforeItsClientRegisters(t *testing.T) {
 	require.True(t, kept, "the filter was dropped before its client registered")
 	assert.Equal(t, otherSessionID, entry.sessionID)
 	assert.False(t, entry.registered)
+}
+
+// A filtered client disconnecting, even as the only client watching a
+// session, must not reach either stop boundary. Work keeps running with no
+// client attached; only an explicit Stop ends it.
+func TestWebSocketLastClientDisconnectDoesNotStopTheSession(t *testing.T) {
+	sessionID := uuid.New()
+	runtime := newTestRuntime(sessionID)
+	router := &testTurnRouter{runtime: runtime}
+
+	instance, err := newTestServer(Dependencies{
+		Runtime:  runtime,
+		Turns:    router,
+		APIToken: testAPIToken,
+	})
+	require.NoError(t, err)
+	t.Cleanup(instance.webSocketHub.Close)
+
+	httpServer := httptest.NewServer(instance.testHandler)
+	t.Cleanup(httpServer.Close)
+
+	connection := dialWebSocket(t, httpServer.URL, &sessionID)
+	waitForWebSocketClients(t, instance, sessionID, 1)
+
+	require.NoError(t, connection.Close())
+
+	require.Eventually(t, func() bool {
+		return len(instance.webSocketClientsFor(sessionID)) == 0
+	}, testWebSocketReadTimeout, webSocketClientPollInterval,
+		"the server did not drop the disconnected client")
+
+	assert.Zero(t, runtime.cancelSessionCalls)
+	assert.Empty(t, router.cancelledSessions)
 }
 
 // A client message is routed to the session's worker, and the session comes
@@ -584,19 +602,55 @@ func assertWebSocketMessageCompleted(
 	)
 }
 
-func assertWebSocketAgentEvent(
+// testFeedEventItem builds the kind of session.FeedItem a stored protocol
+// event produces, with a sequence and id a test can assert against.
+func testFeedEventItem(
+	sessionID uuid.UUID,
+	eventType string,
+	payloadJSON string,
+) session.FeedItem {
+	return session.FeedItem{
+		SessionID:   sessionID,
+		Sequence:    1,
+		ID:          uuid.New(),
+		Kind:        session.FeedKindEvent,
+		EventType:   eventType,
+		RequestID:   uuid.New(),
+		PayloadJSON: payloadJSON,
+	}
+}
+
+// assertFeedWebSocketFrame checks a live frame carries the exact id and
+// sequence of the feed item it was rendered from, and no triggeredBy: a
+// replayed row has no client frame behind it to point at.
+func assertFeedWebSocketFrame(
 	t *testing.T,
 	connection *websocket.Conn,
-	sessionID uuid.UUID,
-	triggeringEventID uuid.UUID,
-	want agent.Event,
+	item session.FeedItem,
 ) {
 	t.Helper()
 
 	received := readWebSocketEvent(t, connection)
-	assert.Equal(t, want.Type, string(received.Type))
-	assertWebSocketMetadata(t, received, sessionID, triggeringEventID)
-	assert.JSONEq(t, string(want.Payload), string(received.Data))
+	assert.Equal(t, item.EventType, string(received.Type))
+	assert.Equal(t, item.ID, received.ID)
+	assert.Nil(t, received.TriggeredBy)
+	assert.JSONEq(t, item.PayloadJSON, string(received.Data))
+
+	require.NotNil(t, received.Metadata)
+	assert.Equal(
+		t,
+		item.SessionID.String(),
+		webSocketMetadataString(t, received, webSocketMetadataSessionID),
+	)
+	assert.Equal(
+		t,
+		item.RequestID.String(),
+		webSocketMetadataString(t, received, webSocketMetadataRequestID),
+	)
+
+	sequence, found := received.Metadata.Get(webSocketMetadataSequence)
+	require.True(t, found, "a feed frame must carry metadata.sequence")
+	assert.EqualValues(t, item.Sequence, sequence)
 }
 
 func readWebSocketEvent(

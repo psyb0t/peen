@@ -424,7 +424,7 @@ func runForeground(t *testing.T, instance *install) {
 
 	command, output := instance.startForeground(t, instance.wrapper(), "run", instance.project)
 	waitHealthy(t, instance)
-	status, body := apiCall(t, instance, http.MethodGet, "/v1/workspace-roots", nil)
+	status, body := apiCall(t, instance, http.MethodGet, "/api/v1/workspace-roots", nil)
 	require.Equal(t, http.StatusOK, status, string(body))
 	var roots struct {
 		Roots []string `json:"roots"`
@@ -524,7 +524,7 @@ func TestDoctor(t *testing.T) {
 	healthy := instance.peen(t, "doctor")
 	assert.Zero(t, healthy.code, healthy.stdout)
 	assert.Contains(t, healthy.stdout, "all checks passed")
-	assert.Contains(t, healthy.stdout, "ok    GET /v1/models answers")
+	assert.Contains(t, healthy.stdout, "ok    GET /api/v1/models answers")
 	assert.NotContains(t, healthy.stdout, "FAIL")
 
 	instance.mustPeen(t, "stop")

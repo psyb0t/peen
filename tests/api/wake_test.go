@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	dabluveees "github.com/psyb0t/aichteeteapee/serbewr/dabluvee-es"
+	"github.com/psyb0t/peen/internal/pkg/http/wsapi"
 	"github.com/psyb0t/peen/tests/testinfra"
 	"github.com/stretchr/testify/require"
 )
@@ -204,5 +205,29 @@ func readWebSocketEvent(
 		"the woken turn never streamed to the session",
 	)
 
+	assertValidServerFrame(t, received)
+
 	return received
+}
+
+// assertValidServerFrame fails the test, naming the frame type and the
+// validation error, when a frame the live server sent does not decode
+// through the generated wsapi.ServerEvent contract. Every test in this
+// suite reads frames through readWebSocketEvent, so this turns the whole
+// integration suite into a running contract check between the server's
+// emitters and the AsyncAPI spec.
+func assertValidServerFrame(t *testing.T, event dabluveees.Event) {
+	t.Helper()
+
+	encoded, err := json.Marshal(event)
+	require.NoError(t, err)
+
+	target := wsapi.ServerEvent{}
+	require.NoErrorf(
+		t,
+		target.UnmarshalJSON(encoded),
+		"frame type %q failed the wsapi contract: %s",
+		event.Type,
+		encoded,
+	)
 }

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/cschleiden/go-workflows/client"
 	"github.com/google/uuid"
@@ -97,7 +96,7 @@ func TestRootWorkflowModelPersistsAuditAndContentBlocks(t *testing.T) {
 	fixture, prepared := newRootModelWorkflowFixture(t, driver)
 	instance := fixture.start(t)
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, "finished example task", result.Text)
 	runs, err := fixture.base.store.ListModelRuns(t.Context(),
@@ -256,7 +255,7 @@ func TestRootWorkflowModelUsesSavedCompletionMode(t *testing.T) {
 	fixture.input.Context = encoded
 	instance := fixture.start(t)
 	_, err = client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, []bool{false}, driver.Streamed())
 	runs, err := fixture.base.store.ListModelRuns(t.Context(),

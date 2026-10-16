@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/cschleiden/go-workflows/client"
 	"github.com/google/uuid"
@@ -52,7 +51,7 @@ func TestWorkflowCompactionHooksRunThroughSDK(t *testing.T) {
 		return hooks.Outcome{}, nil
 	}
 	instance := startCompactingWorkflow(t, fixture)
-	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(), fixture.api, instance, 15*time.Second)
+	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(), fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, "continued answer", result.Text)
 	assert.Equal(t, []harness.HookEvent{harness.HookEventPreCompact, harness.HookEventPostCompact}, events)

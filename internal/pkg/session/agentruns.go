@@ -152,7 +152,10 @@ func (s *Store) AppendAgentRunEvent(
 
 	var result *models.AgentRunEvent
 
-	if err := s.query.Transaction(func(tx *repositories.Query) error {
+	if err := s.feedTransaction(ctx, func(
+		ctx context.Context,
+		tx *repositories.Query,
+	) error {
 		run, err := s.findAgentRunWithQuery(ctx, tx, sessionID, agentRunID)
 		if err != nil {
 			return err
@@ -165,14 +168,20 @@ func (s *Store) AppendAgentRunEvent(
 			return ctxerrors.Wrap(err, "find latest agent run event")
 		}
 
+		feedSequence, err := s.allocateFeedSequences(ctx, tx, sessionID, 1)
+		if err != nil {
+			return ctxerrors.Wrap(err, "allocate agent run event feed sequence")
+		}
+
 		result = &models.AgentRunEvent{
-			ID:          input.ID,
-			SessionID:   sessionID,
-			AgentRunID:  agentRunID,
-			Sequence:    sequence,
-			EventType:   input.EventType,
-			PayloadJSON: input.PayloadJSON,
-			CreatedAt:   input.CreatedAt,
+			ID:           input.ID,
+			SessionID:    sessionID,
+			AgentRunID:   agentRunID,
+			Sequence:     sequence,
+			FeedSequence: feedSequence,
+			EventType:    input.EventType,
+			PayloadJSON:  input.PayloadJSON,
+			CreatedAt:    input.CreatedAt,
 		}
 		if err := event.WithContext(ctx).Create(result); err != nil {
 			return ctxerrors.Wrap(err, "create agent run event")
@@ -414,7 +423,10 @@ func (s *Store) RequestAgentRunCancellation(
 		requested bool
 	)
 
-	if err := s.query.Transaction(func(tx *repositories.Query) error {
+	if err := s.feedTransaction(ctx, func(
+		ctx context.Context,
+		tx *repositories.Query,
+	) error {
 		run, err := s.findAgentRunWithQuery(ctx, tx, sessionID, agentRunID)
 		if err != nil {
 			return err

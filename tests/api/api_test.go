@@ -26,10 +26,11 @@ import (
 )
 
 const (
-	apiBasePath           = "/v1"
+	apiBasePath           = "/api/v1"
 	messagesPath          = apiBasePath + "/messages"
 	sessionPath           = apiBasePath + "/session"
 	sessionCancelPath     = sessionPath + "/cancel"
+	sessionFeedPath       = sessionPath + "/feed"
 	modelRunsPath         = sessionPath + "/model-runs"
 	headerAuthorization   = "Authorization"
 	headerContentType     = "Content-Type"

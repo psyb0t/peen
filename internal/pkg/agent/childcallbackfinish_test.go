@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/cschleiden/go-workflows/client"
 	"github.com/psyb0t/ctxerrors/commerr"
@@ -62,7 +61,7 @@ func TestChildCallbackFinishRetiresRegistryAndPublishesCommittedEvent(t *testing
 	fixture.input.MaxConcurrentTools = 1
 	instance := startCompactingWorkflow(t, fixture)
 	_, err = client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	snapshot := shared.actor.run.Snapshot()
 	assert.Equal(t, AgentRunStateCompleted, snapshot.State)
@@ -111,7 +110,7 @@ func TestChildCallbackFinishRetriesLiveFailureWithoutAnotherEvent(t *testing.T) 
 	fixture.input.MaxConcurrentTools = 1
 	instance := startCompactingWorkflow(t, fixture)
 	_, err = client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, 2, attempts)
 	finish := workflowFinishResult{Finish: session.FinishExecutionInput{
@@ -153,7 +152,7 @@ func TestChildCallbackFinishReopensSQLiteWithoutRestoringAnActiveScope(
 	fixture.input.MaxConcurrentTools = 1
 	instance := startCompactingWorkflow(t, fixture)
 	_, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	fixture.stop()
 	stored, err := fixture.base.store.GetAgentRun(t.Context(),

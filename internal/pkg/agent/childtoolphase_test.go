@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/cschleiden/go-workflows/client"
 	"github.com/google/uuid"
@@ -112,7 +111,7 @@ func TestPhasedChildCallbacksRetainToolErrors(t *testing.T) {
 	dispatch.bind(&fixture.engine.options)
 	instance := startPhasedWorkflow(t, fixture)
 	_, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	page, err := fixture.base.store.ListAgentRunMessages(t.Context(),
 		input.Execution.SessionID, original.run.ID,
@@ -146,7 +145,7 @@ func TestPhasedChildCallbacksRunThroughOwnedDispatcher(t *testing.T) {
 	inbox := shared.actor.run.inbox
 	instance := startPhasedWorkflow(t, fixture)
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, runtimeToolFinalText, result.Text)
 	assert.Same(t, inbox, shared.actor.run.inbox)

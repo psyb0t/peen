@@ -54,7 +54,6 @@ type Listener struct {
 	sessionID  uuid.UUID
 	registrar  Registrar
 	store      *session.Store
-	publisher  Publisher
 	workflows  *db.WorkflowStorage
 	net        net.Listener
 
@@ -91,7 +90,6 @@ func Listen(
 	sessionID uuid.UUID,
 	registrar Registrar,
 	store *session.Store,
-	publisher Publisher,
 	options ...ListenerOption,
 ) (*Listener, error) {
 	if err := os.MkdirAll(
@@ -125,7 +123,6 @@ func Listen(
 		sessionID:  sessionID,
 		registrar:  registrar,
 		store:      store,
-		publisher:  publisher,
 		net:        socket,
 	}
 	for _, option := range options {
@@ -271,7 +268,7 @@ func (l *Listener) accept(
 	ack HelloAck,
 ) (*Worker, error) {
 	controller := NewController(
-		l.store, l.publisher, hello.SessionID, hello.GenerationID,
+		l.store, hello.SessionID, hello.GenerationID,
 	)
 	if l.workflows != nil {
 		if err := controller.BindWorkflows(ctx, l.workflows); err != nil {

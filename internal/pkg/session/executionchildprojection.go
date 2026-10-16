@@ -161,22 +161,18 @@ func (s *Store) saveChildProjectionEvents(
 			"child projection event sequence exhausted")
 	}
 
-	for index, input := range inputs {
-		normalized, err := s.normalizeAgentRunEventInput(input)
-		if err != nil {
-			return ctxerrors.Wrap(err, "validate projected child event")
-		}
+	firstFeedSequence, err := s.allocateFeedSequences(
+		ctx, query, run.SessionID, len(inputs),
+	)
+	if err != nil {
+		return ctxerrors.Wrap(err,
+			"allocate projected child event feed sequence")
+	}
 
-		event := &models.AgentRunEvent{
-			ID: normalized.ID, SessionID: run.SessionID, AgentRunID: run.ID,
-			Sequence: sequence + int64(index), EventType: normalized.EventType,
-			PayloadJSON: normalized.PayloadJSON,
-			CreatedAt:   normalized.CreatedAt,
-		}
-		if err := query.AgentRunEvent.WithContext(ctx).
-			Create(event); err != nil {
-			return ctxerrors.Wrap(err, "create projected child event")
-		}
+	if err := s.createChildProjectionEvents(
+		ctx, query, run, sequence, firstFeedSequence, inputs,
+	); err != nil {
+		return err
 	}
 
 	repository := query.AgentRun
@@ -186,6 +182,39 @@ func (s *Store) saveChildProjectionEvents(
 	).UpdateSimple(repository.EventCount.Add(count))
 	if err != nil {
 		return ctxerrors.Wrap(err, "count projected child events")
+	}
+
+	return nil
+}
+
+// createChildProjectionEvents writes one row per input, in insert order,
+// with the already allocated run sequence and feed sequence.
+func (s *Store) createChildProjectionEvents(
+	ctx context.Context,
+	query *repositories.Query,
+	run *models.AgentRun,
+	firstSequence int64,
+	firstFeedSequence int64,
+	inputs []AgentRunEventInput,
+) error {
+	for index, input := range inputs {
+		normalized, err := s.normalizeAgentRunEventInput(input)
+		if err != nil {
+			return ctxerrors.Wrap(err, "validate projected child event")
+		}
+
+		event := &models.AgentRunEvent{
+			ID: normalized.ID, SessionID: run.SessionID, AgentRunID: run.ID,
+			Sequence:     firstSequence + int64(index),
+			FeedSequence: firstFeedSequence + int64(index),
+			EventType:    normalized.EventType,
+			PayloadJSON:  normalized.PayloadJSON,
+			CreatedAt:    normalized.CreatedAt,
+		}
+		if err := query.AgentRunEvent.WithContext(ctx).
+			Create(event); err != nil {
+			return ctxerrors.Wrap(err, "create projected child event")
+		}
 	}
 
 	return nil

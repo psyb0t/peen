@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/cschleiden/go-workflows/client"
 	"github.com/google/uuid"
@@ -261,7 +260,7 @@ func TestExecutionWorkflowSavedPhasesSurviveReopen(t *testing.T) {
 		runtimeToolFileName), runtimeToolFileBody)
 	instance := fixture.start(t)
 	_, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	fixture.stop()
 	require.NoError(t, fixture.storage.Close())
@@ -304,7 +303,7 @@ func TestExecutionWorkflowSavedPhasesSurviveReopen(t *testing.T) {
 	}
 	require.True(t, found)
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		client.New(storage), instance, 10*time.Second)
+		client.New(storage), instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, runtimeToolFinalText, result.Text)
 	assert.Equal(t, 2, driver.Calls())

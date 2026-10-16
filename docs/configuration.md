@@ -1,6 +1,6 @@
 # Configuration
 
-The installer writes `~/.config/peen/.env` for you, and `peen config edit` opens it. Without the installer, start from [`.env.example`](../.env.example) at the top of the repository, or let the Peen image write the same commented file for your directories with `config init`, as [deployment](deployment.md#durable-state-and-mounts) shows. `config init` never overwrites an existing file. Then set the provider values that fit your machine. Peen checks every `PEEN_` value before opening its listener, so a bad setting fails at startup instead of halfway through a task. Peen starts with no sessions. A client opens a workspace through `POST /v1/sessions/open`, and `PEEN_WORKSPACE_ROOT` bounds which directories it may name.
+The installer writes `~/.config/peen/.env` for you, and `peen config edit` opens it. Without the installer, start from [`.env.example`](../.env.example) at the top of the repository, or let the Peen image write the same commented file for your directories with `config init`, as [deployment](deployment.md#durable-state-and-mounts) shows. `config init` never overwrites an existing file. Then set the provider values that fit your machine. Peen checks every `PEEN_` value before opening its listener, so a bad setting fails at startup instead of halfway through a task. Peen starts with no sessions. A client opens a workspace through `POST /api/v1/sessions/open`, and `PEEN_WORKSPACE_ROOT` bounds which directories it may name.
 
 For Docker, `.env` is input for `docker run --env-file`. Do not source it from Bash, because `PEEN_UPSTREAMS` is raw JSON. For a bare binary, set the same values through your shell, service manager, or secret manager. This page is the full reference, and `.env.example` is the commented starting point.
 
@@ -89,7 +89,7 @@ Peen refuses to start when the root is relative or missing, so a typo fails at s
 
 A session's agent runs in an agent space: `control`, which runs it where Peen runs, or `docker:<profile>`, which runs it in its own container. A client names an agent space when it opens a workspace and never sends an image, mount, network setting, or capability. [Where it runs](where-it-runs.md) is the reference for both kinds, for every Docker profile option and its default, and for the rule that refuses `control` when the controller can reach a Docker socket. The settings are `PEEN_DOCKER_PROFILES` and `PEEN_DEFAULT_AGENT_SPACE` in the table above.
 
-Naming an agent space the deployment does not offer returns 403 and creates nothing, even when the workspace already has a session. Opening an existing session never changes the agent space it already runs in. Moving a session is `POST /v1/session/reconfigure`. See [choosing an agent space](where-it-runs.md#choosing-an-agent-space-for-a-workspace).
+Naming an agent space the deployment does not offer returns 403 and creates nothing, even when the workspace already has a session. Opening an existing session never changes the agent space it already runs in. Moving a session is `POST /api/v1/session/reconfigure`. See [choosing an agent space](where-it-runs.md#choosing-an-agent-space-for-a-workspace).
 
 ## Docker workers
 
@@ -182,7 +182,7 @@ Peen's Z.ai Coding catalog has GLM 5.3 and GLM 5.3 Flash. GLM 5.3 supports its d
 
 ## Metrics
 
-`GET /metrics` serves Peen's [Prometheus](https://github.com/prometheus/client_golang) metrics on `PEEN_METRICS_LISTEN_ADDRESS`. It never appears on the API listener, is not part of `/v1`, and does not check `PEEN_API_TOKEN`, because the loopback-only listener is the access boundary.
+`GET /metrics` serves Peen's [Prometheus](https://github.com/prometheus/client_golang) metrics on `PEEN_METRICS_LISTEN_ADDRESS`. It never appears on the API listener, is not part of `/api/v1`, and does not check `PEEN_API_TOKEN`, because the loopback-only listener is the access boundary.
 
 The value must be a loopback IP address and a port other than 0, such as `127.0.0.1:9090` or `[::1]:9090`. Peen refuses to start with a wildcard or non-loopback address. Run a scraper in the same network namespace as Peen. A Docker `-p` rule does not make a listener on the container's loopback interface reachable from the host.
 
@@ -207,7 +207,7 @@ A conversation grows until a request no longer fits in `PEEN_MAX_CONTEXT_TOKENS`
 - `drop-oldest` leaves whole old conversation units out of the request and stores nothing. The transcript keeps every message.
 - `summarize` replaces an old completed part of the conversation with a summary made by `PEEN_COMPACTION_MODEL`, stores the summary, and never deletes transcript rows. `PEEN_COMPACTION_MAX_OUTPUT_TOKENS` keeps room for the summary, and `PEEN_COMPACTION_TIMEOUT` limits the call. An optional `COMPACTION.md` in `PEEN_CONFIG_DIR` replaces the built-in summarizer instructions. Only this mode runs the `preCompact` and `postCompact` [hooks](hooks.md).
 
-Under `summarize` a child agent compacts its own transcript into its own stored summaries, separate from the session's. `GET /v1/session/compactions` and `GET /v1/session/agents/{agentRunId}/compactions` read them. Peen checks the summary settings in both modes, so switching modes cannot expose a setting startup already accepted.
+Under `summarize` a child agent compacts its own transcript into its own stored summaries, separate from the session's. `GET /api/v1/session/compactions` and `GET /api/v1/session/agents/{agentRunId}/compactions` read them. Peen checks the summary settings in both modes, so switching modes cannot expose a setting startup already accepted.
 
 ## Message size bounds
 
@@ -255,8 +255,8 @@ Background jobs, child agents, hooks, and outside callers report what happened t
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `PEEN_MAX_PENDING_EVENTS` | `256` | Per-session limit on the in-memory copy of pending notices. The oldest copy is dropped and counted in metrics. Delivery to the model reads stored notices from SQLite, so this limit never drops what the model receives. |
-| `PEEN_MAX_EVENT_SUMMARY_BYTES` | `4096` | Largest `summary` on a notice. `POST /v1/session/notices` rejects a longer one with `400 VALIDATION_FAILED`, and a hook that emits one fails its action. Peen shortens its own `job.*` and `agent.*` summaries to fit, without splitting a character. |
-| `PEEN_MAX_EVENT_DATA_BYTES` | `65536` | Largest encoded `data` on a notice. `POST /v1/session/notices` rejects larger data with `400 VALIDATION_FAILED`, and a hook that emits it fails its action. Peen leaves over-size data out of its own `job.*` and `agent.*` events. |
+| `PEEN_MAX_EVENT_SUMMARY_BYTES` | `4096` | Largest `summary` on a notice. `POST /api/v1/session/notices` rejects a longer one with `400 VALIDATION_FAILED`, and a hook that emits one fails its action. Peen shortens its own `job.*` and `agent.*` summaries to fit, without splitting a character. |
+| `PEEN_MAX_EVENT_DATA_BYTES` | `65536` | Largest encoded `data` on a notice. `POST /api/v1/session/notices` rejects larger data with `400 VALIDATION_FAILED`, and a hook that emits it fails its action. Peen leaves over-size data out of its own `job.*` and `agent.*` events. |
 | `PEEN_MAX_EVENT_WAKES_PER_HOUR` | `60` | Per-session limit on turns started by a wake. An event over the limit stays queued for the next turn or tool boundary. `0` removes the limit. Peen keeps the count in memory, so it starts over when Peen restarts. |
 
 See [session events](events.md) for event types, delivery, wakes, and event handlers.

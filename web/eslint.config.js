@@ -23,7 +23,7 @@ const browserGlobals = {
 const nodeGlobals = { process: "readonly" };
 
 export default defineConfig(
-	{ ignores: [".svelte-kit/", "node_modules/"] },
+	{ ignores: [".svelte-kit/", "node_modules/", "src/lib/ws/generated.ts"] },
 	js.configs.recommended,
 	...tseslint.configs.recommended,
 	...svelte.configs.recommended,

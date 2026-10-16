@@ -62,7 +62,7 @@ func TestRootWorkflowStreamClosesPartialBlockBeforeResume(t *testing.T) {
 	require.NoError(t, fixture.api.SignalWorkflow(t.Context(), instance.InstanceID,
 		workflowResumeSignal, struct{}{}))
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, "completed attempt", result.Text)
 	requests := driver.Requests()

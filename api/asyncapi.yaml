@@ -1,0 +1,1957 @@
+asyncapi: 3.0.0
+info:
+  title: Peen WebSocket API
+  version: 1.0.0
+  description: >
+    The live socket that starts turns and streams every event a session
+    produces. REST reads what Peen already stored and controls a run; this
+    socket is the only way to start one.
+servers:
+  peen:
+    host: 127.0.0.1:8080
+    pathname: /ws/v1
+    protocol: ws
+    description: >
+      Connects with the `peen.v1` subprotocol, or `peen.bearer.<base64url
+      token>` to also carry a bearer token in the handshake. An optional
+      `?sessionId=<uuid>` query parameter filters the connection's live
+      frames to one session; without it the connection receives every
+      accepted session's frames.
+channels:
+  socket:
+    address: /ws/v1
+    messages:
+      messageSend:
+        payload:
+          $ref: "#/components/schemas/MessageSend"
+      serverEvent:
+        payload:
+          $ref: "#/components/schemas/ServerEvent"
+operations:
+  sendMessage:
+    action: send
+    channel:
+      $ref: "#/channels/socket"
+    messages:
+      - $ref: "#/channels/socket/messages/messageSend"
+  receiveEvents:
+    action: receive
+    channel:
+      $ref: "#/channels/socket"
+    messages:
+      - $ref: "#/channels/socket/messages/serverEvent"
+components:
+  schemas:
+    Metadata:
+      title: Metadata
+      type: object
+      additionalProperties: false
+      description: >
+        Routing and cursor information carried alongside every frame. Not
+        every field is present on every frame: a session-routing
+        `message.failed` sent only to its sender carries no `sessionId`,
+        and only a sequenced feed frame carries `sequence`.
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        requestId:
+          type: string
+          format: uuid
+        sequence:
+          type: integer
+          format: int64
+          minimum: 1
+
+    # Shared data shapes, referenced from more than one frame.
+
+    ToolUse:
+      title: ToolUse
+      type: object
+      additionalProperties: false
+      required: [callId, name, arguments]
+      properties:
+        callId:
+          type: string
+        name:
+          type: string
+        arguments:
+          title: ToolUseArguments
+          type: [object, 'null']
+          description: >-
+            Open. The tool's own arguments, shaped by that tool, exactly as the
+            provider returned them; null when the provider sent none.
+
+    ToolResult:
+      title: ToolResult
+      type: object
+      additionalProperties: false
+      required: [callId, name, content, isError]
+      properties:
+        callId:
+          type: string
+        name:
+          type: string
+        content:
+          type: string
+        isError:
+          type: boolean
+
+    ProviderRetry:
+      title: ProviderRetry
+      type: object
+      additionalProperties: false
+      required: [attempt, reason, status, delayMs]
+      properties:
+        attempt:
+          type: integer
+        reason:
+          title: ProviderRetryReason
+          type: string
+          enum: ["", rate_limited, server_error, timeout, transport]
+        status:
+          type: integer
+        delayMs:
+          type: integer
+          format: int64
+
+    UserMessage:
+      title: UserMessage
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message:
+          type: string
+        sourceEventId:
+          type: string
+          format: uuid
+
+    AgentRunInboxMessage:
+      title: AgentRunInboxMessage
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message:
+          type: string
+        acceptanceId:
+          type: string
+          format: uuid
+
+    QuestionAsked:
+      title: QuestionAsked
+      type: object
+      additionalProperties: false
+      required: [question]
+      properties:
+        question:
+          type: string
+        callId:
+          type: string
+
+    QuestionAnswered:
+      title: QuestionAnswered
+      type: object
+      additionalProperties: false
+      required: [answered]
+      properties:
+        answered:
+          type: boolean
+        callId:
+          type: string
+
+    TextPayload:
+      title: TextPayload
+      type: object
+      additionalProperties: false
+      required: [text]
+      properties:
+        text:
+          type: string
+
+    Notice:
+      title: Notice
+      type: object
+      additionalProperties: false
+      required: [id, sessionId, type, source, summary, delivery, createdAt]
+      description: >
+        One notice as it reaches the model, inside a `session.events`
+        frame's `notices`.
+      properties:
+        id:
+          type: string
+          format: uuid
+        sessionId:
+          type: string
+          format: uuid
+        type:
+          type: string
+        source:
+          type: string
+        summary:
+          type: string
+        data:
+          title: NoticeData
+          type: object
+          description: Open. Caller-supplied at publication time.
+        delivery:
+          title: NoticeDelivery
+          type: string
+          enum: [queue, wake]
+        createdAt:
+          type: string
+          format: date-time
+
+    SessionNotice:
+      title: SessionNotice
+      type: object
+      additionalProperties: false
+      required: [id, type, source, summary, delivery, createdAt]
+      description: A `notice.created` frame's data. Carries no `sessionId`.
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+        source:
+          type: string
+        summary:
+          type: string
+        data:
+          title: SessionNoticeData
+          type: object
+          description: Open. Caller-supplied at publication time.
+        delivery:
+          title: SessionNoticeDelivery
+          type: string
+          enum: [queue, wake]
+        createdAt:
+          type: string
+          format: date-time
+
+    # The client's one message.
+
+    MessageSystemPrompt:
+      title: MessageSystemPrompt
+      type: object
+      additionalProperties: false
+      required: [content, mode]
+      properties:
+        content:
+          type: string
+          minLength: 1
+          description: >-
+            At most PEEN_MAX_SYSTEM_PROMPT_BYTES bytes, 65536 by default. The
+            limit is deployment configuration, so the server enforces it, not
+            this schema.
+        mode:
+          title: MessageSystemPromptMode
+          type: string
+          enum: [append, replace]
+
+    MessageSendData:
+      title: MessageSendData
+      type: object
+      additionalProperties: false
+      required: [message]
+      description: >
+        `to` cannot combine with `model`, `reasoningEffort`, or
+        `systemPrompt`: those settings belong to the root conversation, not
+        a running child's inbox.
+      properties:
+        message:
+          type: string
+          minLength: 1
+          description: >-
+            At most PEEN_MAX_MESSAGE_BYTES bytes, 262144 by default. The limit
+            is deployment configuration, so the server enforces it, not this
+            schema.
+        model:
+          type: string
+          description: "provider/model, one Peen discovered at startup."
+        reasoningEffort:
+          title: MessageSendReasoningEffort
+          type: string
+          enum: [minimal, low, medium, high, xhigh, max]
+        systemPrompt:
+          $ref: "#/components/schemas/MessageSystemPrompt"
+        to:
+          type: string
+          format: uuid
+
+    MessageSend:
+      title: MessageSend
+      type: object
+      additionalProperties: false
+      required: [id, type, data]
+      description: >
+        The only client-to-server frame. `metadata.sessionId` names the
+        durable session this message runs against; a client with no
+        session to name, such as an embedded single-workspace runtime,
+        may omit it and fall back to the runtime's own session.
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: message.send
+        data:
+          $ref: "#/components/schemas/MessageSendData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    # Unsequenced server frames.
+
+    MessageCompletedData:
+      title: MessageCompletedData
+      type: object
+      additionalProperties: false
+      required: [queued]
+      properties:
+        queued:
+          type: boolean
+
+    MessageCompleted:
+      title: MessageCompleted
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: message.completed
+        data:
+          $ref: "#/components/schemas/MessageCompletedData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    MessageFailedData:
+      title: MessageFailedData
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      description: >
+        `reason` is set only alongside code `HARNESS_CONFIGURATION_INVALID`,
+        one of six fixed client-safe sentences naming what is wrong with the
+        workspace agent configuration.
+      properties:
+        code:
+          title: MessageFailedCode
+          type: string
+          enum:
+            - VALIDATION_FAILED
+            - INTERNAL_SERVER_ERROR
+            - SESSION_NOT_FOUND
+            - TURN_CANCELLED
+            - USER_MESSAGE_QUEUE_FULL
+            - SESSION_BUSY
+            - AGENT_FINISHED
+            - AGENT_NOT_FOUND
+            - HARNESS_CONFIGURATION_INVALID
+        message:
+          type: string
+        reason:
+          type: string
+
+    MessageFailed:
+      title: MessageFailed
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      description: >
+        A `message.failed` answering a session-routing failure carries no
+        `metadata.sessionId`: it reaches only the client that sent the
+        rejected message, before Peen knows which session it meant.
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: message.failed
+        data:
+          $ref: "#/components/schemas/MessageFailedData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    # Anthropic Messages-shaped stream blocks. Field names stay snake_case:
+    # Peen does not own this format.
+
+    ContentBlockTextStart:
+      title: ContentBlockTextStart
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          type: string
+          const: text
+        text:
+          type: string
+          description: Peen never sets this at block start.
+
+    ContentBlockThinkingStart:
+      title: ContentBlockThinkingStart
+      type: object
+      additionalProperties: false
+      required: [type]
+      properties:
+        type:
+          type: string
+          const: thinking
+        text:
+          type: string
+          description: Peen never sets this at block start.
+
+    ContentBlockToolUseStart:
+      title: ContentBlockToolUseStart
+      type: object
+      additionalProperties: false
+      required: [type, id, name, input]
+      properties:
+        type:
+          type: string
+          const: tool_use
+        id:
+          type: string
+        name:
+          type: string
+        input:
+          title: ContentBlockToolUseStartInput
+          type: object
+          description: Open. Always `{}` at block start.
+
+    ContentBlockToolResultStart:
+      title: ContentBlockToolResultStart
+      type: object
+      additionalProperties: false
+      required: [type, tool_use_id]
+      properties:
+        type:
+          type: string
+          const: tool_result
+        tool_use_id:
+          type: string
+        content:
+          type: string
+        is_error:
+          type: boolean
+          description: Present only when `true`.
+
+    ContentBlockStartData:
+      title: ContentBlockStartData
+      type: object
+      additionalProperties: false
+      required: [type, index, content_block]
+      properties:
+        type:
+          type: string
+          const: content_block_start
+        index:
+          type: integer
+          minimum: 0
+        content_block:
+          title: ContentBlock
+          discriminator: type
+          oneOf:
+            - $ref: "#/components/schemas/ContentBlockTextStart"
+            - $ref: "#/components/schemas/ContentBlockThinkingStart"
+            - $ref: "#/components/schemas/ContentBlockToolUseStart"
+            - $ref: "#/components/schemas/ContentBlockToolResultStart"
+
+    ContentBlockStart:
+      title: ContentBlockStart
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: content_block_start
+        data:
+          $ref: "#/components/schemas/ContentBlockStartData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    TextDelta:
+      title: TextDelta
+      type: object
+      additionalProperties: false
+      required: [type, text]
+      properties:
+        type:
+          type: string
+          const: text_delta
+        text:
+          type: string
+
+    ThinkingDelta:
+      title: ThinkingDelta
+      type: object
+      additionalProperties: false
+      required: [type, text]
+      properties:
+        type:
+          type: string
+          const: thinking_delta
+        text:
+          type: string
+
+    InputJSONDelta:
+      title: InputJSONDelta
+      type: object
+      additionalProperties: false
+      required: [type, partial_json]
+      properties:
+        type:
+          type: string
+          const: input_json_delta
+        partial_json:
+          type: string
+          description: Free text. One fragment of a streamed JSON document.
+
+    JSONPartialDelta:
+      title: JSONPartialDelta
+      type: object
+      additionalProperties: false
+      required: [type, text]
+      properties:
+        type:
+          type: string
+          const: json_partial
+        text:
+          type: string
+          description: Free text. One fragment of a streamed JSON document.
+
+    ContentBlockDeltaData:
+      title: ContentBlockDeltaData
+      type: object
+      additionalProperties: false
+      required: [type, index, delta]
+      properties:
+        type:
+          type: string
+          const: content_block_delta
+        index:
+          type: integer
+          minimum: 0
+        delta:
+          title: Delta
+          discriminator: type
+          oneOf:
+            - $ref: "#/components/schemas/TextDelta"
+            - $ref: "#/components/schemas/ThinkingDelta"
+            - $ref: "#/components/schemas/InputJSONDelta"
+            - $ref: "#/components/schemas/JSONPartialDelta"
+
+    ContentBlockDelta:
+      title: ContentBlockDelta
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: content_block_delta
+        data:
+          $ref: "#/components/schemas/ContentBlockDeltaData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    ContentBlockStopData:
+      title: ContentBlockStopData
+      type: object
+      additionalProperties: false
+      required: [type, index]
+      properties:
+        type:
+          type: string
+          const: content_block_stop
+        index:
+          type: integer
+          minimum: 0
+
+    ContentBlockStop:
+      title: ContentBlockStop
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: content_block_stop
+        data:
+          $ref: "#/components/schemas/ContentBlockStopData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    # Root turn and session events.
+
+    TurnStartedData:
+      title: TurnStartedData
+      type: object
+      additionalProperties: false
+      required: [sessionId, model, workspace]
+      description: >
+        `originEventId` and `originEventType` are present only on a turn a
+        session event started.
+      properties:
+        sessionId:
+          type: string
+          format: uuid
+        model:
+          type: string
+        workspace:
+          type: string
+        originEventId:
+          type: string
+          format: uuid
+        originEventType:
+          type: string
+
+    TurnStarted:
+      title: TurnStarted
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: turn.started
+        data:
+          $ref: "#/components/schemas/TurnStartedData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    UserMessageCreated:
+      title: UserMessageCreated
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: userMessage.created
+        data:
+          $ref: "#/components/schemas/UserMessage"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    UserMessageQueued:
+      title: UserMessageQueued
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: userMessage.queued
+        data:
+          $ref: "#/components/schemas/UserMessage"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    UserMessageDelivered:
+      title: UserMessageDelivered
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: userMessage.delivered
+        data:
+          $ref: "#/components/schemas/UserMessage"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    SkillInjectedData:
+      title: SkillInjectedData
+      type: object
+      additionalProperties: false
+      required: [name, content]
+      properties:
+        name:
+          type: string
+        content:
+          type: string
+
+    SkillInjected:
+      title: SkillInjected
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: skill.injected
+        data:
+          $ref: "#/components/schemas/SkillInjectedData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    ProviderRetryEvent:
+      title: ProviderRetryEvent
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: provider.retry
+        data:
+          $ref: "#/components/schemas/ProviderRetry"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    ToolUseEvent:
+      title: ToolUseEvent
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: tool.use
+        data:
+          $ref: "#/components/schemas/ToolUse"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    ToolResultEvent:
+      title: ToolResultEvent
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: tool.result
+        data:
+          $ref: "#/components/schemas/ToolResult"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    SessionEventsData:
+      title: SessionEventsData
+      type: object
+      additionalProperties: false
+      required: [notices, dropped]
+      properties:
+        notices:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/Notice"
+        dropped:
+          type: integer
+          minimum: 0
+
+    SessionEvents:
+      title: SessionEvents
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: session.events
+        data:
+          $ref: "#/components/schemas/SessionEventsData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    HarnessWarningItem:
+      title: HarnessWarningItem
+      type: object
+      additionalProperties: false
+      required: [kind, source, reason]
+      properties:
+        kind:
+          title: HarnessWarningKind
+          type: string
+          enum: [instruction, rule, skill, agent, event-handler, hook]
+        source:
+          type: string
+        reason:
+          type: string
+          description: Free text naming what is wrong with this source.
+
+    HarnessWarningData:
+      title: HarnessWarningData
+      type: object
+      additionalProperties: false
+      required: [warnings]
+      properties:
+        warnings:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/HarnessWarningItem"
+
+    HarnessWarning:
+      title: HarnessWarning
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: harness.warning
+        data:
+          $ref: "#/components/schemas/HarnessWarningData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    QuestionAskedEvent:
+      title: QuestionAskedEvent
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: question.asked
+        data:
+          $ref: "#/components/schemas/QuestionAsked"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    QuestionAnsweredEvent:
+      title: QuestionAnsweredEvent
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: question.answered
+        data:
+          $ref: "#/components/schemas/QuestionAnswered"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    TurnCompletedData:
+      title: TurnCompletedData
+      type: object
+      additionalProperties: false
+      required: [model, text]
+      properties:
+        model:
+          type: string
+        text:
+          type: string
+
+    TurnCompleted:
+      title: TurnCompleted
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: turn.completed
+        data:
+          $ref: "#/components/schemas/TurnCompletedData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    TurnFailedData:
+      title: TurnFailedData
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          const: agentRun
+
+    TurnFailed:
+      title: TurnFailed
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: turn.failed
+        data:
+          $ref: "#/components/schemas/TurnFailedData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    TurnCancelledData:
+      title: TurnCancelledData
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          const: cancelled
+
+    TurnCancelled:
+      title: TurnCancelled
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: turn.cancelled
+        data:
+          $ref: "#/components/schemas/TurnCancelledData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    NoticeCreated:
+      title: NoticeCreated
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: notice.created
+        data:
+          $ref: "#/components/schemas/SessionNotice"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    # agent.run.* steps. Every envelope's data wraps the step in the running
+    # child's identity: agentRunId, parentTurnId, and, for a grandchild,
+    # parentAgentRunId.
+
+    AgentRunStartedEvent:
+      title: AgentRunStartedEvent
+      type: object
+      additionalProperties: false
+      required:
+        [agentRunId, parentTurnId, name, definition, depth, model, workspace]
+      properties:
+        agentRunId:
+          type: string
+          format: uuid
+        parentTurnId:
+          type: string
+          format: uuid
+        parentAgentRunId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        definition:
+          title: AgentRunDefinition
+          type: string
+          enum: [stored, ad-hoc]
+        depth:
+          type: integer
+        model:
+          type: string
+        workspace:
+          type: string
+
+    AgentRunStartedData:
+      title: AgentRunStartedData
+      type: object
+      additionalProperties: false
+      required: [agentRunId, parentTurnId, event]
+      properties:
+        agentRunId:
+          type: string
+          format: uuid
+        parentTurnId:
+          type: string
+          format: uuid
+        parentAgentRunId:
+          type: string
+          format: uuid
+        event:
+          $ref: "#/components/schemas/AgentRunStartedEvent"
+
+    AgentRunStarted:
+      title: AgentRunStarted
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: agent.run.started
+        data:
+          $ref: "#/components/schemas/AgentRunStartedData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    AgentRunTextDeltaData:
+      title: AgentRunTextDeltaData
+      type: object
+      additionalProperties: false
+      required: [agentRunId, parentTurnId, event]
+      properties:
+        agentRunId:
+          type: string
+          format: uuid
+        parentTurnId:
+          type: string
+          format: uuid
+        parentAgentRunId:
+          type: string
+          format: uuid
+        event:
+          $ref: "#/components/schemas/TextPayload"
+
+    AgentRunTextDelta:
+      title: AgentRunTextDelta
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: agent.run.text.delta
+        data:
+          $ref: "#/components/schemas/AgentRunTextDeltaData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    AgentRunThinkingDeltaData:
+      title: AgentRunThinkingDeltaData
+      type: object
+      additionalProperties: false
+      required: [agentRunId, parentTurnId, event]
+      properties:
+        agentRunId:
+          type: string
+          format: uuid
+        parentTurnId:
+          type: string
+          format: uuid
+        parentAgentRunId:
+          type: string
+          format: uuid
+        event:
+          $ref: "#/components/schemas/TextPayload"
+
+    AgentRunThinkingDelta:
+      title: AgentRunThinkingDelta
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: agent.run.thinking.delta
+        data:
+          $ref: "#/components/schemas/AgentRunThinkingDeltaData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    AgentRunToolUseData:
+      title: AgentRunToolUseData
+      type: object
+      additionalProperties: false
+      required: [agentRunId, parentTurnId, event]
+      properties:
+        agentRunId:
+          type: string
+          format: uuid
+        parentTurnId:
+          type: string
+          format: uuid
+        parentAgentRunId:
+          type: string
+          format: uuid
+        event:
+          $ref: "#/components/schemas/ToolUse"
+
+    AgentRunToolUse:
+      title: AgentRunToolUse
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: agent.run.tool.use
+        data:
+          $ref: "#/components/schemas/AgentRunToolUseData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    AgentRunToolResultData:
+      title: AgentRunToolResultData
+      type: object
+      additionalProperties: false
+      required: [agentRunId, parentTurnId, event]
+      properties:
+        agentRunId:
+          type: string
+          format: uuid
+        parentTurnId:
+          type: string
+          format: uuid
+        parentAgentRunId:
+          type: string
+          format: uuid
+        event:
+          $ref: "#/components/schemas/ToolResult"
+
+    AgentRunToolResult:
+      title: AgentRunToolResult
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: agent.run.tool.result
+        data:
+          $ref: "#/components/schemas/AgentRunToolResultData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    Part:
+      title: Part
+      type: object
+      additionalProperties: false
+      required: [type]
+      description: >
+        One piece of a child's assistant message content. `image`, `audio`,
+        and `file` are open: their shape is the provider-neutral media
+        source Peen's model layer builds, not a Peen-owned contract.
+      properties:
+        type:
+          title: PartType
+          type: string
+          enum: [text, image, audio, file]
+        text:
+          type: string
+        image:
+          title: PartImage
+          type: object
+        audio:
+          title: PartAudio
+          type: object
+        file:
+          title: PartFile
+          type: object
+
+    AgentRunToolCall:
+      title: AgentRunToolCall
+      type: object
+      additionalProperties: false
+      required: [id, name, arguments]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        arguments:
+          title: AgentRunToolCallArguments
+          type: [object, 'null']
+          description: >-
+            Open. The tool's own arguments, shaped by that tool, exactly as the
+            provider returned them; null when the provider sent none.
+
+    AgentRunAssistantMessageEvent:
+      title: AgentRunAssistantMessageEvent
+      type: object
+      additionalProperties: false
+      required: [role, content, toolCalls]
+      description: >
+        `providerReasoning` is set only when the provider returned
+        reasoning Peen cannot parse into `reasoning`.
+      properties:
+        role:
+          type: string
+        content:
+          type: array
+          items:
+            $ref: "#/components/schemas/Part"
+        toolCalls:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentRunToolCall"
+        reasoning:
+          type: string
+        providerReasoning:
+          title: AgentRunAssistantMessageProviderReasoning
+          type: object
+        origin:
+          type: string
+
+    AgentRunAssistantMessageData:
+      title: AgentRunAssistantMessageData
+      type: object
+      additionalProperties: false
+      required: [agentRunId, parentTurnId, event]
+      properties:
+        agentRunId:
+          type: string
+          format: uuid
+        parentTurnId:
+          type: string
+          format: uuid
+        parentAgentRunId:
+          type: string
+          format: uuid
+        event:
+          $ref: "#/components/schemas/AgentRunAssistantMessageEvent"
+
+    AgentRunAssistantMessage:
+      title: AgentRunAssistantMessage
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: agent.run.assistant.message
+        data:
+          $ref: "#/components/schemas/AgentRunAssistantMessageData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    AgentRunMessageInjectedEvent:
+      title: AgentRunMessageInjectedEvent
+      type: object
+      additionalProperties: false
+      required: [type, content, phase, tool, callId, round]
+      properties:
+        type:
+          title: AgentRunMessageInjectedType
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+        phase:
+          type: string
+        tool:
+          type: string
+        callId:
+          type: string
+        round:
+          type: integer
+
+    AgentRunMessageInjectedData:
+      title: AgentRunMessageInjectedData
+      type: object
+      additionalProperties: false
+      required: [agentRunId, parentTurnId, event]
+      properties:
+        agentRunId:
+          type: string
+          format: uuid
+        parentTurnId:
+          type: string
+          format: uuid
+        parentAgentRunId:
+          type: string
+          format: uuid
+        event:
+          $ref: "#/components/schemas/AgentRunMessageInjectedEvent"
+
+    AgentRunMessageInjected:
+      title: AgentRunMessageInjected
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: agent.run.message.injected
+        data:
+          $ref: "#/components/schemas/AgentRunMessageInjectedData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    AgentRunProviderRetryData:
+      title: AgentRunProviderRetryData
+      type: object
+      additionalProperties: false
+      required: [agentRunId, parentTurnId, event]
+      properties:
+        agentRunId:
+          type: string
+          format: uuid
+        parentTurnId:
+          type: string
+          format: uuid
+        parentAgentRunId:
+          type: string
+          format: uuid
+        event:
+          $ref: "#/components/schemas/ProviderRetry"
+
+    AgentRunProviderRetry:
+      title: AgentRunProviderRetry
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: agent.run.provider.retry
+        data:
+          $ref: "#/components/schemas/AgentRunProviderRetryData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    AgentRunMessageQueuedData:
+      title: AgentRunMessageQueuedData
+      type: object
+      additionalProperties: false
+      required: [agentRunId, parentTurnId, event]
+      properties:
+        agentRunId:
+          type: string
+          format: uuid
+        parentTurnId:
+          type: string
+          format: uuid
+        parentAgentRunId:
+          type: string
+          format: uuid
+        event:
+          $ref: "#/components/schemas/AgentRunInboxMessage"
+
+    AgentRunMessageQueued:
+      title: AgentRunMessageQueued
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: agent.run.message.queued
+        data:
+          $ref: "#/components/schemas/AgentRunMessageQueuedData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    AgentRunMessageDeliveredData:
+      title: AgentRunMessageDeliveredData
+      type: object
+      additionalProperties: false
+      required: [agentRunId, parentTurnId, event]
+      properties:
+        agentRunId:
+          type: string
+          format: uuid
+        parentTurnId:
+          type: string
+          format: uuid
+        parentAgentRunId:
+          type: string
+          format: uuid
+        event:
+          $ref: "#/components/schemas/AgentRunInboxMessage"
+
+    AgentRunMessageDelivered:
+      title: AgentRunMessageDelivered
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: agent.run.message.delivered
+        data:
+          $ref: "#/components/schemas/AgentRunMessageDeliveredData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    AgentRunMessageUndeliveredData:
+      title: AgentRunMessageUndeliveredData
+      type: object
+      additionalProperties: false
+      required: [agentRunId, parentTurnId, event]
+      properties:
+        agentRunId:
+          type: string
+          format: uuid
+        parentTurnId:
+          type: string
+          format: uuid
+        parentAgentRunId:
+          type: string
+          format: uuid
+        event:
+          $ref: "#/components/schemas/AgentRunInboxMessage"
+
+    AgentRunMessageUndelivered:
+      title: AgentRunMessageUndelivered
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: agent.run.message.undelivered
+        data:
+          $ref: "#/components/schemas/AgentRunMessageUndeliveredData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    AgentRunQuestionData:
+      title: AgentRunQuestionData
+      type: object
+      additionalProperties: false
+      required: [agentRunId, parentTurnId, event]
+      properties:
+        agentRunId:
+          type: string
+          format: uuid
+        parentTurnId:
+          type: string
+          format: uuid
+        parentAgentRunId:
+          type: string
+          format: uuid
+        event:
+          $ref: "#/components/schemas/QuestionAsked"
+
+    AgentRunQuestion:
+      title: AgentRunQuestion
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: agent.run.question
+        data:
+          $ref: "#/components/schemas/AgentRunQuestionData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    AgentRunAnswerData:
+      title: AgentRunAnswerData
+      type: object
+      additionalProperties: false
+      required: [agentRunId, parentTurnId, event]
+      properties:
+        agentRunId:
+          type: string
+          format: uuid
+        parentTurnId:
+          type: string
+          format: uuid
+        parentAgentRunId:
+          type: string
+          format: uuid
+        event:
+          $ref: "#/components/schemas/QuestionAnswered"
+
+    AgentRunAnswer:
+      title: AgentRunAnswer
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: agent.run.answer
+        data:
+          $ref: "#/components/schemas/AgentRunAnswerData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    AgentRunTerminalEvent:
+      title: AgentRunTerminalEvent
+      type: object
+      additionalProperties: false
+      required: [agentRunId, state]
+      properties:
+        agentRunId:
+          type: string
+          format: uuid
+        state:
+          title: AgentRunTerminalState
+          type: string
+          enum: [completed, failed, cancelled]
+        failureClassification:
+          title: AgentRunFailureClassification
+          type: string
+          enum: [agentRun, cancelled]
+        failureDetail:
+          type: string
+          description: Free text.
+
+    AgentRunCompletedData:
+      title: AgentRunCompletedData
+      type: object
+      additionalProperties: false
+      required: [agentRunId, parentTurnId, event]
+      properties:
+        agentRunId:
+          type: string
+          format: uuid
+        parentTurnId:
+          type: string
+          format: uuid
+        parentAgentRunId:
+          type: string
+          format: uuid
+        event:
+          $ref: "#/components/schemas/AgentRunTerminalEvent"
+
+    AgentRunCompleted:
+      title: AgentRunCompleted
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: agent.run.completed
+        data:
+          $ref: "#/components/schemas/AgentRunCompletedData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    AgentRunFailedData:
+      title: AgentRunFailedData
+      type: object
+      additionalProperties: false
+      required: [agentRunId, parentTurnId, event]
+      properties:
+        agentRunId:
+          type: string
+          format: uuid
+        parentTurnId:
+          type: string
+          format: uuid
+        parentAgentRunId:
+          type: string
+          format: uuid
+        event:
+          $ref: "#/components/schemas/AgentRunTerminalEvent"
+
+    AgentRunFailed:
+      title: AgentRunFailed
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: agent.run.failed
+        data:
+          $ref: "#/components/schemas/AgentRunFailedData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    AgentRunCancelledData:
+      title: AgentRunCancelledData
+      type: object
+      additionalProperties: false
+      required: [agentRunId, parentTurnId, event]
+      properties:
+        agentRunId:
+          type: string
+          format: uuid
+        parentTurnId:
+          type: string
+          format: uuid
+        parentAgentRunId:
+          type: string
+          format: uuid
+        event:
+          $ref: "#/components/schemas/AgentRunTerminalEvent"
+
+    AgentRunCancelled:
+      title: AgentRunCancelled
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: agent.run.cancelled
+        data:
+          $ref: "#/components/schemas/AgentRunCancelledData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    ServerEvent:
+      title: ServerEvent
+      discriminator: type
+      oneOf:
+        - $ref: "#/components/schemas/MessageCompleted"
+        - $ref: "#/components/schemas/MessageFailed"
+        - $ref: "#/components/schemas/ContentBlockStart"
+        - $ref: "#/components/schemas/ContentBlockDelta"
+        - $ref: "#/components/schemas/ContentBlockStop"
+        - $ref: "#/components/schemas/TurnStarted"
+        - $ref: "#/components/schemas/UserMessageCreated"
+        - $ref: "#/components/schemas/UserMessageQueued"
+        - $ref: "#/components/schemas/UserMessageDelivered"
+        - $ref: "#/components/schemas/SkillInjected"
+        - $ref: "#/components/schemas/ProviderRetryEvent"
+        - $ref: "#/components/schemas/ToolUseEvent"
+        - $ref: "#/components/schemas/ToolResultEvent"
+        - $ref: "#/components/schemas/SessionEvents"
+        - $ref: "#/components/schemas/HarnessWarning"
+        - $ref: "#/components/schemas/QuestionAskedEvent"
+        - $ref: "#/components/schemas/QuestionAnsweredEvent"
+        - $ref: "#/components/schemas/TurnCompleted"
+        - $ref: "#/components/schemas/TurnFailed"
+        - $ref: "#/components/schemas/TurnCancelled"
+        - $ref: "#/components/schemas/NoticeCreated"
+        - $ref: "#/components/schemas/AgentRunStarted"
+        - $ref: "#/components/schemas/AgentRunTextDelta"
+        - $ref: "#/components/schemas/AgentRunThinkingDelta"
+        - $ref: "#/components/schemas/AgentRunToolUse"
+        - $ref: "#/components/schemas/AgentRunToolResult"
+        - $ref: "#/components/schemas/AgentRunAssistantMessage"
+        - $ref: "#/components/schemas/AgentRunMessageInjected"
+        - $ref: "#/components/schemas/AgentRunProviderRetry"
+        - $ref: "#/components/schemas/AgentRunMessageQueued"
+        - $ref: "#/components/schemas/AgentRunMessageDelivered"
+        - $ref: "#/components/schemas/AgentRunMessageUndelivered"
+        - $ref: "#/components/schemas/AgentRunQuestion"
+        - $ref: "#/components/schemas/AgentRunAnswer"
+        - $ref: "#/components/schemas/AgentRunCompleted"
+        - $ref: "#/components/schemas/AgentRunFailed"
+        - $ref: "#/components/schemas/AgentRunCancelled"

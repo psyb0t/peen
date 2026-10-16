@@ -576,7 +576,7 @@ func TestNativeChildSubmissionRecoversSavedUnscheduledChild(t *testing.T) {
 	require.NoError(t, fixture.worker.Start(fixture.engine.options.Lifecycle))
 	fixture.started.Store(true)
 	instance := nativeWorkflowInstance(saved.SessionID, saved.ID)
-	result, err := client.GetWorkflowResult[workflowRoundResult](ctx, native.api, instance, 10*time.Second)
+	result, err := client.GetWorkflowResult[workflowRoundResult](ctx, native.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, "recovered child result", result.Text)
 	stored, err := fixture.base.store.GetExecution(ctx, saved.SessionID, saved.ID)

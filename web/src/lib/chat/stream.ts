@@ -1,6 +1,11 @@
-import type { PeenSocketEvent } from "$lib/ws/socket";
-
-import { isRecord, stringField } from "$lib/common/json";
+import type {
+	ContentBlockDeltaData,
+	ContentBlockStartData,
+	ContentBlockToolResultStart,
+	Delta,
+	ServerEvent,
+	SkillInjectedData,
+} from "$lib/ws/generated";
 
 const EVENT_TYPE_USER_MESSAGE_CREATED = "userMessage.created";
 const EVENT_TYPE_USER_MESSAGE_QUEUED = "userMessage.queued";
@@ -28,7 +33,7 @@ const DELTA_TYPE_THINKING = "thinking_delta";
 const DELTA_TYPE_INPUT_JSON = "input_json_delta";
 const DELTA_TYPE_JSON_PARTIAL = "json_partial";
 
-const TURN_TERMINAL_EVENT_TYPES = new Set([
+const TURN_TERMINAL_EVENT_TYPES = new Set<string>([
 	EVENT_TYPE_TURN_COMPLETED,
 	EVENT_TYPE_TURN_FAILED,
 	EVENT_TYPE_TURN_CANCELLED,
@@ -36,7 +41,7 @@ const TURN_TERMINAL_EVENT_TYPES = new Set([
 
 // Protocol events that only build the live reply. They carry no meaning on
 // their own, so the activity list must never render them as rows.
-const STREAM_PROTOCOL_EVENT_TYPES = new Set([
+const STREAM_PROTOCOL_EVENT_TYPES = new Set<string>([
 	EVENT_TYPE_CONTENT_BLOCK_START,
 	EVENT_TYPE_CONTENT_BLOCK_DELTA,
 	EVENT_TYPE_CONTENT_BLOCK_STOP,
@@ -106,25 +111,21 @@ export interface LiveTurn {
 	slots: ReadonlyMap<number, string>;
 }
 
-export function isStreamProtocolEvent(event: PeenSocketEvent): boolean {
+export function isStreamProtocolEvent(event: ServerEvent): boolean {
 	return STREAM_PROTOCOL_EVENT_TYPES.has(event.type);
 }
 
-export function isTurnTerminalEvent(event: PeenSocketEvent): boolean {
+export function isTurnTerminalEvent(event: ServerEvent): boolean {
 	return TURN_TERMINAL_EVENT_TYPES.has(event.type);
 }
 
 /**
  * Folds one socket event into the live turns and returns the next list.
  *
- * Events without a session and request ID, and block payloads that do not
- * match the essessey shapes, leave the list unchanged. The input list is never
- * mutated.
+ * Events without a session and request ID leave the list unchanged. The
+ * input list is never mutated.
  */
-export function applyStreamEvent(
-	turns: LiveTurn[],
-	event: PeenSocketEvent,
-): LiveTurn[] {
+export function applyStreamEvent(turns: LiveTurn[], event: ServerEvent): LiveTurn[] {
 	const sessionID = event.metadata.sessionId;
 	const requestID = event.metadata.requestId;
 	if (sessionID === undefined || requestID === undefined) {
@@ -151,13 +152,13 @@ function nextTurn(
 	current: LiveTurn | undefined,
 	sessionID: string,
 	requestID: string,
-	event: PeenSocketEvent,
+	event: ServerEvent,
 ): LiveTurn | undefined {
 	switch (event.type) {
 		case EVENT_TYPE_USER_MESSAGE_CREATED:
 			return {
 				...(current ?? emptyTurn(sessionID, requestID)),
-				prompt: stringField(event.data, "message"),
+				prompt: event.data.message,
 			};
 		case EVENT_TYPE_USER_MESSAGE_QUEUED:
 			return { ...(current ?? emptyTurn(sessionID, requestID)), queue: "queued" };
@@ -166,7 +167,7 @@ function nextTurn(
 		case EVENT_TYPE_TURN_STARTED:
 			return {
 				...(current ?? emptyTurn(sessionID, requestID)),
-				originEventType: stringField(event.data, "originEventType"),
+				originEventType: event.data.originEventType,
 			};
 		case EVENT_TYPE_CONTENT_BLOCK_START:
 			return startBlock(current ?? emptyTurn(sessionID, requestID), event.data);
@@ -227,22 +228,13 @@ function deliverQueuedMessage(
 	});
 }
 
-/**
- * Adds a skill message to the turn it reached, after everything the turn has
- * shown so far. An event without a name and content leaves the turn as it was.
- */
+/** Adds a skill message to the turn it reached, after everything the turn has shown so far. */
 function addSkillBlock(
 	current: LiveTurn | undefined,
 	sessionID: string,
 	requestID: string,
-	data: unknown,
-): LiveTurn | undefined {
-	const name = stringField(data, "name");
-	const text = stringField(data, "content");
-	if (name === undefined || text === undefined) {
-		return current;
-	}
-
+	data: SkillInjectedData,
+): LiveTurn {
 	const turn = current ?? emptyTurn(sessionID, requestID);
 	const count = turn.blocks.filter((block) => block.kind === "skill").length;
 
@@ -250,7 +242,12 @@ function addSkillBlock(
 		...turn,
 		blocks: [
 			...turn.blocks,
-			{ key: `${requestID}:skill:${count}`, kind: "skill", name, text },
+			{
+				key: `${requestID}:skill:${count}`,
+				kind: "skill",
+				name: data.name,
+				text: data.content,
+			},
 		],
 	};
 }
@@ -268,14 +265,11 @@ function emptyTurn(sessionID: string, requestID: string): LiveTurn {
 	};
 }
 
-function startBlock(turn: LiveTurn, data: unknown): LiveTurn {
-	const index = blockIndex(data);
-	const block = isRecord(data) ? data.content_block : undefined;
-	if (index === undefined || !isRecord(block)) {
-		return turn;
-	}
-
+function startBlock(turn: LiveTurn, data: ContentBlockStartData): LiveTurn {
+	const { index } = data;
 	const key = `${turn.requestID}:${index}`;
+	const block = data.content_block;
+
 	switch (block.type) {
 		case BLOCK_TYPE_TEXT:
 			return addBlock(turn, index, { key, kind: BLOCK_TYPE_TEXT, text: "" });
@@ -287,9 +281,9 @@ function startBlock(turn: LiveTurn, data: unknown): LiveTurn {
 				isError: false,
 				key,
 				kind: "tool",
-				name: stringField(block, "name") ?? "Tool",
+				name: block.name,
 				result: undefined,
-				toolUseID: stringField(block, "id") ?? key,
+				toolUseID: block.id,
 			});
 		case BLOCK_TYPE_TOOL_RESULT:
 			return attachToolResult(turn, index, block);
@@ -298,7 +292,15 @@ function startBlock(turn: LiveTurn, data: unknown): LiveTurn {
 	}
 }
 
+// A replayed content_block_start for a key already in the turn is a repeat
+// of a start this turn already applied (catch-up overlapping a live frame,
+// or a duplicate the cursor let through). Ignoring it keeps replay
+// idempotent instead of raising a duplicate React-style key.
 function addBlock(turn: LiveTurn, index: number, block: LiveBlock): LiveTurn {
+	if (turn.blocks.some((existing) => existing.key === block.key)) {
+		return turn;
+	}
+
 	return {
 		...turn,
 		blocks: [...turn.blocks, block],
@@ -309,11 +311,11 @@ function addBlock(turn: LiveTurn, index: number, block: LiveBlock): LiveTurn {
 function attachToolResult(
 	turn: LiveTurn,
 	index: number,
-	block: Record<string, unknown>,
+	block: ContentBlockToolResultStart,
 ): LiveTurn {
-	const toolUseID = stringField(block, "tool_use_id");
 	const tool = turn.blocks.find(
-		(candidate) => candidate.kind === "tool" && candidate.toolUseID === toolUseID,
+		(candidate) =>
+			candidate.kind === "tool" && candidate.toolUseID === block.tool_use_id,
 	);
 	if (tool === undefined) {
 		return turn;
@@ -330,14 +332,8 @@ function attachToolResult(
 	};
 }
 
-function applyDelta(turn: LiveTurn, data: unknown): LiveTurn {
-	const index = blockIndex(data);
-	const delta = isRecord(data) ? data.delta : undefined;
-	if (index === undefined || !isRecord(delta)) {
-		return turn;
-	}
-
-	const key = turn.slots.get(index);
+function applyDelta(turn: LiveTurn, data: ContentBlockDeltaData): LiveTurn {
+	const key = turn.slots.get(data.index);
 	if (key === undefined) {
 		return turn;
 	}
@@ -345,35 +341,29 @@ function applyDelta(turn: LiveTurn, data: unknown): LiveTurn {
 	return {
 		...turn,
 		blocks: turn.blocks.map((block) =>
-			block.key === key ? appendDelta(block, delta) : block,
+			block.key === key ? appendDelta(block, data.delta) : block,
 		),
 	};
 }
 
-function appendDelta(block: LiveBlock, delta: Record<string, unknown>): LiveBlock {
+function appendDelta(block: LiveBlock, delta: Delta): LiveBlock {
 	switch (delta.type) {
 		case DELTA_TYPE_TEXT:
-			return appendProse(block, BLOCK_TYPE_TEXT, stringField(delta, "text"));
+			return appendProse(block, BLOCK_TYPE_TEXT, delta.text);
 		case DELTA_TYPE_THINKING:
-			return appendProse(block, BLOCK_TYPE_THINKING, stringField(delta, "text"));
+			return appendProse(block, BLOCK_TYPE_THINKING, delta.text);
 		case DELTA_TYPE_INPUT_JSON:
 			if (block.kind !== "tool") {
 				return block;
 			}
 
-			return {
-				...block,
-				input: block.input + (stringField(delta, "partial_json") ?? ""),
-			};
+			return { ...block, input: block.input + delta.partial_json };
 		case DELTA_TYPE_JSON_PARTIAL:
 			if (block.kind !== "tool") {
 				return block;
 			}
 
-			return {
-				...block,
-				result: (block.result ?? "") + (stringField(delta, "text") ?? ""),
-			};
+			return { ...block, result: (block.result ?? "") + delta.text };
 		default:
 			return block;
 	}
@@ -382,19 +372,11 @@ function appendDelta(block: LiveBlock, delta: Record<string, unknown>): LiveBloc
 function appendProse(
 	block: LiveBlock,
 	kind: LiveProseBlock["kind"],
-	text: string | undefined,
+	text: string,
 ): LiveBlock {
-	if (block.kind !== kind || text === undefined || text === "") {
+	if (block.kind !== kind || text === "") {
 		return block;
 	}
 
 	return { ...block, text: block.text + text };
-}
-
-function blockIndex(data: unknown): number | undefined {
-	if (!isRecord(data) || !Number.isInteger(data.index)) {
-		return undefined;
-	}
-
-	return data.index as number;
 }

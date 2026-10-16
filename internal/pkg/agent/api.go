@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
@@ -66,6 +67,14 @@ type SessionReplayAPI interface {
 		ctx context.Context,
 		params api.ListSessionEventsParams,
 	) (*api.TranscriptEventPage, error)
+	// ListSessionFeed returns raw store items rather than an API page, so the
+	// HTTP layer can render each one with the same function a live frame
+	// uses. The second return is the resolved limit, defaulted when the
+	// caller sent none, since session.FeedPage carries no limit of its own.
+	ListSessionFeed(
+		ctx context.Context,
+		params api.ListSessionFeedParams,
+	) (*session.FeedPage, int32, error)
 	ListSessionTurns(
 		ctx context.Context,
 		params api.ListSessionTurnsParams,
@@ -251,9 +260,65 @@ func (r *Runtime) Session(
 		return nil, ctxerrors.Wrap(err, "get session")
 	}
 
-	result := SessionToAPI(stored, r.store.IsActive(sessionID))
+	active := r.store.IsActive(sessionID)
+	result := SessionToAPI(stored, active)
+
+	if active {
+		sequence, err := r.activeTurnFeedSequence(ctx, sessionID)
+		if err != nil {
+			return nil, err
+		}
+
+		result.ActiveTurnFeedSequence = sequence
+	}
 
 	return &result, nil
+}
+
+// activeTurnFeedSequence finds the first feed sequence of the session's
+// currently running turn: the newest durable turn row, when this process
+// still holds it running. It reports nil when that turn has written no feed
+// row yet, the same shape GetSession carries for no turn running at all.
+func (r *Runtime) activeTurnFeedSequence(
+	ctx context.Context,
+	sessionID uuid.UUID,
+) (*int64, error) {
+	reader, ok := r.store.(feedReader)
+	if !ok {
+		//nolint:nilnil // No turn running is a valid, non-error outcome.
+		return nil, nil
+	}
+
+	turns, err := r.store.ListTurns(
+		ctx,
+		sessionID,
+		session.ListTurnsOptions{Limit: 1},
+	)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "find the session's active turn")
+	}
+
+	if len(turns.Items) == 0 ||
+		turns.Items[0].State != models.TurnStateRunning {
+		//nolint:nilnil // No turn running is a valid, non-error outcome.
+		return nil, nil
+	}
+
+	first, found, err := reader.TurnFeedStart(
+		ctx,
+		sessionID,
+		turns.Items[0].ID,
+	)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "find the active turn's feed start")
+	}
+
+	if !found {
+		//nolint:nilnil // The turn has written no feed row yet.
+		return nil, nil
+	}
+
+	return &first, nil
 }
 
 // ListMessages reads one durable transcript page as the public API model.

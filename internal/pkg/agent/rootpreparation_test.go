@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/cschleiden/go-workflows/client"
 	"github.com/psyb0t/elelem/elelemtest"
@@ -29,7 +28,7 @@ func TestRootWorkflowPreparationLoadsDirectoryHopBeforeNextModel(t *testing.T) {
 	fixture, prepared := newRootModelWorkflowFixture(t, driver)
 	instance := fixture.start(t)
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, "finished in target", result.Text)
 	requests := driver.Requests()

@@ -1374,7 +1374,7 @@ open_command() {
 	output="$WORK_DIR/open-response.json"
 	headers="$WORK_DIR/open-headers"
 	printf '{"workspace":%s}' "$(json_string "$canonical")" >"$body"
-	status="$(api_request POST /v1/sessions/open "$body" "$output" "$headers")"
+	status="$(api_request POST /api/v1/sessions/open "$body" "$output" "$headers")"
 	if [[ "$status" != 2* ]]; then
 		printf 'error: Peen refused to open %s (HTTP %s)\n' "$canonical" "$status" >&2
 		if [[ -s "$output" ]]; then
@@ -1681,12 +1681,12 @@ doctor_controller() {
 	work_dir
 	output="$WORK_DIR/models.json"
 	headers="$WORK_DIR/models-headers"
-	status="$(api_request GET /v1/models "" "$output" "$headers")"
+	status="$(api_request GET /api/v1/models "" "$output" "$headers")"
 	if [[ "$status" == "200" ]]; then
-		check_ok "GET /v1/models answers"
+		check_ok "GET /api/v1/models answers"
 		return
 	fi
-	check_fail "GET /v1/models answered HTTP $status; check PEEN_API_TOKEN and the provider settings"
+	check_fail "GET /api/v1/models answered HTTP $status; check PEEN_API_TOKEN and the provider settings"
 }
 
 doctor_command() {

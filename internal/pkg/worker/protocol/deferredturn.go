@@ -39,7 +39,5 @@ func (c *Controller) acquireDeferredTurn(
 		return nil, ctxerrors.Wrap(err, "admit deferred worker turn")
 	}
 
-	c.publish(ctx, result.Events)
-
 	return result, nil
 }

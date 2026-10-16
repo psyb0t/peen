@@ -12,6 +12,29 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
+// feedReader is the narrow surface GET /api/v1/session/feed and the active-turn
+// feed lookup need from the store.
+//
+// It is a local interface, asserted against r.store, rather than an addition
+// to session.Storage: that interface is also implemented by the worker-side
+// protocol store, which would then have to forward a new RPC for a read only
+// the control API ever makes. The control plane's own store is a *session.Store
+// under r.store, which already has both methods, so the assertion succeeds
+// there and nowhere else.
+type feedReader interface {
+	ListFeed(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		cursor int64,
+		limit int,
+	) (*session.FeedPage, error)
+	TurnFeedStart(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		turnID uuid.UUID,
+	) (int64, bool, error)
+}
+
 // ListSessionEvents returns SQLite-backed protocol events, never an in-memory
 // stream or queue view.
 func (r *Runtime) ListSessionEvents(
@@ -54,6 +77,43 @@ func (r *Runtime) ListSessionEvents(
 	}
 
 	return &page, nil
+}
+
+// feedDefaultLimit is the page size ListSessionFeed falls back to when the
+// caller sends no limit at all. It matches docs/http-api.md and api/api.yml.
+const feedDefaultLimit = 100
+
+// ListSessionFeed returns a page of a session's merged feed sequence as the
+// store holds it, never converted to the API shape here.
+//
+// The HTTP layer renders each item with the same function it uses for a live
+// frame, so a replayed row and the frame a connected client saw for it can
+// never read differently. Converting here would create a second renderer.
+func (r *Runtime) ListSessionFeed(
+	ctx context.Context,
+	params api.ListSessionFeedParams,
+) (*session.FeedPage, int32, error) {
+	reader, ok := r.store.(feedReader)
+	if !ok {
+		return nil, 0, ctxerrors.Wrap(
+			commerr.ErrNotImplemented,
+			"session feed reads require the control store",
+		)
+	}
+
+	cursor := int64OrZero(params.Cursor)
+
+	limit := feedDefaultLimit
+	if params.Limit != nil {
+		limit = int(*params.Limit)
+	}
+
+	page, err := reader.ListFeed(ctx, params.XSessionID, cursor, limit)
+	if err != nil {
+		return nil, 0, ctxerrors.Wrap(err, "list durable session feed")
+	}
+
+	return page, int32(limit), nil
 }
 
 // ListSessionTurns returns the complete durable turn lifecycle.

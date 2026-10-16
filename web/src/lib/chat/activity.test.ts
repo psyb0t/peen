@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
 
+import type { ServerEvent } from "$lib/ws/generated";
+
 import { activities } from "./activity";
 
 const sessionID = "22222222-2222-4222-8222-222222222222";
 
-function event(id: string, type: string, data: unknown) {
+// A pragmatic cast: `activities` never validates `data` against the
+// contract (that happens once, at the socket/feed boundary, before an
+// event ever reaches here), so these fixtures only need the `type` and
+// `data` fields each case actually reads.
+function event(id: string, type: string, data: unknown): ServerEvent {
 	return {
 		data,
 		id,
@@ -12,7 +18,7 @@ function event(id: string, type: string, data: unknown) {
 		timestamp: 1,
 		triggeredBy: null,
 		type,
-	};
+	} as ServerEvent;
 }
 
 describe("agent activity", () => {

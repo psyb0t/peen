@@ -1,11 +1,9 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"runtime/debug"
 
@@ -19,6 +17,7 @@ import (
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/agent"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/http/wsapi"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -80,11 +79,6 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 
-	if hasSessionFilter {
-		w = s.trackWebSocketPresence(context.WithoutCancel(r.Context()),
-			w, filteredClientID, filterSessionID)
-	}
-
 	s.webSocketUpgradeHandler.ServeHTTP(w, request)
 
 	if hasSessionFilter &&
@@ -141,6 +135,7 @@ func (s *Server) handleWebSocketMessage(
 
 		logger.Warn("websocket message rejected", "err", wrapped)
 		s.broadcastWebSocketFailureToClient(
+			ctx,
 			client.ID(),
 			&failedSessionID,
 			requestID,
@@ -176,12 +171,15 @@ func (s *Server) rejectWebSocketSessionRouting(
 	requestID uuid.UUID,
 	err error,
 ) {
-	ctxscope.GetLogger(s.deps.ServiceContext()).Warn(
+	ctx := s.deps.ServiceContext()
+
+	ctxscope.GetLogger(ctx).Warn(
 		"websocket message rejected",
 		"reason", "session_routing",
 		"err", err,
 	)
 	s.broadcastWebSocketFailureToClient(
+		ctx,
 		clientID,
 		nil,
 		requestID,
@@ -321,6 +319,7 @@ func (s *Server) runWebSocketMessage(
 		"queued", result.Queued,
 	)
 	s.broadcastWebSocketMessageCompletion(
+		ctx,
 		sessionID,
 		requestID,
 		triggeringEventID,
@@ -341,6 +340,7 @@ func (s *Server) recoverWebSocketMessagePanic(
 			"stack", string(debug.Stack()),
 		)
 		s.broadcastWebSocketFailure(
+			ctx,
 			sessionID,
 			requestID,
 			triggeringEventID,
@@ -368,6 +368,7 @@ func (s *Server) reportWebSocketMessageFailure(
 
 	failure := webSocketMessageFailureFor(err)
 	s.broadcastWebSocketFailure(
+		ctx,
 		sessionID,
 		requestID,
 		triggeringEventID,
@@ -376,12 +377,14 @@ func (s *Server) reportWebSocketMessageFailure(
 }
 
 func (s *Server) broadcastWebSocketMessageCompletion(
+	ctx context.Context,
 	sessionID uuid.UUID,
 	requestID uuid.UUID,
 	triggeringEventID uuid.UUID,
 	queued bool,
 ) {
 	s.broadcastWebSocketEvent(
+		ctx,
 		sessionID,
 		newWebSocketEvent(
 			webSocketMessageCompletedEventType,
@@ -394,12 +397,14 @@ func (s *Server) broadcastWebSocketMessageCompletion(
 }
 
 func (s *Server) broadcastWebSocketFailure(
+	ctx context.Context,
 	sessionID uuid.UUID,
 	requestID uuid.UUID,
 	triggeringEventID uuid.UUID,
 	failure webSocketMessageFailure,
 ) {
 	s.broadcastWebSocketEvent(
+		ctx,
 		sessionID,
 		newWebSocketEvent(
 			webSocketMessageFailedEventType,
@@ -412,6 +417,7 @@ func (s *Server) broadcastWebSocketFailure(
 }
 
 func (s *Server) broadcastWebSocketFailureToClient(
+	ctx context.Context,
 	clientID uuid.UUID,
 	sessionID *uuid.UUID,
 	requestID uuid.UUID,
@@ -430,38 +436,18 @@ func (s *Server) broadcastWebSocketFailureToClient(
 		)
 	}
 
+	validateServerFrame(ctx, &event)
+
 	s.webSocketHub.BroadcastToClients([]uuid.UUID{clientID}, &event)
 }
 
-// BroadcastDurableSessionEvents fans out events the controller has already
-// written.
-//
-// It is the live half of the worker event path: a worker's durable write lands
-// in SQLite first, and only then does the controller hand the same records here
-// for delivery. A client therefore never sees an event the database does not
-// already hold.
-func (s *Server) BroadcastDurableSessionEvents(
-	sessionID uuid.UUID,
-	events []session.EventInput,
-) {
-	for _, event := range events {
-		s.broadcastWebSocketEvent(
-			sessionID,
-			newWebSocketEvent(
-				dabluveees.EventType(event.EventType),
-				json.RawMessage(event.PayloadJSON),
-				sessionID,
-				event.RequestID,
-				uuid.Nil,
-			),
-		)
-	}
-}
-
 func (s *Server) broadcastWebSocketEvent(
+	ctx context.Context,
 	sessionID uuid.UUID,
 	event *dabluveees.Event,
 ) {
+	validateServerFrame(ctx, event)
+
 	clientIDs := s.webSocketClientsFor(sessionID)
 	if len(clientIDs) == 0 {
 		return
@@ -534,31 +520,65 @@ func (s *Server) webSocketClientsFor(sessionID uuid.UUID) []uuid.UUID {
 	return clientIDs
 }
 
+// decodeWebSocketMessage decodes a message.send event's data through the
+// generated wsapi strict codec, which rejects an unknown field, a missing
+// message, an out-of-range length, and an unknown reasoningEffort the same
+// way the hand-written decoder used to. The result is mapped onto
+// agent.MessageRequest so the rest of the turn path stays transport-neutral.
 func decodeWebSocketMessage(
 	data json.RawMessage,
 ) (agent.MessageRequest, error) {
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-
-	request := agent.MessageRequest{}
-	if err := decoder.Decode(&request); err != nil {
+	payload := wsapi.MessageSendData{}
+	if err := payload.UnmarshalJSON(data); err != nil {
 		return agent.MessageRequest{}, ctxerrors.Wrap(
 			err,
 			"decode message payload",
 		)
 	}
 
-	trailing := struct{}{}
-	if err := decoder.Decode(&trailing); err == nil {
-		return agent.MessageRequest{}, ctxerrors.Wrap(
-			commerr.ErrValidationFailed,
-			"multiple message payloads",
-		)
-	} else if !errors.Is(err, io.EOF) {
+	request, err := messageSendDataToRequest(payload)
+	if err != nil {
 		return agent.MessageRequest{}, ctxerrors.Wrap(
 			err,
-			"decode trailing message payload",
+			"convert message payload",
 		)
+	}
+
+	return request, nil
+}
+
+// messageSendDataToRequest maps a decoded MessageSendData onto the
+// transport-neutral agent.MessageRequest. Field-level shape and length are
+// already proven by UnmarshalJSON; only "to", which wsapi carries as an
+// unenforced string, needs its own uuid parse here.
+func messageSendDataToRequest(
+	data wsapi.MessageSendData,
+) (agent.MessageRequest, error) {
+	request := agent.MessageRequest{Message: data.Message}
+
+	if data.Model != nil {
+		request.Model = data.Model
+	}
+
+	if data.ReasoningEffort != nil {
+		effort := string(*data.ReasoningEffort)
+		request.ReasoningEffort = &effort
+	}
+
+	if data.SystemPrompt != nil {
+		request.SystemPrompt = &agent.MessageSystemPrompt{
+			Content: data.SystemPrompt.Content,
+			Mode:    agent.PromptMode(data.SystemPrompt.Mode),
+		}
+	}
+
+	if data.To != nil {
+		to, err := uuid.Parse(*data.To)
+		if err != nil {
+			return agent.MessageRequest{}, ctxerrors.Wrap(err, "parse to")
+		}
+
+		request.To = &to
 	}
 
 	return request, nil

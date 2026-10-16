@@ -62,13 +62,13 @@ By default Peen runs in a container and each workspace's agent runs in its own c
 
 ## Send and follow work
 
-Peen starts with no sessions. Open a workspace with `POST /v1/sessions/open` and a body of `{"workspace":"<workspace_root>/my-app"}`, using the absolute host path. It returns the session, creating it the first time that directory is opened and resuming it afterwards. Never invent a session ID, because Peen refuses an unknown one and starts no turn.
+Peen starts with no sessions. Open a workspace with `POST /api/v1/sessions/open` and a body of `{"workspace":"<workspace_root>/my-app"}`, using the absolute host path. It returns the session, creating it the first time that directory is opened and resuming it afterwards. Never invent a session ID, because Peen refuses an unknown one and starts no turn.
 
-Send the returned ID as `metadata.sessionId` in a `message.send` WebSocket event, and reuse it to continue the conversation. A normal connection gets live events for every session, so the client builds tabs by filtering event metadata. `?sessionId=<uuid>` filters events and keeps that session present. The final filtered connection closing pauses its unfinished workflows; another filtered client keeps them running. Global observer sockets do not keep a session running. Every sent message still needs `metadata.sessionId`.
+Send the returned ID as `metadata.sessionId` in a `message.send` WebSocket event, and reuse it to continue the conversation. A normal connection gets live events for every session, so the client builds tabs by filtering event metadata. `?sessionId=<uuid>` only filters what one socket receives; it does not keep a session's work running, and closing every connection for a session does not pause it either. Only `POST /api/v1/session/cancel`, cancelling a child, stopping the controller, or an embedded `Close` pauses or stops work, along with a failed turn or a crash. A client that reconnects replays whatever it missed from [`GET /api/v1/session/feed`](https://github.com/psyb0t/peen/blob/main/docs/http-api.md#get-apiv1sessionfeed) instead of losing it. Every sent message still needs `metadata.sessionId`.
 
-`GET /v1/sessions` lists what exists and needs no session header.
+`GET /api/v1/sessions` lists what exists and needs no session header.
 
-Use REST to read stored state and control work. A message for the agent goes over the WebSocket. Send `X-Session-ID` to the session endpoints. For example, list messages with `GET /v1/messages` and ask a turn to stop with `POST /v1/session/cancel`. The [API reference](https://github.com/psyb0t/peen/blob/main/docs/http-api.md) has every frame and endpoint.
+Use REST to read stored state and control work. A message for the agent goes over the WebSocket. Send `X-Session-ID` to the session endpoints. For example, list messages with `GET /api/v1/messages` and ask a turn to stop with `POST /api/v1/session/cancel`. The [API reference](https://github.com/psyb0t/peen/blob/main/docs/http-api.md) has every frame and endpoint.
 
 ## Inspect and continue retained work
 

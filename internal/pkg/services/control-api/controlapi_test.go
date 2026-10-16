@@ -45,8 +45,8 @@ const (
 	apiTestOutputTokens    = 1024
 
 	apiTestReadyPath       = "/ready"
-	apiTestSessionsPath    = "/v1/sessions"
-	apiTestOpenSessionPath = "/v1/sessions/open"
+	apiTestSessionsPath    = "/api/v1/sessions"
+	apiTestOpenSessionPath = "/api/v1/sessions/open"
 
 	headerAuthorization = "Authorization"
 	headerContentType   = "Content-Type"
@@ -166,10 +166,11 @@ func newTestCore(t *testing.T, config peenconfig.Config) *control.Core {
 	agentSpaces, err := config.AgentSpaces()
 	require.NoError(t, err)
 
-	// The relay is the supervisor's publisher here exactly as it is in
-	// control-core, so the service under test registers its delivery path on
-	// the same object a worker would write through.
-	relay := control.NewEventRelay()
+	// The pump reads the store exactly as it does in control-core, so the
+	// service under test registers its delivery path on the same object the
+	// store signals after a worker's durable write commits.
+	feed := control.NewFeedPump(t.Context(), assembled.Store)
+	assembled.Store.SetFeedSignal(feed.Signal)
 
 	controlLauncher, err := controlspace.New(controlspace.Options{})
 	require.NoError(t, err)
@@ -180,7 +181,6 @@ func newTestCore(t *testing.T, config peenconfig.Config) *control.Core {
 		Launchers: map[worker.Kind]worker.Launcher{
 			worker.KindControl: controlLauncher,
 		},
-		Publisher:       relay,
 		SocketRoot:      config.WorkerSocketRoot(),
 		ConfigDirectory: config.ConfigDirectory,
 	})
@@ -196,7 +196,7 @@ func newTestCore(t *testing.T, config peenconfig.Config) *control.Core {
 	})
 	require.NoError(t, err)
 
-	turns, err := control.NewTurnRouter(sessions, workers, relay)
+	turns, err := control.NewTurnRouter(sessions, workers, feed)
 	require.NoError(t, err)
 
 	return &control.Core{
@@ -208,7 +208,7 @@ func newTestCore(t *testing.T, config peenconfig.Config) *control.Core {
 		AgentSpaces: agentSpaces,
 		Workers:     workers,
 		Turns:       turns,
-		Events:      relay,
+		Feed:        feed,
 		Metrics:     metrics.New(),
 	}
 }

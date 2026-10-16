@@ -700,7 +700,7 @@ func TestCompactionRepeatedSupersedingPreservesHistoryAndPlacement(
 
 // Compaction only ever ADDS rows. The original transcript must survive both
 // compactions byte for byte, and none of it may carry the synthetic summary
-// lead a GET /v1/messages caller must never see.
+// lead a GET /api/v1/messages caller must never see.
 func TestCompactionOriginalTranscriptNeverMutated(t *testing.T) {
 	scenario := setupCompactionScenario(t, compactionTurnsBeforeSecondTrigger)
 

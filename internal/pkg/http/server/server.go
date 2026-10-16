@@ -129,8 +129,6 @@ type Server struct {
 	webSocketUpgradeHandler http.Handler
 	webSocketFilterMutex    sync.Mutex
 	webSocketFilters        map[uuid.UUID]webSocketSessionFilterEntry
-	webSocketPresenceMutex  sync.Mutex
-	webSocketPresence       map[uuid.UUID]*webSocketSessionPresence
 }
 
 var _ api.StrictServerInterface = (*Server)(nil)
@@ -233,7 +231,6 @@ func (s *Server) configureHTTPServer() error {
 func (s *Server) configureWebSocketHub() {
 	s.webSocketHub = wshub.NewHub(webSocketHubName)
 	s.webSocketFilters = make(map[uuid.UUID]webSocketSessionFilterEntry)
-	s.webSocketPresence = make(map[uuid.UUID]*webSocketSessionPresence)
 	s.webSocketHub.RegisterEventHandler(
 		webSocketMessageSendEventType,
 		s.handleWebSocketMessage,

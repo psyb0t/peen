@@ -445,8 +445,6 @@ func TestExecutionStoreRejectsReplacedReadyWorker(t *testing.T) {
 func TestExecutionStoreProjectsTranscriptWithActivityOverRPC(t *testing.T) {
 	t.Parallel()
 	fixture, remote, execution := newExecutionRPCFixture(t)
-	publisher := &recordingPublisher{}
-	fixture.controller.publisher = publisher
 	lease, err := remote.RestoreExecutionTurn(t.Context(), fixture.sessionID,
 		execution.ID, session.RestoreExecutionTurnInput{
 			OwnerGenerationID:  fixture.controller.generationID,
@@ -483,7 +481,12 @@ func TestExecutionStoreProjectsTranscriptWithActivityOverRPC(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, models.ActivityStateCompleted, completed.State)
 	}
-	assert.Equal(t, input.RootProjection.Events, publisher.events)
+	storedEvents, err := fixture.controller.store.ListEvents(t.Context(),
+		fixture.sessionID, session.ListEventsOptions{})
+	require.NoError(t, err)
+	require.Len(t, storedEvents.Items, 1)
+	assert.Equal(t, input.RootProjection.Events[0].EventType,
+		storedEvents.Items[0].EventType)
 	page, err := fixture.controller.store.ListMessages(t.Context(),
 		fixture.sessionID, session.ListMessagesOptions{})
 	require.NoError(t, err)
@@ -493,14 +496,15 @@ func TestExecutionStoreProjectsTranscriptWithActivityOverRPC(t *testing.T) {
 	_, err = remote.CompleteExecutionActivity(t.Context(), fixture.sessionID,
 		claim.Lease, input)
 	require.ErrorIs(t, err, commerr.ErrConflict)
-	assert.Len(t, publisher.events, 1)
+	storedEvents, err = fixture.controller.store.ListEvents(t.Context(),
+		fixture.sessionID, session.ListEventsOptions{})
+	require.NoError(t, err)
+	assert.Len(t, storedEvents.Items, 1)
 }
 
 func TestExecutionStoreFinishesAtomicallyOverRPC(t *testing.T) {
 	t.Parallel()
 	fixture, remote, execution := newExecutionRPCFixture(t)
-	publisher := &recordingPublisher{}
-	fixture.controller.publisher = publisher
 	lease, err := remote.RestoreExecutionTurn(t.Context(), fixture.sessionID,
 		execution.ID, session.RestoreExecutionTurnInput{
 			OwnerGenerationID:  fixture.controller.generationID,
@@ -535,12 +539,19 @@ func TestExecutionStoreFinishesAtomicallyOverRPC(t *testing.T) {
 	_, err = remote.CompleteExecutionActivity(t.Context(), fixture.sessionID,
 		claim.Lease, input)
 	require.NoError(t, err)
-	require.Len(t, publisher.events, 1)
-	assert.Equal(t, input.Finish.Turn.Events, publisher.events)
+	storedEvents, err := fixture.controller.store.ListEvents(t.Context(),
+		fixture.sessionID, session.ListEventsOptions{})
+	require.NoError(t, err)
+	require.Len(t, storedEvents.Items, 1)
+	assert.Equal(t, input.Finish.Turn.Events[0].EventType,
+		storedEvents.Items[0].EventType)
 	_, err = remote.CompleteExecutionActivity(t.Context(), fixture.sessionID,
 		claim.Lease, input)
 	require.NoError(t, err)
-	assert.Len(t, publisher.events, 1)
+	storedEvents, err = fixture.controller.store.ListEvents(t.Context(),
+		fixture.sessionID, session.ListEventsOptions{})
+	require.NoError(t, err)
+	assert.Len(t, storedEvents.Items, 1)
 	current, err := remote.GetExecution(t.Context(), fixture.sessionID,
 		execution.ID)
 	require.NoError(t, err)

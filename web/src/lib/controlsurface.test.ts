@@ -56,6 +56,12 @@ const session = {
 	workspace: "/workspace/catalog",
 };
 
+// A turn.started frame's data must fit TurnStartedData: sessionId, model,
+// and workspace are all required by the generated contract.
+function turnStartedData(): Record<string, unknown> {
+	return { model: session.model, sessionId: session.id, workspace: session.workspace };
+}
+
 const agentSpaces = [
 	{
 		capabilityWarnings: [],
@@ -159,16 +165,13 @@ async function connectAndOpenChat(): Promise<TestWebSocket | undefined> {
 	await fireEvent.click(screen.getByRole("button", { name: "Open chat" }));
 	await screen.findByRole("heading", { name: "catalog" });
 	await waitFor(() => {
-		expect(TestWebSocket.instances).toHaveLength(2);
-	});
-	const presence = TestWebSocket.instances[1];
-	expect(presence?._url).toContain(`sessionId=${session.id}`);
-	presence?.open();
-	await waitFor(() => {
 		expect(
 			screen.getByRole<HTMLButtonElement>("button", { name: "Send" }).disabled,
 		).toBe(false);
 	});
+	// There is no per-session presence socket: work keeps running unattended,
+	// and a reconnect catches up from the session feed instead.
+	expect(TestWebSocket.instances).toHaveLength(1);
 
 	return transport;
 }
@@ -216,7 +219,34 @@ const waitingAgent = {
 	workspace: "/workspace/catalog",
 };
 
-const AGENT_CANCEL_PATH_PATTERN = /^\/v1\/session\/agents\/([^/]+)\/cancel$/u;
+const AGENT_CANCEL_PATH_PATTERN = /^\/api\/v1\/session\/agents\/([^/]+)\/cancel$/u;
+
+interface FeedFrameFixture {
+	createdAt: string;
+	data: unknown;
+	id: string;
+	requestId: string | null;
+	sequence: number;
+	sessionId: string;
+	type: string;
+}
+
+function feedFrame(
+	sequence: number,
+	type: string,
+	data: unknown,
+	requestID: string,
+): FeedFrameFixture {
+	return {
+		createdAt: "2026-10-15T00:00:00Z",
+		data,
+		id: `66666666-6666-4666-8666-${String(sequence).padStart(12, "0")}`,
+		requestId: requestID,
+		sequence,
+		sessionId: session.id,
+		type,
+	};
+}
 
 describe("control surface", () => {
 	let sessionOpened = false;
@@ -225,6 +255,11 @@ describe("control surface", () => {
 	let reconfiguredBody: Record<string, unknown> | undefined;
 	let sessionAgents: unknown[] = [];
 	let cancelledAgentRunIDs: string[] = [];
+	// The session's feed head and running turn, as GET /session reports them,
+	// and the stored frames GET /session/feed pages through for catch-up.
+	let sessionFeedSequence = 0;
+	let sessionActiveTurnFeedSequence: number | null = null;
+	let feedFrames: FeedFrameFixture[] = [];
 
 	beforeEach(() => {
 		sessionOpened = false;
@@ -233,6 +268,9 @@ describe("control surface", () => {
 		reconfiguredBody = undefined;
 		sessionAgents = [];
 		cancelledAgentRunIDs = [];
+		sessionFeedSequence = 0;
+		sessionActiveTurnFeedSequence = null;
+		feedFrames = [];
 		TestWebSocket.instances = [];
 		vi.stubGlobal("WebSocket", TestWebSocket);
 		vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -252,23 +290,23 @@ describe("control surface", () => {
 			}
 
 			switch (url.pathname) {
-				case "/v1/sessions":
+				case "/api/v1/sessions":
 					return response({
 						hasMore: false,
 						items: sessionOpened ? [session] : [],
 						limit: 200,
 						offset: 0,
 					});
-				case "/v1/workspace-roots":
+				case "/api/v1/workspace-roots":
 					return response({ roots: ["/workspace/catalog"] });
-				case "/v1/sessions/open": {
+				case "/api/v1/sessions/open": {
 					const body = (await request.clone().json()) as { workspace: string };
 					openedBody = body;
 					openedWorkspace = body.workspace;
 					sessionOpened = true;
 					return response({ created: true, session });
 				}
-				case "/v1/session/reconfigure": {
+				case "/api/v1/session/reconfigure": {
 					reconfiguredBody = (await request.clone().json()) as Record<string, unknown>;
 					return response({
 						decidedAt: "2026-09-24T00:00:00Z",
@@ -278,9 +316,9 @@ describe("control surface", () => {
 						toAgentSpace: "docker:ops",
 					});
 				}
-				case "/v1/agent-spaces":
+				case "/api/v1/agent-spaces":
 					return response({ default: "control", items: agentSpaces });
-				case "/v1/models":
+				case "/api/v1/models":
 					return response({
 						models: [
 							{
@@ -297,35 +335,56 @@ describe("control surface", () => {
 							},
 						],
 					});
-				case "/v1/session":
-					return response(session);
-				case "/v1/messages": {
+				case "/api/v1/session":
+					return response({
+						...session,
+						activeTurnFeedSequence: sessionActiveTurnFeedSequence,
+						feedSequence: sessionFeedSequence,
+					});
+				case "/api/v1/session/feed": {
+					const cursor = Number(url.searchParams.get("cursor") ?? "0");
+					const limit = Number(url.searchParams.get("limit") ?? "100");
+					const items = feedFrames
+						.filter((frame) => frame.sequence > cursor)
+						.slice(0, limit);
+					const lastItem = items.at(-1);
+					const nextCursor = lastItem === undefined ? cursor : lastItem.sequence;
+					const hasMore = feedFrames.some((frame) => frame.sequence > nextCursor);
+					return response({
+						hasMore,
+						head: sessionFeedSequence,
+						items,
+						limit,
+						nextCursor,
+					});
+				}
+				case "/api/v1/messages": {
 					const isNewestFirst = url.searchParams.get("order") === "desc";
 					const items = isNewestFirst ? [...messages].reverse() : messages;
 					return response({ hasMore: false, items, limit: 100, offset: 0 });
 				}
-				case "/v1/session/events":
+				case "/api/v1/session/events":
 					return response({ events: [], hasMore: false, limit: 100, offset: 0 });
-				case "/v1/session/agents":
+				case "/api/v1/session/agents":
 					return response({
 						agents: sessionAgents,
 						hasMore: false,
 						limit: 100,
 						offset: 0,
 					});
-				case "/v1/session/compactions":
+				case "/api/v1/session/compactions":
 					return response({ compactions: [], hasMore: false, limit: 100, offset: 0 });
-				case "/v1/session/model-runs":
+				case "/api/v1/session/model-runs":
 					return response({ hasMore: false, limit: 100, modelRuns: [], offset: 0 });
-				case "/v1/session/notices":
+				case "/api/v1/session/notices":
 					return response({ hasMore: false, limit: 100, notices: [], offset: 0 });
-				case "/v1/session/workers":
+				case "/api/v1/session/workers":
 					return response({ hasMore: false, items: [], limit: 100, offset: 0 });
-				case "/v1/session/jobs":
+				case "/api/v1/session/jobs":
 					return response({ hasMore: false, jobs: [], limit: 100, offset: 0 });
-				case "/v1/session/turns":
+				case "/api/v1/session/turns":
 					return response({ hasMore: false, limit: 100, offset: 0, turns: [] });
-				case "/v1/session/agent-space-decisions":
+				case "/api/v1/session/agent-space-decisions":
 					return response({ hasMore: false, items: [], limit: 100, offset: 0 });
 				default:
 					throw new Error(`unexpected request ${url.pathname}`);
@@ -871,11 +930,16 @@ describe("control surface", () => {
 		};
 
 		send("userMessage.created", { message: "run the build" }, runningRequestID);
-		send("turn.started", {}, runningRequestID);
+		send("turn.started", turnStartedData(), runningRequestID);
 		send(
 			"content_block_start",
 			{
-				content_block: { id: "call-build", name: "runCommand", type: "tool_use" },
+				content_block: {
+					id: "call-build",
+					input: {},
+					name: "runCommand",
+					type: "tool_use",
+				},
 				index: 0,
 				type: "content_block_start",
 			},
@@ -928,5 +992,236 @@ describe("control surface", () => {
 			deliveredMessage.compareDocumentPosition(reply) &
 				Node.DOCUMENT_POSITION_FOLLOWING,
 		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+	});
+
+	it("reconnects after the socket drops mid-turn and catches up the missed deltas", async () => {
+		render(Page);
+		const transport = await connectAndOpenChat();
+
+		const requestID = "77777777-7777-4777-8777-777777777701";
+		let sequence = 0;
+		const sendSequenced = (type: string, data: unknown): void => {
+			sequence += 1;
+			transport?.receive(
+				JSON.stringify({
+					data,
+					id: `88888888-8888-4888-8888-${String(sequence).padStart(12, "0")}`,
+					metadata: { requestId: requestID, sequence, sessionId: session.id },
+					timestamp: 1,
+					triggeredBy: null,
+					type,
+				}),
+			);
+		};
+
+		sendSequenced("userMessage.created", { message: "stream this" });
+		sendSequenced("turn.started", turnStartedData());
+		sendSequenced("content_block_start", {
+			content_block: { type: "text" },
+			index: 0,
+			type: "content_block_start",
+		});
+		sendSequenced("content_block_delta", {
+			delta: { text: "Hello ", type: "text_delta" },
+			index: 0,
+			type: "content_block_delta",
+		});
+		await screen.findByText("Hello", { exact: false });
+
+		// The feed keeps moving on the server while the socket is down. Catch-up
+		// must fill exactly the deltas the client missed, once, in order.
+		sessionFeedSequence = 6;
+		feedFrames = [
+			feedFrame(
+				5,
+				"content_block_delta",
+				{
+					delta: { text: "world", type: "text_delta" },
+					index: 0,
+					type: "content_block_delta",
+				},
+				requestID,
+			),
+			feedFrame(
+				6,
+				"content_block_stop",
+				{ index: 0, type: "content_block_stop" },
+				requestID,
+			),
+		];
+
+		transport?.close();
+		await waitFor(
+			() => {
+				expect(TestWebSocket.instances.length).toBeGreaterThan(1);
+			},
+			{ timeout: 3000 },
+		);
+		TestWebSocket.instances.at(-1)?.open();
+
+		await screen.findByText("Hello world");
+		expect(screen.getAllByText("Hello world")).toHaveLength(1);
+	});
+
+	it("marks a live turn finished when a post-catch-up session shows no active turn", async () => {
+		render(Page);
+		const transport = await connectAndOpenChat();
+
+		const requestID = "77777777-7777-4777-8777-777777777702";
+		let sequence = 0;
+		const sendSequenced = (type: string, data: unknown): void => {
+			sequence += 1;
+			transport?.receive(
+				JSON.stringify({
+					data,
+					id: `99999999-9999-4999-8999-${String(sequence).padStart(12, "0")}`,
+					metadata: { requestId: requestID, sequence, sessionId: session.id },
+					timestamp: 1,
+					triggeredBy: null,
+					type,
+				}),
+			);
+		};
+
+		sendSequenced("userMessage.created", { message: "keep going" });
+		sendSequenced("turn.started", turnStartedData());
+		sendSequenced("content_block_start", {
+			content_block: { type: "text" },
+			index: 0,
+			type: "content_block_start",
+		});
+		sendSequenced("content_block_delta", {
+			delta: { text: "Working on it", type: "text_delta" },
+			index: 0,
+			type: "content_block_delta",
+		});
+
+		await screen.findByText("Working on it");
+		expect(screen.getByText("Working", { selector: "p.writing" })).not.toBeNull();
+
+		// A crash writes no turn.completed or turn.failed event. GET /session
+		// reporting no active turn is the only signal the turn actually ended.
+		sessionFeedSequence = sequence;
+		transport?.close();
+		await waitFor(
+			() => {
+				expect(TestWebSocket.instances.length).toBeGreaterThan(1);
+			},
+			{ timeout: 3000 },
+		);
+		TestWebSocket.instances.at(-1)?.open();
+
+		await waitFor(() => {
+			expect(screen.queryByText("Working", { selector: "p.writing" })).toBeNull();
+		});
+		expect(screen.getByText("Working on it")).not.toBeNull();
+	});
+
+	it("replays a running turn's live view from activeTurnFeedSequence when selecting the session", async () => {
+		const requestID = "77777777-7777-4777-8777-777777777703";
+		sessionActiveTurnFeedSequence = 1;
+		sessionFeedSequence = 4;
+		feedFrames = [
+			feedFrame(1, "userMessage.created", { message: "resume this" }, requestID),
+			feedFrame(2, "turn.started", turnStartedData(), requestID),
+			feedFrame(
+				3,
+				"content_block_start",
+				{ content_block: { type: "text" }, index: 0, type: "content_block_start" },
+				requestID,
+			),
+			feedFrame(
+				4,
+				"content_block_delta",
+				{
+					delta: { text: "Already underway", type: "text_delta" },
+					index: 0,
+					type: "content_block_delta",
+				},
+				requestID,
+			),
+		];
+
+		render(Page);
+		await connectAndOpenChat();
+
+		await screen.findByText("resume this");
+		await screen.findByText("Already underway");
+	});
+
+	it("shows a live notice as an activity row with its type and summary", async () => {
+		render(Page);
+		const transport = await connectAndOpenChat();
+
+		transport?.receive(
+			JSON.stringify({
+				data: {
+					createdAt: "2026-10-15T00:00:00Z",
+					data: {},
+					delivery: "queue",
+					id: "88888888-8888-4888-8888-888888888888",
+					source: "worker",
+					summary: "The nightly build finished.",
+					type: "build.finished",
+				},
+				id: "88888888-8888-4888-8888-888888888889",
+				metadata: { sequence: 1, sessionId: session.id },
+				timestamp: 1,
+				triggeredBy: null,
+				type: "notice.created",
+			}),
+		);
+
+		await screen.findByText("build.finished");
+		await screen.findByText("The nightly build finished.");
+	});
+
+	it("accepts a child agent's camelCase assistant message without breaking the activity list", async () => {
+		render(Page);
+		const transport = await connectAndOpenChat();
+
+		const agentRunID = "44444444-4444-4444-8444-444444444444";
+		const parentTurnID = "55555555-5555-4555-8555-555555555555";
+
+		// Part 2's Peen-owned camelCase shape: role, content[], toolCalls[].
+		// The activity list already renders this type elsewhere (the chat
+		// does), so it must stay hidden, and it must not stop a later
+		// agent.run.* event for the same run from rendering.
+		transport?.receive(
+			JSON.stringify({
+				data: {
+					agentRunId: agentRunID,
+					event: {
+						content: [{ text: "Reviewed the diff.", type: "text" }],
+						role: "assistant",
+						toolCalls: [],
+					},
+					parentTurnId: parentTurnID,
+				},
+				id: "77777777-7777-4777-8777-777777777799",
+				metadata: { sessionId: session.id },
+				timestamp: 1,
+				triggeredBy: null,
+				type: "agent.run.assistant.message",
+			}),
+		);
+
+		transport?.receive(
+			JSON.stringify({
+				data: {
+					agentRunId: agentRunID,
+					event: { agentRunId: agentRunID, state: "completed" },
+					parentTurnId: parentTurnID,
+				},
+				id: "77777777-7777-4777-8777-777777777800",
+				metadata: { sessionId: session.id },
+				timestamp: 1,
+				triggeredBy: null,
+				type: "agent.run.completed",
+			}),
+		);
+
+		await screen.findByText("Complete");
+		expect(screen.queryByText("agent.run.assistant.message")).toBeNull();
 	});
 });

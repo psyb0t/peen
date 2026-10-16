@@ -29,7 +29,10 @@ func (s *Store) CreateSessionNotice(
 
 	var result *models.SessionNotice
 
-	if err := s.query.Transaction(func(tx *repositories.Query) error {
+	if err := s.feedTransaction(ctx, func(
+		ctx context.Context,
+		tx *repositories.Query,
+	) error {
 		result, err = s.createSessionNoticeWithQuery(ctx, tx, sessionID, input)
 		if err != nil {
 			return ctxerrors.Wrap(err, "save session notice")
@@ -58,9 +61,15 @@ func (s *Store) createSessionNoticeWithQuery(
 		return nil, ctxerrors.Wrap(err, "find latest session notice")
 	}
 
+	feedSequence, err := s.allocateFeedSequences(ctx, query, sessionID, 1)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "allocate session notice feed sequence")
+	}
+
 	result := &models.SessionNotice{
 		ID: input.ID, SessionID: sessionID, Sequence: sequence,
-		Type: input.Type, Source: input.Source, Summary: input.Summary,
+		FeedSequence: feedSequence,
+		Type:         input.Type, Source: input.Source, Summary: input.Summary,
 		DataJSON: input.DataJSON, Delivery: input.Delivery,
 		State: models.NoticeStatePending, CreatedAt: input.CreatedAt,
 	}

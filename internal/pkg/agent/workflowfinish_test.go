@@ -185,7 +185,7 @@ func TestWorkflowRoundExhaustionRecordsFailureAndContext(t *testing.T) {
 	fixture.input.MaxRounds = 1
 	instance := fixture.start(t)
 	_, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.Error(t, err)
 	execution, err := fixture.base.store.GetExecution(t.Context(),
 		fixture.input.SessionID, fixture.input.ExecutionID)
@@ -215,7 +215,7 @@ func TestWorkflowRoundExhaustionDoesNotExecutePendingTools(t *testing.T) {
 	}
 	instance := fixture.start(t)
 	_, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.Error(t, err)
 	assert.Zero(t, effects.Load())
 	fixture.stop()
@@ -238,7 +238,7 @@ func TestWorkflowModelFailureRecordsLastContext(t *testing.T) {
 	}
 	instance := fixture.start(t)
 	_, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.Error(t, err)
 	execution, err := fixture.base.store.GetExecution(t.Context(),
 		fixture.input.SessionID, fixture.input.ExecutionID)
@@ -309,7 +309,7 @@ func TestWorkflowPauseAfterFinalModelDoesNotRepeatProvider(t *testing.T) {
 	require.NoError(t, fixture.api.SignalWorkflow(t.Context(), instance.InstanceID,
 		workflowResumeSignal, struct{}{}))
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, runtimeToolFinalText, result.Text)
 	assert.Equal(t, 1, driver.Calls())

@@ -13,6 +13,8 @@ Recognize generated output by a `Code generated ... DO NOT EDIT.` header, a `*.g
 | `.env.example` | `internal/pkg/config/envtemplate/env.tmpl` | `cmd/envexample`, run as `go tool envexample` from `internal/pkg/config/envtemplate/gen.go` | `make generate` |
 | `internal/pkg/services/services.gen.go` | the service types under `internal/pkg/services/` | Servicepack's `service_registration.sh` | `make service-registration` |
 | `internal/pkg/http/server/web/dist/` | `web/`, `api/api.yml` | Vite through `scripts/web/run.sh` | `make web-build` |
+| `internal/pkg/http/wsapi/wsapi.gen.go` | `api/asyncapi.yaml`, `internal/pkg/http/wsapi/config.yaml` | gen-asyncapi, Go models and strict codecs, run as `go tool gen-asyncapi` | `make generate` |
+| `web/src/lib/ws/generated.ts` | `api/asyncapi.yaml` | gen-asyncapi, TypeScript, run as `go tool gen-asyncapi` from `internal/pkg/http/server/webgen.go` | `make generate` |
 
 `vendor/` is generated too, by `go mod vendor`. See `dependencies.md`.
 

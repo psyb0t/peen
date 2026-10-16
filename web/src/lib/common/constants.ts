@@ -1,12 +1,22 @@
-export const API_BASE_URL = "/v1";
+export const API_BASE_URL = "/api/v1";
 export const AUTHORIZATION_HEADER = "Authorization";
 export const BEARER_PREFIX = "Bearer ";
 export const SESSION_ID_HEADER = "X-Session-ID";
-export const WEBSOCKET_PATH = "/v1/ws";
+export const WEBSOCKET_PATH = "/ws/v1";
 export const WEBSOCKET_PROTOCOL = "peen.v1";
 export const WEBSOCKET_BEARER_PROTOCOL_PREFIX = "peen.bearer.";
 export const WEBSOCKET_MESSAGE_SEND = "message.send";
-export const WEBSOCKET_SESSION_PARAMETER = "sessionId";
+// The global socket reconnects on an unexpected close with a doubling
+// backoff and jitter, reset after a successful open.
+export const RECONNECT_BASE_DELAY_MS = 500;
+export const RECONNECT_MAX_DELAY_MS = 10_000;
+export const RECONNECT_JITTER_RATIO = 0.2;
+// GET /session/feed pages at up to 200 items per the API contract. A gap
+// further behind than this is replayed by reloading the session instead of
+// paging the whole way.
+export const FEED_PAGE_LIMIT = 200;
+export const FEED_RESYNC_THRESHOLD = 5000;
+export const FEED_SEQUENCE_NONE = 0;
 export const REASONING_EFFORTS = [
 	"minimal",
 	"low",
@@ -57,6 +67,7 @@ export const SEND_TARGET_ROOT = "";
 export const SEND_TARGET_ROOT_LABEL = "Root conversation";
 export const EVENT_TYPE_QUESTION_ASKED = "question.asked";
 export const EVENT_TYPE_QUESTION_ANSWERED = "question.answered";
+export const EVENT_TYPE_NOTICE_CREATED = "notice.created";
 export const AGENT_POLL_INTERVAL_MS = 3000;
 // An agent space is where a workspace's agent runs: `control`, or a Docker
 // profile. The label next to each one lists what it grants.

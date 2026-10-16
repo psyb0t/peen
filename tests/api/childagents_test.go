@@ -135,6 +135,7 @@ func TestAPIChildAgentAsksAndTheUserAnswersIt(t *testing.T) {
 	assert.Equal(t, 2, childRequests)
 
 	require.NoError(t, writeAPIWebSocketSessionMessage(
+		t,
 		connection,
 		workspace.sessionID,
 		map[string]string{
@@ -145,6 +146,84 @@ func TestAPIChildAgentAsksAndTheUserAnswersIt(t *testing.T) {
 
 	failure := awaitAPIWebSocketFailure(t, connection)
 	assert.Equal(t, childAgentsErrorFinished, failure.Code)
+}
+
+// A running child's own agent.run.* steps reach a connected socket live,
+// each carrying a feed sequence and the agentRunId/parentTurnId/event data
+// docs/http-api.md documents, and the same rows play back from the feed.
+func TestAPIChildAgentRunEventsArriveLiveAndInTheFeed(t *testing.T) {
+	workspace := openFreshWorkspace(t, childAgentsWorkspacePrefix, nil)
+	connection := openSessionConnection(t, workspace.sessionID)
+
+	t.Cleanup(integrationInfra.DisableScriptedToolTurn)
+	integrationInfra.EnableScriptedToolTurn(testinfra.ScriptedToolTurn{
+		UserMessage: childAskMessage,
+		Calls: []testinfra.ScriptedToolCall{
+			{
+				Name: "launchAgent",
+				Arguments: map[string]any{
+					"agent": childAgentsCoreAgent,
+					"task":  childAskTask,
+				},
+			},
+			{
+				Name:      "waitMessages",
+				Arguments: map[string]any{"timeout": childAgentsWaitBound},
+			},
+		},
+		FinalAnswer: childAskRootDone,
+		Children: []testinfra.ScriptedToolTurn{{
+			UserMessage: childAskTask,
+			Calls: []testinfra.ScriptedToolCall{{
+				Name:      "ask",
+				Arguments: map[string]any{"question": childAskQuestion},
+			}},
+			FinalAnswer: childAskDone,
+		}},
+	})
+
+	sendSessionMessage(t, connection, workspace.sessionID, childAskMessage)
+	frames := readFramesUntilTurnCompleted(t, connection)
+
+	agentRunFrames := make([]apiTestFrame, 0)
+	for _, frame := range frames {
+		if strings.HasPrefix(frame.Type, "agent.run.") {
+			agentRunFrames = append(agentRunFrames, frame)
+		}
+	}
+	require.NotEmpty(t, agentRunFrames,
+		"the child's own steps must reach a connected socket live")
+
+	for _, frame := range agentRunFrames {
+		require.True(t, frame.HasSequence,
+			"agent.run frame %s must carry a feed sequence", frame.Type)
+		assert.Positive(t, frame.Sequence)
+
+		var payload struct {
+			AgentRunID   uuid.UUID       `json:"agentRunId"`
+			ParentTurnID uuid.UUID       `json:"parentTurnId"`
+			Event        json.RawMessage `json:"event"`
+		}
+		require.NoError(t, json.Unmarshal(frame.Data, &payload))
+		assert.NotEqual(t, uuid.Nil, payload.AgentRunID)
+		assert.NotEqual(t, uuid.Nil, payload.ParentTurnID)
+		assert.NotEmpty(t, payload.Event)
+	}
+
+	first := agentRunFrames[0].Sequence
+	last := agentRunFrames[len(agentRunFrames)-1].Sequence
+	page := listSessionFeed(t, workspace.sessionID, first-1, int(last-first+1))
+	bySequence := make(map[int64]api.FeedFrame, len(page.Items))
+	for _, item := range page.Items {
+		bySequence[item.Sequence] = item
+	}
+
+	for _, frame := range agentRunFrames {
+		item, found := bySequence[frame.Sequence]
+		require.True(t, found, "the feed must include sequence %d", frame.Sequence)
+		assert.Equal(t, frame.Type, item.Type)
+		assert.Equal(t, frame.Sequence, item.Sequence)
+	}
 }
 
 func TestAPIChildAgentRecoversAfterItsWorkerCrashes(t *testing.T) {
@@ -206,7 +285,6 @@ func TestAPIChildAgentRecoversAfterItsWorkerCrashes(t *testing.T) {
 		return false
 	}, childAgentsPollTimeout, childAgentsPollEvery)
 	sendToAgentRun(t, connection, workspace.sessionID, child.AgentRunId)
-	keepChildAgentConnectionReading(t, connection)
 	finished := awaitAgentRunState(t, workspace.sessionID, child.AgentRunId, api.AgentRunStateCompleted)
 	assert.Equal(t, childAskDone, finished.ResponseText)
 	assert.Equal(t, child.StartedAt, finished.StartedAt)
@@ -336,7 +414,8 @@ func assertChildAgentTreeCrashRecovery(t *testing.T, crashController bool) {
 		current := listAgentRuns(t, workspace.sessionID, "")
 		for _, run := range current {
 			if run.AgentRunId == byName[name].AgentRunId && run.State != api.AgentRunStateCompleted {
-				require.NoError(t, writeAPIWebSocketSessionMessage(connection, workspace.sessionID,
+				require.NoError(t, writeAPIWebSocketSessionMessage(t, connection,
+					workspace.sessionID,
 					map[string]string{"message": childAskAnswer, "to": run.AgentRunId.String()}))
 			}
 		}
@@ -412,6 +491,15 @@ func awaitCrashTreeWait(t *testing.T, sessionID, runID uuid.UUID) {
 	}
 }
 
+// keepChildAgentConnectionReading drains connection in the background for the
+// rest of the test. gorilla/websocket answers a server PING with a PONG only
+// from inside a read call, so a connection nobody reads for the many seconds
+// this test spends polling REST endpoints between answers goes quiet long
+// enough for the hub's ping timeout to drop it; a later write over that dead
+// connection can appear to succeed locally while never reaching the server,
+// so an agent answered that way never gets its message and the test times out
+// waiting for it to complete. Draining keeps the connection, and every
+// write through it, alive for as long as the test still needs it.
 func keepChildAgentConnectionReading(t *testing.T, connection *websocket.Conn) {
 	t.Helper()
 	require.NoError(t, connection.SetReadDeadline(time.Time{}))
@@ -599,6 +687,7 @@ func sendToAgentRun(
 	t.Helper()
 
 	require.NoError(t, writeAPIWebSocketSessionMessage(
+		t,
 		connection,
 		sessionID,
 		map[string]string{

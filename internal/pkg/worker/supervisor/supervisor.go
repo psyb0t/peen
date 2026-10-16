@@ -43,9 +43,6 @@ type Options struct {
 	// refused rather than run somewhere else.
 	Launchers map[worker.Kind]worker.Launcher
 
-	// Publisher receives durable records after the controller writes them.
-	Publisher protocol.Publisher
-
 	// SocketRoot is the controller's private worker socket directory. It is
 	// separate from the SQLite directory and from the public API.
 	SocketRoot string
@@ -309,7 +306,6 @@ func (s *Supervisor) start(
 		request.SessionID,
 		s,
 		s.options.Store,
-		s.options.Publisher,
 		protocol.WithWorkflowStorage(s.options.Workflows),
 	)
 	if err != nil {

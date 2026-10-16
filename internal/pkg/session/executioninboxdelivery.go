@@ -32,7 +32,10 @@ func (s *Store) DeliverExecutionMessages(
 
 	var receipt *ExecutionInboxDelivery
 
-	err = s.query.Transaction(func(tx *repositories.Query) error {
+	err = s.feedTransaction(ctx, func(
+		ctx context.Context,
+		tx *repositories.Query,
+	) error {
 		var deliveryErr error
 
 		receipt, deliveryErr = s.deliverExecutionMessages(ctx, tx,

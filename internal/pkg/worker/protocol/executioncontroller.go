@@ -139,8 +139,6 @@ func (c *Controller) completeExecutionActivity(
 		return nil, ctxerrors.Wrap(err, "commit worker activity result")
 	}
 
-	c.publish(ctx, receipt.Events)
-
 	return receipt.Activity, nil
 }
 

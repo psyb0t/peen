@@ -1102,6 +1102,14 @@ github.com/psyb0t/elelem/elelemtest
 ## explicit; go 1.26.0
 github.com/psyb0t/essessey
 github.com/psyb0t/essessey/elelemstream
+# github.com/psyb0t/gen-asyncapi v0.2.0
+## explicit; go 1.26.9
+github.com/psyb0t/gen-asyncapi/asyncapirt
+github.com/psyb0t/gen-asyncapi/cmd/gen-asyncapi
+github.com/psyb0t/gen-asyncapi/internal/codegen
+# github.com/psyb0t/go-asyncapi v0.1.0
+## explicit; go 1.26.9
+github.com/psyb0t/go-asyncapi
 # github.com/psyb0t/goenv v1.0.10
 ## explicit; go 1.26
 github.com/psyb0t/goenv

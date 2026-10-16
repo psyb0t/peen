@@ -79,7 +79,7 @@ Nothing is loaded because the model opens a file. To hand the model a rule the f
 
 ## Check what the model got
 
-Every turn stores a context snapshot listing each source file and its hash, and a prompt snapshot with the exact system prompt. Read them through `GET /v1/session/context-snapshots/{contextHash}` and `GET /v1/session/prompt-snapshots/{promptHash}` in the [API](http-api.md). A file that was skipped shows up as a workspace configuration warning in the chat and as a `harness.warning` event.
+Every turn stores a context snapshot listing each source file and its hash, and a prompt snapshot with the exact system prompt. Read them through `GET /api/v1/session/context-snapshots/{contextHash}` and `GET /api/v1/session/prompt-snapshots/{promptHash}` in the [API](http-api.md). A file that was skipped shows up as a workspace configuration warning in the chat and as a `harness.warning` event.
 
 ## Limits
 

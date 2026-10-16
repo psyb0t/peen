@@ -2,6 +2,7 @@ CREATE TABLE session_notices (
     id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL,
     sequence INTEGER NOT NULL CHECK (sequence > 0),
+    feed_sequence INTEGER NOT NULL CHECK (feed_sequence > 0),
     type TEXT NOT NULL,
     source TEXT NOT NULL,
     summary TEXT NOT NULL,
@@ -12,7 +13,8 @@ CREATE TABLE session_notices (
     delivered_at DATETIME,
     FOREIGN KEY (session_id) REFERENCES sessions (id),
     UNIQUE (session_id, id),
-    UNIQUE (session_id, sequence)
+    UNIQUE (session_id, sequence),
+    UNIQUE (session_id, feed_sequence)
 );
 
 CREATE INDEX session_notices_session_state_sequence_id_index

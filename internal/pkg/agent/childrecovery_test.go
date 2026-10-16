@@ -259,7 +259,7 @@ func awaitRecoveredChild(t *testing.T, fixture runtimeFixture, run *models.Agent
 		stored, err := fixture.store.GetAgentRun(context.Background(), run.SessionID, run.ID)
 
 		return err == nil && stored.State == models.AgentRunStateCompleted
-	}, time.Second, time.Millisecond)
+	}, runtimeTestTurnTimeout, time.Millisecond)
 }
 
 func TestChildRecoveryDoesNotRepeatUncheckpointedEffects(t *testing.T) {

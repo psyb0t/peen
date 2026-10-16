@@ -455,7 +455,7 @@ func int64OrZero(value *int64) int64 {
 }
 
 // pagingOptionsFromAPI resolves bounded limit/offset from optional query
-// parameters, defaulting and validating exactly like GET /v1/messages:
+// parameters, defaulting and validating exactly like GET /api/v1/messages:
 // limit defaults to session.DefaultPageLimit and must stay within
 // session.MaximumPageLimit; offset defaults to 0 and must not be negative.
 func pagingOptionsFromAPI(limit, offset *int32) (int, int, error) {

@@ -8,7 +8,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/cschleiden/go-workflows/client"
 	"github.com/cschleiden/go-workflows/workflow"
@@ -111,7 +110,7 @@ func TestWorkflowCompactionModelRetryUsesSavedContext(t *testing.T) {
 	}
 	instance := startCompactingWorkflow(t, fixture)
 	_, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, calls.Load())
 	requests := driver.Requests()
@@ -152,7 +151,7 @@ func TestWorkflowSchedulesSeparateCompactionBeforeModel(t *testing.T) {
 	fixture := newCompactingWorkflowFixture(t, driver)
 	instance := startCompactingWorkflow(t, fixture)
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, "completed answer", result.Text)
 	page, err := fixture.base.store.ListExecutionActivities(t.Context(),
@@ -218,7 +217,7 @@ func TestWorkflowCompactionCommitsSummaryAndFeedsModel(t *testing.T) {
 	}
 	instance := startCompactingWorkflow(t, fixture)
 	_, err = client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, calls.Load())
 	requests := driver.Requests()
@@ -353,7 +352,7 @@ func TestCompactingWorkflowRunsPhaseOnEachToolRound(t *testing.T) {
 	}
 	instance := startCompactingWorkflow(t, fixture)
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, runtimeToolFinalText, result.Text)
 	assert.EqualValues(t, 2, calls.Load())
@@ -395,7 +394,7 @@ func TestCompactingWorkflowFinalInboxContinues(t *testing.T) {
 	}
 	instance := startCompactingWorkflow(t, fixture)
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, "continued answer", result.Text)
 	assert.Equal(t, 2, driver.Calls())

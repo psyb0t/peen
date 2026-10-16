@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/cschleiden/go-workflows/backend"
 	"github.com/cschleiden/go-workflows/backend/history"
@@ -38,7 +37,7 @@ func TestWorkflowClientReusesCompletedInstanceWithoutAnotherModelCall(
 	require.NoError(t, fixture.worker.Start(fixture.engine.options.Lifecycle))
 	fixture.started.Store(true)
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		api, first, 10*time.Second)
+		api, first, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, "one completed result", result.Text)
 	before, err := fixture.storage.GetWorkflowInstanceHistory(t.Context(),
@@ -49,7 +48,7 @@ func TestWorkflowClientReusesCompletedInstanceWithoutAnotherModelCall(
 	require.NoError(t, err)
 	assert.Equal(t, first, repeated)
 	again, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		api, repeated, 10*time.Second)
+		api, repeated, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, result, again)
 	after, err := fixture.storage.GetWorkflowInstanceHistory(t.Context(),
@@ -79,7 +78,7 @@ func assertWorkflowClientReopened(
 	require.NoError(t, err)
 	assert.Equal(t, original, restored)
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		api, restored, 10*time.Second)
+		api, restored, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, "one completed result", result.Text)
 }

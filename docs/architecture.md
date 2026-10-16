@@ -43,7 +43,7 @@ A profile with `docker: readonly` gets no socket. For each such worker the contr
 
 The controller decides at startup whether it has Docker access, by checking whether it can reach a Docker socket. Without one, it registers no way to start containers, and a session in a Docker agent space is refused. Peen never falls back to the `control` agent space, because quietly giving up a container would run the model's tools in the controller's own environment. With a socket the rule runs the other way, and `control` is never offered, because a control worker could use the controller's socket to become host root.
 
-Events reach clients only after they are stored. A worker's turn writes through the control plane, and the control plane publishes to the WebSocket hub after the write lands. A client therefore never sees an event that a reconnect and replay would not produce.
+Events reach clients only after they are stored. A worker's turn writes through the control plane, and a feed pump reads each session's newly committed rows in sequence order and fans them out to the WebSocket hub right after the write lands. A client therefore never sees an event that a reconnect and replay through [the session feed](http-api.md#get-apiv1sessionfeed) would not produce.
 
 ## One turn
 
@@ -182,13 +182,13 @@ Several words in these docs name different things on different pages. This is wh
 | Term | Meaning | Where it is defined |
 | --- | --- | --- |
 | hook point | A fixed point in a turn where hooks run, such as `preWriteFile` or `turnStart`. The top-level keys of `hooks.yaml` name hook points. The hooks page calls them hook events, and the command stdin field `event` holds one. | [Hooks](hooks.md#events) |
-| session event | A record of something that happened outside the model's own tool calls, such as `job.exited`, `agent.finished`, or a type a hook or outside caller chooses. Peen hands it to the model as data. The API calls it a notice (`/v1/session/notices`). | [Session events](events.md) |
-| protocol event | A stored record of one step of a turn, such as `turn.started` or `tool.use`. `GET /v1/session/events` lists them, and each one also goes out live as a WebSocket frame. | [Protocol event types](http-api.md#protocol-event-types) |
+| session event | A record of something that happened outside the model's own tool calls, such as `job.exited`, `agent.finished`, or a type a hook or outside caller chooses. Peen hands it to the model as data. The API calls it a notice (`/api/v1/session/notices`). | [Session events](events.md) |
+| protocol event | A stored record of one step of a turn, such as `turn.started` or `tool.use`. `GET /api/v1/session/events` lists them, and each one also goes out live as a WebSocket frame. | [Protocol event types](http-api.md#protocol-event-types) |
 | WebSocket frame | One JSON message on the WebSocket, in either direction: a client's `message.send`, a protocol event, or a `message.completed` or `message.failed` reply. | [WebSocket](http-api.md#send-and-watch-turns-over-websocket) |
 | upstream | One entry in `PEEN_UPSTREAMS`. The docs also call it a provider, and the API calls its name `connectionName`. All three mean the same configured entry. A qualified model name is `<upstream name>/<model ID>`, such as `zai/glm-5.3`. | [Providers](configuration.md#providers) |
 | agent space | The place a workspace's agent runs: `control`, next to Peen, or `docker:<profile>`, in its own container. A Docker profile is one entry in `PEEN_DOCKER_PROFILES`. | [Where it runs](where-it-runs.md) |
 | control space | Where Peen itself runs when you install it with the installer: `host` or `docker`. | [Where it runs](where-it-runs.md#the-four-combinations) |
-| worker generation | One run of a session's worker process. A session gets a new generation each time Peen starts its worker. | [Workers](http-api.md#get-v1sessionworkers) |
+| worker generation | One run of a session's worker process. A session gets a new generation each time Peen starts its worker. | [Workers](http-api.md#get-apiv1sessionworkers) |
 
 The `agent.` prefix appears in two places. `agent.finished`, `agent.failed`, `agent.message`, and `agent.question` are session events. `agent.run.started`, `agent.run.tool.use`, and the other `agent.run.*` names are protocol events of a child agent run.
 
@@ -200,12 +200,12 @@ The field name `type` also means different things. On a hook action it is the ac
 
 | Identifier | What it names | Who creates it | Where you see it |
 | --- | --- | --- | --- |
-| session ID | One session, which is one workspace's conversation. | Peen, the first time `POST /v1/sessions/open` opens that workspace. | `X-Session-ID`, frame `metadata.sessionId`, hook stdin `sessionId`. |
+| session ID | One session, which is one workspace's conversation. | Peen, the first time `POST /api/v1/sessions/open` opens that workspace. | `X-Session-ID`, frame `metadata.sessionId`, hook stdin `sessionId`. |
 | request ID | One accepted `message.send`, or one turn an event woke. | Peen, when it accepts the frame or starts the woken turn. | Frame `metadata.requestId`, turn records, hook stdin `requestId`. Every frame of one turn shares it. A queued message keeps its own. |
-| turn ID | One stored turn. | Peen, when the turn starts. | `GET /v1/session/turns`, `turnId` on stored messages, protocol events, and jobs, hook stdin `turnId`. |
+| turn ID | One stored turn. | Peen, when the turn starts. | `GET /api/v1/session/turns`, `turnId` on stored messages, protocol events, and jobs, hook stdin `turnId`. |
 | call ID | One tool call inside a turn. | The model provider. | `callId` on `tool.use` and `tool.result`, `id` and `tool_use_id` on content blocks, `toolCallId` on stored messages, hook stdin `callId`. |
-| agent run ID | One `launchAgent` child run. | Peen, when the child starts. | `GET /v1/session/agents/{agentRunId}`, `runId` in `agent.*` session event data, hook stdin `agentRunId`. |
-| worker generation ID | One run of a session's worker process. | Peen, when it starts the worker. | `GET /v1/session/workers`, `workerGenerationId` on turns, protocol events, and jobs. |
+| agent run ID | One `launchAgent` child run. | Peen, when the child starts. | `GET /api/v1/session/agents/{agentRunId}`, `runId` in `agent.*` session event data, hook stdin `agentRunId`. |
+| worker generation ID | One run of a session's worker process. | Peen, when it starts the worker. | `GET /api/v1/session/workers`, `workerGenerationId` on turns, protocol events, and jobs. |
 | HTTP request ID | One HTTP call. It has no link to the request ID above. | The client in an `X-Request-ID` request header, or Peen when the client sends none or an invalid one. | The `X-Request-ID` response header and the logs for that call. |
 
 ## External building blocks

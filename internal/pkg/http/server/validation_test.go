@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -142,6 +143,33 @@ func TestSpecValidatorKeepsTheDocumentedErrorEnvelope(t *testing.T) {
 		nil,
 	)
 	request.Header.Set(headerSessionID, sessionID.String())
+
+	recorder := httptest.NewRecorder()
+	instance.testHandler.ServeHTTP(recorder, request)
+
+	assert.Equal(t, http.StatusBadRequest, recorder.Code)
+	assertErrorCode(t, recorder, aichteeteapee.ErrorCodeValidationFailed)
+}
+
+// The validator still matches requests once the spec's servers.url moved to
+// /api/v1: an invalid body reaching the new base path is rejected the same
+// way it was under the old /v1 base.
+func TestSpecValidatorRejectsAnInvalidBodyUnderTheNewAPIBase(t *testing.T) {
+	sessionID := uuid.New()
+
+	instance, err := newTestServer(Dependencies{
+		Runtime: &testRuntime{sessionID: sessionID},
+	})
+	require.NoError(t, err)
+
+	request := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		apiBaseURL+"/session/notices",
+		strings.NewReader(`{"type":"","summary":"x"}`),
+	)
+	request.Header.Set(headerSessionID, sessionID.String())
+	request.Header.Set(headerContentType, mediaTypeJSON)
 
 	recorder := httptest.NewRecorder()
 	instance.testHandler.ServeHTTP(recorder, request)

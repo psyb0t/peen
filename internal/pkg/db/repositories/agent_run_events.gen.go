@@ -35,6 +35,7 @@ func newAgentRunEvent(db *gorm.DB, opts ...gen.DOOption) agentRunEvent {
 	_agentRunEvent.SessionID = field.NewField(tableName, "session_id")
 	_agentRunEvent.AgentRunID = field.NewField(tableName, "agent_run_id")
 	_agentRunEvent.Sequence = field.NewInt64(tableName, "sequence")
+	_agentRunEvent.FeedSequence = field.NewInt64(tableName, "feed_sequence")
 	_agentRunEvent.EventType = field.NewString(tableName, "event_type")
 	_agentRunEvent.PayloadJSON = field.NewString(tableName, "payload_json")
 	_agentRunEvent.CreatedAt = field.NewTime(tableName, "created_at")
@@ -47,14 +48,15 @@ func newAgentRunEvent(db *gorm.DB, opts ...gen.DOOption) agentRunEvent {
 type agentRunEvent struct {
 	agentRunEventDo
 
-	ALL         field.Asterisk
-	ID          field.Field
-	SessionID   field.Field
-	AgentRunID  field.Field
-	Sequence    field.Int64
-	EventType   field.String
-	PayloadJSON field.String
-	CreatedAt   field.Time
+	ALL          field.Asterisk
+	ID           field.Field
+	SessionID    field.Field
+	AgentRunID   field.Field
+	Sequence     field.Int64
+	FeedSequence field.Int64
+	EventType    field.String
+	PayloadJSON  field.String
+	CreatedAt    field.Time
 
 	fieldMap map[string]field.Expr
 }
@@ -75,6 +77,7 @@ func (a *agentRunEvent) updateTableName(table string) *agentRunEvent {
 	a.SessionID = field.NewField(table, "session_id")
 	a.AgentRunID = field.NewField(table, "agent_run_id")
 	a.Sequence = field.NewInt64(table, "sequence")
+	a.FeedSequence = field.NewInt64(table, "feed_sequence")
 	a.EventType = field.NewString(table, "event_type")
 	a.PayloadJSON = field.NewString(table, "payload_json")
 	a.CreatedAt = field.NewTime(table, "created_at")
@@ -94,11 +97,12 @@ func (a *agentRunEvent) GetFieldByName(fieldName string) (field.OrderExpr, bool)
 }
 
 func (a *agentRunEvent) fillFieldMap() {
-	a.fieldMap = make(map[string]field.Expr, 7)
+	a.fieldMap = make(map[string]field.Expr, 8)
 	a.fieldMap["id"] = a.ID
 	a.fieldMap["session_id"] = a.SessionID
 	a.fieldMap["agent_run_id"] = a.AgentRunID
 	a.fieldMap["sequence"] = a.Sequence
+	a.fieldMap["feed_sequence"] = a.FeedSequence
 	a.fieldMap["event_type"] = a.EventType
 	a.fieldMap["payload_json"] = a.PayloadJSON
 	a.fieldMap["created_at"] = a.CreatedAt

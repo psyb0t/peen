@@ -40,6 +40,7 @@ func newSession(db *gorm.DB, opts ...gen.DOOption) session {
 	_session.ModelID = field.NewString(tableName, "model_id")
 	_session.Workspace = field.NewString(tableName, "workspace")
 	_session.StopRevision = field.NewInt64(tableName, "stop_revision")
+	_session.FeedSequence = field.NewInt64(tableName, "feed_sequence")
 	_session.AgentSpace = field.NewString(tableName, "agent_space")
 
 	_session.fillFieldMap()
@@ -63,6 +64,7 @@ type session struct {
 	ModelID               field.String
 	Workspace             field.String
 	StopRevision          field.Int64
+	FeedSequence          field.Int64
 	AgentSpace            field.String
 
 	fieldMap map[string]field.Expr
@@ -92,6 +94,7 @@ func (s *session) updateTableName(table string) *session {
 	s.ModelID = field.NewString(table, "model_id")
 	s.Workspace = field.NewString(table, "workspace")
 	s.StopRevision = field.NewInt64(table, "stop_revision")
+	s.FeedSequence = field.NewInt64(table, "feed_sequence")
 	s.AgentSpace = field.NewString(table, "agent_space")
 
 	s.fillFieldMap()
@@ -109,7 +112,7 @@ func (s *session) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (s *session) fillFieldMap() {
-	s.fieldMap = make(map[string]field.Expr, 13)
+	s.fieldMap = make(map[string]field.Expr, 14)
 	s.fieldMap["id"] = s.ID
 	s.fieldMap["created_at"] = s.CreatedAt
 	s.fieldMap["updated_at"] = s.UpdatedAt
@@ -122,6 +125,7 @@ func (s *session) fillFieldMap() {
 	s.fieldMap["model_id"] = s.ModelID
 	s.fieldMap["workspace"] = s.Workspace
 	s.fieldMap["stop_revision"] = s.StopRevision
+	s.fieldMap["feed_sequence"] = s.FeedSequence
 	s.fieldMap["agent_space"] = s.AgentSpace
 }
 

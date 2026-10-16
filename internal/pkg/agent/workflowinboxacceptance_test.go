@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/cschleiden/go-workflows/client"
 	"github.com/google/uuid"
@@ -243,7 +242,7 @@ func TestWorkflowQueueMessageDuringFinalTextContinuesWorkflow(t *testing.T) {
 	}
 	instance := fixture.start(t)
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, "answer with the queued request", result.Text)
 	requests := driver.Requests()
@@ -277,7 +276,7 @@ func TestWorkflowQueueLateMessageKeepsRoundBudget(t *testing.T) {
 	}
 	instance := fixture.start(t)
 	_, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.Error(t, err)
 	assert.Equal(t, 1, driver.Calls())
 	page, err := fixture.base.store.ListExecutionMessages(t.Context(),

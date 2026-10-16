@@ -106,8 +106,6 @@ func TestChildInboxDeliveryOverAuthenticatedWorkerRPC(t *testing.T) {
 func TestExecutionInboxPersistsAndDeliversThroughWorkerRPC(t *testing.T) {
 	t.Parallel()
 	fixture, remote, execution := newExecutionRPCFixture(t)
-	publisher := &recordingPublisher{}
-	fixture.controller.publisher = publisher
 	lease, err := remote.RestoreExecutionTurn(t.Context(), fixture.sessionID,
 		execution.ID, session.RestoreExecutionTurnInput{
 			OwnerGenerationID:  fixture.controller.generationID,
@@ -133,7 +131,6 @@ func TestExecutionInboxPersistsAndDeliversThroughWorkerRPC(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, accepted.Message.ID, repeated.Message.ID)
 	assert.Empty(t, repeated.Events)
-	assert.Len(t, publisher.events, 2)
 	encoded, err := json.Marshal(map[string]any{
 		"execution": map[string]any{"context": map[string]any{
 			"inboxIds": []uuid.UUID{input.RequestID},
@@ -163,7 +160,6 @@ func TestExecutionInboxPersistsAndDeliversThroughWorkerRPC(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, events.Events)
 	assert.Empty(t, events.Messages)
-	assert.Len(t, publisher.events, 4)
 	page, err := remote.ListExecutionMessages(t.Context(), fixture.sessionID,
 		execution.ID, session.ListExecutionInboxOptions{})
 	require.NoError(t, err)

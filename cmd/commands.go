@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/ctxerrors/commerr"
 	peenconfig "github.com/psyb0t/peen/internal/pkg/config"
 	"github.com/psyb0t/peen/internal/pkg/config/envtemplate"
 	controlclient "github.com/psyb0t/peen/internal/pkg/control/client"
@@ -30,9 +32,16 @@ const (
 	sessionListShort   = "List the controller's durable sessions"
 	sessionAttachUse   = "attach <session-id>"
 	sessionAttachShort = "Stream one session's live events"
-	sessionStopUse     = "stop <session-id>"
-	sessionStopShort   = "Stop the session's active turn"
-	controlStatShort   = "Report whether a local controller is reachable"
+	sessionAttachLong  = "Streams one session's live events and starts no " +
+		"turn. It reconnects automatically after an unexpected drop and " +
+		"catches up from the session feed, so no frame is missed or " +
+		"repeated. --cursor replays from that sequence before joining live."
+	sessionAttachCursorFlag  = "cursor"
+	sessionAttachCursorUsage = "replay the session feed from this " +
+		"sequence before continuing live"
+	sessionStopUse   = "stop <session-id>"
+	sessionStopShort = "Stop the session's active turn"
+	controlStatShort = "Report whether a local controller is reachable"
 
 	configShort     = "Prepare Peen's configuration"
 	configInitShort = "Write a new commented .env file"
@@ -236,17 +245,26 @@ func sessionCommand() *cobra.Command {
 	return command
 }
 
-// sessionAttachCommand streams one session's live events. Attaching is read
-// only: it never starts a turn.
+// sessionAttachCommand streams one session's live events and starts no turn.
+// It reconnects after an unexpected drop and catches up from the session
+// feed, so a client left running never misses or repeats a frame.
 func sessionAttachCommand() *cobra.Command {
-	return &cobra.Command{
+	var cursor int64
+
+	command := &cobra.Command{
 		Use:   sessionAttachUse,
 		Short: sessionAttachShort,
+		Long:  sessionAttachLong,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			sessionID, err := uuid.Parse(args[0])
 			if err != nil {
 				return ctxerrors.Wrap(err, "parse the session ID")
+			}
+
+			cursorArg, err := sessionAttachCursorArg(command, cursor)
+			if err != nil {
+				return err
 			}
 
 			return withController(
@@ -258,9 +276,11 @@ func sessionAttachCommand() *cobra.Command {
 					if err := client.Attach(
 						ctx,
 						sessionID,
+						cursorArg,
 						func(event controlclient.AttachEvent) error {
 							command.Printf(
-								"%s\t%s\n",
+								"%s\t%s\t%s\n",
+								sessionAttachSequenceLabel(event.Sequence),
 								event.Type,
 								string(event.Data),
 							)
@@ -276,6 +296,48 @@ func sessionAttachCommand() *cobra.Command {
 			)
 		},
 	}
+
+	command.Flags().Int64Var(
+		&cursor,
+		sessionAttachCursorFlag,
+		0,
+		sessionAttachCursorUsage,
+	)
+
+	return command
+}
+
+// sessionAttachCursorArg resolves the --cursor flag into the optional replay
+// start Attach takes. The flag has no meaningful zero value of its own, so
+// whether it was set, not what it defaults to, decides whether Attach replays.
+func sessionAttachCursorArg(
+	command *cobra.Command,
+	cursor int64,
+) (*int64, error) {
+	if !command.Flags().Changed(sessionAttachCursorFlag) {
+		//nolint:nilnil // No cursor means start live at the current head.
+		return nil, nil
+	}
+
+	if cursor < 0 {
+		return nil, ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"--cursor must not be negative",
+		)
+	}
+
+	return &cursor, nil
+}
+
+// sessionAttachSequenceLabel is the first column of one printed frame: its
+// feed sequence, or "-" for an unsequenced live-only acknowledgement such as
+// message.completed or message.failed.
+func sessionAttachSequenceLabel(sequence *int64) string {
+	if sequence == nil {
+		return "-"
+	}
+
+	return strconv.FormatInt(*sequence, 10)
 }
 
 // sessionStopCommand stops the session's running work by cancelling its active

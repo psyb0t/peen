@@ -45,9 +45,9 @@ On the page, enter `PEEN_API_TOKEN` if you set one, and connect. The linked sess
 
 Type in the full-width input box. Enter sends, and Shift+Enter starts a new line. Your messages show as bubbles on the right. The reply takes the full width with no bubble and streams in as the model writes it, rendered as Markdown, with reasoning collapsed and each tool call shown as one card next to its result. A message you send while a turn is running shows "Queued. Lands after the current step." until the agent receives it. The Details panel holds the full stored record when you need it.
 
-Opening the same directory again returns the same session, so this is also how you reattach after a restart. The browser receives the global event feed and keeps a separate session-filtered connection for the selected chat. Closing that session's last filtered connection pauses unfinished work; another connected client keeps it running. Reopening the chat restores history and leaves paused work stopped.
+Opening the same directory again returns the same session, so this is also how you reattach after a restart. The browser keeps one global event feed, reconnecting automatically and catching up on anything it missed. Selecting a chat only changes what it renders from that feed, not whether the session keeps working, and closing the page or losing the connection no longer pauses any session's work. Reopening the chat restores history and resumes watching whatever happened while you were away.
 
-If you are writing another client, `POST /v1/sessions/open` returns the session ID, and `GET /v1/workspace-roots` returns the workspace root in a list. Connect to `/v1/ws?sessionId=<session-id>` and send turns with that ID in `metadata.sessionId`. A global observer socket is optional and does not keep a session running. [The API reference](http-api.md) has the frame shapes.
+If you are writing another client, `POST /api/v1/sessions/open` returns the session ID, and `GET /api/v1/workspace-roots` returns the workspace root in a list. Connect to `/ws/v1?sessionId=<session-id>` and send turns with that ID in `metadata.sessionId`. A WebSocket connection, optional and global or filtered, never keeps a session's work running and never stops it by closing. [The API reference](http-api.md) has the frame shapes.
 
 ## 4. Put project instructions beside the project
 
@@ -78,16 +78,16 @@ Peen checks every optional rule, skill, named agent, event handler, and hook on 
 WebSocket starts work. REST reads stored state and controls an active session. The one REST call that can start a turn is posting a [session notice](events.md) that an event handler lets wake an idle session.
 
 ```bash
-curl "http://localhost:8080/v1/messages?limit=50&order=asc" \
+curl "http://localhost:8080/api/v1/messages?limit=50&order=asc" \
   -H "X-Session-ID: <session-id>"
 
-curl -X POST "http://localhost:8080/v1/session/cancel" \
+curl -X POST "http://localhost:8080/api/v1/session/cancel" \
   -H "X-Session-ID: <session-id>"
 ```
 
 Add `-H "Authorization: Bearer <token>"` to each request when you set `PEEN_API_TOKEN`. The API also exposes stored protocol events, outside notices, process jobs and their output and signal history, child-agent runs, turns, prompt and context snapshots, compaction lineage, provider runs and rounds, and session status. [The API reference](http-api.md) has the frame and response shapes.
 
-Stop pauses the session and interrupts its current activities. Ask the agent to inspect and continue retained work when you want to resume; reconnecting alone does not resume it. After a crash, Peen restores unfinished workflows from saved context and completed results. Interrupted tool effects may need inspection before retry. See [recovery and continuation](agents.md#recovery-after-a-crash).
+Stop pauses the session and interrupts its current activities. Without a Stop, session work keeps running even after you close the page, so it keeps calling the model and spending provider budget until you stop it, cancel a child, or something fails or crashes. Ask the agent to inspect and continue retained work when you want to resume; reconnecting alone does not resume it. After a crash, Peen restores unfinished workflows from saved context and completed results. Interrupted tool effects may need inspection before retry. See [recovery and continuation](agents.md#recovery-after-a-crash).
 
 ## Before you expose it
 

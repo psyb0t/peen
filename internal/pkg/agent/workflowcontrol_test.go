@@ -299,7 +299,7 @@ func TestExecutionWorkflowPauseCancelsModelAndRequiresResume(t *testing.T) {
 		fmt.Sprintf("%s/%s", fixture.input.SessionID, fixture.input.ExecutionID),
 		workflowResumeSignal, struct{}{}))
 	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, "resumed response", result.Text)
 	requests := driver.Requests()

@@ -68,18 +68,22 @@ func verifyRecordedSchema(
 
 // errIncompatibleDatabase is the refusal for a database this build cannot use.
 // It names every file to remove, because a leftover -wal file next to a new
-// database is replayed into it.
+// database is replayed into it, and the workflow database beside it would
+// keep the removed sessions' workflow instances orphaned.
 func errIncompatibleDatabase(version int) error {
 	return ctxerrors.Wrapf(
 		commerr.ErrInvalidState,
 		"sqlite database at schema version %d was created by a different "+
 			"Peen version and cannot be upgraded; stop Peen, delete %s, "+
-			"%s-wal, and %s-shm from the state directory, and start it again "+
-			"to create a new database",
+			"%s-wal, %s-shm, %s, %s-wal, and %s-shm from the state "+
+			"directory, and start it again to create new databases",
 		version,
 		sqliteFileName,
 		sqliteFileName,
 		sqliteFileName,
+		workflowSQLiteFileName,
+		workflowSQLiteFileName,
+		workflowSQLiteFileName,
 	)
 }
 

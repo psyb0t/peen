@@ -25,7 +25,6 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/worker"
 	"github.com/psyb0t/peen/internal/pkg/worker/controlspace"
 	dockerworker "github.com/psyb0t/peen/internal/pkg/worker/docker"
-	"github.com/psyb0t/peen/internal/pkg/worker/protocol"
 	"github.com/psyb0t/peen/internal/pkg/worker/supervisor"
 )
 
@@ -210,10 +209,13 @@ func (s *ControlCore) openCore(
 		return nil, ctxerrors.Wrap(err, "assemble agent runtime")
 	}
 
-	// The relay is created here and given to the supervisor as its publisher,
-	// then control-api registers the live delivery path on it. That ordering
-	// is what makes every worker event durable before any client sees it.
-	relay := control.NewEventRelay()
+	// The pump is created here, over this service's own context, so its
+	// per-session goroutines stop when the service does. control-api
+	// registers the live delivery path on it later. The store signals it
+	// after every write that allocates feed sequences, which is what makes
+	// every worker event durable before any client sees it.
+	feed := control.NewFeedPump(ctx, assembled.Store)
+	assembled.Store.SetFeedSignal(feed.Signal)
 
 	//nolint:contextcheck // A startup probe bounded by its own timeout.
 	workers, err := newWorkerSupervisor(
@@ -222,7 +224,6 @@ func (s *ControlCore) openCore(
 		assembled.Store,
 		assembled.Handle.Workflows,
 		agentSpaces,
-		relay,
 	)
 	if err != nil {
 		return nil, errors.Join(err, closeState(ctx, assembled.Handle))
@@ -249,9 +250,9 @@ func (s *ControlCore) openCore(
 		return nil, errors.Join(err, closeState(ctx, assembled.Handle))
 	}
 
-	// The router watches the same relay the workers publish through, which is
-	// how it learns each message was admitted and lets the next one in.
-	turns, err := control.NewTurnRouter(sessions, workers, relay)
+	// The router watches the same pump the store signals, which is how it
+	// learns each message was admitted and lets the next one in.
+	turns, err := control.NewTurnRouter(sessions, workers, feed)
 	if err != nil {
 		return nil, errors.Join(err, closeState(ctx, assembled.Handle))
 	}
@@ -285,7 +286,7 @@ func (s *ControlCore) openCore(
 		AgentSpaces: agentSpaces,
 		Workers:     workers,
 		Turns:       turns,
-		Events:      relay,
+		Feed:        feed,
 		Metrics:     metricRegistry,
 	}, nil
 }
@@ -320,7 +321,6 @@ func newWorkerSupervisor(
 	store *session.Store,
 	workflows *db.WorkflowStorage,
 	agentSpaces *worker.AgentSpaceSet,
-	publisher protocol.Publisher,
 ) (*supervisor.Supervisor, error) {
 	controlLauncher, err := controlspace.New(controlspace.Options{
 		ProviderCredentialKeys: providerCredentialKeys(upstreams),
@@ -346,7 +346,6 @@ func newWorkerSupervisor(
 	}
 
 	built, err := supervisor.New(supervisor.Options{
-		Publisher:       publisher,
 		Store:           store,
 		Workflows:       workflows,
 		AgentSpaces:     agentSpaces,

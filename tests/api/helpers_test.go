@@ -71,6 +71,10 @@ type apiTestFrame struct {
 	Type      string
 	Data      json.RawMessage
 	RequestID uuid.UUID
+	// Sequence is the frame's feed sequence. Only meaningful when HasSequence
+	// is true: message.completed and message.failed carry none.
+	Sequence    int64
+	HasSequence bool
 }
 
 // openSessionConnection dials the WebSocket filtered to one session.
@@ -95,6 +99,7 @@ func sendSessionMessage(
 	t.Helper()
 
 	require.NoError(t, writeAPIWebSocketSessionMessage(
+		t,
 		connection,
 		sessionID,
 		map[string]string{"message": message},
@@ -149,6 +154,8 @@ func readFrames(
 				frame.RequestID, _ = uuid.Parse(text)
 			}
 		}
+
+		frame.Sequence, frame.HasSequence = apiTestFrameSequence(received)
 
 		frames = append(frames, frame)
 

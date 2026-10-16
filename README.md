@@ -87,7 +87,7 @@ Open the link `peen` printed, or `http://127.0.0.1:8080`, after Peen starts. If 
 
 The sidebar shows the workspace root. Type a workspace inside it, such as `$HOME/work/my-app`, and open the chat. Peen returns its existing session when that directory was opened before, and otherwise creates the one session for that workspace. Open `$HOME/work/other-app` for a second project with its own agent. The composer shows the model and reasoning level the next turn will use, starting from the session's model, and you can change either for that turn before you send the work. The input box spans the full width. Enter sends, and Shift+Enter starts a new line. Your messages show as bubbles on the right. The agent's replies take the full width with no bubble, stream in as the model writes them, and render as Markdown, with each tool call shown as one card next to its result. A message you send while a turn is running shows "Queued. Lands after the current step." until the agent receives it.
 
-The browser keeps a global event socket and a session-filtered socket for the selected chat. Closing the last filtered socket pauses that session; another filtered client keeps it running. Reconnecting does not resume paused work. The Stop control also pauses the session, while stopping one child permanently cancels its unfinished subtree.
+The browser keeps one global event socket. It reconnects automatically when the connection drops and catches up on whatever it missed from the session feed. Selecting a chat only changes what the control surface renders from that socket; it no longer opens a second, session-filtered connection, and losing or closing the socket no longer pauses any session's work. The Stop control still pauses the selected session, reconnecting does not resume work Stop already paused, and stopping one child permanently cancels its unfinished subtree.
 
 The global socket receives the live feed for every session. The control surface keeps that global feed intact, but shows the selected session's events and stored records in its own tab. It also offers cancellation, agent space changes, transcript messages, model runs, child agents, compactions, workers, jobs, and notices.
 
@@ -130,7 +130,7 @@ Peen reads these files from the configuration directory and from every directory
 
 **Named agents.** A file in `.agents/agents/` defines a child agent with its own instructions and an optional `allowed-tools` list. The main agent hands it a job with `launchAgent`, and the child runs beside it. The two can exchange messages, the child can ask a question, and you can write to a running child or stop it. The child's final answer comes back when it ends. Every child run is stored and can be inspected. Peen ships one core agent, `core:general-purpose`, which runs every turn unless `PEEN_AGENT` names another. [Named agents](docs/agents.md)
 
-**Session events.** When a background command finishes, a child agent ends, a hook reports something, or an outside system posts to `/v1/session/notices`, Peen records an event and hands it to the model at the next turn or tool boundary. A handler in `.agents/events/<type>.md` can make an event start a turn on an idle session. [Session events](docs/events.md)
+**Session events.** When a background command finishes, a child agent ends, a hook reports something, or an outside system posts to `/api/v1/session/notices`, Peen records an event and hands it to the model at the next turn or tool boundary. A handler in `.agents/events/<type>.md` can make an event start a turn on an idle session. [Session events](docs/events.md)
 
 **Hooks.** `.agents/hooks.yaml` runs actions at 38 points in a turn, before and after each message, turn, compaction, and tool call. An action can block the operation, run a command, add context for the model, or publish an event. [Hooks](docs/hooks.md)
 
@@ -139,10 +139,10 @@ Peen reads these files from the configuration directory and from every directory
 The WebSocket is for live work, and REST is for stored reads and control. A message for the agent goes over the WebSocket only. The one REST call that can start a turn is posting a notice that an event handler lets wake an idle session.
 
 ```bash
-curl "http://127.0.0.1:8080/v1/messages?limit=50&order=asc" \
+curl "http://127.0.0.1:8080/api/v1/messages?limit=50&order=asc" \
   -H "X-Session-ID: <session-id>"
 
-curl -X POST "http://127.0.0.1:8080/v1/session/cancel" \
+curl -X POST "http://127.0.0.1:8080/api/v1/session/cancel" \
   -H "X-Session-ID: <session-id>"
 ```
 
@@ -160,11 +160,13 @@ peen session attach <session-id>
 peen session stop <session-id>
 ```
 
-`peen control status` reports whether the controller answers and starts nothing, so it tells "not running" apart from "running". `peen session open` prints the session ID, its workspace, and whether the call created the session or resumed one. `peen session attach` streams that session's live events and starts no turn. `peen session stop` pauses unfinished session work and says when there was nothing to stop. Through the `peen` command, the `session` commands start the controller first when it is not running.
+`peen control status` reports whether the controller answers and starts nothing, so it tells "not running" apart from "running". `peen session open` prints the session ID, its workspace, and whether the call created the session or resumed one. `peen session attach` streams that session's live events, starts no turn, and reconnects automatically after an unexpected drop, catching up from the session feed; `--cursor <n>` replays from sequence `n` first. `peen session stop` pauses unfinished session work and says when there was nothing to stop. Through the `peen` command, the `session` commands start the controller first when it is not running.
 
 A server binary you run yourself, from `make install` or a source build, takes the same commands and reads the same `PEEN_` environment as the controller, so a command and its controller agree on the address. Its `session` commands start `peen run` themselves when nothing answers. The commands reach the controller over HTTP only, not over a Unix socket.
 
 ## Things worth knowing
+
+A session with no client attached keeps running. Nothing but Stop, cancelling a child, shutting down the controller or an embedded `Close`, a failed turn, or a crash stops it, so an unattended session keeps calling the model and spending provider budget until something explicitly stops it.
 
 Set `PEEN_API_TOKEN` and use `wss://` outside local development. Browser WebSockets authenticate with subprotocols, because browsers cannot attach an `Authorization` header. The [API reference](docs/http-api.md) has the handshake.
 
@@ -222,7 +224,7 @@ openclaw skills install @psyb0t/peen
 | Define child agents for contained jobs | [Named agents](docs/agents.md) |
 | React to background jobs, child agents, and outside systems | [Session events](docs/events.md) |
 | Add hard checks or model instructions around actions | [Hooks](docs/hooks.md) |
-| Build a WebSocket or REST client | [API reference](docs/http-api.md) |
+| Build a WebSocket or REST client | [API reference](docs/http-api.md), [api/api.yml](api/api.yml), and [api/asyncapi.yaml](api/asyncapi.yaml) |
 | Embed Peen in a Go process | [Go embedding guide](pkg/peen/README.md) |
 | Change Peen itself | [Development](docs/development.md) |
 

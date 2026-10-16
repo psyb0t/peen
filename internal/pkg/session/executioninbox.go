@@ -47,7 +47,10 @@ func (s *Store) acceptExecutionInbox(
 
 	var result *ExecutionInboxAcceptance
 
-	err = s.query.Transaction(func(tx *repositories.Query) error {
+	err = s.feedTransaction(ctx, func(
+		ctx context.Context,
+		tx *repositories.Query,
+	) error {
 		var acceptErr error
 
 		result, acceptErr = s.acceptExecutionMessage(ctx, tx, executionID,

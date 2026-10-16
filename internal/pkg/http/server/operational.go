@@ -9,7 +9,8 @@ import (
 
 const (
 	// healthzPath and readyPath are deliberately unversioned. They belong to
-	// the deployment, not to the agent API, so they do not move when /v1 does.
+	// the deployment, not to the agent API, so they do not move when
+	// /api/v1 does.
 	healthzPath = "/healthz"
 	readyPath   = "/ready"
 

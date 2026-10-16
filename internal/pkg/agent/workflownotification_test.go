@@ -2,7 +2,6 @@ package agent
 
 import (
 	"testing"
-	"time"
 
 	"github.com/cschleiden/go-workflows/client"
 	"github.com/google/uuid"
@@ -33,7 +32,7 @@ func TestWorkflowNotificationChildCompletionSignalsRootOnce(t *testing.T) {
 	fixture.input.MaxConcurrentTools = 1
 	instance := startCompactingWorkflow(t, fixture)
 	_, err = client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	count, next := queue.arrival()
 	assert.Equal(t, 1, count)
@@ -77,7 +76,7 @@ func TestWorkflowNotificationLeavesPausedRootUnsignalled(t *testing.T) {
 	fixture.input.MaxConcurrentTools = 1
 	instance := startCompactingWorkflow(t, fixture)
 	_, err = client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	stored, err := fixture.base.store.GetExecution(t.Context(), parentInput.SessionID,
 		parentInput.ExecutionID)
@@ -175,7 +174,7 @@ func TestWorkflowNotificationRefusesSupersededRootHolder(t *testing.T) {
 	fixture.input.MaxConcurrentTools = 1
 	instance := startCompactingWorkflow(t, fixture)
 	_, err = client.GetWorkflowResult[workflowRoundResult](t.Context(),
-		fixture.api, instance, 10*time.Second)
+		fixture.api, instance, workflowTestResultTimeout)
 	require.NoError(t, err)
 	count, next := parent.prepared.userMessages.arrival()
 	assert.Zero(t, count)

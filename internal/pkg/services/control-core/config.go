@@ -16,7 +16,7 @@ import (
 // its runtime from the same configuration. The control surface differs in one
 // way: DefaultWorkspace stays unset, because a controller starts with no
 // session rows and creates one only when a client opens a workspace through
-// POST /v1/sessions/open.
+// POST /api/v1/sessions/open.
 func runtimeOptions(
 	config peenconfig.Config,
 	models agent.ModelResolver,

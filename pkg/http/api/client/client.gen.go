@@ -1017,6 +1017,36 @@ type Error struct {
 	Message string                  `json:"message"`
 }
 
+// FeedFrame One sequenced frame of a session's live feed, as it was sent over the WebSocket.
+type FeedFrame struct {
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Data The frame's data, exactly as sent live.
+	Data interface{} `json:"data"`
+
+	// Id ID of the stored record, also the live frame's id.
+	Id        openapi_types.UUID  `json:"id"`
+	RequestId *openapi_types.UUID `json:"requestId"`
+
+	// Sequence Position in the session feed. Consecutive, starting at 1.
+	Sequence  int64              `json:"sequence"`
+	SessionId openapi_types.UUID `json:"sessionId"`
+	Type      string             `json:"type"`
+}
+
+// FeedPage defines model for FeedPage.
+type FeedPage struct {
+	HasMore bool `json:"hasMore"`
+
+	// Head The session's newest feed sequence when the page was read.
+	Head  int64       `json:"head"`
+	Items []FeedFrame `json:"items"`
+	Limit int32       `json:"limit"`
+
+	// NextCursor Pass back as cursor to continue from here.
+	NextCursor int64 `json:"nextCursor"`
+}
+
 // Job defines model for Job.
 type Job struct {
 	Command   string     `json:"command"`
@@ -1330,19 +1360,25 @@ type ReconfigureSessionRequest struct {
 
 // Session defines model for Session.
 type Session struct {
-	ActiveTurn bool   `json:"activeTurn"`
-	Agent      string `json:"agent"`
+	ActiveTurn bool `json:"activeTurn"`
+
+	// ActiveTurnFeedSequence First feed sequence of the running turn. Set only by GET /session while a turn runs; replay from the sequence before it to rebuild that turn's live view.
+	ActiveTurnFeedSequence *int64 `json:"activeTurnFeedSequence,omitempty"`
+	Agent                  string `json:"agent"`
 
 	// AgentSpace The agent space this session's tools run in, `control` or `docker:<profile>`.
-	AgentSpace         *string            `json:"agentSpace,omitempty"`
-	CompletedTurnCount int64              `json:"completedTurnCount"`
-	CreatedAt          time.Time          `json:"createdAt"`
-	Id                 openapi_types.UUID `json:"id"`
-	LastMessageAt      *time.Time         `json:"lastMessageAt,omitempty"`
-	MessageCount       int64              `json:"messageCount"`
-	Model              string             `json:"model"`
-	UpdatedAt          time.Time          `json:"updatedAt"`
-	Workspace          string             `json:"workspace"`
+	AgentSpace         *string   `json:"agentSpace,omitempty"`
+	CompletedTurnCount int64     `json:"completedTurnCount"`
+	CreatedAt          time.Time `json:"createdAt"`
+
+	// FeedSequence The session's newest feed sequence.
+	FeedSequence  int64              `json:"feedSequence"`
+	Id            openapi_types.UUID `json:"id"`
+	LastMessageAt *time.Time         `json:"lastMessageAt,omitempty"`
+	MessageCount  int64              `json:"messageCount"`
+	Model         string             `json:"model"`
+	UpdatedAt     time.Time          `json:"updatedAt"`
+	Workspace     string             `json:"workspace"`
 }
 
 // SessionAgentSpaceDecision defines model for SessionAgentSpaceDecision.
@@ -1662,6 +1698,14 @@ type ListSessionEventsParams struct {
 // ListSessionEventsParamsOrder defines parameters for ListSessionEvents.
 type ListSessionEventsParamsOrder string
 
+// ListSessionFeedParams defines parameters for ListSessionFeed.
+type ListSessionFeedParams struct {
+	// Cursor Return items with a sequence greater than this value.
+	Cursor     *int64            `form:"cursor,omitempty" json:"cursor,omitempty"`
+	Limit      *int32            `form:"limit,omitempty" json:"limit,omitempty"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
 // ListSessionJobsParams defines parameters for ListSessionJobs.
 type ListSessionJobsParams struct {
 	Limit      *Limit                      `form:"limit,omitempty" json:"limit,omitempty"`
@@ -1938,6 +1982,13 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /session/events (the `ListSessionEvents` operationId).
 	ListSessionEvents(ctx context.Context, params *ListSessionEventsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListSessionFeed Replay a session's live feed from a sequence
+	//
+	// Returns the session's sequenced live frames after `cursor`, oldest first: root protocol events, child agent run steps, and notices. Each item has the same type, data and sequence its live WebSocket frame carried, so a client that reconnects passes the last sequence it applied and continues without a gap or a duplicate. A cursor at or past the head returns an empty page.
+	//
+	// Corresponds with GET /session/feed (the `ListSessionFeed` operationId).
+	ListSessionFeed(ctx context.Context, params *ListSessionFeedParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListSessionJobs List the commands this session has started
 	//
@@ -2318,6 +2369,23 @@ func (c *Client) GetSessionContextSnapshot(ctx context.Context, contextHash Cont
 // Corresponds with GET /session/events (the `ListSessionEvents` operationId).
 func (c *Client) ListSessionEvents(ctx context.Context, params *ListSessionEventsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListSessionEventsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListSessionFeed Replay a session's live feed from a sequence
+//
+// Returns the session's sequenced live frames after `cursor`, oldest first: root protocol events, child agent run steps, and notices. Each item has the same type, data and sequence its live WebSocket frame carried, so a client that reconnects passes the last sequence it applied and continues without a gap or a duplicate. A cursor at or past the head returns an empty page.
+//
+// Corresponds with GET /session/feed (the `ListSessionFeed` operationId).
+func (c *Client) ListSessionFeed(ctx context.Context, params *ListSessionFeedParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSessionFeedRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -3720,6 +3788,85 @@ func NewListSessionEventsRequest(server string, params *ListSessionEventsParams)
 	return req, nil
 }
 
+// NewListSessionFeedRequest constructs an http.Request for the ListSessionFeed method
+func NewListSessionFeedRequest(server string, params *ListSessionFeedParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/feed")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Cursor != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "cursor", *params.Cursor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int64"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Session-ID", headerParam0)
+
+	}
+
+	return req, nil
+}
+
 // NewListSessionJobsRequest constructs an http.Request for the ListSessionJobs method
 func NewListSessionJobsRequest(server string, params *ListSessionJobsParams) (*http.Request, error) {
 	var err error
@@ -4937,6 +5084,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /session/events (the `ListSessionEvents` operationId).
 	ListSessionEventsWithResponse(ctx context.Context, params *ListSessionEventsParams, reqEditors ...RequestEditorFn) (*ListSessionEventsResponse, error)
+
+	// ListSessionFeedWithResponse Replay a session's live feed from a sequence
+	//
+	// Returns the session's sequenced live frames after `cursor`, oldest first: root protocol events, child agent run steps, and notices. Each item has the same type, data and sequence its live WebSocket frame carried, so a client that reconnects passes the last sequence it applied and continues without a gap or a duplicate. A cursor at or past the head returns an empty page.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /session/feed (the `ListSessionFeed` operationId).
+	ListSessionFeedWithResponse(ctx context.Context, params *ListSessionFeedParams, reqEditors ...RequestEditorFn) (*ListSessionFeedResponse, error)
 
 	// ListSessionJobsWithResponse List the commands this session has started
 	//
@@ -6365,6 +6521,83 @@ func (r ListSessionEventsResponse) ContentType() string {
 	return ""
 }
 
+// ListSessionFeedResponse200Headers the declared response headers of an HTTP 200 response for ListSessionFeed
+type ListSessionFeedResponse200Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListSessionFeedResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *FeedPage
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ListSessionFeedResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListSessionFeedResponse) GetJSON200() *FeedPage {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ListSessionFeedResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListSessionFeedResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ListSessionFeedResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListSessionFeedResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListSessionFeedResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListSessionFeedResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListSessionFeedResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListSessionFeedResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // ListSessionJobsResponse200Headers the declared response headers of an HTTP 200 response for ListSessionJobs
 type ListSessionJobsResponse200Headers struct {
 	XRequestID openapi_types.UUID
@@ -7745,6 +7978,21 @@ func (c *ClientWithResponses) ListSessionEventsWithResponse(ctx context.Context,
 		return nil, err
 	}
 	return ParseListSessionEventsResponse(rsp)
+}
+
+// ListSessionFeedWithResponse Replay a session's live feed from a sequence
+//
+// Returns the session's sequenced live frames after `cursor`, oldest first: root protocol events, child agent run steps, and notices. Each item has the same type, data and sequence its live WebSocket frame carried, so a client that reconnects passes the last sequence it applied and continues without a gap or a duplicate. A cursor at or past the head returns an empty page.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /session/feed (the `ListSessionFeed` operationId).
+func (c *ClientWithResponses) ListSessionFeedWithResponse(ctx context.Context, params *ListSessionFeedParams, reqEditors ...RequestEditorFn) (*ListSessionFeedResponse, error) {
+	rsp, err := c.ListSessionFeed(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListSessionFeedResponse(rsp)
 }
 
 // ListSessionJobsWithResponse List the commands this session has started
@@ -9204,6 +9452,80 @@ func ParseListSessionEventsResponse(rsp *http.Response) (*ListSessionEventsRespo
 	switch {
 	case rsp.StatusCode == 200:
 		var headers ListSessionEventsResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListSessionFeedResponse parses an HTTP response from a ListSessionFeedWithResponse call
+func ParseListSessionFeedResponse(rsp *http.Response) (*ListSessionFeedResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListSessionFeedResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest FeedPage
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ListSessionFeedResponse200Headers
 		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
 			var value openapi_types.UUID
 			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
