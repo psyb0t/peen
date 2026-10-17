@@ -7,10 +7,18 @@
 MIN_TEST_COVERAGE := 80
 TEST_TIMEOUT := 30m
 
-# Dev container runs get 6 CPUs by default, so one lint or test run leaves the
-# rest of the machine usable. It is set before the include, because Servicepack
-# only sets DEV_CPUS when it is still empty. `make lint DEV_CPUS=4` still wins.
-DEV_CPUS ?= 6
+# .env.dev holds this machine's dev container settings, such as DEV_CPUS=6 to
+# keep one lint or test run from taking every CPU. It is optional and stays out
+# of Git; .env.dev.example shows the settings. Without it, dev containers run
+# with no CPU limit, which is what CI needs: a fixed --cpus larger than the
+# runner's CPU count makes every docker run fail. Both blocks sit before the
+# include, because Servicepack only sets these when they are still undefined.
+# `make lint DEV_CPUS=4` still wins.
+DEV_ENV_FILE := .env.dev
+-include $(DEV_ENV_FILE)
+ifeq ($(wildcard $(DEV_ENV_FILE)),)
+DEV_CPU_LIMIT_ARGS ?=
+endif
 
 # Include servicepack framework commands
 include Makefile.servicepack

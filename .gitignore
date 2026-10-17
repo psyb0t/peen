@@ -46,6 +46,7 @@ __pycache__/
 .env.local
 .env.*
 !.env.example
+!.env.dev.example
 
 # Test / profile artifacts
 coverage.txt

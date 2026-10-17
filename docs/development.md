@@ -25,7 +25,7 @@ The Make targets run Go, Node, and the linters in the project's Docker developme
 | Build the production image | `make docker-build` |
 | Run this checkout's local controller | `make run-dev` |
 
-Make runs these targets in dev containers capped with `--cpus` to 6 CPUs. Set `DEV_CPUS` to change the cap, for example `make test-coverage DEV_CPUS=4`. The cap does not apply to `make run-dev` or to containers that tests start themselves. Run one of these targets at a time. Each one is a full Go compile or image build, and several at once overload the machine.
+Make runs these targets in dev containers. To cap them with `--cpus`, copy `.env.dev.example` to `.env.dev` and set `DEV_CPUS` there; without `.env.dev` the containers run uncapped. `DEV_CPUS` on the command line overrides the file, for example `make test-coverage DEV_CPUS=4`. Keep the value at or below the machine's CPU count, or Docker refuses to start the container. The cap does not apply to `make run-dev` or to containers that tests start themselves. Run one of these targets at a time. Each one is a full Go compile or image build, and several at once overload the machine.
 
 `make test-installer` builds this checkout's image, pushes it to a local registry under three release tags, one of them as a multi-platform index, and runs `install.sh` and the `peen` command against it with a mock model provider. It covers the four control space and agent space combinations, upgrade, uninstall, the system install, and the refusals. Every home and workspace it creates lives under the gitignored `.testing/`, and it removes only the containers and images it created.
 

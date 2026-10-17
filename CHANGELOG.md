@@ -2,6 +2,13 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.26.1 (2026-10-17)
+
+`make` targets run on machines with fewer than 6 CPUs again, including CI runners. From v0.20.0 on, every CI run failed at its first dev container, so v0.20.0 through v0.26.0 published no Docker image, GitHub release, or `peen` skill. No configuration or API migration is needed.
+
+- Fixes `make` targets failing on machines with fewer than 6 CPUs, including GitHub's runners. The `Makefile` passed a fixed `--cpus=6` to every dev container, and Docker refuses a CPU limit above the host's CPU count.
+- Changes the dev container CPU cap to come from an optional, gitignored `.env.dev`. Copy `.env.dev.example` to `.env.dev` and set `DEV_CPUS` to cap dev containers; without the file they run uncapped. `DEV_CPUS` on the command line still overrides it.
+
 ## v0.26.0 (2026-10-16)
 
 Session work keeps running after every client disconnects, and a client that reconnects replays what it missed from a new per-session feed. REST moves to `/api/v1`, the WebSocket moves to `/ws/v1`, and `api/asyncapi.yaml` now defines the WebSocket contract. Before upgrading, back up `PEEN_STATE_DIR`, update every client's URLs, and give the generated Go client the new server URL. The session database schema changes again, so the old databases have to be removed; the breaking changes below list the exact files.
