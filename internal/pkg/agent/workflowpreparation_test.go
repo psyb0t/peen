@@ -137,7 +137,7 @@ func TestExecutionWorkflowPausePreventsPreparation(t *testing.T) {
 		}
 
 		return false
-	}, 10*time.Second, 10*time.Millisecond)
+	}, workflowTestResultTimeout, 10*time.Millisecond)
 	assert.Zero(t, calls.Load())
 	assert.Zero(t, driver.Calls())
 	_, err := fixture.base.store.ResumeExecution(t.Context(),

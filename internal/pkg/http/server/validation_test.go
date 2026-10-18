@@ -1,6 +1,7 @@
 package server
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,7 +16,7 @@ import (
 // Every case here is rejected by the OpenAPI document alone. None of them has
 // a hand-written check in any handler, and several were reachable before the
 // validator existed: an out-of-range limit, a negative offset, a wrong-typed
-// query value, and an invalid session-event body all used to reach a handler
+// query value, and an invalid session-notice body all used to reach a handler
 // or the runtime.
 //
 // The point of this test is that adding an endpoint to the spec now buys its
@@ -55,21 +56,21 @@ func TestSpecValidatorRejectsWhatTheDocumentForbids(t *testing.T) {
 			path:   apiBaseURL + "/messages?order=sideways",
 		},
 		{
-			name:   "event type below minLength",
+			name:   "notice type below minLength",
 			method: http.MethodPost,
-			path:   apiBaseURL + "/session/events",
+			path:   apiBaseURL + "/session/notices",
 			body:   `{"type":"","summary":"x"}`,
 		},
 		{
-			name:   "missing required event summary",
+			name:   "missing required notice summary",
 			method: http.MethodPost,
-			path:   apiBaseURL + "/session/events",
+			path:   apiBaseURL + "/session/notices",
 			body:   `{"type":"app.error"}`,
 		},
 		{
-			name:   "unknown event delivery mode",
+			name:   "unknown notice delivery mode",
 			method: http.MethodPost,
-			path:   apiBaseURL + "/session/events",
+			path:   apiBaseURL + "/session/notices",
 			body:   `{"type":"app.error","summary":"x","delivery":"telepathy"}`,
 		},
 		{
@@ -102,11 +103,16 @@ func TestSpecValidatorRejectsWhatTheDocumentForbids(t *testing.T) {
 			})
 			require.NoError(t, err)
 
+			var body io.Reader
+			if tc.body != "" {
+				body = strings.NewReader(tc.body)
+			}
+
 			request := httptest.NewRequestWithContext(
 				t.Context(),
 				tc.method,
 				tc.path,
-				nil,
+				body,
 			)
 			request.Header.Set(headerSessionID, sessionID.String())
 			request.Header.Set(headerContentType, mediaTypeJSON)
@@ -122,6 +128,32 @@ func TestSpecValidatorRejectsWhatTheDocumentForbids(t *testing.T) {
 			)
 		})
 	}
+}
+
+// The body cases above are only meaningful if a valid body on the same route
+// gets through. Without this, a rejection could come from an unknown route or
+// a missing body instead of the field each case names.
+func TestSpecValidatorAcceptsAValidNoticeBody(t *testing.T) {
+	sessionID := uuid.New()
+
+	instance, err := newTestServer(Dependencies{
+		Runtime: &testRuntime{sessionID: sessionID},
+	})
+	require.NoError(t, err)
+
+	request := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		apiBaseURL+"/session/notices",
+		strings.NewReader(`{"type":"app.error","summary":"x","delivery":"wake"}`),
+	)
+	request.Header.Set(headerSessionID, sessionID.String())
+	request.Header.Set(headerContentType, mediaTypeJSON)
+
+	recorder := httptest.NewRecorder()
+	instance.testHandler.ServeHTTP(recorder, request)
+
+	assert.Equal(t, http.StatusAccepted, recorder.Code)
 }
 
 // The validator maps a rejection to 400, and the library's default would

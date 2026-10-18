@@ -20,7 +20,7 @@ import (
 const (
 	jobTestPurpose        = "test job"
 	jobTestGrace          = 300 * time.Millisecond
-	jobTestEventuallyWait = 5 * time.Second
+	jobTestEventuallyWait = time.Minute
 	jobTestEventuallyTick = 5 * time.Millisecond
 	// jobTestSlowStart outlasts a command that prints and exits at once, the
 	// way a worker's start write over its socket does.

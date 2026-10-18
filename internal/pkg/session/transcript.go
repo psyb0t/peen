@@ -49,7 +49,10 @@ func (s *Store) AppendCheckpoint(
 	return nil
 }
 
-// FinalizeTurn atomically writes terminal transcript data and state.
+// FinalizeTurn atomically writes terminal transcript data and state. Once the
+// write commits and the lease is released, it notifies the installed idle
+// callback with the turn's terminal state, so a notice that missed every
+// tool boundary in this turn can still be re-checked.
 func (s *Store) FinalizeTurn(
 	ctx context.Context,
 	lease Lease,
@@ -67,10 +70,31 @@ func (s *Store) FinalizeTurn(
 	if err != nil {
 		return err
 	}
+
+	finalized := false
+	defer func() {
+		if finalized {
+			s.notifyIdle(lease.SessionID, input.State)
+		}
+	}()
 	defer s.ReleaseTurn(lease)
 	defer unlock()
 
-	if err := s.feedTransaction(ctx, func(
+	if err := s.runFinalizeTurnTransaction(ctx, lease, input); err != nil {
+		return ctxerrors.Wrap(err, "finalize turn transaction")
+	}
+
+	finalized = true
+
+	return nil
+}
+
+func (s *Store) runFinalizeTurnTransaction(
+	ctx context.Context,
+	lease Lease,
+	input FinalizeTurnInput,
+) error {
+	return s.feedTransaction(ctx, func(
 		ctx context.Context,
 		tx *repositories.Query,
 	) error {
@@ -100,11 +124,7 @@ func (s *Store) FinalizeTurn(
 			input.State,
 			appendResult,
 		)
-	}); err != nil {
-		return ctxerrors.Wrap(err, "finalize turn transaction")
-	}
-
-	return nil
+	})
 }
 
 // SaveContextSnapshot stores an immutable resolved harness context.

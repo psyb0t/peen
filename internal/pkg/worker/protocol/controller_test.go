@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors/commerr"
@@ -13,6 +14,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// testEventuallyTimeout bounds positive waits. Coverage and -race
+// instrumentation under CI's CPU cap make a short window flake.
+const testEventuallyTimeout = time.Minute
 
 func newControllerFixture(t *testing.T) (*Controller, uuid.UUID) {
 	t.Helper()

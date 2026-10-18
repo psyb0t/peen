@@ -40,12 +40,55 @@ func (s *Store) CompleteExecutionActivityReceipt(
 		return nil, err
 	}
 
+	var (
+		notifyIdle bool
+		idleState  models.TurnState
+	)
+
+	// Deferred before the conditional activeMu lock below, so it unwinds
+	// after that lock's own deferred unlock: the idle callback must never
+	// run while this store still holds activeMu.
+	defer func() {
+		if notifyIdle {
+			s.notifyIdle(sessionID, idleState)
+		}
+	}()
+
 	if input.RootProjection != nil ||
 		(input.Finish != nil && input.Finish.Turn != nil) {
 		s.activeMu.Lock()
 		defer s.activeMu.Unlock()
 	}
 
+	receipt, released, err := s.completeExecutionActivityTransaction(
+		ctx, sessionID, lease, input,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if released {
+		notifyIdle = true
+		idleState = input.Finish.Turn.State
+	}
+
+	ctxscope.GetLogger(ctx).Info("execution activity completed",
+		"session_id", sessionID, "execution_id", receipt.Activity.ExecutionID,
+		"activity_id", receipt.Activity.ID, "attempt", receipt.Activity.Attempt)
+
+	return receipt, nil
+}
+
+// completeExecutionActivityTransaction commits the activity result and, when
+// it finishes the execution's root turn, drops that turn's lease. released
+// reports whether this call was the one that dropped it, so the caller fires
+// its idle notification only once, after it releases activeMu.
+func (s *Store) completeExecutionActivityTransaction(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	lease ActivityLease,
+	input CompleteActivityInput,
+) (*ExecutionActivityCompletion, bool, error) {
 	receipt := &ExecutionActivityCompletion{}
 
 	var result *models.ExecutionActivity
@@ -62,20 +105,17 @@ func (s *Store) CompleteExecutionActivityReceipt(
 		return err
 	})
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "complete activity transaction")
+		return nil, false, ctxerrors.Wrap(err, "complete activity transaction")
 	}
 
-	if err := s.releaseFinishedExecutionTurn(result, input); err != nil {
-		return nil, ctxerrors.Wrap(err, "release completed root turn")
+	released, err := s.releaseFinishedExecutionTurn(result, input)
+	if err != nil {
+		return nil, false, ctxerrors.Wrap(err, "release completed root turn")
 	}
-
-	ctxscope.GetLogger(ctx).Info("execution activity completed",
-		"session_id", sessionID, "execution_id", result.ExecutionID,
-		"activity_id", result.ID, "attempt", result.Attempt)
 
 	receipt.Activity = result
 
-	return receipt, nil
+	return receipt, released, nil
 }
 
 func (s *Store) completeActivityWithQuery(

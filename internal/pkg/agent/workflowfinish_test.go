@@ -288,7 +288,7 @@ func TestWorkflowPauseAfterFinalModelDoesNotRepeatProvider(t *testing.T) {
 	instance := fixture.start(t)
 	select {
 	case <-gate.entered:
-	case <-time.After(10 * time.Second):
+	case <-time.After(workflowTestResultTimeout):
 		t.Fatal("final activity did not reach completion gate")
 	}
 	require.NoError(t, fixture.engine.pause(t.Context(), fixture.input.SessionID,
@@ -301,7 +301,7 @@ func TestWorkflowPauseAfterFinalModelDoesNotRepeatProvider(t *testing.T) {
 
 		return err == nil && len(page.Items) == 5 &&
 			page.Items[4].State == models.ActivityStatePaused
-	}, 10*time.Second, 10*time.Millisecond)
+	}, workflowTestResultTimeout, 10*time.Millisecond)
 	assert.Equal(t, 1, driver.Calls())
 	_, err := fixture.base.store.ResumeExecution(t.Context(),
 		fixture.input.SessionID, fixture.input.ExecutionID)

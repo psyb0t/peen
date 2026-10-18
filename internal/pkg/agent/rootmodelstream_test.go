@@ -43,7 +43,7 @@ func TestRootWorkflowStreamClosesPartialBlockBeforeResume(t *testing.T) {
 	instance := fixture.start(t)
 	select {
 	case <-entered:
-	case <-time.After(10 * time.Second):
+	case <-time.After(workflowTestResultTimeout):
 		t.Fatal("model stream did not reach interruption gate")
 	}
 	require.NoError(t, fixture.engine.pause(t.Context(), fixture.input.SessionID,
@@ -55,7 +55,7 @@ func TestRootWorkflowStreamClosesPartialBlockBeforeResume(t *testing.T) {
 
 		return err == nil && len(runs.Items) == 1 &&
 			runs.Items[0].State == models.ModelRunStateCancelled
-	}, 10*time.Second, 10*time.Millisecond)
+	}, workflowTestResultTimeout, 10*time.Millisecond)
 	_, err := fixture.base.store.ResumeExecution(t.Context(),
 		fixture.input.SessionID, fixture.input.ExecutionID)
 	require.NoError(t, err)

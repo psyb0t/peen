@@ -309,6 +309,8 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 		}
 	}
 
+	runtime.wireIdleWakeRecheck()
+
 	return runtime, nil
 }
 

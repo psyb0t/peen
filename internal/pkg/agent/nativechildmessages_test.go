@@ -149,7 +149,7 @@ func TestNativeChildMessageCannotMissActorHydration(t *testing.T) {
 	})
 	select {
 	case <-held.read:
-	case <-time.After(10 * time.Second):
+	case <-time.After(workflowTestResultTimeout):
 		t.Fatal("child actor did not reach inbox hydration")
 	}
 	sent := runChildIngressTask(t, func() error {

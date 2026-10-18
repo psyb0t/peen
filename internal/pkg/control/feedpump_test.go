@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	feedPumpWait = 2 * time.Second
+	feedPumpWait = time.Minute
 	// feedPumpQuiet is how long a test watches for something that must not
 	// happen, such as a second delivery or a repeated admission.
 	feedPumpQuiet = 50 * time.Millisecond

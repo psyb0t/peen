@@ -96,7 +96,7 @@ func TestEmbeddedStartupAbortCancelsAndDrainsStartedSessions(t *testing.T) {
 	select {
 	case err := <-done:
 		require.NoError(t, err)
-	case <-time.After(2 * time.Second):
+	case <-time.After(embeddingWorkflowCompletionTimeout):
 		t.Error("startup cleanup did not cancel admitted work")
 		// Release fixture operations so a failed assertion can still drain.
 		cancelled, cancel := context.WithCancel(t.Context())
@@ -213,7 +213,7 @@ func TestEmbeddedSessionsShareTurnLimit(t *testing.T) {
 	}()
 	select {
 	case <-entered:
-	case <-time.After(10 * time.Second):
+	case <-time.After(embeddingWorkflowCompletionTimeout):
 		t.Fatal("first handler did not start")
 	}
 	started := make(chan struct{})
@@ -255,7 +255,7 @@ func TestEmbeddedStopRetainsPausedNonDefaultSessionAfterReopen(t *testing.T) {
 	go func() { _, err := target.Send(t.Context(), MessageRequest{Message: "old task"}, nil); done <- err }()
 	select {
 	case <-entered:
-	case <-time.After(10 * time.Second):
+	case <-time.After(embeddingWorkflowCompletionTimeout):
 		t.Fatal("handler did not start")
 	}
 	cancelled, err := target.Cancel(t.Context())
@@ -264,7 +264,7 @@ func TestEmbeddedStopRetainsPausedNonDefaultSessionAfterReopen(t *testing.T) {
 	select {
 	case err := <-done:
 		require.ErrorIs(t, err, commerr.ErrCancelled)
-	case <-time.After(10 * time.Second):
+	case <-time.After(embeddingWorkflowCompletionTimeout):
 		t.Fatal("stopped request did not return")
 	}
 	require.NoError(t, runtime.Close(t.Context()))
@@ -322,10 +322,11 @@ func TestEmbeddedClosePausesAndDrainsChildAfterParentCompletion(t *testing.T) {
 	assert.Equal(t, "parent finished", result.Message)
 	select {
 	case <-driver.started:
-	case <-time.After(10 * time.Second):
+	case <-time.After(embeddingWorkflowCompletionTimeout):
 		t.Fatal("child model did not start")
 	}
-	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(),
+		embeddingWorkflowCompletionTimeout)
 	defer cancel()
 	require.NoError(t, runtime.Close(ctx))
 	replacement, err := New(options)
@@ -419,14 +420,14 @@ func TestSubmittedEmbeddedRootKeepsCapacityAfterCallerCancellation(t *testing.T)
 	go func() { _, err := runtime.Message(caller, MessageRequest{Message: "original task"}); firstDone <- err }()
 	select {
 	case <-entered:
-	case <-time.After(10 * time.Second):
+	case <-time.After(embeddingWorkflowCompletionTimeout):
 		t.Fatal("original handler did not start")
 	}
 	cancel()
 	select {
 	case err := <-firstDone:
 		require.ErrorIs(t, err, commerr.ErrCancelled)
-	case <-time.After(10 * time.Second):
+	case <-time.After(embeddingWorkflowCompletionTimeout):
 		t.Fatal("caller did not return")
 	}
 	done := make(chan error, 1)

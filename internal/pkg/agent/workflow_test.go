@@ -295,7 +295,7 @@ func TestExecutionWorkflowParallelToolsRetainHookInjections(t *testing.T) {
 	for range 2 {
 		select {
 		case <-entered:
-		case <-time.After(10 * time.Second):
+		case <-time.After(workflowTestResultTimeout):
 			t.Fatal("both tool activities did not start")
 		}
 	}
@@ -388,7 +388,7 @@ func TestExecutionWorkflowJoinsOtherToolsAfterOneClaimFails(t *testing.T) {
 	for _, barrier := range []<-chan struct{}{entered, store.failed} {
 		select {
 		case <-barrier:
-		case <-time.After(10 * time.Second):
+		case <-time.After(workflowTestResultTimeout):
 			t.Fatal("parallel failure barriers did not complete")
 		}
 	}
@@ -484,7 +484,7 @@ func TestExecutionWorkflowOneResumeSignalContinuesParallelPausedTools(
 	for range 2 {
 		select {
 		case <-store.entered:
-		case <-time.After(10 * time.Second):
+		case <-time.After(workflowTestResultTimeout):
 			t.Fatal("parallel tool claims did not reach pause gate")
 		}
 	}
@@ -506,7 +506,7 @@ func TestExecutionWorkflowOneResumeSignalContinuesParallelPausedTools(
 		}
 
 		return completed >= 4
-	}, 10*time.Second, 10*time.Millisecond)
+	}, workflowTestResultTimeout, 10*time.Millisecond)
 	assert.Zero(t, calls.Load())
 	_, err := fixture.base.store.ResumeExecution(t.Context(),
 		fixture.input.SessionID, fixture.input.ExecutionID)

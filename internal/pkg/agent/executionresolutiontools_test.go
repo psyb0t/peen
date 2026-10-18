@@ -88,7 +88,7 @@ func TestAgentInspectionAcceptsWrittenEffectWithoutRepeatingIt(t *testing.T) {
 	first := runHandoffTurnAsync(t.Context(), base.runtime, "perform the original file effect")
 	select {
 	case <-effectStarted:
-	case <-time.After(10 * time.Second):
+	case <-time.After(workflowTestResultTimeout):
 		t.Fatal("original effect did not start")
 	}
 	_, err := base.runtime.CancelSession(t.Context(), base.runtime.sessionID)
@@ -96,7 +96,7 @@ func TestAgentInspectionAcceptsWrittenEffectWithoutRepeatingIt(t *testing.T) {
 	select {
 	case err := <-first:
 		require.ErrorIs(t, err, context.Canceled)
-	case <-time.After(10 * time.Second):
+	case <-time.After(workflowTestResultTimeout):
 		t.Fatal("original effect did not stop")
 	}
 	page, err := base.store.SearchExecutions(t.Context(), base.runtime.sessionID, session.SearchExecutionsOptions{State: models.ExecutionStatePaused})
@@ -120,7 +120,7 @@ func TestAgentInspectionAcceptsWrittenEffectWithoutRepeatingIt(t *testing.T) {
 		}
 
 		return false
-	}, 10*time.Second, 10*time.Millisecond)
+	}, workflowTestResultTimeout, 10*time.Millisecond)
 	content, err := os.ReadFile(effectPath)
 	require.NoError(t, err)
 	require.Equal(t, "written once", string(content))
@@ -152,7 +152,7 @@ func TestAgentInspectionAcceptsWrittenEffectWithoutRepeatingIt(t *testing.T) {
 		stored, err := base.store.GetExecution(t.Context(), original.SessionID, original.ID)
 
 		return err == nil && stored.State == models.ExecutionStateCompleted
-	}, 10*time.Second, 10*time.Millisecond)
+	}, workflowTestResultTimeout, 10*time.Millisecond)
 	assert.EqualValues(t, 1, effects.Load())
 	assert.Equal(t, 1, initial.Calls())
 	assert.Equal(t, 4, driver.Calls())

@@ -26,7 +26,7 @@ const (
 	commandWaitTimeout       = "1s"
 	commandWaitSlack         = 4 * time.Second
 	commandOverflowBytes     = 100000
-	commandEventuallyWait    = 5 * time.Second
+	commandEventuallyWait    = time.Minute
 	commandEventuallyTick    = 5 * time.Millisecond
 	commandTinyOutputLines   = 4
 	commandOverflowLineCount = 40

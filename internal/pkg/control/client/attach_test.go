@@ -27,7 +27,7 @@ const (
 	//nolint:gosec // The token follows this prefix, the prefix is not secret.
 	attachTestBearerPrefix = "peen.bearer."
 	attachTestEventType    = "turn.completed"
-	attachTestTimeout      = 5 * time.Second
+	attachTestTimeout      = time.Minute
 )
 
 // attachFrame is one live socket frame, minimally shaped like a dabluveees

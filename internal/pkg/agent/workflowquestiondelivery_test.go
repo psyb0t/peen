@@ -382,7 +382,7 @@ func TestRetainedQuestionWakesIdleNativeRoot(t *testing.T) {
 					session.SearchExecutionsOptions{State: models.ExecutionStateCompleted})
 
 				return err == nil && len(pageExecutions.Items) == 2
-			}, 10*time.Second, 10*time.Millisecond)
+			}, workflowTestResultTimeout, 10*time.Millisecond)
 			require.Equal(t, 1, driver.Calls())
 			requests := driver.Requests()
 			require.Len(t, requests, 1)

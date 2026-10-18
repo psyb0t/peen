@@ -80,27 +80,34 @@ func (s *Store) finishExecutionTurn(
 		input.Turn.State, result)
 }
 
+// releaseFinishedExecutionTurn drops the root turn's lease once its finish
+// activity commits. The caller holds activeMu, so the bool it returns is the
+// only way it can tell the caller a release actually happened and the
+// caller's own idle notification, fired after activeMu is released, should
+// fire too.
 func (s *Store) releaseFinishedExecutionTurn(
 	activity *models.ExecutionActivity,
 	input CompleteActivityInput,
-) error {
+) (bool, error) {
 	if input.Finish == nil || input.Finish.Turn == nil {
-		return nil
+		return false, nil
 	}
 
 	continued, err := repeatFinishDecision(activity, input)
 	if err != nil {
-		return ctxerrors.Wrap(err, "read committed root finish decision")
+		return false, ctxerrors.Wrap(err, "read committed root finish decision")
 	}
 
 	if continued {
-		return nil
+		return false, nil
 	}
 
 	active, ok := s.active[activity.SessionID]
 	if ok && active.leaseID == input.Finish.RootHolder.LeaseID {
 		delete(s.active, activity.SessionID)
+
+		return true, nil
 	}
 
-	return nil
+	return false, nil
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/psyb0t/elelem/elelemtest"
@@ -35,8 +36,16 @@ func runtimeToolArguments(t *testing.T, path string) string {
 	return string(encoded)
 }
 
+// collectEvents appends every event a turn emits to events. A turn's own
+// emission and a child agent's sink can call it at the same time, so the
+// append is serialized; callers read events after the turn returns.
 func collectEvents(events *[]Event) EventSink {
+	var mutex sync.Mutex
+
 	return func(event Event) error {
+		mutex.Lock()
+		defer mutex.Unlock()
+
 		*events = append(*events, event)
 
 		return nil

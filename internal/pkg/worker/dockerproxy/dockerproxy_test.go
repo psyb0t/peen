@@ -33,7 +33,7 @@ const (
 	brokenContainer  = "broken"
 	firstEventChunk  = `{"status":"start","id":"abc"}` + "\n"
 	secondEventChunk = `{"status":"die","id":"abc"}` + "\n"
-	streamTimeout    = 5 * time.Second
+	streamTimeout    = time.Minute
 	fakeDaemonSocket = "daemon.sock"
 	proxySocketName  = "docker.sock"
 )

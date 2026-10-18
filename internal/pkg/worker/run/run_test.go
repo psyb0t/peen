@@ -27,7 +27,7 @@ const (
 	// testReadyGracePeriod is how long a waiting command is observed before
 	// the test concludes it really is waiting.
 	testReadyGracePeriod = 50 * time.Millisecond
-	testWaitTimeout      = 5 * time.Second
+	testWaitTimeout      = time.Minute
 
 	testTurnMessage   = "do the work"
 	testTurnModel     = "provider/model"

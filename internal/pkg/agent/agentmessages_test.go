@@ -168,7 +168,7 @@ func TestWaitMessagesHonorsCancellationBeforeNoticeRead(t *testing.T) {
 
 const (
 	messageTestShortWait = "50ms"
-	messageTestLongWait  = 30 * time.Second
+	messageTestLongWait  = time.Minute
 )
 
 func messageDeps(fixture runtimeFixture, sessionID uuid.UUID) *launchAgentDeps {

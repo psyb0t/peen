@@ -20,8 +20,12 @@ on:
 permissions: {}
 
 jobs:
+  # A release tag is never rebuilt or retested. Its run waits for the main push
+  # run of the same commit, promotes the image that run built and tested, and
+  # publishes from it. So the checks run on main, pull requests and the weekly
+  # schedule only.
   code:
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    if: "!startsWith(github.ref, 'refs/tags/') && (github.event_name != 'pull_request' || !github.event.pull_request.draft)"
     permissions:
       actions: read
       contents: read
@@ -36,11 +40,12 @@ jobs:
       sarif_file: "sec.sarif"
       sarif_category: "go"
 
-  # Images are built only for real pushes and pull requests. The weekly badge
-  # refresh and manual runs must not republish an image.
+  # Images are built only for main and pull request pushes. The weekly badge
+  # refresh and manual runs must not republish an image, and a tag promotes
+  # the main image instead of building one.
   docker:
     needs: [code]
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && !github.event.pull_request.draft)
+    if: "!startsWith(github.ref, 'refs/tags/') && (github.event_name == 'push' || (github.event_name == 'pull_request' && !github.event.pull_request.draft))"
     permissions:
       contents: write
       security-events: write
@@ -49,10 +54,11 @@ jobs:
       repository_name: psyb0t/peen
       target_platforms: "linux/amd64,linux/arm64"
       # The controller names its default worker image psyb0t/peen:<build
-      # version>, so the image must carry the tag it is published under: the
-      # release tag on a tag push, latest on main. Without it every published
-      # image reports "dev" and its Docker workers name a missing image.
-      build_targets: '[{"build_args":"BUILD_VERSION=${{ startsWith(github.ref, ''refs/tags/'') && github.ref_name || ''latest'' }}\nBUILD_COMMIT=${{ github.sha }}"}]'
+      # version>, so the version must name a tag that holds this exact image.
+      # sha-<commit> does: push_sha_tag publishes it beside latest, and a
+      # release promotes that same image, so it keeps naming its own build.
+      build_targets: '[{"build_args":"BUILD_VERSION=sha-${{ github.sha }}\nBUILD_COMMIT=${{ github.sha }}"}]'
+      push_sha_tag: true
       scan_severity: "high"
       scan_fail_build: false
       dockerhub_private: false
@@ -61,29 +67,66 @@ jobs:
       dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
       dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
 
-  badges:
-    needs: [code]
-    if: github.ref_name == github.event.repository.default_branch || startsWith(github.ref, 'refs/tags/')
+  # A tag run waits here for the main push run of the tagged commit. It fails
+  # when that run failed or when the commit was never pushed to main.
+  wait:
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      actions: read
+    uses: psyb0t/reusable-github-workflows/.github/workflows/wait-for-default-branch.yml@master
+
+  # Re-tags the sha-<commit> image the main run tested as the release tag, by
+  # digest and for every platform. No build. The release job below owns the
+  # GitHub release, so this one creates none.
+  docker-promote:
+    needs: [wait]
+    if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
+      security-events: write
+    uses: psyb0t/reusable-github-workflows/.github/workflows/docker-image-workflow.yml@master
+    with:
+      repository_name: psyb0t/peen
+      target_platforms: "linux/amd64,linux/arm64"
+      promote_on_tag: true
+      create_release: false
+      scan_severity: "high"
+      scan_fail_build: false
+      dockerhub_private: false
+      sync_description: true
+    secrets:
+      dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+      dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  # main and the schedule publish the coverage their own run measured. A tag
+  # publishes the coverage of the main run it released.
+  badges:
+    needs: [code, wait]
+    if: "always() && ((github.ref_name == github.event.repository.default_branch && needs.code.result == 'success') || (startsWith(github.ref, 'refs/tags/') && needs.wait.result == 'success'))"
+    permissions:
+      contents: write
+      actions: read
     uses: psyb0t/reusable-github-workflows/.github/workflows/create-badges.yml@master
     with:
       coverage: true
       importers: true
+      coverage_run_id: ${{ needs.wait.outputs.run_id }}
 
+  # The GitHub release body is the annotated tag's notes.
   release:
-    needs: [code]
+    needs: [docker-promote]
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
     uses: psyb0t/reusable-github-workflows/.github/workflows/release-workflow.yml@master
 
-  # Publish the peen skill to ClawHub. Tag pushes ONLY, after the image build
-  # so the advertised skill always has a published image behind it. Only the
-  # peen skill is published: .agents/skills/ also holds the Servicepack
-  # framework's own skill, which is not Peen's to publish. No plugins.
+  # Publish the peen skill to ClawHub. Tag pushes ONLY, after the image is
+  # promoted so the advertised skill always has a published image behind it.
+  # Only the peen skill is published: .agents/skills/ also holds the
+  # Servicepack framework's own skill, which is not Peen's to publish. No
+  # plugins.
   publish-to-clawhub:
-    needs: [docker]
+    needs: [docker-promote]
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: read

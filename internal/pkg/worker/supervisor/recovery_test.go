@@ -19,7 +19,7 @@ func TestDisconnectedWorkerIsRecordedAndReplaced(t *testing.T) {
 		generation, err := f.store.GetWorkerGeneration(t.Context(), f.sessionID, first.GenerationID)
 
 		return err == nil && generation.State == string(worker.StateFailed)
-	}, time.Second, time.Millisecond)
+	}, testEventuallyTimeout, time.Millisecond)
 	second := f.ensure(t)
 	assert.NotEqual(t, first.GenerationID, second.GenerationID)
 	f.supervisor.WorkerDisconnected(context.Background(), f.sessionID, first.GenerationID)

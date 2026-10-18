@@ -239,7 +239,7 @@ func TestColdRootWorkflowWaitsForSharedTurnCapacity(t *testing.T) {
 	instance := fixture.start(t)
 	select {
 	case <-entered:
-	case <-time.After(10 * time.Second):
+	case <-time.After(workflowTestResultTimeout):
 		t.Fatal("cold preparation did not start")
 	}
 	assert.Never(t, func() bool {

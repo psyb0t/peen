@@ -71,7 +71,7 @@ func TestNativeChildCancellationStopsOnlySelectedSDKSubtree(t *testing.T) {
 		items = page.Items
 
 		return true
-	}, 20*time.Second, 10*time.Millisecond)
+	}, workflowTestResultTimeout, 10*time.Millisecond)
 	waits := awaitWorkerTreeWaits(t, executionLoopFixture{
 		base:  base,
 		input: workflowExecutionInput{SessionID: base.runtime.sessionID},
@@ -106,7 +106,7 @@ func TestNativeChildCancellationStopsOnlySelectedSDKSubtree(t *testing.T) {
 			defer engine.mutex.Unlock()
 
 			return len(engine.active[item.ID]) == 0
-		}, 5*time.Second, 10*time.Millisecond)
+		}, workflowTestResultTimeout, 10*time.Millisecond)
 	}
 	repeat, err := base.runtime.CancelSessionAgentRun(t.Context(),
 		target.SessionID, *target.AgentRunID)
@@ -160,7 +160,7 @@ func assertCancelledNativeTree(
 				GetWorkflowInstanceState(t.Context(), instance)
 
 			return err == nil && state == core.WorkflowInstanceStateFinished
-		}, 10*time.Second, 10*time.Millisecond)
+		}, workflowTestResultTimeout, 10*time.Millisecond)
 	}
 	assert.Equal(t, 4, count)
 }
@@ -197,7 +197,7 @@ func TestNativeChildCancellationRestoredOnWorkerStart(t *testing.T) {
 		state, err := api.GetWorkflowInstanceState(ctx, instance)
 
 		return err == nil && state == core.WorkflowInstanceStateFinished
-	}, 10*time.Second, 10*time.Millisecond)
+	}, workflowTestResultTimeout, 10*time.Millisecond)
 	records, err := fixture.storage.GetWorkflowInstanceHistory(ctx,
 		instance, nil)
 	require.NoError(t, err)
@@ -248,7 +248,7 @@ func TestExecutionWorkflowPauseCancelsModelAndRequiresResume(t *testing.T) {
 	instance := fixture.start(t)
 	select {
 	case <-started:
-	case <-time.After(10 * time.Second):
+	case <-time.After(workflowTestResultTimeout):
 		t.Fatal("model activity did not start")
 	}
 	require.NoError(t, fixture.engine.pause(t.Context(), fixture.input.SessionID,
@@ -267,7 +267,7 @@ func TestExecutionWorkflowPauseCancelsModelAndRequiresResume(t *testing.T) {
 		}
 
 		return false
-	}, 10*time.Second, 10*time.Millisecond)
+	}, workflowTestResultTimeout, 10*time.Millisecond)
 	paused, err := fixture.base.store.GetExecution(t.Context(),
 		fixture.input.SessionID, fixture.input.ExecutionID)
 	require.NoError(t, err)
@@ -290,7 +290,7 @@ func TestExecutionWorkflowPauseCancelsModelAndRequiresResume(t *testing.T) {
 		}
 
 		return completed >= 3
-	}, 10*time.Second, 10*time.Millisecond)
+	}, workflowTestResultTimeout, 10*time.Millisecond)
 	assert.Equal(t, 1, driver.Calls())
 	_, err = fixture.base.store.ResumeExecution(t.Context(),
 		fixture.input.SessionID, fixture.input.ExecutionID)

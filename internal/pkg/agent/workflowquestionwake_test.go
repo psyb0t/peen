@@ -70,7 +70,7 @@ func TestRetainedQuestionWakeHonorsPauseHandlerAndDisabledBus(t *testing.T) {
 				defer runtime.lifecycle.mutex.Unlock()
 
 				return len(runtime.lifecycle.operations) == 0
-			}, 5*time.Second, 10*time.Millisecond)
+			}, workflowTestResultTimeout, 10*time.Millisecond)
 			assert.Zero(t, calls.Load())
 			noticeID := result.Output.ChildProjection.Transcript.Question.EventID
 			page, err := fixture.base.store.ListSessionNotices(t.Context(), fixture.input.SessionID, session.ListSessionNoticesOptions{ID: &noticeID})

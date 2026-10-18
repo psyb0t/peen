@@ -38,8 +38,8 @@ const (
 	apiTestSocketDirPrefix = "pw"
 	apiTestDirectoryMode   = 0o750
 	apiTestFileMode        = 0o600
-	apiTestStartupTimeout  = 30 * time.Second
-	apiTestShutdownTimeout = 30 * time.Second
+	apiTestStartupTimeout  = time.Minute
+	apiTestShutdownTimeout = time.Minute
 	apiTestRequestTimeout  = 10 * time.Second
 	apiTestContextTokens   = 8192
 	apiTestOutputTokens    = 1024

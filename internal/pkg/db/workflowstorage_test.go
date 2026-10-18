@@ -24,6 +24,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testEventuallyTimeout bounds positive waits. Coverage and -race
+// instrumentation under CI's CPU cap make a short window flake.
+const testEventuallyTimeout = time.Minute
+
 func storageActivity(context.Context) (string, error) {
 	return "recorded result", nil
 }
@@ -111,7 +115,7 @@ func TestOpenWorkflowStorageReturnsRecordedResultAfterReopen(t *testing.T) {
 	)
 	require.NoError(t, err)
 	result, err := client.GetWorkflowResult[string](
-		ctx, api, instance, 10*time.Second,
+		ctx, api, instance, testEventuallyTimeout,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "recorded result", result)
@@ -122,7 +126,7 @@ func TestOpenWorkflowStorageReturnsRecordedResultAfterReopen(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
 	result, err = client.GetWorkflowResult[string](
-		t.Context(), client.New(reopened), instance, time.Second,
+		t.Context(), client.New(reopened), instance, testEventuallyTimeout,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "recorded result", result)

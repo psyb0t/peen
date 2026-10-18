@@ -25,6 +25,8 @@ import (
 )
 
 const (
+	// testWebSocketReadTimeout bounds assertNoWebSocketEvent, which asserts
+	// that no event arrives; it stays short on purpose.
 	testWebSocketReadTimeout  = 2 * time.Second
 	testWebSocketAgentEvent   = "message.delta"
 	testWebSocketAgentMessage = "hello"
@@ -32,6 +34,10 @@ const (
 	// webSocketClientPollInterval paces the wait for the server to finish
 	// registering a dialed client.
 	webSocketClientPollInterval = 5 * time.Millisecond
+
+	// testWebSocketEventuallyTimeout bounds positive waits. Coverage and
+	// -race instrumentation under CI's CPU cap make a short window flake.
+	testWebSocketEventuallyTimeout = time.Minute
 )
 
 // A committed feed row reaches every global client through the feed pump's
@@ -164,7 +170,7 @@ func TestWebSocketLastClientDisconnectDoesNotStopTheSession(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		return len(instance.webSocketClientsFor(sessionID)) == 0
-	}, testWebSocketReadTimeout, webSocketClientPollInterval,
+	}, testWebSocketEventuallyTimeout, webSocketClientPollInterval,
 		"the server did not drop the disconnected client")
 
 	assert.Zero(t, runtime.cancelSessionCalls)
@@ -553,7 +559,7 @@ func waitForWebSocketClients(
 		func() bool {
 			return len(instance.webSocketClientsFor(sessionID)) == want
 		},
-		testWebSocketReadTimeout,
+		testWebSocketEventuallyTimeout,
 		webSocketClientPollInterval,
 		"the server did not register %d clients for the session",
 		want,
@@ -579,7 +585,7 @@ func waitForWebSocketSessionFilters(
 
 			return len(instance.webSocketFilters) == want
 		},
-		testWebSocketReadTimeout,
+		testWebSocketEventuallyTimeout,
 		webSocketClientPollInterval,
 		"the server did not register %d session filters",
 		want,
@@ -660,7 +666,9 @@ func readWebSocketEvent(
 	t.Helper()
 	require.NoError(
 		t,
-		connection.SetReadDeadline(time.Now().Add(testWebSocketReadTimeout)),
+		connection.SetReadDeadline(
+			time.Now().Add(testWebSocketEventuallyTimeout),
+		),
 	)
 
 	received := dabluveees.Event{}

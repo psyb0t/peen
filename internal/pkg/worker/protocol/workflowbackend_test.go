@@ -66,7 +66,7 @@ func newWorkflowRPCFixture(t *testing.T) workflowRPCFixture {
 			select {
 			case err := <-finished:
 				require.NoError(t, err)
-			case <-time.After(5 * time.Second):
+			case <-time.After(testEventuallyTimeout):
 				t.Fatal("workflow RPC fixture did not stop")
 			}
 		}
@@ -120,7 +120,7 @@ func TestWorkflowBackendRunsNativeWorkerOverRPC(t *testing.T) {
 	)
 	require.NoError(t, err)
 	result, err := client.GetWorkflowResult[string](ctx, api, instance,
-		10*time.Second)
+		testEventuallyTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, "saved workflow result", result)
 	history, err := fixture.storage.GetWorkflowInstanceHistory(ctx, instance, nil)
@@ -293,7 +293,7 @@ func TestWorkflowBackendRunsParallelNestedTree(t *testing.T) {
 	)
 	require.NoError(t, err)
 	result, err := client.GetWorkflowResult[int](ctx, api, instance,
-		10*time.Second)
+		testEventuallyTimeout)
 	require.NoError(t, err)
 	assert.Equal(t, 8, result)
 	stored, err := fixture.controller.workflows.backend.GetWorkflowTree(

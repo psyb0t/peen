@@ -30,6 +30,9 @@ const (
 	testSocketRootMode os.FileMode = 0o700
 	testWrittenMessage             = "written through the worker protocol"
 	testRelaunchCount              = 200
+	// testEventuallyTimeout bounds positive waits. Coverage and -race
+	// instrumentation under CI's CPU cap make a short window flake.
+	testEventuallyTimeout = time.Minute
 )
 
 // fakeWorker is a worker that dials its controller in process. It proves the

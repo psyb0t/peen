@@ -58,7 +58,7 @@ func TestChildRecoveryContinuesStoredIdentityAndHistory(t *testing.T) {
 		stored, getErr := fixture.store.GetAgentRun(ctx, sessionID, run.ID)
 
 		return getErr == nil && stored.State == models.AgentRunStateCompleted
-	}, time.Second, time.Millisecond)
+	}, workflowTestResultTimeout, time.Millisecond)
 	stored, err := fixture.store.GetAgentRun(ctx, sessionID, run.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "recovered answer", stored.ResponseText)
@@ -248,7 +248,7 @@ func TestChildRecoveryPublishesEventsWithTheSavedRequestIdentity(t *testing.T) {
 		assert.Equal(t, run.SessionID, received.sessionID)
 		assert.Equal(t, run.RequestID, received.event.RequestID)
 		assert.Contains(t, string(received.event.Payload), run.ID.String())
-	case <-time.After(time.Second):
+	case <-time.After(workflowTestResultTimeout):
 		t.Fatal("the recovered child published no event")
 	}
 }

@@ -54,7 +54,10 @@ const (
 	DeliveryQueue Delivery = "queue"
 	// DeliveryWake starts a turn when the session is idle and a handler
 	// matches. It degrades to DeliveryQueue when a turn is already running or
-	// no handler matches.
+	// no handler matches. A notice that degraded because a turn was running
+	// is re-checked once that turn ends completed or failed on its own, so it
+	// still wakes the session then; a turn Stop cancelled is not followed by
+	// that re-check.
 	DeliveryWake Delivery = "wake"
 )
 

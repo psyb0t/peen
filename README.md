@@ -10,13 +10,13 @@
 
 _peen goes in vageen_
 
-Peen puts a coding agent in a real working directory and keeps the whole job alive after the first response. Connect a client over WebSocket, give it a task, and it can read code, edit files, run commands, use skills, launch child agents, and follow the `AGENTS.md` and rules sitting beside the project.
+Peen is a coding agent built as a server. One control server opens a session for each workspace directory and runs Peen's agent for that session in its own worker, either a process beside the controller or a separate Docker container. Clients send work and watch it live over WebSocket, and the agent keeps working when they disconnect. It can read code, edit files, run commands, use skills, launch child agents, and follow the `AGENTS.md` and rules sitting beside the project.
 
 Every conversation, tool call, agent event, context snapshot, compaction, and provider exchange lands in SQLite. Model records keep the request and response, thinking, usage, retries, cost, model identity, and connection name, never the provider credential. Reconnect after a restart and the history is still there. A global WebSocket receives every session's live feed; a session-filtered socket receives only that session.
 
 Root and nested agent conversations run through SQLite-backed go-workflows. After a controller or worker crash, Peen restores saved context and reuses completed activity results. Stop pauses unfinished work, and reconnecting leaves it paused. Ask an agent to inspect and explicitly continue the retained task; uncertain tool effects need inspection before retry. See [recovery and continuation](docs/agents.md#recovery-after-a-crash).
 
-One host runs one control plane. It owns SQLite, the API, and the event feed, and it starts a separate worker process per session to run that session's turns. Whether a worker is a child process or its own container is the operator's choice. See [Where it runs](docs/where-it-runs.md) and [Architecture](docs/architecture.md).
+One host runs one control plane. It owns SQLite, the API, and the event feed, and the operator chooses whether workers run as child processes or containers. See [Where it runs](docs/where-it-runs.md) and [Architecture](docs/architecture.md).
 
 Peen ships its own browser control surface at the controller's root URL. It is one client among many, so a terminal client, a bot, or your own application can watch the same live work and use the same stored records.
 

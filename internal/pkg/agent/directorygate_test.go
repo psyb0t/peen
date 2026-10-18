@@ -38,7 +38,7 @@ func TestDirectoryGateAllowsReadersAndExcludesHops(t *testing.T) {
 func TestDirectoryGateCancelledWriterDoesNotStrandReaders(t *testing.T) {
 	t.Parallel()
 	var gate directoryGate
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), workflowTestResultTimeout)
 	t.Cleanup(cancel)
 	reader, err := gate.acquire(ctx, false)
 	require.NoError(t, err)
@@ -56,7 +56,7 @@ func TestDirectoryGateCancelledWriterDoesNotStrandReaders(t *testing.T) {
 		defer gate.mutex.Unlock()
 
 		return gate.waitingWriters == 1
-	}, time.Second, time.Millisecond)
+	}, workflowTestResultTimeout, time.Millisecond)
 	stop()
 	require.ErrorIs(t, <-done, context.Canceled)
 	second, err := gate.acquire(ctx, false)

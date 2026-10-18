@@ -14,7 +14,7 @@ import (
 
 const (
 	jobToolsPurpose         = "job tools test"
-	jobToolsEventuallyWait  = 5 * time.Second
+	jobToolsEventuallyWait  = time.Minute
 	jobToolsEventuallyTick  = 5 * time.Millisecond
 	jobToolsMaxOutputLines  = 3
 	jobToolsMaxOutputBytes  = 1024

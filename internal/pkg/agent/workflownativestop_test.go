@@ -84,7 +84,7 @@ func assertNativeSessionStop(t *testing.T, controllerPaused bool) {
 	fixture, started, stopped := coldNativeStopFixture(t)
 	select {
 	case <-started:
-	case <-time.After(10 * time.Second):
+	case <-time.After(workflowTestResultTimeout):
 		t.Fatal("cold native tool did not start")
 	}
 
@@ -99,7 +99,7 @@ func assertNativeSessionStop(t *testing.T, controllerPaused bool) {
 	assert.True(t, paused)
 	select {
 	case <-stopped:
-	case <-time.After(10 * time.Second):
+	case <-time.After(workflowTestResultTimeout):
 		t.Fatal("cold native tool did not stop")
 	}
 

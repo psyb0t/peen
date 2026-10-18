@@ -1209,7 +1209,6 @@
 		{/if}
 	{/if}
 </main>
-height: 100dvh; padding: 1rem;
 
 <style>
 	:global(*) {

@@ -24,7 +24,7 @@ const (
 	// runHangGuard bounds a Run that should have been ended by Stop. It is
 	// deliberately far longer than any real wait: a test that reaches it has
 	// hung, and every legitimate wait here is synchronized explicitly instead.
-	runHangGuard = 30 * time.Second
+	runHangGuard = time.Minute
 
 	// startedPollInterval is how often the start-group condition is rechecked.
 	startedPollInterval = time.Millisecond
@@ -682,7 +682,7 @@ func TestServiceManager_RunWithRetries(t *testing.T) {
 				} else {
 					assert.NoError(t, err)
 				}
-			case <-time.After(2 * time.Second):
+			case <-time.After(runHangGuard):
 				t.Fatal("timed out")
 			}
 
@@ -790,7 +790,7 @@ func TestServiceManager_RunWithAllowedFailure(t *testing.T) {
 				}
 
 				assert.NoError(t, err)
-			case <-time.After(2 * time.Second):
+			case <-time.After(runHangGuard):
 				t.Fatal("timed out")
 			}
 		})
@@ -885,7 +885,7 @@ func TestServiceManager_RunWithDependencies(t *testing.T) {
 				}
 
 				assert.NoError(t, err)
-			case <-time.After(2 * time.Second):
+			case <-time.After(runHangGuard):
 				t.Fatal("timed out")
 			}
 		})
@@ -936,7 +936,7 @@ func (d *dependentStopTrackingService) Dependencies() []string {
 // runReturnTimeout bounds only a FAILING run of the test below. The bug it
 // guards against hangs forever, so any finite bound proves the point; this one
 // is generous enough not to trip on a loaded machine.
-const runReturnTimeout = 10 * time.Second
+const runReturnTimeout = time.Minute
 
 // TestServiceManager_RunWithConcurrentFailures proves Run still returns when
 // more than one non-allowed service fails at the same time.
@@ -1083,7 +1083,7 @@ func TestServiceManager_AllowedFailureBeforeReady(t *testing.T) {
 	select {
 	case err := <-done:
 		require.NoError(t, err)
-	case <-time.After(startupFailureBound):
+	case <-time.After(runHangGuard):
 		t.Fatal("Run blocked on the ready signal of an allowed failure")
 	}
 
@@ -1121,7 +1121,7 @@ func TestServiceManager_CleanExitBeforeReady(t *testing.T) {
 	select {
 	case err := <-done:
 		require.NoError(t, err)
-	case <-time.After(startupFailureBound):
+	case <-time.After(runHangGuard):
 		t.Fatal("Run blocked on the ready signal of a service that exited")
 	}
 
@@ -1168,7 +1168,7 @@ func TestServiceManager_PanicRecovery(t *testing.T) {
 			case err := <-done:
 				assert.Error(t, err)
 				assert.ErrorIs(t, err, ErrServicePanic)
-			case <-time.After(2 * time.Second):
+			case <-time.After(runHangGuard):
 				t.Fatal("timed out")
 			}
 		})

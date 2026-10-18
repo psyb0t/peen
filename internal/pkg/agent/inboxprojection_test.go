@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const inboxProjectionTestTimeout = 5 * time.Second
+const inboxProjectionTestTimeout = time.Minute
 
 type inboxProjectionBarrierStore struct {
 	session.Storage

@@ -115,7 +115,7 @@ func TestNativeChildSubmissionRunsGrandchildWithDurableLineage(t *testing.T) {
 		}
 
 		return true
-	}, 20*time.Second, 10*time.Millisecond)
+	}, workflowTestResultTimeout, 10*time.Millisecond)
 	assertNativeTreeLineage(t, base)
 }
 
@@ -186,7 +186,7 @@ func TestNativeChildSubmissionRunsEightAgentTreeInParallel(t *testing.T) {
 		select {
 		case name := <-started:
 			observed[name] = true
-		case <-time.After(10 * time.Second):
+		case <-time.After(workflowTestResultTimeout):
 			t.Fatal("three child providers did not run concurrently")
 		}
 	}
@@ -246,7 +246,7 @@ func assertEightAgentExecutionTree(t *testing.T, base runtimeFixture) {
 		}
 
 		return true
-	}, 30*time.Second, 10*time.Millisecond)
+	}, workflowTestResultTimeout, 10*time.Millisecond)
 	for _, item := range items {
 		if item.Kind == models.ExecutionKindRoot {
 			assert.Nil(t, item.ParentExecutionID)
@@ -279,7 +279,7 @@ func assertNativeTreeLineage(t *testing.T, base runtimeFixture) {
 		}
 
 		return true
-	}, 10*time.Second, 10*time.Millisecond)
+	}, workflowTestResultTimeout, 10*time.Millisecond)
 	runs := registry.List()
 	require.Len(t, runs, 2)
 	for _, run := range runs {

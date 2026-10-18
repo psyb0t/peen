@@ -99,7 +99,7 @@ func TestWorkflowWorkerPausesEightAgentWaitTree(t *testing.T) {
 		items = page.Items
 
 		return true
-	}, 30*time.Second, 10*time.Millisecond)
+	}, workflowTestResultTimeout, 10*time.Millisecond)
 	for _, item := range items {
 		require.Equal(t, agentWorkflowName, item.WorkflowVersion)
 	}
@@ -141,7 +141,7 @@ func TestWorkflowWorkerPausesEightAgentWaitTree(t *testing.T) {
 		}
 
 		return true
-	}, 15*time.Second, 10*time.Millisecond,
+	}, workflowTestResultTimeout, 10*time.Millisecond,
 		"paused children must release capacity for fresh child work")
 	for route, child := range driver.routes {
 		if counts[route] == 0 {
@@ -206,7 +206,7 @@ func refuseWorkerTreeResumeAtCapacity(
 			leaf.SessionID, waits[leaf.ID].ID)
 
 		return err == nil && activity.State == models.ActivityStatePaused
-	}, 15*time.Second, 10*time.Millisecond)
+	}, workflowTestResultTimeout, 10*time.Millisecond)
 	stored, err := fixture.base.store.GetExecution(t.Context(), leaf.SessionID,
 		leaf.ID)
 	require.NoError(t, err)
@@ -279,7 +279,7 @@ func resumeWorkerTreeLeaf(
 			leaf.SessionID, leaf.ID)
 
 		return err == nil && stored.State == models.ExecutionStateCompleted
-	}, 20*time.Second, 10*time.Millisecond)
+	}, workflowTestResultTimeout, 10*time.Millisecond)
 	instance, err := fixture.base.runtime.nativeWorkflowRunner().api.
 		CreateWorkflowInstance(t.Context(), client.WorkflowInstanceOptions{
 			InstanceID: fmt.Sprintf("%s/%s", leaf.SessionID, leaf.ID),
@@ -371,7 +371,7 @@ func awaitWorkerTreeWaits(
 		}
 
 		return len(waits) == workflowWaitTreeSize-1
-	}, 30*time.Second, 10*time.Millisecond)
+	}, workflowTestResultTimeout, 10*time.Millisecond)
 
 	return waits
 }
@@ -392,7 +392,7 @@ func assertWorkerTreeWaitsPaused(
 		}
 
 		return true
-	}, 20*time.Second, 10*time.Millisecond)
+	}, workflowTestResultTimeout, 10*time.Millisecond)
 	for id, before := range waits {
 		stored, err := fixture.base.store.GetExecutionActivity(t.Context(),
 			fixture.input.SessionID, before.ID)

@@ -40,7 +40,7 @@ func TestChildRecoveryKeepsTheSpentRoundBudget(t *testing.T) {
 				stored, err := fixture.store.GetAgentRun(ctx, run.SessionID, run.ID)
 
 				return err == nil && stored.State == models.AgentRunStateFailed
-			}, time.Second, time.Millisecond)
+			}, workflowTestResultTimeout, time.Millisecond)
 			assert.Empty(t, driver.Requests())
 		})
 	}

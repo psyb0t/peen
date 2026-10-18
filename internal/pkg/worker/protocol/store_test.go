@@ -165,7 +165,7 @@ func (f *fakeController) awaitCall(t *testing.T) Frame {
 	select {
 	case frame := <-f.calls:
 		return frame
-	case <-time.After(5 * time.Second):
+	case <-time.After(testEventuallyTimeout):
 		t.Fatal("the worker sent no frame")
 
 		return Frame{}

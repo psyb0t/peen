@@ -114,7 +114,7 @@ func TestWorkflowRunnerPausesStopAndAllowsUnrelatedWork(t *testing.T) {
 	finished := runNativeTurnAsync(t.Context(), base.runtime)
 	select {
 	case <-started:
-	case <-time.After(10 * time.Second):
+	case <-time.After(workflowTestResultTimeout):
 		t.Fatal("native tool did not start")
 	}
 	_, err := base.runtime.CancelSession(t.Context(), base.runtime.sessionID)
@@ -122,12 +122,12 @@ func TestWorkflowRunnerPausesStopAndAllowsUnrelatedWork(t *testing.T) {
 	select {
 	case err := <-finished:
 		require.ErrorIs(t, err, context.Canceled)
-	case <-time.After(10 * time.Second):
+	case <-time.After(workflowTestResultTimeout):
 		t.Fatal("native turn did not stop")
 	}
 	select {
 	case <-stopped:
-	case <-time.After(10 * time.Second):
+	case <-time.After(workflowTestResultTimeout):
 		t.Fatal("native activity did not stop")
 	}
 	assert.Zero(t, cancelledHooks.Load())
@@ -247,20 +247,20 @@ func TestWorkflowRunnerCallerInterruptionDoesNotPause(t *testing.T) {
 	finished := runNativeTurnAsync(ctx, base.runtime)
 	select {
 	case <-started:
-	case <-time.After(10 * time.Second):
+	case <-time.After(workflowTestResultTimeout):
 		t.Fatal("native retained tool did not start")
 	}
 	cancel()
 	select {
 	case err := <-finished:
 		require.ErrorIs(t, err, context.Canceled)
-	case <-time.After(10 * time.Second):
+	case <-time.After(workflowTestResultTimeout):
 		t.Fatal("interrupted native caller did not return")
 	}
 	close(release)
 	select {
 	case <-completed:
-	case <-time.After(10 * time.Second):
+	case <-time.After(workflowTestResultTimeout):
 		t.Fatal("native execution did not continue after caller interruption")
 	}
 	assertSingleCompletedNativeExecution(t, base)

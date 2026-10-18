@@ -16,7 +16,7 @@ import (
 const (
 	// Generous on purpose: this bounds only a FAILING test, and a consumer's
 	// machine may be running a browser suite and image builds alongside it.
-	servicesRunningTimeout = 5 * time.Second
+	servicesRunningTimeout = time.Minute
 	servicesRunningPoll    = time.Millisecond
 )
 

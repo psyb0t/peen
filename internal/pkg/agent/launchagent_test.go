@@ -178,7 +178,7 @@ const (
 	launchAgentWaitCallID = "call_wait"
 	launchAgentWaitBound  = `{"timeout":"30s"}`
 
-	launchAgentShutdownBound = 30 * time.Second
+	launchAgentShutdownBound = time.Minute
 	launchAgentPollInterval  = 10 * time.Millisecond
 
 	// agentFinishedEventType and agentFailedEventType name the events

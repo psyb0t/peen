@@ -2,6 +2,17 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.26.2 (2026-10-18)
+
+A release now ships the exact image that passed CI on `main`. The tag's run waits for the `main` run of the same commit, re-tags that run's image instead of building it again, and publishes the GitHub release with the tag's notes. No configuration or API migration is needed.
+
+- Changes the published images to report `sha-<commit>` as their version instead of the release tag or `latest`. The release image is the `main` image, re-tagged, so it names `psyb0t/peen:sha-<commit>` as its default worker image, which holds that same image. Installs made with `install.sh` or `peen upgrade` pin `PEEN_WORKER_IMAGE` and are unaffected.
+- Changes the CI pipeline so a release tag is not rebuilt or retested. A tag whose commit failed CI on `main`, or never ran there, publishes nothing.
+- Fixes GitHub releases carrying only a "Full Changelog" link. The release body is now the annotated tag's notes.
+- Fixes the browser control surface showing the stray text `height: 100dvh; padding: 1rem;` below the page.
+- Fixes tests that timed out on 4-CPU CI runners under the race detector. Positive waits in the unit tests use generous shared timeouts instead of short fixed windows.
+- Fixes an event handler's wake being lost when its event arrived as a turn was finishing: the turn had no tool boundary left to deliver it at, so it stayed queued until someone sent the session a message. The session now re-checks its queued notices when that turn ends completed or failed on its own and wakes if one still qualifies; a turn ended by Stop is not followed by that re-check.
+
 ## v0.26.1 (2026-10-17)
 
 `make` targets run on machines with fewer than 6 CPUs again, including CI runners. From v0.20.0 on, every CI run failed at its first dev container, so v0.20.0 through v0.26.0 published no Docker image, GitHub release, or `peen` skill. No configuration or API migration is needed.

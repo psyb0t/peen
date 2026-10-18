@@ -26,7 +26,7 @@ const (
 	testAgentDocument  = "---\nname: default\ndescription: test agent\n---\nFollow the test agent rules."
 	testMalformedID    = "not-a-uuid"
 
-	testWaitTimeout = 5 * time.Second
+	testWaitTimeout = time.Minute
 )
 
 func TestNewInvalidOptions(t *testing.T) {

@@ -30,6 +30,9 @@ type Store struct {
 
 	feedSignalMu sync.RWMutex
 	feedSignal   FeedSignalFunc
+
+	idleCallbackMu sync.RWMutex
+	idleCallback   IdleCallbackFunc
 }
 
 // OpenWorkspace returns the one durable session belonging to workspace.

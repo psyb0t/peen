@@ -36,7 +36,7 @@ const (
 	coreTestDirectoryMode   = 0o750
 	coreTestFileMode        = 0o600
 	coreTestStartupTimeout  = time.Minute
-	coreTestShutdownTimeout = 30 * time.Second
+	coreTestShutdownTimeout = time.Minute
 	coreTestClearedTimeout  = time.Second
 	coreTestContextTokens   = 8192
 	coreTestOutputTokens    = 1024

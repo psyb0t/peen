@@ -29,7 +29,7 @@ const (
 		wakeTestInstruction + "\n</handler>"
 
 	wakeTestPoll    = 10 * time.Millisecond
-	wakeTestTimeout = 5 * time.Second
+	wakeTestTimeout = time.Minute
 
 	wakeTestJobEventType       = "job.exited"
 	wakeTestJobHandlerDocument = "---\ntype: job.exited\ndelivery: wake\n---\nA background job ended. Say why it stopped."

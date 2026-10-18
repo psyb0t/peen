@@ -602,7 +602,7 @@ func TestRoutedTurnPublishesOnlyDurableEvents(t *testing.T) {
 
 	require.Eventually(t, func() bool {
 		return len(fixture.published.snapshot()) > 0
-	}, routingReadyWait, time.Millisecond,
+	}, feedPumpWait, time.Millisecond,
 		"the worker's events must reach the live feed")
 
 	stored, err := fixture.store.ListEvents(

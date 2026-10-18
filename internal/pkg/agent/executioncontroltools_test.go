@@ -84,7 +84,7 @@ func TestResumeExecutionToolContinuesSelectedStoppedDeferredInput(t *testing.T) 
 		saved, err := fixture.base.store.GetExecution(t.Context(), message.SessionID, *row.ForwardedExecutionID)
 
 		return err == nil && saved.State == models.ExecutionStateCompleted
-	}, 10*time.Second, 10*time.Millisecond)
+	}, workflowTestResultTimeout, 10*time.Millisecond)
 	turn, err := fixture.base.store.GetExecutionRootTurn(t.Context(), message.SessionID, *row.ForwardedExecutionID)
 	require.NoError(t, err)
 	assert.Equal(t, message.RequestID, turn.RequestID)
