@@ -709,6 +709,35 @@ func TestWakeLimiterBoundsWakesPerWindow(t *testing.T) {
 	)
 }
 
+// Two wake decisions for one session, a published event and the idle
+// re-check after a turn, used to both start a turn, and the second failed on
+// the first one's lease. Only one claim may hold a session at a time.
+func TestWakeLimiterAllowsOneWakeInFlightPerSession(t *testing.T) {
+	t.Parallel()
+
+	limiter := newWakeLimiter(0)
+	sessionID := uuid.New()
+	other := uuid.New()
+
+	assert.False(t, limiter.deferRecheck(sessionID),
+		"with nothing in flight the re-check runs now")
+
+	require.True(t, limiter.claim(sessionID))
+	assert.False(t, limiter.claim(sessionID), "a second claim is refused")
+	assert.True(t, limiter.claim(other), "claims are per session")
+
+	assert.False(t, limiter.release(sessionID),
+		"no re-check was deferred during this claim")
+	require.True(t, limiter.claim(sessionID), "a released session is free")
+
+	assert.True(t, limiter.deferRecheck(sessionID),
+		"a re-check during a claim waits for its release")
+	assert.True(t, limiter.release(sessionID),
+		"the release reports the deferred re-check")
+	assert.False(t, limiter.release(sessionID),
+		"the deferred re-check is reported once")
+}
+
 func TestWakeLimiterZeroDisablesTheBound(t *testing.T) {
 	t.Parallel()
 

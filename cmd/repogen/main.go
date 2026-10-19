@@ -13,32 +13,16 @@ const (
 	queryUUIDImportPath = "github.com/google/uuid"
 )
 
-func main() {
-	outputPath := flag.String(
-		"out",
-		defaultOutputPath,
-		"repository output directory",
-	)
-
-	flag.Parse()
-
-	generator := gen.NewGenerator(gen.Config{
-		OutPath: *outputPath,
-		OutFile: "repositories.gen.go",
-		Mode: gen.WithoutContext |
-			gen.WithDefaultQuery |
-			gen.WithQueryInterface,
-	})
-
-	// Fix import order before unordered custom parameter discovery.
-	generator.WithImportPkgPath(queryTimeImportPath, queryUUIDImportPath)
-
-	generator.ApplyBasic(
+// basicModels lists every model that gets a generated repository, in
+// alphabetical order.
+func basicModels() []any {
+	return []any{
 		models.AgentRun{},
 		models.AgentRunCompaction{},
 		models.AgentRunEvent{},
 		models.AgentRunMessage{},
 		models.Compaction{},
+		models.ContentBlob{},
 		models.ContextSnapshot{},
 		models.Event{},
 		models.Execution{},
@@ -59,7 +43,30 @@ func main() {
 		models.Turn{},
 		models.TurnOpeningNotice{},
 		models.WorkerGeneration{},
+	}
+}
+
+func main() {
+	outputPath := flag.String(
+		"out",
+		defaultOutputPath,
+		"repository output directory",
 	)
+
+	flag.Parse()
+
+	generator := gen.NewGenerator(gen.Config{
+		OutPath: *outputPath,
+		OutFile: "repositories.gen.go",
+		Mode: gen.WithoutContext |
+			gen.WithDefaultQuery |
+			gen.WithQueryInterface,
+	})
+
+	// Fix import order before unordered custom parameter discovery.
+	generator.WithImportPkgPath(queryTimeImportPath, queryUUIDImportPath)
+
+	generator.ApplyBasic(basicModels()...)
 	generator.ApplyInterface(func(CompactionQuerier) {}, models.Compaction{})
 	generator.ApplyInterface(func(MessageQuerier) {}, models.Message{})
 	generator.ApplyInterface(func(ExecutionQuerier) {}, models.Execution{})

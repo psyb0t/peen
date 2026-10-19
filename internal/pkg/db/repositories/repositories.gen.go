@@ -22,6 +22,7 @@ var (
 	AgentRunEvent             *agentRunEvent
 	AgentRunMessage           *agentRunMessage
 	Compaction                *compaction
+	ContentBlob               *contentBlob
 	ContextSnapshot           *contextSnapshot
 	Event                     *event
 	Execution                 *execution
@@ -51,6 +52,7 @@ func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 	AgentRunEvent = &Q.AgentRunEvent
 	AgentRunMessage = &Q.AgentRunMessage
 	Compaction = &Q.Compaction
+	ContentBlob = &Q.ContentBlob
 	ContextSnapshot = &Q.ContextSnapshot
 	Event = &Q.Event
 	Execution = &Q.Execution
@@ -81,6 +83,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		AgentRunEvent:             newAgentRunEvent(db, opts...),
 		AgentRunMessage:           newAgentRunMessage(db, opts...),
 		Compaction:                newCompaction(db, opts...),
+		ContentBlob:               newContentBlob(db, opts...),
 		ContextSnapshot:           newContextSnapshot(db, opts...),
 		Event:                     newEvent(db, opts...),
 		Execution:                 newExecution(db, opts...),
@@ -112,6 +115,7 @@ type Query struct {
 	AgentRunEvent             agentRunEvent
 	AgentRunMessage           agentRunMessage
 	Compaction                compaction
+	ContentBlob               contentBlob
 	ContextSnapshot           contextSnapshot
 	Event                     event
 	Execution                 execution
@@ -146,6 +150,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		AgentRunEvent:             q.AgentRunEvent.clone(db),
 		AgentRunMessage:           q.AgentRunMessage.clone(db),
 		Compaction:                q.Compaction.clone(db),
+		ContentBlob:               q.ContentBlob.clone(db),
 		ContextSnapshot:           q.ContextSnapshot.clone(db),
 		Event:                     q.Event.clone(db),
 		Execution:                 q.Execution.clone(db),
@@ -185,6 +190,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		AgentRunEvent:             q.AgentRunEvent.replaceDB(db),
 		AgentRunMessage:           q.AgentRunMessage.replaceDB(db),
 		Compaction:                q.Compaction.replaceDB(db),
+		ContentBlob:               q.ContentBlob.replaceDB(db),
 		ContextSnapshot:           q.ContextSnapshot.replaceDB(db),
 		Event:                     q.Event.replaceDB(db),
 		Execution:                 q.Execution.replaceDB(db),
@@ -214,6 +220,7 @@ type queryCtx struct {
 	AgentRunEvent             IAgentRunEventDo
 	AgentRunMessage           IAgentRunMessageDo
 	Compaction                ICompactionDo
+	ContentBlob               IContentBlobDo
 	ContextSnapshot           IContextSnapshotDo
 	Event                     IEventDo
 	Execution                 IExecutionDo
@@ -243,6 +250,7 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		AgentRunEvent:             q.AgentRunEvent.WithContext(ctx),
 		AgentRunMessage:           q.AgentRunMessage.WithContext(ctx),
 		Compaction:                q.Compaction.WithContext(ctx),
+		ContentBlob:               q.ContentBlob.WithContext(ctx),
 		ContextSnapshot:           q.ContextSnapshot.WithContext(ctx),
 		Event:                     q.Event.WithContext(ctx),
 		Execution:                 q.Execution.WithContext(ctx),

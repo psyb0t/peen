@@ -44,6 +44,13 @@ func (r *Runtime) handleSessionIdle(
 		return
 	}
 
+	// A wake turn of this session is still between its decision and its
+	// return, possibly the very turn that just ended. Its release runs this
+	// re-check, so a second wake decision cannot race it here.
+	if r.wakes.deferRecheck(sessionID) {
+		return
+	}
+
 	// There is no caller context to inherit: this fires from inside the
 	// store's own bookkeeping, strictly after the turn that triggered it has
 	// already fully ended. context.Background() is the correct root for a

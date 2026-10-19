@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/peen/internal/pkg/contentblob"
 	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 )
 
@@ -23,7 +24,8 @@ const (
 // Its schema is separate from Peen's pinned session schema.
 type WorkflowStorage struct {
 	backend.Backend
-	sqlDB *sql.DB
+	sqlDB     *sql.DB
+	converter *contentblob.Converter
 }
 
 // OpenWorkflowStorage prepares private SQLite storage and applies the native
@@ -32,6 +34,11 @@ func OpenWorkflowStorage(
 	ctx context.Context,
 	cfg Config,
 ) (*WorkflowStorage, error) {
+	var converter *contentblob.Converter
+	if cfg.ContentBlobs != nil {
+		converter = contentblob.NewConverter(cfg.ContentBlobs)
+	}
+
 	path, busyTimeout, err := prepareSQLiteFile(cfg, workflowSQLiteFileName)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "prepare workflow sqlite")
@@ -50,10 +57,8 @@ func OpenWorkflowStorage(
 	// migration failure. Migrate exposes the same failure as an error.
 	storage := workflowsqlite.NewSqliteBackendWithDB(
 		connection,
-		workflowsqlite.WithBackendOptions(
-			backend.WithLogger(runtimecontext.Logger(ctx)),
-			backend.WithActivityLockTimeout(workflowActivityLockTimeout),
-		),
+		workflowsqlite.WithBackendOptions(workflowBackendOptions(ctx,
+			converter)...),
 	)
 	if err := storage.Migrate(); err != nil {
 		return nil, closeAfterOpenFailure(
@@ -67,7 +72,9 @@ func OpenWorkflowStorage(
 
 	runtimecontext.Logger(ctx).Info("workflow sqlite ready")
 
-	return &WorkflowStorage{Backend: storage, sqlDB: connection}, nil
+	return &WorkflowStorage{
+		Backend: storage, sqlDB: connection, converter: converter,
+	}, nil
 }
 
 // Close releases the caller-owned SQL connection. Repeated calls are safe.
@@ -99,12 +106,29 @@ func (s *WorkflowStorage) WorkerBackend(
 		return nil, ctxerrors.Wrap(err, "check workflow worker storage")
 	}
 
+	options := append(workflowBackendOptions(ctx, s.converter),
+		backend.WithWorkerName(generationID.String()))
+
 	return workflowsqlite.NewSqliteBackendWithDB(
 		s.sqlDB,
-		workflowsqlite.WithBackendOptions(
-			backend.WithWorkerName(generationID.String()),
-			backend.WithLogger(runtimecontext.Logger(ctx)),
-			backend.WithActivityLockTimeout(workflowActivityLockTimeout),
-		),
+		workflowsqlite.WithBackendOptions(options...),
 	), nil
+}
+
+// workflowBackendOptions compacts payloads when a converter is set, so a
+// turn's workflow history stores each long string once.
+func workflowBackendOptions(
+	ctx context.Context,
+	converter *contentblob.Converter,
+) []backend.BackendOption {
+	options := []backend.BackendOption{
+		backend.WithLogger(runtimecontext.Logger(ctx)),
+		backend.WithActivityLockTimeout(workflowActivityLockTimeout),
+	}
+
+	if converter != nil {
+		options = append(options, backend.WithConverter(converter))
+	}
+
+	return options
 }

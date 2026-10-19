@@ -161,14 +161,19 @@ func (s *Store) finishExecution(
 		return ctxerrors.Wrap(err, "finish child execution run")
 	}
 
+	contextJSON, err := compactColumn(ctx, query, string(input.Context))
+	if err != nil {
+		return ctxerrors.Wrap(err, "compact execution terminal context")
+	}
+
 	repository := query.Execution
 
-	_, err := repository.WithContext(ctx).Where(
+	_, err = repository.WithContext(ctx).Where(
 		repository.SessionID.Eq(execution.SessionID),
 		repository.ID.Eq(execution.ID),
 	).UpdateSimple(
 		repository.State.Value(string(finish.State)),
-		repository.ContextJSON.Value(string(input.Context)),
+		repository.ContextJSON.Value(contextJSON),
 		repository.WorkingDirectory.Value(directory),
 		repository.FailureDetail.Value(finish.FailureDetail),
 		repository.CompletedAt.Value(s.now()), repository.PausedAt.Null(),

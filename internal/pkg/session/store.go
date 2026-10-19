@@ -21,6 +21,7 @@ import (
 // Store persists sessions and protects each active session turn in-process.
 type Store struct {
 	query                 *repositories.Query
+	blobs                 *db.ContentBlobStore
 	clock                 func() time.Time
 	newID                 func() uuid.UUID
 	maxStoredMessageBytes int
@@ -121,6 +122,7 @@ func NewStore(handle *db.Handle, options Options) (*Store, error) {
 
 	return &Store{
 		query:                 repositories.Use(handle.GormDB),
+		blobs:                 handle.ContentBlobs(),
 		clock:                 clock,
 		newID:                 newID,
 		maxStoredMessageBytes: maxStoredMessageBytes,

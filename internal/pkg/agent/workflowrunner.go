@@ -176,7 +176,7 @@ func nativeRootTurnResult(
 
 	return &TurnResult{
 		SessionID: prepared.lease.SessionID, Created: prepared.opened.Created,
-		Text: result.Text, Thinking: conversation.Reasoning,
+		Text: result.Text, Thinking: conversation.reasoning(),
 		Model: conversation.ModelReference, Events: events,
 		FinishReason: conversation.FinishReason,
 		HasToolCalls: conversation.HasToolCalls,

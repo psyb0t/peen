@@ -144,9 +144,17 @@ func (s *Store) ensureExecutionActivity(
 		ContextJSON:    emptyActivityJSON,
 		ResolutionJSON: emptyActivityJSON, CreatedAt: s.now(),
 	}
+
+	activity.InputJSON, err = compactColumn(ctx, query, string(input.Input))
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "compact activity input")
+	}
+
 	if err := repository.WithContext(ctx).Create(activity); err != nil {
 		return nil, ctxerrors.Wrap(err, "schedule execution activity")
 	}
+
+	activity.InputJSON = string(input.Input)
 
 	if err := s.appendActivityEvent(ctx, query, execution,
 		activity, ExecutionEventTypeStepScheduled); err != nil {

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/psyb0t/peen/internal/pkg/contentblob"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"gorm.io/gorm"
 )
@@ -18,6 +19,9 @@ type Config struct {
 	InMemory    bool
 	BusyTimeout time.Duration
 	Metrics     *metrics.Metrics
+	// ContentBlobs, when set, makes workflow storage compact the payloads it
+	// encodes into this blob store. Peen's runtime always sets it.
+	ContentBlobs contentblob.Store
 }
 
 // Handle owns an open SQLite connection and its generated GORM query surface.

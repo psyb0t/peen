@@ -79,6 +79,7 @@ func (c *Controller) HandleCall(
 		c.handleAgentRunCall,
 		c.handleAgentRunRecoveryCall,
 		c.handleRecordCall,
+		c.handleContentBlobCall,
 	}
 
 	for _, handle := range handlers {
@@ -527,6 +528,22 @@ func (c *Controller) handleRecordCall(
 	}
 }
 
+//nolint:exhaustive // One published method per branch reads as a table.
+func (c *Controller) handleContentBlobCall(
+	ctx context.Context,
+	method Method,
+	payload json.RawMessage,
+) (any, bool, error) {
+	switch method {
+	case MethodPutContentBlobs:
+		return served(c.putContentBlobs(ctx, payload))
+	case MethodGetContentBlobs:
+		return served(c.getContentBlobs(ctx, payload))
+	default:
+		return nil, false, nil
+	}
+}
+
 func (c *Controller) createOrResume(
 	ctx context.Context,
 	payload json.RawMessage,
@@ -747,6 +764,52 @@ func (c *Controller) saveContextSnapshot(
 	}
 
 	return Ack{}, nil
+}
+
+// putContentBlobs stores the blobs of the worker's compacted payloads. The
+// store accepts only blobs whose bytes match their hash, so a worker cannot
+// overwrite or forge another session's text.
+func (c *Controller) putContentBlobs(
+	ctx context.Context,
+	payload json.RawMessage,
+) (any, error) {
+	request, err := decode[ContentBlobsRequest](payload)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := c.assertSession(request.SessionID); err != nil {
+		return nil, err
+	}
+
+	if err := c.store.PutContentBlobs(ctx, request.Blobs); err != nil {
+		return nil, ctxerrors.Wrap(err, "put content blobs")
+	}
+
+	return Ack{}, nil
+}
+
+// getContentBlobs reads blobs by hash. A hash names exact content, so a
+// worker can only read text it already holds.
+func (c *Controller) getContentBlobs(
+	ctx context.Context,
+	payload json.RawMessage,
+) (any, error) {
+	request, err := decode[ContentBlobHashesRequest](payload)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := c.assertSession(request.SessionID); err != nil {
+		return nil, err
+	}
+
+	found, err := c.store.GetContentBlobs(ctx, request.Hashes)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "get content blobs")
+	}
+
+	return found, nil
 }
 
 func (c *Controller) savePromptSnapshot(

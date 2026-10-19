@@ -133,7 +133,7 @@ This is root inside the container. Combined with `mounts`, it reaches whatever t
 
 `PEEN_WORKER_SOCKET_DIR` defaults to `PEEN_STATE_DIR/workers`. Each session gets its own directory inside it, `<directory>/<session-uuid>/worker.sock`, and a Docker worker gets that one session directory. It never gets the parent, because the parent holds every live session's socket.
 
-A Unix socket path holds at most 107 bytes, and the directory plus the session directory and file name has to fit. Peen measures this at startup and refuses to start with the length it computed. A deep state directory is fixed by setting a shorter `PEEN_WORKER_SOCKET_DIR`.
+A Unix socket path holds at most 107 bytes, and the directory plus the session directory and file name has to fit, so the directory itself can be at most 58 bytes. Peen measures this at startup and refuses to start with the length it computed, and `peen doctor` runs the same check. A deep state directory is fixed by setting a shorter `PEEN_WORKER_SOCKET_DIR`. In the Docker control space the `peen` command mounts that directory into the controller container, and creates it with mode `0700` when it is missing. It does the same for a `PEEN_LOG_DIRECTORY` outside the state directory.
 
 ## Logging and audit trail
 

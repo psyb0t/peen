@@ -54,6 +54,12 @@ readonly DOCKER_INFO_TIMEOUT_SECONDS=20
 readonly HEALTH_TIMEOUT_SECONDS=3
 readonly API_TIMEOUT_SECONDS=60
 readonly LOG_TAIL_ON_FAILURE=40
+# The controller's Unix socket limit, and what a worker socket adds to its
+# root: "/" + a 36 character session UUID + "/worker.sock".
+readonly MAX_SOCKET_PATH_BYTES=107
+readonly WORKER_SOCKET_SUFFIX_BYTES=49
+# Start failures whose log names one of these point at the model provider.
+readonly PROVIDER_FAILURE_PATTERN='upstream|provider|model|api key|apiKeyEnv|unauthorized|401|403'
 readonly DEFAULT_LOG_LINES=100
 readonly STATUS_STOPPED=3
 readonly PLACEHOLDER_VALUE="REPLACE_ME"
@@ -562,17 +568,33 @@ healthy() {
 	curl -fsS -m "$HEALTH_TIMEOUT_SECONDS" -o /dev/null "$(base_url)/healthz" 2>/dev/null
 }
 
+controller_log_tail() {
+	local lines="$1"
+	if [[ "$(control_space)" == "$CONTROL_SPACE_DOCKER" ]]; then
+		docker logs --tail "$lines" "$(container_name)" 2>&1
+	elif [[ -f "$(log_file)" ]]; then
+		tail -n "$lines" "$(log_file)"
+	fi
+}
+
 print_log_tail() {
 	local lines="$1"
 	printf -- '---- last %s controller log lines ----\n' "$lines" >&2
-	if [[ "$(control_space)" == "$CONTROL_SPACE_DOCKER" ]]; then
-		if ! docker logs --tail "$lines" "$(container_name)" >&2 2>&1; then
-			warn "could not read the container logs"
-		fi
-	elif [[ -f "$(log_file)" ]]; then
-		tail -n "$lines" "$(log_file)" >&2
+	if ! controller_log_tail "$lines" >&2; then
+		warn "could not read the controller logs"
 	fi
 	printf -- '----\n' >&2
+}
+
+# start_failure_hint points at the provider only when an error line names it,
+# so a failure with another cause is not sent to the wrong file.
+start_failure_hint() {
+	local tail_text="$1"
+	if grep -iE 'error' <<<"$tail_text" | grep -qiE "$PROVIDER_FAILURE_PATTERN"; then
+		printf 'hint: check the model provider and its key in %s (peen config edit), then run peen doctor\n' "$ENV_FILE" >&2
+		return
+	fi
+	printf 'hint: the error above names the cause; peen doctor checks the installation\n' >&2
 }
 
 check_supported_tag() {
@@ -941,7 +963,9 @@ setup() {
 	say "pinning $image"
 
 	install -d -m 0700 "$PEEN_HOME_DIR" "$PEEN_HOME_DIR/config" "$PEEN_HOME_DIR/state"
-	chmod 0700 "$PEEN_HOME_DIR" "$PEEN_HOME_DIR/config" "$PEEN_HOME_DIR/state"
+	# Five digits: GNU chmod keeps a directory's setgid bit for a shorter
+	# numeric mode, and a home directory with setgid set passes it on.
+	chmod 00700 "$PEEN_HOME_DIR" "$PEEN_HOME_DIR/config" "$PEEN_HOME_DIR/state"
 
 	if [[ "$control" == "$CONTROL_SPACE_DOCKER" || "$agent" == "$AGENT_SPACE_DOCKER" ]]; then
 		say "pulling $image"
@@ -1087,6 +1111,23 @@ wait_healthy() {
 	return 1
 }
 
+# mount_private_directory adds a private, controller-only directory to the
+# controller container when it is set and lies outside the state directory,
+# which is mounted already. It creates the directory first, so Docker does not
+# create it as root.
+mount_private_directory() {
+	local directory="$1" state="$2"
+	if [[ -z "$directory" || "$directory" == "$state" || "$directory" == "$state"/* ]]; then
+		return
+	fi
+	[[ "$directory" == /* ]] || fail "$directory must be an absolute path"
+	if [[ ! -d "$directory" ]]; then
+		install -d -m 0700 "$directory"
+		chmod 00700 "$directory"
+	fi
+	DOCKER_ARGUMENTS+=(-v "$directory:$directory")
+}
+
 # docker_controller_arguments builds the shared `docker run` flags. Every path
 # is mounted at its literal host path, because the host daemon resolves the
 # mounts of the worker containers this controller starts.
@@ -1109,6 +1150,10 @@ docker_controller_arguments() {
 	if [[ "$root" != "$configuration" && "$root" != "$state" ]]; then
 		DOCKER_ARGUMENTS+=(-v "$root:$root")
 	fi
+	# A worker socket or audit log directory moved out of the state directory
+	# must be mounted too, or the controller writes into its own container.
+	mount_private_directory "$(env_value PEEN_WORKER_SOCKET_DIR)" "$state"
+	mount_private_directory "$(env_value PEEN_LOG_DIRECTORY)" "$state"
 	DOCKER_ARGUMENTS+=(-w "$root")
 	if ! agent_space_is_docker; then
 		return
@@ -1193,9 +1238,11 @@ start_command() {
 	fi
 
 	if ! wait_healthy; then
+		local tail_text
 		printf 'error: Peen did not become healthy at %s/healthz\n' "$(base_url)" >&2
+		tail_text="$(controller_log_tail "$LOG_TAIL_ON_FAILURE")" || tail_text=""
 		print_log_tail "$LOG_TAIL_ON_FAILURE"
-		printf 'hint: check the model provider and its key in %s (peen config edit), then run peen doctor\n' "$ENV_FILE" >&2
+		start_failure_hint "$tail_text"
 		stop_after_failed_start
 		exit 1
 	fi
@@ -1581,7 +1628,22 @@ doctor_mode() {
 		check_ok "$path has mode $want"
 		return
 	fi
-	check_fail "$path has mode $mode, want $want (chmod $want $path)"
+	# Five digits, so the fix also clears a setgid bit GNU chmod would keep.
+	check_fail "$path has mode $mode, want $want (chmod 00$want $path)"
+}
+
+# doctor_socket_root mirrors the controller's startup check: the longest worker
+# socket path, root plus "/<session-uuid>/worker.sock", must fit a Unix socket.
+doctor_socket_root() {
+	local root length
+	root="$(env_value PEEN_WORKER_SOCKET_DIR)"
+	root="${root:-$(state_dir)/workers}"
+	length=$((${#root} + WORKER_SOCKET_SUFFIX_BYTES))
+	if ((length <= MAX_SOCKET_PATH_BYTES)); then
+		check_ok "worker sockets under $root fit the $MAX_SOCKET_PATH_BYTES byte limit"
+		return
+	fi
+	check_fail "worker sockets under $root need $length bytes, over the $MAX_SOCKET_PATH_BYTES byte limit; peen config set PEEN_WORKER_SOCKET_DIR to a shorter absolute directory"
 }
 
 doctor_control_space() {
@@ -1699,6 +1761,7 @@ doctor_command() {
 	doctor_mode "$PEEN_HOME_DIR" 700
 	doctor_mode "$(config_dir)" 700
 	doctor_mode "$(state_dir)" 700
+	doctor_socket_root
 
 	control="$(env_value PEEN_CONTROL_SPACE)"
 	doctor_control_space "$control"

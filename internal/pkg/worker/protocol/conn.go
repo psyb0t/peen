@@ -20,6 +20,12 @@ import (
 // an attempt to exhaust the reader rather than real work.
 const maxFrameBytes = 32 << 20
 
+// errFrameTooLarge marks a frame Send refused before writing any of it. The
+// stream is still intact, so the caller can report the failure on that one
+// call instead of closing the connection.
+var errFrameTooLarge = ctxerrors.Wrap(commerr.ErrValidationFailed,
+	"protocol frame exceeds the limit")
+
 // Conn is one multiplexed protocol connection.
 //
 // Both sides send and receive on the same socket, so each runs one read loop
@@ -79,11 +85,7 @@ func (c *Conn) Send(frame Frame) error {
 	}
 
 	if len(encoded) > maxFrameBytes {
-		return ctxerrors.Wrapf(
-			commerr.ErrValidationFailed,
-			"protocol frame of %d bytes exceeds the limit",
-			len(encoded),
-		)
+		return ctxerrors.Wrapf(errFrameTooLarge, "%d bytes", len(encoded))
 	}
 
 	c.writeMutex.Lock()
@@ -270,6 +272,12 @@ func (c *Conn) answer(ctx context.Context, frame Frame) {
 		ID:      frame.ID,
 		Payload: payload,
 	}); err != nil {
+		if errors.Is(err, errFrameTooLarge) {
+			c.replyError(frame, err)
+
+			return
+		}
+
 		c.Close()
 	}
 }

@@ -155,6 +155,11 @@ table compactions
   constraint origin=u (session_id,id)
   constraint origin=u (supersedes_compaction_id)
   index CREATE INDEX compactions_session_to_sequence_id_index ON compactions (session_id,to_sequence DESC,id)
+table content_blobs
+  column 0 hash TEXT notnull=1 default=NULL pk=1
+  column 1 data BLOB notnull=1 default=NULL pk=0
+  CHECK (length(hash) = 64)
+  constraint origin=pk (hash)
 table context_snapshots
   column 0 hash TEXT notnull=0 default=NULL pk=1
   column 1 manifest_json TEXT notnull=1 default=NULL pk=0

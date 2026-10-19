@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"github.com/google/uuid"
+	"github.com/psyb0t/peen/internal/pkg/contentblob"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
@@ -80,6 +81,9 @@ const (
 	MethodCreateSessionNotice Method = "notice.create"
 	MethodListSessionNotices  Method = "notice.list"
 	MethodDrainSessionNotices Method = "notice.drain"
+
+	MethodPutContentBlobs Method = "contentBlob.put"
+	MethodGetContentBlobs Method = "contentBlob.get"
 )
 
 // The call envelopes below cover every shape the store surface takes. Reusing
@@ -181,6 +185,18 @@ type SnapshotRequest[T any] struct {
 type HashRequest struct {
 	SessionID uuid.UUID `json:"sessionId"`
 	Hash      string    `json:"hash"`
+}
+
+// ContentBlobsRequest stores the long strings of a compacted payload.
+type ContentBlobsRequest struct {
+	SessionID uuid.UUID          `json:"sessionId"`
+	Blobs     []contentblob.Blob `json:"blobs"`
+}
+
+// ContentBlobHashesRequest reads stored strings back by hash.
+type ContentBlobHashesRequest struct {
+	SessionID uuid.UUID `json:"sessionId"`
+	Hashes    []string  `json:"hashes"`
 }
 
 // CreateOrResumeRequest opens the worker's own session. The controller ignores

@@ -10,6 +10,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
+	"github.com/psyb0t/peen/internal/pkg/contentblob"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
@@ -843,6 +844,32 @@ func (s *Store) GetContextSnapshot(
 		s,
 		MethodGetContextSnapshot,
 		HashRequest{SessionID: sessionID, Hash: hash},
+	)
+}
+
+// PutContentBlobs stores the blobs of a compacted payload.
+func (s *Store) PutContentBlobs(
+	ctx context.Context,
+	blobs []contentblob.Blob,
+) error {
+	return callVoid(
+		ctx,
+		s,
+		MethodPutContentBlobs,
+		ContentBlobsRequest{SessionID: s.sessionID, Blobs: blobs},
+	)
+}
+
+// GetContentBlobs reads stored blobs by hash.
+func (s *Store) GetContentBlobs(
+	ctx context.Context,
+	hashes []string,
+) (map[string][]byte, error) {
+	return call[map[string][]byte](
+		ctx,
+		s,
+		MethodGetContentBlobs,
+		ContentBlobHashesRequest{SessionID: s.sessionID, Hashes: hashes},
 	)
 }
 

@@ -26,6 +26,9 @@ const (
 type workflowController struct {
 	backend   diag.Backend
 	sessionID uuid.UUID
+	// historyPageBytes bounds one history page. Tests lower it to cover
+	// paging without histories near the frame limit.
+	historyPageBytes int
 }
 
 // WorkflowInstanceID scopes an execution's stable identity to its session.
@@ -51,7 +54,10 @@ func (c *Controller) BindWorkflows(
 		return ctxerrors.Wrap(err, "bind workflow worker backend")
 	}
 
-	c.workflows = &workflowController{backend: bound, sessionID: c.sessionID}
+	c.workflows = &workflowController{
+		backend: bound, sessionID: c.sessionID,
+		historyPageBytes: workflowHistoryPageBytes,
+	}
 
 	return nil
 }
@@ -241,7 +247,38 @@ func (c *workflowController) getHistory(
 		return nil, ctxerrors.Wrap(err, "read workflow history")
 	}
 
-	return encodeWorkflowEvents(events), nil
+	return workflowHistoryPageOf(encodeWorkflowEvents(events),
+		c.historyPageBytes)
+}
+
+// workflowHistoryPageOf returns the events that fit one page of budget bytes,
+// always at least one, so every read makes progress.
+func workflowHistoryPageOf(
+	events []*workflowEvent,
+	budget int,
+) (workflowHistoryPage, error) {
+	page := workflowHistoryPage{Events: make([]*workflowEvent, 0, len(events))}
+	size := 0
+
+	for index, event := range events {
+		encoded, err := json.Marshal(event)
+		if err != nil {
+			return workflowHistoryPage{}, ctxerrors.Wrap(err,
+				"measure workflow history event")
+		}
+
+		if index > 0 && size+len(encoded) > budget {
+			page.More = true
+
+			break
+		}
+
+		size += len(encoded)
+
+		page.Events = append(page.Events, event)
+	}
+
+	return page, nil
 }
 
 func (c *workflowController) getActivity(

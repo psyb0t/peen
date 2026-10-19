@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/peen/internal/pkg/contentblob"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -26,9 +27,18 @@ type WorkflowBackend struct {
 
 var _ backend.Backend = (*WorkflowBackend)(nil)
 
+// NewWorkflowBackend compacts every payload it encodes, so a turn's history
+// carries each long string once instead of in every event. A history that
+// repeated the turn context in full grew with the square of the turn's rounds
+// and eventually exceeded the frame limit of the history read.
 func NewWorkflowBackend(conn *Conn, sessionID uuid.UUID) *WorkflowBackend {
+	converter := contentblob.NewConverter(&Store{
+		conn: conn, sessionID: sessionID,
+	})
+
 	return &WorkflowBackend{
-		conn: conn, sessionID: sessionID, options: backend.ApplyOptions(),
+		conn: conn, sessionID: sessionID,
+		options: backend.ApplyOptions(backend.WithConverter(converter)),
 	}
 }
 
@@ -84,15 +94,28 @@ func (b *WorkflowBackend) GetWorkflowInstanceHistory(
 	instance *workflow.Instance,
 	lastSequenceID *int64,
 ) ([]*history.Event, error) {
-	events, err := workflowCall[[]*workflowEvent](ctx, b, workflowRequest{
-		Operation: workflowGetHistory, Instance: instance,
-		LastSequenceID: lastSequenceID,
-	})
-	if err != nil {
-		return nil, ctxerrors.Wrap(err, "read remote workflow history")
-	}
+	var events []*workflowEvent
 
-	return decodeWorkflowEvents(events), nil
+	after := lastSequenceID
+
+	for {
+		page, err := workflowCall[workflowHistoryPage](ctx, b, workflowRequest{
+			Operation: workflowGetHistory, Instance: instance,
+			LastSequenceID: after,
+		})
+		if err != nil {
+			return nil, ctxerrors.Wrap(err, "read remote workflow history")
+		}
+
+		events = append(events, page.Events...)
+
+		if !page.More || len(page.Events) == 0 {
+			return decodeWorkflowEvents(events), nil
+		}
+
+		last := page.Events[len(page.Events)-1].SequenceID
+		after = &last
+	}
 }
 
 func (b *WorkflowBackend) SignalWorkflow(

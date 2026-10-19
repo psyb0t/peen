@@ -43,6 +43,18 @@ type workflowRequest struct {
 	WorkflowEvents []*workflowTargetEvent     `json:"workflowEvents,omitempty"`
 }
 
+// workflowHistoryPageBytes bounds the encoded events of one history page. A
+// long turn's history can outgrow one protocol frame, so the worker reads it
+// page by page.
+const workflowHistoryPageBytes = 8 << 20
+
+// workflowHistoryPage is one page of a history read. More means the worker
+// must read again after the last event's sequence ID.
+type workflowHistoryPage struct {
+	Events []*workflowEvent `json:"events"`
+	More   bool             `json:"more,omitempty"`
+}
+
 type workflowTask struct {
 	ID             string                     `json:"id"`
 	Queue          workflow.Queue             `json:"queue"`

@@ -2,6 +2,17 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.26.3 (2026-10-19)
+
+Long turns no longer die partway through. The session database schema changes, but existing databases keep working: on startup Peen adds the new `content_blobs` table, and records written before the upgrade read as before.
+
+- Fixes turns that ran more than about 20 tool rounds ending `interrupted`, with half-finished edits left in the workspace. Every saved step of a turn stored the whole turn context again, so a turn's workflow history grew with the square of its rounds until reading it exceeded the 32 MiB worker protocol frame, and the session's worker was stopped. Peen now stores each long JSON string and each long run of array elements once, in the new `content_blobs` table of `peen.db`, and saves a reference in its place, in the workflow history and in the stored execution steps. Runs are cut by content, so a message history that grew by a few messages shares every earlier run with the previous step. A 32-round turn that averaged about 100 KB of workflow history per step before now averages about 14 KB.
+- Fixes a session that already holds such a history failing every later turn. A worker now reads workflow history in pages of at most 8 MiB, and a reply too large for one frame fails only that call instead of closing the worker's connection.
+- Fixes an event handler's wake logging "event wake turn failed: session already has an active turn" when its event arrived just as a turn ended. The event and the re-check that v0.26.2 added after each turn both started a wake turn, and the second one failed. A session now runs one wake decision at a time, and a re-check that arrives during a wake runs when that wake's turn returns.
+- Fixes `peen doctor` passing a state directory whose worker socket paths are longer than the 107 byte Unix socket limit. It now reports the length and says to set `PEEN_WORKER_SOCKET_DIR`, and `peen start` no longer blames the model provider for that failure or any other failure whose log does not name the provider.
+- Fixes `PEEN_WORKER_SOCKET_DIR` and `PEEN_LOG_DIRECTORY` outside the state directory in the Docker control space. The `peen` command did not mount them into the controller container. It now mounts them and creates them with mode `0700` when they are missing.
+- Fixes setup leaving the setgid bit on Peen's configuration and state directories when the home directory has it, which made `peen doctor` fail a fresh install. The mode fix `peen doctor` prints now clears that bit too.
+
 ## v0.26.2 (2026-10-18)
 
 A release now ships the exact image that passed CI on `main`. The tag's run waits for the `main` run of the same commit, re-tags that run's image instead of building it again, and publishes the GitHub release with the tag's notes. No configuration or API migration is needed.

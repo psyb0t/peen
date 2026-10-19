@@ -108,9 +108,10 @@ func Assemble(
 	}
 
 	workflows, err := db.OpenWorkflowStorage(ctx, db.Config{
-		Directory: options.StateDirectory,
-		InMemory:  options.InMemoryStore,
-		Metrics:   options.Runtime.Metrics,
+		Directory:    options.StateDirectory,
+		InMemory:     options.InMemoryStore,
+		Metrics:      options.Runtime.Metrics,
+		ContentBlobs: handle.ContentBlobs(),
 	})
 	if err != nil {
 		return nil, closeHandleAfter(ctx, handle,

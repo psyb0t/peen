@@ -14,6 +14,32 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
 )
 
+// insertExecution writes created with its context compacted, then restores
+// the context on created, which callers keep using.
+func insertExecution(
+	ctx context.Context,
+	tx *repositories.Query,
+	created *models.Execution,
+) error {
+	contextJSON := created.ContextJSON
+
+	compacted, err := compactColumn(ctx, tx, contextJSON)
+	if err != nil {
+		return ctxerrors.Wrap(err, "compact execution context")
+	}
+
+	created.ContextJSON = compacted
+
+	err = tx.Execution.WithContext(ctx).Create(created)
+	created.ContextJSON = contextJSON
+
+	if err != nil {
+		return ctxerrors.Wrap(err, "create execution record")
+	}
+
+	return nil
+}
+
 // CreateExecution records an immutable identity before scheduling a workflow.
 // Duplicate creation returns the saved execution and never wakes paused work.
 func (s *Store) CreateExecution(
@@ -51,8 +77,8 @@ func (s *Store) CreateExecution(
 			return ctxerrors.Wrap(err, "prepare execution record")
 		}
 
-		if err := tx.Execution.WithContext(ctx).Create(created); err != nil {
-			return ctxerrors.Wrap(err, "create execution record")
+		if err := insertExecution(ctx, tx, created); err != nil {
+			return err
 		}
 
 		if err := s.bindDeferredExecution(ctx, tx, created,

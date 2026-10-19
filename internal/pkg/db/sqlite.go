@@ -48,16 +48,8 @@ func Open(ctx context.Context, cfg Config) (*Handle, error) {
 		return nil, ctxerrors.Wrap(err, "get sqlite sql db")
 	}
 
-	if err := configureSQLite(ctx, sqlDB); err != nil {
+	if err := prepareGormDatabase(ctx, database, sqlDB, cfg); err != nil {
 		return nil, closeAfterOpenFailure(ctx, sqlDB, err)
-	}
-
-	if err := installDatabaseMetrics(database, sqlDB, cfg.Metrics); err != nil {
-		return nil, closeAfterOpenFailure(
-			ctx,
-			sqlDB,
-			ctxerrors.Wrap(err, "install database metrics"),
-		)
 	}
 
 	if err := verifyMigrationLineage(ctx, sqlDB); err != nil {
@@ -86,6 +78,25 @@ func Open(ctx context.Context, cfg Config) (*Handle, error) {
 		GormDB: database,
 		sqlDB:  sqlDB,
 	}, nil
+}
+
+// prepareGormDatabase applies the connection pragmas and installs the query
+// callbacks every caller of the handle relies on.
+func prepareGormDatabase(
+	ctx context.Context,
+	database *gorm.DB,
+	sqlDB *sql.DB,
+	cfg Config,
+) error {
+	if err := configureSQLite(ctx, sqlDB); err != nil {
+		return err
+	}
+
+	if err := installDatabaseMetrics(database, sqlDB, cfg.Metrics); err != nil {
+		return ctxerrors.Wrap(err, "install database metrics")
+	}
+
+	return installContentBlobExpansion(database)
 }
 
 func closeSQLDB(sqlDB *sql.DB) error {

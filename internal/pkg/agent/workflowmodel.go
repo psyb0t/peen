@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,17 +29,25 @@ type workflowConversation struct {
 	Deadline         time.Time                `json:"deadline"`
 	Usage            elelem.Usage             `json:"usage"`
 	Cost             float64                  `json:"cost"`
-	Reasoning        string                   `json:"reasoning"`
-	FinishReason     elelem.FinishReason      `json:"finishReason,omitempty"`
-	HasToolCalls     bool                     `json:"hasToolCalls,omitempty"`
-	Streaming        *bool                    `json:"streaming,omitempty"`
-	Runtime          *workflowRuntimeState    `json:"runtime,omitempty"`
-	Root             *workflowRootBootstrap   `json:"root,omitempty"`
-	Child            *workflowChildBootstrap  `json:"child,omitempty"`
-	Stream           *workflowToolStream      `json:"stream,omitempty"`
-	InboxIDs         []uuid.UUID              `json:"inboxIds,omitempty"`
-	Compaction       *workflowCompactionState `json:"compaction,omitempty"`
-	Limits           *workflowExecutionLimits `json:"limits,omitempty"`
+	// ReasoningParts holds each round's reasoning as its own string. One
+	// growing string would be new text in every saved step, while separate
+	// parts are each stored once. Read the whole with reasoning().
+	ReasoningParts []string                 `json:"reasoningParts,omitempty"`
+	FinishReason   elelem.FinishReason      `json:"finishReason,omitempty"`
+	HasToolCalls   bool                     `json:"hasToolCalls,omitempty"`
+	Streaming      *bool                    `json:"streaming,omitempty"`
+	Runtime        *workflowRuntimeState    `json:"runtime,omitempty"`
+	Root           *workflowRootBootstrap   `json:"root,omitempty"`
+	Child          *workflowChildBootstrap  `json:"child,omitempty"`
+	Stream         *workflowToolStream      `json:"stream,omitempty"`
+	InboxIDs       []uuid.UUID              `json:"inboxIds,omitempty"`
+	Compaction     *workflowCompactionState `json:"compaction,omitempty"`
+	Limits         *workflowExecutionLimits `json:"limits,omitempty"`
+}
+
+// reasoning returns the reasoning of every round so far, in order.
+func (c workflowConversation) reasoning() string {
+	return strings.Join(c.ReasoningParts, "")
 }
 
 // A fresh request runs one model round. No automatic tool continuation is set.
@@ -159,8 +168,13 @@ func workflowModelResult(
 ) (workflowRoundResult, error) {
 	conversation.Messages = directoryHistory(response.Messages)
 	conversation.Usage = mergeDirectoryUsage(conversation.Usage, response.Usage)
+
 	conversation.Cost += response.Cost
-	conversation.Reasoning += response.Reasoning
+	if response.Reasoning != "" {
+		conversation.ReasoningParts = append(conversation.ReasoningParts,
+			response.Reasoning)
+	}
+
 	conversation.FinishReason = response.FinishReason
 	conversation.HasToolCalls = len(response.ToolCalls) > 0
 	conversation.InboxIDs = nil

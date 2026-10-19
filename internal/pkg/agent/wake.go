@@ -37,6 +37,15 @@ type wakeLimiter struct {
 
 	mutex sync.Mutex
 	seen  map[uuid.UUID][]time.Time
+	// inFlight marks a session whose wake turn has been decided but not yet
+	// finished. Two wake decisions can race, a published event and the idle
+	// re-check after a turn, and both would see the session idle before
+	// either turn starts.
+	inFlight map[uuid.UUID]bool
+	// recheck marks a session whose idle re-check arrived while its wake was
+	// in flight. That wake's own turn may be the one that just ended, so the
+	// re-check runs when the claim is released instead of being dropped.
+	recheck map[uuid.UUID]bool
 }
 
 type runtimeEventPublisher struct {
@@ -63,7 +72,53 @@ func (r *Runtime) durableEventPublisher() events.Publisher {
 }
 
 func newWakeLimiter(limit int) *wakeLimiter {
-	return &wakeLimiter{limit: limit, seen: map[uuid.UUID][]time.Time{}}
+	return &wakeLimiter{
+		limit: limit, seen: map[uuid.UUID][]time.Time{},
+		inFlight: map[uuid.UUID]bool{}, recheck: map[uuid.UUID]bool{},
+	}
+}
+
+// deferRecheck reports whether sessionID has a wake in flight, and if so
+// records that its idle re-check must run when that wake's claim is released.
+func (w *wakeLimiter) deferRecheck(sessionID uuid.UUID) bool {
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
+
+	if !w.inFlight[sessionID] {
+		return false
+	}
+
+	w.recheck[sessionID] = true
+
+	return true
+}
+
+// claim marks a wake of sessionID in flight and reports whether it was free.
+func (w *wakeLimiter) claim(sessionID uuid.UUID) bool {
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
+
+	if w.inFlight[sessionID] {
+		return false
+	}
+
+	w.inFlight[sessionID] = true
+
+	return true
+}
+
+// release ends the wake claim of sessionID and reports whether an idle
+// re-check was deferred while it was held.
+func (w *wakeLimiter) release(sessionID uuid.UUID) bool {
+	w.mutex.Lock()
+	defer w.mutex.Unlock()
+
+	recheck := w.recheck[sessionID]
+
+	delete(w.inFlight, sessionID)
+	delete(w.recheck, sessionID)
+
+	return recheck
 }
 
 // allow reports whether one more wake fits in the window and records it when
@@ -184,7 +239,10 @@ func (r *Runtime) considerWake(ctx context.Context, notice events.Notice) bool {
 
 	logger := runtimecontext.Logger(ctx)
 
-	if r.store.IsActive(notice.SessionID) {
+	// The claim comes first, so a second decision for this session sees it
+	// even before the first wake turn takes its lease. The event stays
+	// pending, and the claiming turn delivers it.
+	if !r.wakes.claim(notice.SessionID) {
 		logger.Debug(
 			"event wake degraded to queued delivery",
 			"reason", reasonSessionBusy,
@@ -192,6 +250,42 @@ func (r *Runtime) considerWake(ctx context.Context, notice events.Notice) bool {
 		)
 
 		return false
+	}
+
+	started := false
+
+	defer func() {
+		if !started {
+			r.wakes.release(notice.SessionID)
+		}
+	}()
+
+	handler, wake := r.wakeHandlerFor(ctx, notice)
+	if !wake {
+		return false
+	}
+
+	started = r.startWakeTurn(ctx, notice, handler)
+
+	return started
+}
+
+// wakeHandlerFor returns the handler of a notice that should start a turn now,
+// and false, with the reason logged, when the notice stays queued.
+func (r *Runtime) wakeHandlerFor(
+	ctx context.Context,
+	notice events.Notice,
+) (harness.EventHandler, bool) {
+	logger := runtimecontext.Logger(ctx)
+
+	if r.store.IsActive(notice.SessionID) {
+		logger.Debug(
+			"event wake degraded to queued delivery",
+			"reason", reasonSessionBusy,
+			"event_type", notice.Type,
+		)
+
+		return harness.EventHandler{}, false
 	}
 
 	handler, found, err := r.wakeHandler(ctx, notice)
@@ -202,7 +296,7 @@ func (r *Runtime) considerWake(ctx context.Context, notice events.Notice) bool {
 			"err", err,
 		)
 
-		return false
+		return harness.EventHandler{}, false
 	}
 
 	if !found {
@@ -212,7 +306,7 @@ func (r *Runtime) considerWake(ctx context.Context, notice events.Notice) bool {
 			"event_type", notice.Type,
 		)
 
-		return false
+		return harness.EventHandler{}, false
 	}
 
 	// The handler decides last. A type whose handler declares wake starts a
@@ -225,7 +319,7 @@ func (r *Runtime) considerWake(ctx context.Context, notice events.Notice) bool {
 			"event_type", notice.Type,
 		)
 
-		return false
+		return harness.EventHandler{}, false
 	}
 
 	if !r.wakes.allow(notice.SessionID, time.Now()) {
@@ -235,12 +329,10 @@ func (r *Runtime) considerWake(ctx context.Context, notice events.Notice) bool {
 			"event_type", notice.Type,
 		)
 
-		return false
+		return harness.EventHandler{}, false
 	}
 
-	r.startWakeTurn(ctx, notice, handler)
-
-	return true
+	return handler, true
 }
 
 // wakeHandler resolves the handler for this event type from the workspace of
@@ -340,22 +432,30 @@ func (r *Runtime) runWakeTurn(
 // startWakeTurn runs the handler's instruction as a turn of its own. The
 // context is detached because the caller that published the event, an HTTP
 // request that is about to return 202, must not cancel the work it started.
+//
+// It reports whether the turn started. A started turn releases the session's
+// wake claim when its runner returns.
 func (r *Runtime) startWakeTurn(
 	ctx context.Context,
 	notice events.Notice,
 	handler harness.EventHandler,
-) {
+) bool {
 	sessionID := notice.SessionID
 
 	detached, finish, err := r.BeginOperation(context.WithoutCancel(ctx))
 	if err != nil {
-		return
+		return false
 	}
 
 	runner := r.currentWakeRunner()
 
 	go func() {
 		defer finish()
+		defer func() {
+			if r.wakes.release(sessionID) {
+				r.recheckIdleWake(detached, sessionID)
+			}
+		}()
 		defer func() {
 			if recovered := recover(); recovered != nil {
 				runtimecontext.Logger(detached).Error(
@@ -367,40 +467,56 @@ func (r *Runtime) startWakeTurn(
 			}
 		}()
 
-		runtimecontext.Logger(detached).Info(
-			"event wake turn started",
+		runWakeHandler(detached, runner, notice, handler)
+	}()
+
+	return true
+}
+
+// runWakeHandler sends the handler's instruction to runner as a message and
+// logs the outcome.
+func runWakeHandler(
+	ctx context.Context,
+	runner WakeRunner,
+	notice events.Notice,
+	handler harness.EventHandler,
+) {
+	logger := runtimecontext.Logger(ctx)
+	sessionID := notice.SessionID
+
+	logger.Info(
+		"event wake turn started",
+		"event_type", notice.Type,
+		"session_id", sessionID.String(),
+	)
+
+	message, err := wakeMessage(handler)
+	if err != nil {
+		logger.Error(
+			"event wake message could not be built",
 			"event_type", notice.Type,
 			"session_id", sessionID.String(),
+			"err", err,
 		)
 
-		message, err := wakeMessage(handler)
-		if err != nil {
-			runtimecontext.Logger(detached).Error(
-				"event wake message could not be built",
-				"event_type", notice.Type,
-				"session_id", sessionID.String(),
-				"err", err,
-			)
+		return
+	}
 
-			return
-		}
-
-		if err := runner(detached, sessionID, MessageRequest{
-			SessionID: &sessionID,
-			Message:   message,
-			Origin: &TurnOrigin{
-				EventID:   notice.ID,
-				EventType: notice.Type,
-			},
-		}); err != nil {
-			runtimecontext.Logger(detached).Error(
-				"event wake turn failed",
-				"event_type", notice.Type,
-				"session_id", sessionID.String(),
-				"err", err,
-			)
-		}
-	}()
+	if err := runner(ctx, sessionID, MessageRequest{
+		SessionID: &sessionID,
+		Message:   message,
+		Origin: &TurnOrigin{
+			EventID:   notice.ID,
+			EventType: notice.Type,
+		},
+	}); err != nil {
+		logger.Error(
+			"event wake turn failed",
+			"event_type", notice.Type,
+			"session_id", sessionID.String(),
+			"err", err,
+		)
+	}
 }
 
 // wakeRequested reports whether this event should start a turn.

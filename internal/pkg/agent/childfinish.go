@@ -49,7 +49,7 @@ func (r *Runtime) prepareChildWorkflowFinish(
 
 	result.Finish.Child = &session.ExecutionFinishChild{
 		State: state, ResponseText: result.Result.Text,
-		ResponseThinking:      conversation.Reasoning,
+		ResponseThinking:      conversation.reasoning(),
 		ResponseMessagesJSON:  string(messages),
 		FinishReason:          string(conversation.Usage.FinishReason),
 		PromptTokenCount:      conversation.Usage.Prompt,

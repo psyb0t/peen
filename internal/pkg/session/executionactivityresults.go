@@ -300,15 +300,25 @@ func (s *Store) saveActivityResult(
 	now := s.now()
 	repository := query.ExecutionActivity
 
-	_, err := repository.WithContext(ctx).Where(
+	outputJSON, err := compactColumn(ctx, query, string(input.Output))
+	if err != nil {
+		return ctxerrors.Wrap(err, "compact activity output")
+	}
+
+	contextJSON, err := compactColumn(ctx, query, string(input.Context))
+	if err != nil {
+		return ctxerrors.Wrap(err, "compact activity context")
+	}
+
+	_, err = repository.WithContext(ctx).Where(
 		repository.SessionID.Eq(activity.SessionID),
 		repository.ID.Eq(activity.ID),
 		repository.Attempt.Eq(activity.Attempt),
 		repository.OwnerGenerationID.Eq(activity.OwnerGenerationID),
 	).UpdateSimple(
 		repository.State.Value(string(models.ActivityStateCompleted)),
-		repository.OutputJSON.Value(string(input.Output)),
-		repository.ContextJSON.Value(string(input.Context)),
+		repository.OutputJSON.Value(outputJSON),
+		repository.ContextJSON.Value(contextJSON),
 		repository.CompletedAt.Value(now), repository.FailureDetail.Value(""),
 	)
 	if err != nil {
