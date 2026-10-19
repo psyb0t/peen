@@ -61,6 +61,28 @@ func (r *Runtime) handleSessionIdle(
 		return
 	}
 
+	// The pending read runs here, before the finished turn returns to its
+	// caller, so a session with nothing pending starts no background work.
+	// That is the common case, and it leaves no goroutine reading runtime
+	// state after the turn is over.
+	pending, err := r.pendingSessionNotices(detached, sessionID)
+	if err != nil {
+		runtimecontext.Logger(detached).Warn(
+			"idle wake recheck could not read pending notices",
+			"session_id", sessionID.String(),
+			"err", err,
+		)
+		finish()
+
+		return
+	}
+
+	if len(pending) == 0 {
+		finish()
+
+		return
+	}
+
 	go func() {
 		defer finish()
 		defer func() {
@@ -74,7 +96,7 @@ func (r *Runtime) handleSessionIdle(
 			}
 		}()
 
-		r.recheckIdleWake(detached, sessionID)
+		r.wakeFirstPending(detached, sessionID, pending)
 	}()
 }
 
@@ -105,6 +127,18 @@ func (r *Runtime) recheckIdleWake(ctx context.Context, sessionID uuid.UUID) {
 
 		return
 	}
+
+	r.wakeFirstPending(ctx, sessionID, pending)
+}
+
+// wakeFirstPending runs the normal wake decision for each pending notice,
+// oldest first, until one starts a turn.
+func (r *Runtime) wakeFirstPending(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	pending []events.Notice,
+) {
+	logger := runtimecontext.Logger(ctx)
 
 	for _, notice := range pending {
 		if r.considerWake(ctx, notice) {

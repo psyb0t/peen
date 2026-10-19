@@ -2,6 +2,12 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.26.4 (2026-10-19)
+
+v0.26.3 failed CI and published no image, release, or skill. v0.26.4 ships the v0.26.3 changes below with this fix. No configuration or API migration is needed.
+
+- Fixes the idle wake re-check that v0.26.2 added starting background work after every completed turn, even with no notice pending. It now reads the session's pending notices before the turn returns and starts background work only when one is pending.
+
 ## v0.26.3 (2026-10-19)
 
 Long turns no longer die partway through. The session database schema changes, but existing databases keep working: on startup Peen adds the new `content_blobs` table, and records written before the upgrade read as before.
