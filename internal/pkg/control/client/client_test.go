@@ -2,16 +2,20 @@ package client_test
 
 import (
 	"context"
+	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors/commerr"
 	controlclient "github.com/psyb0t/peen/internal/pkg/control/client"
+	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,6 +23,7 @@ import (
 const (
 	testToken        = "test-token"
 	testWorkspace    = "/srv/work/project"
+	testAgentSpace   = "docker:go"
 	testReadyTimeout = 2 * time.Second
 )
 
@@ -110,11 +115,17 @@ func TestOpenSessionSendsTheConfiguredToken(t *testing.T) {
 		},
 	))
 
-	opened, err := client.OpenSession(t.Context(), testWorkspace)
+	agentSpace := testAgentSpace
+
+	opened, err := client.OpenSession(t.Context(), api.OpenSessionRequest{
+		Workspace:  testWorkspace,
+		AgentSpace: &agentSpace,
+	})
 	require.NoError(t, err)
 
 	assert.Equal(t, "Bearer "+testToken, gotAuthorization)
 	assert.Contains(t, gotBody, testWorkspace)
+	assert.Contains(t, gotBody, testAgentSpace)
 	assert.True(t, opened.Created)
 	assert.Equal(t, sessionID, opened.Session.Id)
 }
@@ -134,7 +145,10 @@ func TestOpenSessionReportsTheControllerErrorEnvelope(t *testing.T) {
 		},
 	))
 
-	_, err := client.OpenSession(t.Context(), testWorkspace)
+	_, err := client.OpenSession(
+		t.Context(),
+		api.OpenSessionRequest{Workspace: testWorkspace},
+	)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "WORKSPACE_NOT_ALLOWED")
 	assert.Contains(t, err.Error(), "outside roots")
@@ -375,4 +389,88 @@ func TestEnsureRunningRequiresAStateDirectory(t *testing.T) {
 		ReadyTimeout: testReadyTimeout,
 	})
 	require.ErrorIs(t, err, commerr.ErrRequiredFieldNotSet)
+}
+
+func TestReconfigureSessionSendsTheSessionAndDecision(t *testing.T) {
+	t.Parallel()
+	sessionID := uuid.New()
+	request := api.ReconfigureSessionRequest{
+		AgentSpace: testAgentSpace,
+		Reason:     "requested by CLI",
+	}
+	client := newTestClient(t, http.HandlerFunc(func(
+		w http.ResponseWriter,
+		r *http.Request,
+	) {
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "/api/v1/session/reconfigure", r.URL.Path)
+		assert.Equal(t, sessionID.String(), r.Header.Get("X-Session-ID"))
+		assert.Equal(t, "Bearer "+testToken, r.Header.Get("Authorization"))
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+		got := api.ReconfigureSessionRequest{}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&got))
+		assert.Equal(t, request, got)
+		writeJSON(t, w, api.SessionAgentSpaceDecision{
+			SessionId:    sessionID,
+			ToAgentSpace: testAgentSpace,
+			Reason:       request.Reason,
+		})
+	}))
+	decision, err := client.ReconfigureSession(t.Context(), sessionID, request)
+	require.NoError(t, err)
+	assert.Equal(t, sessionID, decision.SessionId)
+	assert.Equal(t, testAgentSpace, decision.ToAgentSpace)
+	assert.Equal(t, request.Reason, decision.Reason)
+}
+
+func TestReconfigureSessionReportsTheControllerStatus(t *testing.T) {
+	t.Parallel()
+	client := newTestClient(t, http.HandlerFunc(func(
+		w http.ResponseWriter,
+		_ *http.Request,
+	) {
+		w.WriteHeader(http.StatusConflict)
+		writeJSON(t, w, api.Error{
+			Code:    "SESSION_BUSY",
+			Message: "a turn is running",
+		})
+	}))
+	_, err := client.ReconfigureSession(
+		t.Context(),
+		uuid.New(),
+		api.ReconfigureSessionRequest{
+			AgentSpace: testAgentSpace,
+			Reason:     "requested by CLI",
+		},
+	)
+	require.ErrorIs(t, err, commerr.ErrFetchFailed)
+	assert.Contains(t, err.Error(), "409 SESSION_BUSY")
+}
+
+func TestClientUsesTheDialOptionForREST(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(
+		w http.ResponseWriter,
+		r *http.Request,
+	) {
+		assert.Equal(t, "/ready", r.URL.Path)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+	var calls atomic.Int32
+	client, err := controlclient.New(controlclient.Options{
+		ListenAddress: "in-process.invalid:80",
+		Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			calls.Add(1)
+
+			return (&net.Dialer{}).DialContext(
+				ctx,
+				"tcp",
+				strings.TrimPrefix(server.URL, "http://"),
+			)
+		},
+	})
+	require.NoError(t, err)
+	assert.True(t, client.Reachable(t.Context()))
+	assert.EqualValues(t, 1, calls.Load())
 }

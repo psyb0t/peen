@@ -11,6 +11,7 @@ import (
 	peenconfig "github.com/psyb0t/peen/internal/pkg/config"
 	"github.com/psyb0t/peen/internal/pkg/config/envtemplate"
 	controlclient "github.com/psyb0t/peen/internal/pkg/control/client"
+	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/internal/pkg/nondumpable"
 	workerpkg "github.com/psyb0t/peen/internal/pkg/worker"
 	workerrun "github.com/psyb0t/peen/internal/pkg/worker/run"
@@ -72,6 +73,7 @@ const (
 func commands() []*cobra.Command {
 	return []*cobra.Command{
 		sessionCommand(),
+		execCommand(),
 		controlCommand(),
 		configCommand(),
 		workerCommand(workerCommandDependencies{}),
@@ -389,7 +391,10 @@ func sessionOpenCommand() *cobra.Command {
 					ctx context.Context,
 					client *controlclient.Client,
 				) error {
-					opened, err := client.OpenSession(ctx, args[0])
+					opened, err := client.OpenSession(
+						ctx,
+						api.OpenSessionRequest{Workspace: args[0]},
+					)
 					if err != nil {
 						return ctxerrors.Wrap(err, "open workspace session")
 					}

@@ -51,7 +51,7 @@ if err != nil {
 - Group writes that must land together with `query.Transaction(func(tx *repositories.Query) error { ... })`.
 - Any join, or SQL the typed builder cannot express cleanly, goes in a querier interface in `cmd/repogen/<table>_querier.go` with the SQL in a `/* */` comment, wired with `ApplyInterface`. Use `@@table` for the table and `@name` for parameters, which gorm/gen binds. See `message_querier.go`.
 - Never use `UnderlyingDB()`, `Raw`, or `Exec` in business code, and never build SQL from strings.
-- Not-found and duplicate-key errors map to `commerr.ErrNotFound` and `commerr.ErrAlreadyExists` when wrapped. See `go-errors.md`.
+- Not-found and duplicate-key errors map to `commerr.ErrNotFound` and `commerr.ErrAlreadyExists` when wrapped. See `go.md`.
 
 ## Compacted columns
 

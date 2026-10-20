@@ -16,7 +16,7 @@ Every name Peen invents and owns is camelCase. Another convention is used only w
 
 - `PEEN_*` environment variables, in `SCREAMING_SNAKE_CASE`. `LOG_LEVEL`, `LOG_FORMAT`, and `LOG_ADD_SOURCE` belong to the logging library.
 - SQL table and column names, in `snake_case`.
-- Log record keys, in `lowercase_snake`. See `go-logging.md`.
+- Log record keys, in `lowercase_snake`. See `go.md`.
 - Prometheus metric names and label keys, in `snake_case`.
 - The Anthropic Messages streaming frames carried over the WebSocket: `message_start`, `message_delta`, `message_stop`, `content_block_start`, `content_block_delta`, `content_block_stop`, `text_delta`, `thinking_delta`, `input_json_delta`, `tool_use`, `tool_result`, `tool_use_id`, `is_error`, `partial_json`, and the rest of that format.
 - Skill and agent frontmatter keys fixed by the Agent Skills specification: `allowed-tools`, `user-invocable`, and the other specification keys.

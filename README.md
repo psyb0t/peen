@@ -150,7 +150,21 @@ Add `-H "Authorization: Bearer <token>"` when `PEEN_API_TOKEN` is set. REST also
 
 ## Drive it from the command line
 
-The Peen server binary is also a local control client. With the installer, the `peen` command passes `session` and `control` to that binary with your installation's configuration, so the commands below work as written. Each command talks to a running controller over its HTTP API. None of them opens the database or starts a second controller.
+Run one turn in the current directory with the installed `peen` command:
+
+```bash
+peen --prompt "fix the tests"
+peen --model provider/model --output text --prompt "explain this project"
+printf '%s\n' 'review the current changes' | peen --prompt -
+```
+
+Peen opens or resumes the directory's durable session, sends the prompt over WebSocket, streams the session's frames, and exits when the turn ends. It reuses a controller answering at `PEEN_HTTP_LISTEN_ADDRESS` and leaves it running. With none running, it starts a controller inside the command, serves the API through an in-memory listener with no TCP or metrics port, and stops it after the turn. A prompt sent during an active turn is queued into that turn, and the command follows it to its end. Other connected clients see the same work.
+
+Output defaults to JSONL, preserving every WebSocket frame on stdout. `--output text` puts reply text on stdout and thinking, tools, child agents, and failures on stderr. Logs go to stderr at `warn` unless `LOG_LEVEL` is set. Exit status is 0 for completion, 1 for failure, and 130 for cancellation. The first interrupt requests cancellation and waits for confirmation, the second stops streaming and shuts down, and the third exits immediately. A question without a terminal available to answer cancels the turn.
+
+A word that is not a `peen` command is refused, so a mistyped command never sends a prompt. The server binary takes `peen exec [flags] (--prompt <prompt> | <prompt>)`, and the installed command passes `peen exec` through too. The prompt is the `--prompt` value or the arguments joined with spaces, not both, and a prompt of `-` is read from stdin. Use `--workspace` for another directory, `--model` and `--reasoning-effort` for this turn's model settings, and `--system-prompt` with `--system-prompt-mode append|replace` for instructions. `--agent-space control|docker|docker:<profile>` selects the session's agent space and moves an existing session when needed; `docker` means `docker:default`. Defaults come from your configuration. The installed wrapper also accepts `--control-space host|docker` for this run. Exported `PEEN_*` and logging settings override its `.env` for the run, except `PEEN_HOME`, `PEEN_INSTALL_*`, and `PEEN_NO_BROWSER`.
+
+The Peen server binary is also a local control client. With the installer, the `peen` command passes `session` and `control` to that binary with your installation's configuration. These commands talk to a running controller over its HTTP API:
 
 ```bash
 peen control status

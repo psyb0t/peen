@@ -124,7 +124,7 @@ type Server struct {
 	deps                    Dependencies
 	router                  *serbewr.Router
 	httpServer              *serbewr.Server
-	testHandler             http.Handler
+	inProcessHandler        http.Handler
 	webSocketHub            wshub.Hub
 	webSocketUpgradeHandler http.Handler
 	webSocketFilterMutex    sync.Mutex
@@ -195,7 +195,7 @@ func (s *Server) configureHandlers() error {
 	}
 
 	s.router = newRouter(s, apiHandler, validator, spaHandler)
-	s.testHandler = newTestHandler(
+	s.inProcessHandler = newInProcessHandler(
 		s,
 		apiHandler,
 		validator,

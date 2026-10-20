@@ -56,7 +56,7 @@ func TestWebSocketBroadcastsFeedItemsToGlobalClients(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(instance.webSocketHub.Close)
 
-	httpServer := httptest.NewServer(instance.testHandler)
+	httpServer := httptest.NewServer(instance.inProcessHandler)
 	t.Cleanup(httpServer.Close)
 
 	first := dialWebSocket(t, httpServer.URL, nil)
@@ -88,7 +88,7 @@ func TestWebSocketFiltersOutboundEventsBySession(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(instance.webSocketHub.Close)
 
-	httpServer := httptest.NewServer(instance.testHandler)
+	httpServer := httptest.NewServer(instance.inProcessHandler)
 	t.Cleanup(httpServer.Close)
 
 	global := dialWebSocket(t, httpServer.URL, nil)
@@ -160,7 +160,7 @@ func TestWebSocketLastClientDisconnectDoesNotStopTheSession(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(instance.webSocketHub.Close)
 
-	httpServer := httptest.NewServer(instance.testHandler)
+	httpServer := httptest.NewServer(instance.inProcessHandler)
 	t.Cleanup(httpServer.Close)
 
 	connection := dialWebSocket(t, httpServer.URL, &sessionID)
@@ -192,7 +192,7 @@ func TestWebSocketRoutesTheMessageToTheSessionWorker(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(instance.webSocketHub.Close)
 
-	httpServer := httptest.NewServer(instance.testHandler)
+	httpServer := httptest.NewServer(instance.inProcessHandler)
 	t.Cleanup(httpServer.Close)
 
 	connection := dialWebSocket(t, httpServer.URL, nil)
@@ -217,7 +217,7 @@ func TestWebSocketRejectsUnknownMessageFields(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(instance.webSocketHub.Close)
 
-	httpServer := httptest.NewServer(instance.testHandler)
+	httpServer := httptest.NewServer(instance.inProcessHandler)
 	t.Cleanup(httpServer.Close)
 
 	connection := dialWebSocket(t, httpServer.URL, nil)
@@ -256,7 +256,7 @@ func TestWebSocketSurfacesInvalidHarnessConfiguration(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(instance.webSocketHub.Close)
 
-	httpServer := httptest.NewServer(instance.testHandler)
+	httpServer := httptest.NewServer(instance.inProcessHandler)
 	t.Cleanup(httpServer.Close)
 
 	connection := dialWebSocket(t, httpServer.URL, nil)
@@ -290,7 +290,7 @@ func TestWebSocketRoutesMessageToTheNamedSession(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(instance.webSocketHub.Close)
 
-	httpServer := httptest.NewServer(instance.testHandler)
+	httpServer := httptest.NewServer(instance.inProcessHandler)
 	t.Cleanup(httpServer.Close)
 
 	sender := dialWebSocket(t, httpServer.URL, nil)
@@ -317,7 +317,7 @@ func TestWebSocketRejectsMalformedSessionIDMetadata(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(instance.webSocketHub.Close)
 
-	httpServer := httptest.NewServer(instance.testHandler)
+	httpServer := httptest.NewServer(instance.inProcessHandler)
 	t.Cleanup(httpServer.Close)
 
 	sender := dialWebSocket(t, httpServer.URL, nil)
@@ -346,7 +346,7 @@ func TestWebSocketRequiresASessionWithoutAStartupSession(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(instance.webSocketHub.Close)
 
-	httpServer := httptest.NewServer(instance.testHandler)
+	httpServer := httptest.NewServer(instance.inProcessHandler)
 	t.Cleanup(httpServer.Close)
 
 	sender := dialWebSocket(t, httpServer.URL, nil)

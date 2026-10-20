@@ -399,7 +399,10 @@ func (c *Client) dialWebSocket(
 	query.Set(webSocketSessionIDQueryKey, sessionID.String())
 	endpoint.RawQuery = query.Encode()
 
-	dialer := websocket.Dialer{Subprotocols: c.webSocketSubprotocols()}
+	dialer := websocket.Dialer{
+		Subprotocols:   c.webSocketSubprotocols(),
+		NetDialContext: c.dial,
+	}
 
 	connection, response, err := dialer.DialContext(
 		ctx,

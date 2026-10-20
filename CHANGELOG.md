@@ -2,6 +2,17 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.27.0 (2026-10-20)
+
+Run a turn from the command line in a workspace's durable session, with streamed output and the same configuration as the control surface. No configuration or API migration is needed.
+
+- Adds `peen --prompt "prompt"` through the installed command and `peen exec [flags] (--prompt <prompt> | <prompt>)` through both the binary and the installed command. They reuse a running controller or start one inside the command with an in-memory API and no TCP or metrics listener, then stop it after the turn. A message sent during a running turn is queued into it, and the command follows that turn to its end.
+- Adds JSONL output preserving every server frame, `--output text`, stdin prompts with `-`, per-turn model and system prompt flags, workspace and agent space selection, and interrupt cancellation. The installed command also accepts `--control-space host|docker` and exported configuration overrides for one run.
+- Prevents two controllers from opening the same state directory at once. The controller holds `<PEEN_STATE_DIR>/controller.lock` until shutdown, and a second controller fails while the lock is held. A crash releases the lock automatically.
+- Fixes `peen start` blaming the model provider for an unrelated start failure when the controller log held `401` or `403` inside a longer number, such as a path or a byte count. The hint now matches those codes only as whole numbers.
+- Changes the contributor rules in `.agents/rules/` to cover only Peen's own conventions, with the Go lint, error, and logging rules merged into `go.md`. `.claude` now links to `.agents`, so Claude Code reads the same rules.
+- Changes the schedule of the workflow that relays issues opened on the GitLab and Codeberg mirrors, spreading its runs across the day.
+
 ## v0.26.4 (2026-10-19)
 
 v0.26.3 failed CI and published no image, release, or skill. v0.26.4 ships the v0.26.3 changes below with this fix. No configuration or API migration is needed.

@@ -59,6 +59,8 @@ peen
 | Command | What it does |
 | --- | --- |
 | `peen`, `peen .`, `peen <dir>`, `peen open [dir]` | Open a directory, default the current one, as described above. `peen <dir>` takes any argument that holds a `/` or is `.` or `..`. |
+| `peen --prompt TEXT [flags]`, `peen exec [flags] <prompt>` | Run one turn in the current directory's durable session and exit. Reuse a running controller or start one inside the command for the turn. Default output is JSONL; `--output text` streams readable replies. `--workspace DIR` selects another workspace. See the [CLI guide](../README.md#drive-it-from-the-command-line) for turn flags, stdin, cancellation, and exit statuses. |
+| `peen --control-space host\|docker --prompt TEXT` | Override where the controller client runs for this invocation. Docker runs use a foreground container that forwards signals, sharing the managed controller's network when it is already running. |
 | `peen start`, `peen stop`, `peen restart` | Run the controller in the background. The docker control space starts the container with `--restart unless-stopped`, so it comes back after a reboot. The host control space starts the binary detached, logs to `state/controller.log`, and does not come back after a reboot. |
 | `peen status` | Show the control space, default agent space, pinned image, workspace root, URL, whether the controller runs and answers, and the worker containers. Exits 3 when the controller is stopped. |
 | `peen logs [-f] [N]` | Show the last N controller log lines, default 100, and follow them with `-f`. |
@@ -75,7 +77,7 @@ The `peen` command stops or removes only a container whose `peen.install` label 
 
 In the docker control space the controller runs as your UID and GID with `.env` as its `--env-file`. The configuration directory, the state directory, and the workspace root are mounted at their literal host paths. The API listens on the `--listen` address. With `--agent-space docker` the controller also gets the host Docker socket at its literal path and the socket's group. That is the setup [Docker agent spaces](#docker-agent-spaces) describes by hand.
 
-The host control space starts the binary with only `HOME`, `PATH`, `USER`, `LOGNAME`, `LANG`, `LC_ALL`, `TZ`, `DOCKER_HOST`, and the contents of `.env` in its environment, so secrets exported in your shell do not reach a `control` agent.
+The host control space starts the binary with only `HOME`, `PATH`, `USER`, `LOGNAME`, `LANG`, `LC_ALL`, `TZ`, `DOCKER_HOST`, and the contents of `.env` in its environment. For one-shot turns, exported `PEEN_*`, `LOG_LEVEL`, `LOG_FORMAT`, and `LOG_ADD_SOURCE` override `.env`, except the wrapper-owned `PEEN_HOME`, `PEEN_INSTALL_*`, and `PEEN_NO_BROWSER`. Other exported shell values are not forwarded.
 
 Before 1.0 a release can refuse a database an earlier release created. When `peen upgrade` cannot start the new release, it prints the controller's error, which names the files to delete. See [durable state and mounts](#durable-state-and-mounts).
 

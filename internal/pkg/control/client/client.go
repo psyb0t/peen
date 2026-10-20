@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -32,6 +33,8 @@ const (
 	sessionPath       = "/api/v1/session"
 	sessionFeedPath   = "/api/v1/session/feed"
 	cancelSessionPath = "/api/v1/session/cancel"
+
+	reconfigureSessionPath = "/api/v1/session/reconfigure"
 
 	// headerSessionID selects the durable session for a session-scoped
 	// endpoint. It is Peen's own header and has no shared-library equivalent.
@@ -56,13 +59,25 @@ type Options struct {
 
 	// HTTPClient overrides the transport. Tests supply their own.
 	HTTPClient *http.Client
+
+	// Dial replaces the network dial for both REST and the WebSocket. An
+	// in-process controller supplies its in-memory listener's dial here, and
+	// ListenAddress then only names the host in request URLs.
+	Dial DialFunc
 }
+
+// DialFunc opens one connection to the controller.
+type DialFunc func(
+	ctx context.Context,
+	network, address string,
+) (net.Conn, error)
 
 // Client calls one local controller.
 type Client struct {
 	baseURL    string
 	token      string
 	httpClient *http.Client
+	dial       DialFunc
 }
 
 // New builds a client for the configured controller endpoint.
@@ -79,10 +94,17 @@ func New(options Options) (*Client, error) {
 		httpClient = &http.Client{Timeout: defaultRequestTimeout}
 	}
 
+	if httpClient.Transport == nil && options.Dial != nil {
+		dialing := *httpClient
+		dialing.Transport = &http.Transport{DialContext: options.Dial}
+		httpClient = &dialing
+	}
+
 	return &Client{
 		baseURL:    "http://" + control.DialableAddress(options.ListenAddress),
 		token:      options.Token,
 		httpClient: httpClient,
+		dial:       options.Dial,
 	}, nil
 }
 
@@ -99,12 +121,13 @@ func (c *Client) Reachable(ctx context.Context) bool {
 	return response.StatusCode == http.StatusOK
 }
 
-// OpenSession opens or resumes the session for one workspace.
+// OpenSession opens or resumes the session for one workspace. The request's
+// agent space applies only when this call creates the session.
 func (c *Client) OpenSession(
 	ctx context.Context,
-	workspace string,
+	request api.OpenSessionRequest,
 ) (api.OpenedSession, error) {
-	body, err := json.Marshal(api.OpenSessionRequest{Workspace: workspace})
+	body, err := json.Marshal(request)
 	if err != nil {
 		return api.OpenedSession{}, ctxerrors.Wrap(
 			err,
@@ -209,6 +232,38 @@ func (c *Client) CancelSession(
 	return result, nil
 }
 
+// ReconfigureSession moves the session to another agent space. The controller
+// refuses it while a turn runs and stops the session's worker, so the next
+// turn starts in the new agent space.
+func (c *Client) ReconfigureSession(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	request api.ReconfigureSessionRequest,
+) (api.SessionAgentSpaceDecision, error) {
+	body, err := json.Marshal(request)
+	if err != nil {
+		return api.SessionAgentSpaceDecision{}, ctxerrors.Wrap(
+			err,
+			"encode the reconfigure request",
+		)
+	}
+
+	decision := api.SessionAgentSpaceDecision{}
+	if err := c.callSessionBodyJSON(
+		ctx,
+		http.MethodPost,
+		reconfigureSessionPath,
+		body,
+		sessionID,
+		http.StatusOK,
+		&decision,
+	); err != nil {
+		return api.SessionAgentSpaceDecision{}, err
+	}
+
+	return decision, nil
+}
+
 // callSessionJSON runs one session-scoped request and decodes its response.
 func (c *Client) callSessionJSON(
 	ctx context.Context,
@@ -218,7 +273,29 @@ func (c *Client) callSessionJSON(
 	wantStatus int,
 	target any,
 ) error {
-	response, err := c.doWithSession(ctx, method, path, nil, sessionID)
+	return c.callSessionBodyJSON(
+		ctx,
+		method,
+		path,
+		nil,
+		sessionID,
+		wantStatus,
+		target,
+	)
+}
+
+// callSessionBodyJSON runs one session-scoped request with an optional JSON
+// body and decodes its response.
+func (c *Client) callSessionBodyJSON(
+	ctx context.Context,
+	method string,
+	path string,
+	body []byte,
+	sessionID uuid.UUID,
+	wantStatus int,
+	target any,
+) error {
+	response, err := c.doWithSession(ctx, method, path, body, sessionID)
 	if err != nil {
 		return err
 	}

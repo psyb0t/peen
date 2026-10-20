@@ -37,7 +37,7 @@ func TestServerListWorkspaceRoots(t *testing.T) {
 	request.Header.Set(headerAuthorization, bearerScheme+" "+testAPIToken)
 	recorder := httptest.NewRecorder()
 
-	instance.testHandler.ServeHTTP(recorder, request)
+	instance.inProcessHandler.ServeHTTP(recorder, request)
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	assert.NotEmpty(t, recorder.Header().Get(headerRequestID))
@@ -67,7 +67,7 @@ func TestServerListWorkspaceRootsRequiresAuthentication(t *testing.T) {
 	)
 	recorder := httptest.NewRecorder()
 
-	instance.testHandler.ServeHTTP(recorder, request)
+	instance.inProcessHandler.ServeHTTP(recorder, request)
 
 	assert.Equal(t, http.StatusUnauthorized, recorder.Code)
 	assertUnauthorizedEnvelope(t, recorder)

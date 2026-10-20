@@ -68,7 +68,7 @@ func TestServerReconfigureSessionRecordsTheDecision(t *testing.T) {
 	require.NoError(t, err)
 
 	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(recorder, reconfigureRequest(
+	instance.inProcessHandler.ServeHTTP(recorder, reconfigureRequest(
 		t,
 		sessionID,
 		`{"agentSpace":"docker:sandbox","reason":"moving to an isolated environment"}`,
@@ -113,7 +113,7 @@ func TestServerReconfigureSessionRefusesAnUndefinedAgentSpace(t *testing.T) {
 	require.NoError(t, err)
 
 	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(recorder, reconfigureRequest(
+	instance.inProcessHandler.ServeHTTP(recorder, reconfigureRequest(
 		t,
 		sessionID,
 		`{"agentSpace":"docker:ops","reason":"needs the host"}`,
@@ -147,7 +147,7 @@ func TestServerReconfigureSessionRefusesABusySession(t *testing.T) {
 	require.NoError(t, err)
 
 	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(recorder, reconfigureRequest(
+	instance.inProcessHandler.ServeHTTP(recorder, reconfigureRequest(
 		t,
 		sessionID,
 		`{"agentSpace":"control","reason":"back to control"}`,
@@ -226,7 +226,7 @@ func TestServerReconfigureSessionRejectsMalformedInput(t *testing.T) {
 			}
 
 			recorder := httptest.NewRecorder()
-			instance.testHandler.ServeHTTP(recorder, request)
+			instance.inProcessHandler.ServeHTTP(recorder, request)
 
 			assert.Equal(
 				t,
@@ -277,7 +277,7 @@ func TestServerListSessionAgentSpaceDecisionsIsSessionScoped(t *testing.T) {
 	request.Header.Set(headerSessionID, sessionID.String())
 
 	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(recorder, request)
+	instance.inProcessHandler.ServeHTTP(recorder, request)
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 
@@ -312,7 +312,7 @@ func TestServerListSessionAgentSpaceDecisionsReportsAnUnknownSession(
 	request.Header.Set(headerSessionID, sessionID.String())
 
 	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(recorder, request)
+	instance.inProcessHandler.ServeHTTP(recorder, request)
 
 	require.Equal(t, http.StatusNotFound, recorder.Code)
 
@@ -359,7 +359,7 @@ func TestServerListAgentSpacesReportsTheGrants(t *testing.T) {
 	)
 
 	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(recorder, request)
+	instance.inProcessHandler.ServeHTTP(recorder, request)
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 
@@ -401,7 +401,7 @@ func TestServerDoesNotServeTheRemovedProfileRoutes(t *testing.T) {
 			request.Header.Set(headerSessionID, sessionID.String())
 
 			recorder := httptest.NewRecorder()
-			instance.testHandler.ServeHTTP(recorder, request)
+			instance.inProcessHandler.ServeHTTP(recorder, request)
 
 			assert.Equal(t, http.StatusNotFound, recorder.Code)
 		})

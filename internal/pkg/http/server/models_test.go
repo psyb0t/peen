@@ -38,7 +38,7 @@ func TestServerListModels(t *testing.T) {
 	request.Header.Set(headerAuthorization, bearerScheme+" "+testAPIToken)
 
 	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(recorder, request)
+	instance.inProcessHandler.ServeHTTP(recorder, request)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
 	assert.NotEmpty(t, recorder.Header().Get(headerRequestID))
@@ -65,7 +65,7 @@ func TestServerListModelsRequiresAuthentication(t *testing.T) {
 	)
 	recorder := httptest.NewRecorder()
 
-	instance.testHandler.ServeHTTP(recorder, request)
+	instance.inProcessHandler.ServeHTTP(recorder, request)
 
 	assert.Equal(t, http.StatusUnauthorized, recorder.Code)
 	assertUnauthorizedEnvelope(t, recorder)

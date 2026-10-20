@@ -8,15 +8,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/elelem/elelemtest"
 	"github.com/psyb0t/peen/internal/pkg/agent"
 	peenconfig "github.com/psyb0t/peen/internal/pkg/config"
 	"github.com/psyb0t/peen/internal/pkg/control"
 	"github.com/psyb0t/peen/internal/pkg/http/api"
+	"github.com/psyb0t/peen/internal/pkg/memlistener"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/worker"
@@ -430,4 +433,38 @@ func TestControlAPIFailsWhenNoCoreIsPublished(t *testing.T) {
 
 	err := service.Run(runCtx)
 	require.Error(t, err)
+}
+
+func TestControlAPIInProcessOpensNoNetworkListener(t *testing.T) {
+	fixture := newAPIFixture(t)
+	listener := memlistener.New()
+	t.Cleanup(func() { require.NoError(t, listener.Close()) })
+	endpoint := &control.InProcessEndpoint{}
+	endpoint.Set(listener)
+	fixture.service.dependencies.inProcess = endpoint
+	var listenCalls atomic.Int32
+	fixture.service.dependencies.listen = func(
+		context.Context,
+		string,
+		string,
+	) (net.Listener, error) {
+		listenCalls.Add(1)
+
+		return nil, commerr.ErrPermissionDenied
+	}
+	transport := &http.Transport{DialContext: listener.DialContext}
+	t.Cleanup(transport.CloseIdleConnections)
+	fixture.client = &http.Client{
+		Transport: transport,
+		Timeout:   apiTestRequestTimeout,
+	}
+	runAPIService(t, fixture)
+	response := fixture.request(t, http.MethodGet, apiTestReadyPath, "")
+	require.NoError(t, response.Body.Close())
+	assert.Equal(t, http.StatusOK, response.StatusCode)
+	assert.Zero(
+		t,
+		listenCalls.Load(),
+		"in-process mode must not open the metrics listener",
+	)
 }

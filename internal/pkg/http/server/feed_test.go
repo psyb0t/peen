@@ -101,7 +101,7 @@ func TestServerListSessionFeedDefaultsAndErrors(t *testing.T) {
 			request.Header.Set(headerSessionID, sessionID.String())
 
 			recorder := httptest.NewRecorder()
-			instance.testHandler.ServeHTTP(recorder, request)
+			instance.inProcessHandler.ServeHTTP(recorder, request)
 
 			assert.Equal(t, tc.wantStatus, recorder.Code)
 
@@ -124,7 +124,7 @@ func TestServerListSessionFeedRequiresTheSessionHeader(t *testing.T) {
 	)
 
 	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(recorder, request)
+	instance.inProcessHandler.ServeHTTP(recorder, request)
 
 	assert.Equal(t, http.StatusBadRequest, recorder.Code)
 }
@@ -202,7 +202,7 @@ func TestServerListSessionFeedRendersEveryKindLikeTheLiveFrame(t *testing.T) {
 	request.Header.Set(headerSessionID, sessionID.String())
 
 	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(recorder, request)
+	instance.inProcessHandler.ServeHTTP(recorder, request)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
 

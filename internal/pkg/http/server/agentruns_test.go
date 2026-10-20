@@ -152,7 +152,7 @@ func TestServerSessionAgentRunEndpoints(t *testing.T) {
 			request.Header.Set(headerSessionID, sessionID.String())
 
 			recorder := httptest.NewRecorder()
-			instance.testHandler.ServeHTTP(recorder, request)
+			instance.inProcessHandler.ServeHTTP(recorder, request)
 
 			assert.Equal(t, tc.wantStatus, recorder.Code)
 
@@ -207,7 +207,7 @@ func TestServerCancelSessionAgentRunReachesTheWorker(t *testing.T) {
 				http.MethodPost, agentRunCancelPath(runID), nil)
 			request.Header.Set(headerSessionID, sessionID.String())
 			recorder := httptest.NewRecorder()
-			instance.testHandler.ServeHTTP(recorder, request)
+			instance.inProcessHandler.ServeHTTP(recorder, request)
 			assert.Equal(t, http.StatusAccepted, recorder.Code)
 			if tc.forwarded {
 				assert.Equal(t, []uuid.UUID{runID}, router.cancelledAgentRuns)
@@ -254,7 +254,7 @@ func TestServerSessionAgentRunEndpointsRequireTheBearerToken(t *testing.T) {
 			request.Header.Set(headerSessionID, sessionID.String())
 
 			recorder := httptest.NewRecorder()
-			instance.testHandler.ServeHTTP(recorder, request)
+			instance.inProcessHandler.ServeHTTP(recorder, request)
 
 			assert.Equal(t, http.StatusUnauthorized, recorder.Code)
 			assertUnauthorizedEnvelope(t, recorder)
@@ -269,7 +269,7 @@ func TestServerSessionAgentRunEndpointsRejectMissingSessionHeader(t *testing.T) 
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, agentRunsPath(), nil)
 	recorder := httptest.NewRecorder()
 
-	instance.testHandler.ServeHTTP(recorder, request)
+	instance.inProcessHandler.ServeHTTP(recorder, request)
 
 	assert.Equal(t, http.StatusBadRequest, recorder.Code)
 }

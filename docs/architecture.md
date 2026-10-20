@@ -167,9 +167,11 @@ Peen uses [Servicepack](https://github.com/psyb0t/servicepack) for process and s
 control-core  ->  control-api
 ```
 
-`control-core` loads and checks the configuration, opens SQLite, and builds the provider registry, the workspace policy, the agent spaces, and the worker supervisor. It reports ready only after those exist, and it creates no session, so a controller starts empty.
+`control-core` loads and checks the configuration, takes an exclusive lock on `<PEEN_STATE_DIR>/controller.lock`, opens SQLite, and builds the provider registry, the workspace policy, the agent spaces, and the worker supervisor. It holds the lock for its whole lifetime, so a second controller using the same state directory fails before it can recover or change another controller's work. The operating system releases the lock when the process exits, including after a crash. It reports ready only after its dependencies exist, and it creates no session, so a controller starts empty.
 
 `control-api` depends on `control-core`, so Servicepack starts it second and waits for `control-core` to be ready first. It owns the REST listener, the global WebSocket hub, and the metrics listener, and it reports ready only once its endpoint accepts a connection. A client that waits for readiness can send a request right away instead of racing a listener that has not started yet.
+
+`peen exec` first probes the configured controller and reuses it when it answers. Otherwise it runs the same controller services inside the command process. That controller serves REST and WebSocket through an in-memory listener, opens no TCP or metrics listener, and follows the same readiness and shutdown ordering. After the turn, the command waits for its controller to stop, including workers and SQLite, before exiting. A borrowed controller keeps running. The workspace session and its history survive either path.
 
 Servicepack stops the two in reverse order, so the API stops accepting work before `control-core` cancels active turns, stops running jobs, stops every session worker, and closes SQLite. Workers stop after jobs, so a container is not removed while a process still runs in it, and Peen records each stop, so no worker generation stays marked ready after its worker is gone. Servicepack handles the stop signal and the time limit on the whole shutdown.
 

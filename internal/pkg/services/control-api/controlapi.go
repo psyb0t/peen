@@ -34,8 +34,9 @@ const (
 )
 
 type serviceDependencies struct {
-	handoff *control.Handoff
-	listen  func(
+	handoff   *control.Handoff
+	inProcess *control.InProcessEndpoint
+	listen    func(
 		ctx context.Context,
 		network string,
 		address string,
@@ -64,6 +65,10 @@ func New() (*ControlAPI, error) {
 func newControlAPI(dependencies serviceDependencies) *ControlAPI {
 	if dependencies.handoff == nil {
 		dependencies.handoff = control.SharedHandoff()
+	}
+
+	if dependencies.inProcess == nil {
+		dependencies.inProcess = control.SharedInProcessEndpoint()
 	}
 
 	if dependencies.listen == nil {
@@ -130,6 +135,10 @@ func (s *ControlAPI) Run(ctx context.Context) error {
 	) {
 		server.BroadcastFeedItems(ctx, sessionID, items)
 	})
+
+	if listener := s.dependencies.inProcess.Listener(); listener != nil {
+		return s.serveInProcess(ctx, server, listener)
+	}
 
 	metricsServer, err := metrics.NewServer(core.Metrics)
 	if err != nil {
@@ -200,6 +209,29 @@ func (s *ControlAPI) signalReadyWhenListening(
 			return
 		}
 	}
+}
+
+// serveInProcess serves the API on an in-process listener and opens no network
+// listener at all, metrics included. The listener accepts as soon as it
+// exists, so the service is ready before serving starts.
+func (s *ControlAPI) serveInProcess(
+	ctx context.Context,
+	server *peenhttp.Server,
+	listener net.Listener,
+) error {
+	ctxscope.GetLogger(ctx).Info(
+		"control API initialized",
+		"listen_address", listener.Addr().String(),
+		"metrics_enabled", false,
+	)
+
+	s.readyOnce.Do(func() { close(s.ready) })
+
+	if err := server.ServeListener(ctx, listener); err != nil {
+		return ctxerrors.Wrap(err, "serve the control API in process")
+	}
+
+	return nil
 }
 
 func serveBoth(

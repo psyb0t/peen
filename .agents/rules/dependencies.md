@@ -1,7 +1,5 @@
 # Dependencies
 
-Every dependency is code that runs inside Peen and inside the agent's environment. Add one only when no existing dependency or standard library package does the job, and check the package, its maintainer, its release history, and its advisories first.
-
 ## Go modules
 
 - `vendor/` is committed and produced only by `go mod vendor`. Never edit anything under `vendor/`, `go.sum`, or the module cache by hand. A bug in a dependency is fixed upstream and picked up with a version bump.

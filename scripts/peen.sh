@@ -59,7 +59,7 @@ readonly LOG_TAIL_ON_FAILURE=40
 readonly MAX_SOCKET_PATH_BYTES=107
 readonly WORKER_SOCKET_SUFFIX_BYTES=49
 # Start failures whose log names one of these point at the model provider.
-readonly PROVIDER_FAILURE_PATTERN='upstream|provider|model|api key|apiKeyEnv|unauthorized|401|403'
+readonly PROVIDER_FAILURE_PATTERN='upstream|provider|model|api key|apiKeyEnv|unauthorized|(^|[^[:alnum:]_])(401|403)($|[^[:alnum:]_])'
 readonly DEFAULT_LOG_LINES=100
 readonly STATUS_STOPPED=3
 readonly PLACEHOLDER_VALUE="REPLACE_ME"
@@ -88,6 +88,7 @@ DOCTOR_FAILURES=0
 ENV_ASSIGNMENTS=()
 HOST_ENVIRONMENT=()
 DOCKER_ARGUMENTS=()
+EXEC_ENVIRONMENT=0
 
 say() { printf '==> %s\n' "$*"; }
 warn() { printf 'warning: %s\n' "$*" >&2; }
@@ -130,6 +131,14 @@ Usage: peen [command] [arguments]
   peen                      Open the current directory in the browser
   peen <dir>                Open DIR (any argument with a slash, or . or ..)
   peen open [dir]           Open DIR, default the current directory
+  peen --prompt TEXT [flags] Run one turn in the current directory and exit
+  peen exec [flags] <prompt> The same, with the prompt as arguments
+      --prompt TEXT                 The message to send, or - to read stdin
+      --workspace DIR               Use DIR instead of the current directory
+      --output jsonl|text           Stream JSONL frames (default), or reply text
+      --control-space host|docker   Override where Peen runs for this invocation
+      --model MODEL --reasoning-effort LEVEL --agent-space SPACE
+      --system-prompt TEXT --system-prompt-mode append|replace
 
   peen setup [flags]        Create or update the configuration and pin the image
       --control-space host|docker   Where Peen runs (default docker)
@@ -207,7 +216,19 @@ env_get() {
 
 # env_value is env_get for callers where a missing key means empty.
 env_value() {
+	if ((EXEC_ENVIRONMENT)) && exec_override_key "$1" && [[ -v "$1" ]]; then
+		printf '%s' "${!1}"
+		return
+	fi
 	env_get "$1" || true
+}
+
+exec_override_key() {
+	case "$1" in
+	PEEN_HOME | PEEN_INSTALL_* | PEEN_NO_BROWSER) return 1 ;;
+	PEEN_* | LOG_LEVEL | LOG_FORMAT | LOG_ADD_SOURCE) return 0 ;;
+	*) return 1 ;;
+	esac
 }
 
 validate_key() {
@@ -590,7 +611,8 @@ print_log_tail() {
 # so a failure with another cause is not sent to the wrong file.
 start_failure_hint() {
 	local tail_text="$1"
-	if grep -iE 'error' <<<"$tail_text" | grep -qiE "$PROVIDER_FAILURE_PATTERN"; then
+	# Consume all lines so pipefail cannot treat an early grep exit as failure.
+	if grep -iE 'error' <<<"$tail_text" | grep -iE "$PROVIDER_FAILURE_PATTERN" >/dev/null; then
 		printf 'hint: check the model provider and its key in %s (peen config edit), then run peen doctor\n' "$ENV_FILE" >&2
 		return
 	fi
@@ -1130,9 +1152,12 @@ mount_private_directory() {
 
 # docker_controller_arguments builds the shared `docker run` flags. Every path
 # is mounted at its literal host path, because the host daemon resolves the
-# mounts of the worker containers this controller starts.
+# mounts of the worker containers this controller starts. The optional second
+# argument is the working directory, the workspace root by default. A third
+# argument of 0 publishes no port, for a controller that serves no network
+# listener.
 docker_controller_arguments() {
-	local root="$1" configuration state socket socket_group
+	local root="$1" workdir="${2:-$1}" publish="${3:-1}" configuration state socket socket_group
 	configuration="$(config_dir)"
 	state="$(state_dir)"
 	[[ -d "$configuration" && -d "$state" && -d "$root" ]] ||
@@ -1142,10 +1167,12 @@ docker_controller_arguments() {
 		--user "$(id -u):$(id -g)"
 		--env-file "$ENV_FILE"
 		-e "PEEN_HTTP_LISTEN_ADDRESS=:$CONTAINER_PORT"
-		-p "$(publish_spec)"
 		-v "$configuration:$configuration"
 		-v "$state:$state"
 	)
+	if [[ "$publish" == "1" ]]; then
+		DOCKER_ARGUMENTS+=(-p "$(publish_spec)")
+	fi
 	# Docker refuses two mounts at one target.
 	if [[ "$root" != "$configuration" && "$root" != "$state" ]]; then
 		DOCKER_ARGUMENTS+=(-v "$root:$root")
@@ -1154,7 +1181,7 @@ docker_controller_arguments() {
 	# must be mounted too, or the controller writes into its own container.
 	mount_private_directory "$(env_value PEEN_WORKER_SOCKET_DIR)" "$state"
 	mount_private_directory "$(env_value PEEN_LOG_DIRECTORY)" "$state"
-	DOCKER_ARGUMENTS+=(-w "$root")
+	DOCKER_ARGUMENTS+=(-w "$workdir")
 	if ! agent_space_is_docker; then
 		return
 	fi
@@ -2007,6 +2034,92 @@ server_command() {
 	exec docker exec -i "${tty[@]}" "$name" "$CONTAINER_BINARY" "$command" "$@"
 }
 
+exec_command() {
+	local control="" control_set=0 workspace="$PWD" root_setting root workdir name key
+	local -a arguments=() overrides=() override_names=() tty=()
+	refuse_root
+	require_env_file
+	EXEC_ENVIRONMENT=1
+	while (($#)); do
+		case "$1" in
+		--control-space)
+			[[ $# -ge 2 ]] || fail "--control-space needs host or docker"
+			control="$2"
+			control_set=1
+			shift 2
+			;;
+		--control-space=*)
+			control="${1#*=}"
+			control_set=1
+			shift
+			;;
+		--workspace)
+			[[ $# -ge 2 ]] || fail "--workspace needs a directory"
+			workspace="$(canonical_directory "$2")" || fail "$2 is not a directory"
+			arguments+=("$1" "$workspace")
+			shift 2
+			;;
+		--workspace=*)
+			workspace="${1#*=}"
+			workspace="$(canonical_directory "$workspace")" || fail "$workspace is not a directory"
+			arguments+=("--workspace=$workspace")
+			shift
+			;;
+		--prompt | --model | --reasoning-effort | --system-prompt | --system-prompt-mode | --agent-space | --output)
+			[[ $# -ge 2 ]] || fail "$1 needs a value"
+			arguments+=("$1" "$2")
+			shift 2
+			;;
+		--)
+			arguments+=("$@")
+			break
+			;;
+		*)
+			arguments+=("$1")
+			shift
+			;;
+		esac
+	done
+	if ((control_set == 0)); then
+		control="$(control_space)"
+	fi
+	case "$control" in
+	"$CONTROL_SPACE_HOST" | "$CONTROL_SPACE_DOCKER") ;;
+	*) fail "--control-space must be host or docker" ;;
+	esac
+	workdir="$(canonical_directory "$workspace")" || fail "$workspace is not a directory"
+	[[ "$workdir" != *[[:cntrl:]]* ]] || fail "the directory path holds a control character"
+	root_setting="$(workspace_root)"
+	root="$(canonical_directory "$root_setting")" || fail "the workspace root $root_setting does not exist"
+	if [[ "$root" != "/" && "$workdir" != "$root" && "$workdir" != "$root"/* ]]; then
+		printf 'error: %s is outside the workspace root %s\n' "$workdir" "$root" >&2
+		printf 'To open it, widen the root and restart:\n  peen config set PEEN_WORKSPACE_ROOT %s && peen restart\n' "$workdir" >&2
+		exit 1
+	fi
+	while IFS= read -r key; do
+		if exec_override_key "$key"; then
+			overrides+=("$key=${!key}")
+			override_names+=(-e "$key")
+		fi
+	done < <(compgen -e)
+	if [[ "$control" == "$CONTROL_SPACE_HOST" ]]; then
+		[[ -x "$BINARY" ]] || fail "$BINARY is missing; run peen setup"
+		host_environment
+		exec env -i "${HOST_ENVIRONMENT[@]}" "${overrides[@]}" "$BINARY" exec "${arguments[@]}"
+	fi
+	require_docker "the docker control space"
+	name="$(container_name)"
+	docker_controller_arguments "$root" "$workdir" 0
+	case "$(container_state "$name")" in
+	running) DOCKER_ARGUMENTS+=(--network "container:$name") ;;
+	foreign) refuse_foreign_container "$name" ;;
+	esac
+	if [[ -t 0 && -t 1 && -t 2 ]]; then
+		tty=(-t)
+	fi
+	exec docker run --rm -i "${tty[@]}" "${DOCKER_ARGUMENTS[@]}" "${override_names[@]}" "$(pinned_image)" exec "${arguments[@]}"
+}
+
 version_command() {
 	printf 'command:       %s\n' "$WRAPPER_PATH"
 	if [[ -f "$ENV_FILE" ]]; then
@@ -2040,6 +2153,7 @@ main() {
 	logs) logs_command "$@" ;;
 	open) open_command "$@" ;;
 	run) run_command "$@" ;;
+	exec) exec_command "$@" ;;
 	config) config_command "$@" ;;
 	doctor) doctor_command ;;
 	"$SERVER_COMMAND_SESSION" | "$SERVER_COMMAND_CONTROL") server_command "$command" "$@" ;;
@@ -2048,6 +2162,7 @@ main() {
 	version | --version) version_command ;;
 	help | --help | -h) usage ;;
 	__install-binary) install_binary_command "$@" ;;
+	-*) exec_command "$command" "$@" ;;
 	. | .. | */*)
 		[[ $# -eq 0 ]] || fail "peen <dir> takes one directory"
 		open_command "$command"

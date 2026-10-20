@@ -100,6 +100,8 @@ func (s *ControlCore) Ready() <-chan struct{} {
 
 // Run opens the controller's state, publishes it for control-api, and holds it
 // until the context ends.
+//
+//nolint:funlen // Keep lock and core cleanup in their ownership order.
 func (s *ControlCore) Run(ctx context.Context) (runErr error) {
 	ctx = ctxscope.Set(ctx, ctxscope.Attr("service", ServiceName))
 	logger := ctxscope.GetLogger(ctx)
@@ -115,6 +117,15 @@ func (s *ControlCore) Run(ctx context.Context) (runErr error) {
 	if err != nil {
 		return ctxerrors.Wrap(err, "load control configuration")
 	}
+
+	// Registered before the core opens, so it is released only after the
+	// deferred close below has stopped every worker and closed SQLite.
+	releaseState, err := control.LockStateDirectory(config.StateDirectory)
+	if err != nil {
+		return ctxerrors.Wrap(err, "own the controller state")
+	}
+
+	defer releaseState(ctx)
 
 	if err := s.dependencies.configureAuditLog(); err != nil {
 		return ctxerrors.Wrap(err, "configure durable audit logging")

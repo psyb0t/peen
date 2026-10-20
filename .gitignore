@@ -27,6 +27,10 @@ git-update.sh
 git-update.sh.debot
 commit.txt
 
+# .claude links to .agents, so Claude Code's per-machine files land here
+.agents/settings.local.json
+.agents/scheduled_tasks.lock
+
 # Build and generated local reports
 /build/
 /data/

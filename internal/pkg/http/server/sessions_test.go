@@ -66,7 +66,7 @@ func TestServerOpenSessionReturnsTheSession(t *testing.T) {
 	require.NoError(t, err)
 
 	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(
+	instance.inProcessHandler.ServeHTTP(
 		recorder,
 		openSessionRequest(t, `{"workspace":"`+testWorkspacePath+`"}`),
 	)
@@ -100,7 +100,7 @@ func TestServerOpenSessionForwardsTheNamedAgentSpace(t *testing.T) {
 	require.NoError(t, err)
 
 	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(
+	instance.inProcessHandler.ServeHTTP(
 		recorder,
 		openSessionRequest(
 			t,
@@ -130,7 +130,7 @@ func TestServerOpenSessionRejectsTheRemovedProfileField(t *testing.T) {
 	require.NoError(t, err)
 
 	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(
+	instance.inProcessHandler.ServeHTTP(
 		recorder,
 		openSessionRequest(
 			t,
@@ -159,7 +159,7 @@ func TestServerOpenSessionForwardsAnEmptyAgentSpace(t *testing.T) {
 	require.NoError(t, err)
 
 	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(
+	instance.inProcessHandler.ServeHTTP(
 		recorder,
 		openSessionRequest(t, `{"workspace":"`+testWorkspacePath+`"}`),
 	)
@@ -182,7 +182,7 @@ func TestServerOpenSessionReportsResume(t *testing.T) {
 	require.NoError(t, err)
 
 	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(
+	instance.inProcessHandler.ServeHTTP(
 		recorder,
 		openSessionRequest(t, `{"workspace":"`+testWorkspacePath+`"}`),
 	)
@@ -268,7 +268,7 @@ func TestServerOpenSessionMapsRefusals(t *testing.T) {
 			require.NoError(t, err)
 
 			recorder := httptest.NewRecorder()
-			instance.testHandler.ServeHTTP(
+			instance.inProcessHandler.ServeHTTP(
 				recorder,
 				openSessionRequest(t, tc.body),
 			)
@@ -320,7 +320,7 @@ func TestServerListSessionsNeedsNoSessionHeader(t *testing.T) {
 	)
 
 	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(recorder, request)
+	instance.inProcessHandler.ServeHTTP(recorder, request)
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 
@@ -386,7 +386,7 @@ func TestServerSessionControlEndpointsRequireBearerToken(t *testing.T) {
 			}
 
 			recorder := httptest.NewRecorder()
-			instance.testHandler.ServeHTTP(recorder, request)
+			instance.inProcessHandler.ServeHTTP(recorder, request)
 
 			assert.Equal(t, http.StatusUnauthorized, recorder.Code)
 			assertUnauthorizedEnvelope(t, recorder)
@@ -444,7 +444,7 @@ func TestServerWorkerReadsRequireBearerToken(t *testing.T) {
 			}
 
 			recorder := httptest.NewRecorder()
-			instance.testHandler.ServeHTTP(recorder, request)
+			instance.inProcessHandler.ServeHTTP(recorder, request)
 
 			assert.Equal(t, http.StatusUnauthorized, recorder.Code)
 			assertUnauthorizedEnvelope(t, recorder)
@@ -489,7 +489,7 @@ func TestServerListSessionWorkersIsSessionScoped(t *testing.T) {
 	request.Header.Set(headerSessionID, sessionID.String())
 
 	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(recorder, request)
+	instance.inProcessHandler.ServeHTTP(recorder, request)
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 
@@ -518,7 +518,7 @@ func TestServerListSessionWorkersRejectsAMissingSessionHeader(t *testing.T) {
 	)
 
 	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(recorder, request)
+	instance.inProcessHandler.ServeHTTP(recorder, request)
 
 	assert.Equal(t, http.StatusBadRequest, recorder.Code)
 }
@@ -545,7 +545,7 @@ func TestServerListSessionsRejectsAnInvalidPage(t *testing.T) {
 	)
 
 	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(recorder, request)
+	instance.inProcessHandler.ServeHTTP(recorder, request)
 
 	assert.Equal(t, http.StatusBadRequest, recorder.Code)
 	assertErrorCode(t, recorder, aichteeteapee.ErrorCodeValidationFailed)

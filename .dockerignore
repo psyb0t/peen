@@ -26,8 +26,9 @@ docs/
 git-update.sh
 
 # Agent skill / plugin manifests. Repo distribution material, published from
-# the repo itself, never built into or read by the binary.
+# the repo itself, never built into or read by the binary. .claude links to it.
 .agents
+.claude
 
 # Build output, coverage, logs, debug artifacts
 build/

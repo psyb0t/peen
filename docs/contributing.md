@@ -93,18 +93,16 @@ Commit subjects use conventional commits in the imperative, lowercase: `fix: ...
 
 ## Prose
 
-Write plain, exact, active sentences. No filler words such as leverage, utilize, robust, seamless, or crucial. Sentence-case headings. In Markdown, keep each paragraph on one source line. This applies to docs, comments, the CHANGELOG, commit messages, and these rule files. See `.agents/rules/docs-and-prose.md`.
+Write plain, exact, active sentences. No filler words such as leverage, utilize, robust, seamless, or crucial. Sentence-case headings. In Markdown, keep each paragraph on one source line. This applies to docs, comments, the CHANGELOG, commit messages, and these rule files.
 
 ## Rule files
 
 | File | Covers |
 | --- | --- |
-| `.agents/rules/go-style.md` | Control flow, naming, comments, line length, lint suppressions. |
+| `.agents/rules/go.md` | Lint setup, Peen's error mapping and codes, logging sinks, what never gets logged. |
 | `.agents/rules/naming.md` | camelCase for every name Peen owns: tools, hook events, session event types, YAML and JSON keys. What stays snake_case. |
-| `.agents/rules/go-errors.md` | ctxerrors wrapping, sentinels, commerr, error mapping. |
-| `.agents/rules/go-logging.md` | slog through ctxscope, levels, fields, what never gets logged. |
-| `.agents/rules/constants.md` | Named constants, typed enums, where they live, in Go and TypeScript. |
-| `.agents/rules/go-tests.md` | testify, table tests, file names, test tiers and tags, testinfra. |
+| `.agents/rules/constants.md` | Where constants and enums live, in Go and TypeScript. |
+| `.agents/rules/go-tests.md` | Test tiers and tags, coverage, testinfra. |
 | `.agents/rules/config.md` | `PEEN_` variables, gonfiguration, validation, the worker allowlist. |
 | `.agents/rules/http-api.md` | The OpenAPI contract, generated strict server, aichteeteapee, WebSocket. |
 | `.agents/rules/database.md` | SQLite, migrations, models, gorm/gen repositories and queriers. |
@@ -114,7 +112,7 @@ Write plain, exact, active sentences. No filler words such as leverage, utilize,
 | `.agents/rules/security.md` | Secrets, directory separation, workers, hooks, untrusted input. |
 | `.agents/rules/docker.md` | The production and worker image, the dev image, pinning, the entrypoint. |
 | `.agents/rules/make.md` | Makefile conventions and the dev container. |
-| `.agents/rules/shell.md` | Bash script header, logging, and lint. |
+| `.agents/rules/shell.md` | Where scripts live, logging, the `peen` command, and lint. |
 | `.agents/rules/ci.md` | The GitHub workflows and what a change must not break. |
 | `.agents/rules/versioning.md` | Semver policy, CHANGELOG entry shape, commits, manifests. |
-| `.agents/rules/docs-and-prose.md` | Doc placement, sync, Markdown format, and the prose rules. |
+| `.agents/rules/docs-and-prose.md` | Doc placement, sync, and Markdown format. |

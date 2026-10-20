@@ -47,7 +47,7 @@ func TestServerDoesNotServeHTTPMessageSubmission(t *testing.T) {
 
 	recorder := httptest.NewRecorder()
 
-	instance.testHandler.ServeHTTP(recorder, request)
+	instance.inProcessHandler.ServeHTTP(recorder, request)
 
 	assert.Equal(t, http.StatusMethodNotAllowed, recorder.Code)
 	assert.Zero(t, runtime.runCalls)
@@ -67,7 +67,7 @@ func TestServerDoesNotServePrivateMetricsFromThePublicListener(t *testing.T) {
 			)
 			recorder := httptest.NewRecorder()
 
-			instance.testHandler.ServeHTTP(recorder, request)
+			instance.inProcessHandler.ServeHTTP(recorder, request)
 
 			assert.Equal(t, http.StatusNotFound, recorder.Code)
 		})
@@ -231,7 +231,7 @@ func TestServerSessionEndpoints(t *testing.T) {
 
 			recorder := httptest.NewRecorder()
 
-			instance.testHandler.ServeHTTP(recorder, request)
+			instance.inProcessHandler.ServeHTTP(recorder, request)
 
 			assert.Equal(t, tc.wantStatus, recorder.Code)
 
@@ -271,7 +271,7 @@ func TestServerCancelReachesTheSessionWorker(t *testing.T) {
 	request.Header.Set(headerSessionID, sessionID.String())
 
 	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(recorder, request)
+	instance.inProcessHandler.ServeHTTP(recorder, request)
 
 	require.Equal(t, http.StatusAccepted, recorder.Code)
 	assert.Equal(t, []uuid.UUID{sessionID}, router.cancelledSessions)
@@ -308,7 +308,7 @@ func TestServerCancelReportsAnIdleSessionHonestly(t *testing.T) {
 	request.Header.Set(headerSessionID, sessionID.String())
 
 	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(recorder, request)
+	instance.inProcessHandler.ServeHTTP(recorder, request)
 
 	require.Equal(t, http.StatusAccepted, recorder.Code)
 	assert.Equal(t, []uuid.UUID{sessionID}, router.cancelledSessions)
@@ -345,7 +345,7 @@ func TestServerCancelSurfacesAWorkerFailure(t *testing.T) {
 	request.Header.Set(headerSessionID, sessionID.String())
 
 	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(recorder, request)
+	instance.inProcessHandler.ServeHTTP(recorder, request)
 
 	assert.Equal(t, http.StatusInternalServerError, recorder.Code)
 }
@@ -462,7 +462,7 @@ func signalTestJob(
 	request.Header.Set(headerContentType, string(mediaTypeJSON))
 
 	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(recorder, request)
+	instance.inProcessHandler.ServeHTTP(recorder, request)
 
 	return recorder
 }
@@ -485,7 +485,7 @@ func TestServerRejectsMalformedSessionIDHeader(t *testing.T) {
 	request.Header.Set(headerSessionID, "not-a-uuid")
 
 	recorder := httptest.NewRecorder()
-	instance.testHandler.ServeHTTP(recorder, request)
+	instance.inProcessHandler.ServeHTTP(recorder, request)
 
 	assert.Equal(t, http.StatusBadRequest, recorder.Code)
 	assertErrorCode(t, recorder, ErrorCodeInvalidSessionID)
