@@ -6,6 +6,8 @@
 | --- | --- |
 | `README.md` | What Peen is, install, run, the security summary, and links into `docs/`. |
 | `docs/getting-started.md`, `deployment.md` | First run and production deployment. |
+| `docs/command-line.md`, `control-surface.md` | The `peen` turn and session commands, and the browser control surface. |
+| `docs/security.md` | What the agent can reach, credentials, transcripts, and network exposure. |
 | `docs/configuration.md` | Every `PEEN_` variable. `.env.example` is its commented starting point. |
 | `docs/architecture.md` | Controller, workers, one turn, durable state, terms and identifiers. |
 | `docs/harness.md`, `rules.md`, `skills.md`, `agents.md`, `hooks.md`, `events.md` | The harness formats users write. |

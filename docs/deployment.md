@@ -59,7 +59,7 @@ peen
 | Command | What it does |
 | --- | --- |
 | `peen`, `peen .`, `peen <dir>`, `peen open [dir]` | Open a directory, default the current one, as described above. `peen <dir>` takes any argument that holds a `/` or is `.` or `..`. |
-| `peen --prompt TEXT [flags]`, `peen exec [flags] <prompt>` | Run one turn in the current directory's durable session and exit. Reuse a running controller or start one inside the command for the turn. Default output is JSONL; `--output text` streams readable replies. `--workspace DIR` selects another workspace. See the [CLI guide](../README.md#drive-it-from-the-command-line) for turn flags, stdin, cancellation, and exit statuses. |
+| `peen --prompt TEXT [flags]`, `peen exec [flags] <prompt>` | Run one turn in the current directory's durable session and exit. Reuse a running controller or start one inside the command for the turn. Default output is JSONL; `--output text` streams readable replies. `--workspace DIR` selects another workspace. See the [command line guide](command-line.md) for turn flags, stdin, cancellation, and exit statuses. |
 | `peen --control-space host\|docker --prompt TEXT` | Override where the controller client runs for this invocation. Docker runs use a foreground container that forwards signals, sharing the managed controller's network when it is already running. |
 | `peen start`, `peen stop`, `peen restart` | Run the controller in the background. The docker control space starts the container with `--restart unless-stopped`, so it comes back after a reboot. The host control space starts the binary detached, logs to `state/controller.log`, and does not come back after a reboot. |
 | `peen status` | Show the control space, default agent space, pinned image, workspace root, URL, whether the controller runs and answers, and the worker containers. Exits 3 when the controller is stopped. |
@@ -70,7 +70,7 @@ peen
 | `peen doctor` | Check file modes, the control space's binary or image, Docker access against the socket rule, provider keys still set to `REPLACE_ME`, the workspace root, and whether the controller and `GET /api/v1/models` answer. Exits 1 on any failed check. |
 | `peen upgrade [--rolling]` | Pin the newest release, pull its image or download its binary, replace the `peen` command with that release's copy, restart a running controller, and remove the old image. It moves `PEEN_WORKER_IMAGE` to the new release only when it still names the old one. |
 | `peen uninstall [--keep-data\|--delete-data]` | Stop and remove the controller, the `peen` command, the binary, and the pinned image. It asks whether to delete `~/.config/peen` unless a flag answers. |
-| `peen session ...`, `peen control status` | Run the server's own client commands, described in the [README](../README.md#drive-it-from-the-command-line), with this installation's configuration. `peen session` starts the controller first. |
+| `peen session ...`, `peen control status` | Run the server's own client commands, described in the [command line guide](command-line.md#session-and-control-commands), with this installation's configuration. `peen session` starts the controller first. |
 | `peen version`, `peen help` | Print the installed command, image, and control space, or the help. |
 
 The `peen` command stops or removes only a container whose `peen.install` label names this installation's configuration directory. A container with the same name and any other label is reported and left alone. It never passes `--privileged`.
@@ -95,7 +95,7 @@ This builds `./build/peen` and copies it to `PREFIX`, which defaults to `~/bin`.
 sudo make install PREFIX=/usr/local/bin
 ```
 
-The target warns when `PREFIX` is not on your `PATH`. This installs the server binary, not the `peen` command from the installer, so `start`, `open`, `setup`, `upgrade`, and the other management commands above do not exist here. The binary has its own `session` and `control` commands, which the [README](../README.md#drive-it-from-the-command-line) describes. Start the server with its own `run` subcommand as [Build from source](#build-from-source) shows. Both programs are named `peen`. If you use the installer as well, install the server binary under another `PREFIX` or another name, or whichever directory comes first in your `PATH` decides which one runs.
+The target warns when `PREFIX` is not on your `PATH`. This installs the server binary, not the `peen` command from the installer, so `start`, `open`, `setup`, `upgrade`, and the other management commands above do not exist here. The binary has its own `session` and `control` commands, which the [command line guide](command-line.md#session-and-control-commands) describes. Start the server with its own `run` subcommand as [Build from source](#build-from-source) shows. Both programs are named `peen`. If you use the installer as well, install the server binary under another `PREFIX` or another name, or whichever directory comes first in your `PATH` decides which one runs.
 
 ## Build from source
 
@@ -231,7 +231,7 @@ Three mount requirements matter here:
 
 ### Networking and the API token
 
-Publish the port `PEEN_HTTP_LISTEN_ADDRESS` binds to inside the container, `8080` by default. `-p 127.0.0.1:8080:8080` reaches it from this machine only. If you publish it beyond a trusted network, set `PEEN_API_TOKEN` to a real value first. It is empty by default, and an empty token turns authentication off. See [Things worth knowing](../README.md#things-worth-knowing).
+Publish the port `PEEN_HTTP_LISTEN_ADDRESS` binds to inside the container, `8080` by default. `-p 127.0.0.1:8080:8080` reaches it from this machine only. If you publish it beyond a trusted network, set `PEEN_API_TOKEN` to a real value first. It is empty by default, and an empty token turns authentication off. See [network exposure](security.md#network-exposure).
 
 Metrics bind only to `PEEN_METRICS_LISTEN_ADDRESS`, which defaults to the container's loopback interface at `127.0.0.1:9090`. Publishing it with `-p` does not make it reachable from the host. Run the scraper in the same network namespace as Peen, or collect metrics through a local proxy you run in that namespace.
 
@@ -279,7 +279,7 @@ A Docker worker calls the model provider itself. A profile with `network: none` 
 
 ### Isolation is the operator's job, not the image's
 
-The Ubuntu base and the non-root controller account are the only isolation Peen ships with by default. `runCommand` and the file tools have whatever access the worker's account has, which covers everything under the mounted `PEEN_CONFIG_DIR` and workspace, plus network access unless you restrict it. Read the README's [Security](../README.md#security) section. Where to harden depends on the session's agent space:
+The Ubuntu base and the non-root controller account are the only isolation Peen ships with by default. `runCommand` and the file tools have whatever access the worker's account has, which covers everything under the mounted `PEEN_CONFIG_DIR` and workspace, plus network access unless you restrict it. Read [Security](security.md). Where to harden depends on the session's agent space:
 
 - In the `control` agent space the agent runs inside the controller container, so harden that container. Add `--network`, `--cap-drop`, `--read-only` (with writable mounts for the state directory and the workspace root, and the configuration directory mounted read-only), or a seccomp or AppArmor profile as your deployment needs. Do not mount the Docker socket into it, because Peen refuses `control` beside a reachable socket.
 - In a `docker:<profile>` agent space the agent runs in its own worker container, and `docker run` flags affect only the controller. Harden the Docker profile instead, with `network`, `mounts`, `docker`, and `sudo`. See [Docker profiles](where-it-runs.md#docker-profiles).
