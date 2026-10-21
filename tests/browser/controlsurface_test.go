@@ -206,6 +206,16 @@ const (
 	browserSelectorChatHeader = "header.chat-header h1"
 	browserLinkScreenshot     = "session-link"
 
+	// browserEvalLiveTurnGone reports whether the stored transcript has
+	// replaced every live turn. The replacement renders new tool cards, so
+	// a card expanded before it collapses again.
+	browserEvalLiveTurnGone = `(() => {
+		const live = document.querySelector("article.message.assistant.live");
+		return String(live === null);
+	})()`
+	browserEvalTrue            = "true"
+	browserTranscriptPollEvery = 250 * time.Millisecond
+
 	browserActionEval             = "eval"
 	browserExpressionKey          = "expression"
 	browserReconnectWorkspaceName = "browser-reconnect-midturn"
@@ -456,6 +466,13 @@ func TestControlSurfaceCompletesATurnInARealBrowser(t *testing.T) {
 		browserTextKey:    browserCompletionText,
 		browserTimeoutKey: browserRequestTimeout.Seconds(),
 	})
+	require.Eventually(t, func() bool {
+		return browserEvalStringResult(
+			ctx,
+			t,
+			browserEvalLiveTurnGone,
+		) == browserEvalTrue
+	}, browserRequestTimeout, browserTranscriptPollEvery)
 	// CSS upper-cases the status labels, so card text is compared without case.
 	doneCard := strings.ToLower(
 		browserElement(ctx, t, browserSelectorToolCardDone),
