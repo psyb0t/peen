@@ -1,6 +1,6 @@
 module github.com/psyb0t/peen
 
-go 1.26.9
+go 1.26.10
 
 require (
 	github.com/cschleiden/go-workflows v1.4.2

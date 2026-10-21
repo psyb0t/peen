@@ -2,6 +2,12 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.27.1 (2026-10-21)
+
+Builds Peen with Go 1.26.10 to fix a reachable standard library vulnerability. The v0.27.0 tag never produced a published image or release, so this is the first release that ships the v0.27.0 changes. No configuration or API migration is needed.
+
+- Builds with Go 1.26.10, which makes `crypto/x509` distrust compromised intermediate certificates (GO-2026-6809). `govulncheck` reports it as reachable from Peen through the Docker Engine API client. `go.mod` now requires Go 1.26.10.
+
 ## v0.27.0 (2026-10-20)
 
 Run a turn from the command line in a workspace's durable session, with streamed output and the same configuration as the control surface. No configuration or API migration is needed.

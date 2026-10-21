@@ -231,7 +231,10 @@ func (s *oneshotStub) socket(
 ) {
 	t.Helper()
 
-	upgrader := websocket.Upgrader{Subprotocols: []string{"peen.v1"}}
+	upgrader := websocket.Upgrader{
+		Subprotocols: []string{"peen.v1"},
+		CheckOrigin:  func(*http.Request) bool { return true },
+	}
 	socket, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		t.Error(err)
