@@ -10,7 +10,7 @@ A release tag is never rebuilt or retested. Its run waits for the `main` push ru
 
 | Job | When | What it runs |
 | --- | --- | --- |
-| `code` | every run except tags and draft pull requests | `make lint`, `make test-coverage test-browser test-execution-forms test-installer`, `make sec`, and `make generate`. It uploads `coverage-percent.txt` and the `sec.sarif` report. |
+| `code` | every run except tags and draft pull requests | `make lint`, `make test-action test-coverage test-browser test-execution-forms test-installer`, `make sec`, and `make generate`. It uploads `coverage-percent.txt` and the `sec.sarif` report. |
 | `docker` | `main` pushes and ready pull requests, after `code` | Multi-arch `linux/amd64,linux/arm64` image build and scan, published to Docker Hub as `psyb0t/peen:latest` and `psyb0t/peen:sha-<commit>`. The image is built with `BUILD_VERSION=sha-<commit>`, so it names `psyb0t/peen:sha-<commit>` as its default worker image. |
 | `wait` | tags | Waits for the `main` push run of the tagged commit and fails when that run failed or never ran. Outputs its run ID. |
 | `docker-promote` | tags, after `wait` | Re-tags `psyb0t/peen:sha-<commit>` as `psyb0t/peen:<tag>` by digest, for every platform, with no build, then scans it. It creates no GitHub release. |

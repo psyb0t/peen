@@ -25,6 +25,7 @@ Peen ships its own browser [control surface](docs/control-surface.md) at the con
 - [Install](#install)
 - [Run it](#run-it)
 - [Security](#security)
+- [GitHub action](#github-action)
 - [Agent integrations](#agent-integrations)
 - [Documentation](#documentation)
 
@@ -79,6 +80,25 @@ peen --prompt "fix the tests"
 
 The agent's file tools and `runCommand` have the full access of the account its worker runs as, with no path allowlist and no approval step. A Docker agent space is the isolation boundary. Tool output is stored and streamed verbatim, unredacted. A session with no client attached keeps running and spending provider budget until something stops it. Set `PEEN_API_TOKEN` and use `wss://` outside local development. Read [Security](docs/security.md) before you deploy Peen anywhere it can reach something you do not want touched.
 
+## GitHub action
+
+Run a prompt as a workflow step on a Linux runner with Docker. Your workflow prepares the directory, including checkout when needed. Peen runs the prompt, streams its reply, and returns `result` and `result-file` outputs.
+
+```yaml
+- uses: psyb0t/peen@main
+  id: peen
+  with:
+    prompt: Explain this project and write a summary to SUMMARY.md.
+    working-directory: .
+    model: gateway/your-model-id
+    upstreams: >-
+      [{"name":"gateway","type":"openai","baseUrl":"https://gateway.example/v1","apiKeyEnv":"PROVIDER_KEY"}]
+  env:
+    PROVIDER_KEY: ${{ secrets.PROVIDER_KEY }}
+```
+
+Replace the provider URL and model, and add `PROVIDER_KEY` to your repository's Actions secrets. `working-directory` can name any prepared directory, including one outside a checkout. The [GitHub action guide](docs/github-action.md) has complete workflows with and without checkout, output handling, and every input.
+
 ## Agent integrations
 
 The `peen` agent skill teaches an agent how to install and run Peen, send work over WebSocket, add workspace harness layers, and inspect stored state. It is documentation only. Installing it does not start a server, run a hook, or change a workspace.
@@ -102,6 +122,7 @@ openclaw skills install @psyb0t/peen
 | Start from zero | [Getting started](docs/getting-started.md) |
 | Install Peen, use the `peen` command, or run it by hand | [Deployment](docs/deployment.md) |
 | Run turns and manage sessions from a shell | [Command line](docs/command-line.md) |
+| Run a prompt in a GitHub workflow | [GitHub action](docs/github-action.md) |
 | Use the browser chat | [Control surface](docs/control-surface.md) |
 | Decide where the agent runs and what it can touch | [Where it runs](docs/where-it-runs.md) |
 | Know what the agent can reach before you deploy | [Security](docs/security.md) |

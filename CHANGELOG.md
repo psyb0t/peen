@@ -2,6 +2,14 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.28.0 (2026-10-22)
+
+Run Peen prompts from GitHub workflows with a caller-selected working directory and reply outputs. No configuration or API migration is needed.
+
+- Adds a GitHub action that runs a prompt in a caller-selected directory, streams the reply, and exposes reply text and a result file to later steps. The caller handles checkout and supplies provider credentials.
+- Documents complete workflow examples with and without checkout, provider setup, and reply handling.
+- Fixes intermittent CI failures when the browser test expanded a live tool card just before the saved transcript replaced it.
+
 ## v0.27.1 (2026-10-21)
 
 Builds Peen with Go 1.26.10 to fix a reachable standard library vulnerability, and moves the README's detailed sections into `docs/`. The v0.27.0 tag never produced a published image or release, so this is the first release that ships the v0.27.0 changes. No configuration or API migration is needed.

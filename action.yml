@@ -1,0 +1,59 @@
+name: peen
+description: Run a Peen prompt in a directory and return its reply.
+author: psyb0t
+branding:
+  icon: terminal
+  color: purple
+inputs:
+  prompt:
+    description: Prompt text. Set this or prompt-file.
+    default: ""
+  prompt-file:
+    description: Prompt file, relative to GITHUB_WORKSPACE or absolute.
+    default: ""
+  working-directory:
+    description: Writable workspace, relative to GITHUB_WORKSPACE or absolute. No checkout is performed.
+    default: .
+  upstreams:
+    description: PEEN_UPSTREAMS JSON. Supply credentials named by apiKeyEnv through the step environment.
+    required: true
+  model:
+    description: Provider-qualified model, such as provider/model-name.
+    required: true
+  compaction-model:
+    description: Summarizer model. Empty uses model.
+    default: ""
+  reasoning-effort:
+    description: Reasoning level. Empty uses the model default.
+    default: ""
+  system-prompt:
+    description: Additional system instructions for this turn.
+    default: ""
+  image:
+    description: Peen image. Override with a tag or digest to freeze it.
+    default: psyb0t/peen:latest
+outputs:
+  result:
+    description: Reply text from Peen.
+    value: ${{ steps.run.outputs.result }}
+  result-file:
+    description: Absolute path to the reply text file, including on a failed turn.
+    value: ${{ steps.run.outputs.result-file }}
+runs:
+  using: composite
+  steps:
+    - name: Run Peen
+      id: run
+      shell: bash
+      env:
+        PEEN_ACTION_PATH: ${{ github.action_path }}
+        IN_PROMPT: ${{ inputs.prompt }}
+        IN_PROMPT_FILE: ${{ inputs.prompt-file }}
+        IN_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        IN_UPSTREAMS: ${{ inputs.upstreams }}
+        IN_MODEL: ${{ inputs.model }}
+        IN_COMPACTION_MODEL: ${{ inputs.compaction-model }}
+        IN_REASONING_EFFORT: ${{ inputs.reasoning-effort }}
+        IN_SYSTEM_PROMPT: ${{ inputs.system-prompt }}
+        IN_IMAGE: ${{ inputs.image }}
+      run: bash "$PEEN_ACTION_PATH/scripts/action/run.sh"

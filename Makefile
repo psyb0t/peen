@@ -40,6 +40,10 @@ PREFIX ?= $(HOME)/bin
 install: build ## Install the built binary to PREFIX (default ~/bin)
 	@PREFIX="$(PREFIX)" bash scripts/make/install.sh
 
+.PHONY: test-action
+test-action: dev-image ## Test the public GitHub action without a model provider
+	@$(DEV_RUN) bash scripts/action/run_test.sh
+
 test: ## Run every Go test with race detection
 	@$(MAKE) dev-image
 	@$(call run_dind_script,test.sh)
