@@ -133,6 +133,7 @@ type Config struct {
 	WorkerImage string `env:"PEEN_WORKER_IMAGE"`
 
 	MaxContextTokens       int            `default:"32768"       env:"PEEN_MAX_CONTEXT_TOKENS"`           //nolint:lll // Immutable env tag.
+	OutputReserveTokens    int            `default:"4096"        env:"PEEN_OUTPUT_RESERVE_TOKENS"`        //nolint:lll // Immutable env tag.
 	CompactionMode         CompactionMode `default:"drop-oldest" env:"PEEN_COMPACTION_MODE"`              //nolint:lll // Immutable env tag.
 	CompactionOutputTokens int            `default:"2048"        env:"PEEN_COMPACTION_MAX_OUTPUT_TOKENS"` //nolint:lll // Immutable env tag.
 	CompactionTimeout      time.Duration  `default:"2m"          env:"PEEN_COMPACTION_TIMEOUT"`           //nolint:lll // Immutable env tag.
@@ -573,9 +574,7 @@ func (c Config) validateRuntime() error {
 		)
 	}
 
-	if c.MaxContextTokens <= 0 ||
-		c.CompactionOutputTokens <= 0 ||
-		c.CompactionOutputTokens >= c.MaxContextTokens ||
+	if !c.hasContextBudget() ||
 		c.CompactionTimeout <= 0 ||
 		c.TurnTimeout <= 0 {
 		return ctxerrors.Wrap(ErrInvalidConfig, "invalid Peen runtime limits")
@@ -587,6 +586,15 @@ func (c Config) validateRuntime() error {
 	}
 
 	return c.validateToolLimits()
+}
+
+// hasContextBudget reports whether the context holds the reply's reserve and a
+// summary with prompt room to spare. The prompt gets the context minus the
+// reserve, and a summary has to fit in what is left.
+func (c Config) hasContextBudget() bool {
+	return c.MaxContextTokens > 0 && c.OutputReserveTokens >= 0 &&
+		c.CompactionOutputTokens > 0 &&
+		c.CompactionOutputTokens+c.OutputReserveTokens < c.MaxContextTokens
 }
 
 // validateToolLimits rejects a bound that cannot bound anything. These are

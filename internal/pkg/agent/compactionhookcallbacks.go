@@ -126,7 +126,9 @@ func (r *Runtime) workflowCompactionHookPayload(workspace string,
 		plan:    conversation.Compaction.Plan,
 	}
 	payload := built.hookPayload(&elelem.TokenLimitEvent{
-		EstimatedTokens: estimated, BudgetTokens: conversation.MaxContextTokens,
+		EstimatedTokens: estimated,
+		BudgetTokens: conversation.MaxContextTokens -
+			conversation.OutputReserveTokens,
 		Round: input.Round,
 	}, units, built.plan.messageCount(units), 0)
 

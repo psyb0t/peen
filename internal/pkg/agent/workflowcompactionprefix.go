@@ -37,7 +37,10 @@ func selectWorkflowCompactionPrefix(
 	}
 
 	state := conversation.Compaction
-	if conversation.MaxContextTokens <= state.MaxOutputTokens {
+	// The candidate request keeps the reply's reserve, so the summary
+	// allowance has to fit beside it or the probe resolves to no budget.
+	if conversation.MaxContextTokens <=
+		state.MaxOutputTokens+conversation.OutputReserveTokens {
 		return 0, ctxerrors.Wrap(ErrCompactionUnavailable,
 			"compaction requires room for the summary allowance")
 	}
@@ -61,13 +64,7 @@ func selectWorkflowPrefixCandidate(
 		candidate := compactor.replacePrefix(messages, units,
 			compactionSummaryLead)
 
-		history := directoryHistory(candidate)
-		for index := range history {
-			if history[index].Origin == elelem.MessageOriginInjection {
-				history[index].Origin = elelem.MessageOriginSeed
-			}
-		}
-
+		history := seededWorkflowHistory(directoryHistory(candidate))
 		request.WithPrompt(elelem.NewPrompt().
 			WithSystem(conversation.SystemPrompt).WithHistory(history)).
 			WithMaxContextTokens(budget)

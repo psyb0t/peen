@@ -974,6 +974,7 @@ func (r *Runtime) runChildAgent(
 		WithToolTimeout(r.toolTimeout).
 		WithMaxToolResultTokens(r.maxToolResultTokens).
 		WithMaxContextTokens(r.maxContextTokens).
+		WithOutputReserveTokens(r.outputReserveTokens).
 		OnText(sink.onText).
 		OnReasoning(sink.onReasoning).
 		OnRoundStart(scope.beforeRound).

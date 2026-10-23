@@ -37,6 +37,8 @@ const (
 	// registryTestAnthropicContextSize is that published window.
 	registryTestAnthropicContextSize = 200_000
 	registryTestKnownZAICodingModel  = "glm-5.3"
+	// registryTestZAICodingContextSize is the window Z.ai documents for it.
+	registryTestZAICodingContextSize = 1_000_000
 
 	// registryInvalidBudget is negative rather than zero, because the table
 	// runner reads zero as "this case does not care" and substitutes the
@@ -242,10 +244,10 @@ func TestNewRegistryModelContextSize(t *testing.T) {
 			want:         registryTestMaxContextTokens,
 		},
 		{
-			name:         "a Z.ai Coding model takes the configured budget",
+			name:         "a Z.ai Coding model keeps its published window",
 			upstreamType: config.UpstreamTypeZAICoding,
 			modelID:      registryTestKnownZAICodingModel,
-			want:         registryTestMaxContextTokens,
+			want:         registryTestZAICodingContextSize,
 		},
 	}
 

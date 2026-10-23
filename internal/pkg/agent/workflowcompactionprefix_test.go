@@ -96,6 +96,51 @@ func TestWorkflowCompactionPrefixRejectsNoEligibleHistory(t *testing.T) {
 	assert.Equal(t, before, scenario.driver.Calls())
 }
 
+// The candidate request keeps the reply's reserve, so a summary allowance
+// that only fits without it leaves the probe no budget to measure against.
+func TestWorkflowCompactionPrefixRejectsAllowanceBesideReserve(t *testing.T) {
+	t.Parallel()
+	scenario, input := workflowCompactionPrefixFixture(t, 3)
+	var conversation workflowConversation
+	require.NoError(t, json.Unmarshal(input.Execution.Context, &conversation))
+	conversation.OutputReserveTokens = conversation.MaxContextTokens -
+		conversation.Compaction.MaxOutputTokens
+	encoded, err := json.Marshal(conversation)
+	require.NoError(t, err)
+	input.Execution.Context = encoded
+	before := scenario.driver.Calls()
+	_, err = selectWorkflowCompactionPrefix(scenario.fixture.runtime.models,
+		input)
+	require.ErrorIs(t, err, ErrCompactionUnavailable)
+	assert.Equal(t, before, scenario.driver.Calls())
+}
+
+// The saved reserve comes off the context limit in the request a round sends.
+func TestWorkflowModelRequestKeepsTheReplyReserve(t *testing.T) {
+	t.Parallel()
+	scenario, input := workflowCompactionPrefixFixture(t, 2)
+	models := scenario.fixture.runtime.models
+
+	request, _, err := workflowModelRequest(models, input)
+	require.NoError(t, err)
+	reached, err := request.IsTokenLimitReached()
+	require.NoError(t, err)
+	require.False(t, reached, "the fixture fits without a reserve")
+
+	var conversation workflowConversation
+	require.NoError(t, json.Unmarshal(input.Execution.Context, &conversation))
+	conversation.OutputReserveTokens = conversation.MaxContextTokens - 1
+	encoded, err := json.Marshal(conversation)
+	require.NoError(t, err)
+	input.Execution.Context = encoded
+
+	request, _, err = workflowModelRequest(models, input)
+	require.NoError(t, err)
+	reached, err = request.IsTokenLimitReached()
+	require.NoError(t, err)
+	assert.True(t, reached)
+}
+
 func TestWorkflowCompactionPrefixRejectsMalformedInput(t *testing.T) {
 	t.Parallel()
 	scenario, input := workflowCompactionPrefixFixture(t, 2)

@@ -21,7 +21,10 @@ const (
 	// defaultMaxContextTokens mirrors PEEN_MAX_CONTEXT_TOKENS's deployment
 	// default, so an embedding caller that leaves it unset behaves like the
 	// HTTP service's own default deployment.
-	defaultMaxContextTokens     = 32768
+	defaultMaxContextTokens = 32768
+	// defaultOutputReserveTokens mirrors PEEN_OUTPUT_RESERVE_TOKENS's
+	// deployment default.
+	defaultOutputReserveTokens  = 4096
 	defaultMaxEventWakesPerHour = 60
 	// defaultTurnTimeout mirrors PEEN_TURN_TIMEOUT's deployment default.
 	defaultTurnTimeout   = 10 * time.Minute
@@ -167,17 +170,18 @@ func runtimeOptions(
 	options Options,
 ) agent.RuntimeOptions {
 	return agent.RuntimeOptions{
-		Models:             models,
-		RootAgent:          options.RootAgent,
-		DefaultModel:       options.DefaultModel,
-		DefaultWorkspace:   workspace,
-		MaxContextTokens:   options.MaxContextTokens,
-		TurnTimeout:        options.TurnTimeout,
-		BaseSystemPrompt:   options.BaseSystemPrompt,
-		AppendSystemPrompt: options.AppendSystemPrompt,
-		AskTimeout:         options.AskTimeout,
-		ToolLimits:         tools.Limits(options.ToolLimits),
-		AgentLimits:        agent.AgentRunLimits(options.AgentLimits),
+		Models:              models,
+		RootAgent:           options.RootAgent,
+		DefaultModel:        options.DefaultModel,
+		DefaultWorkspace:    workspace,
+		MaxContextTokens:    options.MaxContextTokens,
+		OutputReserveTokens: options.OutputReserveTokens,
+		TurnTimeout:         options.TurnTimeout,
+		BaseSystemPrompt:    options.BaseSystemPrompt,
+		AppendSystemPrompt:  options.AppendSystemPrompt,
+		AskTimeout:          options.AskTimeout,
+		ToolLimits:          tools.Limits(options.ToolLimits),
+		AgentLimits:         agent.AgentRunLimits(options.AgentLimits),
 
 		MaxSystemPromptBytes:  options.MaxSystemPromptBytes,
 		MaxMessageBytes:       options.MaxMessageBytes,

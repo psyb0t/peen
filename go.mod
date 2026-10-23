@@ -18,7 +18,7 @@ require (
 	github.com/psyb0t/common-go v0.8.0
 	github.com/psyb0t/ctxerrors v0.7.1
 	github.com/psyb0t/ctxscope v1.0.3
-	github.com/psyb0t/elelem v0.9.1
+	github.com/psyb0t/elelem v0.12.0
 	github.com/psyb0t/essessey v0.7.5
 	github.com/psyb0t/gen-asyncapi v0.2.0
 	github.com/psyb0t/goenv v1.0.10

@@ -64,14 +64,15 @@ type Runtime struct {
 	// attribute turns to.
 	workerGenerationID uuid.UUID
 
-	rootAgent        string
-	defaultModel     string
-	defaultWorkspace string
-	sessionID        uuid.UUID
-	maxContextTokens int
-	turnTimeout      time.Duration
-	baseSystemPrompt string
-	now              func() time.Time
+	rootAgent           string
+	defaultModel        string
+	defaultWorkspace    string
+	sessionID           uuid.UUID
+	maxContextTokens    int
+	outputReserveTokens int
+	turnTimeout         time.Duration
+	baseSystemPrompt    string
+	now                 func() time.Time
 
 	maxSystemPromptBytes  int
 	maxMessageBytes       int
@@ -267,14 +268,15 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 		models:              options.Models,
 		workerGenerationID:  options.WorkerGenerationID,
 
-		rootAgent:        options.RootAgent,
-		defaultModel:     options.DefaultModel,
-		defaultWorkspace: startup.workspace,
-		sessionID:        startup.id,
-		maxContextTokens: options.MaxContextTokens,
-		turnTimeout:      options.TurnTimeout,
-		baseSystemPrompt: options.BaseSystemPrompt,
-		now:              time.Now,
+		rootAgent:           options.RootAgent,
+		defaultModel:        options.DefaultModel,
+		defaultWorkspace:    startup.workspace,
+		sessionID:           startup.id,
+		maxContextTokens:    options.MaxContextTokens,
+		outputReserveTokens: options.OutputReserveTokens,
+		turnTimeout:         options.TurnTimeout,
+		baseSystemPrompt:    options.BaseSystemPrompt,
+		now:                 time.Now,
 
 		maxSystemPromptBytes:  options.MaxSystemPromptBytes,
 		maxMessageBytes:       options.MaxMessageBytes,
@@ -1904,6 +1906,7 @@ func (r *Runtime) runProvider(
 		WithModel(prepared.model.Model).
 		WithPrompt(prepared.prompt).
 		WithMaxContextTokens(r.maxContextTokens).
+		WithOutputReserveTokens(r.outputReserveTokens).
 		WithTimeout(r.turnTimeout).
 		WithTools(scope.context().tools).
 		WithToolProvider(scope.provideTools).
@@ -2155,11 +2158,16 @@ func compactionSettings(
 		Timeout:         options.CompactionTimeout,
 	}.withDefaults(options.DefaultModel)
 
-	if settings.MaxOutputTokens >= options.MaxContextTokens {
+	// The summary replaces history inside the prompt, which already gives up
+	// the reply's reserve, so both have to fit.
+	if settings.MaxOutputTokens+options.OutputReserveTokens >=
+		options.MaxContextTokens {
 		return "", compactionOptions{}, ctxerrors.Wrapf(
 			ErrInvalidCompactionOptions,
-			"a %d token summary allowance does not fit a %d token budget",
+			"a %d token summary allowance and %d token reply reserve "+
+				"do not fit a %d token context",
 			settings.MaxOutputTokens,
+			options.OutputReserveTokens,
 			options.MaxContextTokens,
 		)
 	}

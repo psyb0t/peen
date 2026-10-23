@@ -104,7 +104,7 @@ func isNilPointer(value any) bool {
 
 func (o Options) validateBounds() error {
 	counts := []int{
-		o.MaxContextTokens, o.MaxQueuedUserMessages,
+		o.MaxContextTokens, o.OutputReserveTokens, o.MaxQueuedUserMessages,
 		o.MaxMessageBytes, o.MaxSystemPromptBytes, o.MaxStoredMessageBytes,
 		o.MaxToolRounds, o.MaxConcurrentTools, o.MaxToolResultTokens,
 		o.MaxHookCommandOutput, o.CompactionOutputTokens,
@@ -197,6 +197,10 @@ func (o Options) withDefaults() Options {
 
 	if o.MaxContextTokens <= 0 {
 		o.MaxContextTokens = defaultMaxContextTokens
+	}
+
+	if o.OutputReserveTokens <= 0 {
+		o.OutputReserveTokens = defaultOutputReserveTokens
 	}
 
 	if o.TurnTimeout <= 0 {

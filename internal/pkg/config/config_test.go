@@ -135,6 +135,26 @@ func TestConfigValidate(t *testing.T) {
 			wantErr: ErrInvalidConfig,
 		},
 		{
+			name: "summary allowance and reply reserve fill the context",
+			mutate: func(config *Config) {
+				config.OutputReserveTokens = config.MaxContextTokens -
+					config.CompactionOutputTokens
+			},
+			wantErr: ErrInvalidConfig,
+		},
+		{
+			name: "reply reserve fits beside the summary allowance",
+			mutate: func(config *Config) {
+				config.OutputReserveTokens = config.MaxContextTokens -
+					config.CompactionOutputTokens - 1
+			},
+		},
+		{
+			name:    "negative reply reserve",
+			mutate:  func(config *Config) { config.OutputReserveTokens = -1 },
+			wantErr: ErrInvalidConfig,
+		},
+		{
 			name: "duplicate upstream name",
 			mutate: func(config *Config) {
 				config.UpstreamsJSON = `[
@@ -204,6 +224,7 @@ func TestParseUsesFixedEnvironmentBindings(t *testing.T) {
 	t.Setenv("PEEN_DEFAULT_MODEL", testQualifiedModel)
 	t.Setenv("PEEN_COMPACTION_MODEL", testQualifiedModel)
 	t.Setenv("PEEN_MAX_CONTEXT_TOKENS", "8192")
+	t.Setenv("PEEN_OUTPUT_RESERVE_TOKENS", "2048")
 	t.Setenv("PEEN_COMPACTION_MODE", string(CompactionModeSummarize))
 	t.Setenv("PEEN_COMPACTION_MAX_OUTPUT_TOKENS", "1024")
 	t.Setenv("PEEN_COMPACTION_TIMEOUT", "3m")
@@ -227,6 +248,7 @@ func TestParseUsesFixedEnvironmentBindings(t *testing.T) {
 	assert.Equal(t, testQualifiedModel, config.DefaultModel)
 	assert.Equal(t, CompactionModeSummarize, config.CompactionMode)
 	assert.Equal(t, 8192, config.MaxContextTokens)
+	assert.Equal(t, 2048, config.OutputReserveTokens)
 	assert.Equal(t, 1024, config.CompactionOutputTokens)
 	assert.Equal(t, 3*time.Minute, config.CompactionTimeout)
 	assert.Equal(t, 4*time.Minute, config.TurnTimeout)

@@ -86,9 +86,13 @@ type Options struct {
 	// Empty takes DefaultModel. A non-empty value must be a key in Models.
 	CompactionModel string
 
-	// MaxContextTokens bounds one turn's request budget. Zero takes the
-	// package default.
+	// MaxContextTokens bounds one request's whole context, prompt and reply
+	// together. Zero takes the package default.
 	MaxContextTokens int
+	// OutputReserveTokens is the room kept for the reply inside
+	// MaxContextTokens; the prompt gets the rest. Zero takes the package
+	// default of 4096.
+	OutputReserveTokens int
 	// TurnTimeout bounds one turn's provider call. Zero takes the package
 	// default.
 	TurnTimeout time.Duration

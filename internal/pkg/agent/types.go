@@ -362,8 +362,13 @@ type RuntimeOptions struct {
 	// that tried to open one would be refused.
 	StartupSessionID uuid.UUID
 
+	// MaxContextTokens is the whole context window a request may use, prompt
+	// and reply together.
 	MaxContextTokens int
-	TurnTimeout      time.Duration
+	// OutputReserveTokens is the room kept for the reply inside
+	// MaxContextTokens, so the prompt gets the difference. Zero keeps none.
+	OutputReserveTokens int
+	TurnTimeout         time.Duration
 
 	// BaseSystemPrompt overrides the deployment prompt. Empty reads SYSTEM.md
 	// and APPEND_SYSTEM.md from ConfigDirectory and otherwise takes the
@@ -469,14 +474,20 @@ func (o RuntimeOptions) validate() error {
 
 	// DefaultWorkspace is absent from this check on purpose. An empty value is
 	// the control surface asking for a runtime that starts with no session.
-	if o.RootAgent == "" || o.DefaultModel == "" ||
-		o.MaxContextTokens <= 0 ||
+	if o.RootAgent == "" || o.DefaultModel == "" || !o.hasContextBudget() ||
 		o.TurnTimeout <= 0 || o.MaxQueuedUserMessages < 0 ||
 		o.AskTimeout < 0 {
 		return ctxerrors.Wrap(commerr.ErrValidationFailed, "runtime options")
 	}
 
 	return nil
+}
+
+// hasContextBudget reports whether the prompt keeps room once the reply's
+// reserve comes off the context.
+func (o RuntimeOptions) hasContextBudget() bool {
+	return o.MaxContextTokens > 0 && o.OutputReserveTokens >= 0 &&
+		o.OutputReserveTokens < o.MaxContextTokens
 }
 
 // withToolDefaults fills the tool bounds a caller left at zero so an embedding

@@ -29,8 +29,9 @@ func RuntimeOptionsFromConfig(
 		RootAgent:    deployment.Agent,
 		DefaultModel: deployment.DefaultModel,
 
-		MaxContextTokens: deployment.MaxContextTokens,
-		TurnTimeout:      deployment.TurnTimeout,
+		MaxContextTokens:    deployment.MaxContextTokens,
+		OutputReserveTokens: deployment.OutputReserveTokens,
+		TurnTimeout:         deployment.TurnTimeout,
 
 		MaxSystemPromptBytes:  deployment.MaxSystemPromptBytes,
 		MaxMessageBytes:       deployment.MaxMessageBytes,

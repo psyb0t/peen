@@ -178,7 +178,7 @@ Peen asks every listed provider for its models at startup. Delete every entry yo
 
 Set `PEEN_DEFAULT_MODEL` to the model that runs every turn and `PEEN_COMPACTION_MODEL` to the one that writes [compaction](#compaction) summaries, each as `provider/model`. With the Z.ai entry above, that is `PEEN_DEFAULT_MODEL=zai/glm-5.3` and `PEEN_COMPACTION_MODEL=zai/glm-5.3-flash`. A client can pick another model for one message. Peen never picks a model for a request on its own.
 
-Peen's Z.ai Coding catalog has GLM 5.3 and GLM 5.3 Flash. GLM 5.3 supports its documented reasoning effort values. GLM 5.3 Flash keeps its thinking between rounds and has no numeric or off setting for it.
+Peen's Z.ai Coding catalog has GLM 5.3 and GLM 5.3 Flash, each with a 1,000,000-token context window. `PEEN_MAX_CONTEXT_TOKENS` keeps its 32768 default, so set it up to `1000000` to use that window. The prompt then gets that minus `PEEN_OUTPUT_RESERVE_TOKENS`. Both models keep their thinking between rounds and accept a reasoning effort, which Z.ai maps to `low`, `high`, or `max`. Thinking cannot be turned off, so `none` is refused.
 
 ## Metrics
 
@@ -192,9 +192,10 @@ Every time setting is a Go duration such as `90s`, `10m`, or `1h30m`. A bare num
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PEEN_MAX_CONTEXT_TOKENS` | `32768` | The request budget [Elelem](https://github.com/psyb0t/elelem) enforces. It is also the context size for a model whose provider publishes none, and startup rejects a value larger than a published window. |
+| `PEEN_MAX_CONTEXT_TOKENS` | `32768` | The whole context of one request, prompt and reply together. The prompt gets this minus `PEEN_OUTPUT_RESERVE_TOKENS`. It is also the context size for a model whose provider publishes none, and startup rejects a value larger than a published window. |
+| `PEEN_OUTPUT_RESERVE_TOKENS` | `4096` | Room kept for the model's reply inside `PEEN_MAX_CONTEXT_TOKENS`. `0` keeps none. |
 | `PEEN_COMPACTION_MODE` | `drop-oldest` | `drop-oldest` or `summarize`. See [compaction](#compaction). |
-| `PEEN_COMPACTION_MAX_OUTPUT_TOKENS` | `2048` | Space kept for a generated summary. Must be smaller than `PEEN_MAX_CONTEXT_TOKENS`, and is checked even when `drop-oldest` is active. |
+| `PEEN_COMPACTION_MAX_OUTPUT_TOKENS` | `2048` | Space kept for a generated summary. Together with `PEEN_OUTPUT_RESERVE_TOKENS` it must be smaller than `PEEN_MAX_CONTEXT_TOKENS`, and the check runs even when `drop-oldest` is active. |
 | `PEEN_COMPACTION_TIMEOUT` | `2m` | Limit on the separate summarization call. |
 | `PEEN_TURN_TIMEOUT` | `10m` | Limit on one turn. |
 | `PEEN_MAX_CONCURRENT_TURNS` | `16` | Turns that may run at once, across every session in the process. |
@@ -202,10 +203,12 @@ Every time setting is a Go duration such as `90s`, `10m`, or `1h30m`. A bare num
 
 ### Compaction
 
-A conversation grows until a request no longer fits in `PEEN_MAX_CONTEXT_TOKENS`. Compaction is what Peen does then, and `PEEN_COMPACTION_MODE` picks how:
+A conversation grows until its prompt no longer fits in `PEEN_MAX_CONTEXT_TOKENS` minus `PEEN_OUTPUT_RESERVE_TOKENS`. Compaction is what Peen does then, and `PEEN_COMPACTION_MODE` picks how:
 
-- `drop-oldest` leaves whole old conversation units out of the request and stores nothing. The transcript keeps every message.
+- `drop-oldest` leaves whole old exchanges out of the request, each a user message with everything up to the next one, and stores nothing. The transcript keeps every message.
 - `summarize` replaces an old completed part of the conversation with a summary made by `PEEN_COMPACTION_MODEL`, stores the summary, and never deletes transcript rows. `PEEN_COMPACTION_MAX_OUTPUT_TOKENS` keeps room for the summary, and `PEEN_COMPACTION_TIMEOUT` limits the call. An optional `COMPACTION.md` in `PEEN_CONFIG_DIR` replaces the built-in summarizer instructions. Only this mode runs the `preCompact` and `postCompact` [hooks](hooks.md).
+
+The budget is a target. When nothing more can be left out, for example when one round's tool results alone exceed it, the request goes out over the budget with a warning in the log, and the provider decides whether it fits its real window.
 
 Under `summarize` a child agent compacts its own transcript into its own stored summaries, separate from the session's. `GET /api/v1/session/compactions` and `GET /api/v1/session/agents/{agentRunId}/compactions` read them. Peen checks the summary settings in both modes, so switching modes cannot expose a setting startup already accepted.
 

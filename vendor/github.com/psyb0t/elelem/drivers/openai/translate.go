@@ -590,18 +590,14 @@ func assistantMessage(
 		)
 	}
 
-	if assistantMessageExtra != nil {
-		extra, err := assistantMessageExtra(ctx, model, message)
-		if err != nil {
-			return messageParam{}, ctxerrors.Wrap(
-				err,
-				"encode assistant message extras",
-			)
-		}
+	extra, err := assistantReasoningExtra(ctx, model, message,
+		assistantMessageExtra)
+	if err != nil {
+		return messageParam{}, err
+	}
 
-		if len(extra) > 0 {
-			assistant.SetExtraFields(extra)
-		}
+	if len(extra) > 0 {
+		assistant.SetExtraFields(extra)
 	}
 
 	return openaisdk.ChatCompletionMessageParamUnion{
@@ -909,6 +905,10 @@ func usageFromChunk(
 	// reachable.
 	if chunk.Model != "" {
 		usage.Model = chunk.Model
+	}
+
+	if chunk.ID != "" {
+		usage.ResponseID = chunk.ID
 	}
 
 	// Gate on ANY token field, not on TotalTokens. Total is the DERIVED one,

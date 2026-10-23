@@ -13,6 +13,7 @@ These are the in-process equivalents of deployment settings. `pkg/peen` accepts 
 | `PEEN_DEFAULT_MODEL` | `DefaultModel` | `caller-supplied` |
 | `PEEN_COMPACTION_MODEL` | `CompactionModel` | `DefaultModel` |
 | `PEEN_MAX_CONTEXT_TOKENS` | `MaxContextTokens` | `32768` |
+| `PEEN_OUTPUT_RESERVE_TOKENS` | `OutputReserveTokens` | `4096` |
 | `PEEN_COMPACTION_MODE` | `CompactionMode` | `drop-oldest` |
 | `PEEN_COMPACTION_MAX_OUTPUT_TOKENS` | `CompactionOutputTokens` | `2048` |
 | `PEEN_COMPACTION_TIMEOUT` | `CompactionTimeout` | `2m` |

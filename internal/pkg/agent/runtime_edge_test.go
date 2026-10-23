@@ -72,6 +72,28 @@ func TestNewRuntimeValidatesDependenciesAndOptions(t *testing.T) {
 			},
 			want: commerr.ErrValidationFailed,
 		},
+		{
+			name: "negative reply reserve",
+			mutate: func(options *RuntimeOptions) {
+				options.OutputReserveTokens = -1
+			},
+			want: commerr.ErrValidationFailed,
+		},
+		{
+			name: "reply reserve fills the context",
+			mutate: func(options *RuntimeOptions) {
+				options.OutputReserveTokens = options.MaxContextTokens
+			},
+			want: commerr.ErrValidationFailed,
+		},
+		{
+			name: "reply reserve leaves no room for the summary",
+			mutate: func(options *RuntimeOptions) {
+				options.OutputReserveTokens = options.MaxContextTokens -
+					defaultCompactionOutputTokens
+			},
+			want: ErrInvalidCompactionOptions,
+		},
 	}
 
 	for _, tc := range testCases {

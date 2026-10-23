@@ -70,7 +70,7 @@ The input fields mean:
 - `reason`: always `cancelled`.
 - `created`: always `true`.
 - `estimatedTokens`: Peen's estimate of the request that went over the budget.
-- `budgetTokens`: the token budget the request went over.
+- `budgetTokens`: the prompt budget the request went over, `PEEN_MAX_CONTEXT_TOKENS` minus `PEEN_OUTPUT_RESERVE_TOKENS`.
 - `round`: the model round within the turn where compaction started.
 - `unitsCovered` and `messagesCovered`: how many conversation units and stored messages the summary replaces.
 - `summaryTokens`: the size of the stored summary in tokens.
@@ -235,7 +235,7 @@ Standard input is one JSON object:
 }
 ```
 
-Fields that do not apply are left out. `sessionId`, `requestId`, and `turnId` are left out when there is no value. `preUserMessage` omits `turnId`; its saved opening checkpoint identifies the owning turn in execution history. `agentRunId`, `tool`, `callId`, `paths`, `input`, `result`, `error`, and `stateDirectory` are also left out when they do not apply. `result` and `error` appear on post and failure events. `stateDirectory` is a private directory for this session that keeps its contents between hook runs. It is only present when the session exists. Peen creates it under its writable state, never under `PEEN_CONFIG_DIR`. `contextTokens` is always present. It is Peen's estimate of the current context size, for local policy decisions, and may be `0`. The [identifiers](architecture.md#identifiers) section explains the ID fields.
+Fields that do not apply are left out. `sessionId`, `requestId`, and `turnId` are left out when there is no value. `preUserMessage` omits `turnId`; its saved opening checkpoint identifies the owning turn in execution history. `agentRunId`, `tool`, `callId`, `paths`, `input`, `result`, `error`, and `stateDirectory` are also left out when they do not apply. `result` and `error` appear on post and failure events. `stateDirectory` is a private directory for this session that keeps its contents between hook runs. It is only present when the session exists. Peen creates it under its writable state, never under `PEEN_CONFIG_DIR`. `contextTokens` is always present. It is Peen's estimate of the current context size, for local policy decisions, and may be `0`. Reasoning contributes only when the selected provider and model replay it; display-only reasoning is excluded. The [identifiers](architecture.md#identifiers) section explains the ID fields.
 
 Standard output may be empty, plain text, or this JSON object:
 

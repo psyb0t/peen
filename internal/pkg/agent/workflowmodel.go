@@ -25,10 +25,14 @@ type workflowConversation struct {
 	Messages         []elelem.Message         `json:"messages"`
 	Tools            []workflowToolDefinition `json:"tools"`
 	MaxContextTokens int                      `json:"maxContextTokens"`
-	ReasoningEffort  elelem.ReasoningEffort   `json:"reasoningEffort"`
-	Deadline         time.Time                `json:"deadline"`
-	Usage            elelem.Usage             `json:"usage"`
-	Cost             float64                  `json:"cost"`
+	// OutputReserveTokens is saved with the execution, so a resumed one keeps
+	// the budget it started with. Executions saved before it existed read 0,
+	// which keeps no reserve, as they did.
+	OutputReserveTokens int                    `json:"outputReserveTokens"`
+	ReasoningEffort     elelem.ReasoningEffort `json:"reasoningEffort"`
+	Deadline            time.Time              `json:"deadline"`
+	Usage               elelem.Usage           `json:"usage"`
+	Cost                float64                `json:"cost"`
 	// ReasoningParts holds each round's reasoning as its own string. One
 	// growing string would be new text in every saved step, while separate
 	// parts are each stored once. Read the whole with reasoning().
@@ -91,19 +95,13 @@ func workflowModelRequest(
 		})
 	}
 
-	// These messages belong to the same unfinished execution. Elelem's history
-	// builder drops injections from earlier runs, so retain their active input.
-	history := append([]elelem.Message(nil), conversation.Messages...)
-	for index := range history {
-		if history[index].Origin == elelem.MessageOriginInjection {
-			history[index].Origin = elelem.MessageOriginSeed
-		}
-	}
+	history := seededWorkflowHistory(conversation.Messages)
 
 	request := elelem.NewRequest(model.Client).WithModel(model.Model).
 		WithPrompt(elelem.NewPrompt().WithSystem(conversation.SystemPrompt).
 			WithHistory(history)).
 		WithTools(tools).WithMaxContextTokens(conversation.MaxContextTokens).
+		WithOutputReserveTokens(conversation.OutputReserveTokens).
 		WithMaxRounds(workflowManualRequestRoundLimit)
 	if conversation.Streaming != nil {
 		request.WithStreaming(*conversation.Streaming)
@@ -114,6 +112,20 @@ func workflowModelRequest(
 	}
 
 	return request, conversation, nil
+}
+
+// seededWorkflowHistory copies saved messages for a new request. They belong
+// to the same unfinished execution, and Elelem's history builder drops
+// injections from earlier runs, so their active input is kept as seed history.
+func seededWorkflowHistory(messages []elelem.Message) []elelem.Message {
+	history := append([]elelem.Message(nil), messages...)
+	for index := range history {
+		if history[index].Origin == elelem.MessageOriginInjection {
+			history[index].Origin = elelem.MessageOriginSeed
+		}
+	}
+
+	return history
 }
 
 func retainedWorkflowModel(

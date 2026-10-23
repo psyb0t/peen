@@ -1,7 +1,5 @@
-# Codex / agent scratch, never commit
-# Contributor guide: docs/contributing.md. The builtin instructions are product text.
-AGENTS.md
-!internal/pkg/harness/builtin/AGENTS.md
+# Codex / agent scratch, never commit. The root AGENTS.md (with CLAUDE.md
+# linking to it) is tracked agent guidance.
 CODEX.local.md
 .research_files/
 .agent_notes/
@@ -12,6 +10,7 @@ NOTES.md
 TODO.md
 WIP.md
 WHERE_WE_ARE.md
+/claude-handoff.md
 .testing/
 .secaudit/
 .anustimes/

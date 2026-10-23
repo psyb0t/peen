@@ -482,16 +482,20 @@ func (p *preparedTurn) hookContextTokens(
 
 //nolint:ireturn // Elelem exposes token counting as an interface dependency.
 func modelTokenCounter(model ModelClient) elelem.TokenCounter {
-	if model.Client != nil {
-		driver := model.Client.Driver()
-		if driver != nil {
-			if counter := driver.TokenCounter(); counter != nil {
-				return counter
-			}
-		}
+	if model.Client == nil || model.Client.Driver() == nil {
+		return elelem.DefaultTokenCounter()
 	}
 
-	return elelem.DefaultTokenCounter()
+	counter := model.Client.Driver().TokenCounter()
+	if counter == nil {
+		return elelem.DefaultTokenCounter()
+	}
+
+	if bound, ok := counter.(elelem.ModelTokenCounter); ok {
+		return bound.ForModel(model.Model)
+	}
+
+	return counter
 }
 
 func (p *preparedTurn) runCompactionHook(

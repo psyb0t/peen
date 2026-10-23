@@ -22,6 +22,14 @@ const (
 type TokenCounter interface {
 	Count([]Message, []Tool) (int, error)
 }
+
+// ModelTokenCounter optionally binds counting to the model's wire format.
+// Existing TokenCounter implementations need not implement it.
+type ModelTokenCounter interface {
+	TokenCounter
+	ForModel(Model) TokenCounter
+}
+
 type builtInTokenCounter struct{}
 
 //nolint:gochecknoglobals // Process-wide default is an intentional public hook.
@@ -69,13 +77,9 @@ func (builtInTokenCounter) Count(
 
 		parts = append(parts, message.Role, message.Text(), message.ToolCallID)
 
-		// Reasoning rides the wire too — drivers round-trip thinking blocks
-		// back to the provider. Omitting it made the budget undercount the
-		// LARGEST part of an extended-thinking transcript, so compaction never
-		// tripped and the provider rejected for context length while the
-		// estimate still read as comfortably inside budget.
+		// Drivers project replayable reasoning before counting.
 		parts = append(parts, message.Reasoning)
-		if len(message.ProviderReasoning) > 0 {
+		if HasProviderReasoning(message.ProviderReasoning) {
 			parts = append(parts, string(message.ProviderReasoning))
 		}
 

@@ -2,6 +2,21 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.29.0 (2026-10-23)
+
+`PEEN_MAX_CONTEXT_TOKENS` now covers the reply as well as the prompt, and Z.ai Coding models get their documented 1,000,000-token window, output cap, reasoning levels, and quota errors. Before upgrading, check `PEEN_MAX_CONTEXT_TOKENS`. The prompt now gets that value minus `PEEN_OUTPUT_RESERVE_TOKENS` (default `4096`), and startup refuses a value that cannot hold the reserve and `PEEN_COMPACTION_MAX_OUTPUT_TOKENS`.
+
+- Breaking: `PEEN_MAX_CONTEXT_TOKENS` is now the whole context of a request, prompt and reply, and the new `PEEN_OUTPUT_RESERVE_TOKENS` (default `4096`) keeps room for the reply inside it. A prompt used to be allowed the full value, so it could fill the window and leave the model no room to answer. Startup now refuses a configuration where `PEEN_COMPACTION_MAX_OUTPUT_TOKENS` plus `PEEN_OUTPUT_RESERVE_TOKENS` is not smaller than `PEEN_MAX_CONTEXT_TOKENS`. To keep the old prompt size, raise `PEEN_MAX_CONTEXT_TOKENS` by 4096 or set `PEEN_OUTPUT_RESERVE_TOKENS=0`. The `budgetTokens` field of the `preCompact` hook reports the prompt budget. `pkg/peen` gains `Options.OutputReserveTokens` with the same default.
+- Fixes `drop-oldest` keeping a turn's final answer after leaving out its question, which started the request with an orphaned assistant message. Whole exchanges now leave together.
+- Fixes a "discarding mismatched provider reasoning" warning logged for every stored assistant message without reasoning on every token count.
+- Documents that the context budget is a target. A request whose current round alone exceeds it is sent anyway with a warning.
+- Updates Elelem to v0.12.0, which brings the three changes above. Its v0.11.0 also preserves reasoning returned by OpenAI-compatible providers across tool continuations and counts only reasoning sent back to the selected model. This prevents display-only reasoning from triggering premature context eviction or compaction.
+- Fixes Z.ai Coding ignoring the output cap, so compaction summaries on `zai-coding` upstreams now stay within `PEEN_COMPACTION_MAX_OUTPUT_TOKENS`. GLM 5.3 and GLM 5.3 Flash now report Z.ai's 1,000,000-token window in `GET /api/v1/models`; `PEEN_MAX_CONTEXT_TOKENS` still defaults to 32768, so set it to use the larger window.
+- Fixes GLM 5.3 Flash refusing a per-message reasoning effort. Both GLM 5.3 models accept every level except `none`, which would turn thinking off, and Z.ai maps it to `low`, `high`, or `max`.
+- Fixes Z.ai plan, balance, and quota failures being retried as rate limits. They now fail the model call at once with the provider's message, which names when the limit resets.
+- Binds hook context estimates to the selected model so switching models excludes reasoning state that the new model will not receive.
+- Adds a root `AGENTS.md` for agents changing Peen's source, with `CLAUDE.md` linking to it. It points to the contributor guide and the rules in `.agents/rules/`.
+
 ## v0.28.0 (2026-10-22)
 
 Run Peen prompts from GitHub workflows with a caller-selected working directory and reply outputs. No configuration or API migration is needed.
