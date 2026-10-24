@@ -2,6 +2,23 @@
 
 All notable changes per release. Versions follow [semver](https://semver.org).
 
+## v1.16.0, 2026-10-19
+
+- Added `ErrorCodePayloadTooLarge` (`PAYLOAD_TOO_LARGE`) and `ErrorResponsePayloadTooLarge`. `ErrorCodeFromHTTPStatus(413)` now returns `PAYLOAD_TOO_LARGE`; it used to fall back to `INTERNAL_SERVER_ERROR`, so a client could not tell an oversized request from a server failure.
+- Updated Semgrep in the development image to 1.181.0. It accepts the newer pyjwt and urllib3 releases that 1.173.0 held back, and the requirements now hash every published file, so the development image also builds on arm64.
+
+## v1.15.1, 2026-10-16
+
+- Fixed the CI secret scan. CI scans a shallow clone, so the commit-bound fingerprints in `.gitleaksignore` never matched and the two request-id fixtures in `serbewr/middleware/recovery_test.go` failed the job. `.gitleaks.toml` now allows exactly those two values for `generic-api-key` in that file.
+- Pinned `shfmt` to 3.13.1-r3 in the development image, because Alpine removed the earlier revision.
+- `AGENTS.md` is now tracked.
+
+## v1.15.0, 2026-10-12
+
+- Updated the development toolchain to Go 1.26.9 and `golang.org/x/net` to v0.60.0 for security fixes. Fixed the Alpine Python and CA certificate package pins and removed deleted package paths from the security scanner targets.
+- Breaking: removed `echo`, `echo/middleware`, `oapi-codegen/middleware`, and `DefaultEchoListenAddress`. The library no longer provides an Echo server wrapper, Swagger UI, or Echo-specific OpenAPI validation. Echo users must stay on an earlier release or wire those features directly with their chosen framework. The `serbewr` server, its `net/http` middleware, WebSockets, HTTP client, and shared error responses are unchanged.
+- Removed the direct Echo, Echo OpenAPI validator, OpenAPI schema, and Swagger UI dependencies, and regenerated the module checksums and vendor tree.
+
 ## v1.14.0, 2026-09-10
 
 - Added `klhayyent`, a concurrent-safe HTTP client with common method helpers,

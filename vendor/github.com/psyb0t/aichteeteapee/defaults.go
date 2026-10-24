@@ -14,9 +14,6 @@ const (
 	StandardAPIOASPath       = "/openapi.yaml"
 	StandardAPISwaggerUIPath = "/docs/*"
 
-	// Echo server defaults.
-	DefaultEchoListenAddress = "0.0.0.0:8080"
-
 	// Server defaults.
 	DefaultHTTPServerListenAddress     = "127.0.0.1:8080"
 	DefaultHTTPServerReadTimeout       = 15 * time.Second
