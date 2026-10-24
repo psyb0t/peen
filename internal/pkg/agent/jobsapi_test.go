@@ -45,14 +45,13 @@ func TestRuntimeReplaysJobsFromSQLiteWithoutALiveRegistry(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	for _, input := range []session.AppendJobOutputInput{
-		{Stream: models.JobOutputStreamStdout, Content: "first"},
-		{Stream: models.JobOutputStreamStderr, Content: "problem"},
-		{Stream: models.JobOutputStreamStdout, Content: "last"},
-	} {
-		_, appendErr := fixture.store.AppendJobOutput(ctx, turnResult.SessionID, job.ID, input)
-		require.NoError(t, appendErr)
-	}
+	_, err = fixture.store.AppendJobOutput(ctx, turnResult.SessionID, job.ID,
+		[]session.AppendJobOutputInput{
+			{Stream: models.JobOutputStreamStdout, Content: "first"},
+			{Stream: models.JobOutputStreamStderr, Content: "problem"},
+			{Stream: models.JobOutputStreamStdout, Content: "last"},
+		})
+	require.NoError(t, err)
 
 	_, err = fixture.store.RecordJobSignal(
 		ctx,

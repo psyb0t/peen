@@ -95,6 +95,24 @@ func TestRelayKeepsNonRecordOutput(t *testing.T) {
 	assert.Contains(t, output, "a log record")
 }
 
+// Workers log JSON, so plain text on the stream is a race report, a panic, or
+// subprocess output, and it is relayed as a warning rather than info.
+func TestRelayWarnsOnUnstructuredOutput(t *testing.T) {
+	captured := &bytes.Buffer{}
+
+	restore := captureDefaultLogger(t, captured, slog.LevelDebug)
+	defer restore()
+
+	stream := strings.NewReader("WARNING: DATA RACE")
+
+	Relay(context.Background(), stream, uuid.New(), uuid.New())
+
+	output := captured.String()
+	assert.Contains(t, output, "DATA RACE")
+	assert.Contains(t, output, `"level":"WARN"`)
+	assert.Contains(t, output, reasonUnstructuredOutput)
+}
+
 // TestRelayHandlesAnEmptyStream keeps a worker that printed nothing from
 // producing a spurious record.
 func TestRelayHandlesAnEmptyStream(t *testing.T) {

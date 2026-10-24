@@ -23,6 +23,7 @@ const (
 	MethodAppendCheckpoint Method = "turn.appendCheckpoint"
 	MethodFinalizeTurn     Method = "turn.finalize"
 	MethodReleaseTurn      Method = "turn.release"
+	MethodEndRunningTurn   Method = "turn.endRunning"
 	MethodRecordTurnWorker Method = "turn.recordWorkerGeneration"
 	MethodCancelSession    Method = "turn.cancel"
 	MethodListTurns        Method = "turn.list"
@@ -43,7 +44,7 @@ const (
 	MethodFinalizeJob           Method = "job.finalize"
 	MethodGetJob                Method = "job.get"
 	MethodListJobs              Method = "job.list"
-	MethodAppendJobOutput       Method = "job.appendOutput"
+	MethodAppendJobOutput       Method = "job.appendOutputLines"
 	MethodListJobOutput         Method = "job.listOutput"
 	MethodRecordJobSignal       Method = "job.recordSignal"
 	MethodListJobSignalRequests Method = "job.listSignalRequests"
@@ -153,6 +154,14 @@ type NestedChildRequest struct {
 // LeaseRequest addresses one turn lease.
 type LeaseRequest struct {
 	Lease session.Lease `json:"lease"`
+}
+
+// EndTurnRequest ends one running turn of the worker's session without its
+// lease, for a turn Stop or a failed workflow ended.
+type EndTurnRequest struct {
+	SessionID uuid.UUID       `json:"sessionId"`
+	TurnID    uuid.UUID       `json:"turnId"`
+	End       session.TurnEnd `json:"end"`
 }
 
 // LeaseInputRequest addresses one turn lease with a write payload.

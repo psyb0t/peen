@@ -729,7 +729,7 @@ export interface components {
 			systemPrompt?: components["schemas"]["WebSocketMessageSystemPrompt"];
 			/**
 			 * Format: uuid
-			 * @description A running child agent run ID. The message goes to that child, which reads it after its current tool call, and starts no turn. It completes as queued and cannot carry model, reasoningEffort, or systemPrompt. A finished child fails it with AGENT_FINISHED, an unknown one with AGENT_NOT_FOUND, and a child with a full inbox with USER_MESSAGE_QUEUE_FULL.
+			 * @description A running child agent run ID. The message goes to that child, which reads it after its current tool call, and starts no turn. It completes as queued and cannot carry model, reasoningEffort, or systemPrompt. A finished child fails it with AGENT_FINISHED, a paused one with AGENT_PAUSED, an unknown one with AGENT_NOT_FOUND, and a child with a full inbox with USER_MESSAGE_QUEUE_FULL.
 			 */
 			to?: string;
 		};

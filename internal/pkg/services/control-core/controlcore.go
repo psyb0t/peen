@@ -215,6 +215,7 @@ func (s *ControlCore) openCore(
 		StoreOptions: session.Options{
 			MaxStoredMessageBytes: config.MaxStoredMessageBytes,
 		},
+		ResumeAfterCrash: config.ResumesAfterCrash(),
 	})
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "assemble agent runtime")
@@ -357,12 +358,13 @@ func newWorkerSupervisor(
 	}
 
 	built, err := supervisor.New(supervisor.Options{
-		Store:           store,
-		Workflows:       workflows,
-		AgentSpaces:     agentSpaces,
-		Launchers:       launchers,
-		SocketRoot:      config.WorkerSocketRoot(),
-		ConfigDirectory: config.ConfigDirectory,
+		Store:            store,
+		Workflows:        workflows,
+		AgentSpaces:      agentSpaces,
+		Launchers:        launchers,
+		SocketRoot:       config.WorkerSocketRoot(),
+		ConfigDirectory:  config.ConfigDirectory,
+		ResumeAfterCrash: config.ResumesAfterCrash(),
 	})
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create the worker supervisor")

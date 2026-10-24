@@ -120,8 +120,8 @@ func TestErrorKeepsAFullUserMessageQueueAcrossTheWire(t *testing.T) {
 	require.ErrorIs(t, received, commerr.ErrConflict)
 }
 
-// A message to an ended or unknown child keeps its reason across the wire, so
-// the WebSocket can tell the sender which one it was.
+// A message to an ended, paused, or unknown child keeps its reason across the
+// wire, so the WebSocket can tell the sender which one it was.
 func TestErrorKeepsAgentRunRefusalsAcrossTheWire(t *testing.T) {
 	t.Parallel()
 
@@ -142,6 +142,12 @@ func TestErrorKeepsAgentRunRefusalsAcrossTheWire(t *testing.T) {
 			detail:   session.ErrAgentRunNotFound,
 			class:    commerr.ErrNotFound,
 			wantCode: CodeAgentRunNotFound,
+		},
+		{
+			name:     "paused",
+			detail:   session.ErrAgentRunPaused,
+			class:    commerr.ErrInvalidState,
+			wantCode: CodeAgentRunPaused,
 		},
 	}
 

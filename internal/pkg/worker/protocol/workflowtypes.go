@@ -1,11 +1,11 @@
 package protocol
 
 import (
-	"github.com/cschleiden/go-workflows/backend"
-	"github.com/cschleiden/go-workflows/backend/history"
-	"github.com/cschleiden/go-workflows/backend/metadata"
-	"github.com/cschleiden/go-workflows/core"
-	"github.com/cschleiden/go-workflows/workflow"
+	"github.com/psyb0t/go-workflows/backend"
+	"github.com/psyb0t/go-workflows/backend/history"
+	"github.com/psyb0t/go-workflows/backend/metadata"
+	"github.com/psyb0t/go-workflows/core"
+	"github.com/psyb0t/go-workflows/workflow"
 )
 
 const methodWorkflowBackend Method = "workflow.backend"

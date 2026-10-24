@@ -237,14 +237,14 @@ func (e *Executor) requireObservedContent(path string, content []byte) error {
 	if !ok {
 		return ctxerrors.Wrap(
 			ErrNotObserved,
-			"read the file before patching it",
+			"read the file before changing it",
 		)
 	}
 
 	if !seen.hasHash {
 		return ctxerrors.Wrap(
 			ErrHashRequired,
-			"read the file contents before patching it",
+			"read the file contents with readFile before changing it",
 		)
 	}
 

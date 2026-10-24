@@ -55,12 +55,12 @@ func TestDurableJobObserverRecordsTheWholeJobLifecycle(t *testing.T) {
 
 	require.NoError(t, observer.JobStarted(ctx, snapshot))
 
-	for _, record := range []tools.JobOutputRecord{
+	require.NoError(t, observer.JobOutput(ctx, snapshot, []tools.JobOutputRecord{
 		{Stream: tools.JobStreamStdout, Content: "compiling", CreatedAt: started},
+	}))
+	require.NoError(t, observer.JobOutput(ctx, snapshot, []tools.JobOutputRecord{
 		{Stream: tools.JobStreamStderr, Content: "a warning", CreatedAt: started},
-	} {
-		require.NoError(t, observer.JobOutput(ctx, snapshot, record))
-	}
+	}))
 
 	require.NoError(t, observer.JobSignal(ctx, snapshot, tools.JobSignalStop))
 
@@ -231,8 +231,8 @@ func TestDurableJobObserverRejectsUnmappableEnumsBeforeWriting(t *testing.T) {
 	observer := durableJobObserver{store: nil}
 	snapshot := tools.JobSnapshot{ID: uuid.New(), SessionID: uuid.New()}
 
-	require.Error(t, observer.JobOutput(ctx, snapshot, tools.JobOutputRecord{
-		Stream: tools.JobStream("sideband"),
+	require.Error(t, observer.JobOutput(ctx, snapshot, []tools.JobOutputRecord{
+		{Stream: tools.JobStream("sideband")},
 	}))
 	require.Error(t, observer.JobSignal(ctx, snapshot, tools.JobSignal("hup")))
 

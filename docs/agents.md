@@ -113,13 +113,15 @@ A child keeps running after the turn that launched it ends. It stops when it giv
 - `POST /api/v1/session/cancel` and the Cancel button pause unfinished session workflows and interrupt their activities. Embedded sessions use the same pause behavior.
 - `stopAgent`, `POST /api/v1/session/agents/{agentRunId}/cancel`, and the Stop button in the control surface stop one child.
 - A child can keep running after its parent finishes. Its execution and final report remain stored in service and embedded sessions.
-- Normal shutdown pauses unfinished work. After a crash, a replacement worker restores unfinished children from their saved workflow history.
+- Normal shutdown pauses unfinished work. After a crash, unfinished work is paused too, unless `PEEN_CRASH_RECOVERY` is `resume`.
 
 ### Recovery after a crash
 
 Service and embedded sessions use one workflow definition with saved context and stable execution identities. Their workers restore children through workflow history.
 
-After the controller or a worker crashes, a replacement worker resumes interrupted children and grandchildren with their original run IDs, ancestry, start times, directories and saved conversation. An interrupted model request retries with that context. Completed tool results are reused. A completed parent does not prevent its unfinished children from continuing. Recovery waits for an abandoned activity lease to expire before reclaiming its work. Paused children remain paused until explicitly resumed.
+After the controller or a worker crashes, Peen pauses every execution that was running, the root's and its children's, and ends the interrupted turn with a stored `turn.failed` frame. Nothing continues until a turn asks the agent to inspect and resume it, as [continuing retained work](#continuing-retained-work) describes. With `PEEN_CRASH_RECOVERY=resume`, for deployments that run unattended, the next worker continues that work by itself instead.
+
+A resumed execution continues children and grandchildren with their original run IDs, ancestry, start times, directories and saved conversation. An interrupted model request retries with that context. Completed tool results are reused. A completed parent does not prevent its unfinished children from continuing. Recovery waits for an abandoned activity lease to expire before reclaiming its work. Paused children remain paused until explicitly resumed.
 
 Restored conversations retain their task, instructions, model, tool selection, frozen harness, summary and accepted inbox messages. Recorded provider rounds still count against the original limit; increasing the deployment limit does not grant extra rounds. Pending `ask` and `waitMessages` calls keep their original deadlines and saved questions. Uncertain tool effects require inspection before retry or acceptance through the controls below.
 

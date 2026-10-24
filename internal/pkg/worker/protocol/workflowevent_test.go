@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cschleiden/go-workflows/backend/history"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/go-workflows/backend/history"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

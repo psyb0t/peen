@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/cschleiden/go-workflows/backend"
-	"github.com/cschleiden/go-workflows/backend/history"
-	"github.com/cschleiden/go-workflows/client"
-	"github.com/cschleiden/go-workflows/core"
-	"github.com/cschleiden/go-workflows/workflow"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem/elelemtest"
+	"github.com/psyb0t/go-workflows/backend"
+	"github.com/psyb0t/go-workflows/backend/history"
+	"github.com/psyb0t/go-workflows/backend/mocks"
+	"github.com/psyb0t/go-workflows/client"
+	"github.com/psyb0t/go-workflows/core"
+	"github.com/psyb0t/go-workflows/workflow"
 	"github.com/psyb0t/peen/internal/pkg/db"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -118,7 +119,7 @@ func TestWorkflowClientReconcilesLostAcknowledgmentAndPropagatesErrors(
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			storage := &backend.MockBackend{}
+			storage := &mocks.MockBackend{}
 			t.Cleanup(func() { storage.AssertExpectations(t) })
 			storage.On("GetWorkflowInstanceState", mock.Anything, mock.Anything).
 				Return(core.WorkflowInstanceStateActive, tc.readErr).Once()

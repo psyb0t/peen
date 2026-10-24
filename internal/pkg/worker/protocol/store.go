@@ -293,6 +293,26 @@ func (s *Store) IsActive(sessionID uuid.UUID) bool {
 
 // Cancel records the request durably, then reaches the running turn in this
 // process.
+// EndRunningTurn asks the controller to end a running turn and store its
+// terminal frame.
+func (s *Store) EndRunningTurn(
+	ctx context.Context,
+	sessionID, turnID uuid.UUID,
+	end session.TurnEnd,
+) (bool, error) {
+	result, err := call[BoolResult](
+		ctx,
+		s,
+		MethodEndRunningTurn,
+		EndTurnRequest{SessionID: sessionID, TurnID: turnID, End: end},
+	)
+	if err != nil {
+		return false, err
+	}
+
+	return result.Value, nil
+}
+
 func (s *Store) Cancel(
 	ctx context.Context,
 	sessionID uuid.UUID,
@@ -546,16 +566,16 @@ func (s *Store) AppendJobOutput(
 	ctx context.Context,
 	sessionID uuid.UUID,
 	jobID uuid.UUID,
-	input session.AppendJobOutputInput,
-) (*models.JobOutputLine, error) {
-	return call[*models.JobOutputLine](
+	inputs []session.AppendJobOutputInput,
+) ([]*models.JobOutputLine, error) {
+	return call[[]*models.JobOutputLine](
 		ctx,
 		s,
 		MethodAppendJobOutput,
-		ChildInputRequest[session.AppendJobOutputInput]{
+		ChildInputRequest[[]session.AppendJobOutputInput]{
 			SessionID: sessionID,
 			ChildID:   jobID,
-			Input:     input,
+			Input:     inputs,
 		},
 	)
 }

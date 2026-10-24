@@ -98,6 +98,7 @@ func newAPIFixture(t *testing.T) apiFixture {
 		DefaultModel:           apiTestModelReference,
 		MaxContextTokens:       apiTestContextTokens,
 		CompactionMode:         peenconfig.CompactionModeDropOldest,
+		CrashRecovery:          peenconfig.CrashRecoveryPause,
 		CompactionOutputTokens: apiTestOutputTokens,
 		CompactionTimeout:      time.Minute,
 		TurnTimeout:            time.Minute,

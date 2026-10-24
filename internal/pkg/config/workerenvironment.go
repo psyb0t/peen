@@ -23,6 +23,14 @@ const (
 
 	// peenSettingPrefix starts every Peen deployment setting.
 	peenSettingPrefix = "PEEN_"
+
+	// The logging library's settings. A worker gets the controller's level and
+	// source setting, and always writes JSON, because the controller relays
+	// its output and keeps a record's level only when it can parse the line.
+	environmentLogLevel     = "LOG_LEVEL"
+	environmentLogFormat    = "LOG_FORMAT"
+	environmentLogAddSource = "LOG_ADD_SOURCE"
+	workerLogFormat         = "json"
 )
 
 // WorkerEnvironment returns exactly the deployment settings a worker needs.
@@ -44,7 +52,21 @@ func (c Config) WorkerEnvironment() (map[string]string, error) {
 		return nil, err
 	}
 
+	addWorkerLogSettings(environment)
+
 	return environment, nil
+}
+
+// addWorkerLogSettings passes the controller's log level and source setting
+// to a worker and makes it write JSON.
+func addWorkerLogSettings(environment map[string]string) {
+	for _, key := range []string{environmentLogLevel, environmentLogAddSource} {
+		if value, found := os.LookupEnv(key); found {
+			environment[key] = value
+		}
+	}
+
+	environment[environmentLogFormat] = workerLogFormat
 }
 
 // ControlWorkerEnvironment returns environ without the settings a control
@@ -59,18 +81,21 @@ func (c Config) WorkerEnvironment() (map[string]string, error) {
 // toolchain. PEEN_CONFIG_DIR is controller-only here too: the control launcher
 // sets it from the launch document, as the Docker launcher does.
 func ControlWorkerEnvironment(environ, credentialKeys []string) []string {
-	kept := make([]string, 0, len(environ))
+	kept := make([]string, 0, len(environ)+1)
 
 	for _, entry := range environ {
 		key, _, _ := strings.Cut(entry, "=")
-		if !controlWorkerEnvironmentKey(key, credentialKeys) {
+		if key == environmentLogFormat ||
+			!controlWorkerEnvironmentKey(key, credentialKeys) {
 			continue
 		}
 
 		kept = append(kept, entry)
 	}
 
-	return kept
+	// The controller relays a control worker's output too, so it writes JSON
+	// whatever format the controller itself uses.
+	return append(kept, environmentLogFormat+"="+workerLogFormat)
 }
 
 func controlWorkerEnvironmentKey(key string, credentialKeys []string) bool {

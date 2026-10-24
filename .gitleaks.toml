@@ -25,3 +25,13 @@ paths = [
   '''(^|/)git-update\.sh$''',
   '''(^|/)CLAUDE\.md$''',
 ]
+
+# The one tracked exception. This vendored file is SQLite transpiled to Go, and
+# its Windows API constants such as BCRYPT_AES_WRAP_KEY_BLOB match the
+# generic-api-key rule. It holds no credentials and is replaced only by a
+# modernc.org/sqlite version bump.
+[[allowlists]]
+description = "Vendored SQLite translation with Windows API constant names"
+paths = [
+  '''(^|/)vendor/modernc\.org/sqlite/lib/sqlite_g_0000000000060000\.go$''',
+]

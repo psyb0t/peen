@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db"
@@ -16,6 +17,7 @@ const (
 	reasonInterruptedAgentRunsRecovered = "interrupted_agent_runs_recovered"
 	reasonInterruptedJobsRecovered      = "interrupted_jobs_recovered"
 	reasonInterruptedModelRunsRecovered = "interrupted_model_runs_recovered"
+	reasonCrashedExecutionsPaused       = "crashed_executions_paused"
 )
 
 // Assembled is one wired runtime and the resources whose lifetime it shares.
@@ -55,6 +57,10 @@ type AssembleOptions struct {
 
 	// StoreOptions carries the store's own bounds and its clock and ID seams.
 	StoreOptions session.Options
+
+	// ResumeAfterCrash lets work a previous process left unfinished continue
+	// by itself. False, the default, pauses it until a turn resumes it.
+	ResumeAfterCrash bool
 }
 
 // Assemble opens the durable store, settles anything a previous process left
@@ -139,19 +145,8 @@ func assembleOver(
 		return nil, ctxerrors.Wrap(err, "create session store")
 	}
 
-	if err := recoverInterruptedTurns(ctx, store); err != nil {
-		return nil, err
-	}
-
-	if err := recoverInterruptedAgentRuns(ctx, store); err != nil {
-		return nil, err
-	}
-
-	if err := recoverInterruptedJobs(ctx, store); err != nil {
-		return nil, err
-	}
-
-	if err := recoverInterruptedModelRuns(ctx, store); err != nil {
+	err = recoverCrashedWork(ctx, store, options.ResumeAfterCrash)
+	if err != nil {
 		return nil, err
 	}
 
@@ -185,6 +180,37 @@ func assembleOver(
 	}, nil
 }
 
+// recoverCrashedWork settles what a previous process left running. Unless
+// resumeAfterCrash is set, its unfinished executions stay paused until a
+// turn resumes them.
+func recoverCrashedWork(
+	ctx context.Context,
+	store *session.Store,
+	resumeAfterCrash bool,
+) error {
+	if err := recoverInterruptedTurns(ctx, store); err != nil {
+		return err
+	}
+
+	if err := recoverInterruptedAgentRuns(ctx, store); err != nil {
+		return err
+	}
+
+	if err := recoverInterruptedJobs(ctx, store); err != nil {
+		return err
+	}
+
+	if err := recoverInterruptedModelRuns(ctx, store); err != nil {
+		return err
+	}
+
+	if resumeAfterCrash {
+		return nil
+	}
+
+	return pauseCrashedExecutions(ctx, store)
+}
+
 // recoverInterruptedTurns settles turns a previous process left running.
 //
 // This has to happen before the first request. A turn still marked running
@@ -205,6 +231,27 @@ func recoverInterruptedTurns(ctx context.Context, store *session.Store) error {
 		"marked turns left running by a previous process as interrupted",
 		"reason", reasonInterruptedTurnsRecovered,
 		"turn_count", recovered,
+	)
+
+	return nil
+}
+
+// pauseCrashedExecutions pauses the work a previous process left running, so
+// the first worker to start does not continue it unasked.
+func pauseCrashedExecutions(ctx context.Context, store *session.Store) error {
+	paused, err := store.PauseUnfinishedExecutions(ctx, uuid.Nil)
+	if err != nil {
+		return ctxerrors.Wrap(err, "pause crashed executions")
+	}
+
+	if paused == 0 {
+		return nil
+	}
+
+	runtimecontext.Logger(ctx).Warn(
+		"paused work left running by a previous process",
+		"reason", reasonCrashedExecutionsPaused,
+		"execution_count", paused,
 	)
 
 	return nil

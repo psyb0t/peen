@@ -59,7 +59,7 @@ func TestClientMessageStripsTheSourceLocation(t *testing.T) {
 func assertNoSourceLocation(t *testing.T, message string) {
 	t.Helper()
 
-	assert.NotContains(t, message, errorLocationMarker)
+	assert.NotContains(t, message, " [")
 	assert.NotContains(t, message, ".go:")
 	assert.NotContains(t, message, "/peen/")
 }

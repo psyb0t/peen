@@ -36,7 +36,8 @@ func TestGormErrorsMapToCommonErrors(t *testing.T) {
 			err := ctxerrors.Wrap(tc.foreign, "database operation")
 
 			require.ErrorIs(t, err, tc.common)
-			require.NotErrorIs(t, err, tc.foreign)
+			require.Contains(t, err.Error(), tc.common.Error())
+			require.NotContains(t, err.Error(), tc.foreign.Error())
 		})
 	}
 }

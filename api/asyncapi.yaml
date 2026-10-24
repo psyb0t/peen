@@ -365,6 +365,7 @@ components:
             - SESSION_BUSY
             - AGENT_FINISHED
             - AGENT_NOT_FOUND
+            - AGENT_PAUSED
             - HARNESS_CONFIGURATION_INVALID
         message:
           type: string

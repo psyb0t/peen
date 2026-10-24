@@ -7,10 +7,10 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/cschleiden/go-workflows/backend/history"
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/go-workflows/backend/history"
 )
 
 // workflowEvent keeps the library's history format while checking the event

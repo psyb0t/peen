@@ -197,7 +197,11 @@ type fixture struct {
 // These tests do not call t.Parallel. db.Open installs the generated
 // repositories as a package default, which is process-global state, so two
 // fixtures opening a database at once race.
-func newFixture(t *testing.T, connect bool) fixture {
+func newFixture(
+	t *testing.T,
+	connect bool,
+	configure ...func(*supervisor.Options),
+) fixture {
 	t.Helper()
 
 	handle, err := db.Open(t.Context(), db.Config{Directory: t.TempDir()})
@@ -240,7 +244,7 @@ func newFixture(t *testing.T, connect bool) fixture {
 		t:       t,
 	}
 
-	supervised, err := supervisor.New(supervisor.Options{
+	options := supervisor.Options{
 		Store:       store,
 		AgentSpaces: agentSpaces,
 		Launchers: map[worker.Kind]worker.Launcher{
@@ -250,7 +254,12 @@ func newFixture(t *testing.T, connect bool) fixture {
 		ConfigDirectory: t.TempDir(),
 		ReadyTimeout:    5 * time.Second,
 		StopTimeout:     2 * time.Second,
-	})
+	}
+	for _, apply := range configure {
+		apply(&options)
+	}
+
+	supervised, err := supervisor.New(options)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {

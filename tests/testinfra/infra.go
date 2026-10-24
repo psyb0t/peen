@@ -48,9 +48,12 @@ const (
 	// appStateDirectory is a sibling of appConfigDirectory, never a child.
 	// Peen refuses to start when one contains the other, because the
 	// read-only configuration mount would carry SQLite into every worker.
-	appStateDirectory          = "/var/tmp/peen-state"
-	appWorkingDirectory        = "/tmp"
-	appAgentName               = "default"
+	appStateDirectory   = "/var/tmp/peen-state"
+	appWorkingDirectory = "/tmp"
+	appAgentName        = "default"
+	// The crash recovery suites prove that work continues in the next worker
+	// or controller. Unit tests cover the paused default.
+	appCrashRecovery           = "resume"
 	appFixtureInstructionsPath = "/tmp/peen-test-AGENTS.md"
 	appFixtureAgentPath        = "/tmp/peen-test-default.md"
 	appFixtureFileMode         = 0o644
@@ -1492,6 +1495,7 @@ func appEnvironment(
 		"PEEN_CONFIG_DIR":                appConfigDirectory,
 		"PEEN_STATE_DIR":                 appStateDirectory,
 		"PEEN_AGENT":                     appAgentName,
+		"PEEN_CRASH_RECOVERY":            appCrashRecovery,
 		"PEEN_HTTP_LISTEN_ADDRESS":       listenAddress,
 		"PEEN_METRICS_LISTEN_ADDRESS":    metricsListenAddress,
 		"PEEN_UPSTREAMS":                 string(upstreams),

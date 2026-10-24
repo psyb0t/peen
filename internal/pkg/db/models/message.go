@@ -8,20 +8,24 @@ import (
 
 // Message is one durable user, assistant, or tool transcript record.
 type Message struct {
-	ID            uuid.UUID
-	SessionID     uuid.UUID
-	TurnID        uuid.UUID
-	Sequence      int64
-	Workspace     string
-	Role          MessageRole
-	Content       string
-	ModelID       string
-	Thinking      string
-	ToolCallsJSON string
-	ToolCallID    string
-	CompactionID  *uuid.UUID
-	IsError       bool
-	Incomplete    bool
+	ID        uuid.UUID
+	SessionID uuid.UUID
+	TurnID    uuid.UUID
+	Sequence  int64
+	Workspace string
+	Role      MessageRole
+	Content   string
+	ModelID   string
+	Thinking  string
+	// ProviderReasoningJSON is the provider's reasoning envelope for an
+	// assistant message, replayed to the same model in later turns. Empty
+	// when the provider returned none.
+	ProviderReasoningJSON string
+	ToolCallsJSON         string
+	ToolCallID            string
+	CompactionID          *uuid.UUID
+	IsError               bool
+	Incomplete            bool
 	// Injected marks a message the harness added to the conversation, such as
 	// delivered session events, rather than one a person typed.
 	Injected bool

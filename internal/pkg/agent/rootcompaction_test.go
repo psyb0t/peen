@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cschleiden/go-workflows/client"
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/elelem/elelemtest"
+	"github.com/psyb0t/go-workflows/client"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
@@ -172,6 +172,26 @@ func TestNativeRootCompactionSkipsUnderBudget(t *testing.T) {
 	var conversation workflowConversation
 	require.NoError(t, json.Unmarshal(fixture.input.Context, &conversation))
 	conversation.MaxContextTokens = 1000
+	encoded, err := json.Marshal(conversation)
+	require.NoError(t, err)
+	fixture.input.Context = encoded
+	result, err := fixture.engine.compactRound(t.Context(),
+		workflowRoundInput{Execution: fixture.input})
+	require.NoError(t, err)
+	assert.Nil(t, result.Output.Compaction)
+	assert.JSONEq(t, string(encoded), string(result.Output.Context))
+	assert.Equal(t, 3, driver.Calls())
+}
+
+// A budget no completed history can satisfy used to fail the round, which the
+// workflow recorded as an uncertain activity and left the turn hanging. The
+// round now keeps the context, and the request drops its oldest units.
+func TestNativeRootCompactionWithNothingToSummarizeKeepsContext(t *testing.T) {
+	t.Parallel()
+	fixture, _, driver := nativeRootCompactionFixture(t)
+	var conversation workflowConversation
+	require.NoError(t, json.Unmarshal(fixture.input.Context, &conversation))
+	conversation.MaxContextTokens = 200
 	encoded, err := json.Marshal(conversation)
 	require.NoError(t, err)
 	fixture.input.Context = encoded

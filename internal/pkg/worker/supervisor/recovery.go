@@ -64,10 +64,8 @@ func (s *Supervisor) settleDisconnectedWorker(
 		return ctxerrors.Wrap(err, "reap disconnected worker")
 	}
 
-	if _, err := s.options.Store.RecoverWorkerTurns(
-		ctx, sessionID, held.generationID,
-	); err != nil {
-		return ctxerrors.Wrap(err, "release disconnected worker turns")
+	if err := s.releaseDisconnectedWork(ctx, sessionID, held); err != nil {
+		return err
 	}
 
 	if err := s.options.Store.UpdateWorkerGenerationState(
@@ -87,6 +85,33 @@ func (s *Supervisor) settleDisconnectedWorker(
 		"reason", "worker_connection_ended",
 		"generation_id", held.generationID.String(),
 	)
+
+	return nil
+}
+
+// releaseDisconnectedWork ends the turns a lost worker held. Unless the
+// controller resumes after a crash, the session's unfinished executions stay
+// paused until a turn resumes them.
+func (s *Supervisor) releaseDisconnectedWork(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	held *supervised,
+) error {
+	if _, err := s.options.Store.RecoverWorkerTurns(
+		ctx, sessionID, held.generationID,
+	); err != nil {
+		return ctxerrors.Wrap(err, "release disconnected worker turns")
+	}
+
+	if s.options.ResumeAfterCrash {
+		return nil
+	}
+
+	if _, err := s.options.Store.PauseUnfinishedExecutions(
+		ctx, sessionID,
+	); err != nil {
+		return ctxerrors.Wrap(err, "pause disconnected worker's work")
+	}
 
 	return nil
 }

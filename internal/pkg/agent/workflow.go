@@ -2,12 +2,13 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
 
-	"github.com/cschleiden/go-workflows/registry"
-	workflowworker "github.com/cschleiden/go-workflows/worker"
-	"github.com/cschleiden/go-workflows/workflow"
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/go-workflows/registry"
+	workflowworker "github.com/psyb0t/go-workflows/worker"
+	"github.com/psyb0t/go-workflows/workflow"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -70,7 +71,16 @@ func awaitWorkflowActivity[T any](
 	result, err := workflow.ExecuteActivity[workflowActivityResult[T]](ctx,
 		workflow.DefaultActivityOptions, name, input).Get(ctx)
 	if err != nil {
-		return *new(T), ctxerrors.Wrap(err, "execute workflow activity")
+		if !activityAttemptCancelled(ctx, err) {
+			return *new(T), ctxerrors.Wrap(err, "execute workflow activity")
+		}
+
+		// go-workflows does not retry a cancelled attempt. The workflow
+		// still runs, so the saved decision says whether the execution was
+		// paused and must wait for resume, or can continue.
+		result = workflowActivityResult[T]{
+			Decision: session.ActivityDecisionReconcile,
+		}
 	}
 
 	result, err = awaitWorkflowActivityResult(ctx, name, input, result)
@@ -79,6 +89,13 @@ func awaitWorkflowActivity[T any](
 	}
 
 	return result.Output, nil
+}
+
+// activityAttemptCancelled reports an activity attempt that ended because its
+// own context was cancelled, as when its execution is paused, while the
+// workflow itself is still running.
+func activityAttemptCancelled(ctx workflow.Context, err error) bool {
+	return errors.Is(err, workflow.Canceled) && ctx.Err() == nil
 }
 
 func awaitWorkflowActivityResult[T any](

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/elelem"
@@ -85,7 +86,14 @@ func (r *Runtime) runWorkflowCompactionHook(ctx context.Context,
 func (r *Runtime) workflowCompactionHookPayload(workspace string,
 	input workflowRoundInput,
 ) (*compactionHookPayload, error) {
+	// Nothing summarizable means no compaction runs this round, so there is
+	// nothing for a preCompact hook to see. The compaction round logs it.
 	units, err := selectWorkflowCompactionPrefix(r.models, input)
+	if errors.Is(err, ErrCompactionUnavailable) {
+		//nolint:nilnil // No summary this round means no compaction hook.
+		return nil, nil
+	}
+
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "select compaction hook prefix")
 	}

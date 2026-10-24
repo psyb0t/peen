@@ -229,7 +229,7 @@ func TestNativeChildMessageRefusesUnavailableRecipients(t *testing.T) {
 	}{
 		{
 			name: "paused", state: models.ExecutionStatePaused,
-			wantErr: commerr.ErrInvalidState,
+			wantErr: session.ErrAgentRunPaused,
 		},
 		{
 			name: "completed", state: models.ExecutionStateCompleted,

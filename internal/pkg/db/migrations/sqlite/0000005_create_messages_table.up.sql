@@ -19,6 +19,7 @@ CREATE TABLE messages (
     compaction_id TEXT,
     injected BOOLEAN NOT NULL DEFAULT FALSE,
     injected_kind TEXT NOT NULL DEFAULT '' CHECK (injected_kind IN ('', 'skill')),
+    provider_reasoning_json TEXT NOT NULL DEFAULT '',
     FOREIGN KEY (session_id) REFERENCES sessions (id),
     FOREIGN KEY (session_id, turn_id) REFERENCES turns (session_id, id),
     FOREIGN KEY (compaction_id) REFERENCES compactions (id),

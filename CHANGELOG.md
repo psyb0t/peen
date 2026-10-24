@@ -2,6 +2,27 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.30.0 (2026-10-24)
+
+Fixes turns that died or hung on the workflow path, sessions that a failure, a Stop, or a crash left unusable, and reasoning lost between turns. The `messages` table gains a column, so before upgrading, stop Peen and delete `peen.db`, `peen.db-wal`, and `peen.db-shm` from the state directory. Work that a crash interrupts now stays paused by default. Set `PEEN_CRASH_RECOVERY=resume` to keep the automatic continuation.
+
+- Breaking: the `messages` table gains `provider_reasoning_json`. Peen refuses to open a `peen.db` created by an earlier version and names the files to delete.
+- Adds `PEEN_CRASH_RECOVERY` (default `pause`). After a controller crash or a lost worker, the interrupted turn ends `interrupted` and its work stays paused until a later turn continues it, as the docs already said. `resume` continues it without waiting, for fully autonomous deployments. `pkg/peen` gains `Options.ResumeAfterCrash`.
+- Adds the WebSocket error code `AGENT_PAUSED`. A message to a child whose work a Stop or a crash paused failed with `INTERNAL_SERVER_ERROR`. It now fails with `AGENT_PAUSED` until that work is resumed.
+- Fixes earlier turns' reasoning never reaching the model again. Assistant messages now keep the provider's reasoning envelope, so a provider with preserved thinking, such as Z.ai, receives it on later turns.
+- Fixes turns failing with "websocket message failed" after a tool call longer than 10 seconds, when replaying the turn's history outlasted the workflow cache.
+- Fixes a turn that failed inside its workflow leaving the session busy, so later messages queued and never ran. The turn now ends `failed`, the client receives `turn.failed`, and the session takes new messages.
+- Fixes Stop leaving the turn `running` with no stored end. The turn now ends `cancelled` and the feed stores `turn.cancelled`.
+- Fixes a session refusing every message after a controller crash, because the worker container the crashed controller left behind still held its name. Launching a session's worker now removes that container first.
+- Fixes a reasoning level the model cannot take failing the turn. Peen fits it to a level the model accepts, as documented.
+- Fixes a turn hanging in `reconciling` under `PEEN_COMPACTION_MODE=summarize` when no completed history could be summarized. Peen now sends the request over budget with a warning, as `drop-oldest` does.
+- Fixes command output being stored at about 20 lines a second, which kept a fast command's job `running` long after its process exited. Peen now stores output in batches.
+- Fixes Docker workers ignoring `LOG_LEVEL` and `LOG_ADD_SOURCE` and relaying every line at INFO. Workers now log JSON at the controller's level, and the controller relays a line that is not a log record as a warning.
+- Fixes `peen exec` writing its first log records to stdout ahead of the frames.
+- Fixes `harness.warning` frames carrying Go source locations.
+- Fixes `removePath` and `editFile` on a path just moved with `movePath` asking for a hash that was already given. The destination keeps the moved file's read hash.
+- Updates the workflow engine to `github.com/psyb0t/go-workflows` v1.3.0, which keeps a cached workflow executor open until the task running on it finishes and stops an empty workflow task from crashing the worker. Existing `workflows.db` files keep working. The update also moves common-go to v0.9.1, ctxerrors to v0.9.0, and the pure-Go SQLite driver to v1.60.0.
+
 ## v0.29.0 (2026-10-23)
 
 `PEEN_MAX_CONTEXT_TOKENS` now covers the reply as well as the prompt, and Z.ai Coding models get their documented 1,000,000-token window, output cap, reasoning levels, and quota errors. Before upgrading, check `PEEN_MAX_CONTEXT_TOKENS`. The prompt now gets that value minus `PEEN_OUTPUT_RESERVE_TOKENS` (default `4096`), and startup refuses a value that cannot hold the reserve and `PEEN_COMPACTION_MAX_OUTPUT_TOKENS`.

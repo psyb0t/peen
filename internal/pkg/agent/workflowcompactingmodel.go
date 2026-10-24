@@ -3,8 +3,8 @@ package agent
 import (
 	"encoding/json"
 
-	"github.com/cschleiden/go-workflows/workflow"
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/go-workflows/workflow"
 )
 
 func compactingWorkflowModelRound(

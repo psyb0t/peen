@@ -3,12 +3,12 @@ package agent
 import (
 	"context"
 
-	"github.com/cschleiden/go-workflows/backend"
-	workflowworker "github.com/cschleiden/go-workflows/worker"
-	"github.com/cschleiden/go-workflows/workflow"
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/go-workflows/backend"
+	workflowworker "github.com/psyb0t/go-workflows/worker"
+	"github.com/psyb0t/go-workflows/workflow"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -45,6 +45,7 @@ func NewWorkflowWorker(
 	dispatch.bind(&options)
 	engine := &workflowExecution{options: options}
 	workerOptions := workflowworker.DefaultOptions
+	workerOptions.WorkflowExecutorCacheTTL = workflowExecutorCacheTTL
 	queue := workflow.Queue(sessionID.String())
 	workerOptions.WorkflowQueues = []workflow.Queue{queue}
 	workerOptions.ActivityQueues = []workflow.Queue{queue}

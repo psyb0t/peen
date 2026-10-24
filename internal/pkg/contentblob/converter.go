@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/cschleiden/go-workflows/backend/converter"
-	"github.com/cschleiden/go-workflows/backend/payload"
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/go-workflows/backend/converter"
+	"github.com/psyb0t/go-workflows/backend/payload"
 )
 
 const (

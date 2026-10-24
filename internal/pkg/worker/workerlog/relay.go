@@ -36,6 +36,10 @@ const (
 	workerOutputMessage = "worker output"
 
 	fieldWorkerOutput = "output"
+
+	// reasonUnstructuredOutput marks a relayed line the worker did not write
+	// as a JSON log record.
+	reasonUnstructuredOutput = "unstructured_worker_output"
 )
 
 // Relay reads a worker's output stream and re-emits each record through the
@@ -67,9 +71,16 @@ func Relay(
 			continue
 		}
 
+		// Workers log JSON, so a line that is not a record is something else
+		// writing to the stream: a race report, a panic, or a subprocess. It
+		// is relayed as a warning so it cannot hide among info records.
 		level, message, attrs, ok := decodeRecord(line)
 		if !ok {
-			logger.Info(workerOutputMessage, fieldWorkerOutput, string(line))
+			logger.Warn(
+				workerOutputMessage,
+				fieldWorkerOutput, string(line),
+				"reason", reasonUnstructuredOutput,
+			)
 
 			continue
 		}

@@ -187,6 +187,25 @@ func TestNativeChildCompactionUnderBudgetDoesNotCallProvider(t *testing.T) {
 	assert.Equal(t, 3, driver.Calls())
 }
 
+func TestNativeChildCompactionWithNothingToSummarizeKeepsContext(
+	t *testing.T,
+) {
+	t.Parallel()
+	fixture, _, driver := nativeChildCompactionFixture(t)
+	var conversation workflowConversation
+	require.NoError(t, json.Unmarshal(fixture.input.Context, &conversation))
+	conversation.MaxContextTokens = 200
+	encoded, err := json.Marshal(conversation)
+	require.NoError(t, err)
+	fixture.input.Context = encoded
+	result, err := fixture.engine.compactRound(t.Context(),
+		workflowRoundInput{Execution: fixture.input})
+	require.NoError(t, err)
+	assert.Nil(t, result.Output.Compaction)
+	assert.Equal(t, json.RawMessage(encoded), result.Output.Context)
+	assert.Equal(t, 3, driver.Calls())
+}
+
 func TestNativeChildCompactionRequiresLeaseBeforeProvider(t *testing.T) {
 	t.Parallel()
 	fixture, _, driver := nativeChildCompactionFixture(t)

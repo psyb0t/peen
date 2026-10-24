@@ -77,6 +77,7 @@ const (
 	webSocketMessageFailedMessage        = "websocket message failed"
 	webSocketAgentFinishedMessage        = "the agent has finished"
 	webSocketAgentNotFoundMessage        = "this session has no such agent run"
+	webSocketAgentPausedMessage          = "the agent is paused"
 	webSocketHarnessConfigurationMessage = "Peen could not start this turn because the workspace agent configuration is invalid."            //nolint:lll // Client-safe text must remain one sentence.
 	webSocketInvalidSkillReason          = "Each directory in .agents/skills must contain a SKILL.md file whose name matches the directory." //nolint:lll // Client-safe text must remain one sentence.
 	webSocketInvalidInstructionReason    = "Check AGENTS.md and .agents/rules files for valid, nonempty instructions."                       //nolint:lll // Client-safe text must remain one sentence.
@@ -88,11 +89,6 @@ const (
 	staleAPIPathMessage                  = "no such path"
 	httpRequestRejectedLogMessage        = "HTTP request rejected"
 	httpRequestFailedLogMessage          = "HTTP request failed"
-
-	// errorLocationMarker opens the "[file:line in func]" suffix ctxerrors
-	// appends to every wrapped error. Everything from here on is diagnostic
-	// detail for logs, never for a response body.
-	errorLocationMarker = " ["
 
 	maximumRequestBodyBytes int64 = 1 << 20
 )

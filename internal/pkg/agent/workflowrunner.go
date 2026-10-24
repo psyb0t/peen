@@ -7,12 +7,13 @@ import (
 	"math"
 	"time"
 
-	"github.com/cschleiden/go-workflows/backend"
-	"github.com/cschleiden/go-workflows/client"
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/go-workflows/backend"
+	"github.com/psyb0t/go-workflows/client"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -20,6 +21,12 @@ const (
 	workflowPauseTimeout      = 10 * time.Second
 	workflowUserStopReason    = session.ExecutionUserStopReason
 	workflowResultWaitTimeout = time.Duration(math.MaxInt64)
+
+	// workflowFailurePauseReason pauses a root whose workflow failed, so it
+	// stays inspectable and never continues on its own.
+	workflowFailurePauseReason = "turn workflow failed"
+
+	reasonTurnWorkflowFailed = "turn_workflow_failed"
 )
 
 type nativeWorkflowRunner struct {
@@ -101,6 +108,9 @@ func (n *nativeWorkflowRunner) run(
 		if ctx.Err() != nil {
 			err = errors.Join(err,
 				n.interrupted(ctx, prepared, submission.Input))
+		} else {
+			err = errors.Join(err,
+				n.failed(ctx, prepared, submission.Input, err))
 		}
 
 		return nil, ctxerrors.Wrap(err, "wait for native root result")
@@ -155,10 +165,63 @@ func (n *nativeWorkflowRunner) interrupted(
 		return ctxerrors.Wrap(err, "pause explicitly stopped native root")
 	}
 
-	n.dispatch.runtime.store.ReleaseTurn(prepared.lease)
-	n.dispatch.runtime.closeActiveUserMessageQueue(prepared)
+	// Stop pauses the work rather than cancelling it for good, so the
+	// turnCancelled hook does not run. The turn itself still ends, with a
+	// stored turn.cancelled frame.
+	return n.dispatch.runtime.endUnfinishedTurn(cleanup, prepared,
+		session.CancelledTurnEnd())
+}
 
-	return nil
+// failed ends a turn whose root workflow failed. The root is paused rather
+// than left running, so it stays inspectable and never continues by itself,
+// and the session is free for the next message.
+func (n *nativeWorkflowRunner) failed(
+	ctx context.Context,
+	prepared *preparedTurn,
+	input workflowExecutionInput,
+	cause error,
+) error {
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx),
+		workflowPauseTimeout)
+	defer cancel()
+
+	runtimecontext.Logger(cleanup).Error(
+		"turn workflow failed, pausing its root",
+		"reason", reasonTurnWorkflowFailed,
+		"execution_id", input.ExecutionID,
+		"err", cause,
+	)
+
+	pauseErr := n.engine.pause(cleanup, input.SessionID, input.ExecutionID,
+		workflowFailurePauseReason)
+	if pauseErr != nil {
+		pauseErr = ctxerrors.Wrap(pauseErr, "pause failed native root")
+	}
+
+	return errors.Join(pauseErr, n.dispatch.runtime.endUnfinishedTurn(
+		cleanup, prepared, session.FailedTurnEnd()))
+}
+
+// endUnfinishedTurn records how a turn ended when its workflow did not finish
+// it: the turn's terminal state and frame, and the session's lease, message
+// queue, child sink, and turn slot released, so the next message can run.
+func (r *Runtime) endUnfinishedTurn(
+	ctx context.Context,
+	prepared *preparedTurn,
+	end session.TurnEnd,
+) error {
+	_, endErr := r.store.EndRunningTurn(ctx, prepared.lease.SessionID,
+		prepared.lease.TurnID, end)
+	if endErr != nil {
+		endErr = ctxerrors.Wrap(endErr, "end unfinished turn")
+	}
+
+	r.store.ReleaseTurn(prepared.lease)
+	r.closeActiveUserMessageQueue(prepared)
+	prepared.turn.closeChildSink()
+	prepared.releaseTurnCapacity()
+
+	return endErr
 }
 
 func nativeRootTurnResult(

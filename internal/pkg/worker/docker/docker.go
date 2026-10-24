@@ -165,6 +165,11 @@ func (l *Launcher) Launch(
 		return nil, ctxerrors.Wrap(err, "encode the worker launch document")
 	}
 
+	if err := l.clearStaleWorker(ctx, create.Name,
+		request.Document.SessionID); err != nil {
+		return nil, err
+	}
+
 	// The proxy listens before the container exists, so a worker that asks
 	// the daemon anything as soon as it starts finds the socket in place.
 	proxy, err := l.startProxyFor(ctx, request)
@@ -203,6 +208,40 @@ func (l *Launcher) Launch(
 	logDockerWorkerStarted(ctx, request, create, held.imageDigest)
 
 	return held, nil
+}
+
+// clearStaleWorker removes a container already holding this session's worker
+// name. A launch only happens when no live worker serves the session, so a
+// container with that name is one an earlier controller left behind, for
+// example after a crash, and it would make every launch fail on the name. It
+// is stopped and removed only when its labels show it is this session's
+// worker; anything else holding the name is refused and left alone.
+func (l *Launcher) clearStaleWorker(
+	ctx context.Context,
+	name string,
+	sessionID uuid.UUID,
+) error {
+	_, err := l.client.InspectContainer(ctx, name)
+	if errors.Is(err, commerr.ErrNotFound) {
+		return nil
+	}
+
+	if err != nil {
+		return ctxerrors.Wrap(err, "inspect the worker container name")
+	}
+
+	stale := &process{client: l.client, id: name, sessionID: sessionID}
+	if err := stale.stop(ctx); err != nil {
+		return ctxerrors.Wrap(err, "remove the stale worker container")
+	}
+
+	ctxscope.GetLogger(ctx).Warn(
+		"removed a worker container an earlier controller left behind",
+		"reason", "stale_worker_container_removed",
+		"container_name", name,
+	)
+
+	return nil
 }
 
 // buildCreateRequest resolves the container request from the launcher's

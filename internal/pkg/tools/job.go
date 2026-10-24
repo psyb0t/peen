@@ -35,6 +35,11 @@ const (
 	// package ever needing to apply backpressure to the process.
 	jobStreamChannelBuffer = 64
 
+	// jobOutputBatchLines and jobOutputBatchBytes bound one store call of
+	// job output, well inside the worker protocol's frame limit.
+	jobOutputBatchLines = 1000
+	jobOutputBatchBytes = 1 << 20
+
 	// jobEventSource identifies this package as the origin of job.* events.
 	jobEventSource = events.JobSource
 
@@ -64,7 +69,8 @@ type JobOutputRecord struct {
 // callers that do not configure durable storage.
 type JobObserver interface {
 	JobStarted(context.Context, JobSnapshot) error
-	JobOutput(context.Context, JobSnapshot, JobOutputRecord) error
+	// JobOutput receives one or more lines of one stream, in order.
+	JobOutput(context.Context, JobSnapshot, []JobOutputRecord) error
 	JobSignal(context.Context, JobSnapshot, JobSignal) error
 	JobFinished(context.Context, JobSnapshot) error
 }
@@ -451,8 +457,9 @@ func startJobStreams(
 }
 
 // relayJobStream records one stream's lines once the job's start is recorded.
-// Lines that arrive earlier are held rather than left in the channel, because
-// commander drops a subscriber whose channel stays full past its send timeout.
+// A separate goroutine keeps reading the channel into a queue meanwhile,
+// because commander drops a subscriber whose channel stays full past its send
+// timeout. It returns once the stream has ended and every line is recorded.
 func relayJobStream(
 	ctx context.Context,
 	registry *JobRegistry,
@@ -463,43 +470,127 @@ func relayJobStream(
 ) {
 	defer recoverAndLog(ctx, "job output reader")
 
-	held := make([]JobOutputRecord, 0)
+	pending := newJobOutputQueue()
 
-	for line := range lines {
-		held = append(held, JobOutputRecord{
-			Stream:    stream,
-			Content:   line,
-			CreatedAt: time.Now().UTC(),
-		})
+	go func() {
+		defer recoverAndLog(ctx, "job output reader")
+		defer pending.close()
 
-		select {
-		case <-recorded:
-			held = registry.recordOutputs(ctx, job, held)
-		default:
+		for line := range lines {
+			pending.push(JobOutputRecord{
+				Stream:    stream,
+				Content:   line,
+				CreatedAt: time.Now().UTC(),
+			})
 		}
-	}
+	}()
 
 	<-recorded
-	registry.recordOutputs(ctx, job, held)
+
+	for {
+		held, open := pending.take()
+		registry.recordOutputs(ctx, job, held)
+
+		if !open {
+			return
+		}
+	}
 }
 
-// recordOutputs records held lines in order and returns the emptied slice.
+// jobOutputQueue holds lines read from a stream until they are stored. The
+// reader never waits on the store, so commander never drops a line because a
+// store call is slow, and the writer stores everything that piled up meanwhile
+// in one batch.
+type jobOutputQueue struct {
+	mu      sync.Mutex
+	records []JobOutputRecord
+	closed  bool
+	ready   chan struct{}
+}
+
+func newJobOutputQueue() *jobOutputQueue {
+	return &jobOutputQueue{ready: make(chan struct{}, 1)}
+}
+
+func (q *jobOutputQueue) push(record JobOutputRecord) {
+	q.mu.Lock()
+	q.records = append(q.records, record)
+	q.mu.Unlock()
+	q.signal()
+}
+
+func (q *jobOutputQueue) close() {
+	q.mu.Lock()
+	q.closed = true
+	q.mu.Unlock()
+	q.signal()
+}
+
+func (q *jobOutputQueue) signal() {
+	select {
+	case q.ready <- struct{}{}:
+	default:
+	}
+}
+
+// take waits for queued lines and returns all of them. It reports false once
+// the stream has ended and every line was taken.
+func (q *jobOutputQueue) take() ([]JobOutputRecord, bool) {
+	for {
+		q.mu.Lock()
+		records := q.records
+		closed := q.closed
+		q.records = nil
+		q.mu.Unlock()
+
+		if len(records) > 0 {
+			return records, true
+		}
+
+		if closed {
+			return nil, false
+		}
+
+		<-q.ready
+	}
+}
+
+// recordOutputs records held lines in order, in batches bounded by line count
+// and size.
 func (r *JobRegistry) recordOutputs(
 	ctx context.Context,
 	job *Job,
 	held []JobOutputRecord,
-) []JobOutputRecord {
-	for _, record := range held {
-		r.recordOutput(ctx, job, record)
+) {
+	for start := 0; start < len(held); {
+		end := jobOutputBatchEnd(held, start)
+		r.recordOutputBatch(ctx, job, held[start:end])
+		start = end
 	}
-
-	return held[:0]
 }
 
-func (r *JobRegistry) recordOutput(
+// jobOutputBatchEnd returns the end of the batch that starts at start. A
+// batch always holds at least one line, however long.
+func jobOutputBatchEnd(held []JobOutputRecord, start int) int {
+	size := 0
+
+	for end := start; end < len(held); end++ {
+		size += len(held[end].Content)
+
+		isFull := end-start == jobOutputBatchLines ||
+			size > jobOutputBatchBytes
+		if isFull && end > start {
+			return end
+		}
+	}
+
+	return len(held)
+}
+
+func (r *JobRegistry) recordOutputBatch(
 	ctx context.Context,
 	job *Job,
-	record JobOutputRecord,
+	records []JobOutputRecord,
 ) {
 	job.outputMu.Lock()
 	defer job.outputMu.Unlock()
@@ -508,7 +599,7 @@ func (r *JobRegistry) recordOutput(
 		return
 	}
 
-	if err := r.observeOutput(ctx, job.Snapshot(), record); err != nil {
+	if err := r.observeOutput(ctx, job.Snapshot(), records); err != nil {
 		job.setPersistenceFailure(err)
 		runtimecontext.Logger(ctx).Warn(
 			"persist job output",
@@ -520,13 +611,15 @@ func (r *JobRegistry) recordOutput(
 		return
 	}
 
-	if record.Stream == JobStreamStdout {
-		job.stdout.Append(record.Content)
+	for _, record := range records {
+		if record.Stream == JobStreamStdout {
+			job.stdout.Append(record.Content)
 
-		return
+			continue
+		}
+
+		job.stderr.Append(record.Content)
 	}
-
-	job.stderr.Append(record.Content)
 }
 
 // Get looks up one job by ID within this session's registry.
@@ -702,7 +795,7 @@ func (r *JobRegistry) observeStarted(
 func (r *JobRegistry) observeOutput(
 	ctx context.Context,
 	snapshot JobSnapshot,
-	record JobOutputRecord,
+	records []JobOutputRecord,
 ) error {
 	r.observerMu.RLock()
 	observer := r.observer
@@ -712,7 +805,7 @@ func (r *JobRegistry) observeOutput(
 		return nil
 	}
 
-	if err := observer.JobOutput(ctx, snapshot, record); err != nil {
+	if err := observer.JobOutput(ctx, snapshot, records); err != nil {
 		return ctxerrors.Wrap(err, "notify job observer of output")
 	}
 

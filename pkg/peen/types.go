@@ -93,6 +93,10 @@ type Options struct {
 	// MaxContextTokens; the prompt gets the rest. Zero takes the package
 	// default of 4096.
 	OutputReserveTokens int
+	// ResumeAfterCrash lets work a previous process left unfinished continue
+	// by itself when the runtime starts. False, the default, pauses it until
+	// a turn resumes it.
+	ResumeAfterCrash bool
 	// TurnTimeout bounds one turn's provider call. Zero takes the package
 	// default.
 	TurnTimeout time.Duration

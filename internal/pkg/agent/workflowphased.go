@@ -3,10 +3,10 @@ package agent
 import (
 	"errors"
 
-	"github.com/cschleiden/go-workflows/workflow"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
+	"github.com/psyb0t/go-workflows/workflow"
 )
 
 type workflowToolPhaseCompletion struct {

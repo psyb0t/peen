@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/google/uuid"
@@ -28,6 +29,12 @@ func (r *Runtime) workflowRootCompactRound(
 	}
 
 	units, err := selectWorkflowCompactionPrefix(r.models, input)
+	if errors.Is(err, ErrCompactionUnavailable) {
+		logNothingToSummarize(ctx, err)
+
+		return workflowCompactionResult{Context: input.Execution.Context}, nil
+	}
+
 	if err != nil {
 		return workflowCompactionResult{}, ctxerrors.Wrap(err,
 			"select root compaction prefix")

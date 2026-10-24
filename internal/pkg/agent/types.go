@@ -58,9 +58,9 @@ const (
 	// EventTypeTurnCompleted marks a completed durable turn.
 	EventTypeTurnCompleted = "turn.completed"
 	// EventTypeTurnFailed marks a non-cancellation failed turn.
-	EventTypeTurnFailed = "turn.failed"
+	EventTypeTurnFailed = session.EventTypeTurnFailed
 	// EventTypeTurnCancelled marks a cancelled durable turn.
-	EventTypeTurnCancelled = "turn.cancelled"
+	EventTypeTurnCancelled = session.EventTypeTurnCancelled
 	// EventTypeAgentRunStarted marks a durable child-agent run before it asks
 	// a provider for work.
 	EventTypeAgentRunStarted = "agent.run.started"
@@ -111,8 +111,8 @@ const (
 	eventTypeThinkingDelta = EventTypeThinkingDelta
 	eventTypeTurnCompleted = EventTypeTurnCompleted
 
-	failureClassAgentRun  = "agentRun"
-	failureClassCancelled = "cancelled"
+	failureClassAgentRun  = session.TurnFailureAgentRun
+	failureClassCancelled = session.TurnFailureCancelled
 
 	systemSectionGap = "\n\n"
 
@@ -149,6 +149,14 @@ const (
 
 	defaultCompactionOutputTokens = 2048
 	defaultCompactionTimeout      = 2 * time.Minute
+
+	// workflowExecutorCacheTTL keeps a session's workflow executors cached
+	// far longer than any workflow task. go-workflows evicts on TTL and
+	// closes the executor even while a task is replaying on it, and with its
+	// 10 second default any activity longer than that forced a full history
+	// replay that could itself be evicted mid-way. A session runs only a
+	// handful of executions, so holding them costs little.
+	workflowExecutorCacheTTL = 24 * time.Hour
 
 	// sessionEventTimeLayout is RFC3339 in UTC, matching the API's timestamps.
 	sessionEventTimeLayout = time.RFC3339

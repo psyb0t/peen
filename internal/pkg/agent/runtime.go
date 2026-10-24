@@ -2648,7 +2648,19 @@ func elelemMessage(message *models.Message) (elelem.Message, error) {
 		ToolCallID:        message.ToolCallID,
 		ToolResultIsError: message.IsError,
 		Reasoning:         message.Thinking,
+		ProviderReasoning: storedProviderReasoning(
+			message.ProviderReasoningJSON),
 	}, nil
+}
+
+// storedProviderReasoning returns a saved reasoning envelope, or nil when the
+// message stored none.
+func storedProviderReasoning(stored string) json.RawMessage {
+	if stored == "" {
+		return nil
+	}
+
+	return json.RawMessage(stored)
 }
 
 func elelemMessageInput(input session.MessageInput) (elelem.Message, error) {
@@ -2680,6 +2692,8 @@ func elelemMessageInput(input session.MessageInput) (elelem.Message, error) {
 		ToolCallID:        input.ToolCallID,
 		ToolResultIsError: input.IsError,
 		Reasoning:         input.Thinking,
+		ProviderReasoning: storedProviderReasoning(
+			input.ProviderReasoningJSON),
 	}, nil
 }
 
@@ -2712,13 +2726,21 @@ func messageInput(
 		)
 	}
 
-	return session.MessageInput{
+	input := session.MessageInput{
 		Role:          models.MessageRoleAssistant,
 		Content:       message.Text(),
 		ModelID:       modelReference,
 		Thinking:      message.Reasoning,
 		ToolCallsJSON: string(toolCalls),
-	}, nil
+	}
+
+	// The envelope is what a provider needs to continue its own reasoning in
+	// a later turn. A message without one stores nothing, never "null".
+	if elelem.HasProviderReasoning(message.ProviderReasoning) {
+		input.ProviderReasoningJSON = string(message.ProviderReasoning)
+	}
+
+	return input, nil
 }
 
 func markIncomplete(messages []session.MessageInput) []session.MessageInput {

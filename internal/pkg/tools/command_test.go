@@ -161,7 +161,7 @@ type foregroundSignalObserver struct {
 }
 
 func (*foregroundSignalObserver) JobStarted(context.Context, JobSnapshot) error { return nil }
-func (*foregroundSignalObserver) JobOutput(context.Context, JobSnapshot, JobOutputRecord) error {
+func (*foregroundSignalObserver) JobOutput(context.Context, JobSnapshot, []JobOutputRecord) error {
 	return nil
 }
 

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
@@ -27,6 +28,12 @@ func (r *Runtime) workflowChildCompactRound(
 	}
 
 	units, err := selectWorkflowCompactionPrefix(r.models, input)
+	if errors.Is(err, ErrCompactionUnavailable) {
+		logNothingToSummarize(ctx, err)
+
+		return workflowCompactionResult{Context: input.Execution.Context}, nil
+	}
+
 	if err != nil {
 		return workflowCompactionResult{}, ctxerrors.Wrap(err,
 			"select child compaction prefix")

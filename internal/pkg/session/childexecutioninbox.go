@@ -84,7 +84,8 @@ func (s *Store) acceptChildInboxMessage(
 	}
 
 	if execution.State == models.ExecutionStatePaused {
-		return nil, ctxerrors.Wrap(commerr.ErrInvalidState,
+		return nil, ctxerrors.Wrap(
+			errors.Join(commerr.ErrInvalidState, ErrAgentRunPaused),
 			"child execution cannot accept another message")
 	}
 

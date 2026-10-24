@@ -133,7 +133,12 @@ func TestControlWorkerEnvironment(t *testing.T) {
 		},
 		{name: "ordinary variable", entry: "PATH=/usr/bin", wantKept: true},
 		{name: "log level", entry: "LOG_LEVEL=debug", wantKept: true},
+		{name: "log format is replaced", entry: "LOG_FORMAT=text"},
 	}
+
+	// The controller relays a control worker's output, so the worker always
+	// writes JSON whatever the controller's own format is.
+	jsonFormat := "LOG_FORMAT=json"
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -145,14 +150,27 @@ func TestControlWorkerEnvironment(t *testing.T) {
 			)
 
 			if tc.wantKept {
-				assert.Equal(t, []string{tc.entry}, got)
+				assert.Equal(t, []string{tc.entry, jsonFormat}, got)
 
 				return
 			}
 
-			assert.Empty(t, got)
+			assert.Equal(t, []string{jsonFormat}, got)
 		})
 	}
+}
+
+func TestWorkerEnvironmentCarriesLogSettingsAsJSON(t *testing.T) {
+	t.Setenv("LOG_LEVEL", "debug")
+	t.Setenv("LOG_ADD_SOURCE", "true")
+	t.Setenv("LOG_FORMAT", "text")
+
+	environment, err := testConfig(t).WorkerEnvironment()
+	require.NoError(t, err)
+
+	assert.Equal(t, "debug", environment["LOG_LEVEL"])
+	assert.Equal(t, "true", environment["LOG_ADD_SOURCE"])
+	assert.Equal(t, "json", environment["LOG_FORMAT"])
 }
 
 func TestConfigValidateDockerHostIdentity(t *testing.T) {

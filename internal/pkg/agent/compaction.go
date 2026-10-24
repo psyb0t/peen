@@ -28,8 +28,12 @@ const (
 	// compactionReasonBudgetExceeded is the stable reason logged when a
 	// request's transcript no longer fits the configured budget.
 	compactionReasonBudgetExceeded = "context_budget_exceeded"
-	compactionOutcomeSucceeded     = "succeeded"
-	compactionOutcomeFailed        = "failed"
+	// compactionReasonNothingToSummarize is logged when no completed history
+	// can bring a request under budget, so it goes out with the oldest units
+	// dropped instead of a summary.
+	compactionReasonNothingToSummarize = "nothing_to_summarize"
+	compactionOutcomeSucceeded         = "succeeded"
+	compactionOutcomeFailed            = "failed"
 )
 
 // compactionSummary is one summarization call's result.
@@ -324,7 +328,7 @@ func (c *compactor) handle(
 
 	units, err := c.selectPrefix(event)
 	if err != nil {
-		return err
+		return handleUnselectablePrefix(ctx, event, err)
 	}
 
 	messagesCovered := c.plan.messageCount(units)
@@ -445,6 +449,37 @@ func compactionOutcome(err error) string {
 	}
 
 	return compactionOutcomeFailed
+}
+
+// handleUnselectablePrefix falls back to leaving out the oldest units when no
+// completed history can be summarized, and returns any other error as is.
+func handleUnselectablePrefix(
+	ctx context.Context,
+	event *elelem.TokenLimitEvent,
+	err error,
+) error {
+	if !errors.Is(err, ErrCompactionUnavailable) {
+		return err
+	}
+
+	logNothingToSummarize(ctx, err)
+
+	if err := elelem.DropOldestUnits(nil)(ctx, event); err != nil {
+		return ctxerrors.Wrap(err, "drop oldest units without a summary")
+	}
+
+	return nil
+}
+
+// logNothingToSummarize records that summarize mode fell back to leaving out
+// the oldest units, because no completed history could free the room.
+func logNothingToSummarize(ctx context.Context, err error) {
+	runtimecontext.Logger(ctx).Warn(
+		"no completed history can bring the request under budget, "+
+			"dropping the oldest units instead",
+		"reason", compactionReasonNothingToSummarize,
+		"err", err,
+	)
 }
 
 // selectPrefix picks the smallest completed prefix whose removal leaves room

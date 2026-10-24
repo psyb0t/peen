@@ -79,18 +79,21 @@ type Lease struct {
 
 // MessageInput describes a durable transcript record.
 type MessageInput struct {
-	ID            uuid.UUID           `json:"id"`
-	Workspace     string              `json:"workspace"`
-	Role          models.MessageRole  `json:"role"`
-	Content       string              `json:"content"`
-	ModelID       string              `json:"modelId"`
-	Thinking      string              `json:"thinking"`
-	ToolCallsJSON string              `json:"toolCallsJson"`
-	ToolCallID    string              `json:"toolCallId"`
-	IsError       bool                `json:"isError"`
-	Incomplete    bool                `json:"incomplete"`
-	Injected      bool                `json:"injected"`
-	InjectedKind  models.InjectedKind `json:"injectedKind"`
+	ID        uuid.UUID          `json:"id"`
+	Workspace string             `json:"workspace"`
+	Role      models.MessageRole `json:"role"`
+	Content   string             `json:"content"`
+	ModelID   string             `json:"modelId"`
+	Thinking  string             `json:"thinking"`
+	// ProviderReasoningJSON is the provider's reasoning envelope, kept so a
+	// later turn can replay it to the same model.
+	ProviderReasoningJSON string              `json:"providerReasoningJson"`
+	ToolCallsJSON         string              `json:"toolCallsJson"`
+	ToolCallID            string              `json:"toolCallId"`
+	IsError               bool                `json:"isError"`
+	Incomplete            bool                `json:"incomplete"`
+	Injected              bool                `json:"injected"`
+	InjectedKind          models.InjectedKind `json:"injectedKind"`
 }
 
 // EventInput describes one exact internal or protocol event.

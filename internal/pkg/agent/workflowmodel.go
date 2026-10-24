@@ -107,8 +107,12 @@ func workflowModelRequest(
 		request.WithStreaming(*conversation.Streaming)
 	}
 
-	if conversation.ReasoningEffort != "" {
-		request.WithReasoningEffort(conversation.ReasoningEffort)
+	// The saved level is what the client asked for. Elelem refuses a level
+	// outside the model's range, so it is fitted as the turn path does.
+	effort, _ := fitReasoningEffort(conversation.ReasoningEffort, model.Model,
+		model.Client.Capabilities(model.Model))
+	if effort != "" {
+		request.WithReasoningEffort(effort)
 	}
 
 	return request, conversation, nil

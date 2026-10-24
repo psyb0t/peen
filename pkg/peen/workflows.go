@@ -5,11 +5,11 @@ import (
 	"errors"
 	"sync"
 
-	workflowworker "github.com/cschleiden/go-workflows/worker"
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
+	workflowworker "github.com/psyb0t/go-workflows/worker"
 	"github.com/psyb0t/peen/internal/pkg/agent"
 	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 	"github.com/psyb0t/peen/internal/pkg/session"

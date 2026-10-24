@@ -82,6 +82,11 @@ type turnStorage interface {
 		input FinalizeTurnInput,
 	) error
 	ReleaseTurn(lease Lease)
+	EndRunningTurn(
+		ctx context.Context,
+		sessionID, turnID uuid.UUID,
+		end TurnEnd,
+	) (bool, error)
 	RegisterCancellation(lease Lease, cancel context.CancelFunc)
 	IsActive(sessionID uuid.UUID) bool
 	Cancel(ctx context.Context, sessionID uuid.UUID) (bool, error)
@@ -165,8 +170,8 @@ type jobStorage interface {
 		ctx context.Context,
 		sessionID uuid.UUID,
 		jobID uuid.UUID,
-		input AppendJobOutputInput,
-	) (*models.JobOutputLine, error)
+		inputs []AppendJobOutputInput,
+	) ([]*models.JobOutputLine, error)
 	ListJobOutput(
 		ctx context.Context,
 		sessionID uuid.UUID,

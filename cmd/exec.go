@@ -39,7 +39,9 @@ By default standard output carries every frame of the session exactly as the Web
 The first interrupt abandons startup or cancels the running turn and waits for confirmation. A second stops streaming and shuts down an in-process controller; a third exits immediately. The exit status is 0 when the turn completed, 1 when it failed, and 130 when it was cancelled.`
 
 const (
-	execUse   = "exec [flags] (--prompt <prompt> | <prompt>)"
+	execCommandName = "exec"
+	execUse         = execCommandName +
+		" [flags] (--prompt <prompt> | <prompt>)"
 	execShort = "Run one turn in a workspace and exit"
 
 	flagPrompt           = "prompt"

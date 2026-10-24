@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/peen/internal/pkg/publicerror"
 	"github.com/psyb0t/peen/internal/pkg/workspacefs"
 )
 
@@ -720,7 +721,9 @@ func (s *resolutionState) warn(kind SourceKind, source string, err error) {
 	s.warnings = append(s.warnings, Warning{
 		Kind:   kind,
 		Source: source,
-		Reason: err.Error(),
+		// Warnings reach clients in harness.warning frames, so the reason
+		// carries no source locations.
+		Reason: publicerror.Message(err),
 	})
 }
 

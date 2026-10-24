@@ -40,6 +40,7 @@ func newMessage(db *gorm.DB, opts ...gen.DOOption) message {
 	_message.Content = field.NewString(tableName, "content")
 	_message.ModelID = field.NewString(tableName, "model_id")
 	_message.Thinking = field.NewString(tableName, "thinking")
+	_message.ProviderReasoningJSON = field.NewString(tableName, "provider_reasoning_json")
 	_message.ToolCallsJSON = field.NewString(tableName, "tool_calls_json")
 	_message.ToolCallID = field.NewString(tableName, "tool_call_id")
 	_message.CompactionID = field.NewField(tableName, "compaction_id")
@@ -57,24 +58,25 @@ func newMessage(db *gorm.DB, opts ...gen.DOOption) message {
 type message struct {
 	messageDo
 
-	ALL           field.Asterisk
-	ID            field.Field
-	SessionID     field.Field
-	TurnID        field.Field
-	Sequence      field.Int64
-	Workspace     field.String
-	Role          field.String
-	Content       field.String
-	ModelID       field.String
-	Thinking      field.String
-	ToolCallsJSON field.String
-	ToolCallID    field.String
-	CompactionID  field.Field
-	IsError       field.Bool
-	Incomplete    field.Bool
-	Injected      field.Bool
-	InjectedKind  field.String
-	CreatedAt     field.Time
+	ALL                   field.Asterisk
+	ID                    field.Field
+	SessionID             field.Field
+	TurnID                field.Field
+	Sequence              field.Int64
+	Workspace             field.String
+	Role                  field.String
+	Content               field.String
+	ModelID               field.String
+	Thinking              field.String
+	ProviderReasoningJSON field.String
+	ToolCallsJSON         field.String
+	ToolCallID            field.String
+	CompactionID          field.Field
+	IsError               field.Bool
+	Incomplete            field.Bool
+	Injected              field.Bool
+	InjectedKind          field.String
+	CreatedAt             field.Time
 
 	fieldMap map[string]field.Expr
 }
@@ -100,6 +102,7 @@ func (m *message) updateTableName(table string) *message {
 	m.Content = field.NewString(table, "content")
 	m.ModelID = field.NewString(table, "model_id")
 	m.Thinking = field.NewString(table, "thinking")
+	m.ProviderReasoningJSON = field.NewString(table, "provider_reasoning_json")
 	m.ToolCallsJSON = field.NewString(table, "tool_calls_json")
 	m.ToolCallID = field.NewString(table, "tool_call_id")
 	m.CompactionID = field.NewField(table, "compaction_id")
@@ -124,7 +127,7 @@ func (m *message) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (m *message) fillFieldMap() {
-	m.fieldMap = make(map[string]field.Expr, 17)
+	m.fieldMap = make(map[string]field.Expr, 18)
 	m.fieldMap["id"] = m.ID
 	m.fieldMap["session_id"] = m.SessionID
 	m.fieldMap["turn_id"] = m.TurnID
@@ -134,6 +137,7 @@ func (m *message) fillFieldMap() {
 	m.fieldMap["content"] = m.Content
 	m.fieldMap["model_id"] = m.ModelID
 	m.fieldMap["thinking"] = m.Thinking
+	m.fieldMap["provider_reasoning_json"] = m.ProviderReasoningJSON
 	m.fieldMap["tool_calls_json"] = m.ToolCallsJSON
 	m.fieldMap["tool_call_id"] = m.ToolCallID
 	m.fieldMap["compaction_id"] = m.CompactionID

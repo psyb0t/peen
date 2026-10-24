@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -915,6 +916,13 @@ type fakeDaemon struct {
 	// calls is the order of lifecycle calls, shared with fakeProxy, so a test
 	// can prove the proxy lives exactly as long as the container.
 	calls []string
+
+	// staleName is a container that already holds the worker name before the
+	// launch, as one a crashed controller left behind does, with its labels
+	// and running state.
+	staleName    string
+	staleLabels  map[string]string
+	staleRunning bool
 }
 
 const (
@@ -1065,6 +1073,20 @@ func (d *fakeDaemon) InspectContainer(
 	_ context.Context,
 	id string,
 ) (docker.ContainerState, error) {
+	if d.staleName != "" && id == d.staleName && !slices.Contains(d.removed, id) {
+		return docker.ContainerState{
+			ID:      id,
+			Running: d.staleRunning,
+			Labels:  d.staleLabels,
+		}, nil
+	}
+
+	// Only the container this fake created exists. A launch looks its name up
+	// first, and a name nobody holds is not found.
+	if id != testContainerID {
+		return docker.ContainerState{}, commerr.ErrNotFound
+	}
+
 	if d.inspectErr != nil {
 		return docker.ContainerState{}, d.inspectErr
 	}
@@ -1111,6 +1133,86 @@ func TestLaunchFeedsTheDocumentBeforeStarting(t *testing.T) {
 	// the local image ID a container inspect returns.
 	assert.Equal(t, testImage, descriptor.ImageDigest)
 	assert.NotEqual(t, testLocalImageID, descriptor.ImageDigest)
+}
+
+// A controller that crashed left its worker container behind with the
+// session's deterministic name, and every later launch failed on the name.
+// The launch now removes the leftover when its labels show it is this
+// session's worker, and refuses anything else holding the name.
+func TestLaunchClearsTheSessionsStaleWorker(t *testing.T) {
+	t.Parallel()
+
+	sessionID := uuid.New()
+	staleName := worker.ContainerName(sessionID)
+
+	testCases := []struct {
+		name        string
+		labels      map[string]string
+		running     bool
+		wantErr     error
+		wantRemoved []string
+		wantStopped []string
+	}{
+		{
+			name:        "stopped leftover of this session",
+			labels:      worker.ContainerLabels(sessionID),
+			wantRemoved: []string{staleName},
+		},
+		{
+			name:        "running leftover of this session",
+			labels:      worker.ContainerLabels(sessionID),
+			running:     true,
+			wantRemoved: []string{staleName},
+			wantStopped: []string{staleName},
+		},
+		{
+			name:    "another session's container",
+			labels:  worker.ContainerLabels(uuid.New()),
+			wantErr: commerr.ErrPermissionDenied,
+		},
+		{
+			name:    "a container Peen does not manage",
+			labels:  map[string]string{},
+			wantErr: commerr.ErrPermissionDenied,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			daemon := &fakeDaemon{
+				labels:       worker.ContainerLabels(sessionID),
+				repoDigests:  []string{testImage},
+				staleName:    staleName,
+				staleLabels:  tc.labels,
+				staleRunning: tc.running,
+			}
+			launcher, err := docker.New(docker.Options{
+				Client:   daemon,
+				Identity: testIdentity(),
+			})
+			require.NoError(t, err)
+
+			_, err = launcher.Launch(t.Context(), worker.LaunchRequest{
+				Document:   testDocument(sessionID),
+				AgentSpace: sandboxSpace(),
+			})
+
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				assert.Empty(t, daemon.removed)
+				assert.Empty(t, daemon.started)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantRemoved, daemon.removed)
+			assert.Equal(t, tc.wantStopped, daemon.stopped)
+			assert.Equal(t, []string{testContainerID}, daemon.started)
+		})
+	}
 }
 
 // TestLaunchFollowsTheWorkerContainerLogs is the Docker half of the audit

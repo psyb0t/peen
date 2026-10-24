@@ -32,6 +32,7 @@ func stateTestConfig() config.Config {
 		DefaultModel:           stateTestModelReference,
 		MaxContextTokens:       stateTestContextTokens,
 		CompactionMode:         config.CompactionModeDropOldest,
+		CrashRecovery:          config.CrashRecoveryPause,
 		CompactionOutputTokens: stateTestOutputTokens,
 		CompactionTimeout:      time.Minute,
 		TurnTimeout:            time.Minute,

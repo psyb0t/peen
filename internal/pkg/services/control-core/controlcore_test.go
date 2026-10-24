@@ -94,6 +94,7 @@ func newCoreFixtureWith(
 		DefaultModel:           coreTestModelReference,
 		MaxContextTokens:       coreTestContextTokens,
 		CompactionMode:         peenconfig.CompactionModeDropOldest,
+		CrashRecovery:          peenconfig.CrashRecoveryPause,
 		CompactionOutputTokens: coreTestOutputTokens,
 		CompactionTimeout:      time.Minute,
 		TurnTimeout:            time.Minute,

@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
+	"github.com/psyb0t/elelem/elelemtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -139,6 +140,67 @@ func TestWorkflowModelRequestKeepsTheReplyReserve(t *testing.T) {
 	reached, err = request.IsTokenLimitReached()
 	require.NoError(t, err)
 	assert.True(t, reached)
+}
+
+// A saved level outside the model's range is fitted before the request goes
+// out. Sending it as asked made Elelem refuse the request and failed the turn.
+func TestWorkflowModelRequestFitsTheReasoningEffort(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name      string
+		requested elelem.ReasoningEffort
+		want      elelem.ReasoningEffort
+	}{
+		{
+			name:      "below the model minimum",
+			requested: elelem.ReasoningEffortMinimal,
+			want:      elelem.ReasoningEffortLow,
+		},
+		{
+			name:      "inside the range",
+			requested: elelem.ReasoningEffortHigh,
+			want:      elelem.ReasoningEffortHigh,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			scenario, input := workflowCompactionPrefixFixture(t, 1)
+
+			var conversation workflowConversation
+			require.NoError(t, json.Unmarshal(input.Execution.Context,
+				&conversation))
+			conversation.ReasoningEffort = tc.requested
+			encoded, err := json.Marshal(conversation)
+			require.NoError(t, err)
+			input.Execution.Context = encoded
+
+			model, err := scenario.fixture.runtime.models.ResolveModel(
+				runtimeTestModelReference)
+			require.NoError(t, err)
+			driver := elelemtest.NewScriptedDriver(elelemtest.Text("done"))
+			model.Client = elelem.New(driver)
+			model.Model.ReasoningLevels = elelem.ReasoningLevels{
+				Min: elelem.ReasoningEffortLow,
+			}
+			registry, err := NewStaticRegistry(map[string]ModelClient{
+				runtimeTestModelReference: model,
+			})
+			require.NoError(t, err)
+
+			request, _, err := workflowModelRequest(registry, input)
+			require.NoError(t, err)
+			_, err = request.Run(t.Context())
+			require.NoError(t, err)
+
+			requests := driver.Requests()
+			require.Len(t, requests, 1)
+			assert.Equal(t, tc.want, requests[0].Params.ReasoningEffort)
+		})
+	}
 }
 
 func TestWorkflowCompactionPrefixRejectsMalformedInput(t *testing.T) {

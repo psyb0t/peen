@@ -159,6 +159,30 @@ func TestMovePath_MovesSymlinkItself(t *testing.T) {
 	assert.Equal(t, target, resolved)
 }
 
+// A rename keeps the bytes, so the moved file counts as read at its old hash.
+// Removing it at the new path used to fail asking for a hash that was given.
+func TestMovePath_DestinationKeepsTheReadHash(t *testing.T) {
+	t.Parallel()
+
+	exec := newMovePathTestExecutor(t)
+	source := observeSource(t, exec, filepath.Join(exec.Workspace(), "a.txt"))
+	destination := filepath.Join(exec.Workspace(), "b.txt")
+
+	_, err := exec.MovePath(context.Background(), MovePathInput{
+		Source:      source,
+		Destination: destination,
+	})
+	require.NoError(t, err)
+
+	out, err := exec.RemovePath(context.Background(), RemovePathInput{
+		Path:           destination,
+		ExpectedSHA256: hashBytes([]byte("move me")),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, removedOne, out.Removed)
+	assert.NoFileExists(t, destination)
+}
+
 func TestMovePath_MissingObservation(t *testing.T) {
 	t.Parallel()
 

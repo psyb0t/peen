@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	workflowsqlite "github.com/cschleiden/go-workflows/backend/sqlite"
 	"github.com/google/uuid"
 	commonsqlite "github.com/psyb0t/common-go/db/sqlite"
 	sqlitegorm "github.com/psyb0t/common-go/db/sqlite/gorm"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	workflowsqlite "github.com/psyb0t/go-workflows/backend/sqlite"
 	"github.com/psyb0t/peen/internal/pkg/db/migrations"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"

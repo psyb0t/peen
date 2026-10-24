@@ -3,9 +3,9 @@ package protocol
 import (
 	"testing"
 
-	"github.com/cschleiden/go-workflows/workflow"
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/go-workflows/workflow"
 	"github.com/stretchr/testify/require"
 )
 

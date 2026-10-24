@@ -54,7 +54,8 @@ func (e *Executor) movePathLocked(
 		return MovePathOutput{}, wrapPathError(err, "stat move source")
 	}
 
-	if err := e.requireMoveObservation(source, info); err != nil {
+	contentHash, err := e.requireMoveObservation(source, info)
+	if err != nil {
 		return MovePathOutput{}, err
 	}
 
@@ -71,17 +72,25 @@ func (e *Executor) movePathLocked(
 		return MovePathOutput{}, wrapPathError(err, "rename path")
 	}
 
-	e.observe(destination)
+	// A rename keeps the bytes, so a moved file stays read at the hash it had
+	// and a later change to the new path needs no second read.
+	if contentHash != "" {
+		e.observeContent(destination, contentHash)
+	} else {
+		e.observe(destination)
+	}
 
 	return MovePathOutput{Source: source, Destination: destination}, nil
 }
 
+// requireMoveObservation checks the source was read and returns the content
+// hash of a regular file, or "" for anything else.
 func (e *Executor) requireMoveObservation(
 	source string,
 	info fs.FileInfo,
-) error {
+) (string, error) {
 	if !info.Mode().IsRegular() {
-		return e.requireObserved(source)
+		return "", e.requireObserved(source)
 	}
 
 	content, _, err := e.readRegularFile(
@@ -89,10 +98,14 @@ func (e *Executor) requireMoveObservation(
 		int64(e.limits.MaxWriteBytes),
 	)
 	if err != nil {
-		return ctxerrors.Wrap(err, "read file before moving it")
+		return "", ctxerrors.Wrap(err, "read file before moving it")
 	}
 
-	return e.requireObservedContent(source, content)
+	if err := e.requireObservedContent(source, content); err != nil {
+		return "", err
+	}
+
+	return hashBytes(content), nil
 }
 
 // checkDestinationFree rejects a move whose destination already exists,

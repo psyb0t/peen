@@ -133,6 +133,7 @@ func TestWorkflowRunnerPausesStopAndAllowsUnrelatedWork(t *testing.T) {
 	assert.Zero(t, cancelledHooks.Load())
 	assert.Zero(t, completedHooks.Load())
 	assert.Equal(t, 1, driver.Calls())
+	assertStoppedTurnEnded(t, base)
 	assertPausedRootAllowsNewWork(t, base)
 	assert.Zero(t, cancelledHooks.Load())
 	assert.EqualValues(t, 1, completedHooks.Load())
@@ -180,6 +181,28 @@ func TestWorkflowRunnerFailureCommitsWithoutCompletionHooks(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, failed)
+}
+
+// assertStoppedTurnEnded checks that Stop ended the only turn as cancelled
+// and stored its terminal frame, so a reconnecting client sees it end.
+func assertStoppedTurnEnded(t *testing.T, base runtimeFixture) {
+	t.Helper()
+	turns, err := base.store.ListTurns(t.Context(), base.runtime.sessionID,
+		session.ListTurnsOptions{Limit: session.MaximumPageLimit})
+	require.NoError(t, err)
+	require.Len(t, turns.Items, 1)
+	stopped := turns.Items[0]
+	assert.Equal(t, models.TurnStateCancelled, stopped.State)
+	assert.NotNil(t, stopped.CompletedAt)
+	frames, err := base.store.ListEvents(t.Context(), base.runtime.sessionID,
+		session.ListEventsOptions{
+			TurnID:     stopped.ID,
+			EventTypes: []string{session.EventTypeTurnCancelled},
+			Limit:      session.MaximumPageLimit,
+		})
+	require.NoError(t, err)
+	require.Len(t, frames.Items, 1)
+	assert.JSONEq(t, `{"reason":"cancelled"}`, frames.Items[0].PayloadJSON)
 }
 
 func assertPausedRootAllowsNewWork(t *testing.T, base runtimeFixture) {

@@ -39,19 +39,50 @@ func TestStoreJobReplaySurvivesRestartAndRecordsSignals(t *testing.T) {
 		models.JobOutputStreamStderr,
 		models.JobOutputStreamStdout,
 	} {
-		line, appendErr := store.AppendJobOutput(
+		lines, appendErr := store.AppendJobOutput(
 			ctx,
 			session.ID,
 			jobs[0].ID,
-			AppendJobOutputInput{
+			[]AppendJobOutputInput{{
 				Stream:  stream,
 				Content: fmt.Sprintf("line-%d", index),
-			},
+			}},
 		)
 		require.NoError(t, appendErr)
-		assert.Equal(t, int64(index+1), line.Sequence)
-		assert.Equal(t, stream, line.Stream)
+		require.Len(t, lines, 1)
+		assert.Equal(t, int64(index+1), lines[0].Sequence)
+		assert.Equal(t, stream, lines[0].Stream)
 	}
+
+	batchJobID := jobs[1].ID
+	batch, err := store.AppendJobOutput(ctx, session.ID, batchJobID,
+		[]AppendJobOutputInput{
+			{Stream: models.JobOutputStreamStdout, Content: "batch-0"},
+			{Stream: models.JobOutputStreamStderr, Content: "batch-1"},
+			{Stream: models.JobOutputStreamStdout, Content: "batch-2"},
+		})
+	require.NoError(t, err)
+	require.Len(t, batch, 3)
+
+	for index, line := range batch {
+		assert.Equal(t, int64(index+1), line.Sequence)
+		assert.Equal(t, fmt.Sprintf("batch-%d", index), line.Content)
+	}
+
+	_, err = store.AppendJobOutput(ctx, session.ID, batchJobID, nil)
+	require.ErrorIs(t, err, commerr.ErrRequiredFieldNotSet)
+
+	_, err = store.AppendJobOutput(ctx, session.ID, batchJobID,
+		[]AppendJobOutputInput{
+			{Stream: models.JobOutputStreamStdout, Content: "kept out"},
+			{Stream: models.JobOutputStream("sideband")},
+		})
+	require.ErrorIs(t, err, commerr.ErrValidationFailed)
+
+	batchOutput, err := store.ListJobOutput(ctx, session.ID, batchJobID,
+		ListJobOutputOptions{Limit: 5})
+	require.NoError(t, err)
+	assert.Equal(t, []int64{1, 2, 3}, jobOutputSequences(batchOutput.Items))
 
 	accepted, err := store.RecordJobSignal(
 		ctx,

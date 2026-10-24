@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -27,6 +28,10 @@ const (
 	jobTestSlowStart     = 200 * time.Millisecond
 	jobTestOutputCommand = "printf 'first\\nsecond\\n'; echo problem >&2"
 	jobTestReadLines     = 10
+	// jobTestSlowOutput and jobTestFastOutputLines make a command print far
+	// faster than one store call per line could keep up with.
+	jobTestSlowOutput      = 20 * time.Millisecond
+	jobTestFastOutputLines = 5000
 )
 
 // slowStartObserver records job output only after a deliberately slow start
@@ -54,7 +59,7 @@ func (o *slowStartObserver) JobStarted(context.Context, JobSnapshot) error {
 func (o *slowStartObserver) JobOutput(
 	_ context.Context,
 	_ JobSnapshot,
-	record JobOutputRecord,
+	records []JobOutputRecord,
 ) error {
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -63,7 +68,7 @@ func (o *slowStartObserver) JobOutput(
 		o.outputBeforeStart = true
 	}
 
-	o.outputs = append(o.outputs, record)
+	o.outputs = append(o.outputs, records...)
 
 	return nil
 }
@@ -325,6 +330,73 @@ func TestJobRegistry_KeepsOutputWrittenBeforeTheStartIsRecorded(t *testing.T) {
 
 	assert.Len(t, outputs, len(stdout)+len(stderr))
 	assert.False(t, outputBeforeStart, "output was recorded before its job")
+}
+
+// slowOutputObserver takes a while for every output call, the way a store call
+// through the worker protocol does, and counts the calls.
+type slowOutputObserver struct {
+	slowStartObserver
+
+	calls int
+}
+
+func (o *slowOutputObserver) JobStarted(context.Context, JobSnapshot) error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	o.started = true
+
+	return nil
+}
+
+func (o *slowOutputObserver) JobOutput(
+	ctx context.Context,
+	snapshot JobSnapshot,
+	records []JobOutputRecord,
+) error {
+	time.Sleep(jobTestSlowOutput)
+
+	o.mu.Lock()
+	o.calls++
+	o.mu.Unlock()
+
+	return o.slowStartObserver.JobOutput(ctx, snapshot, records)
+}
+
+// A command that prints faster than its output can be stored loses no line,
+// keeps the order, and is stored in batches rather than one call per line.
+func TestJobRegistry_StoresFastOutputInBatches(t *testing.T) {
+	t.Parallel()
+
+	observer := &slowOutputObserver{}
+	registry := newTestRegistry(t, nil)
+	registry.SetObserver(observer)
+
+	job, err := registry.Start(context.Background(), StartJobInput{
+		Command:   fmt.Sprintf("seq 1 %d", jobTestFastOutputLines),
+		Directory: t.TempDir(),
+		Purpose:   jobTestPurpose,
+	})
+	require.NoError(t, err)
+
+	select {
+	case <-job.Done():
+	case <-time.After(jobTestEventuallyWait):
+		t.Fatal("job never exited")
+	}
+
+	outputs, _ := observer.recorded()
+	require.Len(t, outputs, jobTestFastOutputLines)
+
+	for index, record := range outputs {
+		assert.Equal(t, strconv.Itoa(index+1), record.Content)
+	}
+
+	observer.mu.Lock()
+	calls := observer.calls
+	observer.mu.Unlock()
+
+	assert.Less(t, calls, jobTestFastOutputLines/10)
 }
 
 // A job whose start cannot be recorded never records its output either.

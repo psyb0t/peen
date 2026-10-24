@@ -47,6 +47,9 @@ const (
 	// ErrorCodeAgentNotFound reports a message sent to an agent run the
 	// session never had.
 	ErrorCodeAgentNotFound = aichteeteapee.ErrorCode("AGENT_NOT_FOUND")
+	// ErrorCodeAgentPaused reports a message sent to a child agent whose work
+	// is paused until something resumes it.
+	ErrorCodeAgentPaused = aichteeteapee.ErrorCode("AGENT_PAUSED")
 	// ErrorCodeHarnessConfigurationInvalid reports a harness safety bound that
 	// prevents a turn from starting. Malformed optional definitions emit a
 	// harness.warning event instead.

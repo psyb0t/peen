@@ -1,0 +1,12 @@
+all: false
+dir: .
+filename: backend.gen.go
+structname: MockBackend
+pkgname: mocks
+template: testify
+force-file-write: true
+formatter: goimports
+packages:
+  github.com/psyb0t/go-workflows/backend:
+    interfaces:
+      Backend:

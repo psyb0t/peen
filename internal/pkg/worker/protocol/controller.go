@@ -186,6 +186,8 @@ func (c *Controller) handleTurnCall(
 		return served(c.finalizeTurn(ctx, payload))
 	case MethodReleaseTurn:
 		return served(c.releaseTurn(payload))
+	case MethodEndRunningTurn:
+		return served(c.endRunningTurn(ctx, payload))
 	case MethodRecordTurnWorker:
 		return served(c.recordTurnWorker(ctx, payload))
 	case MethodCancelSession:
@@ -691,6 +693,39 @@ func (c *Controller) recordTurnWorker(
 	}
 
 	return Ack{}, nil
+}
+
+// endRunningTurn ends a running turn of this worker's own session. The store
+// looks the turn up within that session, so a worker cannot end another
+// session's turn.
+func (c *Controller) endRunningTurn(
+	ctx context.Context,
+	payload json.RawMessage,
+) (any, error) {
+	request, err := decode[EndTurnRequest](payload)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := c.assertSession(request.SessionID); err != nil {
+		return nil, err
+	}
+
+	// A worker names how the turn ended, not what the feed stores, so it
+	// cannot write an arbitrary frame type through this call.
+	if request.End != session.CancelledTurnEnd() &&
+		request.End != session.FailedTurnEnd() {
+		return nil, ctxerrors.Wrap(commerr.ErrValidationFailed, "turn end")
+	}
+
+	ended, err := c.store.EndRunningTurn(
+		ctx, request.SessionID, request.TurnID, request.End,
+	)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "end the running turn")
+	}
+
+	return BoolResult{Value: ended}, nil
 }
 
 func (c *Controller) cancelSession(

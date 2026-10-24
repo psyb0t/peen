@@ -3,11 +3,12 @@ package agent
 import (
 	"testing"
 
-	"github.com/cschleiden/go-workflows/backend"
-	"github.com/cschleiden/go-workflows/client"
-	"github.com/cschleiden/go-workflows/core"
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/go-workflows/backend"
+	"github.com/psyb0t/go-workflows/backend/mocks"
+	"github.com/psyb0t/go-workflows/client"
+	"github.com/psyb0t/go-workflows/core"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -36,7 +37,7 @@ func TestRootSubmissionFailureReleasesOnlyProvenMissingWorkflow(t *testing.T) {
 			if tc.uncached {
 				dispatch.root.slot(input.ExecutionID).current = nil
 			}
-			sdk := &backend.MockBackend{}
+			sdk := &mocks.MockBackend{}
 			t.Cleanup(func() { sdk.AssertExpectations(t) })
 			sdk.On("GetWorkflowInstanceState", mock.Anything, nativeWorkflowInstance(input.SessionID, input.ExecutionID)).Return(core.WorkflowInstanceStateActive, tc.lookupErr).Once()
 			native := &nativeWorkflowRunner{api: client.New(sdk), engine: fixture.engine, dispatch: dispatch}

@@ -403,6 +403,7 @@ table messages
   column 14 compaction_id TEXT notnull=0 default=NULL pk=0
   column 15 injected BOOLEAN notnull=1 default=FALSE pk=0
   column 16 injected_kind TEXT notnull=1 default='' pk=0
+  column 17 provider_reasoning_json TEXT notnull=1 default='' pk=0
   CHECK (injected_kind IN ('','skill'))
   CHECK (json_valid(tool_calls_json))
   CHECK (role IN ('user','assistant','tool'))

@@ -363,6 +363,8 @@ func TestResolveWarnsAboutAnUnknownReferenceInASkillBody(t *testing.T) {
 	assert.Equal(t, SourceKindSkill, warnings[0].Kind)
 	assert.Contains(t, warnings[0].Source, testRefSkillA)
 	assert.Contains(t, warnings[0].Reason, ":"+testRefGhostSkill)
+	// Warnings reach clients, so no Go source location may leak into them.
+	assert.NotContains(t, warnings[0].Reason, ".go:")
 }
 
 func TestResolveIgnoresReferencesInSkillFrontMatter(t *testing.T) {

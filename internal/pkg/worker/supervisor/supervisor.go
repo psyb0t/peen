@@ -52,6 +52,11 @@ type Options struct {
 
 	ReadyTimeout time.Duration
 	StopTimeout  time.Duration
+
+	// ResumeAfterCrash lets work a worker left unfinished when its connection
+	// died continue in the next worker. False, the default, pauses it until a
+	// turn resumes it.
+	ResumeAfterCrash bool
 }
 
 // Supervisor holds one live worker per session.

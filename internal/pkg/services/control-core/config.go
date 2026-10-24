@@ -56,6 +56,7 @@ func logValidatedConfig(
 		"default_model", config.DefaultModel,
 		"compaction_model", config.CompactionModel,
 		"compaction_mode", config.CompactionMode,
+		"crash_recovery", config.CrashRecovery,
 		"max_context_tokens", config.MaxContextTokens,
 		"output_reserve_tokens", config.OutputReserveTokens,
 		"compaction_output_tokens", config.CompactionOutputTokens,

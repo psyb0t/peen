@@ -27,7 +27,10 @@ func (s *Store) RecoverWorkerTurns(
 	s.activeMu.Lock()
 	defer s.activeMu.Unlock()
 
-	err := s.query.Transaction(func(tx *repositories.Query) error {
+	err := s.feedTransaction(ctx, func(
+		ctx context.Context,
+		tx *repositories.Query,
+	) error {
 		repository := tx.Turn
 
 		turns, err := repository.WithContext(ctx).Where(

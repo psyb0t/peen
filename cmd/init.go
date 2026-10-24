@@ -1,5 +1,7 @@
 package main
 
+import "os"
+
 // This file is project-owned. Servicepack never replaces it.
 // Use this init() to set up custom slog handlers, global config,
 // or anything else that needs to run before the app starts.
@@ -30,5 +32,13 @@ const servicepackDefaultName = "servicepack"
 func init() {
 	if appName == servicepackDefaultName {
 		appName = productName
+	}
+
+	// exec writes frames to stdout, and main registers services, which logs,
+	// before the exec command runs. Moving logs to stderr here keeps every
+	// record after this point out of the frame stream. A bad log setting is
+	// ignored here because runExec reads the same settings and reports it.
+	if len(os.Args) > 1 && os.Args[1] == execCommandName {
+		_ = routeLogsToStderr()
 	}
 }

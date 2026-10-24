@@ -1700,13 +1700,14 @@ const (
 	MessageFailedCodeSessionBusy                 MessageFailedCode = "SESSION_BUSY"
 	MessageFailedCodeAgentFinished               MessageFailedCode = "AGENT_FINISHED"
 	MessageFailedCodeAgentNotFound               MessageFailedCode = "AGENT_NOT_FOUND"
+	MessageFailedCodeAgentPaused                 MessageFailedCode = "AGENT_PAUSED"
 	MessageFailedCodeHarnessConfigurationInvalid MessageFailedCode = "HARNESS_CONFIGURATION_INVALID"
 )
 
 // Validate reports whether v is one of the values the schema lists.
 func (v MessageFailedCode) Validate() error {
 	switch v {
-	case MessageFailedCodeValidationFailed, MessageFailedCodeInternalServerError, MessageFailedCodeSessionNotFound, MessageFailedCodeTurnCancelled, MessageFailedCodeUserMessageQueueFull, MessageFailedCodeSessionBusy, MessageFailedCodeAgentFinished, MessageFailedCodeAgentNotFound, MessageFailedCodeHarnessConfigurationInvalid:
+	case MessageFailedCodeValidationFailed, MessageFailedCodeInternalServerError, MessageFailedCodeSessionNotFound, MessageFailedCodeTurnCancelled, MessageFailedCodeUserMessageQueueFull, MessageFailedCodeSessionBusy, MessageFailedCodeAgentFinished, MessageFailedCodeAgentNotFound, MessageFailedCodeAgentPaused, MessageFailedCodeHarnessConfigurationInvalid:
 		return nil
 	}
 

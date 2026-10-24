@@ -976,10 +976,10 @@ func TestCompactionInsufficientSummaryLeavesNoRow(t *testing.T) {
 }
 
 // Once every completed message belongs to the newest turn, nothing is
-// eligible to compact: the hook must fail closed without ever asking the
-// summarizer to run.
+// eligible to compact. The turn still runs, with the oldest units left out the
+// way drop-oldest does, and the summarizer is never asked.
 func TestCompactionNoEligiblePrefixLeavesNoRow(t *testing.T) {
-	driver := elelemtest.NewScriptedDriver(compactionScriptedTurns(1)...).
+	driver := elelemtest.NewScriptedDriver(compactionScriptedTurns(2)...).
 		WithTokenCounter(compactionTokenCounter{
 			perMessage: compactionTestTokensPerMessage,
 		})
@@ -1000,7 +1000,7 @@ func TestCompactionNoEligiblePrefixLeavesNoRow(t *testing.T) {
 		Message:   compactionUserText(2),
 		Workspace: fixture.workspace,
 	})
-	require.ErrorIs(t, err, ErrCompactionUnavailable)
+	require.NoError(t, err)
 	assert.Zero(t, stub.calls)
 
 	compaction, err := fixture.store.LatestCompaction(

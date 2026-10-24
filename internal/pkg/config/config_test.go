@@ -371,6 +371,7 @@ func testConfig(t *testing.T) Config {
 		DefaultModel:           testQualifiedModel,
 		MaxContextTokens:       8192,
 		CompactionMode:         CompactionModeDropOldest,
+		CrashRecovery:          CrashRecoveryPause,
 		CompactionOutputTokens: 1024,
 		CompactionTimeout:      time.Minute,
 		TurnTimeout:            time.Minute,

@@ -12,7 +12,13 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
 )
 
-const interruptedJobFailureDetail = "process stopped before job completed"
+const (
+	interruptedJobFailureDetail = "process stopped before job completed"
+
+	// jobOutputInsertBatchSize keeps one INSERT of job output lines within
+	// SQLite's bound parameter limit: each line binds seven values.
+	jobOutputInsertBatchSize = 500
+)
 
 // CreateJob records a supervised process before its output reaches memory or
 // any connected client.
@@ -70,22 +76,22 @@ func (s *Store) CreateJob(
 	return result, nil
 }
 
-// AppendJobOutput stores one process line in sequence before any live reader
-// can see it. stdout and stderr share the same sequence so replay preserves
-// observed ordering across both streams.
+// AppendJobOutput stores process lines in order, in one transaction, before
+// any live reader can see them. stdout and stderr share the same sequence so
+// replay preserves observed ordering across both streams. Either every line is
+// stored or none is.
 func (s *Store) AppendJobOutput(
 	ctx context.Context,
 	sessionID uuid.UUID,
 	jobID uuid.UUID,
-	input AppendJobOutputInput,
-) (*models.JobOutputLine, error) {
-	if err := validateJobOutputInput(sessionID, jobID, input); err != nil {
+	inputs []AppendJobOutputInput,
+) ([]*models.JobOutputLine, error) {
+	normalized, err := s.normalizeJobOutputInputs(sessionID, jobID, inputs)
+	if err != nil {
 		return nil, err
 	}
 
-	input = s.normalizeJobOutputInput(input)
-
-	var result *models.JobOutputLine
+	var result []*models.JobOutputLine
 
 	if err := s.query.Transaction(func(tx *repositories.Query) error {
 		job, err := s.findJobWithQuery(ctx, tx, sessionID, jobID)
@@ -100,24 +106,28 @@ func (s *Store) AppendJobOutput(
 			)
 		}
 
-		line := tx.JobOutputLine
-
 		sequence, err := nextJobOutputSequence(ctx, tx, jobID)
 		if err != nil {
 			return ctxerrors.Wrap(err, "find latest job output line")
 		}
 
-		result = &models.JobOutputLine{
-			ID:        input.ID,
-			SessionID: sessionID,
-			JobID:     jobID,
-			Sequence:  sequence,
-			Stream:    input.Stream,
-			Content:   input.Content,
-			CreatedAt: input.CreatedAt,
+		result = make([]*models.JobOutputLine, 0, len(normalized))
+		for index, input := range normalized {
+			result = append(result, &models.JobOutputLine{
+				ID:        input.ID,
+				SessionID: sessionID,
+				JobID:     jobID,
+				Sequence:  sequence + int64(index),
+				Stream:    input.Stream,
+				Content:   input.Content,
+				CreatedAt: input.CreatedAt,
+			})
 		}
-		if err := line.WithContext(ctx).Create(result); err != nil {
-			return ctxerrors.Wrap(err, "create job output line")
+
+		err = tx.JobOutputLine.WithContext(ctx).
+			CreateInBatches(result, jobOutputInsertBatchSize)
+		if err != nil {
+			return ctxerrors.Wrap(err, "create job output lines")
 		}
 
 		return nil
@@ -146,6 +156,28 @@ func nextJobOutputSequence(
 
 		return latest.Sequence, nil
 	})
+}
+
+func (s *Store) normalizeJobOutputInputs(
+	sessionID uuid.UUID,
+	jobID uuid.UUID,
+	inputs []AppendJobOutputInput,
+) ([]AppendJobOutputInput, error) {
+	if len(inputs) == 0 {
+		return nil, ctxerrors.Wrap(commerr.ErrRequiredFieldNotSet,
+			"job output lines")
+	}
+
+	normalized := make([]AppendJobOutputInput, 0, len(inputs))
+	for _, input := range inputs {
+		if err := validateJobOutputInput(sessionID, jobID, input); err != nil {
+			return nil, err
+		}
+
+		normalized = append(normalized, s.normalizeJobOutputInput(input))
+	}
+
+	return normalized, nil
 }
 
 func (s *Store) normalizeJobOutputInput(

@@ -385,7 +385,10 @@ func (s *Store) RecoverInterrupted(ctx context.Context) (int, error) {
 	s.activeMu.Lock()
 	defer s.activeMu.Unlock()
 
-	if err := s.query.Transaction(func(tx *repositories.Query) error {
+	if err := s.feedTransaction(ctx, func(
+		ctx context.Context,
+		tx *repositories.Query,
+	) error {
 		turn := tx.Turn
 
 		running, err := turn.WithContext(ctx).
@@ -549,13 +552,8 @@ func (s *Store) newMessage(
 		input.Workspace = defaultWorkspace
 	}
 
-	if len(input.Content) > s.maxStoredMessageBytes {
-		return nil, ctxerrors.Wrapf(
-			commerr.ErrValidationFailed,
-			"message content is %d bytes, over the %d byte limit",
-			len(input.Content),
-			s.maxStoredMessageBytes,
-		)
+	if err := s.checkStoredMessageSize(input); err != nil {
+		return nil, err
 	}
 
 	messageID := input.ID
@@ -580,7 +578,22 @@ func (s *Store) newMessage(
 		Injected:      input.Injected,
 		InjectedKind:  input.InjectedKind,
 		CreatedAt:     s.now(),
+
+		ProviderReasoningJSON: input.ProviderReasoningJSON,
 	}, nil
+}
+
+func (s *Store) checkStoredMessageSize(input MessageInput) error {
+	if len(input.Content) <= s.maxStoredMessageBytes {
+		return nil
+	}
+
+	return ctxerrors.Wrapf(
+		commerr.ErrValidationFailed,
+		"message content is %d bytes, over the %d byte limit",
+		len(input.Content),
+		s.maxStoredMessageBytes,
+	)
 }
 
 func (s *Store) appendEvents(
@@ -784,26 +797,18 @@ func (s *Store) markUnfinishedMessages(
 	return nil
 }
 
+// interruptTurn ends a turn whose process died, with a stored turn.failed
+// frame, so a client reading the feed sees it end. It runs inside a feed
+// transaction.
 func (s *Store) interruptTurn(
 	ctx context.Context,
 	tx *repositories.Query,
 	runningTurn *models.Turn,
 ) error {
-	turn := tx.Turn
-	if _, err := turn.WithContext(ctx).
-		Where(turn.ID.Eq(runningTurn.ID)).
-		UpdateSimple(
-			turn.State.Value(string(models.TurnStateInterrupted)),
-			turn.CompletedAt.Value(s.now()),
-		); err != nil {
+	if _, err := s.endRunningTurn(
+		ctx, tx, runningTurn, interruptedTurnEnd(),
+	); err != nil {
 		return ctxerrors.Wrap(err, "mark turn interrupted")
-	}
-
-	message := tx.Message
-	if _, err := message.WithContext(ctx).
-		Where(message.TurnID.Eq(runningTurn.ID)).
-		UpdateSimple(message.Incomplete.Value(true)); err != nil {
-		return ctxerrors.Wrap(err, "mark interrupted turn messages incomplete")
 	}
 
 	return nil

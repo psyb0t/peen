@@ -52,22 +52,27 @@ func (o durableJobObserver) JobStarted(
 func (o durableJobObserver) JobOutput(
 	ctx context.Context,
 	snapshot tools.JobSnapshot,
-	record tools.JobOutputRecord,
+	records []tools.JobOutputRecord,
 ) error {
-	stream, err := jobOutputStreamToModel(record.Stream)
-	if err != nil {
-		return err
-	}
+	inputs := make([]session.AppendJobOutputInput, 0, len(records))
+	for _, record := range records {
+		stream, err := jobOutputStreamToModel(record.Stream)
+		if err != nil {
+			return err
+		}
 
-	_, err = o.store.AppendJobOutput(
-		ctx,
-		snapshot.SessionID,
-		snapshot.ID,
-		session.AppendJobOutputInput{
+		inputs = append(inputs, session.AppendJobOutputInput{
 			Stream:    stream,
 			Content:   record.Content,
 			CreatedAt: record.CreatedAt,
-		},
+		})
+	}
+
+	_, err := o.store.AppendJobOutput(
+		ctx,
+		snapshot.SessionID,
+		snapshot.ID,
+		inputs,
 	)
 	if err != nil {
 		return ctxerrors.Wrap(err, "append durable job output")

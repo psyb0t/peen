@@ -347,7 +347,7 @@ func TestWorkerStoreRoutesEachReadToItsOwnMethod(t *testing.T) {
 					ctx,
 					sessionID,
 					childID,
-					session.AppendJobOutputInput{},
+					[]session.AppendJobOutputInput{{}},
 				)
 
 				return err

@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/aichteeteapee"
 	"github.com/psyb0t/ctxscope"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
+	"github.com/psyb0t/peen/internal/pkg/publicerror"
 )
 
 func requestID(ctx context.Context) uuid.UUID {
@@ -103,24 +103,10 @@ func validationError(message string) api.Error {
 }
 
 // clientMessage strips the source location ctxerrors appends before an error
-// reaches a client.
-//
-// ctxerrors formats as "message: wrapped [file:line in func]", and nested
-// wraps append their own marker, so every marker sits after the readable chain
-// and the first " [" is where the text stops being safe to publish. Sending
-// Error() verbatim puts absolute source paths, line numbers, and internal
-// function names in a response body any caller can read.
+// reaches a client. Sending Error() verbatim puts absolute source paths, line
+// numbers, and internal function names in a response body any caller can read.
 func clientMessage(err error) string {
-	if err == nil {
-		return ""
-	}
-
-	message := err.Error()
-	if index := strings.Index(message, errorLocationMarker); index >= 0 {
-		message = message[:index]
-	}
-
-	return strings.TrimSpace(message)
+	return publicerror.Message(err)
 }
 
 func notFoundError() api.Error {

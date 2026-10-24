@@ -182,6 +182,7 @@ func embeddingAssembly(
 			NewID:                 options.NewID,
 			MaxStoredMessageBytes: options.MaxStoredMessageBytes,
 		},
+		ResumeAfterCrash: options.ResumeAfterCrash,
 	}
 }
 

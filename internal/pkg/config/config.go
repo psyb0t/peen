@@ -37,6 +37,18 @@ const (
 	CompactionModeSummarize  CompactionMode = "summarize"
 )
 
+// CrashRecoveryMode decides what happens to work a crashed controller or
+// worker left unfinished.
+type CrashRecoveryMode string
+
+const (
+	// CrashRecoveryPause keeps crashed work paused until a turn resumes it.
+	CrashRecoveryPause CrashRecoveryMode = "pause"
+	// CrashRecoveryResume lets the next worker continue crashed work by
+	// itself, for deployments that run without anyone watching.
+	CrashRecoveryResume CrashRecoveryMode = "resume"
+)
+
 // Config is the deployment-owned configuration. Provider credentials stay in
 // individually named environment variables, never inside PEEN_UPSTREAMS.
 //
@@ -138,6 +150,10 @@ type Config struct {
 	CompactionOutputTokens int            `default:"2048"        env:"PEEN_COMPACTION_MAX_OUTPUT_TOKENS"` //nolint:lll // Immutable env tag.
 	CompactionTimeout      time.Duration  `default:"2m"          env:"PEEN_COMPACTION_TIMEOUT"`           //nolint:lll // Immutable env tag.
 	TurnTimeout            time.Duration  `default:"10m"         env:"PEEN_TURN_TIMEOUT"`                 //nolint:lll // Immutable env tag.
+
+	// CrashRecovery applies to every workspace this controller serves. It is
+	// controller-only: recovery runs before any worker starts.
+	CrashRecovery CrashRecoveryMode `default:"pause" env:"PEEN_CRASH_RECOVERY"`
 
 	// MaxConcurrentTurns bounds how many turns may run at once across every
 	// session in this process, unlike MaxConcurrentAgentRunsPerSession, which
@@ -280,6 +296,7 @@ func (c Config) validate(requireStateDirectory bool) error {
 		func() error { return c.validateDirectories(requireStateDirectory) },
 		c.validateDockerHostIdentity,
 		c.validateRuntime,
+		c.validateCrashRecovery,
 		c.validateCoreSelection,
 		c.validateMetricsListener,
 		c.validateUpstreamConfiguration,
@@ -586,6 +603,21 @@ func (c Config) validateRuntime() error {
 	}
 
 	return c.validateToolLimits()
+}
+
+func (c Config) validateCrashRecovery() error {
+	if c.CrashRecovery != CrashRecoveryPause &&
+		c.CrashRecovery != CrashRecoveryResume {
+		return ctxerrors.Wrap(ErrInvalidConfig, "invalid PEEN_CRASH_RECOVERY")
+	}
+
+	return nil
+}
+
+// ResumesAfterCrash reports whether work a crash interrupted continues on its
+// own instead of waiting paused for a turn.
+func (c Config) ResumesAfterCrash() bool {
+	return c.CrashRecovery == CrashRecoveryResume
 }
 
 // hasContextBudget reports whether the context holds the reply's reserve and a
