@@ -356,6 +356,9 @@ components:
         code:
           title: MessageFailedCode
           type: string
+          description: >-
+            AGENT_PAUSED is deprecated and no longer sent, because a message to
+            a paused child now resumes it.
           enum:
             - VALIDATION_FAILED
             - INTERNAL_SERVER_ERROR
@@ -1034,6 +1037,12 @@ components:
         reason:
           type: string
           const: agentRun
+        error:
+          type: string
+          maxLength: 2048
+          description: >-
+            The error the turn ended with, without source locations. Absent
+            when the turn failed before Peen recorded one.
 
     TurnFailed:
       title: TurnFailed

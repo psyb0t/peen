@@ -1497,12 +1497,13 @@ components:
           type: string
           format: uuid
           description: >-
-            A running child agent run ID. The message goes to that child, which
-            reads it after its current tool call, and starts no turn. It
-            completes as queued and cannot carry model, reasoningEffort, or
-            systemPrompt. A finished child fails it with AGENT_FINISHED, a
-            paused one with AGENT_PAUSED, an unknown one with AGENT_NOT_FOUND,
-            and a child with a full inbox with USER_MESSAGE_QUEUE_FULL.
+            A child agent run ID. The message goes to that child, which reads
+            it after its current tool call, and starts no turn. A paused child
+            resumes and first reads why it was paused. It completes as queued
+            and cannot carry model, reasoningEffort, or systemPrompt. A
+            finished child fails it with AGENT_FINISHED, an unknown one with
+            AGENT_NOT_FOUND, and a child with a full inbox with
+            USER_MESSAGE_QUEUE_FULL.
     WebSocketMessageMetadata:
       type: object
       additionalProperties: false
@@ -2781,8 +2782,9 @@ components:
       properties:
         type:
           description: >-
-            Dotted lowercase namespaced type. The job. and agent. prefixes are
-            reserved for Peen's own producers and are rejected here.
+            Dotted lowercase namespaced type. The job., agent., and turn.
+            prefixes are reserved for Peen's own producers and are rejected
+            here.
           type: string
           minLength: 1
           maxLength: 128

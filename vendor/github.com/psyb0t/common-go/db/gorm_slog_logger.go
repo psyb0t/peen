@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -9,16 +10,43 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/psyb0t/ctxscope"
+	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
+const (
+	gormMessageLog   = "gorm message"
+	gormErrorLog     = "gorm error"
+	gormSlowQueryLog = "SLOW QUERY"
+	gormQueryLog     = "SQL EXECUTED"
+
+	gormDetailKey     = "detail"
+	gormErrorKey      = "error"
+	gormDurationKey   = "duration"
+	gormRowsKey       = "rows"
+	gormSQLPreviewKey = "sql_preview"
+	gormSQLBytesKey   = "sql_bytes"
+	gormSQLCutKey     = "sql_truncated"
+)
+
+// GormSlogLogger writes GORM's logs through the context's ctxscope logger, so
+// every record carries the caller's scope.
 type GormSlogLogger struct {
 	LogLevel logger.LogLevel
+	// IgnoreRecordNotFoundError logs a query that found no record as an
+	// ordinary query instead of an error, like GORM's own logger option. A
+	// caller that polls for usually absent work otherwise logs an error on
+	// every empty poll.
+	IgnoreRecordNotFoundError bool
 }
 
+// NewGormSlogLogger logs at logger.Info and does not treat
+// gorm.ErrRecordNotFound as an error.
 func NewGormSlogLogger() logger.Interface { //nolint:ireturn
 	return &GormSlogLogger{
-		LogLevel: logger.Info,
+		LogLevel:                  logger.Info,
+		IgnoreRecordNotFoundError: true,
 	}
 }
 
@@ -29,22 +57,39 @@ func (l *GormSlogLogger) LogMode(level logger.LogLevel) logger.Interface { //nol
 	return &newLogger
 }
 
-func (l *GormSlogLogger) Info(_ context.Context, msg string, data ...any) {
+// Info, Warn and Error log GORM's own messages. GORM hands over a format
+// string and its values, so the rendered text goes in the detail field under
+// a fixed message.
+func (l *GormSlogLogger) Info(ctx context.Context, msg string, data ...any) {
 	if l.LogLevel >= logger.Info {
-		slog.Info(fmt.Sprintf(msg, data...))
+		ctxscope.GetLogger(ctx).InfoContext(ctx, gormMessageLog,
+			gormDetailKey, fmt.Sprintf(msg, data...))
 	}
 }
 
-func (l *GormSlogLogger) Warn(_ context.Context, msg string, data ...any) {
+func (l *GormSlogLogger) Warn(ctx context.Context, msg string, data ...any) {
 	if l.LogLevel >= logger.Warn {
-		slog.Warn(fmt.Sprintf(msg, data...))
+		ctxscope.GetLogger(ctx).WarnContext(ctx, gormMessageLog,
+			gormDetailKey, fmt.Sprintf(msg, data...))
 	}
 }
 
-func (l *GormSlogLogger) Error(_ context.Context, msg string, data ...any) {
+func (l *GormSlogLogger) Error(ctx context.Context, msg string, data ...any) {
 	if l.LogLevel >= logger.Error {
-		slog.Error(fmt.Sprintf(msg, data...))
+		ctxscope.GetLogger(ctx).ErrorContext(ctx, gormMessageLog,
+			gormDetailKey, fmt.Sprintf(msg, data...))
 	}
+}
+
+// isLoggedError reports whether Trace logs err as an error. A missing record
+// is not one when IgnoreRecordNotFoundError is set.
+func (l *GormSlogLogger) isLoggedError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	return !l.IgnoreRecordNotFoundError ||
+		!errors.Is(err, gorm.ErrRecordNotFound)
 }
 
 const slowQueryThreshold = 200 * time.Millisecond
@@ -284,44 +329,49 @@ func (l *GormSlogLogger) Trace(
 	}
 
 	elapsed := time.Since(begin)
-	logLevel, shouldLog := l.traceSlogLevel(elapsed, err)
+	isError := l.isLoggedError(err)
 
-	if !shouldLog || !slog.Default().Enabled(ctx, logLevel) {
+	logLevel, message, shouldLog := l.traceSlogLevel(elapsed, isError)
+	if !shouldLog {
+		return
+	}
+
+	scoped := ctxscope.GetLogger(ctx)
+	if !scoped.Enabled(ctx, logLevel) {
 		return
 	}
 
 	sql, rows := fc()
 	summary := summarizeSQL(sql)
 	attrs := []any{
-		"duration", elapsed,
-		"rows", rows,
-		"sql_preview", summary.Preview,
-		"sql_bytes", summary.Bytes,
-		"sql_truncated", summary.Truncated,
+		gormDurationKey, elapsed,
+		gormRowsKey, rows,
+		gormSQLPreviewKey, summary.Preview,
+		gormSQLBytesKey, summary.Bytes,
+		gormSQLCutKey, summary.Truncated,
 	}
 
-	switch {
-	case err != nil && l.LogLevel >= logger.Error:
-		slog.Error("gorm error", append([]any{"error", err}, attrs...)...)
-	case elapsed > slowQueryThreshold && l.LogLevel >= logger.Warn:
-		slog.Warn("SLOW QUERY", attrs...)
-	case l.LogLevel >= logger.Info:
-		slog.Debug("SQL EXECUTED", attrs...)
+	if isError {
+		attrs = append([]any{gormErrorKey, err}, attrs...)
 	}
+
+	scoped.Log(ctx, logLevel, message, attrs...)
 }
 
+// traceSlogLevel picks the level and message of one query record, and
+// reports false when LogLevel leaves the query unlogged.
 func (l *GormSlogLogger) traceSlogLevel(
 	elapsed time.Duration,
-	err error,
-) (slog.Level, bool) {
+	isError bool,
+) (slog.Level, string, bool) {
 	switch {
-	case err != nil && l.LogLevel >= logger.Error:
-		return slog.LevelError, true
+	case isError && l.LogLevel >= logger.Error:
+		return slog.LevelError, gormErrorLog, true
 	case elapsed > slowQueryThreshold && l.LogLevel >= logger.Warn:
-		return slog.LevelWarn, true
+		return slog.LevelWarn, gormSlowQueryLog, true
 	case l.LogLevel >= logger.Info:
-		return slog.LevelDebug, true
+		return slog.LevelDebug, gormQueryLog, true
 	default:
-		return slog.LevelDebug, false
+		return slog.LevelDebug, "", false
 	}
 }

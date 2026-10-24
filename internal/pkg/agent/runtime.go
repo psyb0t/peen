@@ -27,6 +27,7 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/hooks"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
+	"github.com/psyb0t/peen/internal/pkg/publicerror"
 	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/tools"
@@ -2355,6 +2356,8 @@ func (r *Runtime) finalizeFailedTurn(
 	runErr error,
 ) error {
 	state, classification, eventType := failedTurnState(runErr)
+	detail := failedTurnDetail(state, runErr)
+
 	if state == models.TurnStateCancelled {
 		runErr = r.cancelledTurn(ctx, prepared, classification, runErr)
 	}
@@ -2362,7 +2365,7 @@ func (r *Runtime) finalizeFailedTurn(
 	eventErr := prepared.turn.emit(
 		context.WithoutCancel(ctx),
 		eventType,
-		turnFailedPayload{Reason: classification},
+		turnFailedPayload{Reason: classification, Error: detail},
 	)
 	if eventErr != nil {
 		runErr = errors.Join(runErr, eventErr)
@@ -2379,6 +2382,7 @@ func (r *Runtime) finalizeFailedTurn(
 		session.FinalizeTurnInput{
 			State:                 state,
 			FailureClassification: classification,
+			FailureDetail:         detail,
 			ContextSnapshotHash:   &prepared.contextHash,
 			PromptSnapshotHash:    &prepared.promptHash,
 			Messages:              markIncomplete(pending.messages),
@@ -2571,6 +2575,17 @@ func failedTurnState(err error) (models.TurnState, string, string) {
 	}
 
 	return models.TurnStateFailed, failureClassAgentRun, EventTypeTurnFailed
+}
+
+// failedTurnDetail is the error a failed turn reports to clients and to the
+// next turn. A cancelled turn reports none, because a Stop is not an error.
+func failedTurnDetail(state models.TurnState, err error) string {
+	if state == models.TurnStateCancelled {
+		return ""
+	}
+
+	return events.TruncateToRuneBoundary(publicerror.Message(err),
+		workflowFailureDetailBytes)
 }
 
 // promptFromHistory assembles the durable history and the map back to the rows

@@ -77,7 +77,6 @@ const (
 	webSocketMessageFailedMessage        = "websocket message failed"
 	webSocketAgentFinishedMessage        = "the agent has finished"
 	webSocketAgentNotFoundMessage        = "this session has no such agent run"
-	webSocketAgentPausedMessage          = "the agent is paused"
 	webSocketHarnessConfigurationMessage = "Peen could not start this turn because the workspace agent configuration is invalid."            //nolint:lll // Client-safe text must remain one sentence.
 	webSocketInvalidSkillReason          = "Each directory in .agents/skills must contain a SKILL.md file whose name matches the directory." //nolint:lll // Client-safe text must remain one sentence.
 	webSocketInvalidInstructionReason    = "Check AGENTS.md and .agents/rules files for valid, nonempty instructions."                       //nolint:lll // Client-safe text must remain one sentence.

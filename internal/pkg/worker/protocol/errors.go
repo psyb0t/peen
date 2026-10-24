@@ -39,7 +39,6 @@ const (
 	CodeUnknownSkill              Code = "unknownSkill"
 	CodeAgentRunFinished          Code = "agentRunFinished"
 	CodeAgentRunNotFound          Code = "agentRunNotFound"
-	CodeAgentRunPaused            Code = "agentRunPaused"
 	CodeExecutionInboxPending     Code = "executionInboxPending"
 )
 
@@ -104,11 +103,6 @@ var detailedFailures = []detailedFailure{
 		code:   CodeAgentRunNotFound,
 		detail: session.ErrAgentRunNotFound,
 		class:  commerr.ErrNotFound,
-	},
-	{
-		code:   CodeAgentRunPaused,
-		detail: session.ErrAgentRunPaused,
-		class:  commerr.ErrInvalidState,
 	},
 }
 

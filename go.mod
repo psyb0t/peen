@@ -14,13 +14,13 @@ require (
 	github.com/prometheus/common v0.32.1
 	github.com/psyb0t/aichteeteapee v1.14.0
 	github.com/psyb0t/commander v0.6.0
-	github.com/psyb0t/common-go v0.9.1
+	github.com/psyb0t/common-go v0.10.0
 	github.com/psyb0t/ctxerrors v0.9.0
 	github.com/psyb0t/ctxscope v1.0.3
 	github.com/psyb0t/elelem v0.12.0
 	github.com/psyb0t/essessey v0.7.5
 	github.com/psyb0t/gen-asyncapi v0.2.0
-	github.com/psyb0t/go-workflows v1.3.0
+	github.com/psyb0t/go-workflows v1.3.1
 	github.com/psyb0t/goenv v1.0.10
 	github.com/psyb0t/gonfiguration v1.6.4
 	github.com/psyb0t/slogging v1.7.1

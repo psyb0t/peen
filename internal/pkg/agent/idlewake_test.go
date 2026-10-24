@@ -137,7 +137,16 @@ func TestIdleWakeRecheckDoesNotFollowACancelledTurn(t *testing.T) {
 		session.ListSessionNoticesOptions{State: models.NoticeStatePending},
 	)
 	require.NoError(t, err)
-	assert.Len(t, page.Items, 1, "the notice stays queued, not consumed")
+
+	pendingTypes := make([]string, 0, len(page.Items))
+	for _, notice := range page.Items {
+		pendingTypes = append(pendingTypes, notice.Type)
+	}
+
+	// The wake notice stays queued, beside the record of the stopped turn.
+	assert.ElementsMatch(t, []string{
+		wakeTestHandlerType, events.TypeTurnCancelled,
+	}, pendingTypes)
 }
 
 // A notice a tool boundary already delivered into the holding turn is no

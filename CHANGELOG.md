@@ -2,6 +2,18 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.31.0 (2026-10-24)
+
+Every agent in a session now hears about errors and stops, and a message wakes a paused child. Before upgrading, change any hook or `POST /api/v1/session/notices` caller that publishes a `turn.*` event type. No configuration or database migration is needed.
+
+- Breaking: reserves the `turn.*` session event types for Peen. `POST /api/v1/session/notices` rejects them with `400 VALIDATION_FAILED`, and a hook that publishes one fails its action.
+- Adds the `turn.failed` and `turn.cancelled` session events. A turn that fails, is interrupted, or is stopped records one with its error in the same transaction, so the root reads why at its next tool call or turn. Before, only the log had the error.
+- Adds `error` to the `turn.failed` WebSocket frame. It carries the error the turn ended with, without source locations.
+- Changes a message to a paused child. It used to fail with `AGENT_PAUSED`. It now resumes the child and the paused work under it, and the child reads why it was paused, including the error a failed turn ended with, before the message. `AGENT_PAUSED` is deprecated and no longer sent.
+- Changes child agents to receive every `turn.failed`, `turn.cancelled`, and `agent.failed` event while they are queued or running, in the same `<events>` block the root reads, even when their inbox is full.
+- Changes the pause reason of a root whose turn workflow failed to include the error.
+- Updates the workflow engine to `github.com/psyb0t/go-workflows` v1.3.1 and common-go to v0.10.0. An idle worker logged `ERROR gorm error error="record not found"` every time it polled `workflows.db` and found no work. It now logs that lookup at DEBUG.
+
 ## v0.30.0 (2026-10-24)
 
 Fixes turns that died or hung on the workflow path, sessions that a failure, a Stop, or a crash left unusable, and reasoning lost between turns. The `messages` table gains a column, so before upgrading, stop Peen and delete `peen.db`, `peen.db-wal`, and `peen.db-shm` from the state directory. Work that a crash interrupts now stays paused by default. Set `PEEN_CRASH_RECOVERY=resume` to keep the automatic continuation.

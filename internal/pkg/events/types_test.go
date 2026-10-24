@@ -18,6 +18,8 @@ func TestPeenEventTypesAreCamelCase(t *testing.T) {
 		TypeAgentFailed,
 		TypeAgentMessage,
 		TypeAgentQuestion,
+		TypeTurnFailed,
+		TypeTurnCancelled,
 	}
 
 	for _, eventType := range peenTypes {

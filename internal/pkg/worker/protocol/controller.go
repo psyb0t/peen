@@ -712,9 +712,10 @@ func (c *Controller) endRunningTurn(
 	}
 
 	// A worker names how the turn ended, not what the feed stores, so it
-	// cannot write an arbitrary frame type through this call.
-	if request.End != session.CancelledTurnEnd() &&
-		request.End != session.FailedTurnEnd() {
+	// cannot write an arbitrary frame type through this call. The store bounds
+	// the error it carries.
+	if request.End.Kind() != session.CancelledTurnEnd() &&
+		request.End.Kind() != session.FailedTurnEnd("") {
 		return nil, ctxerrors.Wrap(commerr.ErrValidationFailed, "turn end")
 	}
 

@@ -105,6 +105,11 @@ func TestValidateExternalTypeRejectsReservedPrefixes(t *testing.T) {
 			wantErr:   ErrReservedType,
 		},
 		{
+			name:      "turn namespace",
+			eventType: TypeTurnFailed,
+			wantErr:   ErrReservedType,
+		},
+		{
 			name:      "invented job type",
 			eventType: "job.whatever",
 			wantErr:   ErrReservedType,
@@ -141,6 +146,8 @@ func TestIsReservedMatchesNamespaceNotPrefixText(t *testing.T) {
 	assert.True(t, IsReserved("agent.finished"))
 	assert.False(t, IsReserved("jobs.exited"))
 	assert.False(t, IsReserved("agentic.thing"))
+	assert.True(t, IsReserved("turn.cancelled"))
+	assert.False(t, IsReserved("turnstile.open"))
 	assert.False(t, IsReserved("app.error"))
 }
 

@@ -8,16 +8,21 @@ import "strings"
 const locationMarker = " ["
 
 // Message returns err's readable chain without the source locations ctxerrors
-// appends. ctxerrors formats as "message: wrapped [file:line in func]", and
-// nested wraps append their own marker, so every marker sits after the
-// readable chain and the first one is where the text stops being safe to
-// publish. A nil error gives an empty string.
+// appends. A nil error gives an empty string.
 func Message(err error) string {
 	if err == nil {
 		return ""
 	}
 
-	message := err.Error()
+	return Text(err.Error())
+}
+
+// Text is Message for error text that was already rendered, such as a
+// failure detail a record kept. ctxerrors formats as "message: wrapped
+// [file:line in func]", and nested wraps append their own marker, so every
+// marker sits after the readable chain and the first one is where the text
+// stops being safe to publish.
+func Text(message string) string {
 	if index := strings.Index(message, locationMarker); index >= 0 {
 		message = message[:index]
 	}

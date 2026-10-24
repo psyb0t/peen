@@ -77,6 +77,10 @@ func (s *Store) createSessionNoticeWithQuery(
 		return nil, ctxerrors.Wrap(err, "create session notice")
 	}
 
+	if err := s.broadcastNoticeToChildren(ctx, query, result); err != nil {
+		return nil, ctxerrors.Wrap(err, "broadcast session notice")
+	}
+
 	return result, nil
 }
 

@@ -442,18 +442,6 @@ func TestWebSocketMessageFailureFor(t *testing.T) {
 			),
 		},
 		{
-			name: "paused agent",
-			err: errors.Join(
-				commerr.ErrInvalidState,
-				session.ErrAgentRunPaused,
-			),
-			want: newWebSocketMessageFailure(
-				ErrorCodeAgentPaused,
-				webSocketAgentPausedMessage,
-				"",
-			),
-		},
-		{
 			name: "unknown agent",
 			err: errors.Join(
 				commerr.ErrNotFound,

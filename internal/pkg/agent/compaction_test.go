@@ -13,6 +13,7 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/config"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
+	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
@@ -88,8 +89,12 @@ const (
 	compactionFailedTurnUserIndex      = 2
 	compactionFailedTurnAssistantIndex = 3
 	compactionFailedTurnToolIndex      = 4
-	compactionFailedToIndex            = 6
-	compactionFailedMessageCount       = 11
+	// The turn after the failed one also stores the turn.failed notice it
+	// read, after its own message.
+	compactionFailedNoticeIndex        = 6
+	compactionFailedToIndex            = 7
+	compactionFailedMessageCount       = 12
+	compactionFailedSourceMessageCount = 5
 
 	// compactionInsufficientMessageBytes, ...BudgetMargin, and
 	// ...SummaryBytes tune a byte-weighted counter (see compactionTokenCounter)
@@ -824,6 +829,10 @@ func TestCompactionExcludesFailedTurnMessages(t *testing.T) {
 	assert.True(t, messages[compactionFailedTurnAssistantIndex].Incomplete)
 	assert.True(t, messages[compactionFailedTurnToolIndex].Incomplete)
 
+	failedNotice := renderedSessionEvent(t,
+		messages[compactionFailedNoticeIndex].Content)
+	assert.Equal(t, events.TypeTurnFailed, failedNotice.Type)
+
 	compaction, err := fixture.store.LatestCompaction(
 		context.Background(),
 		sessionID,
@@ -834,7 +843,7 @@ func TestCompactionExcludesFailedTurnMessages(t *testing.T) {
 	assert.Equal(t, messages[compactionFailedToIndex].ID, compaction.ToMessageID)
 	assert.Equal(
 		t,
-		int64(compactionFirstSourceMessageCount),
+		int64(compactionFailedSourceMessageCount),
 		compaction.SourceMessageCount,
 	)
 

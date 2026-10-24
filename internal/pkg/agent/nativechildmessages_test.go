@@ -219,6 +219,88 @@ func TestNativeChildMessageLiveArrivalAndRetryAfterDirectoryHop(t *testing.T) {
 	require.ErrorIs(t, err, commerr.ErrConflict)
 }
 
+// A message to a paused child resumes it, and the child reads why it was
+// paused before the message. Repeating the message queues neither twice.
+func TestNativeChildMessageResumesAPausedChild(t *testing.T) {
+	t.Parallel()
+
+	const pauseReason = "model call failed: <refused>"
+
+	fixture, input, runID := coldChildMessageFixture(t)
+	store := fixture.base.store
+	sessionID := input.Execution.SessionID
+	executionID := input.Execution.ExecutionID
+
+	paused, err := store.PauseExecution(t.Context(), sessionID, executionID,
+		pauseReason)
+	require.NoError(t, err)
+	require.Equal(t, []uuid.UUID{executionID}, paused)
+
+	requestID := uuid.New()
+	request := MessageRequest{To: &runID, Message: "pick it back up"}
+
+	result, err := fixture.base.runtime.RunMessage(t.Context(), request,
+		requestID, nil)
+	require.NoError(t, err)
+	assert.True(t, result.Queued)
+
+	execution, err := store.GetExecution(t.Context(), sessionID, executionID)
+	require.NoError(t, err)
+	assert.NotEqual(t, models.ExecutionStatePaused, execution.State)
+	assert.Nil(t, execution.PausedAt)
+
+	page, err := store.ListExecutionMessages(t.Context(), sessionID,
+		executionID, session.ListExecutionInboxOptions{})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 2)
+
+	wantNotice, err := renderPausedNotice(pauseReason)
+	require.NoError(t, err)
+	assert.Equal(t, wantNotice, page.Items[0].Message)
+	assert.NotContains(t, wantNotice, pauseReason,
+		"the reason is escaped, so it cannot close the notice")
+
+	wantMessage, err := renderAgentMessage(agentMessage{
+		From: messageSenderUser, Text: request.Message,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, wantMessage, page.Items[1].Message)
+	assert.Equal(t, requestID, page.Items[1].RequestID)
+
+	_, err = fixture.base.runtime.RunMessage(t.Context(), request,
+		requestID, nil)
+	require.NoError(t, err)
+
+	page, err = store.ListExecutionMessages(t.Context(), sessionID,
+		executionID, session.ListExecutionInboxOptions{})
+	require.NoError(t, err)
+	assert.Len(t, page.Items, 2)
+}
+
+// A message to a running child carries no pause notice.
+func TestNativeChildMessageToARunningChildHasNoPauseNotice(t *testing.T) {
+	t.Parallel()
+
+	fixture, input, runID := coldChildMessageFixture(t)
+
+	_, err := fixture.base.runtime.RunMessage(t.Context(), MessageRequest{
+		To: &runID, Message: "keep going",
+	}, uuid.New(), nil)
+	require.NoError(t, err)
+
+	page, err := fixture.base.store.ListExecutionMessages(t.Context(),
+		input.Execution.SessionID, input.Execution.ExecutionID,
+		session.ListExecutionInboxOptions{})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+
+	wantMessage, err := renderAgentMessage(agentMessage{
+		From: messageSenderUser, Text: "keep going",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, wantMessage, page.Items[0].Message)
+}
+
 func TestNativeChildMessageRefusesUnavailableRecipients(t *testing.T) {
 	t.Parallel()
 	testCases := []struct {
@@ -227,10 +309,6 @@ func TestNativeChildMessageRefusesUnavailableRecipients(t *testing.T) {
 		foreignSession, missingRun bool
 		wantErr                    error
 	}{
-		{
-			name: "paused", state: models.ExecutionStatePaused,
-			wantErr: session.ErrAgentRunPaused,
-		},
 		{
 			name: "completed", state: models.ExecutionStateCompleted,
 			wantErr: session.ErrAgentRunFinished,

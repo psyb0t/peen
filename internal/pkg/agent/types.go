@@ -158,9 +158,6 @@ const (
 	// handful of executions, so holding them costs little.
 	workflowExecutorCacheTTL = 24 * time.Hour
 
-	// sessionEventTimeLayout is RFC3339 in UTC, matching the API's timestamps.
-	sessionEventTimeLayout = time.RFC3339
-
 	// turnStartMessageCapacity covers the user message plus an optional
 	// pending-events message delivered ahead of it.
 	turnStartMessageCapacity = 2
@@ -626,6 +623,7 @@ type turnCompletedPayload struct {
 
 type turnFailedPayload struct {
 	Reason string `json:"reason"`
+	Error  string `json:"error,omitempty"`
 }
 
 // toolUsePayload mirrors the Chatz-compatible tool_use content block.

@@ -43,9 +43,21 @@ Handle this as the {{.Agent}} agent would.{{end}}
 {{.Text}}
 </message>`
 
+	// pausedNoticeTemplateText is what a paused child reads ahead of the
+	// message that resumes it. The reason is Peen's own pause reason, which
+	// can carry an error, so it is escaped.
+	//
+	//nolint:lll // The sentence is one line in the rendered notice.
+	pausedNoticeTemplateText = `<paused>
+<reason>{{esc .Reason}}</reason>
+
+Your work was paused for the reason above, and the message after this one resumes it. Check the workspace before you continue, because it may have changed while you were paused.
+</paused>`
+
 	hookContextTemplateName  = "hook"
 	eventHandlerTemplateName = "handler"
 	agentMessageTemplateName = "message"
+	pausedNoticeTemplateName = "paused"
 	escapeFunctionName       = "esc"
 	attributeFunctionName    = "attr"
 
@@ -127,6 +139,21 @@ func renderAgentMessage(message agentMessage) (string, error) {
 		agentMessageTemplateName,
 		agentMessageTemplateText,
 		message,
+	)
+}
+
+// pausedNoticeData is what pausedNoticeTemplateText renders.
+type pausedNoticeData struct {
+	Reason string
+}
+
+// renderPausedNotice tells a paused child why it was paused, ahead of the
+// message that resumes it.
+func renderPausedNotice(reason string) (string, error) {
+	return renderTemplate(
+		pausedNoticeTemplateName,
+		pausedNoticeTemplateText,
+		pausedNoticeData{Reason: reason},
 	)
 }
 

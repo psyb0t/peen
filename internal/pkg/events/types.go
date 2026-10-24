@@ -12,9 +12,9 @@ import (
 )
 
 // Type names one kind of session event. It is a dotted, lowercase, namespaced
-// name. Peen reserves the job. and agent. prefixes for its own producers;
-// every other prefix belongs to the deployment, so an application is free to
-// publish app.error or ci.failed and have those be first-class.
+// name. Peen reserves the job., agent., and turn. prefixes for its own
+// producers; every other prefix belongs to the deployment, so an application
+// is free to publish app.error or ci.failed and have those be first-class.
 //
 // It is an alias because it carries no behavior and crosses the HTTP and JSON
 // boundaries as a plain string.
@@ -37,14 +37,19 @@ const (
 	// TypeAgentQuestion carries a question a child agent asked the root
 	// conversation. The child waits for the answer.
 	TypeAgentQuestion Type = "agent.question"
+	// TypeTurnFailed reports a turn that ended with an error, or whose worker
+	// or controller stopped before it ended. Its data carries the error.
+	TypeTurnFailed Type = "turn.failed"
+	// TypeTurnCancelled reports a turn a Stop ended.
+	TypeTurnCancelled Type = "turn.cancelled"
 )
 
 // ReservedPrefixes are the type namespaces only Peen's own producers may
-// publish. An outside caller posting one is rejected so it cannot forge a job
-// or agent event.
+// publish. An outside caller posting one is rejected so it cannot forge a job,
+// agent, or turn event.
 //
 //nolint:gochecknoglobals // A fixed lookup table, never reassigned.
-var ReservedPrefixes = []string{"job.", "agent."}
+var ReservedPrefixes = []string{"job.", "agent.", "turn."}
 
 // Delivery selects whether an event waits for the next turn or starts one.
 type Delivery = string

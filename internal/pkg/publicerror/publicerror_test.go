@@ -47,3 +47,15 @@ func TestMessage(t *testing.T) {
 		})
 	}
 }
+
+func TestTextStripsARenderedErrorLikeMessage(t *testing.T) {
+	t.Parallel()
+
+	rendered := ctxerrors.Wrap(errBase, "run turn workflow").Error()
+
+	text := Text(rendered)
+
+	assert.Equal(t, "run turn workflow: base failure", text)
+	assert.NotContains(t, text, ".go:")
+	assert.Equal(t, "already plain", Text("  already plain "))
+}

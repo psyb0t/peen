@@ -20,6 +20,10 @@ type AcceptExecutionMessageInput struct {
 	Message          string               `json:"message"`
 	Parts            []ExecutionInboxPart `json:"parts"`
 	Capacity         int                  `json:"capacity"`
+	// ResumeNotice is what a paused child reads ahead of this message: why
+	// it was paused. A message to a paused child resumes it, so the notice is
+	// queued only then, and ignored for a running child.
+	ResumeNotice string `json:"resumeNotice,omitempty"`
 }
 
 type ExecutionInboxPage struct {
@@ -32,6 +36,9 @@ type ExecutionInboxPage struct {
 type ExecutionInboxAcceptance struct {
 	Message *models.ExecutionInboxMessage `json:"message"`
 	Events  []EventInput                  `json:"events"`
+	// Resumed lists the paused executions the message resumed, so the caller
+	// can start their workflows again.
+	Resumed []uuid.UUID `json:"resumed,omitempty"`
 }
 
 type ExecutionInboxDelivery struct {

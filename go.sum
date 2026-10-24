@@ -676,8 +676,8 @@ github.com/psyb0t/aichteeteapee v1.14.0 h1:ESfcEhHQ/2T7h1j8v8vAFFnlRm/f+onyTBP1H
 github.com/psyb0t/aichteeteapee v1.14.0/go.mod h1:qPVpUlHAwaz2v7vrx6I9jPHIleW4U4mX/a01/xIlVic=
 github.com/psyb0t/commander v0.6.0 h1:NXPybz3XSUYqz5batsl0mXw0DDhMAxzoT4UHE3aUA/Q=
 github.com/psyb0t/commander v0.6.0/go.mod h1:KKukwIRkpHPrAZ1N4w6AI9v7tlV9/R/HKJKUMFjaMG0=
-github.com/psyb0t/common-go v0.9.1 h1:SxuPizcEYbiUBnWDJbkjjJU2a8soOgeI/6NfxYSYdC4=
-github.com/psyb0t/common-go v0.9.1/go.mod h1:hFLLj6AQ3YebNiQ3rg5glYKZ/ld5ltRZ/ZvBgusx5GQ=
+github.com/psyb0t/common-go v0.10.0 h1:7jFqXlyxIQx71ni0lE4g7VKvYlRt+jo2p8XIKQLUN1Y=
+github.com/psyb0t/common-go v0.10.0/go.mod h1:ZvvtpaTwQqL6oM8U8QFoRbZVdvLiIvHSTxDpppj8edk=
 github.com/psyb0t/ctxerrors v0.9.0 h1:CUjM/h8z6cVw3jy9+0JCnXWlvBx4Sh4PQYk3nmPhAvE=
 github.com/psyb0t/ctxerrors v0.9.0/go.mod h1:h1V0vJtlXGn4H7RuHBtxdrdevBx3CmBTEyJXtFIIrk4=
 github.com/psyb0t/ctxscope v1.0.3 h1:VwI7JQPpT1ZwnBOMKigFgM5CluQ46zwrRkHfx7p67bY=
@@ -690,8 +690,8 @@ github.com/psyb0t/gen-asyncapi v0.2.0 h1:W60xs3o7D2oyt4tAC6IrQa21jaMYkfdeoTjc09F
 github.com/psyb0t/gen-asyncapi v0.2.0/go.mod h1:5BshHlxjMK/5dxLEKwUnP3M9bhzqU0Ul7rLPnhfPHNY=
 github.com/psyb0t/go-asyncapi v0.1.0 h1:8lfCLJLEjaugBjrLpnPTcyQX5960eSY91FldIQVuWc0=
 github.com/psyb0t/go-asyncapi v0.1.0/go.mod h1:7ODH+p+fS7YGCzCiBUXH0Fh1nNvlZVwGUWb3ujMHtbQ=
-github.com/psyb0t/go-workflows v1.3.0 h1:3Ap3o6DMCk5q+uhqIWMQHCqlmo/kK3TaMzdS+00U9mA=
-github.com/psyb0t/go-workflows v1.3.0/go.mod h1:3PRteIiZYTccdPUJFwfYwNZZxBS1mh5kN7fMirSccSA=
+github.com/psyb0t/go-workflows v1.3.1 h1:hcegX5f1TEH33QPJhdgnudWXuSjldATlnlKS7dzzc9Y=
+github.com/psyb0t/go-workflows v1.3.1/go.mod h1:x6gjB78ApM0zDgV1iNyz4rbm8EWfcF4NLa48i4NVmos=
 github.com/psyb0t/goenv v1.0.10 h1:6hECZpebLN7JoZIpQOrvD+5BjDKxoFiiXATiDMxuAW4=
 github.com/psyb0t/goenv v1.0.10/go.mod h1:Ol/6C6q5MarjfdYQDqI0bEvdi/DCfkgyJmssZvAXJEY=
 github.com/psyb0t/gofindimpl v1.0.12 h1:X0YW47nGInQdTYKaUgYdkhp0DdpHNelaOIzMnm0T+fQ=

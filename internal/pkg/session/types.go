@@ -110,10 +110,13 @@ type EventInput struct {
 type FinalizeTurnInput struct {
 	State                 models.TurnState `json:"state"`
 	FailureClassification string           `json:"failureClassification"`
-	ContextSnapshotHash   *string          `json:"contextSnapshotHash"`
-	PromptSnapshotHash    *string          `json:"promptSnapshotHash"`
-	Messages              []MessageInput   `json:"messages"`
-	Events                []EventInput     `json:"events"`
+	// FailureDetail is the error a turn that did not complete ended with, as
+	// its notice carries it.
+	FailureDetail       string         `json:"failureDetail,omitempty"`
+	ContextSnapshotHash *string        `json:"contextSnapshotHash"`
+	PromptSnapshotHash  *string        `json:"promptSnapshotHash"`
+	Messages            []MessageInput `json:"messages"`
+	Events              []EventInput   `json:"events"`
 }
 
 // PageOrder controls transcript pagination direction.

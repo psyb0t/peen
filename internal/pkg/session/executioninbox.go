@@ -69,13 +69,20 @@ func (s *Store) acceptExecutionInbox(
 	return result, nil
 }
 
+// fitsInboxStorage reports whether the message and its resume notice each fit
+// one stored inbox row.
+func (s *Store) fitsInboxStorage(input AcceptExecutionMessageInput) bool {
+	return len(input.Message) <= s.maxStoredMessageBytes &&
+		len(input.ResumeNotice) <= s.maxStoredMessageBytes
+}
+
 func (s *Store) validateExecutionInboxInput(
 	input AcceptExecutionMessageInput,
 ) (string, error) {
 	if input.RequestID == uuid.Nil || input.Capacity <= 0 ||
 		strings.TrimSpace(input.WorkingDirectory) == "" ||
 		strings.TrimSpace(input.Message) == "" ||
-		len(input.Message) > s.maxStoredMessageBytes {
+		!s.fitsInboxStorage(input) {
 		return "", ctxerrors.Wrap(commerr.ErrValidationFailed,
 			"accepted inbox identity or message")
 	}

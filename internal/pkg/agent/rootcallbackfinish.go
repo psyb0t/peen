@@ -8,6 +8,8 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/events"
+	"github.com/psyb0t/peen/internal/pkg/publicerror"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -43,6 +45,7 @@ func (c *rootWorkflowCallbacks) beforeFinish(
 
 	result.Finish.Turn = &session.FinalizeTurnInput{
 		State: state, FailureClassification: classification,
+		FailureDetail:       rootFailureDetail(result),
 		ContextSnapshotHash: &shared.prepared.contextHash,
 		PromptSnapshotHash:  &shared.prepared.promptHash,
 		Messages:            pending.messages, Events: pending.events,
@@ -59,6 +62,18 @@ func (c *rootWorkflowCallbacks) beforeFinish(
 	return result, nil
 }
 
+// rootFailureDetail is the error a failed root reports to clients and to the
+// next turn, without the source locations its stored detail keeps.
+func rootFailureDetail(result workflowFinishResult) string {
+	if result.Finish.State != models.ExecutionStateFailed {
+		return ""
+	}
+
+	return events.TruncateToRuneBoundary(
+		publicerror.Text(result.Finish.FailureDetail),
+		workflowFailureDetailBytes)
+}
+
 func (c *rootWorkflowCallbacks) finalEvent(
 	prepared *preparedTurn,
 	result workflowFinishResult,
@@ -70,7 +85,9 @@ func (c *rootWorkflowCallbacks) finalEvent(
 	}
 	if result.Finish.State == models.ExecutionStateFailed {
 		kind = EventTypeTurnFailed
-		payload = turnFailedPayload{Reason: failureClassAgentRun}
+		payload = turnFailedPayload{
+			Reason: failureClassAgentRun, Error: rootFailureDetail(result),
+		}
 	}
 
 	encoded, err := json.Marshal(payload)

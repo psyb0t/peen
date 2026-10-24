@@ -655,9 +655,9 @@ func webSocketMessageFailureFor(err error) webSocketMessageFailure {
 	}
 }
 
-// agentRunFailureFor reports a message for a child agent that ended, is
-// paused, or never existed. Each is checked before its class, which would
-// otherwise read as a busy session, an internal failure, or a missing session.
+// agentRunFailureFor reports a message for a child agent that ended or never
+// existed. Each is checked before its class, which would otherwise read as a
+// busy session or a missing session.
 func agentRunFailureFor(err error) (webSocketMessageFailure, bool) {
 	switch {
 	case errors.Is(err, session.ErrAgentRunFinished):
@@ -670,12 +670,6 @@ func agentRunFailureFor(err error) (webSocketMessageFailure, bool) {
 		return newWebSocketMessageFailure(
 			ErrorCodeAgentNotFound,
 			webSocketAgentNotFoundMessage,
-			"",
-		), true
-	case errors.Is(err, session.ErrAgentRunPaused):
-		return newWebSocketMessageFailure(
-			ErrorCodeAgentPaused,
-			webSocketAgentPausedMessage,
 			"",
 		), true
 	default:

@@ -32,7 +32,7 @@ Peen runs model-chosen commands with real access to a workspace, so its own boun
 
 ## Hooks and the harness
 
-Hooks from every layer run in the session's worker with the agent's access, the workspace's included, and the docs tell operators to open only workspaces whose hooks they trust. Hook files are validated strictly, and hooks cannot publish the reserved `job.*` and `agent.*` event types. Keep both rules. A hook or event handler never receives a credential it was not configured with.
+Hooks from every layer run in the session's worker with the agent's access, the workspace's included, and the docs tell operators to open only workspaces whose hooks they trust. Hook files are validated strictly, and hooks cannot publish the reserved `job.*`, `agent.*`, and `turn.*` event types. Keep both rules. A hook or event handler never receives a credential it was not configured with.
 
 ## Untrusted input
 

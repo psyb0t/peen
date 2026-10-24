@@ -479,6 +479,9 @@ export function validateMessageFailed(
  * `reason` is set only alongside code `HARNESS_CONFIGURATION_INVALID`, one of six fixed client-safe sentences naming what is wrong with the workspace agent configuration.
  */
 export interface MessageFailedData {
+  /**
+   * AGENT_PAUSED is deprecated and no longer sent, because a message to a paused child now resumes it.
+   */
   code: MessageFailedCode;
   message: string;
   reason?: string;
@@ -499,6 +502,9 @@ export function validateMessageFailedData(
   }
 }
 
+/**
+ * AGENT_PAUSED is deprecated and no longer sent, because a message to a paused child now resumes it.
+ */
 export type MessageFailedCode = "VALIDATION_FAILED" | "INTERNAL_SERVER_ERROR" | "SESSION_NOT_FOUND" | "TURN_CANCELLED" | "USER_MESSAGE_QUEUE_FULL" | "SESSION_BUSY" | "AGENT_FINISHED" | "AGENT_NOT_FOUND" | "AGENT_PAUSED" | "HARNESS_CONFIGURATION_INVALID";
 
 /** Values of MessageFailedCode. */
@@ -1758,6 +1764,10 @@ export function validateTurnFailed(
 
 export interface TurnFailedData {
   reason: "agentRun";
+  /**
+   * The error the turn ended with, without source locations. Absent when the turn failed before Peen recorded one.
+   */
+  error?: string;
 }
 
 /** validateTurnFailedData throws a ValidationError when value is not a valid TurnFailedData. */
@@ -1767,8 +1777,12 @@ export function validateTurnFailedData(
 ): asserts value is TurnFailedData {
   const object = rtObject(value, path);
   rtRequire(path, object, ["reason"]);
-  rtKnownKeys(path, object, ["reason"]);
+  rtKnownKeys(path, object, ["reason", "error"]);
   rtConst(path + ".reason", object["reason"], "agentRun");
+  if (object["error"] !== undefined) {
+    const v2 = rtString(object["error"], path + ".error");
+    rtMaxLength(path + ".error", v2, 2048);
+  }
 }
 
 export interface TurnCancelled {
@@ -3537,6 +3551,12 @@ function rtEnum(
 function rtMinLength(path: string, value: string, limit: number): void {
   if (Array.from(value).length < limit) {
     rtFail(path, `shorter than ${limit} characters`);
+  }
+}
+
+function rtMaxLength(path: string, value: string, limit: number): void {
+  if (Array.from(value).length > limit) {
+    rtFail(path, `longer than ${limit} characters`);
   }
 }
 

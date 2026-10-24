@@ -25,6 +25,10 @@ const (
 	// workflowFailurePauseReason pauses a root whose workflow failed, so it
 	// stays inspectable and never continues on its own.
 	workflowFailurePauseReason = "turn workflow failed"
+	// workflowFailureDetailSeparator joins that reason and the error, which
+	// workflowFailureDetailBytes bounds.
+	workflowFailureDetailSeparator = ": "
+	workflowFailureDetailBytes     = 2048
 
 	reasonTurnWorkflowFailed = "turn_workflow_failed"
 )
@@ -192,14 +196,16 @@ func (n *nativeWorkflowRunner) failed(
 		"err", cause,
 	)
 
+	detail := failedTurnDetail(models.TurnStateFailed, cause)
+
 	pauseErr := n.engine.pause(cleanup, input.SessionID, input.ExecutionID,
-		workflowFailurePauseReason)
+		workflowFailurePauseReason+workflowFailureDetailSeparator+detail)
 	if pauseErr != nil {
 		pauseErr = ctxerrors.Wrap(pauseErr, "pause failed native root")
 	}
 
 	return errors.Join(pauseErr, n.dispatch.runtime.endUnfinishedTurn(
-		cleanup, prepared, session.FailedTurnEnd()))
+		cleanup, prepared, session.FailedTurnEnd(detail)))
 }
 
 // endUnfinishedTurn records how a turn ended when its workflow did not finish

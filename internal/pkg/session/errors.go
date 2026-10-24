@@ -28,10 +28,6 @@ var (
 	// longer running, so nothing would ever read it. It is always joined
 	// with commerr.ErrConflict.
 	ErrAgentRunFinished = errors.New("agent has finished")
-	// ErrAgentRunPaused reports a message sent to a child agent whose work
-	// is paused, after a Stop or a crash, until something resumes it. It is
-	// always joined with commerr.ErrInvalidState.
-	ErrAgentRunPaused = errors.New("agent is paused")
 	// ErrAgentRunNotFound reports a message sent to an agent run the session
 	// never had. It is always joined with commerr.ErrNotFound.
 	ErrAgentRunNotFound = errors.New("agent run not found")

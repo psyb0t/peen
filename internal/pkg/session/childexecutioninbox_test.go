@@ -14,6 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// inboxTestResumeNotice stands in for the notice the agent layer renders. The
+// store keeps it as written.
+const inboxTestResumeNotice = "paused by a test stop"
+
 func TestChildInboxAcceptsAfterParentTurnCompletes(t *testing.T) {
 	t.Parallel()
 	fixture := newExecutionFixture(t)
@@ -106,9 +110,122 @@ func TestChildInboxReopenPreservesPauseAndRejectsChangedRepeat(t *testing.T) {
 		child.ID, input)
 	require.ErrorIs(t, err, commerr.ErrConflict)
 	input.RequestID = uuid.New()
-	_, err = store.AcceptChildExecutionMessage(t.Context(), fixture.sessionID,
-		child.ID, input)
-	require.ErrorIs(t, err, commerr.ErrInvalidState)
+	resumed, err := store.AcceptChildExecutionMessage(t.Context(),
+		fixture.sessionID, child.ID, input)
+	require.NoError(t, err)
+	assert.Equal(t, []uuid.UUID{child.ID}, resumed.Resumed)
+}
+
+// A new message resumes a paused child and the paused work under it, and
+// queues the resume notice ahead of the message in the same transaction.
+func TestChildInboxMessageResumesThePausedSubtreeWithItsNotice(t *testing.T) {
+	t.Parallel()
+
+	fixture := newExecutionFixture(t)
+	child := executionChildForTest(t, fixture, fixture.root)
+	grandchild := executionChildForTest(t, fixture, child)
+
+	paused, err := fixture.store.PauseExecution(t.Context(), fixture.sessionID,
+		child.ID, executionTestPauseReason)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []uuid.UUID{child.ID, grandchild.ID}, paused)
+
+	input := inboxTestInput()
+	input.ResumeNotice = inboxTestResumeNotice
+
+	accepted, err := fixture.store.AcceptChildExecutionMessage(t.Context(),
+		fixture.sessionID, child.ID, input)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []uuid.UUID{child.ID, grandchild.ID},
+		accepted.Resumed)
+	assert.Equal(t, input.RequestID, accepted.Message.RequestID)
+
+	for _, id := range []uuid.UUID{child.ID, grandchild.ID} {
+		stored, err := fixture.store.GetExecution(t.Context(),
+			fixture.sessionID, id)
+		require.NoError(t, err)
+		assert.NotEqual(t, models.ExecutionStatePaused, stored.State)
+	}
+
+	page, err := fixture.store.ListExecutionMessages(t.Context(),
+		fixture.sessionID, child.ID, ListExecutionInboxOptions{})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 2)
+	assert.Equal(t, inboxTestResumeNotice, page.Items[0].Message)
+	assert.Equal(t,
+		uuid.NewSHA1(input.RequestID, []byte(resumeNoticeIdentity)),
+		page.Items[0].RequestID)
+	assert.Equal(t, input.Message, page.Items[1].Message)
+
+	history, err := fixture.store.ListExecutionEvents(t.Context(),
+		fixture.sessionID, child.ID, ListEventsOptions{})
+	require.NoError(t, err)
+
+	kinds := make([]string, 0, len(history.Items))
+	for _, event := range history.Items {
+		kinds = append(kinds, event.EventType)
+	}
+
+	assert.Equal(t, []string{
+		string(ExecutionEventTypeCreated),
+		string(ExecutionEventTypePaused),
+		string(ExecutionEventTypeResumed),
+		string(ExecutionEventTypeInboxQueued),
+		string(ExecutionEventTypeInboxQueued),
+	}, kinds)
+
+	repeated, err := fixture.store.AcceptChildExecutionMessage(t.Context(),
+		fixture.sessionID, child.ID, input)
+	require.NoError(t, err)
+	assert.Equal(t, accepted.Message.ID, repeated.Message.ID)
+	assert.Empty(t, repeated.Resumed)
+}
+
+// A running child ignores a resume notice, because nothing paused it.
+func TestChildInboxRunningChildIgnoresTheResumeNotice(t *testing.T) {
+	t.Parallel()
+
+	fixture := newExecutionFixture(t)
+	child := executionChildForTest(t, fixture, fixture.root)
+
+	input := inboxTestInput()
+	input.ResumeNotice = inboxTestResumeNotice
+
+	accepted, err := fixture.store.AcceptChildExecutionMessage(t.Context(),
+		fixture.sessionID, child.ID, input)
+	require.NoError(t, err)
+	assert.Empty(t, accepted.Resumed)
+
+	page, err := fixture.store.ListExecutionMessages(t.Context(),
+		fixture.sessionID, child.ID, ListExecutionInboxOptions{})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.Equal(t, input.Message, page.Items[0].Message)
+}
+
+// A message that does not fit leaves the paused child paused.
+func TestChildInboxFullPausedChildStaysPaused(t *testing.T) {
+	t.Parallel()
+
+	fixture := newExecutionFixture(t)
+	child := executionChildForTest(t, fixture, fixture.root)
+
+	_, err := fixture.store.PauseExecution(t.Context(), fixture.sessionID,
+		child.ID, executionTestPauseReason)
+	require.NoError(t, err)
+
+	input := inboxTestInput()
+	input.ResumeNotice = inboxTestResumeNotice
+	input.Capacity = 1
+
+	_, err = fixture.store.AcceptChildExecutionMessage(t.Context(),
+		fixture.sessionID, child.ID, input)
+	require.ErrorIs(t, err, commerr.ErrConflict)
+
+	stored, err := fixture.store.GetExecution(t.Context(), fixture.sessionID,
+		child.ID)
+	require.NoError(t, err)
+	assert.Equal(t, models.ExecutionStatePaused, stored.State)
 }
 
 func TestChildInboxRefusesForeignSessionRootAndCapacity(t *testing.T) {

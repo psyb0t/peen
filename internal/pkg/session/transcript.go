@@ -727,6 +727,14 @@ func (s *Store) finishTurn(
 		)
 	}
 
+	if err := s.recordTurnEndNotice(ctx, tx, lease.SessionID,
+		turnEndNoticeData{
+			TurnID: lease.TurnID, State: input.State,
+			Reason: input.FailureClassification, Error: input.FailureDetail,
+		}); err != nil {
+		return ctxerrors.Wrap(err, "record finished turn notice")
+	}
+
 	return nil
 }
 

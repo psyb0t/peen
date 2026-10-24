@@ -1434,7 +1434,7 @@ type SessionNoticeRequest struct {
 	// Summary The one line describing what happened.
 	Summary string `json:"summary"`
 
-	// Type Dotted lowercase namespaced type. The job. and agent. prefixes are reserved for Peen's own producers and are rejected here.
+	// Type Dotted lowercase namespaced type. The job., agent., and turn. prefixes are reserved for Peen's own producers and are rejected here.
 	Type string `json:"type"`
 }
 

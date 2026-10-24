@@ -1032,7 +1032,7 @@ github.com/psyb0t/aichteeteapee/serbewr/middleware
 # github.com/psyb0t/commander v0.6.0
 ## explicit; go 1.26.9
 github.com/psyb0t/commander
-# github.com/psyb0t/common-go v0.9.1
+# github.com/psyb0t/common-go v0.10.0
 ## explicit; go 1.26.0
 github.com/psyb0t/common-go/db
 github.com/psyb0t/common-go/db/sqlite
@@ -1064,7 +1064,7 @@ github.com/psyb0t/gen-asyncapi/internal/codegen
 # github.com/psyb0t/go-asyncapi v0.1.0
 ## explicit; go 1.26.9
 github.com/psyb0t/go-asyncapi
-# github.com/psyb0t/go-workflows v1.3.0
+# github.com/psyb0t/go-workflows v1.3.1
 ## explicit; go 1.26.10
 github.com/psyb0t/go-workflows/backend
 github.com/psyb0t/go-workflows/backend/converter

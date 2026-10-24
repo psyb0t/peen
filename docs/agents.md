@@ -121,7 +121,7 @@ Service and embedded sessions use one workflow definition with saved context and
 
 After the controller or a worker crashes, Peen pauses every execution that was running, the root's and its children's, and ends the interrupted turn with a stored `turn.failed` frame. Nothing continues until a turn asks the agent to inspect and resume it, as [continuing retained work](#continuing-retained-work) describes. With `PEEN_CRASH_RECOVERY=resume`, for deployments that run unattended, the next worker continues that work by itself instead.
 
-A resumed execution continues children and grandchildren with their original run IDs, ancestry, start times, directories and saved conversation. An interrupted model request retries with that context. Completed tool results are reused. A completed parent does not prevent its unfinished children from continuing. Recovery waits for an abandoned activity lease to expire before reclaiming its work. Paused children remain paused until explicitly resumed.
+A resumed execution continues children and grandchildren with their original run IDs, ancestry, start times, directories and saved conversation. An interrupted model request retries with that context. Completed tool results are reused. A completed parent does not prevent its unfinished children from continuing. Recovery waits for an abandoned activity lease to expire before reclaiming its work. Paused children remain paused until something resumes them or [sends them a message](#messages-to-a-paused-child).
 
 Restored conversations retain their task, instructions, model, tool selection, frozen harness, summary and accepted inbox messages. Recorded provider rounds still count against the original limit; increasing the deployment limit does not grant extra rounds. Pending `ask` and `waitMessages` calls keep their original deadlines and saved questions. Uncertain tool effects require inspection before retry or acceptance through the controls below.
 
@@ -170,9 +170,27 @@ Review the shell scripts in this workspace.
 
 A child's task is the first such message, from the agent that launched it. `from="agent"` carries the sender's agent name and run ID, or `root` for the root conversation. A message you send to a child arrives as `<message from="user">`. A message you send to the root conversation stays untagged, as it always was. The default system prompt tells the model what these blocks are.
 
-`sendMessage` sends a message to another agent. `to` is `root` or the `agentRunId` of any running agent in the session, such as a child, or the parent named in the `run` attribute of the task. A message to a child or parent lands after its current tool call. A message to `root` from any child, at any depth, reaches the root as an `agent.message` session event. Sending to a child that has ended fails and says how it ended. Sending to a run ID the session never had fails as unknown.
+`sendMessage` sends a message to another agent. `to` is `root` or the `agentRunId` of any running agent in the session, such as a child, or the parent named in the `run` attribute of the task. A message to a child or parent lands after its current tool call. A message to `root` from any child, at any depth, reaches the root as an `agent.message` session event. Sending to a paused child resumes it, as [described below](#messages-to-a-paused-child). Sending to a child that has ended fails and says how it ended. Sending to a run ID the session never had fails as unknown.
 
 You can write to a running child yourself. Name its run ID in the `to` field of a WebSocket `message.send`, or pick it under Send to in the control surface. Session workers retain accepted messages while reconstructing a child's conversation. See [the WebSocket](http-api.md#send-and-watch-turns-over-websocket).
+
+### Messages to a paused child
+
+A message to a paused child, from you or from another agent, resumes that child and the paused work under it. The child first reads why it was paused, then the message:
+
+```text
+<paused>
+<reason>turn workflow failed: call the model: upstream refused the request</reason>
+
+Your work was paused for the reason above, and the message after this one resumes it. Check the workspace before you continue, because it may have changed while you were paused.
+</paused>
+```
+
+The reason is the Stop, the crash, or the error the turn failed with. The execution history records the resume as `execution.resumed` with the message's `requestId`. A message that does not fit the child's inbox is refused and leaves the child paused.
+
+### Errors reach every agent
+
+When a turn fails, is interrupted, or is stopped, Peen records a [`turn.failed` or `turn.cancelled` session event](events.md#turn-events) with the error. The root reads it at its next tool call or turn. Every child that is queued or running gets a copy too. Each `agent.failed` event reaches them the same way. A child reads its copy before its next model request, in the same `<events>` block the root reads, and a full inbox does not hold it back. A paused child gets no copy, because the `<paused>` block tells it what stopped it.
 
 ### Questions
 

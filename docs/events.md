@@ -8,10 +8,11 @@ A session event, also called a notice, is a record of something that happened ou
 | --- | --- | --- | --- |
 | Background jobs | `tools.job` | `job.exited`, `job.signalled`, `job.failed` | A command ends after its `runCommand` call has already returned, because it ran in the background or outlived its timeout. |
 | Child agents | `agent.launchAgent` | `agent.finished`, `agent.failed`, `agent.message`, `agent.question` | A child of the root conversation ends or asks the root a question, or a child at any depth sends the root a message. A cancelled run counts as `agent.failed`. |
-| Hooks | `hooks` | any type except `job.*` and `agent.*`, plus `hook.action.failed` | An `emitEvent` action runs, a hook command prints `events`, or a post-event hook action fails. See [Hooks](hooks.md). |
-| Outside callers | `api` | any type except `job.*` and `agent.*` | Something calls `POST /api/v1/session/notices`. |
+| Turns | `session.turn` | `turn.failed`, `turn.cancelled` | A turn fails, its worker or controller stops before it ends, or a Stop ends it. |
+| Hooks | `hooks` | any type except `job.*`, `agent.*`, and `turn.*`, plus `hook.action.failed` | An `emitEvent` action runs, a hook command prints `events`, or a post-event hook action fails. See [Hooks](hooks.md). |
+| Outside callers | `api` | any type except `job.*`, `agent.*`, and `turn.*` | Something calls `POST /api/v1/session/notices`. |
 
-`job.*` and `agent.*` are reserved for Peen. `POST /api/v1/session/notices` rejects them, a `hooks.yaml` file whose `emitEvent` action names one is invalid, and a hook command that prints one fails its action. Only Peen's own jobs and child agents produce them.
+`job.*`, `agent.*`, and `turn.*` are reserved for Peen. `POST /api/v1/session/notices` rejects them, a `hooks.yaml` file whose `emitEvent` action names one is invalid, and a hook command that prints one fails its action. Only Peen's own jobs, child agents, and turns produce them.
 
 An event has a `type`, a `summary`, an optional JSON object `data`, and a `delivery` mode, `queue` or `wake`. Peen adds the `source`, an ID, and a timestamp. Every recorded notice also goes out live over the WebSocket as a `notice.created` frame carrying the stored notice, whatever its `delivery` mode and whether or not it has reached the model yet. See [protocol event types](http-api.md#protocol-event-types). `POST /api/v1/session/notices` requires a non-empty `summary`. A hook may leave it empty. Peen does not check that a summary is one line, but keep it to one, because the model reads it as a headline. The built-in events look like this:
 
@@ -24,6 +25,8 @@ An event has a `type`, a `summary`, an optional JSON object `data`, and a `deliv
 | `agent.failed` | `agent "reviewer" run 9b2e… did not finish (failed)`, or `(cancelled)` | `{"runId", "agentName", "state", "durationMs", "duration", "failureDetail"}` |
 | `agent.message` | `agent "reviewer" run 9b2e… sent a message` | `{"runId", "agentName", "message"}` |
 | `agent.question` | `agent "reviewer" run 9b2e… asked a question` | `{"runId", "agentName", "message"}` |
+| `turn.failed` | `The previous turn failed.`, or `The previous turn was interrupted.` | `{"turnId", "state", "reason", "error"}` |
+| `turn.cancelled` | `The previous turn was stopped.` | `{"turnId", "state", "reason"}` |
 
 `durationMs` is the run time in whole milliseconds, for programs. `duration` is the same value as a Go duration string such as `5.321s` or `1m30s`, for people and models.
 
@@ -38,13 +41,22 @@ The `agent.*` events are how children talk to the root. `agent.finished`, `agent
 
 A child refuses to send a message or question that would not fit the event limits, so the child can shorten it instead of losing it.
 
+### Turn events
+
+Peen records a `turn.failed` or `turn.cancelled` event in the same transaction that ends a turn without completing it. The next turn and the next tool call read it, so the agent knows its last turn did not finish and why.
+
+- `turn.failed` covers a turn that ended with an error, `state` `failed`, and one whose worker or controller stopped before it ended, `state` `interrupted`. `error` is the error, without source locations, cut to 2048 bytes.
+- `turn.cancelled` covers a turn a Stop ended. It carries no `error`.
+
+Both queue and never wake the session, so a failing turn cannot start another one. A handler file can still make them wake it, and the wake cap applies as usual. Every queued or running child agent also gets a copy of each `turn.*` and `agent.failed` event. See [errors reach every agent](agents.md#errors-reach-every-agent).
+
 Event types are lowercase dotted names of 1 to 8 parts, up to 128 characters. Each part starts with a letter and holds only lowercase letters and digits, for example `ci.build.failed`.
 
 `PEEN_MAX_EVENT_SUMMARY_BYTES` (4096) limits `summary` and `PEEN_MAX_EVENT_DATA_BYTES` (65536) limits the encoded `data`. What happens over a limit depends on who sent the event:
 
 - `POST /api/v1/session/notices` rejects the request with `400 VALIDATION_FAILED`.
 - A hook `emitEvent` action or command-printed event fails that action, and the normal [hook failure rules](hooks.md#failures) apply.
-- Peen's own `job.*` and `agent.*` events are never rejected. Peen shortens an over-long summary to the limit without splitting a character, and leaves out over-size data.
+- Peen's own `job.*`, `agent.*`, and `turn.*` events are never rejected. Peen shortens an over-long summary to the limit without splitting a character, and leaves out over-size data.
 
 ## Background jobs
 
@@ -144,4 +156,4 @@ curl -X POST http://localhost:8080/api/v1/session/notices \
   -d '{"type":"ci.build.failed","summary":"main is red: TestParse failed","data":{"run":1234},"delivery":"wake"}'
 ```
 
-`delivery` defaults to `queue`. `job.*` and `agent.*` are reserved for Peen and rejected here. A `summary` or `data` over its size limit is rejected with `400 VALIDATION_FAILED`. Add `Authorization: Bearer <token>` when `PEEN_API_TOKEN` is set. Treat event content as untrusted. Peen always quotes it as data and never merges it into the system prompt.
+`delivery` defaults to `queue`. `job.*`, `agent.*`, and `turn.*` are reserved for Peen and rejected here. A `summary` or `data` over its size limit is rejected with `400 VALIDATION_FAILED`. Add `Authorization: Bearer <token>` when `PEEN_API_TOKEN` is set. Treat event content as untrusted. Peen always quotes it as data and never merges it into the system prompt.

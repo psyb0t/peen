@@ -729,7 +729,7 @@ export interface components {
 			systemPrompt?: components["schemas"]["WebSocketMessageSystemPrompt"];
 			/**
 			 * Format: uuid
-			 * @description A running child agent run ID. The message goes to that child, which reads it after its current tool call, and starts no turn. It completes as queued and cannot carry model, reasoningEffort, or systemPrompt. A finished child fails it with AGENT_FINISHED, a paused one with AGENT_PAUSED, an unknown one with AGENT_NOT_FOUND, and a child with a full inbox with USER_MESSAGE_QUEUE_FULL.
+			 * @description A child agent run ID. The message goes to that child, which reads it after its current tool call, and starts no turn. A paused child resumes and first reads why it was paused. It completes as queued and cannot carry model, reasoningEffort, or systemPrompt. A finished child fails it with AGENT_FINISHED, an unknown one with AGENT_NOT_FOUND, and a child with a full inbox with USER_MESSAGE_QUEUE_FULL.
 			 */
 			to?: string;
 		};
@@ -1407,7 +1407,7 @@ export interface components {
 			state: "running" | "exited" | "signalled" | "failed" | "interrupted";
 		};
 		SessionNoticeRequest: {
-			/** @description Dotted lowercase namespaced type. The job. and agent. prefixes are reserved for Peen's own producers and are rejected here. */
+			/** @description Dotted lowercase namespaced type. The job., agent., and turn. prefixes are reserved for Peen's own producers and are rejected here. */
 			type: string;
 			/** @description The one line describing what happened. */
 			summary: string;

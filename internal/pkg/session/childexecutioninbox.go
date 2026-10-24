@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
@@ -84,12 +85,67 @@ func (s *Store) acceptChildInboxMessage(
 	}
 
 	if execution.State == models.ExecutionStatePaused {
-		return nil, ctxerrors.Wrap(
-			errors.Join(commerr.ErrInvalidState, ErrAgentRunPaused),
-			"child execution cannot accept another message")
+		return s.resumeChildWithMessage(ctx, tx, execution, input, parts)
 	}
 
 	return s.insertChildInboxMessage(ctx, tx, execution, input, parts)
+}
+
+// resumeChildWithMessage resumes a paused child and the paused work under it,
+// then queues the resume notice and the message, all in the caller's
+// transaction. A message is how a person or an agent continues a child a
+// Stop, a crash, or a failure paused.
+func (s *Store) resumeChildWithMessage(
+	ctx context.Context,
+	tx *repositories.Query,
+	execution *models.Execution,
+	input AcceptExecutionMessageInput,
+	parts string,
+) (*ExecutionInboxAcceptance, error) {
+	payload, err := json.Marshal(struct {
+		RequestID uuid.UUID `json:"requestId"`
+	}{input.RequestID})
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "encode message resume provenance")
+	}
+
+	resumed, err := s.changeExecutionSubtree(ctx, tx, execution.SessionID,
+		execution.ID, ExecutionEventTypeResumed, "", payload)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "resume child for message")
+	}
+
+	// The resume advanced the child's event count, so read it again.
+	execution, err = s.findExecution(ctx, tx, execution.SessionID,
+		execution.ID)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "read resumed child")
+	}
+
+	if strings.TrimSpace(input.ResumeNotice) != "" {
+		notice := AcceptExecutionMessageInput{
+			RequestID: uuid.NewSHA1(input.RequestID,
+				[]byte(resumeNoticeIdentity)),
+			WorkingDirectory: input.WorkingDirectory,
+			Message:          input.ResumeNotice,
+			Capacity:         input.Capacity,
+		}
+
+		if _, err := s.insertChildInboxMessage(ctx, tx, execution, notice,
+			emptyChildReportPartsJSON); err != nil {
+			return nil, ctxerrors.Wrap(err, "queue child resume notice")
+		}
+	}
+
+	accepted, err := s.insertChildInboxMessage(ctx, tx, execution, input,
+		parts)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "queue resuming child message")
+	}
+
+	accepted.Resumed = resumed
+
+	return accepted, nil
 }
 
 func (s *Store) insertChildInboxMessage(

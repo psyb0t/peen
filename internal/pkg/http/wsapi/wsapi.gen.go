@@ -1645,6 +1645,7 @@ func (v MessageFailed) Validate() error {
 
 // `reason` is set only alongside code `HARNESS_CONFIGURATION_INVALID`, one of six fixed client-safe sentences naming what is wrong with the workspace agent configuration.
 type MessageFailedData struct {
+	// AGENT_PAUSED is deprecated and no longer sent, because a message to a paused child now resumes it.
 	Code    MessageFailedCode `json:"code"`
 	Message string            `json:"message"`
 	Reason  *string           `json:"reason,omitempty"`
@@ -1688,6 +1689,7 @@ func (v MessageFailedData) Validate() error {
 	return nil
 }
 
+// AGENT_PAUSED is deprecated and no longer sent, because a message to a paused child now resumes it.
 type MessageFailedCode string
 
 // Values of MessageFailedCode.
@@ -4648,6 +4650,8 @@ func (v TurnFailed) Validate() error {
 
 type TurnFailedData struct {
 	Reason string `json:"reason"`
+	// The error the turn ended with, without source locations. Absent when the turn failed before Peen recorded one.
+	Error *string `json:"error,omitempty"`
 }
 
 // UnmarshalJSON decodes TurnFailedData strictly. Required properties must be
@@ -4663,7 +4667,7 @@ func (v *TurnFailedData) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	if err := asyncapirt.RejectUnknownKeys("TurnFailedData", members, "reason"); err != nil {
+	if err := asyncapirt.RejectUnknownKeys("TurnFailedData", members, "reason", "error"); err != nil {
 		return err
 	}
 
@@ -4702,6 +4706,11 @@ func (v TurnFailedData) MarshalJSON() ([]byte, error) {
 
 // Validate checks the constraints the schema declares for TurnFailedData.
 func (v TurnFailedData) Validate() error {
+	if v.Error != nil {
+		if err := asyncapirt.CheckMaxLength("error", string((*v.Error)), 2048); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
