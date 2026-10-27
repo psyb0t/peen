@@ -1070,6 +1070,9 @@
 										{#if agent.waiting && agent.question}<p class="agent-question">
 												Asks: {agent.question}
 											</p>{/if}
+										{#if agent.paused}<p class="agent-question">
+												Paused. A message resumes it.
+											</p>{/if}
 									</div>
 									<button
 										aria-label={`Stop ${agentLabel(agent)}`}

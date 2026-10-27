@@ -70,7 +70,7 @@ The accepted client event is `message.send`. Its `data` is strict JSON:
 
 `to` sends the message to a child agent of the session instead of the root conversation. The child reads it after its current tool call, as a `<message from="user">` block, and it is stored in the child's transcript once it reaches the model. Such a message starts no turn and completes at once with `message.completed` `{"queued": true}`. It cannot carry `model`, `reasoningEffort`, or `systemPrompt`, and doing so fails with `VALIDATION_FAILED`. A child whose work a Stop, a crash, or a failure paused resumes, and reads why it was paused before the message. See [messages to a paused child](agents.md#messages-to-a-paused-child). `AGENT_PAUSED` is deprecated and no longer sent. A child that has ended fails it with `AGENT_FINISHED`, a run ID the session never had fails with `AGENT_NOT_FOUND`, and a child whose inbox already holds `PEEN_MAX_QUEUED_USER_MESSAGES` messages fails it with `USER_MESSAGE_QUEUE_FULL`. Use it to answer a child's question or to steer it. See [running children](agents.md#running-children).
 
-Session workers accept messages into a child's durable inbox before reconstructing its live conversation. Repeating the same request ID and message reuses the saved acceptance, including its original directory. A paused child refuses new input until explicitly resumed. Acceptance does not resolve an interrupted tool that still requires reconciliation.
+Session workers accept messages into a child's durable inbox before reconstructing its live conversation. Repeating the same request ID and message reuses the saved acceptance, including its original directory. A tool call that the pause interrupted reaches the resumed child as an error result saying its outcome is unknown, and Peen does not repeat it.
 
 `metadata.sessionId` is required on every client message. It routes the work to an existing session and does not grant access. `data.workspace` is rejected. A client learns a session ID from `POST /api/v1/sessions/open`, not from a special first socket frame.
 
@@ -210,7 +210,7 @@ Lists the stored conversation messages of one existing session. `X-Session-ID` i
 }
 ```
 
-`role` is `user`, `assistant`, or `tool`. Peen's internal harness records, such as context changes and resolved prompts, are not messages and never appear here.
+`role` is `system`, `user`, `assistant`, or `tool`. A `system` message is one Peen added, such as the message at the end of a turn that did not finish, saying how it ended. The model receives it as a system message. Peen's internal harness records, such as context changes and resolved prompts, are not messages and never appear here.
 
 `compactionId` names the stored compaction that summarized this message, when one did. Peen never rewrites it when a later compaction includes the earlier summary.
 
@@ -390,7 +390,7 @@ Lists the session's child agent runs, newest first. `X-Session-ID` is required. 
 
 `state` is `running`, `waiting`, `completed`, `failed`, `cancelled`, or `interrupted`. `waiting` keeps the running runs that asked a question nobody has answered yet. `parentAgentRunId` keeps the direct children of one run, or the children of the root conversation when it is `root`. Any other value fails with `400 VALIDATION_FAILED`.
 
-Each entry is the whole stored run record: root and parent IDs, task, the instructions in effect, allowed tools, system prompt, workspace and model identity, worker generation, event count, state and cancellation flag, final text, thinking, response messages, token counts, failure details, and timestamps. `definition` is `stored` or `ad-hoc`. `waiting` is `true` while the run waits on a question, and `question` holds that question. A run that is not waiting has no `question` field. Peen reads both from the run's `agent.run.question` and `agent.run.answer` events, so a run is waiting from its question until its `ask` ends.
+Each entry is the whole stored run record: root and parent IDs, task, the instructions in effect, allowed tools, system prompt, workspace and model identity, worker generation, event count, state and cancellation flag, final text, thinking, response messages, token counts, failure details, and timestamps. `definition` is `stored` or `ad-hoc`. `waiting` is `true` while the run waits on a question, and `question` holds that question. A run that is not waiting has no `question` field. `paused` is `true` while a running run's work is paused by a Stop, a crash, or a failure, and is absent otherwise. A message to the run resumes it. Peen reads both from the run's `agent.run.question` and `agent.run.answer` events, so a run is waiting from its question until its `ask` ends.
 
 ## GET /api/v1/session/agents/{agentRunId}
 

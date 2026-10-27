@@ -17,4 +17,5 @@
 - Logging is `log/slog` configured by `github.com/psyb0t/slogging/slogconf` from `LOG_LEVEL`, `LOG_FORMAT`, and `LOG_ADD_SOURCE`, read through `ctxscope.GetLogger(ctx)`.
 - `internal/pkg/auditlog` adds the daily JSON audit sink with `slogconf.AddSink`. A worker's records reach the controller through `internal/pkg/worker/workerlog`. `peen exec` moves every record to stderr with `slogconf.SetOutput`, because its stdout carries frames.
 - Session identity goes on the context with `ctxscope.Set(ctx, ctxscope.Attr("session_id", id))`.
-- Never log provider keys, `PEEN_API_TOKEN`, worker credentials, Authorization headers, cookies, request or response bodies, message text, tool output, or full environment dumps. The HTTP access log runs with query strings off.
+- Never log provider keys, `PEEN_API_TOKEN`, worker credentials, Authorization headers, cookies, or full environment dumps, at any level. The HTTP access log runs with query strings off.
+- Request and response bodies, message text, and tool output go only into debug records. Debug is for tracing a problem, so it may carry them, and libraries such as commander log each command output line there. Info and higher never carry them.

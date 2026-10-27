@@ -172,7 +172,8 @@ func (c *childWorkflowCallbacks) refreshToolPhaseDirectory(
 	}
 
 	var conversation workflowConversation
-	if err := json.Unmarshal(state.Outcome.Context, &conversation); err != nil {
+	if err := json.Unmarshal(workflowToolPhaseTurnContext(input, *state),
+		&conversation); err != nil {
 		return ctxerrors.Wrap(err, "decode committed child directory")
 	}
 

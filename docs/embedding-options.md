@@ -15,7 +15,8 @@ These are the in-process equivalents of deployment settings. `pkg/peen` accepts 
 | `PEEN_MAX_CONTEXT_TOKENS` | `MaxContextTokens` | `32768` |
 | `PEEN_OUTPUT_RESERVE_TOKENS` | `OutputReserveTokens` | `4096` |
 | `PEEN_COMPACTION_MODE` | `CompactionMode` | `drop-oldest` |
-| `PEEN_COMPACTION_MAX_OUTPUT_TOKENS` | `CompactionOutputTokens` | `2048` |
+| `PEEN_COMPACTION_SUMMARY_PERCENT` | `CompactionSummaryPercent` | `30` |
+| `PEEN_COMPACTION_MAX_OUTPUT_TOKENS` | `CompactionOutputTokens` | `16384` |
 | `PEEN_COMPACTION_TIMEOUT` | `CompactionTimeout` | `2m` |
 | `PEEN_CRASH_RECOVERY` | `ResumeAfterCrash` (`true` is `resume`) | `false` |
 | `PEEN_TURN_TIMEOUT` | `TurnTimeout` | `10m` |

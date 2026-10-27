@@ -128,11 +128,42 @@ func TestConfigValidate(t *testing.T) {
 			wantErr: ErrInvalidConfig,
 		},
 		{
-			name: "compaction output reaches context limit",
+			name: "summary share and reply reserve fill the context",
 			mutate: func(config *Config) {
 				config.CompactionOutputTokens = config.MaxContextTokens
+				config.CompactionSummaryPercent = MaxCompactionSummaryPercent
+				config.OutputReserveTokens = config.MaxContextTokens / 2
 			},
 			wantErr: ErrInvalidConfig,
+		},
+		{
+			name: "summary share above half the context",
+			mutate: func(config *Config) {
+				config.CompactionSummaryPercent = MaxCompactionSummaryPercent + 1
+			},
+			wantErr: ErrInvalidConfig,
+		},
+		{
+			name: "negative summary share",
+			mutate: func(config *Config) {
+				config.CompactionSummaryPercent = -1
+			},
+			wantErr: ErrInvalidConfig,
+		},
+		{
+			name: "summary share of a context too small to hold one",
+			mutate: func(config *Config) {
+				config.MaxContextTokens = 2
+				config.CompactionSummaryPercent = 1
+			},
+			wantErr: ErrInvalidConfig,
+		},
+		{
+			name: "half the context for the summary",
+			mutate: func(config *Config) {
+				config.CompactionOutputTokens = config.MaxContextTokens
+				config.CompactionSummaryPercent = MaxCompactionSummaryPercent
+			},
 		},
 		{
 			name: "summary allowance and reply reserve fill the context",
@@ -210,6 +241,51 @@ func TestConfigValidate(t *testing.T) {
 	}
 }
 
+func TestCompactionSummaryTokens(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name          string
+		contextTokens int
+		percent       int
+		ceiling       int
+		want          int
+	}{
+		{
+			name:          "share of the context",
+			contextTokens: 200000,
+			percent:       20,
+			ceiling:       100000,
+			want:          40000,
+		},
+		{
+			name:          "ceiling caps the share",
+			contextTokens: 1000000,
+			percent:       30,
+			ceiling:       16384,
+			want:          16384,
+		},
+		{
+			name:          "zero takes the default share",
+			contextTokens: 10000,
+			ceiling:       16384,
+			want:          10000 * DefaultCompactionSummaryPercent / 100,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tc.want, CompactionSummaryTokens(
+				tc.contextTokens,
+				tc.percent,
+				tc.ceiling,
+			))
+		})
+	}
+}
+
 func TestParseUsesFixedEnvironmentBindings(t *testing.T) {
 	configDirectory := filepath.Join(t.TempDir(), "config")
 	workingDirectory := filepath.Join(t.TempDir(), "workspace")
@@ -227,6 +303,7 @@ func TestParseUsesFixedEnvironmentBindings(t *testing.T) {
 	t.Setenv("PEEN_OUTPUT_RESERVE_TOKENS", "2048")
 	t.Setenv("PEEN_COMPACTION_MODE", string(CompactionModeSummarize))
 	t.Setenv("PEEN_COMPACTION_MAX_OUTPUT_TOKENS", "1024")
+	t.Setenv("PEEN_COMPACTION_SUMMARY_PERCENT", "20")
 	t.Setenv("PEEN_COMPACTION_TIMEOUT", "3m")
 	t.Setenv("PEEN_TURN_TIMEOUT", "4m")
 	t.Setenv("PEEN_HTTP_LISTEN_ADDRESS", "127.0.0.1:8081")
@@ -250,6 +327,8 @@ func TestParseUsesFixedEnvironmentBindings(t *testing.T) {
 	assert.Equal(t, 8192, config.MaxContextTokens)
 	assert.Equal(t, 2048, config.OutputReserveTokens)
 	assert.Equal(t, 1024, config.CompactionOutputTokens)
+	assert.Equal(t, 20, config.CompactionSummaryPercent)
+	assert.Equal(t, 1024, config.CompactionSummaryTokens())
 	assert.Equal(t, 3*time.Minute, config.CompactionTimeout)
 	assert.Equal(t, 4*time.Minute, config.TurnTimeout)
 	assert.Equal(t, "127.0.0.1:8081", config.HTTPListenAddress)

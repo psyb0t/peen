@@ -12,10 +12,10 @@
 | `docs/architecture.md` | Controller, workers, one turn, durable state, terms and identifiers. |
 | `docs/harness.md`, `rules.md`, `skills.md`, `agents.md`, `hooks.md`, `events.md` | The harness formats users write. |
 | `docs/http-api.md` | The REST and WebSocket contract, next to `api/api.yml`. |
-| `docs/development.md` | Changing Peen itself. |
+| `docs/development.md` | Changing Peen itself: layout, Make targets, test tiers, generated code, docs sync, and releases. Do not name it `contributing.md`, which makes GitHub show a Contributing tab. |
 | `pkg/peen/README.md` | The public Go API. |
 | `.agents/skills/peen/` | The published agent skill for operating Peen. |
-| `docs/contributing.md`, `.agents/rules/` | Contributor instructions. |
+| `.agents/rules/` | The topic rules for changing Peen. |
 | `AGENTS.md` | The entry point for agents changing Peen: links to the guide and every rule. `CLAUDE.md` links to it and `.claude` links to `.agents`. Keep it short and free of secrets and machine-local detail. |
 
 Each fact has one home. Link to it instead of copying it. User docs describe what Peen does and how to use it. Implementation detail belongs in code comments.

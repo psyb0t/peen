@@ -25,8 +25,8 @@ An event has a `type`, a `summary`, an optional JSON object `data`, and a `deliv
 | `agent.failed` | `agent "reviewer" run 9b2e… did not finish (failed)`, or `(cancelled)` | `{"runId", "agentName", "state", "durationMs", "duration", "failureDetail"}` |
 | `agent.message` | `agent "reviewer" run 9b2e… sent a message` | `{"runId", "agentName", "message"}` |
 | `agent.question` | `agent "reviewer" run 9b2e… asked a question` | `{"runId", "agentName", "message"}` |
-| `turn.failed` | `The previous turn failed.`, or `The previous turn was interrupted.` | `{"turnId", "state", "reason", "error"}` |
-| `turn.cancelled` | `The previous turn was stopped.` | `{"turnId", "state", "reason"}` |
+| `turn.failed` | `A turn failed before it finished.`, or `A turn was interrupted before it finished.` | `{"turnId", "state", "reason", "error", "message", "undeliveredMessages", "toolCalls", "toolCallsOmitted"}` |
+| `turn.cancelled` | `A turn was stopped before it finished.` | `{"turnId", "state", "reason", "message", "undeliveredMessages", "toolCalls", "toolCallsOmitted"}` |
 
 `durationMs` is the run time in whole milliseconds, for programs. `duration` is the same value as a Go duration string such as `5.321s` or `1m30s`, for people and models.
 
@@ -43,10 +43,12 @@ A child refuses to send a message or question that would not fit the event limit
 
 ### Turn events
 
-Peen records a `turn.failed` or `turn.cancelled` event in the same transaction that ends a turn without completing it. The next turn and the next tool call read it, so the agent knows its last turn did not finish and why.
+Peen records a `turn.failed` or `turn.cancelled` event in the same transaction that ends a turn without completing it, for clients, handlers, and child agents. The same transaction adds a message with role `system` to the ended turn. It says how the turn ended, the error, which tool calls never returned a result, and any message sent to the turn that never reached the model. It tells the agent to check the workspace before repeating any of the turn's work, and for a stopped turn not to continue that work unless a later message asks for it. The next turn's history replays the ended turn as it happened: the user's message, the agent's replies, the tool results, then that system message. Tool calls that never returned are left out of the replayed reply, and the system message names them. A result that arrives after the turn ended, such as one from a crashed call retried after inspection, is replayed where it was stored as a system message that names the call. The root agent does not also get the event as event data.
 
 - `turn.failed` covers a turn that ended with an error, `state` `failed`, and one whose worker or controller stopped before it ended, `state` `interrupted`. `error` is the error, without source locations, cut to 2048 bytes.
 - `turn.cancelled` covers a turn a Stop ended. It carries no `error`.
+- `message` is the turn's opening user message, and `undeliveredMessages` holds up to 10 messages sent to the turn that never reached the model. Each is cut to 1000 bytes.
+- `toolCalls` lists the latest 20 tool calls the turn made, each with its `name`, its `arguments` cut to 300 bytes, and its `outcome`: `succeeded`, `failed`, or `noResult` when the call never returned a result and its effect is unknown. `toolCallsOmitted` counts the earlier calls left out.
 
 Both queue and never wake the session, so a failing turn cannot start another one. A handler file can still make them wake it, and the wake cap applies as usual. Every queued or running child agent also gets a copy of each `turn.*` and `agent.failed` event. See [errors reach every agent](agents.md#errors-reach-every-agent).
 

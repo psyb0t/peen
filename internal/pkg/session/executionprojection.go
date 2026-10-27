@@ -50,20 +50,38 @@ func (s *Store) validateRootProjection(input CompleteActivityInput) error {
 		return ctxerrors.Wrap(err, "validate projection holder")
 	}
 
-	encoded, err := json.Marshal(projection)
-	if err != nil {
-		return ctxerrors.Wrap(err, "encode root projection")
-	}
-
-	if len(encoded) > s.maxStoredMessageBytes {
-		return ctxerrors.Wrap(commerr.ErrValidationFailed,
-			"root projection exceeds storage limit")
+	if err := s.checkRootProjectionSize(projection); err != nil {
+		return err
 	}
 
 	for _, event := range projection.Events {
 		if event.ID == uuid.Nil {
 			return ctxerrors.Wrap(commerr.ErrValidationFailed,
 				"root projection event identity")
+		}
+	}
+
+	return nil
+}
+
+// checkRootProjectionSize bounds the whole projection by the execution state
+// limit and each of its messages by the stored message limit.
+func (s *Store) checkRootProjectionSize(
+	projection *ExecutionRootProjection,
+) error {
+	encoded, err := json.Marshal(projection)
+	if err != nil {
+		return ctxerrors.Wrap(err, "encode root projection")
+	}
+
+	if len(encoded) > s.maxExecutionStateBytes {
+		return ctxerrors.Wrap(commerr.ErrValidationFailed,
+			"root projection exceeds storage limit")
+	}
+
+	for _, message := range projection.Messages {
+		if err := s.checkStoredMessageSize(message); err != nil {
+			return ctxerrors.Wrap(err, "root projection message")
 		}
 	}
 

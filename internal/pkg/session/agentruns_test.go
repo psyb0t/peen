@@ -137,6 +137,45 @@ func TestStoreAgentRunReplaySurvivesRestartAndPagesEveryRow(t *testing.T) {
 	assert.Zero(t, secondRecovery)
 }
 
+// A stream can keep delivering deltas after its child ended. The store refuses
+// them, so the terminal event stays the run's last, and still accepts the
+// terminal event a finalized run records next.
+func TestStoreAgentRunRefusesEventsAfterTheRunEnded(t *testing.T) {
+	ctx := context.Background()
+	store, handle := openTestStore(t)
+	t.Cleanup(func() { require.NoError(t, handle.Close()) })
+	session := newTestSession(ctx, t, store)
+	lease := startAgentRunTestTurn(ctx, t, store, session.ID)
+	run := createAgentRunForTest(ctx, t, store, session.ID, lease.TurnID, 0)
+
+	_, err := store.FinalizeAgentRun(ctx, session.ID, run.ID,
+		FinalizeAgentRunInput{
+			State:                 models.AgentRunStateCancelled,
+			ResponseMessagesJSON:  `[]`,
+			FailureClassification: TurnFailureCancelled,
+		})
+	require.NoError(t, err)
+
+	_, err = store.AppendAgentRunEvent(ctx, session.ID, run.ID,
+		AgentRunEventInput{
+			EventType:   "agent.run.thinking.delta",
+			PayloadJSON: `{"text":"late"}`,
+		})
+	require.ErrorIs(t, err, ErrAgentRunFinished)
+	require.ErrorIs(t, err, commerr.ErrConflict)
+
+	terminal, err := store.AppendAgentRunEvent(ctx, session.ID, run.ID,
+		AgentRunEventInput{
+			EventType:   EventTypeAgentRunCancelled,
+			PayloadJSON: `{}`,
+		})
+	require.NoError(t, err)
+
+	stored, err := store.GetAgentRun(ctx, session.ID, run.ID)
+	require.NoError(t, err)
+	assert.Equal(t, terminal.Sequence, stored.EventCount)
+}
+
 func TestStoreAgentRunCancellationAndSessionIsolation(t *testing.T) {
 	ctx := context.Background()
 	store, handle := openTestStore(t)

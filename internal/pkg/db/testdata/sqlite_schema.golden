@@ -406,7 +406,7 @@ table messages
   column 17 provider_reasoning_json TEXT notnull=1 default='' pk=0
   CHECK (injected_kind IN ('','skill'))
   CHECK (json_valid(tool_calls_json))
-  CHECK (role IN ('user','assistant','tool'))
+  CHECK (role IN ('system','user','assistant','tool'))
   CHECK (sequence > 0)
   foreign key (compaction_id) -> compactions(id) update=NO ACTION delete=NO ACTION
   foreign key (session_id) -> sessions(id) update=NO ACTION delete=NO ACTION

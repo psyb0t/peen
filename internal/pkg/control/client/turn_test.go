@@ -103,7 +103,7 @@ func TestRunTurnFollowsTheAcknowledgedTurn(t *testing.T) {
 			failureCode: "VALIDATION_FAILED",
 		},
 		{
-			name: "cancel ack is final",
+			name: "cancel waits for its terminal frame",
 			frames: []turnTestFrame{
 				started,
 				{
@@ -111,6 +111,11 @@ func TestRunTurnFollowsTheAcknowledgedTurn(t *testing.T) {
 					requestID: turnTestRequestID,
 					data:      `{"code":"TURN_CANCELLED","message":"stopped"}`,
 					ack:       true,
+				},
+				{
+					typ:       "turn.cancelled",
+					requestID: turnTestRequestID,
+					data:      `{"reason":"cancelled"}`,
 				},
 			},
 			outcome:     controlclient.TurnOutcomeCancelled,

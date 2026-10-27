@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -11,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
 	"github.com/psyb0t/peen/internal/pkg/session"
@@ -275,6 +277,94 @@ func TestNativeChildMessageResumesAPausedChild(t *testing.T) {
 		executionID, session.ListExecutionInboxOptions{})
 	require.NoError(t, err)
 	assert.Len(t, page.Items, 2)
+}
+
+// A tool call a Stop interrupted would leave the resumed child waiting on an
+// inspection nobody makes. The message that resumes the child settles it as
+// an error result, without running the call again.
+func TestNativeChildMessageSettlesTheToolCallAPauseInterrupted(t *testing.T) {
+	t.Parallel()
+
+	const (
+		pauseReason    = "user requested stop"
+		interruptedCmd = "sleep 120"
+	)
+
+	fixture, input, runID := coldChildMessageFixture(t)
+	store := fixture.base.store
+	sessionID := input.Execution.SessionID
+	executionID := input.Execution.ExecutionID
+
+	arguments, err := json.Marshal(struct {
+		Command string `json:"command"`
+	}{interruptedCmd})
+	require.NoError(t, err)
+
+	phase := workflowToolPhaseInput{
+		Tool: workflowToolInput{
+			Round: workflowRoundInput{Execution: input.Execution},
+			Call: elelem.ToolCall{
+				ID: "call-interrupted", Name: toolNameRunCommand,
+				Arguments: arguments,
+			},
+		},
+		Phase: workflowToolPhaseHandler,
+		State: workflowToolPhaseState{
+			LastPhase: workflowToolPhasePre,
+			ChildProjection: &childPhaseBuffer{
+				ActivityID: uuid.New(),
+			},
+		},
+	}
+	encoded, err := json.Marshal(phase)
+	require.NoError(t, err)
+
+	claim, err := store.BeginExecutionActivity(t.Context(), sessionID,
+		executionID, fixture.engine.options.GenerationID,
+		session.ScheduleActivityInput{
+			StepID: "tool:0:0:handler", Kind: models.ActivityKindTool,
+			Name:         toolPhaseActivityName,
+			ReplayPolicy: models.ActivityReplayPolicyReconcile,
+			Input:        encoded,
+		})
+	require.NoError(t, err)
+	require.Equal(t, session.ActivityDecisionExecute, claim.Decision)
+
+	_, err = store.PauseExecution(t.Context(), sessionID, executionID,
+		pauseReason)
+	require.NoError(t, err)
+	require.NoError(t, store.InterruptExecutionActivity(t.Context(),
+		sessionID, claim.Lease))
+
+	interrupted, err := store.GetExecutionActivity(t.Context(), sessionID,
+		claim.Activity.ID)
+	require.NoError(t, err)
+	require.Equal(t, models.ActivityStateUncertain, interrupted.State)
+
+	_, err = fixture.base.runtime.RunMessage(t.Context(), MessageRequest{
+		To: &runID, Message: "carry on",
+	}, uuid.New(), nil)
+	require.NoError(t, err)
+
+	settled, err := store.GetExecutionActivity(t.Context(), sessionID,
+		claim.Activity.ID)
+	require.NoError(t, err)
+	assert.Equal(t, models.ActivityStateCompleted, settled.State)
+	assert.Equal(t, claim.Activity.Attempt, settled.Attempt,
+		"the interrupted call is not run again")
+	require.NotNil(t, settled.OutputJSON)
+
+	var state workflowToolPhaseState
+	require.NoError(t, json.Unmarshal([]byte(*settled.OutputJSON), &state))
+	assert.True(t, state.Finished)
+	assert.Equal(t, workflowToolPhaseHandler, state.LastPhase)
+	assert.Nil(t, state.ChildProjection,
+		"the earlier phase's projection is not replayed")
+	assert.Nil(t, state.RootProjection)
+	assert.Empty(t, state.Outcome.Failure)
+	assert.Equal(t, elelem.NewToolErrorResult(
+		fmt.Sprintf(interruptedToolResultFormat, pauseReason)),
+		state.Outcome.Result)
 }
 
 // A message to a running child carries no pause notice.

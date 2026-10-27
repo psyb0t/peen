@@ -25,8 +25,9 @@ var (
 	)
 
 	// ErrAgentRunFinished reports a message sent to a child agent that is no
-	// longer running, so nothing would ever read it. It is always joined
-	// with commerr.ErrConflict.
+	// longer running, so nothing would ever read it, or a non-terminal event
+	// recorded after the run ended. It is always joined with
+	// commerr.ErrConflict.
 	ErrAgentRunFinished = errors.New("agent has finished")
 	// ErrAgentRunNotFound reports a message sent to an agent run the session
 	// never had. It is always joined with commerr.ErrNotFound.

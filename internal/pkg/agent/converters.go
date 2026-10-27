@@ -176,6 +176,8 @@ func applyMessageInjection(message *api.Message, stored *models.Message) {
 
 func messageRoleToAPI(role models.MessageRole) (api.MessageRole, error) {
 	switch role {
+	case models.MessageRoleSystem:
+		return api.MessageRoleSystem, nil
 	case models.MessageRoleUser:
 		return api.MessageRoleUser, nil
 	case models.MessageRoleAssistant:

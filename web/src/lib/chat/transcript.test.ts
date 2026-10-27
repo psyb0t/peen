@@ -235,6 +235,27 @@ describe("groupTranscript turns", () => {
 		});
 	});
 
+	it("shows how an unfinished turn ended at the end of its reply", () => {
+		const prompt = message({ content: "rename it", role: "user", turnId: firstTurn });
+		const answer = message({ content: "on it", role: "assistant", turnId: firstTurn });
+		const ended = message({
+			content: "This turn did not finish. It failed.",
+			injected: true,
+			role: "system",
+			turnId: firstTurn,
+		});
+
+		const items = groupTranscript([prompt, answer, ended]);
+
+		expect(items.map((item) => item.kind)).toEqual(["user", "reply"]);
+		expect(items[1]).toMatchObject({
+			blocks: [
+				{ kind: "text", text: "on it" },
+				{ kind: "injected", text: "This turn did not finish. It failed." },
+			],
+		});
+	});
+
 	it("gives a turn an event started its own reply, opened by the handler's instructions", () => {
 		const prompt = message({ content: "hi", role: "user", turnId: firstTurn });
 		const answer = message({ content: "hello", role: "assistant", turnId: firstTurn });

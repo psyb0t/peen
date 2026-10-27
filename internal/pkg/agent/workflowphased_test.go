@@ -100,10 +100,7 @@ func TestPhasedWorkflowRunsModelAndSeparateToolPhases(t *testing.T) {
 		input workflowToolPhaseInput,
 	) (workflowToolPhaseState, error) {
 		phases = append(phases, input.Phase)
-		if input.State.LastPhase != "" {
-			assert.JSONEq(t, string(input.State.Outcome.Context),
-				string(input.Tool.Round.Execution.Context))
-		}
+		assert.Empty(t, input.State.Outcome.Context)
 		state := input.State
 		if input.Phase == workflowToolPhaseHandler {
 			outcome, err := fixture.engine.options.ToolCall(ctx, input.Tool)

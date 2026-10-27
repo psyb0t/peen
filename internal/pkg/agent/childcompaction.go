@@ -27,7 +27,7 @@ func (r *Runtime) workflowChildCompactRound(
 			"validate child compaction activity lease")
 	}
 
-	units, err := selectWorkflowCompactionPrefix(r.models, input)
+	units, room, err := selectWorkflowCompactionPrefix(r.models, input)
 	if errors.Is(err, ErrCompactionUnavailable) {
 		logNothingToSummarize(ctx, err)
 
@@ -57,6 +57,7 @@ func (r *Runtime) workflowChildCompactRound(
 	}
 
 	built.workflowInput = &input
+	built.room = room
 
 	summary, err := built.summarize(ctx, built.renderTranscript(
 		workflowCompactionMessages(conversation), units))

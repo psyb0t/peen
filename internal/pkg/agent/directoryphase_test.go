@@ -46,7 +46,7 @@ func runRestoredDirectoryPhases(
 		var saved workflowToolPhaseState
 		require.NoError(t, json.Unmarshal(encoded, &saved))
 		input.State = saved
-		input.Tool.Round.Execution.Context = saved.Outcome.Context
+		advanceWorkflowToolPhase(&input.Tool, &input.State)
 		if phase == workflowToolPhaseHandler {
 			afterHandler()
 		}

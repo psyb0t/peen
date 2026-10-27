@@ -13,7 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const turnEndTestError = "call the model: upstream refused the request"
+const (
+	turnEndTestError   = "call the model: upstream refused the request"
+	turnEndTestMessage = "do the work"
+)
 
 // startRunningTurn opens a session with one running turn holding a user
 // message, the state Stop, a failed workflow, or a crash leaves behind.
@@ -30,7 +33,7 @@ func startRunningTurn(
 		Workspace: testWorkspace,
 		Messages: []MessageInput{{
 			Role:    models.MessageRoleUser,
-			Content: "do the work",
+			Content: turnEndTestMessage,
 		}},
 	})
 	require.NoError(t, err)
@@ -100,6 +103,7 @@ func TestEndRunningTurn(t *testing.T) {
 		wantNotice    string
 		wantSummary   string
 		wantNoticeErr string
+		wantOutcome   string
 	}{
 		{
 			name:        "stopped",
@@ -109,6 +113,7 @@ func TestEndRunningTurn(t *testing.T) {
 			wantFrame:   turnEndPayload{Reason: TurnFailureCancelled},
 			wantNotice:  events.TypeTurnCancelled,
 			wantSummary: turnCancelledNoticeSummary,
+			wantOutcome: turnEndCancelledOutcome,
 		},
 		{
 			name:      "workflow failed",
@@ -121,6 +126,7 @@ func TestEndRunningTurn(t *testing.T) {
 			wantNotice:    events.TypeTurnFailed,
 			wantSummary:   turnFailedNoticeSummary,
 			wantNoticeErr: turnEndTestError,
+			wantOutcome:   turnEndFailedOutcome,
 		},
 	}
 
@@ -155,16 +161,25 @@ func TestEndRunningTurn(t *testing.T) {
 			notices := sessionNotices(ctx, t, store, session.ID)
 			require.Len(t, notices, 1)
 			requireTurnEndNotice(t, notices[0], tc.wantNotice,
-				tc.wantSummary, turnEndNoticeData{
+				tc.wantSummary, TurnEndNotice{
 					TurnID: lease.TurnID, State: tc.wantState,
 					Reason: tc.end.Classification, Error: tc.wantNoticeErr,
+					Message: turnEndTestMessage,
 				})
 
 			messages, err := store.ListMessages(ctx, session.ID,
 				ListMessagesOptions{Limit: 10, Order: PageOrderAscending})
 			require.NoError(t, err)
-			require.Len(t, messages.Items, 1)
+			require.Len(t, messages.Items, 2)
 			assert.True(t, messages.Items[0].Incomplete)
+
+			endMessage := messages.Items[1]
+			assert.Equal(t, models.MessageRoleSystem, endMessage.Role)
+			assert.Equal(t, lease.TurnID, endMessage.TurnID)
+			assert.True(t, endMessage.Injected)
+			assert.False(t, endMessage.Incomplete)
+			assert.Contains(t, endMessage.Content, tc.wantOutcome)
+			assert.Contains(t, endMessage.Content, tc.wantNoticeErr)
 
 			// A turn that already ended is left as it is.
 			endedAgain, err := store.EndRunningTurn(ctx, session.ID,
@@ -182,7 +197,7 @@ func requireTurnEndNotice(
 	t *testing.T,
 	notice *models.SessionNotice,
 	wantType, wantSummary string,
-	wantData turnEndNoticeData,
+	wantData TurnEndNotice,
 ) {
 	t.Helper()
 
@@ -213,7 +228,7 @@ func TestEndRunningTurnBoundsTheError(t *testing.T) {
 	notices := sessionNotices(ctx, t, store, session.ID)
 	require.Len(t, notices, 1)
 
-	var data turnEndNoticeData
+	var data TurnEndNotice
 	require.NoError(t, json.Unmarshal([]byte(notices[0].DataJSON), &data))
 	assert.Len(t, data.Error, turnEndDetailBytes)
 }
@@ -252,14 +267,25 @@ func TestFinalizeTurnRecordsANoticeOnlyWhenTheTurnDidNotComplete(
 			notices := sessionNotices(ctx, t, store, session.ID)
 			require.Len(t, notices, tc.wantNotices)
 
+			messages, err := store.ListMessages(ctx, session.ID,
+				ListMessagesOptions{Limit: 10, Order: PageOrderAscending})
+			require.NoError(t, err)
+			require.Len(t, messages.Items, 1+tc.wantNotices)
+
 			if tc.wantNotices == 0 {
 				return
 			}
 
+			endMessage := messages.Items[1]
+			assert.Equal(t, models.MessageRoleSystem, endMessage.Role)
+			assert.False(t, endMessage.Incomplete)
+			assert.Contains(t, endMessage.Content, turnEndTestError)
+
 			requireTurnEndNotice(t, notices[0], events.TypeTurnFailed,
-				turnFailedNoticeSummary, turnEndNoticeData{
+				turnFailedNoticeSummary, TurnEndNotice{
 					TurnID: lease.TurnID, State: tc.state,
 					Reason: TurnFailureAgentRun, Error: turnEndTestError,
+					Message: turnEndTestMessage,
 				})
 		})
 	}
@@ -310,8 +336,147 @@ func TestRecoverInterruptedStoresTheTerminalFrame(t *testing.T) {
 	notices := sessionNotices(ctx, t, store, session.ID)
 	require.Len(t, notices, 1)
 	requireTurnEndNotice(t, notices[0], events.TypeTurnFailed,
-		turnInterruptedNoticeSummary, turnEndNoticeData{
+		turnInterruptedNoticeSummary, TurnEndNotice{
 			TurnID: lease.TurnID, State: models.TurnStateInterrupted,
 			Reason: TurnFailureAgentRun, Error: turnInterruptedDetail,
+			Message: turnEndTestMessage,
 		})
+}
+
+// A message queued for a turn that is stopped before it reaches the model
+// is named in the turn's notice, so the next turn knows it was sent.
+func TestTurnEndNoticeNamesUndeliveredMessages(t *testing.T) {
+	t.Parallel()
+
+	fixture := newExecutionFixture(t)
+	lease := inboxTestLease(t, fixture)
+
+	queued := inboxTestInput()
+	queued.Parts = nil
+	_, err := fixture.store.AcceptExecutionMessage(t.Context(),
+		fixture.root.ID, lease, queued)
+	require.NoError(t, err)
+
+	ended, err := fixture.store.EndRunningTurn(t.Context(), fixture.sessionID,
+		fixture.turnID, CancelledTurnEnd())
+	require.NoError(t, err)
+	require.True(t, ended)
+
+	notices := sessionNotices(t.Context(), t, fixture.store, fixture.sessionID)
+	require.Len(t, notices, 1)
+
+	var data TurnEndNotice
+	require.NoError(t, json.Unmarshal([]byte(notices[0].DataJSON), &data))
+	assert.Equal(t, []string{queued.Message}, data.UndeliveredMessages)
+	assert.Equal(t, models.TurnStateCancelled, data.State)
+}
+
+func TestTurnEndNoticeListsTheToolCallsTheTurnMade(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	store, _ := openTestStore(t)
+	session, lease := startRunningTurn(ctx, t, store)
+	longArgument := strings.Repeat("a", 2*turnEndToolArgumentBytes)
+	calls, err := json.Marshal([]storedToolCall{
+		{
+			ID: "write", Name: "writeFile",
+			Arguments: json.RawMessage(`{"path":"notes.txt"}`),
+		},
+		{
+			ID: "run", Name: "runCommand",
+			Arguments: json.RawMessage(`{"command":"` + longArgument + `"}`),
+		},
+		{
+			ID: "read", Name: "readFile",
+			Arguments: json.RawMessage(`{"path":"missing.txt"}`),
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, store.AppendCheckpoint(ctx, lease, []MessageInput{
+		{Role: models.MessageRoleAssistant, ToolCallsJSON: string(calls)},
+		{Role: models.MessageRoleTool, ToolCallID: "write", Content: "ok"},
+		{
+			Role: models.MessageRoleTool, ToolCallID: "read",
+			Content: "not found", IsError: true,
+		},
+	}, nil))
+
+	_, err = store.EndRunningTurn(ctx, session.ID, lease.TurnID,
+		FailedTurnEnd(turnEndTestError))
+	require.NoError(t, err)
+
+	notices := sessionNotices(ctx, t, store, session.ID)
+	require.Len(t, notices, 1)
+
+	var data TurnEndNotice
+	require.NoError(t, json.Unmarshal([]byte(notices[0].DataJSON), &data))
+	require.Len(t, data.ToolCalls, 3)
+	assert.Equal(t, TurnEndToolCall{
+		Name: "writeFile", Arguments: `{"path":"notes.txt"}`,
+		Outcome: turnEndToolSucceeded,
+	}, data.ToolCalls[0])
+	assert.Equal(t, "runCommand", data.ToolCalls[1].Name)
+	assert.Equal(t, turnEndToolNoResult, data.ToolCalls[1].Outcome)
+	assert.Len(t, data.ToolCalls[1].Arguments, turnEndToolArgumentBytes)
+	assert.Equal(t, turnEndToolFailed, data.ToolCalls[2].Outcome)
+	assert.Zero(t, data.ToolCallsOmitted)
+
+	// The next turn's history replays the failed turn as it happened, ending
+	// with the system message that names the call that never returned.
+	history, err := store.CompletedHistory(ctx, session.ID)
+	require.NoError(t, err)
+
+	roles := make([]models.MessageRole, 0, len(history.Messages))
+	for _, message := range history.Messages {
+		roles = append(roles, message.Role)
+	}
+
+	assert.Equal(t, []models.MessageRole{
+		models.MessageRoleUser,
+		models.MessageRoleAssistant,
+		models.MessageRoleTool,
+		models.MessageRoleTool,
+		models.MessageRoleSystem,
+	}, roles)
+
+	endMessage := history.Messages[len(history.Messages)-1].Content
+	assert.Contains(t, endMessage, turnEndFailedOutcome)
+	assert.Contains(t, endMessage, turnEndTestError)
+	assert.Contains(t, endMessage, "- runCommand ")
+	assert.NotContains(t, endMessage, "writeFile")
+	assert.NotContains(t, endMessage, "readFile")
+}
+
+// Every carried message is cut to the notice bound, and only the first
+// turnEndUndeliveredLimit undelivered messages are named.
+func TestTurnEndNoticeBoundsTheMessagesItCarries(t *testing.T) {
+	t.Parallel()
+
+	fixture := newExecutionFixture(t)
+	lease := inboxTestLease(t, fixture)
+
+	for range turnEndUndeliveredLimit + 2 {
+		queued := inboxTestInput()
+		queued.Parts = nil
+		queued.Message = strings.Repeat("q", 2*turnEndMessageBytes)
+		_, err := fixture.store.AcceptExecutionMessage(t.Context(),
+			fixture.root.ID, lease, queued)
+		require.NoError(t, err)
+	}
+
+	_, err := fixture.store.EndRunningTurn(t.Context(), fixture.sessionID,
+		fixture.turnID, FailedTurnEnd(turnEndTestError))
+	require.NoError(t, err)
+
+	notices := sessionNotices(t.Context(), t, fixture.store, fixture.sessionID)
+	require.Len(t, notices, 1)
+
+	var data TurnEndNotice
+	require.NoError(t, json.Unmarshal([]byte(notices[0].DataJSON), &data))
+	require.Len(t, data.UndeliveredMessages, turnEndUndeliveredLimit)
+
+	for _, message := range data.UndeliveredMessages {
+		assert.Len(t, message, turnEndMessageBytes)
+	}
 }

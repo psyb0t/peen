@@ -43,7 +43,7 @@ func (s *Store) validatePendingFinishOutput(
 	if len(input.PendingOutput) != 0 &&
 		(input.State != models.ExecutionStateCompleted ||
 			!isExecutionContext(input.PendingOutput) ||
-			len(input.PendingOutput) > s.maxStoredMessageBytes) {
+			len(input.PendingOutput) > s.maxExecutionStateBytes) {
 		return ctxerrors.Wrap(commerr.ErrValidationFailed,
 			"execution pending continuation output")
 	}

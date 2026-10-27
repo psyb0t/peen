@@ -8,6 +8,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -129,21 +130,75 @@ func (c *childWorkflowCallbacks) readChildTerminalEvent(
 			"committed child and execution outcomes differ")
 	}
 
-	page, err := c.runtime.store.ListAgentRunEvents(ctx, execution.SessionID,
-		run.ID, session.ListAgentRunEventsOptions{
-			Cursor: run.EventCount - 1, Limit: 1,
-		})
+	event, err := c.findChildTerminalEvent(ctx, run, kind)
 	if err != nil {
-		return nil, nil, ctxerrors.Wrap(err, "read retained child final event")
+		return nil, nil, err
 	}
 
-	if len(page.Items) != 1 || page.Items[0].EventType != kind ||
-		page.Items[0].Sequence > math.MaxInt {
-		return nil, nil, ctxerrors.Wrap(commerr.ErrConflict,
-			"retained child terminal event differs")
+	return run, event, nil
+}
+
+// findChildTerminalEvent returns the run's latest terminal event, which must
+// be of the given kind. It reads backward from the end, because a session
+// stored before the store refused late events can hold deltas a stream wrote
+// after the child was stopped, and those do not change how the run ended.
+func (c *childWorkflowCallbacks) findChildTerminalEvent(
+	ctx context.Context,
+	run *models.AgentRun,
+	kind string,
+) (*models.AgentRunEvent, error) {
+	pageLimit := int64(session.MaximumPageLimit)
+
+	for end := run.EventCount; end > 0; end -= pageLimit {
+		start := max(end-pageLimit, 0)
+
+		page, err := c.runtime.store.ListAgentRunEvents(ctx, run.SessionID,
+			run.ID, session.ListAgentRunEventsOptions{
+				Cursor: start, Limit: int(end - start),
+			})
+		if err != nil {
+			return nil, ctxerrors.Wrap(err, "read retained child events")
+		}
+
+		for index := len(page.Items) - 1; index >= 0; index-- {
+			event := page.Items[index]
+			if !session.IsAgentRunTerminalEventType(event.EventType) {
+				continue
+			}
+
+			if event.EventType != kind || event.Sequence > math.MaxInt {
+				return nil, ctxerrors.Wrap(commerr.ErrConflict,
+					"retained child terminal event differs")
+			}
+
+			logLateChildEvents(ctx, run, event)
+
+			return event, nil
+		}
 	}
 
-	return run, page.Items[0], nil
+	return nil, ctxerrors.Wrap(commerr.ErrConflict,
+		"retained child terminal event is missing")
+}
+
+// logLateChildEvents records that restore skipped events stored after the
+// child's terminal event.
+func logLateChildEvents(
+	ctx context.Context,
+	run *models.AgentRun,
+	terminal *models.AgentRunEvent,
+) {
+	late := run.EventCount - terminal.Sequence
+	if late == 0 {
+		return
+	}
+
+	runtimecontext.Logger(ctx).Warn(
+		"child events stored after its terminal event, ignoring them",
+		"reason", agentRunEventReasonRunEnded,
+		"agent_run_id", run.ID.String(),
+		"late_events", late,
+	)
 }
 
 func (c *childWorkflowCallbacks) projectChildTerminalRun(

@@ -185,9 +185,9 @@ func validateCompactionMessage(
 	sessionID uuid.UUID,
 	message *models.Message,
 ) error {
-	if message.Incomplete || message.CompactionID != nil {
+	if message.CompactionID != nil {
 		return ctxerrors.Wrap(commerr.ErrConflict,
-			"compaction message is incomplete or replaced")
+			"compaction message is already replaced")
 	}
 
 	repository := query.Turn
@@ -200,9 +200,9 @@ func validateCompactionMessage(
 		return ctxerrors.Wrap(err, "read compacted message turn")
 	}
 
-	if turn.State != models.TurnStateCompleted {
+	if turn.State == models.TurnStateRunning {
 		return ctxerrors.Wrap(commerr.ErrConflict,
-			"compaction message turn is unfinished")
+			"compaction message turn is still running")
 	}
 
 	return nil

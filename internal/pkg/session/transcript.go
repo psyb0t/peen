@@ -20,6 +20,12 @@ const (
 	// defaultMaxStoredMessageBytes bounds one message row when the caller did
 	// not set a bound of its own.
 	defaultMaxStoredMessageBytes = 1 << 20
+
+	// defaultMaxExecutionStateBytes bounds one execution context or activity
+	// payload. A turn context at a 1,000,000-token window encodes to about
+	// 10 MiB, and an activity completion carries an output and a context in
+	// one worker frame, which holds 32 MiB.
+	defaultMaxExecutionStateBytes = 12 << 20
 )
 
 // AppendCheckpoint records visible messages and events without ending a turn.
@@ -728,7 +734,7 @@ func (s *Store) finishTurn(
 	}
 
 	if err := s.recordTurnEndNotice(ctx, tx, lease.SessionID,
-		turnEndNoticeData{
+		TurnEndNotice{
 			TurnID: lease.TurnID, State: input.State,
 			Reason: input.FailureClassification, Error: input.FailureDetail,
 		}); err != nil {
@@ -796,7 +802,8 @@ func (s *Store) markUnfinishedMessages(
 	if _, err := message.WithContext(ctx).
 		Where(
 			message.TurnID.Eq(lease.TurnID),
-			message.Role.Neq(string(models.MessageRoleUser)),
+			message.Role.NotIn(string(models.MessageRoleUser),
+				string(models.MessageRoleSystem)),
 		).
 		UpdateSimple(message.Incomplete.Value(true)); err != nil {
 		return ctxerrors.Wrap(err, "mark unfinished turn messages incomplete")
@@ -829,13 +836,10 @@ func (s *Store) findSessionWithQuery(
 ) (*models.Session, error) {
 	session := query.Session
 
+	// The error map turns a missing row into commerr.ErrNotFound.
 	result, err := session.WithContext(ctx).
 		Where(session.ID.Eq(sessionID)).
 		First()
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, ctxerrors.Wrap(commerr.ErrNotFound, "session")
-	}
-
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "query session")
 	}
@@ -901,7 +905,8 @@ func normalizeListOptions(
 
 func isMessageRole(role models.MessageRole) bool {
 	switch role {
-	case models.MessageRoleUser,
+	case models.MessageRoleSystem,
+		models.MessageRoleUser,
 		models.MessageRoleAssistant,
 		models.MessageRoleTool:
 		return true

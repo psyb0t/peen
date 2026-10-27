@@ -35,9 +35,14 @@ func (p *preparedTurn) bindRootModelCallbacksWithAssistant(
 	audit *modelAuditRecorder,
 	assistant *preparedTurn,
 ) *elelem.Request {
+	// Held stream deltas reach the sink before the message is kept, so a
+	// sink that refuses one stops the round before the reply is stored.
 	request.OnRoundStart(p.rootRoundStartCallback(audit)).
 		OnRoundEnd(audit.onRoundEnd).
 		OnRetry(p.rootRetryCallback(audit)).
+		OnAssistantMessage(func(ctx context.Context, _ elelem.Message) error {
+			return p.turn.publishHeldDeltas(ctx)
+		}).
 		OnAssistantMessage(assistant.rootAssistantMessageCallback(audit))
 
 	return p.adapter.Bind(request)
@@ -102,7 +107,7 @@ func (r *Runtime) workflowRootModelRoundWithAssistant(
 		Base: projection.nextIndex(), Count: len(response.ToolCalls),
 	}
 
-	result, err := workflowModelResult(response, conversation)
+	result, err := workflowModelResult(ctx, response, conversation)
 	if err != nil {
 		return workflowRoundResult{}, ctxerrors.Wrap(err,
 			"save root model context")

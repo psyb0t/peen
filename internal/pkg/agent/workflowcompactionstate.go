@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
+	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 )
 
 const workflowCompactionStateVersion = 1
@@ -158,6 +160,29 @@ func validateWorkflowCompactionConversation(
 	messages = append(messages, conversation.Messages...)
 
 	return conversation.Compaction.validate(messages)
+}
+
+// releaseDroppedCompactionPlan forgets the summarize plan after the model
+// request left out its oldest units, which happens when no completed history
+// could be summarized. The plan names messages by position, so after a drop
+// it would refuse every later phase of the turn or, worse, name the wrong
+// rows. The next turn builds a fresh plan from the stored messages.
+func releaseDroppedCompactionPlan(
+	ctx context.Context,
+	conversation *workflowConversation,
+) {
+	if conversation.Compaction == nil || conversation.historyDropped == nil ||
+		!*conversation.historyDropped {
+		return
+	}
+
+	conversation.Compaction = nil
+
+	runtimecontext.Logger(ctx).Warn(
+		"model round dropped history the compaction plan names, "+
+			"continuing the turn without summaries",
+		"reason", compactionReasonPlanReleased,
+	)
 }
 
 func invalidWorkflowCompactionUnit(

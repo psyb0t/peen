@@ -60,6 +60,8 @@ func logValidatedConfig(
 		"max_context_tokens", config.MaxContextTokens,
 		"output_reserve_tokens", config.OutputReserveTokens,
 		"compaction_output_tokens", config.CompactionOutputTokens,
+		"compaction_summary_percent", config.CompactionSummaryPercent,
+		"compaction_summary_tokens", config.CompactionSummaryTokens(),
 		"compaction_timeout", config.CompactionTimeout,
 		"turn_timeout", config.TurnTimeout,
 		"max_concurrent_turns", config.MaxConcurrentTurns,

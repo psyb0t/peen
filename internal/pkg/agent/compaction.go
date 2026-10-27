@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -32,8 +33,49 @@ const (
 	// can bring a request under budget, so it goes out with the oldest units
 	// dropped instead of a summary.
 	compactionReasonNothingToSummarize = "nothing_to_summarize"
-	compactionOutcomeSucceeded         = "succeeded"
-	compactionOutcomeFailed            = "failed"
+	// compactionReasonPlanReleased is logged when a model round dropped
+	// history the summarize plan names, so the turn continues without it.
+	compactionReasonPlanReleased = "plan_released_after_drop"
+	// compactionReasonSummaryTruncated is logged when the summarizer stopped
+	// at its output limit, so the stored summary is missing its end.
+	compactionReasonSummaryTruncated = "summary_truncated"
+	compactionOutcomeSucceeded       = "succeeded"
+	compactionOutcomeFailed          = "failed"
+
+	// compactionReasonSummaryRetried is logged when the summarizer stopped at
+	// its output limit and is asked once more for a shorter summary.
+	compactionReasonSummaryRetried = "summary_over_limit_retried"
+
+	// compactionLengthLimitFormat follows the transcript, outside it, so the
+	// summarizer knows the room the summary has to fit.
+	compactionLengthLimitFormat = "\n\nWrite the summary in at most %d tokens."
+	// compactionPressureFormat follows the length limit when the summary
+	// carried forward already fills most of that room.
+	compactionPressureFormat = " The earlier summary at the start of the " +
+		"transcript already takes about %d of them, so the new summary has " +
+		"to be tighter than it: keep what the remaining work needs and cut " +
+		"what it no longer does, as the rules on short space say."
+	// compactionRetryFormat replaces the length limit on the one retry after
+	// a summary ran past its output limit and came back cut off.
+	compactionRetryFormat = "\n\nAn earlier attempt ran past %d tokens and " +
+		"was cut off. Write the whole summary again in at most %d tokens, " +
+		"keeping what the remaining work needs first, as the rules on short " +
+		"space say."
+
+	// compactionPressurePercent is how full the carried summary has to be,
+	// as a share of the summary room, before the summarizer is told to
+	// compress it.
+	compactionPressurePercent = 75
+	// compactionRetryTargetPercent is the share of the summary room the retry
+	// asks for, low enough that the rewrite fits with margin.
+	compactionRetryTargetPercent = 50
+	percentDenominator           = 100
+
+	// compactionMinimumSummaryTokens is the smallest room a summary is asked
+	// to fit when the configured room does not fit the context.
+	compactionMinimumSummaryTokens = 512
+	// compactionSummaryRoomDivisor shrinks the room between attempts.
+	compactionSummaryRoomDivisor = 2
 )
 
 // compactionSummary is one summarization call's result.
@@ -138,6 +180,10 @@ type compactor struct {
 	sink          compactionSink
 	active        *compactionHead
 
+	// room is the summary room prefix selection chose for the compaction in
+	// progress. Zero means the configured room.
+	room int
+
 	// agentRunID marks compaction model work done for a child agent. Session
 	// and parent-turn attribution stay either way, so a compaction run remains
 	// joinable to the turn that owns it.
@@ -172,6 +218,9 @@ type compactionHead struct {
 	FromMessageID      uuid.UUID `json:"fromMessageId"`
 	FromSequence       int64     `json:"fromSequence"`
 	SourceMessageCount int64     `json:"sourceMessageCount"`
+	// SummaryTokens is the size of the summary the next compaction carries
+	// forward. Zero when the head was saved before Peen recorded it.
+	SummaryTokens int64 `json:"summaryTokens,omitempty"`
 }
 
 // compactionSink stores one committed summary in the durable record that owns
@@ -235,12 +284,7 @@ func (s sessionCompactionSink) persist(
 		return nil, ctxerrors.Wrap(err, "store compaction")
 	}
 
-	return &compactionHead{
-		ID:                 stored.ID,
-		FromMessageID:      stored.FromMessageID,
-		FromSequence:       stored.FromSequence,
-		SourceMessageCount: stored.SourceMessageCount,
-	}, nil
+	return sessionCompactionHead(stored), nil
 }
 
 // agentRunCompactionSink writes one child agent's own compaction rows, so a
@@ -279,12 +323,7 @@ func (s agentRunCompactionSink) persist(
 		return nil, ctxerrors.Wrap(err, "store child compaction")
 	}
 
-	return &compactionHead{
-		ID:                 stored.ID,
-		FromMessageID:      stored.FromMessageID,
-		FromSequence:       stored.FromSequence,
-		SourceMessageCount: stored.SourceMessageCount,
-	}, nil
+	return childCompactionHead(stored), nil
 }
 
 // handle is Peen's PreMaxTokensReached hook.
@@ -326,11 +365,12 @@ func (c *compactor) handle(
 		return ctxerrors.Wrap(err, "verify reconstruction plan")
 	}
 
-	units, err := c.selectPrefix(event)
+	units, room, err := c.selectPrefix(event)
 	if err != nil {
 		return handleUnselectablePrefix(ctx, event, err)
 	}
 
+	c.room = room
 	messagesCovered := c.plan.messageCount(units)
 
 	payload := c.hookPayload(event, units, messagesCovered, 0)
@@ -350,6 +390,8 @@ func (c *compactor) handle(
 			"the compaction model returned no summary",
 		)
 	}
+
+	outcome := c.summaryOutcome(units, summary)
 
 	if err := c.commit(ctx, event, units, text, summary); err != nil {
 		return err
@@ -374,19 +416,70 @@ func (c *compactor) handle(
 		)
 	}
 
-	runtimecontext.Logger(ctx).Info(
-		"replaced completed history with a stored summary",
-		"reason", compactionReasonBudgetExceeded,
-		"session_id", c.sessionID,
-		"units_covered", units,
-		"messages_covered", messagesCovered,
-		"summary_tokens", summary.OutputTokens,
+	outcome.log(ctx,
 		"estimated_tokens", event.EstimatedTokens,
 		"budget_tokens", event.BudgetTokens,
 		"round", event.Round,
 	)
 
 	return nil
+}
+
+// compactionSummaryOutcome is what one committed summary replaced and the
+// room it was written in.
+type compactionSummaryOutcome struct {
+	sessionID       uuid.UUID
+	agentRunID      *uuid.UUID
+	unitsCovered    int
+	messagesCovered int
+	summaryTokens   int64
+	roomTokens      int
+	carriedTokens   int64
+	tightened       bool
+}
+
+// summaryOutcome records a summary before the compactor advances past it, so
+// the counts and the carried summary are the ones the summarizer saw.
+func (c *compactor) summaryOutcome(
+	units int,
+	summary compactionSummary,
+) compactionSummaryOutcome {
+	outcome := compactionSummaryOutcome{
+		sessionID:       c.sessionID,
+		agentRunID:      c.agentRunID,
+		unitsCovered:    units,
+		messagesCovered: c.plan.messageCount(units),
+		summaryTokens:   summary.OutputTokens,
+		roomTokens:      c.summaryRoom(),
+		tightened:       c.carriedSummaryNearLimit(),
+	}
+
+	if c.active != nil {
+		outcome.carriedTokens = c.active.SummaryTokens
+	}
+
+	return outcome
+}
+
+func (o compactionSummaryOutcome) log(ctx context.Context, extra ...any) {
+	attributes := []any{
+		"reason", compactionReasonBudgetExceeded,
+		"session_id", o.sessionID,
+		"units_covered", o.unitsCovered,
+		"messages_covered", o.messagesCovered,
+		"summary_tokens", o.summaryTokens,
+		"summary_room_tokens", o.roomTokens,
+		"carried_summary_tokens", o.carriedTokens,
+		"asked_for_tighter_summary", o.tightened,
+	}
+	if o.agentRunID != nil {
+		attributes = append(attributes, "agent_run_id", *o.agentRunID)
+	}
+
+	runtimecontext.Logger(ctx).Info(
+		"replaced completed history with a stored summary",
+		append(attributes, extra...)...,
+	)
 }
 
 // reloadPlan rereads the plan when the compactor has a refresher.
@@ -483,16 +576,22 @@ func logNothingToSummarize(ctx context.Context, err error) {
 }
 
 // selectPrefix picks the smallest completed prefix whose removal leaves room
-// for the leading context, the preserved raw tail, the current turn, and the
-// configured summary allowance.
+// for the leading context, the preserved raw tail, the current turn, and a
+// summary, and returns that summary room.
+//
+// It tries the configured room first and then smaller ones, so a context too
+// full for the configured room still gets a tighter summary instead of losing
+// its oldest history outright.
 //
 // Smallest, not largest: the covered prefix is also the summarization call's
 // input, and that call deliberately has no budget hook of its own. Covering
 // more than the budget requires grows that input for no gain.
-func (c *compactor) selectPrefix(event *elelem.TokenLimitEvent) (int, error) {
+func (c *compactor) selectPrefix(
+	event *elelem.TokenLimitEvent,
+) (int, int, error) {
 	coverable := c.plan.coverableUnits()
 	if coverable == 0 {
-		return 0, ctxerrors.Wrap(
+		return 0, 0, ctxerrors.Wrap(
 			ErrCompactionUnavailable,
 			"no completed history is eligible for compaction",
 		)
@@ -501,29 +600,50 @@ func (c *compactor) selectPrefix(event *elelem.TokenLimitEvent) (int, error) {
 	original := event.Messages
 	defer func() { event.Messages = original }()
 
-	for units := 1; units <= coverable; units++ {
-		event.Messages = c.replacePrefix(
-			original,
-			units,
-			compactionSummaryLead,
-		)
+	// estimates[units-1] is the request's size with that many units replaced,
+	// counted the first time a room needs it.
+	estimates := make([]int, 0, coverable)
 
-		if _, err := event.IsOverBudget(); err != nil {
-			return 0, ctxerrors.Wrap(err, "count compaction candidate")
-		}
+	for _, room := range compactionSummaryRooms(c.options.MaxOutputTokens) {
+		for units := 1; units <= coverable; units++ {
+			if units > len(estimates) {
+				event.Messages = c.replacePrefix(original, units,
+					compactionSummaryLead)
 
-		if event.EstimatedTokens+c.options.MaxOutputTokens <=
-			event.BudgetTokens {
-			return units, nil
+				if _, err := event.IsOverBudget(); err != nil {
+					return 0, 0, ctxerrors.Wrap(err,
+						"count compaction candidate")
+				}
+
+				estimates = append(estimates, event.EstimatedTokens)
+			}
+
+			if estimates[units-1]+room <= event.BudgetTokens {
+				return units, room, nil
+			}
 		}
 	}
 
-	return 0, ctxerrors.Wrapf(
+	return 0, 0, ctxerrors.Wrapf(
 		ErrCompactionUnavailable,
-		"%d eligible units do not free the %d token summary allowance",
+		"%d eligible units do not free the %d token minimum summary room",
 		coverable,
-		c.options.MaxOutputTokens,
+		min(c.options.MaxOutputTokens, compactionMinimumSummaryTokens),
 	)
+}
+
+// compactionSummaryRooms lists the summary rooms to try, the configured room
+// first and then each half of it down to compactionMinimumSummaryTokens.
+func compactionSummaryRooms(configured int) []int {
+	rooms := []int{configured}
+
+	room := configured / compactionSummaryRoomDivisor
+	for room >= compactionMinimumSummaryTokens {
+		rooms = append(rooms, room)
+		room /= compactionSummaryRoomDivisor
+	}
+
+	return rooms
 }
 
 // commit installs the real summary, recounts, and stores the row only when the
@@ -703,24 +823,24 @@ func (c *compactor) callModel(
 		)
 	}
 
-	prompt := elelem.NewPrompt().
-		WithSystem(c.options.Prompt).
-		UserText(transcript)
-
-	audit, err := c.newCompactionAudit(ctx, model)
+	response, err := c.requestSummary(ctx, model,
+		transcript+c.lengthInstruction())
 	if err != nil {
-		return compactionSummary{}, ctxerrors.Wrap(
-			err,
-			"start compaction model audit",
-		)
+		return compactionSummary{}, err
 	}
 
-	response, err := c.runCompactionRequest(ctx, model, prompt, audit)
-	if err != nil {
-		return compactionSummary{}, ctxerrors.Wrap(
-			err,
-			"run compaction request",
-		)
+	if response.FinishReason.IsTruncated() {
+		c.logSummaryOverLimit(ctx, response, compactionReasonSummaryRetried)
+
+		response, err = c.requestSummary(ctx, model,
+			transcript+c.retryInstruction())
+		if err != nil {
+			return compactionSummary{}, err
+		}
+	}
+
+	if response.FinishReason.IsTruncated() {
+		c.logSummaryOverLimit(ctx, response, compactionReasonSummaryTruncated)
 	}
 
 	return compactionSummary{
@@ -731,6 +851,81 @@ func (c *compactor) callModel(
 	}, nil
 }
 
+// requestSummary runs one audited summarization request for the transcript
+// followed by its length instruction.
+func (c *compactor) requestSummary(
+	ctx context.Context,
+	model ModelClient,
+	userText string,
+) (*elelem.Response, error) {
+	prompt := elelem.NewPrompt().
+		WithSystem(c.options.Prompt).
+		UserText(userText)
+
+	audit, err := c.newCompactionAudit(ctx, model)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "start compaction model audit")
+	}
+
+	response, err := c.runCompactionRequest(ctx, model, prompt, audit)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "run compaction request")
+	}
+
+	return response, nil
+}
+
+// lengthInstruction states the summary's room, and asks for a tighter
+// summary when the one carried forward already fills most of it.
+func (c *compactor) lengthInstruction() string {
+	instruction := fmt.Sprintf(compactionLengthLimitFormat, c.summaryRoom())
+	if !c.carriedSummaryNearLimit() {
+		return instruction
+	}
+
+	return instruction + fmt.Sprintf(compactionPressureFormat,
+		c.active.SummaryTokens)
+}
+
+// retryInstruction asks for the whole summary again in part of its room.
+func (c *compactor) retryInstruction() string {
+	room := c.summaryRoom()
+
+	return fmt.Sprintf(compactionRetryFormat, room,
+		room*compactionRetryTargetPercent/percentDenominator)
+}
+
+func (c *compactor) carriedSummaryNearLimit() bool {
+	return c.active != nil &&
+		c.active.SummaryTokens*percentDenominator >=
+			int64(c.summaryRoom())*compactionPressurePercent
+}
+
+// summaryRoom is the output limit of the compaction in progress: the room
+// prefix selection chose, or the configured room before any selection.
+func (c *compactor) summaryRoom() int {
+	if c.room > 0 {
+		return c.room
+	}
+
+	return c.options.MaxOutputTokens
+}
+
+func (c *compactor) logSummaryOverLimit(
+	ctx context.Context,
+	response *elelem.Response,
+	reason string,
+) {
+	runtimecontext.Logger(ctx).Warn(
+		"compaction summary stopped at its output limit",
+		"reason", reason,
+		"session_id", c.sessionID,
+		"max_output_tokens", c.summaryRoom(),
+		"output_tokens", response.Usage.Completion,
+		"reasoning_tokens", response.Usage.Reasoning,
+	)
+}
+
 func (c *compactor) runCompactionRequest(
 	ctx context.Context,
 	model ModelClient,
@@ -738,17 +933,26 @@ func (c *compactor) runCompactionRequest(
 	audit *modelAuditRecorder,
 ) (*elelem.Response, error) {
 	startedAt := time.Now()
-	response, err := elelem.NewRequest(model.Client).
+	request := elelem.NewRequest(model.Client).
 		WithModel(model.Model).
 		WithPrompt(prompt).
-		WithMaxOutputTokens(int64(c.options.MaxOutputTokens)).
+		WithMaxOutputTokens(int64(c.summaryRoom())).
 		WithTimeout(c.options.Timeout).
 		OnRoundStart(audit.onRoundStart).
 		OnRoundEnd(audit.onRoundEnd).
 		OnAssistantMessage(audit.onAssistantMessage).
 		OnRetry(audit.onRetry).
-		PreMaxTokensReached(rejectCompactionBudget).
-		Run(ctx)
+		PreMaxTokensReached(rejectCompactionBudget)
+
+	// Reasoning tokens count against the same output limit as the summary,
+	// so the summarizer reasons as little as the model allows.
+	effort, _ := fitReasoningEffort(elelem.ReasoningEffortNone, model.Model,
+		model.Client.Capabilities(model.Model))
+	if effort != elelem.ReasoningEffortUnset {
+		request.WithReasoningEffort(effort)
+	}
+
+	response, err := request.Run(ctx)
 
 	persistCtx := context.WithoutCancel(ctx)
 	if auditErr := audit.finish(persistCtx, response, err); auditErr != nil {
@@ -778,7 +982,7 @@ func (c *compactor) newCompactionAudit(
 		false,
 		0,
 		0,
-		c.options.MaxOutputTokens,
+		c.summaryRoom(),
 		0,
 		0,
 		0,

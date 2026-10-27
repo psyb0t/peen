@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/tools"
 	"github.com/stretchr/testify/assert"
@@ -122,20 +121,106 @@ func TestMergeWorkflowRuntimeUsesReadOrderInsteadOfCallOrder(t *testing.T) {
 	}
 }
 
-func TestMergeWorkflowRuntimeRefusesAmbiguousReadOrder(t *testing.T) {
+// Parallel tools that read one path record the same revision. The merge
+// settles the tie the same way whichever result arrives first, instead of
+// failing the turn.
+func TestMergeWorkflowRuntimeSettlesParallelReadsOfOnePath(t *testing.T) {
 	t.Parallel()
-	first := &workflowRuntimeState{Observations: []tools.ObservedPath{
+
+	hashed := tools.ObservedPath{
+		Path: "/same", Hash: "b", HasHash: true, Revision: 3,
+	}
+	unhashed := tools.ObservedPath{Path: "/same", Revision: 3}
+	otherHash := tools.ObservedPath{
+		Path: "/same", Hash: "a", HasHash: true, Revision: 3,
+	}
+
+	testCases := []struct {
+		name          string
+		first, second tools.ObservedPath
+		want          tools.ObservedPath
+	}{
+		{
+			name:  "a content read beats a search match",
+			first: hashed, second: unhashed, want: hashed,
+		},
+		{
+			name:  "a search match does not replace a content read",
+			first: unhashed, second: hashed, want: hashed,
+		},
+		{
+			name:  "two content reads keep the smaller hash",
+			first: hashed, second: otherHash, want: otherHash,
+		},
+		{
+			name:  "two content reads in the other order",
+			first: otherHash, second: hashed, want: otherHash,
+		},
+		{
+			name:  "identical reads",
+			first: hashed, second: hashed, want: hashed,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			merged, err := mergeWorkflowRuntime(
+				&workflowRuntimeState{
+					Observations: []tools.ObservedPath{tc.first},
+				},
+				&workflowRuntimeState{
+					Observations: []tools.ObservedPath{tc.second},
+				},
+			)
+			require.NoError(t, err)
+			assert.Equal(t, []tools.ObservedPath{tc.want},
+				merged.Observations)
+		})
+	}
+}
+
+// A round where readFile and searchText both touched one file completes.
+func TestWorkflowMergeRoundAcceptsAReadAndASearchOfOneFile(t *testing.T) {
+	t.Parallel()
+
+	observations := [][]tools.ObservedPath{
+		{{Path: "/plan.md", Hash: "content", HasHash: true, Revision: 1}},
+		{{Path: "/plan.md", Revision: 1}},
+	}
+	results := make([]workflowToolResult, len(observations))
+
+	for index, observed := range observations {
+		encoded, err := json.Marshal(workflowConversation{
+			Runtime: &workflowRuntimeState{Observations: observed},
+		})
+		require.NoError(t, err)
+		results[index].Context = encoded
+	}
+
+	merged, err := workflowMergeRound(json.RawMessage(`{}`),
+		make([]workflowToolInput, len(results)), results)
+	require.NoError(t, err)
+
+	var conversation workflowConversation
+	require.NoError(t, json.Unmarshal(merged, &conversation))
+	require.NotNil(t, conversation.Runtime)
+	assert.Equal(t, observations[0], conversation.Runtime.Observations)
+}
+
+func TestMergeWorkflowRuntimeWithOneSideMissing(t *testing.T) {
+	t.Parallel()
+
+	state := &workflowRuntimeState{Observations: []tools.ObservedPath{
 		{Path: "/same", Hash: "first", HasHash: true},
 	}}
-	second := &workflowRuntimeState{Observations: []tools.ObservedPath{
-		{Path: "/same", Hash: "second", HasHash: true},
-	}}
-	_, err := mergeWorkflowRuntime(first, second)
-	require.ErrorIs(t, err, commerr.ErrConflict)
-	merged, err := mergeWorkflowRuntime(first, nil)
+
+	merged, err := mergeWorkflowRuntime(state, nil)
 	require.NoError(t, err)
-	assert.Equal(t, first, merged)
-	merged, err = mergeWorkflowRuntime(nil, second)
+	assert.Equal(t, state, merged)
+
+	merged, err = mergeWorkflowRuntime(nil, state)
 	require.NoError(t, err)
-	assert.Equal(t, second, merged)
+	assert.Equal(t, state, merged)
 }

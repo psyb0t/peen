@@ -306,7 +306,7 @@ func (s *Store) validateExecutionInput(input CreateExecutionInput) error {
 			"execution identity and context")
 	}
 
-	if len(input.Context) > s.maxStoredMessageBytes ||
+	if len(input.Context) > s.maxExecutionStateBytes ||
 		len(input.Task) > s.maxStoredMessageBytes {
 		return ctxerrors.Wrap(commerr.ErrValidationFailed,
 			"execution context or task exceeds storage limit")

@@ -25,6 +25,7 @@ const (
 	workflowGetActivity      workflowOperation = "getActivityTask"
 	workflowExtendActivity   workflowOperation = "extendActivityTask"
 	workflowCompleteActivity workflowOperation = "completeActivityTask"
+	workflowReleaseClaims    workflowOperation = "releaseClaims"
 )
 
 type workflowRequest struct {

@@ -110,7 +110,7 @@ func TestExecutionChildProjectionRejectsInvalidPayloadAndRollsBack(t *testing.T)
 		}},
 		{name: "size", change: func(input *CompleteActivityInput) {
 			input.ChildProjection.Messages[0].Content = strings.Repeat("x",
-				defaultMaxStoredMessageBytes)
+				defaultMaxStoredMessageBytes+1)
 		}},
 		{name: "root payload", change: func(input *CompleteActivityInput) {
 			input.RootProjection = &ExecutionRootProjection{}

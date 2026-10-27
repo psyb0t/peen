@@ -3,9 +3,11 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/elelem/elelemtest"
@@ -14,6 +16,14 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+)
+
+const (
+	// largePhaseContextBytes is above the default 1 MiB message limit.
+	largePhaseContextBytes = 3 << 19
+	// singlePhaseContextSlackBytes is the room a phase payload has beside
+	// one context copy.
+	singlePhaseContextSlackBytes = 64 << 10
 )
 
 func toolPhaseTestInput(fixture executionLoopFixture) workflowToolPhaseInput {
@@ -90,6 +100,64 @@ func TestWorkflowToolPhasesRetainEachCheckpointAfterReopen(t *testing.T) {
 	}
 }
 
+func TestWorkflowToolPhasesKeepOneContextCopyPastTheMessageLimit(
+	t *testing.T,
+) {
+	t.Parallel()
+	fixture := newExecutionLoopFixture(t, elelemtest.NewScriptedDriver(), true)
+	// A phase re-encodes the context it was given, as the directory phases
+	// do, so its output names a context equal to its input.
+	fixture.engine.options.ToolPhase = func(_ context.Context,
+		input workflowToolPhaseInput,
+	) (workflowToolPhaseState, error) {
+		var conversation workflowConversation
+		if err := json.Unmarshal(input.Tool.Round.Execution.Context,
+			&conversation); err != nil {
+			return input.State, ctxerrors.Wrap(err, "decode phase context")
+		}
+		encoded, err := json.Marshal(conversation)
+		if err != nil {
+			return input.State, ctxerrors.Wrap(err, "encode phase context")
+		}
+		state := input.State
+		state.Outcome.Context = encoded
+
+		return state, nil
+	}
+	large, err := json.Marshal(workflowConversation{Messages: []elelem.Message{{
+		Role:    elelem.RoleUser,
+		Content: elelem.Text(strings.Repeat("x", largePhaseContextBytes)),
+	}}})
+	require.NoError(t, err)
+	input := toolPhaseTestInput(fixture)
+	input.Tool.Round.Execution.Context = large
+	phases := []workflowToolPhase{
+		workflowToolPhasePre, workflowToolPhaseHandler, workflowToolPhaseOutcome,
+		workflowToolPhasePost, workflowToolPhaseProject,
+	}
+	for _, phase := range phases {
+		input.Phase = phase
+		result, err := fixture.engine.toolPhase(t.Context(), input)
+		require.NoError(t, err)
+		assert.Empty(t, result.Output.Outcome.Context)
+		input.State = result.Output
+		advanceWorkflowToolPhase(&input.Tool, &input.State)
+	}
+	page, err := fixture.base.store.ListExecutionActivities(t.Context(),
+		fixture.input.SessionID, fixture.input.ExecutionID,
+		session.ListEventsOptions{})
+	require.NoError(t, err)
+	require.Len(t, page.Items, len(phases))
+	for _, activity := range page.Items {
+		assert.Equal(t, models.ActivityStateCompleted, activity.State)
+		assert.Less(t, len(activity.InputJSON),
+			len(large)+singlePhaseContextSlackBytes)
+		require.NotNil(t, activity.OutputJSON)
+		assert.Less(t, len(*activity.OutputJSON), singlePhaseContextSlackBytes)
+		assert.JSONEq(t, string(large), activity.ContextJSON)
+	}
+}
+
 func TestWorkflowToolPhaseRejectsChangedSavedInput(t *testing.T) {
 	t.Parallel()
 	fixture := newExecutionLoopFixture(t, elelemtest.NewScriptedDriver(), true)
@@ -113,17 +181,23 @@ func TestWorkflowToolPhaseRejectsChangedSavedInput(t *testing.T) {
 func TestWorkflowToolPhaseInterruptionRetainsDecision(t *testing.T) {
 	t.Parallel()
 	testCases := []struct {
-		name     string
-		pause    bool
-		decision session.ActivityDecision
-		state    models.ExecutionState
+		name      string
+		pause     bool
+		decisions []session.ActivityDecision
+		state     models.ExecutionState
 	}{
 		{
-			name: "unknown effect", decision: session.ActivityDecisionReconcile,
-			state: models.ExecutionStateReconciling,
+			name: "failed phase reaches the model as an error",
+			decisions: []session.ActivityDecision{
+				session.ActivityDecisionReconcile, session.ActivityDecisionReuse,
+			},
+			state: models.ExecutionStateRunning,
 		},
 		{
-			name: "explicit pause", pause: true, decision: session.ActivityDecisionPaused,
+			name: "explicit pause", pause: true,
+			decisions: []session.ActivityDecision{
+				session.ActivityDecisionPaused, session.ActivityDecisionPaused,
+			},
 			state: models.ExecutionStatePaused,
 		},
 	}
@@ -145,12 +219,20 @@ func TestWorkflowToolPhaseInterruptionRetainsDecision(t *testing.T) {
 				return workflowToolPhaseState{}, context.Canceled
 			}
 			input := toolPhaseTestInput(fixture)
-			for range 2 {
-				result, err := fixture.engine.toolPhase(t.Context(), input)
+			var result workflowActivityResult[workflowToolPhaseState]
+			for _, decision := range tc.decisions {
+				var err error
+				result, err = fixture.engine.toolPhase(t.Context(), input)
 				require.NoError(t, err)
-				assert.Equal(t, tc.decision, result.Decision)
+				assert.Equal(t, decision, result.Decision)
 			}
 			assert.Equal(t, 1, effects)
+			if !tc.pause {
+				assert.True(t, result.Output.Finished)
+				assert.True(t, result.Output.Outcome.Result.IsError)
+				assert.Equal(t, failedToolResult,
+					result.Output.Outcome.Result.Content)
+			}
 			execution, err := fixture.base.store.GetExecution(t.Context(),
 				fixture.input.SessionID, fixture.input.ExecutionID)
 			require.NoError(t, err)

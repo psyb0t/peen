@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -140,15 +141,15 @@ func (s *directoryScope) advance(
 	return current, remaining, nil
 }
 
+// directoryHistory returns a transcript without its leading system prompt,
+// which the conversation keeps apart. System messages later in the transcript,
+// such as the one Peen adds to a turn that did not finish, are history.
 func directoryHistory(messages []elelem.Message) []elelem.Message {
-	history := make([]elelem.Message, 0, len(messages))
-	for _, message := range messages {
-		if message.Role != elelem.RoleSystem {
-			history = append(history, message)
-		}
+	if len(messages) > 0 && messages[0].Role == elelem.RoleSystem {
+		messages = messages[1:]
 	}
 
-	return history
+	return slices.Clone(messages)
 }
 
 func (s *directoryScope) applyContext(current *directoryContext) {

@@ -203,6 +203,45 @@ func TestActivityInputValidation(t *testing.T) {
 	}
 }
 
+// A turn context grows with the context window, far past one message, and
+// every activity payload carries it.
+func TestActivityPayloadsAreBoundedByTheExecutionStateLimit(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name    string
+		bytes   int
+		wantErr error
+	}{
+		{name: "past the message limit", bytes: 2 * defaultMaxStoredMessageBytes},
+		{
+			name:    "past the execution state limit",
+			bytes:   defaultMaxExecutionStateBytes,
+			wantErr: commerr.ErrValidationFailed,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fixture := newExecutionFixture(t)
+			payload := json.RawMessage(`{"messages":"` +
+				strings.Repeat("x", tc.bytes) + `"}`)
+			input := activityTestInput(models.ActivityKindTool)
+			input.Input = payload
+			claim, err := fixture.store.BeginExecutionActivity(t.Context(),
+				fixture.sessionID, fixture.root.ID, uuid.New(), input)
+			require.ErrorIs(t, err, tc.wantErr)
+			if tc.wantErr != nil {
+				return
+			}
+			completed, err := fixture.store.CompleteExecutionActivity(
+				t.Context(), fixture.sessionID, claim.Lease,
+				CompleteActivityInput{Output: payload, Context: payload})
+			require.NoError(t, err)
+			assert.Equal(t, string(payload), completed.ContextJSON)
+		})
+	}
+}
+
 func TestPreparationActivityRequiresRetryPolicy(t *testing.T) {
 	t.Parallel()
 	fixture := newExecutionFixture(t)

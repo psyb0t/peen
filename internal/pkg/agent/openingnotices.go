@@ -62,9 +62,8 @@ func (r *Runtime) admitRootOpening(
 	opening.pendingBatch = admitted.batch
 	opening.publishPending = admitted.created
 
-	opening.pendingEvents = ""
-	if len(admitted.batch.Notices) > 0 {
-		opening.pendingEvents = renderSessionEvents(admitted.batch)
+	opening.pendingEvents = renderModelEvents(admitted.batch)
+	if opening.pendingEvents != "" {
 		opening.assembly.prompt = opening.assembly.prompt.UserText(
 			opening.pendingEvents)
 	}
@@ -120,7 +119,11 @@ func (o *turnOpening) admissionInput(
 	return session.StartTurnInput{
 		RequestID: requestID, Workspace: workspace, Events: events,
 		WakeNoticeID: turnWakeNoticeID(input), ExpectedStopRevision: revision,
-		Messages: turnStartMessages(o.pendingEvents, workspace, input.Message,
-			input.Origin != nil, o.assembly.skills),
+		Messages: turnStartMessages(turnStartContent{
+			prompt:           input.Message,
+			isPromptInjected: input.Origin != nil,
+			skills:           o.assembly.skills,
+			pendingEvents:    o.pendingEvents,
+		}, workspace),
 	}
 }

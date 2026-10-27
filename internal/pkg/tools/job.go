@@ -36,8 +36,11 @@ const (
 	jobStreamChannelBuffer = 64
 
 	// jobOutputBatchLines and jobOutputBatchBytes bound one store call of
-	// job output, well inside the worker protocol's frame limit.
-	jobOutputBatchLines = 1000
+	// job output, well inside the worker protocol's frame limit. Every call
+	// is one durable commit, so the line bound stays large enough that a
+	// command printing tens of thousands of short lines costs a few commits,
+	// not one per thousand lines.
+	jobOutputBatchLines = 10000
 	jobOutputBatchBytes = 1 << 20
 
 	// jobEventSource identifies this package as the origin of job.* events.

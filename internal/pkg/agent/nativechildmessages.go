@@ -36,6 +36,11 @@ func (r *Runtime) deliverNativeChildMessage(
 		return handled, err
 	}
 
+	if err := native.settleInterruptedTools(ctx, sessionID,
+		resumed); err != nil {
+		return true, ctxerrors.Wrap(err, "settle resumed child tools")
+	}
+
 	// Outside childMessageMutex, because starting the resumed child hydrates
 	// its inbox under that lock.
 	if err := native.nudgeAdmittedExecutions(ctx); err != nil {

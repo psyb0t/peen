@@ -237,6 +237,13 @@ func (b *WorkflowBackend) CompleteActivityTask(
 	})
 }
 
+// ReleaseClaims ends this worker's waiting task claims on the controller.
+// Call it once the worker has stopped polling, before it drains, so no claim
+// wakes afterwards and locks a task nobody will run.
+func (b *WorkflowBackend) ReleaseClaims(ctx context.Context) error {
+	return b.write(ctx, workflowRequest{Operation: workflowReleaseClaims})
+}
+
 func (b *WorkflowBackend) GetStats(_ context.Context) (*backend.Stats, error) {
 	return nil, ctxerrors.Wrap(commerr.ErrPermissionDenied,
 		"workflow statistics belong to the controller")

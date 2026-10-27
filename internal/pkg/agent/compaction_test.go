@@ -60,6 +60,7 @@ const (
 	compactionScenarioSummaryText   = "condensed prior turns"
 	compactionWhitespaceSummaryText = "   \n\t  "
 	compactionCallModelSummaryText  = "model produced summary text"
+	compactionCutOffSummaryText     = "model produced summary cut"
 	compactionStubModelID           = "stub-summarizer-model"
 	compactionStubInputTokens       = 400
 	compactionStubOutputTokens      = 40
@@ -85,16 +86,14 @@ const (
 	compactionToolBoundaryResultIndex      = 2
 
 	compactionFailedTurnUserText       = "attempted risky turn"
+	compactionTranscriptUserLine       = "user: "
 	compactionFailedToolCallID         = "compaction_failed_tool_call"
 	compactionFailedTurnUserIndex      = 2
 	compactionFailedTurnAssistantIndex = 3
 	compactionFailedTurnToolIndex      = 4
-	// The turn after the failed one also stores the turn.failed notice it
-	// read, after its own message.
-	compactionFailedNoticeIndex        = 6
-	compactionFailedToIndex            = 7
-	compactionFailedMessageCount       = 12
-	compactionFailedSourceMessageCount = 5
+	// The failed turn ends with the system message Peen adds to it.
+	compactionFailedTurnEndIndex = 5
+	compactionFailedMessageCount = 12
 
 	// compactionInsufficientMessageBytes, ...BudgetMargin, and
 	// ...SummaryBytes tune a byte-weighted counter (see compactionTokenCounter)
@@ -177,14 +176,6 @@ func (s *compactionSummarizeStub) summarize(
 		InputTokens:  compactionStubInputTokens,
 		OutputTokens: compactionStubOutputTokens,
 	}, nil
-}
-
-func (s *compactionSummarizeStub) lastTranscript() string {
-	if len(s.transcripts) == 0 {
-		return ""
-	}
-
-	return s.transcripts[len(s.transcripts)-1]
 }
 
 // compactionScenario bundles one standard scenario run: three ordinary turns
@@ -793,10 +784,9 @@ func TestCompactionRespectsToolCallUnitBoundary(t *testing.T) {
 	assert.True(t, respectsUnit, "compaction must not split a tool call unit")
 }
 
-// A failed turn's messages must never be summarized nor named by a later
-// compaction's covered range, even though their durable rows persist and get
-// marked incomplete.
-func TestCompactionExcludesFailedTurnMessages(t *testing.T) {
+// A failed turn stays in history as it happened, ending with the system
+// message Peen added, so a later summary covers it like any other turn.
+func TestCompactionCoversAFailedTurnAsItHappened(t *testing.T) {
 	driver := elelemtest.NewScriptedDriver(
 		elelemtest.Text(compactionAssistantText(1)),
 		elelemtest.ToolCall(
@@ -829,9 +819,16 @@ func TestCompactionExcludesFailedTurnMessages(t *testing.T) {
 	assert.True(t, messages[compactionFailedTurnAssistantIndex].Incomplete)
 	assert.True(t, messages[compactionFailedTurnToolIndex].Incomplete)
 
-	failedNotice := renderedSessionEvent(t,
-		messages[compactionFailedNoticeIndex].Content)
-	assert.Equal(t, events.TypeTurnFailed, failedNotice.Type)
+	ended := messages[compactionFailedTurnEndIndex]
+	assert.Equal(t, models.MessageRoleSystem, ended.Role)
+	assert.Equal(t, messages[compactionFailedTurnUserIndex].TurnID,
+		ended.TurnID)
+	assert.False(t, ended.Incomplete)
+
+	// No later turn carries the failure as an events block.
+	for _, message := range messages {
+		assert.NotContains(t, message.Content, events.PromptOpenTag)
+	}
 
 	compaction, err := fixture.store.LatestCompaction(
 		context.Background(),
@@ -840,16 +837,26 @@ func TestCompactionExcludesFailedTurnMessages(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, compaction)
 	assert.Equal(t, messages[0].ID, compaction.FromMessageID)
-	assert.Equal(t, messages[compactionFailedToIndex].ID, compaction.ToMessageID)
-	assert.Equal(
-		t,
-		int64(compactionFailedSourceMessageCount),
-		compaction.SourceMessageCount,
-	)
 
-	transcript := stub.lastTranscript()
-	assert.NotContains(t, transcript, compactionFailedTurnUserText)
-	assert.NotContains(t, transcript, toolNameReadFile)
+	// The summary covers every row up to its last one, the failed turn's
+	// included.
+	coveredThrough := -1
+	for index, message := range messages {
+		if message.ID == compaction.ToMessageID {
+			coveredThrough = index
+		}
+	}
+
+	require.GreaterOrEqual(t, coveredThrough, compactionFailedTurnEndIndex)
+	assert.EqualValues(t, coveredThrough+1, compaction.SourceMessageCount)
+
+	// A later summary rewrites an earlier one, so the failed turn reached
+	// the summarizer in whichever call first covered it.
+	transcripts := strings.Join(stub.transcripts, "\n")
+	assert.Contains(t, transcripts,
+		compactionTranscriptUserLine+compactionFailedTurnUserText)
+	assert.Contains(t, transcripts, compactionToolCallLead+toolNameReadFile)
+	assert.Contains(t, transcripts, ended.Content)
 }
 
 func TestCompactionSummarizerErrorLeavesNoRow(t *testing.T) {
@@ -1065,6 +1072,176 @@ func TestCompactionRealCallModelPopulatesModelID(t *testing.T) {
 	require.NotNil(t, compaction)
 	assert.Equal(t, runtimeTestModelID, compaction.ModelID)
 	assert.Equal(t, compactionCallModelSummaryText, compaction.Summary)
+}
+
+// Reasoning tokens share the summary's output limit, so the summarization
+// request asks for the least reasoning the model takes and states the limit
+// the summary has to fit.
+func TestCompactionRealCallModelLimitsReasoningAndStatesTheLength(
+	t *testing.T,
+) {
+	scripted := compactionScriptedTurns(compactionTurnsBeforeFirstTrigger)
+	scripted = append(
+		scripted,
+		elelemtest.Text(compactionCallModelSummaryText),
+		elelemtest.Text(
+			compactionAssistantText(compactionTurnsBeforeFirstTrigger+1),
+		),
+	)
+
+	driver := elelemtest.NewScriptedDriver(scripted...).
+		WithTokenCounter(compactionTokenCounter{
+			perMessage: compactionTestTokensPerMessage,
+		}).
+		WithCapabilities(elelem.Capabilities{
+			SupportsReasoningEffort: true,
+			MaxReasoningEffort:      elelem.ReasoningEffortMax,
+		})
+	fixture := newStandardCompactionFixture(t, driver)
+
+	sessionID, _ := runCompactionTurns(
+		t,
+		fixture,
+		nil,
+		1,
+		compactionTurnsBeforeFirstTrigger,
+	)
+	runCompactionTurn(
+		t,
+		fixture,
+		&sessionID,
+		compactionUserText(compactionTurnsBeforeFirstTrigger+1),
+	)
+
+	var summarization []elelem.DriverRequest
+
+	for _, request := range driver.Requests() {
+		last := request.Messages[len(request.Messages)-1]
+		if strings.Contains(last.Text(), compactionTranscriptOpenTag) {
+			summarization = append(summarization, request)
+		}
+	}
+
+	require.Len(t, summarization, 1)
+	request := summarization[0]
+	assert.Equal(t, request.Model.ReasoningLevelMin(),
+		request.Params.ReasoningEffort)
+	assert.True(t, strings.HasSuffix(
+		request.Messages[len(request.Messages)-1].Text(),
+		fmt.Sprintf(compactionLengthLimitFormat, compactionTestOutputTokens),
+	))
+}
+
+// A summary that stops at its output limit is asked for once more in a
+// smaller room, and the complete retry is what the session stores.
+func TestCompactionRealCallModelRetriesASummaryCutOffAtItsLimit(
+	t *testing.T,
+) {
+	scripted := compactionScriptedTurns(compactionTurnsBeforeFirstTrigger)
+	scripted = append(
+		scripted,
+		elelemtest.Turn{Deltas: []elelem.Delta{{
+			Text:         compactionCutOffSummaryText,
+			FinishReason: elelem.FinishReasonLength,
+		}}},
+		elelemtest.Text(compactionCallModelSummaryText),
+		elelemtest.Text(
+			compactionAssistantText(compactionTurnsBeforeFirstTrigger+1),
+		),
+	)
+
+	driver := elelemtest.NewScriptedDriver(scripted...).
+		WithTokenCounter(compactionTokenCounter{
+			perMessage: compactionTestTokensPerMessage,
+		})
+	fixture := newStandardCompactionFixture(t, driver)
+
+	sessionID, _ := runCompactionTurns(
+		t,
+		fixture,
+		nil,
+		1,
+		compactionTurnsBeforeFirstTrigger,
+	)
+	runCompactionTurn(
+		t,
+		fixture,
+		&sessionID,
+		compactionUserText(compactionTurnsBeforeFirstTrigger+1),
+	)
+
+	var instructions []string
+
+	for _, request := range driver.Requests() {
+		last := request.Messages[len(request.Messages)-1].Text()
+		if strings.Contains(last, compactionTranscriptOpenTag) {
+			instructions = append(instructions, last)
+		}
+	}
+
+	require.Len(t, instructions, 2)
+	assert.True(t, strings.HasSuffix(instructions[0],
+		fmt.Sprintf(compactionLengthLimitFormat, compactionTestOutputTokens)))
+	assert.True(t, strings.HasSuffix(instructions[1],
+		fmt.Sprintf(compactionRetryFormat, compactionTestOutputTokens,
+			compactionTestOutputTokens*compactionRetryTargetPercent/
+				percentDenominator)))
+
+	history, err := fixture.store.CompletedHistory(t.Context(), sessionID)
+	require.NoError(t, err)
+	require.NotNil(t, history.Compaction)
+	assert.Equal(t, compactionCallModelSummaryText, history.Compaction.Summary)
+}
+
+// The summarizer is told to tighten a carried summary only once that summary
+// fills most of the room.
+func TestCompactionLengthInstructionAsksForATighterSummaryNearTheLimit(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	const room = 1000
+
+	testCases := []struct {
+		name          string
+		active        *compactionHead
+		wantPressured bool
+	}{
+		{name: "first summary"},
+		{
+			name:   "carried summary below the threshold",
+			active: &compactionHead{SummaryTokens: 749},
+		},
+		{
+			name:          "carried summary at the threshold",
+			active:        &compactionHead{SummaryTokens: 750},
+			wantPressured: true,
+		},
+		{
+			name:          "carried summary over the room",
+			active:        &compactionHead{SummaryTokens: 1200},
+			wantPressured: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			built := &compactor{
+				options: compactionOptions{MaxOutputTokens: room},
+				active:  tc.active,
+			}
+
+			want := fmt.Sprintf(compactionLengthLimitFormat, room)
+			if tc.wantPressured {
+				want += fmt.Sprintf(compactionPressureFormat,
+					tc.active.SummaryTokens)
+			}
+
+			assert.Equal(t, want, built.lengthInstruction())
+		})
+	}
 }
 
 // The same session reconstructed through a second Store over the same handle

@@ -38,10 +38,11 @@ func RuntimeOptionsFromConfig(
 		MaxConcurrentTurns:    deployment.MaxConcurrentTurns,
 		MaxQueuedUserMessages: deployment.MaxQueuedUserMessages,
 
-		CompactionMode:         deployment.CompactionMode,
-		CompactionModel:        deployment.CompactionModel,
-		CompactionOutputTokens: deployment.CompactionOutputTokens,
-		CompactionTimeout:      deployment.CompactionTimeout,
+		CompactionMode:           deployment.CompactionMode,
+		CompactionModel:          deployment.CompactionModel,
+		CompactionOutputTokens:   deployment.CompactionOutputTokens,
+		CompactionSummaryPercent: deployment.CompactionSummaryPercent,
+		CompactionTimeout:        deployment.CompactionTimeout,
 
 		Events: events.NewBus(
 			EventBusOptions(deployment, metricRegistry),

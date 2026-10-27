@@ -29,6 +29,11 @@ type workflowController struct {
 	// historyPageBytes bounds one history page. Tests lower it to cover
 	// paging without histories near the frame limit.
 	historyPageBytes int
+	// released ends every waiting task claim once the worker stops polling.
+	// A claim that woke after that would lock a task to a poller that is
+	// gone, and the next generation would wait for the lease to expire.
+	released     context.Context //nolint:containedctx // Release signal.
+	releaseClaim context.CancelFunc
 }
 
 // WorkflowInstanceID scopes an execution's stable identity to its session.
@@ -54,9 +59,11 @@ func (c *Controller) BindWorkflows(
 		return ctxerrors.Wrap(err, "bind workflow worker backend")
 	}
 
+	released, release := context.WithCancel(context.WithoutCancel(ctx))
 	c.workflows = &workflowController{
 		backend: bound, sessionID: c.sessionID,
 		historyPageBytes: workflowHistoryPageBytes,
+		released:         released, releaseClaim: release,
 	}
 
 	return nil
@@ -118,23 +125,7 @@ func (c *workflowController) call(
 	case workflowCreateInstance:
 		return c.create(ctx, r)
 	case workflowCancelInstance:
-		if err := c.ownedInstance(ctx, r.Instance); err != nil {
-			return nil, err
-		}
-
-		if r.Event == nil || r.Event.Event == nil ||
-			r.Event.Type != history.EventType_WorkflowExecutionCanceled {
-			return nil, invalidWorkflowRequest()
-		}
-
-		err := c.backend.CancelWorkflowInstance(
-			ctx, r.Instance, r.Event.Event,
-		)
-		if err != nil {
-			return nil, ctxerrors.Wrap(err, "cancel workflow instance")
-		}
-
-		return struct{}{}, nil
+		return c.cancel(ctx, r)
 	case workflowGetState:
 		if err := c.ownedInstance(ctx, r.Instance); err != nil {
 			return nil, err
@@ -166,6 +157,10 @@ func (c *workflowController) call(
 		return struct{}{}, nil
 	case workflowPrepareQueues:
 		return nil, c.queues(r.Queues)
+	case workflowReleaseClaims:
+		c.releaseClaim()
+
+		return struct{}{}, nil
 	default:
 		return c.callTask(ctx, r)
 	}
@@ -183,7 +178,15 @@ func (c *workflowController) callTask(
 			return nil, err
 		}
 
-		task, err := c.backend.GetWorkflowTask(ctx, []workflow.Queue{c.queue()})
+		claimCtx, cancel := c.claimContext(ctx)
+		defer cancel()
+
+		if claimCtx.Err() != nil {
+			return encodeWorkflowTask(nil), nil
+		}
+
+		task, err := c.backend.GetWorkflowTask(claimCtx,
+			[]workflow.Queue{c.queue()})
 		if err != nil {
 			return nil, ctxerrors.Wrap(err, "claim workflow task")
 		}
@@ -222,6 +225,41 @@ func (c *workflowController) callTask(
 	return nil, ctxerrors.Wrap(
 		commerr.ErrNotImplemented, "workflow operation is not published",
 	)
+}
+
+func (c *workflowController) cancel(
+	ctx context.Context,
+	r workflowRequest,
+) (any, error) {
+	if err := c.ownedInstance(ctx, r.Instance); err != nil {
+		return nil, err
+	}
+
+	if r.Event == nil || r.Event.Event == nil ||
+		r.Event.Type != history.EventType_WorkflowExecutionCanceled {
+		return nil, invalidWorkflowRequest()
+	}
+
+	err := c.backend.CancelWorkflowInstance(ctx, r.Instance, r.Event.Event)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "cancel workflow instance")
+	}
+
+	return struct{}{}, nil
+}
+
+// claimContext ends a task claim with the connection or with the worker's
+// release, whichever comes first.
+func (c *workflowController) claimContext(
+	ctx context.Context,
+) (context.Context, context.CancelFunc) {
+	claimCtx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(c.released, cancel)
+
+	return claimCtx, func() {
+		stop()
+		cancel()
+	}
 }
 
 func (c *workflowController) queue() workflow.Queue {
@@ -289,7 +327,15 @@ func (c *workflowController) getActivity(
 		return nil, err
 	}
 
-	task, err := c.backend.GetActivityTask(ctx, []workflow.Queue{c.queue()})
+	claimCtx, cancel := c.claimContext(ctx)
+	defer cancel()
+
+	if claimCtx.Err() != nil {
+		return encodeWorkflowActivity(nil), nil
+	}
+
+	task, err := c.backend.GetActivityTask(claimCtx,
+		[]workflow.Queue{c.queue()})
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "claim workflow activity")
 	}

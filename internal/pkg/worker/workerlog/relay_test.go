@@ -113,6 +113,50 @@ func TestRelayWarnsOnUnstructuredOutput(t *testing.T) {
 	assert.Contains(t, output, reasonUnstructuredOutput)
 }
 
+// TestRelayKeepsReadingPastAnOversizedRecord is the guard against a stalled
+// worker. A debug record of a long model request outgrew the relay's line
+// bound, the relay stopped reading, and the worker blocked once its output
+// pipe filled.
+func TestRelayKeepsReadingPastAnOversizedRecord(t *testing.T) {
+	testCases := []struct {
+		name   string
+		stream string
+		want   []string
+	}{
+		{
+			name: "record after the oversized one",
+			stream: `{"level":"DEBUG","msg":"` +
+				strings.Repeat("x", 2*maxRecordBytes) + `"}` + "\n" +
+				`{"level":"INFO","msg":"record after the long one"}`,
+			want: []string{reasonRecordTooLong, "record after the long one"},
+		},
+		{
+			name:   "stream ending inside the oversized record",
+			stream: strings.Repeat("x", 2*maxRecordBytes),
+			want:   []string{reasonRecordTooLong},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			captured := &bytes.Buffer{}
+
+			restore := captureDefaultLogger(t, captured, slog.LevelDebug)
+			defer restore()
+
+			Relay(context.Background(), strings.NewReader(tc.stream),
+				uuid.New(), uuid.New())
+
+			output := captured.String()
+			for _, want := range tc.want {
+				assert.Contains(t, output, want)
+			}
+
+			assert.NotContains(t, output, strings.Repeat("x", maxRecordBytes))
+		})
+	}
+}
+
 // TestRelayHandlesAnEmptyStream keeps a worker that printed nothing from
 // producing a spurious record.
 func TestRelayHandlesAnEmptyStream(t *testing.T) {

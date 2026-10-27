@@ -44,19 +44,96 @@ func TestWorkflowCompactionPrefixUsesProviderCounter(t *testing.T) {
 	t.Parallel()
 	scenario, input := workflowCompactionPrefixFixture(t, 3)
 	before := scenario.driver.Calls()
-	units, err := selectWorkflowCompactionPrefix(scenario.fixture.runtime.models,
-		input)
+	units, room, err := selectWorkflowCompactionPrefix(
+		scenario.fixture.runtime.models, input)
 	require.NoError(t, err)
 	assert.Equal(t, 4, units)
+	assert.Equal(t, compactionTestOutputTokens, room)
 	assert.Equal(t, before, scenario.driver.Calls())
+}
+
+// A context too full to free the saved summary room gets a summary in a
+// smaller room rather than none.
+func TestWorkflowCompactionPrefixFallsBackToASmallerSummaryRoom(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	const (
+		tokensPerMessage = 1000
+		contextTokens    = 7000
+		savedRoom        = 4096
+	)
+
+	scenario, input := workflowCompactionPrefixFixture(t, 3)
+	model, err := scenario.fixture.runtime.models.ResolveModel(
+		runtimeTestModelReference)
+	require.NoError(t, err)
+	model.Client = elelem.New(scenario.driver,
+		elelem.WithClientTokenCounter(compactionTokenCounter{
+			perMessage: tokensPerMessage,
+		}))
+	registry, err := NewStaticRegistry(map[string]ModelClient{
+		runtimeTestModelReference: model,
+	})
+	require.NoError(t, err)
+
+	var conversation workflowConversation
+	require.NoError(t, json.Unmarshal(input.Execution.Context, &conversation))
+	conversation.MaxContextTokens = contextTokens
+	conversation.OutputReserveTokens = 0
+	conversation.Compaction.MaxOutputTokens = savedRoom
+	encoded, err := json.Marshal(conversation)
+	require.NoError(t, err)
+	input.Execution.Context = encoded
+
+	units, room, err := selectWorkflowCompactionPrefix(registry, input)
+	require.NoError(t, err)
+	assert.Positive(t, units)
+	assert.Less(t, room, savedRoom)
+	assert.Contains(t, compactionSummaryRooms(savedRoom), room)
+}
+
+func TestCompactionSummaryRoomsHalveDownToTheMinimum(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name       string
+		configured int
+		want       []int
+	}{
+		{
+			name:       "halves stop at the minimum",
+			configured: 4096,
+			want:       []int{4096, 2048, 1024, 512},
+		},
+		{
+			name:       "a room between minimums keeps the last half above",
+			configured: 3000,
+			want:       []int{3000, 1500, 750},
+		},
+		{
+			name:       "a room below the minimum is the only room",
+			configured: 50,
+			want:       []int{50},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			assert.Equal(t, tc.want, compactionSummaryRooms(tc.configured))
+		})
+	}
 }
 
 func TestWorkflowCompactionPrefixSkipsUnderBudget(t *testing.T) {
 	t.Parallel()
 	scenario, input := workflowCompactionPrefixFixture(t, 2)
 	before := scenario.driver.Calls()
-	units, err := selectWorkflowCompactionPrefix(scenario.fixture.runtime.models,
-		input)
+	units, _, err := selectWorkflowCompactionPrefix(
+		scenario.fixture.runtime.models, input)
 	require.NoError(t, err)
 	assert.Zero(t, units)
 	assert.Equal(t, before, scenario.driver.Calls())
@@ -75,7 +152,7 @@ func TestWorkflowCompactionPrefixHonorsClientCounter(t *testing.T) {
 	})
 	require.NoError(t, err)
 	before := scenario.driver.Calls()
-	units, err := selectWorkflowCompactionPrefix(registry, input)
+	units, _, err := selectWorkflowCompactionPrefix(registry, input)
 	require.NoError(t, err)
 	assert.Zero(t, units)
 	assert.Equal(t, before, scenario.driver.Calls())
@@ -91,7 +168,7 @@ func TestWorkflowCompactionPrefixRejectsNoEligibleHistory(t *testing.T) {
 	require.NoError(t, err)
 	input.Execution.Context = encoded
 	before := scenario.driver.Calls()
-	_, err = selectWorkflowCompactionPrefix(scenario.fixture.runtime.models,
+	_, _, err = selectWorkflowCompactionPrefix(scenario.fixture.runtime.models,
 		input)
 	require.ErrorIs(t, err, ErrCompactionUnavailable)
 	assert.Equal(t, before, scenario.driver.Calls())
@@ -110,7 +187,7 @@ func TestWorkflowCompactionPrefixRejectsAllowanceBesideReserve(t *testing.T) {
 	require.NoError(t, err)
 	input.Execution.Context = encoded
 	before := scenario.driver.Calls()
-	_, err = selectWorkflowCompactionPrefix(scenario.fixture.runtime.models,
+	_, _, err = selectWorkflowCompactionPrefix(scenario.fixture.runtime.models,
 		input)
 	require.ErrorIs(t, err, ErrCompactionUnavailable)
 	assert.Equal(t, before, scenario.driver.Calls())
@@ -213,7 +290,7 @@ func TestWorkflowCompactionPrefixRejectsMalformedInput(t *testing.T) {
 	require.NoError(t, err)
 	input.Execution.Context = encoded
 	before := scenario.driver.Calls()
-	_, err = selectWorkflowCompactionPrefix(scenario.fixture.runtime.models,
+	_, _, err = selectWorkflowCompactionPrefix(scenario.fixture.runtime.models,
 		input)
 	require.ErrorIs(t, err, commerr.ErrValidationFailed)
 	assert.Equal(t, before, scenario.driver.Calls())

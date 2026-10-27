@@ -21,6 +21,50 @@ import (
 
 const directoryPublicationCheckDuration = 25 * time.Millisecond
 
+func TestHarnessSourceChangesNamesWhatAHopLoaded(t *testing.T) {
+	t.Parallel()
+	root := harness.ManifestEntry{
+		Kind: harness.SourceKindInstruction, Source: "/work/AGENTS.md",
+		Hash: "root",
+	}
+	style := harness.ManifestEntry{
+		Kind: harness.SourceKindRule, Name: "style",
+		Source: "/work/.agents/rules/style.md", Hash: "style-v1",
+	}
+	sub := harness.ManifestEntry{
+		Kind: harness.SourceKindInstruction, Source: "/work/sub/AGENTS.md",
+		Hash: "sub",
+	}
+	notes := harness.ManifestEntry{
+		Kind: harness.SourceKindSkill, Name: "notes",
+		Source: "/work/.agents/skills/notes/SKILL.md", Hash: "notes",
+	}
+	editedStyle := style
+	editedStyle.Hash = "style-v2"
+
+	result := harnessSourceChanges(
+		[]harness.ManifestEntry{root, style, notes},
+		[]harness.ManifestEntry{root, editedStyle, sub},
+	)
+	assert.Equal(t, []harnessSource{{
+		Kind: harness.SourceKindInstruction, Source: "/work/sub/AGENTS.md",
+	}}, result.Loaded)
+	assert.Equal(t, []harnessSource{{
+		Kind: harness.SourceKindSkill, Name: "notes",
+		Source: "/work/.agents/skills/notes/SKILL.md",
+	}}, result.Unloaded)
+	assert.Equal(t, []harnessSource{{
+		Kind: harness.SourceKindRule, Name: "style",
+		Source: "/work/.agents/rules/style.md",
+	}}, result.Changed)
+
+	unchanged := harnessSourceChanges([]harness.ManifestEntry{root},
+		[]harness.ManifestEntry{root})
+	encoded, err := json.Marshal(unchanged)
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "loaded")
+}
+
 func TestDirectoryHopQueuedMessagesKeepCurrentDirectory(t *testing.T) {
 	t.Parallel()
 	driver := elelemtest.NewScriptedDriver(

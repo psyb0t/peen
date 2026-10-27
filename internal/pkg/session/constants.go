@@ -26,9 +26,9 @@ const (
 	// notices Peen records when a turn ends without completing.
 	TurnEndNoticeSource = "session.turn"
 
-	turnFailedNoticeSummary      = "The previous turn failed."
-	turnInterruptedNoticeSummary = "The previous turn was interrupted."
-	turnCancelledNoticeSummary   = "The previous turn was stopped."
+	turnFailedNoticeSummary      = "A turn failed before it finished."
+	turnInterruptedNoticeSummary = "A turn was interrupted before it finished."
+	turnCancelledNoticeSummary   = "A turn was stopped before it finished."
 
 	// turnInterruptedDetail is the error of a turn whose worker or controller
 	// stopped before the turn ended.
@@ -36,6 +36,15 @@ const (
 
 	// turnEndDetailBytes bounds the error a turn end frame and notice carry.
 	turnEndDetailBytes = 2048
+	// turnEndMessageBytes bounds each user message a turn end notice
+	// carries, and turnEndUndeliveredLimit how many undelivered ones.
+	turnEndMessageBytes     = 1000
+	turnEndUndeliveredLimit = 10
+	// turnEndToolCallLimit bounds how many of the ended turn's latest tool
+	// calls the notice lists, and turnEndToolArgumentBytes each one's
+	// arguments.
+	turnEndToolCallLimit     = 20
+	turnEndToolArgumentBytes = 300
 
 	// resumeNoticeIdentity derives the request ID of the notice a paused
 	// child reads ahead of the message that resumes it, from that message's

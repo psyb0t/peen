@@ -9,6 +9,7 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/elelem/elelemtest"
+	"github.com/psyb0t/peen/internal/pkg/config"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
 	"github.com/psyb0t/peen/internal/pkg/session"
@@ -90,7 +91,16 @@ func TestNewRuntimeValidatesDependenciesAndOptions(t *testing.T) {
 			name: "reply reserve leaves no room for the summary",
 			mutate: func(options *RuntimeOptions) {
 				options.OutputReserveTokens = options.MaxContextTokens -
-					defaultCompactionOutputTokens
+					config.CompactionSummaryTokens(options.MaxContextTokens,
+						0, defaultCompactionOutputTokens)
+			},
+			want: ErrInvalidCompactionOptions,
+		},
+		{
+			name: "summary share above half the context",
+			mutate: func(options *RuntimeOptions) {
+				tooLarge := config.MaxCompactionSummaryPercent + 1
+				options.CompactionSummaryPercent = tooLarge
 			},
 			want: ErrInvalidCompactionOptions,
 		},
@@ -209,8 +219,10 @@ func TestRuntimeFailurePersistsTerminalState(t *testing.T) {
 		session.ListMessagesOptions{Limit: session.DefaultPageLimit},
 	)
 	require.NoError(t, err)
-	require.Len(t, messages.Items, 1)
+	require.Len(t, messages.Items, 2)
 	assert.False(t, messages.Items[0].Incomplete)
+	assert.Equal(t, models.MessageRoleSystem, messages.Items[1].Role)
+	assert.Contains(t, messages.Items[1].Content, failure.Error())
 
 	events, err := query.Event.WithContext(context.Background()).
 		Where(query.Event.TurnID.Eq(turn.ID)).Find()

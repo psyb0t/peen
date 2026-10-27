@@ -212,8 +212,8 @@ func completedExecutionActivity(
 func (s *Store) validateActivityResult(input CompleteActivityInput) error {
 	if !isExecutionContext(input.Output) ||
 		!isExecutionContext(input.Context) ||
-		len(input.Output) > s.maxStoredMessageBytes ||
-		len(input.Context) > s.maxStoredMessageBytes {
+		len(input.Output) > s.maxExecutionStateBytes ||
+		len(input.Context) > s.maxExecutionStateBytes {
 		return ctxerrors.Wrap(commerr.ErrValidationFailed, "activity result")
 	}
 

@@ -79,8 +79,10 @@ func runWorkflowCheckpoint[T any](
 
 	descriptor.Input = encoded
 
-	claim, err := e.options.Store.BeginExecutionActivity(ctx,
-		execution.SessionID, execution.ExecutionID,
+	// The claim is what reports a pause, so a pause must not cancel it: a
+	// claim cut off mid-call would fail the workflow instead of parking it.
+	claim, err := e.options.Store.BeginExecutionActivity(
+		context.WithoutCancel(ctx), execution.SessionID, execution.ExecutionID,
 		e.options.GenerationID, descriptor)
 	if err != nil {
 		return workflowActivityResult[T]{}, ctxerrors.Wrap(err,
@@ -227,6 +229,9 @@ func interruptedWorkflowCheckpoint[T any](
 	isCapacityRefusal := errors.Is(cause, ErrTooManyAgentRuns)
 	cause = e.pauseForCapacity(ctx, execution, cause)
 
+	ctxscope.GetLogger(ctx).Warn("workflow activity interrupted",
+		"step_id", claim.Activity.StepID, "err", cause)
+
 	if err := e.options.Store.InterruptExecutionActivity(
 		context.WithoutCancel(ctx), execution.SessionID, claim.Lease,
 	); err != nil {
@@ -242,17 +247,9 @@ func interruptedWorkflowCheckpoint[T any](
 	}
 
 	isRootAdmissionRefusal := rootAdmissionRefused(state, cause)
-	if isCapacityRefusal || isRootAdmissionRefusal {
-		evidence := workflowCapacityEvidence
-		if isRootAdmissionRefusal {
-			evidence = workflowRootAdmissionEvidence
-		}
-
-		if err := e.retryUnstartedActivity(ctx, execution, claim,
-			evidence); err != nil {
-			return workflowActivityResult[T]{}, ctxerrors.Wrap(err,
-				"retain unstarted admission refused activity")
-		}
+	if err := e.retainRefusedActivity(ctx, execution, claim,
+		isCapacityRefusal, isRootAdmissionRefusal); err != nil {
+		return workflowActivityResult[T]{}, err
 	}
 
 	if state.State == models.ExecutionStatePaused || isRootAdmissionRefusal {
@@ -262,6 +259,13 @@ func interruptedWorkflowCheckpoint[T any](
 	}
 
 	if claim.Activity.ReplayPolicy == models.ActivityReplayPolicyReconcile {
+		if err := e.settleFailedPhase(ctx, execution, claim); err != nil {
+			return workflowActivityResult[T]{}, ctxerrors.Wrap(
+				errors.Join(cause, err), "settle failed phase")
+		}
+
+		// The workflow rechecks a reconcile decision before it waits, so a
+		// settled phase is reused instead of waiting for inspection.
 		return workflowActivityResult[T]{
 			Decision: session.ActivityDecisionReconcile,
 		}, nil
@@ -269,6 +273,73 @@ func interruptedWorkflowCheckpoint[T any](
 
 	return workflowActivityResult[T]{}, ctxerrors.Wrap(cause,
 		"workflow activity interrupted")
+}
+
+// settleFailedPhase settles a tool phase or hook step that failed inside
+// Peen. Nobody inspects such a step during a turn, so leaving it uncertain
+// would stop the turn with no reply. The step is not repeated, because its
+// effect may already have happened: a tool call reaches the model as an error
+// result, and a hook step settles as a failed hook. A step whose worker is
+// shutting down stays uncertain for the next worker to recover.
+func (e *workflowExecution) settleFailedPhase(
+	ctx context.Context,
+	execution workflowExecutionInput,
+	claim *session.ActivityClaim,
+) error {
+	if !settlesAfterFailure(claim.Activity.Name) {
+		return nil
+	}
+
+	select {
+	case <-ctx.Done():
+		return nil
+	default:
+	}
+
+	ctx = context.WithoutCancel(ctx)
+
+	activity, err := e.options.Store.GetExecutionActivity(ctx,
+		execution.SessionID, claim.Activity.ID)
+	if err != nil {
+		return ctxerrors.Wrap(err, "read failed phase")
+	}
+
+	if activity.State != models.ActivityStateUncertain {
+		return nil
+	}
+
+	if activity.Name == toolPhaseActivityName {
+		return settleInterruptedTool(ctx, e.options.Store, activity,
+			failedToolResult, failedToolEvidence)
+	}
+
+	return settleFailedHook(ctx, e.options.Store, activity)
+}
+
+// retainRefusedActivity lets an activity that admission refused before any
+// effect run again later, with the refusal recorded as its evidence.
+func (e *workflowExecution) retainRefusedActivity(
+	ctx context.Context,
+	execution workflowExecutionInput,
+	claim *session.ActivityClaim,
+	isCapacityRefusal, isRootAdmissionRefusal bool,
+) error {
+	if !isCapacityRefusal && !isRootAdmissionRefusal {
+		return nil
+	}
+
+	evidence := workflowCapacityEvidence
+	if isRootAdmissionRefusal {
+		evidence = workflowRootAdmissionEvidence
+	}
+
+	if err := e.retryUnstartedActivity(ctx, execution, claim,
+		evidence); err != nil {
+		return ctxerrors.Wrap(err,
+			"retain unstarted admission refused activity")
+	}
+
+	return nil
 }
 
 func (e *workflowExecution) retryUnstartedActivity(

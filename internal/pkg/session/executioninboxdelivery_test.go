@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -155,10 +156,17 @@ func TestDeliverExecutionMessagesRetainsAcceptedSkillsAcrossReopen(
 		})
 	require.NoError(t, err)
 	messages, err := fixture.store.ListMessages(t.Context(), fixture.sessionID,
-		ListMessagesOptions{})
+		ListMessagesOptions{Order: PageOrderAscending})
 	require.NoError(t, err)
-	require.Len(t, messages.Items, 3)
-	assert.Equal(t, accepted.Parts[0].Content, messages.Items[2].Content)
+	require.Len(t, messages.Items, 4)
+
+	// The interruption left its system message, which the resume marks so
+	// later history does not claim the turn stopped for good.
+	ended := messages.Items[1]
+	assert.Equal(t, models.MessageRoleSystem, ended.Role)
+	assert.True(t, strings.HasPrefix(ended.Content, turnEndResumedLead))
+	assert.Contains(t, ended.Content, turnEndInterruptedOutcome)
+	assert.Equal(t, accepted.Parts[0].Content, messages.Items[3].Content)
 }
 
 func TestValidateInboxDeliveryIDs(t *testing.T) {

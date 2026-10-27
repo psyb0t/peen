@@ -47,6 +47,10 @@ type workflowConversation struct {
 	InboxIDs       []uuid.UUID              `json:"inboxIds,omitempty"`
 	Compaction     *workflowCompactionState `json:"compaction,omitempty"`
 	Limits         *workflowExecutionLimits `json:"limits,omitempty"`
+
+	// historyDropped is set when one model request left out old history to
+	// fit the budget. It lives for that request only and is never saved.
+	historyDropped *bool
 }
 
 // reasoning returns the reasoning of every round so far, in order.
@@ -107,6 +111,8 @@ func workflowModelRequest(
 		request.WithStreaming(*conversation.Streaming)
 	}
 
+	watchDroppedHistory(request, &conversation)
+
 	// The saved level is what the client asked for. Elelem refuses a level
 	// outside the model's range, so it is fitted as the turn path does.
 	effort, _ := fitReasoningEffort(conversation.ReasoningEffort, model.Model,
@@ -116,6 +122,40 @@ func workflowModelRequest(
 	}
 
 	return request, conversation, nil
+}
+
+// watchDroppedHistory lets a request with a summarize plan report a drop, so
+// the round can release the plan its positions no longer match.
+func watchDroppedHistory(
+	request *elelem.Request,
+	conversation *workflowConversation,
+) {
+	if conversation.Compaction == nil {
+		return
+	}
+
+	conversation.historyDropped = new(bool)
+	request.PreMaxTokensReached(
+		recordDroppedHistory(conversation.historyDropped))
+}
+
+// recordDroppedHistory is Elelem's default drop-oldest handler that also
+// reports whether it left anything out, which the saved plan must learn.
+func recordDroppedHistory(dropped *bool) elelem.TokenLimitHandler {
+	drop := elelem.DropOldestUnits(nil)
+
+	return func(ctx context.Context, event *elelem.TokenLimitEvent) error {
+		before := len(event.Messages)
+		if err := drop(ctx, event); err != nil {
+			return ctxerrors.Wrap(err, "drop oldest workflow history")
+		}
+
+		if len(event.Messages) < before {
+			*dropped = true
+		}
+
+		return nil
+	}
 }
 
 // seededWorkflowHistory copies saved messages for a new request. They belong
@@ -155,7 +195,7 @@ func workflowRunModelRequest(
 		return workflowRoundResult{}, ctxerrors.Wrap(err, "run workflow model")
 	}
 
-	return workflowModelResult(response, conversation)
+	return workflowModelResult(ctx, response, conversation)
 }
 
 func runWorkflowModelResponse(
@@ -179,10 +219,13 @@ func runWorkflowModelResponse(
 }
 
 func workflowModelResult(
+	ctx context.Context,
 	response *elelem.Response,
 	conversation workflowConversation,
 ) (workflowRoundResult, error) {
 	conversation.Messages = directoryHistory(response.Messages)
+	releaseDroppedCompactionPlan(ctx, &conversation)
+
 	conversation.Usage = mergeDirectoryUsage(conversation.Usage, response.Usage)
 
 	conversation.Cost += response.Cost

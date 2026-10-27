@@ -145,7 +145,7 @@ A message accepted after a root's completion boundary is retained in that root's
 
 A resumed root waits while another turn owns the session, then continues after that turn finishes. A resumed child can run alongside the current turn, subject to the child capacity limit. Worker startup restores signals for admitted unfinished work and leaves paused work paused. Resuming does not resolve uncertain tool effects.
 
-For an uncertain step, `resolveExecutionActivity` takes its `activityId`, saved `attempt`, the execution's inspected `controlRevision`, and `evidence` describing what the agent checked. `resolution: "retry"` permits another attempt when repeating the effect is safe. `resolution: "accept"` requires the complete inspected `output` and `context` checkpoint objects and retains that result without repeating the effect. The history records the decision and its caller. Resolution leaves paused work paused; continuing it still requires `resumeExecution`. Leave an outcome uncertain when inspection cannot establish what happened.
+For an uncertain step, `resolveExecutionActivity` takes its `activityId`, saved `attempt`, the execution's inspected `controlRevision`, and `evidence` describing what the agent checked. `resolution: "retry"` permits another attempt when repeating the effect is safe. `resolution: "accept"` requires the complete inspected `output` and `context` checkpoint objects and retains that result without repeating the effect. The history records the decision and its caller. Resolution leaves paused work paused; continuing it still requires `resumeExecution`. Leave an outcome uncertain when inspection cannot establish what happened. A tool call that fails inside Peen during a turn is not left uncertain: the model receives an error result saying its outcome is unknown, and the turn continues.
 
 ### Answers come back as messages
 
@@ -188,9 +188,11 @@ Your work was paused for the reason above, and the message after this one resume
 
 The reason is the Stop, the crash, or the error the turn failed with. The execution history records the resume as `execution.resumed` with the message's `requestId`. A message that does not fit the child's inbox is refused and leaves the child paused.
 
+A tool call the pause interrupted is not run again. The child reads it as a failed call that says its outcome is unknown, so it checks the workspace before repeating it. While a child is paused, `GET /api/v1/session/agents` shows it with `paused: true`, and the control surface marks it paused.
+
 ### Errors reach every agent
 
-When a turn fails, is interrupted, or is stopped, Peen records a [`turn.failed` or `turn.cancelled` session event](events.md#turn-events) with the error. The root reads it at its next tool call or turn. Every child that is queued or running gets a copy too. Each `agent.failed` event reaches them the same way. A child reads its copy before its next model request, in the same `<events>` block the root reads, and a full inbox does not hold it back. A paused child gets no copy, because the `<paused>` block tells it what stopped it.
+When a turn fails, is interrupted, or is stopped, Peen records a [`turn.failed` or `turn.cancelled` session event](events.md#turn-events) with the error, and adds a system message to the ended turn that the root reads in its next turn's history. Every child that is queued or running gets a copy of the event. Each `agent.failed` event reaches them the same way. A child reads its copy before its next model request, in the same `<events>` block the root reads, and a full inbox does not hold it back. A paused child gets no copy, because the `<paused>` block tells it what stopped it.
 
 ### Questions
 

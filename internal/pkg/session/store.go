@@ -25,6 +25,10 @@ type Store struct {
 	clock                 func() time.Time
 	newID                 func() uuid.UUID
 	maxStoredMessageBytes int
+	// maxExecutionStateBytes bounds one execution context or activity
+	// payload. Each holds the whole turn context, so it is sized for the
+	// context window rather than for one message.
+	maxExecutionStateBytes int
 
 	activeMu sync.Mutex
 	active   map[uuid.UUID]activeTurn
@@ -126,7 +130,9 @@ func NewStore(handle *db.Handle, options Options) (*Store, error) {
 		clock:                 clock,
 		newID:                 newID,
 		maxStoredMessageBytes: maxStoredMessageBytes,
-		active:                make(map[uuid.UUID]activeTurn),
+		maxExecutionStateBytes: max(maxStoredMessageBytes,
+			defaultMaxExecutionStateBytes),
+		active: make(map[uuid.UUID]activeTurn),
 	}, nil
 }
 

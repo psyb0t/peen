@@ -76,6 +76,10 @@ const (
 	TurnStateCancelled   TurnState = "cancelled"
 	TurnStateInterrupted TurnState = "interrupted"
 
+	// MessageRoleSystem is a notice Peen itself adds to the conversation, such
+	// as how the previous turn ended. The model receives it as a system
+	// message.
+	MessageRoleSystem    MessageRole = "system"
 	MessageRoleUser      MessageRole = "user"
 	MessageRoleAssistant MessageRole = "assistant"
 	MessageRoleTool      MessageRole = "tool"

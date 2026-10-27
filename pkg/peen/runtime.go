@@ -191,10 +191,11 @@ func runtimeOptions(
 		CompactionMode: internalconfig.CompactionMode(
 			options.CompactionMode,
 		),
-		CompactionModel:        options.CompactionModel,
-		CompactionPrompt:       options.CompactionPrompt,
-		CompactionOutputTokens: options.CompactionOutputTokens,
-		CompactionTimeout:      options.CompactionTimeout,
+		CompactionModel:          options.CompactionModel,
+		CompactionPrompt:         options.CompactionPrompt,
+		CompactionOutputTokens:   options.CompactionOutputTokens,
+		CompactionSummaryPercent: options.CompactionSummaryPercent,
+		CompactionTimeout:        options.CompactionTimeout,
 
 		MaxToolRounds:        options.MaxToolRounds,
 		MaxConcurrentTools:   options.MaxConcurrentTools,

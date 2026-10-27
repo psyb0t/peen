@@ -352,14 +352,8 @@ func (t *turnTracker) isDone() bool {
 		return true
 	}
 
-	// A cancel is final once acknowledged. The session's worker does not
-	// always record turn.cancelled for a cancelled turn, so waiting for it
-	// would only add the grace period.
-	if t.failure != nil &&
-		t.failure.Code == wsapi.MessageFailedCodeTurnCancelled {
-		return true
-	}
-
+	// A cancelled turn that started still records turn.cancelled, so the
+	// client waits for that frame. The terminal grace bounds the wait.
 	return t.terminal[t.requestID] != ""
 }
 

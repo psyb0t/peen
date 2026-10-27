@@ -24,9 +24,10 @@ func startSessionWorkflows(
 	document worker.LaunchDocument,
 ) (func() error, error) {
 	lifetime, cancel := context.WithCancel(ctx)
+	storage := connection.Workflows()
 
 	native, err := agent.NewWorkflowWorker(lifetime, runtime,
-		connection.Workflows(), document.GenerationID, document.SessionID, nil)
+		storage, document.GenerationID, document.SessionID, nil)
 	if err != nil {
 		cancel()
 
@@ -42,9 +43,23 @@ func startSessionWorkflows(
 
 	return func() error {
 		cancel()
+		releaseWorkflowClaims(ctx, storage)
 
 		return stop()
 	}, nil
+}
+
+// releaseWorkflowClaims fails harmlessly when the connection is already
+// gone, because the controller ends a closed connection's claims itself.
+func releaseWorkflowClaims(
+	ctx context.Context,
+	storage *protocol.WorkflowBackend,
+) {
+	err := storage.ReleaseClaims(context.WithoutCancel(ctx))
+	if err != nil {
+		ctxscope.GetLogger(ctx).Debug("workflow claims not released",
+			"err", err, "reason", "worker_stopping")
+	}
 }
 
 func startNativeWorkflow(

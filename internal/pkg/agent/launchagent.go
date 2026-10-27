@@ -36,6 +36,11 @@ const (
 	// nested child's parent receives when the child did not complete.
 	agentCancelledText = "The agent was cancelled before it finished."
 	agentFailedLead    = "The agent failed: "
+
+	// agentRunEventReasonRunEnded is logged when a child event, such as a
+	// delta from a stream still running after a Stop, arrives after the run
+	// recorded its terminal event and is dropped.
+	agentRunEventReasonRunEnded = "agent_run_ended"
 )
 
 // agentDepthKey is the unexported context key carrying how many launchAgent
@@ -1406,17 +1411,9 @@ func (s *agentRunSink) emit(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	persisted, err := s.store.AppendAgentRunEvent(
-		context.WithoutCancel(ctx),
-		s.sessionID,
-		s.run.ID,
-		session.AgentRunEventInput{
-			EventType:   eventType,
-			PayloadJSON: string(encoded),
-		},
-	)
-	if err != nil {
-		return ctxerrors.Wrap(err, "persist agent run event")
+	persisted, stored, err := s.persistEvent(ctx, eventType, string(encoded))
+	if err != nil || !stored {
+		return err
 	}
 
 	s.run.AppendStoredEvent(AgentRunEvent{
@@ -1448,6 +1445,41 @@ func (s *agentRunSink) emit(
 	}
 
 	return nil
+}
+
+// persistEvent stores one child event. It reports stored false, with no
+// error, when the store refused the event because the run already ended,
+// which happens to deltas from a stream still running after a Stop.
+func (s *agentRunSink) persistEvent(
+	ctx context.Context,
+	eventType string,
+	payloadJSON string,
+) (*models.AgentRunEvent, bool, error) {
+	persisted, err := s.store.AppendAgentRunEvent(
+		context.WithoutCancel(ctx),
+		s.sessionID,
+		s.run.ID,
+		session.AgentRunEventInput{
+			EventType:   eventType,
+			PayloadJSON: payloadJSON,
+		},
+	)
+	if errors.Is(err, session.ErrAgentRunFinished) {
+		runtimecontext.Logger(ctx).Debug(
+			"dropped child event after the run ended",
+			"reason", agentRunEventReasonRunEnded,
+			"agent_run_id", s.run.ID.String(),
+			"event_type", eventType,
+		)
+
+		return nil, false, nil
+	}
+
+	if err != nil {
+		return nil, false, ctxerrors.Wrap(err, "persist agent run event")
+	}
+
+	return persisted, true, nil
 }
 
 func (s *agentRunSink) onText(

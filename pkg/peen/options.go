@@ -108,6 +108,7 @@ func (o Options) validateBounds() error {
 		o.MaxMessageBytes, o.MaxSystemPromptBytes, o.MaxStoredMessageBytes,
 		o.MaxToolRounds, o.MaxConcurrentTools, o.MaxToolResultTokens,
 		o.MaxHookCommandOutput, o.CompactionOutputTokens,
+		o.CompactionSummaryPercent,
 		o.EventLimits.MaxPendingPerSession, o.EventLimits.MaxSummaryBytes,
 		o.EventLimits.MaxDataBytes, o.EventLimits.SubscriberBuffer,
 	}

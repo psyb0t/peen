@@ -165,7 +165,7 @@ func TestChildWorkflowQuestionResumesHandlerAfterSQLiteReopen(t *testing.T) {
 		assert.Equal(t, question.Output.Wait.ID, result.Output.Wait.ID)
 		assert.Equal(t, question.Output.Wait.Deadline, result.Output.Wait.Deadline)
 		input.State = result.Output
-		input.Tool.Round.Execution.Context = result.Output.Outcome.Context
+		advanceWorkflowToolPhase(&input.Tool, &input.State)
 	}
 	assert.True(t, input.State.Wait.Answer.TimedOut)
 	page, err := store.ListSessionNotices(t.Context(),

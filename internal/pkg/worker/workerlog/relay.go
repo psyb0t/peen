@@ -11,8 +11,10 @@ package workerlog
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 
@@ -40,6 +42,10 @@ const (
 	// reasonUnstructuredOutput marks a relayed line the worker did not write
 	// as a JSON log record.
 	reasonUnstructuredOutput = "unstructured_worker_output"
+
+	// reasonRecordTooLong marks a worker line longer than maxRecordBytes,
+	// which is dropped.
+	reasonRecordTooLong = "worker_log_record_too_long"
 )
 
 // Relay reads a worker's output stream and re-emits each record through the
@@ -62,38 +68,78 @@ func Relay(
 	)
 	logger := ctxscope.GetLogger(ctx)
 
-	scanner := bufio.NewScanner(stream)
-	scanner.Buffer(make([]byte, 0, bufio.MaxScanTokenSize), maxRecordBytes)
+	reader := bufio.NewReaderSize(stream, maxRecordBytes)
 
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
-		}
+	for {
+		line, err := reader.ReadSlice('\n')
+		if errors.Is(err, bufio.ErrBufferFull) {
+			// The rest of an oversized line is skipped and reading goes on.
+			// Stopping here would leave the worker blocked on a full pipe.
+			logger.Warn("worker log record dropped",
+				"reason", reasonRecordTooLong,
+				"max_bytes", maxRecordBytes)
 
-		// Workers log JSON, so a line that is not a record is something else
-		// writing to the stream: a race report, a panic, or a subprocess. It
-		// is relayed as a warning so it cannot hide among info records.
-		level, message, attrs, ok := decodeRecord(line)
-		if !ok {
-			logger.Warn(
-				workerOutputMessage,
-				fieldWorkerOutput, string(line),
-				"reason", reasonUnstructuredOutput,
-			)
+			if err := discardLine(reader); err != nil {
+				endRelay(ctx, err)
+
+				return
+			}
 
 			continue
 		}
 
-		logger.LogAttrs(ctx, level, message, attrs...)
+		relayLine(ctx, bytes.TrimRight(line, "\r\n"))
+
+		if err != nil {
+			endRelay(ctx, err)
+
+			return
+		}
+	}
+}
+
+// endRelay records why the stream stopped. A closed stream is the normal end
+// of a worker, and a read error on a dying process is not itself a controller
+// fault, so neither is escalated beyond debug.
+func endRelay(ctx context.Context, err error) {
+	if !errors.Is(err, io.EOF) {
+		ctxscope.GetLogger(ctx).Debug("worker log relay ended", "err", err)
+	}
+}
+
+// discardLine reads past the end of the current line.
+func discardLine(reader *bufio.Reader) error {
+	for {
+		_, err := reader.ReadSlice('\n')
+		if !errors.Is(err, bufio.ErrBufferFull) {
+			return err //nolint:wrapcheck // The caller only ends on it.
+		}
+	}
+}
+
+// relayLine re-emits one worker line through the controller's logger.
+func relayLine(ctx context.Context, line []byte) {
+	if len(line) == 0 {
+		return
 	}
 
-	// A closed stream is the normal end of a worker, and a read error on a
-	// dying process is not itself a controller fault, so neither is escalated
-	// beyond debug.
-	if err := scanner.Err(); err != nil {
-		logger.Debug("worker log relay ended", "err", err)
+	logger := ctxscope.GetLogger(ctx)
+
+	// Workers log JSON, so a line that is not a record is something else
+	// writing to the stream: a race report, a panic, or a subprocess. It is
+	// relayed as a warning so it cannot hide among info records.
+	level, message, attrs, ok := decodeRecord(line)
+	if !ok {
+		logger.Warn(
+			workerOutputMessage,
+			fieldWorkerOutput, string(line),
+			"reason", reasonUnstructuredOutput,
+		)
+
+		return
 	}
+
+	logger.LogAttrs(ctx, level, message, attrs...)
 }
 
 // decodeRecord turns one JSON log line into the parts needed to re-emit it.

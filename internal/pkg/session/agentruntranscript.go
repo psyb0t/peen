@@ -178,6 +178,11 @@ func validateAgentRunMessageInput(input AgentRunMessageInput) error {
 	case models.MessageRoleUser,
 		models.MessageRoleAssistant,
 		models.MessageRoleTool:
+	case models.MessageRoleSystem:
+		return ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"child transcripts hold no system messages",
+		)
 	default:
 		return ctxerrors.Wrap(
 			commerr.ErrValidationFailed,

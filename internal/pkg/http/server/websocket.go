@@ -361,10 +361,15 @@ func (s *Server) reportWebSocketMessageFailure(
 	err error,
 ) {
 	wrapped := ctxerrors.Wrap(err, "run websocket agent message")
-	ctxscope.GetLogger(ctx).Error(
-		"websocket agent message failed",
-		"err", wrapped,
-	)
+	logger := ctxscope.GetLogger(ctx)
+
+	// A stopped turn is the outcome the client asked for, not a failure.
+	if errors.Is(err, commerr.ErrCancelled) {
+		logger.Info("websocket agent message stopped",
+			"reason", webSocketMessageStoppedReason)
+	} else {
+		logger.Error("websocket agent message failed", "err", wrapped)
+	}
 
 	failure := webSocketMessageFailureFor(err)
 	s.broadcastWebSocketFailure(

@@ -35,6 +35,11 @@ func (r *Runtime) ListSessionAgentRuns(
 		return nil, ctxerrors.Wrap(err, "list open agent run questions")
 	}
 
+	paused, err := r.pausedAgentRuns(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
 	pageLimit, err := messagePageValueToAPI(
 		stored.Limit,
 		"agent run page limit",
@@ -65,11 +70,61 @@ func (r *Runtime) ListSessionAgentRuns(
 
 		page.Agents = append(
 			page.Agents,
-			withOpenQuestion(converted, questions),
+			withPause(withOpenQuestion(converted, questions), paused),
 		)
 	}
 
 	return &page, nil
+}
+
+// pausedAgentRuns names the session's child runs whose work is paused. A run
+// stays stored as running while its execution is paused, so the run record
+// alone cannot tell.
+func (r *Runtime) pausedAgentRuns(
+	ctx context.Context,
+	sessionID uuid.UUID,
+) (map[uuid.UUID]bool, error) {
+	paused := map[uuid.UUID]bool{}
+
+	store, ok := r.store.(session.ExecutionStorage)
+	if !ok {
+		return paused, nil
+	}
+
+	options := session.SearchExecutionsOptions{
+		State: models.ExecutionStatePaused, Limit: executionReadPageLimit,
+	}
+
+	for {
+		page, err := store.SearchExecutions(ctx, sessionID, options)
+		if err != nil {
+			return nil, ctxerrors.Wrap(err, "list paused child executions")
+		}
+
+		for _, execution := range page.Items {
+			if execution.AgentRunID != nil {
+				paused[*execution.AgentRunID] = true
+			}
+		}
+
+		if !page.HasMore {
+			return paused, nil
+		}
+
+		options.Offset += len(page.Items)
+	}
+}
+
+// withPause marks a running run whose work is paused.
+func withPause(run api.AgentRun, paused map[uuid.UUID]bool) api.AgentRun {
+	if !paused[run.AgentRunId] || run.State != api.AgentRunStateRunning {
+		return run
+	}
+
+	isPaused := true
+	run.Paused = &isPaused
+
+	return run
 }
 
 // listAgentRunsOptionsFromAPI maps the list query. waiting is a state a
@@ -199,7 +254,12 @@ func (r *Runtime) GetSessionAgentRun(
 		return nil, ctxerrors.Wrap(err, "list open agent run questions")
 	}
 
-	converted = withOpenQuestion(converted, questions)
+	paused, err := r.pausedAgentRuns(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	converted = withPause(withOpenQuestion(converted, questions), paused)
 
 	return &converted, nil
 }

@@ -309,6 +309,80 @@ func TestExecutionWorkflowSavedPhasesSurviveReopen(t *testing.T) {
 	assert.Equal(t, 2, driver.Calls())
 }
 
+func TestWorkflowActivityClaimAnswersPausedAfterAPauseCancelsIt(
+	t *testing.T,
+) {
+	t.Parallel()
+	driver := elelemtest.NewScriptedDriver(elelemtest.Text(runtimeToolFinalText))
+	fixture := newExecutionLoopFixture(t, driver, true)
+	require.NoError(t, fixture.engine.pause(t.Context(), fixture.input.SessionID,
+		fixture.input.ExecutionID, "retain work"))
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	result, err := fixture.engine.modelRound(cancelled,
+		workflowRoundInput{Execution: fixture.input})
+	require.NoError(t, err)
+	assert.Equal(t, session.ActivityDecisionPaused, result.Decision)
+	assert.Equal(t, 0, driver.Calls())
+}
+
+func TestExecutionWorkflowContinuesAfterAToolPhaseFails(t *testing.T) {
+	t.Parallel()
+	arguments := runtimeToolArguments(t, runtimeToolFileName)
+	driver := elelemtest.NewScriptedDriver(
+		elelemtest.Turn{Deltas: []elelem.Delta{
+			{ToolCall: &elelem.ToolCallDelta{
+				Index: 0, ID: "first", Name: toolNameReadFile,
+				Arguments: arguments,
+			}},
+			{
+				ToolCall: &elelem.ToolCallDelta{
+					Index: 1, ID: "second", Name: toolNameReadFile,
+					Arguments: arguments,
+				},
+				FinishReason: elelem.FinishReasonToolCalls,
+			},
+		}},
+		elelemtest.Text(runtimeToolFinalText),
+	)
+	fixture := newExecutionLoopFixture(t, driver, true)
+	writeRuntimeFile(t, filepath.Join(fixture.base.workspace,
+		runtimeToolFileName), runtimeToolFileBody)
+	runPhase := fixture.engine.options.ToolPhase
+	fixture.engine.options.ToolPhase = func(ctx context.Context,
+		input workflowToolPhaseInput,
+	) (workflowToolPhaseState, error) {
+		if input.Phase == workflowToolPhasePre && input.Tool.Index == 0 {
+			return input.State, ctxerrors.Wrap(commerr.ErrConflict,
+				"fixture cannot restore the tool phase")
+		}
+
+		return runPhase(ctx, input)
+	}
+	instance := fixture.start(t)
+	result, err := client.GetWorkflowResult[workflowRoundResult](t.Context(),
+		fixture.api, instance, workflowTestResultTimeout)
+	require.NoError(t, err)
+	assert.Equal(t, runtimeToolFinalText, result.Text)
+	requests := driver.Requests()
+	require.Len(t, requests, 2)
+	results := map[string]elelem.Message{}
+	for _, message := range requests[1].Messages {
+		if message.Role == elelem.RoleTool {
+			results[message.ToolCallID] = message
+		}
+	}
+	require.Len(t, results, 2)
+	assert.Equal(t, failedToolResult, results["first"].Text())
+	assert.Contains(t, results["second"].Text(), "alpha")
+	assert.True(t, results["first"].ToolResultIsError)
+	assert.False(t, results["second"].ToolResultIsError)
+	execution, err := fixture.base.store.GetExecution(t.Context(),
+		fixture.input.SessionID, fixture.input.ExecutionID)
+	require.NoError(t, err)
+	assert.Equal(t, models.ExecutionStateCompleted, execution.State)
+}
+
 func TestExecutionWorkflowToolPanicRequiresReconciliation(t *testing.T) {
 	t.Parallel()
 	fixture := newExecutionLoopFixture(t, elelemtest.NewScriptedDriver(), true)

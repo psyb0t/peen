@@ -2,6 +2,8 @@ package agent
 
 import (
 	"encoding/json"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/psyb0t/ctxerrors/commerr"
@@ -70,6 +72,63 @@ func TestWorkflowModelRequestPreservesActiveInjections(t *testing.T) {
 	require.Len(t, requests, 1)
 	require.Len(t, requests[0].Messages, 3)
 	assert.Equal(t, "active hook instructions", requests[0].Messages[2].Text())
+}
+
+func TestWorkflowModelRoundReleasesPlanAfterDroppingHistory(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name             string
+		maxContextTokens int
+		wantPlan         bool
+		wantSent         int
+	}{
+		{
+			name: "history that fits keeps the plan", maxContextTokens: 1_000_000,
+			wantPlan: true, wantSent: 4,
+		},
+		{
+			name: "dropped history releases the plan", maxContextTokens: 2_000,
+			wantPlan: false, wantSent: 2,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			driver := elelemtest.NewScriptedDriver(elelemtest.Text("done"))
+			fixture := newExecutionLoopFixture(t, driver, true)
+			source, messages := workflowCompactionStateFixture(t)
+			detail := elelem.Text(strings.Repeat("completed work detail ", 2_000))
+			messages[1].Content, messages[2].Content = detail, detail
+			var conversation workflowConversation
+			require.NoError(t, json.Unmarshal(fixture.input.Context,
+				&conversation))
+			conversation.SystemPrompt = messages[0].Text()
+			conversation.Messages = slices.Concat(messages[1:], []elelem.Message{{
+				Role: elelem.RoleUser, Content: elelem.Text("current request"),
+			}})
+			conversation.Compaction = snapshotWorkflowCompaction(source)
+			conversation.Tools = nil
+			conversation.MaxContextTokens = tc.maxContextTokens
+			conversation.OutputReserveTokens = 0
+			encoded, err := json.Marshal(conversation)
+			require.NoError(t, err)
+			fixture.input.Context = encoded
+			request, saved, err := workflowModelRequest(
+				fixture.base.runtime.models,
+				workflowRoundInput{Execution: fixture.input})
+			require.NoError(t, err)
+			result, err := workflowRunModelRequest(t.Context(), request, saved)
+			require.NoError(t, err)
+			requests := driver.Requests()
+			require.Len(t, requests, 1)
+			assert.Len(t, requests[0].Messages, tc.wantSent)
+			var next workflowConversation
+			require.NoError(t, json.Unmarshal(result.Context, &next))
+			assert.Equal(t, tc.wantPlan, next.Compaction != nil)
+			require.NoError(t, validateWorkflowCompactionConversation(next))
+		})
+	}
 }
 
 func TestWorkflowMergeRoundRejectsMismatchedResults(t *testing.T) {

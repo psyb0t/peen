@@ -478,9 +478,24 @@ func TestStoreSnapshotsRecoveryAndCancellationIdentity(t *testing.T) {
 		ListMessagesOptions{Limit: 10, Order: PageOrderAscending},
 	)
 	require.NoError(t, err)
-	require.Len(t, messages.Items, 3)
+
+	// Each of the three unfinished turns ends with its system message.
+	roles := make([]models.MessageRole, 0, len(messages.Items))
+	for _, message := range messages.Items {
+		roles = append(roles, message.Role)
+	}
+
+	assert.Equal(t, []models.MessageRole{
+		models.MessageRoleUser,
+		models.MessageRoleSystem,
+		models.MessageRoleAssistant,
+		models.MessageRoleSystem,
+		models.MessageRoleUser,
+		models.MessageRoleSystem,
+	}, roles)
 	assert.Equal(t, testWorkspace, messages.Items[0].Workspace)
-	assert.True(t, messages.Items[2].Incomplete)
+	assert.True(t, messages.Items[4].Incomplete)
+	assert.False(t, messages.Items[5].Incomplete)
 	assert.Equal(t, defaultToolCallsJSON, messages.Items[0].ToolCallsJSON)
 
 	turn := store.query.Turn
@@ -500,7 +515,9 @@ func TestStoreSnapshotsRecoveryAndCancellationIdentity(t *testing.T) {
 	assert.JSONEq(t, `{}`, persistedEvent.PayloadJSON)
 }
 
-func TestStoreRecoverInterruptedExcludedFromCompletedHistory(t *testing.T) {
+func TestStoreRecoverInterruptedReplaysTheTurnInCompletedHistory(
+	t *testing.T,
+) {
 	ctx := context.Background()
 	store, handle := openTestStore(t)
 	t.Cleanup(func() { require.NoError(t, handle.Close()) })
@@ -523,15 +540,17 @@ func TestStoreRecoverInterruptedExcludedFromCompletedHistory(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, recovered)
 
-	// Failed and cancelled turns retain their events and an incomplete
-	// checkpoint but are excluded from later model context: only the
-	// previously completed turn's message survives into CompletedHistory.
+	// An interrupted turn stays in later model context as it happened,
+	// followed by the system message that says it was interrupted.
 	history, err := store.CompletedHistory(ctx, session.ID)
 	require.NoError(t, err)
-	assert.Equal(t,
-		[]string{"completed before interruption"},
-		messageContents(history.Messages),
-	)
+	require.Len(t, history.Messages, 3)
+	assert.Equal(t, "completed before interruption",
+		history.Messages[0].Content)
+	assert.Equal(t, "interrupted turn message", history.Messages[1].Content)
+	assert.Equal(t, models.MessageRoleSystem, history.Messages[2].Role)
+	assert.Contains(t, history.Messages[2].Content,
+		turnEndInterruptedOutcome)
 
 	allMessages, err := store.ListMessages(
 		ctx,
@@ -539,11 +558,12 @@ func TestStoreRecoverInterruptedExcludedFromCompletedHistory(t *testing.T) {
 		ListMessagesOptions{Limit: 10, Order: PageOrderAscending},
 	)
 	require.NoError(t, err)
-	require.Len(t, allMessages.Items, 2)
+	require.Len(t, allMessages.Items, 3)
 	assert.False(t, allMessages.Items[0].Incomplete)
 	assert.Equal(t, "completed before interruption", allMessages.Items[0].Content)
 	assert.True(t, allMessages.Items[1].Incomplete)
 	assert.Equal(t, "interrupted turn message", allMessages.Items[1].Content)
+	assert.False(t, allMessages.Items[2].Incomplete)
 }
 
 func TestStoreRejectsConcurrentLease(t *testing.T) {
@@ -652,7 +672,14 @@ func TestStoreRejectsInvalidTranscriptJSON(t *testing.T) {
 				ListMessagesOptions{Limit: 100, Order: PageOrderAscending},
 			)
 			require.NoError(t, err)
-			assert.Equal(t, messageContents(before.Items), messageContents(after.Items))
+
+			// The refused checkpoint stored nothing; the only new row is the
+			// system message the failed turn ends with.
+			require.Len(t, after.Items, len(before.Items)+1)
+			assert.Equal(t, messageContents(before.Items),
+				messageContents(after.Items[:len(before.Items)]))
+			assert.Equal(t, models.MessageRoleSystem,
+				after.Items[len(after.Items)-1].Role)
 		})
 	}
 }

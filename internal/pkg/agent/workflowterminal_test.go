@@ -57,7 +57,7 @@ func TestWorkflowTerminalHookCheckpointReusesCommittedEffect(t *testing.T) {
 		page.Items[0].ReplayPolicy)
 }
 
-func TestWorkflowTerminalHookInterruptionRequiresInspection(t *testing.T) {
+func TestWorkflowTerminalHookFailureKeepsTheTurnResult(t *testing.T) {
 	t.Parallel()
 	fixture := newExecutionLoopFixture(t, elelemtest.NewScriptedDriver(), true)
 	var effects atomic.Int64
@@ -74,7 +74,10 @@ func TestWorkflowTerminalHookInterruptionRequiresInspection(t *testing.T) {
 	assert.Equal(t, session.ActivityDecisionReconcile, first.Decision)
 	repeated, err := fixture.engine.terminalHooks(t.Context(), input)
 	require.NoError(t, err)
-	assert.Equal(t, session.ActivityDecisionReconcile, repeated.Decision)
+	assert.Equal(t, session.ActivityDecisionReuse, repeated.Decision)
+	assert.Equal(t, input.Result.Result.Text, repeated.Output.Result.Result.Text)
+	assert.Equal(t, input.Result.Finish.State,
+		repeated.Output.Result.Finish.State)
 	assert.Equal(t, int64(1), effects.Load())
 }
 

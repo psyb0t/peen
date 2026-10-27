@@ -235,7 +235,7 @@ type IMessageDo interface {
 //	INNER JOIN turns ON turns.session_id = m.session_id
 //	  AND turns.id = m.turn_id
 //	WHERE m.session_id = @sessionID
-//	  AND turns.state = 'completed'
+//	  AND turns.state <> 'running'
 //	  AND m.sequence >= @fromSequence
 //	  AND m.sequence <= @toSequence
 func (m messageDo) CountCompletedHistoryRange(sessionID uuid.UUID, fromSequence int64, toSequence int64) (result int64, err error) {
@@ -245,7 +245,7 @@ func (m messageDo) CountCompletedHistoryRange(sessionID uuid.UUID, fromSequence 
 	params = append(params, sessionID)
 	params = append(params, fromSequence)
 	params = append(params, toSequence)
-	generateSQL.WriteString("SELECT COUNT(*) FROM messages AS m INNER JOIN turns ON turns.session_id = m.session_id AND turns.id = m.turn_id WHERE m.session_id = ? AND turns.state = 'completed' AND m.sequence >= ? AND m.sequence <= ? ")
+	generateSQL.WriteString("SELECT COUNT(*) FROM messages AS m INNER JOIN turns ON turns.session_id = m.session_id AND turns.id = m.turn_id WHERE m.session_id = ? AND turns.state <> 'running' AND m.sequence >= ? AND m.sequence <= ? ")
 
 	var executeSQL *gorm.DB
 	executeSQL = m.UnderlyingDB().Raw(generateSQL.String(), params...).Take(&result) // ignore_security_alert
@@ -260,7 +260,7 @@ func (m messageDo) CountCompletedHistoryRange(sessionID uuid.UUID, fromSequence 
 //	INNER JOIN turns ON turns.session_id = m.session_id
 //	  AND turns.id = m.turn_id
 //	WHERE m.session_id = @sessionID
-//	  AND turns.state = 'completed'
+//	  AND turns.state <> 'running'
 //	  AND m.sequence >= @fromSequence
 //	  AND m.sequence <= @toSequence
 //	ORDER BY m.sequence ASC, m.id ASC
@@ -271,7 +271,7 @@ func (m messageDo) CompletedHistoryRange(sessionID uuid.UUID, fromSequence int64
 	params = append(params, sessionID)
 	params = append(params, fromSequence)
 	params = append(params, toSequence)
-	generateSQL.WriteString("SELECT m.* FROM messages AS m INNER JOIN turns ON turns.session_id = m.session_id AND turns.id = m.turn_id WHERE m.session_id = ? AND turns.state = 'completed' AND m.sequence >= ? AND m.sequence <= ? ORDER BY m.sequence ASC, m.id ASC ")
+	generateSQL.WriteString("SELECT m.* FROM messages AS m INNER JOIN turns ON turns.session_id = m.session_id AND turns.id = m.turn_id WHERE m.session_id = ? AND turns.state <> 'running' AND m.sequence >= ? AND m.sequence <= ? ORDER BY m.sequence ASC, m.id ASC ")
 
 	var executeSQL *gorm.DB
 	executeSQL = m.UnderlyingDB().Raw(generateSQL.String(), params...).Find(&result) // ignore_security_alert
@@ -286,7 +286,7 @@ func (m messageDo) CompletedHistoryRange(sessionID uuid.UUID, fromSequence int64
 //	INNER JOIN turns ON turns.session_id = m.session_id
 //	  AND turns.id = m.turn_id
 //	WHERE m.session_id = @sessionID
-//	  AND turns.state = 'completed'
+//	  AND turns.state <> 'running'
 //	  AND m.sequence > @afterSequence
 //	  AND m.sequence < @beforeSequence
 func (m messageDo) CountCompletedHistoryBefore(sessionID uuid.UUID, afterSequence int64, beforeSequence int64) (result int64, err error) {
@@ -296,7 +296,7 @@ func (m messageDo) CountCompletedHistoryBefore(sessionID uuid.UUID, afterSequenc
 	params = append(params, sessionID)
 	params = append(params, afterSequence)
 	params = append(params, beforeSequence)
-	generateSQL.WriteString("SELECT COUNT(*) FROM messages AS m INNER JOIN turns ON turns.session_id = m.session_id AND turns.id = m.turn_id WHERE m.session_id = ? AND turns.state = 'completed' AND m.sequence > ? AND m.sequence < ? ")
+	generateSQL.WriteString("SELECT COUNT(*) FROM messages AS m INNER JOIN turns ON turns.session_id = m.session_id AND turns.id = m.turn_id WHERE m.session_id = ? AND turns.state <> 'running' AND m.sequence > ? AND m.sequence < ? ")
 
 	var executeSQL *gorm.DB
 	executeSQL = m.UnderlyingDB().Raw(generateSQL.String(), params...).Take(&result) // ignore_security_alert
@@ -349,7 +349,7 @@ func (m messageDo) LatestDirectoryChange(sessionID uuid.UUID) (result []*models.
 //		ON turns.session_id = m.session_id
 //		AND turns.id = m.turn_id
 //	WHERE m.session_id = @sessionID
-//	  AND turns.state = 'completed'
+//	  AND turns.state <> 'running'
 //	  AND m.sequence > @afterSequence
 //	ORDER BY m.sequence ASC, m.id ASC
 func (m messageDo) CompletedHistory(sessionID uuid.UUID, afterSequence int64) (result []*models.Message, err error) {
@@ -358,7 +358,7 @@ func (m messageDo) CompletedHistory(sessionID uuid.UUID, afterSequence int64) (r
 	var generateSQL strings.Builder
 	params = append(params, sessionID)
 	params = append(params, afterSequence)
-	generateSQL.WriteString("SELECT m.* FROM messages AS m INNER JOIN turns ON turns.session_id = m.session_id AND turns.id = m.turn_id WHERE m.session_id = ? AND turns.state = 'completed' AND m.sequence > ? ORDER BY m.sequence ASC, m.id ASC ")
+	generateSQL.WriteString("SELECT m.* FROM messages AS m INNER JOIN turns ON turns.session_id = m.session_id AND turns.id = m.turn_id WHERE m.session_id = ? AND turns.state <> 'running' AND m.sequence > ? ORDER BY m.sequence ASC, m.id ASC ")
 
 	var executeSQL *gorm.DB
 	executeSQL = m.UnderlyingDB().Raw(generateSQL.String(), params...).Find(&result) // ignore_security_alert

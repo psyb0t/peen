@@ -6,8 +6,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/go-workflows/backend"
+	"github.com/psyb0t/go-workflows/client"
 	"github.com/psyb0t/go-workflows/workflow"
 	"github.com/psyb0t/peen/internal/pkg/session"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -82,4 +85,41 @@ func TestWorkflowControllerRejectsIncompleteRequests(t *testing.T) {
 			require.ErrorIs(t, err, tc.wantErr)
 		})
 	}
+}
+
+func TestWorkflowControllerReleasedClaimsLeaveNewTasksUnlocked(t *testing.T) {
+	t.Parallel()
+	fixture := newWorkflowRPCFixture(t)
+	ctx := t.Context()
+	queue := workflow.Queue(fixture.sessionID.String())
+	queues := []workflow.Queue{queue}
+
+	type claim struct {
+		task *backend.WorkflowTask
+		err  error
+	}
+	waiting := make(chan claim, 1)
+	go func() {
+		task, err := fixture.remote.GetWorkflowTask(ctx, queues)
+		waiting <- claim{task: task, err: err}
+	}()
+	require.NoError(t, fixture.remote.ReleaseClaims(ctx))
+	instance, err := client.New(fixture.storage).CreateWorkflowInstance(ctx,
+		client.WorkflowInstanceOptions{
+			InstanceID: WorkflowInstanceID(fixture.sessionID, uuid.New()),
+			Queue:      queue,
+		}, rpcWorkflow,
+	)
+	require.NoError(t, err)
+
+	released := <-waiting
+	require.NoError(t, released.err)
+	assert.Nil(t, released.task)
+	late, err := fixture.remote.GetActivityTask(ctx, queues)
+	require.NoError(t, err)
+	assert.Nil(t, late)
+	claimed, err := fixture.storage.GetWorkflowTask(ctx, queues)
+	require.NoError(t, err)
+	require.NotNil(t, claimed)
+	assert.Equal(t, instance, claimed.WorkflowInstance)
 }

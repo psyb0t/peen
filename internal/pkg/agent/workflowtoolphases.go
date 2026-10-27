@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -80,19 +81,34 @@ func (e *workflowExecution) toolPhase(
 			output.LastPhase = input.Phase
 			output.Finished = output.Finished || output.Outcome.Failure != ""
 
-			if len(output.Outcome.Context) == 0 {
-				output.Outcome.Context = input.Tool.Round.Execution.Context
+			if bytes.Equal(output.Outcome.Context,
+				input.Tool.Round.Execution.Context) {
+				output.Outcome.Context = nil
 			}
 
 			return output, nil
 		}, func(output workflowToolPhaseState) json.RawMessage {
-			return output.Outcome.Context
+			return workflowToolPhaseTurnContext(input, output)
 		})
 	if err != nil {
 		return result, ctxerrors.Wrap(err, "checkpoint tool phase")
 	}
 
 	return e.deliverToolPhase(ctx, input, result)
+}
+
+// workflowToolPhaseTurnContext returns the turn context after a phase. A
+// phase output carries a context only when the phase changed it, so each
+// activity payload holds the context once.
+func workflowToolPhaseTurnContext(
+	input workflowToolPhaseInput,
+	output workflowToolPhaseState,
+) json.RawMessage {
+	if len(output.Outcome.Context) != 0 {
+		return output.Outcome.Context
+	}
+
+	return input.Tool.Round.Execution.Context
 }
 
 func (input workflowToolPhaseInput) validate() error {

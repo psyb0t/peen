@@ -235,7 +235,8 @@ func TestRootWorkflowToolReusesSavedReadAfterDatabaseReopen(t *testing.T) {
 	assert.Equal(t, runtimeToolFileBody, read.Content)
 	assert.Equal(t, 2, driver.Calls())
 	var contextAfter workflowConversation
-	require.NoError(t, json.Unmarshal(reused.Output.Outcome.Context, &contextAfter))
+	require.NoError(t, json.Unmarshal(
+		workflowToolPhaseTurnContext(input, reused.Output), &contextAfter))
 	require.NotNil(t, contextAfter.Runtime)
 	savedHarness, err := harness.RestoreCheckpoint(contextAfter.Runtime.Harness)
 	require.NoError(t, err)

@@ -49,36 +49,25 @@ func TestOpeningHookCheckpointReusesCompletedEffects(t *testing.T) {
 	}
 }
 
-func TestOpeningHookInterruptionRequiresInspectedResolution(t *testing.T) {
+func TestOpeningHookFailureSettlesAsAFailedHook(t *testing.T) {
 	t.Parallel()
 	fixture := newExecutionLoopFixture(t, elelemtest.NewScriptedDriver(), true)
 	calls := 0
-	fixture.engine.options.OpeningHook = func(_ context.Context, input workflowOpeningInput) (workflowOpeningResult, error) {
+	fixture.engine.options.OpeningHook = func(context.Context, workflowOpeningInput) (workflowOpeningResult, error) {
 		calls++
-		if calls == 1 {
-			return workflowOpeningResult{}, ctxerrors.Wrap(context.Canceled, "interrupt opening effect")
-		}
 
-		return workflowOpeningResult{Context: input.Execution.Context}, nil
+		return workflowOpeningResult{}, ctxerrors.Wrap(context.Canceled, "interrupt opening effect")
 	}
 	input := workflowOpeningInput{Execution: fixture.input, Event: harness.HookEventTurnStart}
-	for range 2 {
-		result, err := fixture.engine.openingHook(t.Context(), input)
-		require.NoError(t, err)
-		assert.Equal(t, session.ActivityDecisionReconcile, result.Decision)
-	}
+	first, err := fixture.engine.openingHook(t.Context(), input)
+	require.NoError(t, err)
+	assert.Equal(t, session.ActivityDecisionReconcile, first.Decision)
+	settled, err := fixture.engine.openingHook(t.Context(), input)
+	require.NoError(t, err)
+	assert.Equal(t, session.ActivityDecisionReuse, settled.Decision)
+	assert.Contains(t, settled.Output.Failure, string(harness.HookEventTurnStart))
+	assert.JSONEq(t, string(fixture.input.Context), string(settled.Output.Context))
 	assert.Equal(t, 1, calls)
-	page, err := fixture.base.store.ListExecutionActivities(t.Context(), fixture.input.SessionID, fixture.input.ExecutionID, session.ListEventsOptions{})
-	require.NoError(t, err)
-	require.Len(t, page.Items, 1)
-	_, err = fixture.base.store.ResolveExecutionActivity(t.Context(), fixture.input.SessionID, page.Items[0].ID, session.ResolveActivityInput{
-		Attempt: page.Items[0].Attempt, Resolution: session.ActivityResolutionRetry, Evidence: "fixture inspected the effect and permits retry",
-	})
-	require.NoError(t, err)
-	result, err := fixture.engine.openingHook(t.Context(), input)
-	require.NoError(t, err)
-	assert.Equal(t, session.ActivityDecisionExecute, result.Decision)
-	assert.Equal(t, 2, calls)
 }
 
 func TestOpeningHookRefusesOtherEvents(t *testing.T) {

@@ -139,6 +139,11 @@ func nextSequence(latest func() (int64, error)) (int64, error) {
 }
 
 // AppendAgentRunEvent records a child event before it reaches a live client.
+//
+// Once the run has ended it accepts only a terminal event, and refuses any
+// other with ErrAgentRunFinished joined with commerr.ErrConflict. A stream
+// still delivering deltas after a cancellation would otherwise land after the
+// terminal event, which restore requires to close the run's events.
 func (s *Store) AppendAgentRunEvent(
 	ctx context.Context,
 	sessionID uuid.UUID,
@@ -156,7 +161,8 @@ func (s *Store) AppendAgentRunEvent(
 		ctx context.Context,
 		tx *repositories.Query,
 	) error {
-		run, err := s.findAgentRunWithQuery(ctx, tx, sessionID, agentRunID)
+		run, err := s.findAgentRunAcceptingEvent(ctx, tx, sessionID,
+			agentRunID, input.EventType)
 		if err != nil {
 			return err
 		}
@@ -830,6 +836,38 @@ func normalizeAgentRunEventListOptions(
 	}
 
 	return options, nil
+}
+
+// findAgentRunAcceptingEvent reads the run an event belongs to, and refuses a
+// non-terminal event for a run that has ended.
+func (s *Store) findAgentRunAcceptingEvent(
+	ctx context.Context,
+	query *repositories.Query,
+	sessionID uuid.UUID,
+	agentRunID uuid.UUID,
+	eventType string,
+) (*models.AgentRun, error) {
+	run, err := s.findAgentRunWithQuery(ctx, query, sessionID, agentRunID)
+	if err != nil {
+		return nil, err
+	}
+
+	if run.EndedAt != nil && !IsAgentRunTerminalEventType(eventType) {
+		return nil, ctxerrors.Wrap(
+			errors.Join(commerr.ErrConflict, ErrAgentRunFinished),
+			"child agent run has ended",
+		)
+	}
+
+	return run, nil
+}
+
+// IsAgentRunTerminalEventType reports whether an event type ends a child
+// run's event stream. It is the only kind a run accepts after it has ended.
+func IsAgentRunTerminalEventType(eventType string) bool {
+	return eventType == EventTypeAgentRunCompleted ||
+		eventType == EventTypeAgentRunFailed ||
+		eventType == EventTypeAgentRunCancelled
 }
 
 func isAgentRunState(state models.AgentRunState) bool {

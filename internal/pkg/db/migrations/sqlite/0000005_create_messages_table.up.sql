@@ -7,7 +7,7 @@ CREATE TABLE messages (
     turn_id TEXT NOT NULL,
     sequence INTEGER NOT NULL CHECK (sequence > 0),
     workspace TEXT NOT NULL,
-    role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'tool')),
+    role TEXT NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool')),
     content TEXT NOT NULL,
     model_id TEXT NOT NULL DEFAULT '',
     thinking TEXT NOT NULL DEFAULT '',

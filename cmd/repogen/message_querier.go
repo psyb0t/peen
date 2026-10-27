@@ -5,6 +5,11 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 )
 
+// MessageQuerier holds the message queries the typed builder cannot express.
+// Completed history is every message of a turn that has ended, whether it
+// completed, failed, was stopped, or was interrupted, so the next turn
+// replays what an unfinished turn did together with the system message Peen
+// added when it ended.
 type MessageQuerier interface {
 	/*
 		SELECT COUNT(*)
@@ -12,7 +17,7 @@ type MessageQuerier interface {
 		INNER JOIN turns ON turns.session_id = m.session_id
 		  AND turns.id = m.turn_id
 		WHERE m.session_id = @sessionID
-		  AND turns.state = 'completed'
+		  AND turns.state <> 'running'
 		  AND m.sequence >= @fromSequence
 		  AND m.sequence <= @toSequence
 	*/
@@ -27,7 +32,7 @@ type MessageQuerier interface {
 		INNER JOIN turns ON turns.session_id = m.session_id
 		  AND turns.id = m.turn_id
 		WHERE m.session_id = @sessionID
-		  AND turns.state = 'completed'
+		  AND turns.state <> 'running'
 		  AND m.sequence >= @fromSequence
 		  AND m.sequence <= @toSequence
 		ORDER BY m.sequence ASC, m.id ASC
@@ -43,7 +48,7 @@ type MessageQuerier interface {
 		INNER JOIN turns ON turns.session_id = m.session_id
 		  AND turns.id = m.turn_id
 		WHERE m.session_id = @sessionID
-		  AND turns.state = 'completed'
+		  AND turns.state <> 'running'
 		  AND m.sequence > @afterSequence
 		  AND m.sequence < @beforeSequence
 	*/
@@ -85,7 +90,7 @@ type MessageQuerier interface {
 			ON turns.session_id = m.session_id
 			AND turns.id = m.turn_id
 		WHERE m.session_id = @sessionID
-		  AND turns.state = 'completed'
+		  AND turns.state <> 'running'
 		  AND m.sequence > @afterSequence
 		ORDER BY m.sequence ASC, m.id ASC
 	*/

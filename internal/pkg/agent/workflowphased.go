@@ -131,10 +131,27 @@ func runPhasedWorkflowTool(
 				"continue phased workflow tool")
 		}
 
-		tool.Round.Execution.Context = state.Outcome.Context
+		advanceWorkflowToolPhase(&tool, &state)
 	}
 
+	state.Outcome.Context = tool.Round.Execution.Context
+
 	return state.Outcome, nil
+}
+
+// advanceWorkflowToolPhase moves a context a phase changed into the tool
+// input. The next phase reads the current context from there, so the state
+// it receives does not carry a second copy.
+func advanceWorkflowToolPhase(
+	tool *workflowToolInput,
+	state *workflowToolPhaseState,
+) {
+	if len(state.Outcome.Context) == 0 {
+		return
+	}
+
+	tool.Round.Execution.Context = state.Outcome.Context
+	state.Outcome.Context = nil
 }
 
 func runPhasedWorkflowTools(

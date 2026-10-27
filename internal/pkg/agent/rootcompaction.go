@@ -28,7 +28,7 @@ func (r *Runtime) workflowRootCompactRound(
 			"validate root compaction activity lease")
 	}
 
-	units, err := selectWorkflowCompactionPrefix(r.models, input)
+	units, room, err := selectWorkflowCompactionPrefix(r.models, input)
 	if errors.Is(err, ErrCompactionUnavailable) {
 		logNothingToSummarize(ctx, err)
 
@@ -59,6 +59,7 @@ func (r *Runtime) workflowRootCompactRound(
 	}
 
 	built.workflowInput = &input
+	built.room = room
 
 	summary, err := built.summarize(ctx, built.renderTranscript(
 		workflowCompactionMessages(conversation), units))
@@ -85,6 +86,8 @@ func (r *Runtime) workflowCompactedResult(
 			ErrCompactionEmptySummary, "summarizer returned no summary")
 	}
 
+	outcome := built.summaryOutcome(units, summary)
+
 	lease, err := rootCompactionLease(ctx)
 	if err != nil {
 		return workflowCompactionResult{}, ctxerrors.Wrap(err,
@@ -102,6 +105,7 @@ func (r *Runtime) workflowCompactedResult(
 		ID: compaction.ID, FromMessageID: compaction.FromMessageID,
 		FromSequence:       compaction.FromSequence,
 		SourceMessageCount: compaction.SourceMessageCount,
+		SummaryTokens:      compaction.SummaryTokenCount,
 	}
 
 	conversation.Compaction = snapshotWorkflowCompaction(built)
@@ -121,6 +125,8 @@ func (r *Runtime) workflowCompactedResult(
 		return workflowCompactionResult{}, ctxerrors.Wrap(err,
 			"encode root compaction result")
 	}
+
+	outcome.log(ctx)
 
 	return workflowCompactionResult{
 		Context:    encoded,

@@ -17,7 +17,6 @@ import (
 	"github.com/psyb0t/go-workflows/workflow"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
-	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -120,12 +119,15 @@ func TestWorkflowRootHandoffContinuesAfterCurrentTurn(t *testing.T) {
 	assert.EqualValues(t, 4, driver.calls.Load())
 	requests := driver.Requests()
 	require.Len(t, requests, 3)
-	// The current turn reads the stopped turn's notice after its message.
+	// The current turn reads the stopped turn in its history, ending with
+	// the system message Peen added when it stopped, then its own message.
 	opening := requests[0].Messages
-	require.GreaterOrEqual(t, len(opening), 2)
-	assert.Equal(t, "perform current work", opening[len(opening)-2].Text())
-	stopped := renderedSessionEvent(t, opening[len(opening)-1].Text())
-	assert.Equal(t, events.TypeTurnCancelled, stopped.Type)
+	require.GreaterOrEqual(t, len(opening), 3)
+	assert.Equal(t, "perform current work", opening[len(opening)-1].Text())
+	stopped := opening[len(opening)-2]
+	assert.Equal(t, elelem.RoleSystem, stopped.Role)
+	assert.Contains(t, stopped.Text(), "The user stopped it.")
+	assert.Equal(t, "continue original work", opening[len(opening)-3].Text())
 	assert.Equal(t, "continue original work", requests[2].Messages[len(requests[2].Messages)-1].Text())
 }
 

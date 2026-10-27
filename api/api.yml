@@ -1225,7 +1225,11 @@ components:
           minimum: 1
         role:
           type: string
-          enum: [user, assistant, tool]
+          enum: [system, user, assistant, tool]
+          description: >-
+            `system` is a notice Peen added to the conversation, such as how the
+            previous turn ended and what it was asked. The model receives it as
+            a system message.
         content:
           type: string
         workspace:
@@ -2435,6 +2439,11 @@ components:
           description: >-
             True while the run is running and waits for an answer to the
             question it asked.
+          type: boolean
+        paused:
+          description: >-
+            True while the run is running but its work is paused by a Stop, a
+            crash, or a failure. A message to the run resumes it.
           type: boolean
         question:
           description: The question a waiting run asked. Absent otherwise.

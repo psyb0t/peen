@@ -181,6 +181,8 @@ func toMessageToolCalls(calls []api.MessageToolCall) []MessageToolCall {
 
 func toMessageRole(role api.MessageRole) (MessageRole, error) {
 	switch role {
+	case api.MessageRoleSystem:
+		return MessageRoleSystem, nil
 	case api.MessageRoleUser:
 		return MessageRoleUser, nil
 	case api.MessageRoleAssistant:

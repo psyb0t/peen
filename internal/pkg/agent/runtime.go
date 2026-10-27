@@ -1210,7 +1210,7 @@ func (r *Runtime) openPromptWithEvents(
 		return opening, nil
 	}
 
-	opening.pendingEvents = renderSessionEvents(opening.pendingBatch)
+	opening.pendingEvents = renderModelEvents(opening.pendingBatch)
 
 	return opening, nil
 }
@@ -1391,6 +1391,14 @@ func newSkillInjectedEvent(
 	}, nil
 }
 
+// turnStartContent is what a turn opens with, before any model call.
+type turnStartContent struct {
+	prompt           string
+	isPromptInjected bool
+	skills           []skillMessage
+	pendingEvents    string
+}
+
 // turnStartMessages builds the messages a turn opens with, in the order the
 // prompt hands them to the model: the prompt that started the turn exactly as
 // it was given, then one injected row per skill message that follows it, then
@@ -1399,32 +1407,29 @@ func newSkillInjectedEvent(
 // instructions rather than anything a person typed, so that prompt is stored
 // as injected too.
 func turnStartMessages(
-	pendingEvents string,
+	content turnStartContent,
 	workspace string,
-	prompt string,
-	isPromptInjected bool,
-	skills []skillMessage,
 ) []session.MessageInput {
 	messages := make(
 		[]session.MessageInput,
 		0,
-		turnStartMessageCapacity+len(skills),
+		turnStartMessageCapacity+len(content.skills),
 	)
 
 	messages = append(messages, session.MessageInput{
 		Role:     models.MessageRoleUser,
-		Content:  prompt,
-		Injected: isPromptInjected,
+		Content:  content.prompt,
+		Injected: content.isPromptInjected,
 	})
 
-	for _, skill := range skills {
+	for _, skill := range content.skills {
 		messages = append(messages, skill.storedInput(""))
 	}
 
-	if pendingEvents != "" {
+	if content.pendingEvents != "" {
 		messages = append(messages, session.MessageInput{
 			Role:      models.MessageRoleUser,
-			Content:   pendingEvents,
+			Content:   content.pendingEvents,
 			Workspace: workspace,
 			Injected:  true,
 		})
@@ -2103,6 +2108,7 @@ func sessionCompactionHead(active *models.Compaction) *compactionHead {
 		FromMessageID:      active.FromMessageID,
 		FromSequence:       active.FromSequence,
 		SourceMessageCount: active.SourceMessageCount,
+		SummaryTokens:      active.SummaryTokenCount,
 	}
 }
 
@@ -2150,28 +2156,19 @@ func compactionSettings(
 		return "", compactionOptions{}, err
 	}
 
+	summaryTokens, err := compactionSummaryTokens(options)
+	if err != nil {
+		return "", compactionOptions{}, err
+	}
+
 	settings := compactionOptions{
 		Store:           options.Store,
 		Models:          options.Models,
 		Metrics:         options.Metrics,
 		ModelReference:  options.CompactionModel,
-		MaxOutputTokens: options.CompactionOutputTokens,
+		MaxOutputTokens: summaryTokens,
 		Timeout:         options.CompactionTimeout,
 	}.withDefaults(options.DefaultModel)
-
-	// The summary replaces history inside the prompt, which already gives up
-	// the reply's reserve, so both have to fit.
-	if settings.MaxOutputTokens+options.OutputReserveTokens >=
-		options.MaxContextTokens {
-		return "", compactionOptions{}, ctxerrors.Wrapf(
-			ErrInvalidCompactionOptions,
-			"a %d token summary allowance and %d token reply reserve "+
-				"do not fit a %d token context",
-			settings.MaxOutputTokens,
-			options.OutputReserveTokens,
-			options.MaxContextTokens,
-		)
-	}
 
 	prompt, err := resolveCompactionPrompt(mode, options)
 	if err != nil {
@@ -2189,6 +2186,45 @@ func compactionSettings(
 	}
 
 	return mode, settings, nil
+}
+
+// compactionSummaryTokens resolves the room one summary gets, its share of
+// the context up to the output ceiling, and checks that it fits beside the
+// reply's reserve, because the summary replaces history inside the prompt.
+func compactionSummaryTokens(options RuntimeOptions) (int, error) {
+	ceiling := options.CompactionOutputTokens
+	if ceiling <= 0 {
+		ceiling = defaultCompactionOutputTokens
+	}
+
+	percent := options.CompactionSummaryPercent
+	if percent < 0 || percent > config.MaxCompactionSummaryPercent {
+		return 0, ctxerrors.Wrapf(
+			ErrInvalidCompactionOptions,
+			"a %d percent summary share is outside 0 to %d",
+			percent,
+			config.MaxCompactionSummaryPercent,
+		)
+	}
+
+	summary := config.CompactionSummaryTokens(
+		options.MaxContextTokens,
+		percent,
+		ceiling,
+	)
+	if summary <= 0 ||
+		summary+options.OutputReserveTokens >= options.MaxContextTokens {
+		return 0, ctxerrors.Wrapf(
+			ErrInvalidCompactionOptions,
+			"a %d token summary allowance and %d token reply reserve "+
+				"do not fit a %d token context",
+			summary,
+			options.OutputReserveTokens,
+			options.MaxContextTokens,
+		)
+	}
+
+	return summary, nil
 }
 
 func resolveCompactionMode(
@@ -2603,8 +2639,16 @@ func promptFromHistory(
 		))
 	}
 
-	messages := make([]elelem.Message, 0, len(history.Messages))
-	for _, message := range history.Messages {
+	rows, err := pairToolResults(history.Messages)
+	if err != nil {
+		return elelem.Prompt{}, reconstructionPlan{}, ctxerrors.Wrap(
+			err,
+			"pair persisted tool results",
+		)
+	}
+
+	messages := make([]elelem.Message, 0, len(rows))
+	for _, message := range rows {
 		converted, err := elelemMessage(message)
 		if err != nil {
 			return elelem.Prompt{}, reconstructionPlan{}, ctxerrors.Wrap(
@@ -2619,7 +2663,7 @@ func promptFromHistory(
 	plan, err := buildReconstructionPlan(
 		planLeadCount(systemPrompt, history),
 		history.Compaction != nil,
-		history.Messages,
+		rows,
 	)
 	if err != nil {
 		return elelem.Prompt{}, reconstructionPlan{}, ctxerrors.Wrap(
@@ -2714,6 +2758,8 @@ func elelemMessageInput(input session.MessageInput) (elelem.Message, error) {
 
 func elelemRole(role models.MessageRole) (elelem.Role, error) {
 	switch role {
+	case models.MessageRoleSystem:
+		return elelem.RoleSystem, nil
 	case models.MessageRoleUser:
 		return elelem.RoleUser, nil
 	case models.MessageRoleAssistant:
@@ -2844,33 +2890,33 @@ func (t *runtimeTurn) publishInitialEvents() error {
 	return nil
 }
 
+// record makes the event durable, then hands it to the observer and sink.
+// Stream deltas are batched, see holdStreamDelta. A sink error stops the
+// stream: no event is recorded after the one the sink refused.
 func (t *runtimeTurn) record(ctx context.Context, event Event) error {
-	t.sinkMutex.Lock()
-
-	t.mutex.Lock()
-	sink := t.sink
-	t.mutex.Unlock()
-
-	t.mutex.Lock()
-	t.events = append(t.events, event)
-	t.mutex.Unlock()
-
-	if err := t.checkpoint(context.WithoutCancel(ctx)); err != nil {
-		t.sinkMutex.Unlock()
-
-		return ctxerrors.Wrap(err, "persist runtime event")
-	}
-	t.sinkMutex.Unlock()
-
-	if t.observer != nil {
-		t.observer(event)
-	}
-
-	if sink == nil {
+	if t.holdStreamDelta(event) {
 		return nil
 	}
 
-	return sink(event)
+	if err := t.publishHeldDeltas(ctx); err != nil {
+		return err
+	}
+
+	t.sinkMutex.Lock()
+
+	t.mutex.Lock()
+	t.events = append(t.events, event)
+	t.unpublished = append(t.unpublished, event)
+	t.mutex.Unlock()
+
+	err := t.flushUnpublished(ctx)
+	t.sinkMutex.Unlock()
+
+	if err != nil {
+		return ctxerrors.Wrap(err, "persist runtime event")
+	}
+
+	return t.drainOutbox()
 }
 
 func (t *runtimeTurn) appendMessage(message session.MessageInput) {

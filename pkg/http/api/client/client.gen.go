@@ -378,6 +378,7 @@ func (e MessageInjectedKind) Valid() bool {
 // Defines values for MessageRole.
 const (
 	MessageRoleAssistant MessageRole = "assistant"
+	MessageRoleSystem    MessageRole = "system"
 	MessageRoleTool      MessageRole = "tool"
 	MessageRoleUser      MessageRole = "user"
 )
@@ -386,6 +387,8 @@ const (
 func (e MessageRole) Valid() bool {
 	switch e {
 	case MessageRoleAssistant:
+		return true
+	case MessageRoleSystem:
 		return true
 	case MessageRoleTool:
 		return true
@@ -782,7 +785,10 @@ type AgentRun struct {
 	ParentAgentRunId      *openapi_types.UUID `json:"parentAgentRunId,omitempty"`
 	ParentToolCallId      *string             `json:"parentToolCallId,omitempty"`
 	ParentTurnId          openapi_types.UUID  `json:"parentTurnId"`
-	PromptTokenCount      int64               `json:"promptTokenCount"`
+
+	// Paused True while the run is running but its work is paused by a Stop, a crash, or a failure. A message to the run resumes it.
+	Paused           *bool `json:"paused,omitempty"`
+	PromptTokenCount int64 `json:"promptTokenCount"`
 
 	// Question The question a waiting run asked. Absent otherwise.
 	Question         *string            `json:"question,omitempty"`
@@ -1182,11 +1188,13 @@ type Message struct {
 	InjectedKind *MessageInjectedKind `json:"injectedKind,omitempty"`
 	IsError      *bool                `json:"isError,omitempty"`
 	Model        *string              `json:"model,omitempty"`
-	Role         MessageRole          `json:"role"`
-	Sequence     int64                `json:"sequence"`
-	Thinking     *string              `json:"thinking,omitempty"`
-	ToolCallId   *string              `json:"toolCallId,omitempty"`
-	ToolCalls    *[]MessageToolCall   `json:"toolCalls,omitempty"`
+
+	// Role `system` is a notice Peen added to the conversation, such as how the previous turn ended and what it was asked. The model receives it as a system message.
+	Role       MessageRole        `json:"role"`
+	Sequence   int64              `json:"sequence"`
+	Thinking   *string            `json:"thinking,omitempty"`
+	ToolCallId *string            `json:"toolCallId,omitempty"`
+	ToolCalls  *[]MessageToolCall `json:"toolCalls,omitempty"`
 
 	// TurnId The turn that wrote this message. Messages that share it belong to one turn.
 	TurnId    *openapi_types.UUID `json:"turnId,omitempty"`
@@ -1196,7 +1204,7 @@ type Message struct {
 // MessageInjectedKind What an injected message is, when it is more than a generic update. `skill` marks a skill the user invoked with `:name`, delivered as its own message after the message that named it, or the note that the skill was already loaded. Absent for every other message.
 type MessageInjectedKind string
 
-// MessageRole defines model for Message.Role.
+// MessageRole `system` is a notice Peen added to the conversation, such as how the previous turn ended and what it was asked. The model receives it as a system message.
 type MessageRole string
 
 // MessagePage defines model for MessagePage.

@@ -232,7 +232,7 @@ func TestExecutionProjectionRefusesInvalidWritesWithoutPartialCompletion(
 			name: "oversized", wantErr: commerr.ErrValidationFailed,
 			change: func(input *CompleteActivityInput) {
 				input.RootProjection.Messages[0].Content = strings.Repeat("x",
-					defaultMaxStoredMessageBytes)
+					defaultMaxStoredMessageBytes+1)
 			},
 		},
 		{

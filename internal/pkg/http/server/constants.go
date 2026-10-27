@@ -27,6 +27,10 @@ const (
 	spaIndexFile      = "index.html"
 	spaAllowedMethods = "GET, HEAD"
 
+	// webSocketMessageStoppedReason is logged when a stopped turn ends a
+	// WebSocket message, which is not a failure.
+	webSocketMessageStoppedReason = "turn_stopped"
+
 	serviceName          = "peen"
 	metricRouteUnmatched = "unmatched"
 	webSocketHubName     = serviceName

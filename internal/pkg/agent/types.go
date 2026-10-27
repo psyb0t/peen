@@ -147,7 +147,7 @@ const (
 	defaultToolTimeout         = 15 * time.Minute
 	defaultMaxToolResultTokens = 8192
 
-	defaultCompactionOutputTokens = 2048
+	defaultCompactionOutputTokens = 16384
 	defaultCompactionTimeout      = 2 * time.Minute
 
 	// workflowExecutorCacheTTL keeps a session's workflow executors cached
@@ -157,6 +157,10 @@ const (
 	// replay that could itself be evicted mid-way. A session runs only a
 	// handful of executions, so holding them costs little.
 	workflowExecutorCacheTTL = 24 * time.Hour
+
+	// executionReadPageLimit is the page size of the execution and activity
+	// reads that walk a whole session.
+	executionReadPageLimit = 100
 
 	// turnStartMessageCapacity covers the user message plus an optional
 	// pending-events message delivered ahead of it.
@@ -408,9 +412,12 @@ type RuntimeOptions struct {
 	// COMPACTION.md from ConfigDirectory and otherwise takes the embedded
 	// default.
 	CompactionPrompt string
-	// CompactionOutputTokens reserves bounded space for the summary. Zero
-	// takes the package default.
+	// CompactionOutputTokens caps the space a summary gets. Zero takes the
+	// package default.
 	CompactionOutputTokens int
+	// CompactionSummaryPercent is the share of MaxContextTokens a summary
+	// gets, up to CompactionOutputTokens. Zero takes the package default.
+	CompactionSummaryPercent int
 	// CompactionTimeout bounds the separate summarization call. Zero takes
 	// the package default.
 	CompactionTimeout time.Duration
@@ -563,6 +570,16 @@ type runtimeTurn struct {
 	// of inserting everything a second time.
 	checkpointedEvents   int
 	checkpointedMessages int
+
+	// unpublished holds recorded events that are not durable yet, outbox
+	// the durable ones waiting for the observer and sink, in record order.
+	// isDraining marks the one goroutine publishing the outbox.
+	unpublished []Event
+	outbox      []Event
+	isDraining  bool
+
+	// lastFlushAt paces stream deltas into batched writes.
+	lastFlushAt time.Time
 }
 
 // transcriptSink records every protocol event the publisher fans out.

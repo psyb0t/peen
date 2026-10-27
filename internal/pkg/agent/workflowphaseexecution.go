@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/psyb0t/ctxerrors"
@@ -14,10 +13,12 @@ import (
 	"github.com/psyb0t/elelem"
 )
 
+// workflowToolEventState is what a tool event keeps between phases. Its
+// messages are not kept: each phase rebuilds them from the turn context in
+// its input, which no phase changes.
 type workflowToolEventState struct {
-	RawArguments json.RawMessage  `json:"rawArguments"`
-	Messages     []elelem.Message `json:"messages"`
-	HandlerError string           `json:"handlerError,omitempty"`
+	RawArguments json.RawMessage `json:"rawArguments"`
+	HandlerError string          `json:"handlerError,omitempty"`
 }
 
 type workflowPhaseExecutionOptions struct {
@@ -166,7 +167,6 @@ func restoreWorkflowToolEvent(
 	}
 
 	event.RawArguments = bytes.Clone(state.Event.RawArguments)
-	event.Messages = slices.Clone(state.Event.Messages)
 
 	if phase != workflowToolPhaseHandler {
 		result := state.Outcome.Result
@@ -188,7 +188,6 @@ func retainWorkflowToolEvent(
 	state.LastPhase = phase
 	state.Event = &workflowToolEventState{
 		RawArguments: bytes.Clone(event.RawArguments),
-		Messages:     slices.Clone(event.Messages),
 	}
 
 	if event.Err != nil {

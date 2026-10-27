@@ -364,6 +364,47 @@ func TestWorkflowCompactionInterruptedHooksRequireResolution(t *testing.T) {
 	}
 }
 
+func TestWorkflowCompactionHookFailureSettlesAsAFailedHook(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name  string
+		event harness.HookEvent
+	}{
+		{name: "pre refuses the summary", event: harness.HookEventPreCompact},
+		{name: "post keeps the summary", event: harness.HookEventPostCompact},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fixture, _ := compactionHookFixture(t, false)
+			effects := 0
+			runHook := fixture.engine.options.CompactionHook
+			fixture.engine.options.CompactionHook = func(ctx context.Context, input workflowCompactionHookInput) (workflowCompactionHookResult, error) {
+				if input.Event != tc.event {
+					return runHook(ctx, input)
+				}
+				effects++
+
+				return workflowCompactionHookResult{}, ctxerrors.Wrap(commerr.ErrConflict, "fixture cannot restore the hook step")
+			}
+			input := workflowRoundInput{Execution: fixture.input}
+			result, err := fixture.engine.compactRound(t.Context(), input)
+			require.NoError(t, err)
+			assert.Equal(t, session.ActivityDecisionReconcile, result.Decision)
+			result, err = fixture.engine.compactRound(t.Context(), input)
+			assert.Equal(t, 1, effects)
+			if tc.event == harness.HookEventPreCompact {
+				require.ErrorIs(t, err, hooks.ErrDenied)
+				assert.ErrorContains(t, err, string(tc.event))
+
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, result.Output.Compaction)
+		})
+	}
+}
+
 func TestWorkflowCompactionUnderBudgetInvokesNoHooks(t *testing.T) {
 	t.Parallel()
 	testCases := []struct {

@@ -268,6 +268,7 @@ func (s *oneshotStub) socket(
 		write("message.failed", map[string]any{
 			"code": "TURN_CANCELLED", "message": "cancelled",
 		}, message.ID)
+		write("turn.cancelled", map[string]any{"reason": "cancelled"}, "")
 
 		return
 	}

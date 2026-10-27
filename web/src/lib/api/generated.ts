@@ -588,8 +588,11 @@ export interface components {
 			id: string;
 			/** Format: int64 */
 			sequence: number;
-			/** @enum {string} */
-			role: "user" | "assistant" | "tool";
+			/**
+			 * @description `system` is a notice Peen added to the conversation, such as how the previous turn ended and what it was asked. The model receives it as a system message.
+			 * @enum {string}
+			 */
+			role: "system" | "user" | "assistant" | "tool";
 			content: string;
 			workspace: string;
 			model?: string | null;
@@ -1207,6 +1210,8 @@ export interface components {
 			agentRunId: string;
 			/** @description True while the run is running and waits for an answer to the question it asked. */
 			waiting: boolean;
+			/** @description True while the run is running but its work is paused by a Stop, a crash, or a failure. A message to the run resumes it. */
+			paused?: boolean;
 			/** @description The question a waiting run asked. Absent otherwise. */
 			question?: string | null;
 			/** Format: uuid */

@@ -177,6 +177,12 @@ func (s *Store) restoreRootTurnRow(
 		return ctxerrors.Wrap(err, "read resumed root stop revision")
 	}
 
+	if turn.State != models.TurnStateRunning {
+		if err := markTurnEndMessagesResumed(ctx, tx, turn); err != nil {
+			return err
+		}
+	}
+
 	repository := tx.Turn
 
 	_, err = repository.WithContext(ctx).Where(

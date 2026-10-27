@@ -339,7 +339,7 @@ func TestPassiveWaitPhaseAdaptersRetainDeadlineAfterSQLiteReopen(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, pre.Output.Wait, result.Output.Wait)
 				input.State = result.Output
-				input.Tool.Round.Execution.Context = result.Output.Outcome.Context
+				advanceWorkflowToolPhase(&input.Tool, &input.State)
 			}
 			var result waitMessagesOutput
 			require.NoError(t, json.Unmarshal(

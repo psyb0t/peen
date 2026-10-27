@@ -94,6 +94,62 @@ const (
 	eventTestClosers = "</event></events>"
 )
 
+// A workflow tool phase runs on a buffering turn with no store. It still
+// drains pending notices through the runtime at the tool boundary, which is
+// where the model is told about a job or hook event mid-turn.
+func TestInjectSessionEventsDrainsInAWorkflowToolPhase(t *testing.T) {
+	t.Parallel()
+
+	sessionID := uuid.New()
+	notice := eventTestNotice(eventTestSummary)
+	notice.SessionID = sessionID
+	batch := events.Batch{Notices: []events.Notice{notice}}
+
+	drained := 0
+	prepared := &preparedTurn{
+		opened: &session.OpenSessionResult{
+			Session: &models.Session{ID: sessionID},
+		},
+		turn: newRootPhaseTurn(&runtimeTurn{requestID: uuid.New()}),
+		drainNotices: func(
+			_ context.Context,
+			drainedSessionID uuid.UUID,
+		) (events.Batch, error) {
+			drained++
+			assert.Equal(t, sessionID, drainedSessionID)
+
+			return batch, nil
+		},
+	}
+
+	injection, err := prepared.injectSessionEvents(t.Context(),
+		&elelem.ToolEvent{})
+	require.NoError(t, err)
+	require.NotNil(t, injection)
+	assert.Equal(t, 1, drained)
+	assert.Equal(t, elelem.RoleUser, injection.Type)
+	assert.Equal(t, renderSessionEvents(batch), injection.Content)
+	assert.Contains(t, harnessEventTypes(prepared.turn.events),
+		EventTypeSessionEvents)
+}
+
+// A turn with no store and no runtime drain has no durable session to read.
+func TestInjectSessionEventsWithoutAnySourceInjectsNothing(t *testing.T) {
+	t.Parallel()
+
+	prepared := &preparedTurn{
+		opened: &session.OpenSessionResult{
+			Session: &models.Session{ID: uuid.New()},
+		},
+		turn: newRootPhaseTurn(&runtimeTurn{requestID: uuid.New()}),
+	}
+
+	injection, err := prepared.injectSessionEvents(t.Context(),
+		&elelem.ToolEvent{})
+	require.NoError(t, err)
+	assert.Nil(t, injection)
+}
+
 func eventTestNotice(summary string) events.Notice {
 	return events.Notice{
 		ID:        uuid.New(),

@@ -56,7 +56,7 @@ func (r *Runtime) workflowChildModelRoundWithAssistant(
 			"run child workflow model round")
 	}
 
-	result, err := workflowModelResult(response, conversation)
+	result, err := workflowModelResult(ctx, response, conversation)
 	if err != nil {
 		return result, ctxerrors.Wrap(err, "save child model context")
 	}

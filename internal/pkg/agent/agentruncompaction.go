@@ -141,6 +141,7 @@ func childCompactionHead(
 		FromMessageID:      active.FromMessageID,
 		FromSequence:       active.FromSequence,
 		SourceMessageCount: active.SourceMessageCount,
+		SummaryTokens:      active.SummaryTokenCount,
 	}
 }
 

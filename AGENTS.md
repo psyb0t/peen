@@ -2,7 +2,7 @@
 
 Peen is a durable coding-agent service written in Go. One controller owns SQLite, the REST and WebSocket API, and the embedded browser control surface, and it runs each session's turns in its own worker process or container. `CLAUDE.md` is a link to this file and `.claude` is a link to `.agents`, so every agent reads the same instructions.
 
-Start with [docs/contributing.md](docs/contributing.md) for the repository layout, the Make targets, and what "done" means. The topic rules in `.agents/rules/` hold the details, and a rule wins over this file and the guide when they disagree.
+Start with [docs/development.md](docs/development.md) for the repository layout, the Make targets, and what "done" means. The topic rules in `.agents/rules/` hold the details, and a rule wins over this file and the guide when they disagree.
 
 | Rule | Read it before you touch |
 | --- | --- |

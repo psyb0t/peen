@@ -26,6 +26,9 @@ type WorkflowStorage struct {
 	backend.Backend
 	sqlDB     *sql.DB
 	converter *contentblob.Converter
+	// wake is shared by every backend this storage hands out, so a write
+	// through any of them wakes a claim waiting in another.
+	wake *workflowWake
 }
 
 // OpenWorkflowStorage prepares private SQLite storage and applies the native
@@ -72,8 +75,11 @@ func OpenWorkflowStorage(
 
 	runtimecontext.Logger(ctx).Info("workflow sqlite ready")
 
+	wake := newWorkflowWake()
+
 	return &WorkflowStorage{
-		Backend: storage, sqlDB: connection, converter: converter,
+		Backend: &wakingBackend{Backend: storage, wake: wake},
+		sqlDB:   connection, converter: converter, wake: wake,
 	}, nil
 }
 
@@ -109,10 +115,13 @@ func (s *WorkflowStorage) WorkerBackend(
 	options := append(workflowBackendOptions(ctx, s.converter),
 		backend.WithWorkerName(generationID.String()))
 
-	return workflowsqlite.NewSqliteBackendWithDB(
-		s.sqlDB,
-		workflowsqlite.WithBackendOptions(options...),
-	), nil
+	return &wakingBackend{
+		Backend: workflowsqlite.NewSqliteBackendWithDB(
+			s.sqlDB,
+			workflowsqlite.WithBackendOptions(options...),
+		),
+		wake: s.wake,
+	}, nil
 }
 
 // workflowBackendOptions compacts payloads when a converter is set, so a

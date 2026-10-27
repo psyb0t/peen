@@ -123,9 +123,13 @@ type Options struct {
 	// COMPACTION.md from ConfigDirectory and otherwise takes the embedded
 	// default.
 	CompactionPrompt string
-	// CompactionOutputTokens reserves bounded space for the summary. Zero
-	// takes the internal default.
+	// CompactionOutputTokens caps the space a summary gets. Zero takes the
+	// internal default.
 	CompactionOutputTokens int
+	// CompactionSummaryPercent is the share of MaxContextTokens a summary
+	// gets, up to CompactionOutputTokens, from 1 to 50. Zero takes the
+	// internal default.
+	CompactionSummaryPercent int
 	// CompactionTimeout bounds the separate summarization call. Zero takes
 	// the internal default.
 	CompactionTimeout time.Duration
@@ -238,6 +242,9 @@ type ListMessagesRequest struct {
 type MessageRole string
 
 const (
+	// MessageRoleSystem is a notice Peen added to the conversation, such as
+	// how the previous turn ended.
+	MessageRoleSystem    MessageRole = "system"
 	MessageRoleUser      MessageRole = "user"
 	MessageRoleAssistant MessageRole = "assistant"
 	MessageRoleTool      MessageRole = "tool"

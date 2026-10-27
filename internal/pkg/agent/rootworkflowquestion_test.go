@@ -84,7 +84,7 @@ func retainRootQuestionPhases(
 		result, err := fixture.engine.toolPhase(t.Context(), input)
 		require.NoError(t, err)
 		input.State = result.Output
-		input.Tool.Round.Execution.Context = result.Output.Outcome.Context
+		advanceWorkflowToolPhase(&input.Tool, &input.State)
 	}
 
 	return input.State

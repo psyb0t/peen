@@ -137,7 +137,7 @@ A Unix socket path holds at most 107 bytes, and the directory plus the session d
 
 ## Logging and audit trail
 
-`LOG_LEVEL` controls which structured application records go to stdout. The audit log keeps every record at debug level and above in one file per UTC day, `PEEN_LOG_DIRECTORY/YYYYMMDD-000000.log`. When `PEEN_LOG_DIRECTORY` is empty, the directory is `PEEN_STATE_DIR/logs`. Set a path to move it, and keep it out of `PEEN_CONFIG_DIR`, which every worker can read.
+`LOG_LEVEL` controls which structured application records go to stdout. The audit log keeps every record at debug level and above in one file per UTC day, `PEEN_LOG_DIRECTORY/YYYYMMDD-000000.log`. When `PEEN_LOG_DIRECTORY` is empty, the directory is `PEEN_STATE_DIR/logs`. Set a path to move it, and keep it out of `PEEN_CONFIG_DIR`, which every worker can read. At `LOG_LEVEL=debug`, records also carry message text and every line of command output, so stdout and the audit log hold them too. Debug never logs credentials. Keep `info` in production.
 
 `PEEN_LOG_RETENTION` is a Go duration, default `336h`, and keeps that many days of daily files, so `336h` keeps at most 14 files. Go durations have no day unit, so write days as hours, such as `168h` for 7 days and `720h` for 30 days. The value must be a whole number of days, a multiple of `24h`, because files are per UTC day. `0` means the default. Startup fails on a negative value or one that is not a multiple of `24h`. Peen creates the directory with mode `0700` and the files with `0600`.
 
@@ -195,7 +195,8 @@ Every time setting is a Go duration such as `90s`, `10m`, or `1h30m`. A bare num
 | `PEEN_MAX_CONTEXT_TOKENS` | `32768` | The whole context of one request, prompt and reply together. The prompt gets this minus `PEEN_OUTPUT_RESERVE_TOKENS`. It is also the context size for a model whose provider publishes none, and startup rejects a value larger than a published window. |
 | `PEEN_OUTPUT_RESERVE_TOKENS` | `4096` | Room kept for the model's reply inside `PEEN_MAX_CONTEXT_TOKENS`. `0` keeps none. |
 | `PEEN_COMPACTION_MODE` | `drop-oldest` | `drop-oldest` or `summarize`. See [compaction](#compaction). |
-| `PEEN_COMPACTION_MAX_OUTPUT_TOKENS` | `2048` | Space kept for a generated summary. Together with `PEEN_OUTPUT_RESERVE_TOKENS` it must be smaller than `PEEN_MAX_CONTEXT_TOKENS`, and the check runs even when `drop-oldest` is active. |
+| `PEEN_COMPACTION_SUMMARY_PERCENT` | `30` | Share of `PEEN_MAX_CONTEXT_TOKENS` a generated summary gets, from `1` to `50`, never more than `PEEN_COMPACTION_MAX_OUTPUT_TOKENS`. That summary room and `PEEN_OUTPUT_RESERVE_TOKENS` together must be smaller than `PEEN_MAX_CONTEXT_TOKENS`, and the check runs even when `drop-oldest` is active. |
+| `PEEN_COMPACTION_MAX_OUTPUT_TOKENS` | `16384` | Ceiling on the summary room. Keep it within the output limit of `PEEN_COMPACTION_MODEL`. |
 | `PEEN_COMPACTION_TIMEOUT` | `2m` | Limit on the separate summarization call. |
 | `PEEN_TURN_TIMEOUT` | `10m` | Limit on one turn. |
 | `PEEN_CRASH_RECOVERY` | `pause` | What happens to work a crashed controller or worker left unfinished, for every workspace this controller serves. `pause` keeps it paused until a turn asks the agent to continue it. `resume` lets the next worker continue it by itself, for deployments that run unattended. |
@@ -207,7 +208,7 @@ Every time setting is a Go duration such as `90s`, `10m`, or `1h30m`. A bare num
 A conversation grows until its prompt no longer fits in `PEEN_MAX_CONTEXT_TOKENS` minus `PEEN_OUTPUT_RESERVE_TOKENS`. Compaction is what Peen does then, and `PEEN_COMPACTION_MODE` picks how:
 
 - `drop-oldest` leaves whole old exchanges out of the request, each a user message with everything up to the next one, and stores nothing. The transcript keeps every message.
-- `summarize` replaces an old completed part of the conversation with a summary made by `PEEN_COMPACTION_MODEL`, stores the summary, and never deletes transcript rows. `PEEN_COMPACTION_MAX_OUTPUT_TOKENS` keeps room for the summary, and `PEEN_COMPACTION_TIMEOUT` limits the call. An optional `COMPACTION.md` in `PEEN_CONFIG_DIR` replaces the built-in summarizer instructions. Only this mode runs the `preCompact` and `postCompact` [hooks](hooks.md).
+- `summarize` replaces the oldest turns that have ended, including ones that failed or were stopped, with a summary made by `PEEN_COMPACTION_MODEL`, stores the summary, and never deletes transcript rows. The summary room, `PEEN_COMPACTION_SUMMARY_PERCENT` of the context up to `PEEN_COMPACTION_MAX_OUTPUT_TOKENS`, is kept free in the request and is the summarization call's output limit. When the ended turns cannot free that much, for example when the system prompt and the current turn fill most of a small context, Peen tries half the room, then a quarter, down to 512 tokens, and leaves out the oldest history without a summary only when none of them fits. The model's reasoning shares that limit, so Peen asks the model for the least reasoning it accepts. A later compaction summarizes the previous summary together with the messages after it. When the previous summary already fills three quarters of the room, Peen tells the model to write a tighter one, keeping open work, requirements, decisions, and exact identifiers ahead of finished detail. When a summary still stops at the limit, Peen asks once more for one in half the room and logs a warning with reason `summary_over_limit_retried`. `PEEN_COMPACTION_TIMEOUT` limits each call. An optional `COMPACTION.md` in `PEEN_CONFIG_DIR` replaces the built-in summarizer instructions. Only this mode runs the `preCompact` and `postCompact` [hooks](hooks.md).
 
 The budget is a target. When nothing more can be left out, for example when one round's tool results alone exceed it, the request goes out over the budget with a warning in the log, and the provider decides whether it fits its real window.
 
@@ -219,7 +220,7 @@ Under `summarize` a child agent compacts its own transcript into its own stored 
 | --- | --- | --- |
 | `PEEN_MAX_MESSAGE_BYTES` | `262144` | Limits the `message` field in a `message.send` WebSocket frame. |
 | `PEEN_MAX_SYSTEM_PROMPT_BYTES` | `65536` | Limits the optional [`systemPrompt.content`](http-api.md#send-and-watch-turns-over-websocket) field of a `message.send` frame. |
-| `PEEN_MAX_STORED_MESSAGE_BYTES` | `1048576` | Limits any stored message of any role, since an assistant or tool message has no caller-facing limit of its own. |
+| `PEEN_MAX_STORED_MESSAGE_BYTES` | `1048576` | Limits any stored message of any role, since an assistant or tool message has no caller-facing limit of its own. It does not limit a turn's whole context, which Peen saves under its own 12 MiB limit, or this value if it is larger. That holds a 1,000,000-token context. |
 
 ## Tool execution limits
 

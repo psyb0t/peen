@@ -28,13 +28,20 @@ func (s *Store) validateChildProjection(input CompleteActivityInput) error {
 		return ctxerrors.Wrap(err, "encode child projection")
 	}
 
-	if len(encoded) > s.maxStoredMessageBytes {
+	if len(encoded) > s.maxExecutionStateBytes {
 		return ctxerrors.Wrap(commerr.ErrValidationFailed,
 			"child projection exceeds storage limit")
 	}
 
 	if err := validateProjectedChildMessages(projection.Messages); err != nil {
 		return ctxerrors.Wrap(err, "validate child projection messages")
+	}
+
+	for _, message := range projection.Messages {
+		if len(message.Content) > s.maxStoredMessageBytes {
+			return ctxerrors.Wrap(commerr.ErrValidationFailed,
+				"child projection message exceeds storage limit")
+		}
 	}
 
 	for _, event := range projection.Events {

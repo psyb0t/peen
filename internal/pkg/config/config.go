@@ -37,6 +37,14 @@ const (
 	CompactionModeSummarize  CompactionMode = "summarize"
 )
 
+// PEEN_COMPACTION_SUMMARY_PERCENT default and ceiling. A summary above half
+// the context leaves too little room for the conversation it makes room for.
+const (
+	DefaultCompactionSummaryPercent = 30
+	MaxCompactionSummaryPercent     = 50
+	percentDenominator              = 100
+)
+
 // CrashRecoveryMode decides what happens to work a crashed controller or
 // worker left unfinished.
 type CrashRecoveryMode string
@@ -144,12 +152,13 @@ type Config struct {
 	// including a local development image, is valid.
 	WorkerImage string `env:"PEEN_WORKER_IMAGE"`
 
-	MaxContextTokens       int            `default:"32768"       env:"PEEN_MAX_CONTEXT_TOKENS"`           //nolint:lll // Immutable env tag.
-	OutputReserveTokens    int            `default:"4096"        env:"PEEN_OUTPUT_RESERVE_TOKENS"`        //nolint:lll // Immutable env tag.
-	CompactionMode         CompactionMode `default:"drop-oldest" env:"PEEN_COMPACTION_MODE"`              //nolint:lll // Immutable env tag.
-	CompactionOutputTokens int            `default:"2048"        env:"PEEN_COMPACTION_MAX_OUTPUT_TOKENS"` //nolint:lll // Immutable env tag.
-	CompactionTimeout      time.Duration  `default:"2m"          env:"PEEN_COMPACTION_TIMEOUT"`           //nolint:lll // Immutable env tag.
-	TurnTimeout            time.Duration  `default:"10m"         env:"PEEN_TURN_TIMEOUT"`                 //nolint:lll // Immutable env tag.
+	MaxContextTokens         int            `default:"32768"       env:"PEEN_MAX_CONTEXT_TOKENS"`           //nolint:lll // Immutable env tag.
+	OutputReserveTokens      int            `default:"4096"        env:"PEEN_OUTPUT_RESERVE_TOKENS"`        //nolint:lll // Immutable env tag.
+	CompactionMode           CompactionMode `default:"drop-oldest" env:"PEEN_COMPACTION_MODE"`              //nolint:lll // Immutable env tag.
+	CompactionOutputTokens   int            `default:"16384"       env:"PEEN_COMPACTION_MAX_OUTPUT_TOKENS"` //nolint:lll // Immutable env tag.
+	CompactionSummaryPercent int            `default:"30"          env:"PEEN_COMPACTION_SUMMARY_PERCENT"`   //nolint:lll // Immutable env tag.
+	CompactionTimeout        time.Duration  `default:"2m"          env:"PEEN_COMPACTION_TIMEOUT"`           //nolint:lll // Immutable env tag.
+	TurnTimeout              time.Duration  `default:"10m"         env:"PEEN_TURN_TIMEOUT"`                 //nolint:lll // Immutable env tag.
 
 	// CrashRecovery applies to every workspace this controller serves. It is
 	// controller-only: recovery runs before any worker starts.
@@ -624,9 +633,38 @@ func (c Config) ResumesAfterCrash() bool {
 // summary with prompt room to spare. The prompt gets the context minus the
 // reserve, and a summary has to fit in what is left.
 func (c Config) hasContextBudget() bool {
-	return c.MaxContextTokens > 0 && c.OutputReserveTokens >= 0 &&
-		c.CompactionOutputTokens > 0 &&
-		c.CompactionOutputTokens+c.OutputReserveTokens < c.MaxContextTokens
+	if c.MaxContextTokens <= 0 || c.OutputReserveTokens < 0 ||
+		c.CompactionOutputTokens <= 0 ||
+		c.CompactionSummaryPercent < 0 ||
+		c.CompactionSummaryPercent > MaxCompactionSummaryPercent {
+		return false
+	}
+
+	summary := c.CompactionSummaryTokens()
+
+	return summary > 0 && summary+c.OutputReserveTokens < c.MaxContextTokens
+}
+
+// CompactionSummaryTokens is the room one summary gets: its share of the
+// context, never more than the configured output ceiling.
+func (c Config) CompactionSummaryTokens() int {
+	return CompactionSummaryTokens(
+		c.MaxContextTokens,
+		c.CompactionSummaryPercent,
+		c.CompactionOutputTokens,
+	)
+}
+
+// CompactionSummaryTokens returns percent of contextTokens, capped at
+// ceiling. A zero percent takes DefaultCompactionSummaryPercent. A summary
+// replaces history, so it is sized against the whole context, and the ceiling
+// keeps the request within what the compaction model can write in one reply.
+func CompactionSummaryTokens(contextTokens, percent, ceiling int) int {
+	if percent == 0 {
+		percent = DefaultCompactionSummaryPercent
+	}
+
+	return min(contextTokens*percent/percentDenominator, ceiling)
 }
 
 // validateToolLimits rejects a bound that cannot bound anything. These are

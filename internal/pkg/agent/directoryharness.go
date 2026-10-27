@@ -22,7 +22,9 @@ Later relative file paths and commands resolve from this directory.
 Children inherit it and can change their own directory independently.
 Use this tool for persistent directory hops. A shell-local cd does not persist.
 Call it alone in a tool round, before calls that depend on the target directory.
-The directory must already exist. A failed hop leaves the current scope intact.`
+The directory must already exist. A failed hop leaves the current scope intact.
+The result lists the instruction sources the hop loaded, unloaded and changed;
+their text is in your instructions from the next step on.`
 	changeDirectorySchema = `{
   "type": "object",
   "properties": {"directory": {"type": "string", "minLength": 1}},
@@ -43,6 +45,24 @@ type directoryMarker struct {
 	Directory   string `json:"directory"`
 	ContextHash string `json:"contextHash"`
 	PromptHash  string `json:"promptHash"`
+}
+
+// changeDirectoryResult is what changeDirectory returns to the model. The
+// source lists name what the hop added to, removed from, or changed in the
+// instructions, so a model that reads only the result still learns them.
+type changeDirectoryResult struct {
+	directoryMarker
+
+	Loaded   []harnessSource `json:"loaded,omitempty"`
+	Unloaded []harnessSource `json:"unloaded,omitempty"`
+	Changed  []harnessSource `json:"changed,omitempty"`
+}
+
+// harnessSource is one harness source a directory hop added or removed.
+type harnessSource struct {
+	Kind   harness.SourceKind `json:"kind"`
+	Name   string             `json:"name,omitempty"`
+	Source string             `json:"source"`
 }
 
 type directoryContext struct {
@@ -252,22 +272,25 @@ func (s *directoryScope) newHooks(
 func (s *directoryScope) change(
 	ctx context.Context,
 	input changeDirectoryInput,
-) (directoryMarker, error) {
+) (changeDirectoryResult, error) {
 	current := s.context()
 
 	executor, err := current.executor.AtDirectory(ctx, input.Directory)
 	if err != nil {
-		return directoryMarker{}, ctxerrors.Wrap(err, "validate directory")
+		return changeDirectoryResult{}, ctxerrors.Wrap(err,
+			"validate directory")
 	}
 
 	snapshot, err := s.options.runtime.resolveDirectory(executor.Workspace())
 	if err != nil {
-		return directoryMarker{}, ctxerrors.Wrap(err, "load target directory")
+		return changeDirectoryResult{}, ctxerrors.Wrap(err,
+			"load target directory")
 	}
 
 	candidate, err := s.buildContext(ctx, executor, snapshot, false)
 	if err != nil {
-		return directoryMarker{}, ctxerrors.Wrap(err, "prepare directory scope")
+		return changeDirectoryResult{}, ctxerrors.Wrap(err,
+			"prepare directory scope")
 	}
 
 	r := s.options.runtime
@@ -276,10 +299,13 @@ func (s *directoryScope) change(
 		ctx, snapshot, candidate.prompt, candidate.prompt,
 	)
 	if err != nil {
-		return directoryMarker{}, ctxerrors.Wrap(err, "save scope snapshots")
+		return changeDirectoryResult{}, ctxerrors.Wrap(err,
+			"save scope snapshots")
 	}
 
-	marker := directoryMarker{
+	result := harnessSourceChanges(current.snapshot.Manifest(),
+		snapshot.Manifest())
+	result.directoryMarker = directoryMarker{
 		Directory: executor.Workspace(), ContextHash: candidate.contextHash,
 		PromptHash: candidate.promptHash,
 	}
@@ -288,12 +314,55 @@ func (s *directoryScope) change(
 	defer s.mutex.Unlock()
 
 	if err := ctx.Err(); err != nil {
-		return directoryMarker{}, ctxerrors.Wrap(err, "stage directory scope")
+		return changeDirectoryResult{}, ctxerrors.Wrap(err,
+			"stage directory scope")
 	}
 
 	s.pending = candidate
 
-	return marker, nil
+	return result, nil
+}
+
+// harnessSourceChanges compares the harness before and after a hop, keyed
+// by kind, name and source, and reports the sources it added, removed, and
+// whose content changed.
+func harnessSourceChanges(
+	before, after []harness.ManifestEntry,
+) changeDirectoryResult {
+	sourceOf := func(entry harness.ManifestEntry) harnessSource {
+		return harnessSource{
+			Kind: entry.Kind, Name: entry.Name, Source: entry.Source,
+		}
+	}
+
+	previous := make(map[harnessSource]string, len(before))
+	for _, entry := range before {
+		previous[sourceOf(entry)] = entry.Hash
+	}
+
+	var result changeDirectoryResult
+
+	for _, entry := range after {
+		source := sourceOf(entry)
+
+		hash, found := previous[source]
+		delete(previous, source)
+
+		switch {
+		case !found:
+			result.Loaded = append(result.Loaded, source)
+		case hash != entry.Hash:
+			result.Changed = append(result.Changed, source)
+		}
+	}
+
+	for _, entry := range before {
+		if _, removed := previous[sourceOf(entry)]; removed {
+			result.Unloaded = append(result.Unloaded, sourceOf(entry))
+		}
+	}
+
+	return result
 }
 
 func (s *directoryScope) systemPrompt(

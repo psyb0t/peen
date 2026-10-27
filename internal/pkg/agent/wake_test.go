@@ -246,13 +246,11 @@ func TestTurnStartMessagesFollowTheOrderOfThePrompt(t *testing.T) {
 
 	skill := skillMessage{name: "alpha", text: "<skill>alpha</skill>"}
 
-	rows := turnStartMessages(
-		"<events>waiting</events>",
-		"",
-		"the message",
-		false,
-		[]skillMessage{skill},
-	)
+	rows := turnStartMessages(turnStartContent{
+		prompt:        "the message",
+		skills:        []skillMessage{skill},
+		pendingEvents: "<events>waiting</events>",
+	}, "")
 
 	contents := make([]string, 0, len(rows))
 	for _, row := range rows {

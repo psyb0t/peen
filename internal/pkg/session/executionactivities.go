@@ -74,7 +74,7 @@ func (s *Store) validateActivityInput(input ScheduleActivityInput) error {
 		len(input.StepID) > maximumActivityIdentityBytes ||
 		len(input.Name) > maximumActivityIdentityBytes ||
 		!isExecutionContext(input.Input) ||
-		len(input.Input) > s.maxStoredMessageBytes {
+		len(input.Input) > s.maxExecutionStateBytes {
 		return ctxerrors.Wrap(commerr.ErrValidationFailed, "activity input")
 	}
 

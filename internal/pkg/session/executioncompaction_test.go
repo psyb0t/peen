@@ -12,7 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const compactionActivityTestName = "compactHistoryV1"
+const (
+	compactionActivityTestName = "compactHistoryV1"
+
+	// unfinishedTurnRows is what one unfinished fixture turn stores: its
+	// request, its unfinished answer, and the system message it ends with.
+	unfinishedTurnRows = 3
+)
 
 func executionCompactionFixture(
 	t *testing.T,
@@ -56,13 +62,16 @@ func executionCompactionFixture(
 			Input:        json.RawMessage(`{}`),
 		})
 	require.NoError(t, err)
+	// Each unfinished turn holds its two messages and the system message
+	// Peen added when it ended.
+	unfinished := unfinishedTurnRows * int64(len(gapStates))
 	input := CompleteActivityInput{
 		Output:  json.RawMessage(`{"summary":"retained history"}`),
 		Context: json.RawMessage(`{"messages":["retained history"]}`),
 		Compaction: &CompactionInput{
 			FromMessageID: first, ToMessageID: last,
-			FromSequence: 1, ToSequence: 2 + 2*int64(len(gapStates)),
-			SourceMessageCount: 2,
+			FromSequence: 1, ToSequence: 2 + unfinished,
+			SourceMessageCount: 2 + unfinished,
 			Summary:            "retained history", ModelID: "example/model",
 			PromptHash: "example-prompt",
 		},
@@ -71,7 +80,9 @@ func executionCompactionFixture(
 	return fixture, claim, input
 }
 
-func TestCompactionActivityPreservesFailedHistoryGaps(t *testing.T) {
+// A turn that ended unfinished is part of history, so a summary that spans
+// it covers its messages like any other turn's.
+func TestCompactionActivityCoversUnfinishedTurns(t *testing.T) {
 	t.Parallel()
 	testCases := []struct {
 		name  string
@@ -93,19 +104,22 @@ func TestCompactionActivityPreservesFailedHistoryGaps(t *testing.T) {
 				repository.SessionID.Eq(fixture.sessionID),
 			).Order(repository.Sequence).Find()
 			require.NoError(t, err)
-			require.Len(t, messages, 5)
-			assert.Equal(t, &claim.Activity.ID, messages[0].CompactionID)
-			assert.Nil(t, messages[1].CompactionID)
-			assert.Nil(t, messages[2].CompactionID)
-			assert.Equal(t, &claim.Activity.ID, messages[3].CompactionID)
-			assert.Nil(t, messages[4].CompactionID)
+			require.Len(t, messages, 6)
 			assert.Equal(t, "unfinished answer", messages[2].Content)
+			assert.Equal(t, models.MessageRoleSystem, messages[3].Role)
+
+			for _, message := range messages[:5] {
+				assert.Equal(t, &claim.Activity.ID, message.CompactionID)
+			}
+
+			assert.Nil(t, messages[5].CompactionID)
 			history, err := fixture.store.CompletedHistory(t.Context(),
 				fixture.sessionID)
 			require.NoError(t, err)
 			assert.Empty(t, history.Messages)
 			require.NotNil(t, history.Compaction)
-			assert.EqualValues(t, 2, history.Compaction.SourceMessageCount)
+			assert.EqualValues(t, 2+unfinishedTurnRows,
+				history.Compaction.SourceMessageCount)
 		})
 	}
 }

@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"database/sql/driver"
 	"encoding/json"
 
 	"github.com/google/uuid"
@@ -27,12 +28,49 @@ type turnEndPayload struct {
 	Error  string `json:"error,omitempty"`
 }
 
-// turnEndNoticeData is the data of a turn.failed or turn.cancelled notice.
-type turnEndNoticeData struct {
-	TurnID uuid.UUID        `json:"turnId"`
-	State  models.TurnState `json:"state"`
-	Reason string           `json:"reason"`
-	Error  string           `json:"error,omitempty"`
+// TurnEndNotice is the data of a turn.failed or turn.cancelled notice.
+// Message is the turn's opening user message, UndeliveredMessages the
+// messages queued for the turn that never reached the model, and ToolCalls
+// the calls the turn made, so the next turn knows what was asked and which
+// effects already happened even though the ended turn's messages are left
+// out of its history.
+type TurnEndNotice struct {
+	TurnID              uuid.UUID         `json:"turnId"`
+	State               models.TurnState  `json:"state"`
+	Reason              string            `json:"reason"`
+	Error               string            `json:"error,omitempty"`
+	Message             string            `json:"message,omitempty"`
+	UndeliveredMessages []string          `json:"undeliveredMessages,omitempty"`
+	ToolCalls           []TurnEndToolCall `json:"toolCalls,omitempty"`
+	ToolCallsOmitted    int               `json:"toolCallsOmitted,omitempty"`
+}
+
+// turnEndToolOutcome says how one of an ended turn's tool calls came out.
+type turnEndToolOutcome = string
+
+const (
+	turnEndToolSucceeded turnEndToolOutcome = "succeeded"
+	turnEndToolFailed    turnEndToolOutcome = "failed"
+	// turnEndToolNoResult is a call whose result was never stored, so its
+	// effect is unknown.
+	turnEndToolNoResult turnEndToolOutcome = "noResult"
+)
+
+// TurnEndToolCall is one tool call an ended turn made, with its arguments
+// cut to turnEndToolArgumentBytes.
+type TurnEndToolCall struct {
+	Name      string             `json:"name"`
+	Arguments string             `json:"arguments"`
+	Outcome   turnEndToolOutcome `json:"outcome"`
+}
+
+// storedToolCall is one entry of a message's stored tool calls.
+//
+//nolint:tagliatelle // Stored calls keep the names Elelem's ToolCall encodes.
+type storedToolCall struct {
+	ID        string          `json:"ID"`
+	Name      string          `json:"Name"`
+	Arguments json.RawMessage `json:"Arguments"`
 }
 
 // CancelledTurnEnd is a turn Stop ended.
@@ -162,7 +200,7 @@ func (s *Store) endRunningTurn(
 		return false, ctxerrors.Wrap(err, "store turn end frame")
 	}
 
-	if err := s.recordTurnEndNotice(ctx, tx, turn.SessionID, turnEndNoticeData{
+	if err := s.recordTurnEndNotice(ctx, tx, turn.SessionID, TurnEndNotice{
 		TurnID: turn.ID, State: end.State,
 		Reason: end.Classification, Error: detail,
 	}); err != nil {
@@ -172,17 +210,47 @@ func (s *Store) endRunningTurn(
 	return true, nil
 }
 
-// recordTurnEndNotice queues the notice that tells the session's agents and
-// clients a turn ended without completing, and why. It never wakes the
+// recordTurnEndNotice queues the notice that tells the session's clients a
+// turn ended without completing, and why, and adds the system message that
+// tells the agent the same in the next turn's history. It never wakes the
 // session, so a failing turn cannot start another one by itself.
 func (s *Store) recordTurnEndNotice(
 	ctx context.Context,
 	tx *repositories.Query,
 	sessionID uuid.UUID,
-	data turnEndNoticeData,
+	data TurnEndNotice,
 ) error {
 	data.Error = boundTurnEndDetail(data.Error)
 
+	if err := readEndedTurnMessages(ctx, tx, sessionID, &data); err != nil {
+		return ctxerrors.Wrap(err, "read ended turn messages")
+	}
+
+	if err := readEndedTurnToolCalls(ctx, tx, sessionID, &data); err != nil {
+		return ctxerrors.Wrap(err, "read ended turn tool calls")
+	}
+
+	if data.State == models.TurnStateCompleted {
+		return nil
+	}
+
+	if err := s.saveTurnEndNotice(ctx, tx, sessionID, data); err != nil {
+		return err
+	}
+
+	if err := s.appendTurnEndMessage(ctx, tx, data); err != nil {
+		return ctxerrors.Wrap(err, "add turn end message")
+	}
+
+	return nil
+}
+
+func (s *Store) saveTurnEndNotice(
+	ctx context.Context,
+	tx *repositories.Query,
+	sessionID uuid.UUID,
+	data TurnEndNotice,
+) error {
 	noticeType := events.TypeTurnFailed
 	summary := turnFailedNoticeSummary
 
@@ -192,9 +260,8 @@ func (s *Store) recordTurnEndNotice(
 		summary = turnCancelledNoticeSummary
 	case models.TurnStateInterrupted:
 		summary = turnInterruptedNoticeSummary
-	case models.TurnStateCompleted:
-		return nil
-	case models.TurnStateRunning, models.TurnStateFailed:
+	case models.TurnStateCompleted, models.TurnStateRunning,
+		models.TurnStateFailed:
 	}
 
 	encoded, err := json.Marshal(data)
@@ -218,6 +285,149 @@ func (s *Store) recordTurnEndNotice(
 	}
 
 	return nil
+}
+
+// readEndedTurnMessages fills in the turn's opening user message and the
+// messages still queued in the turn's root inbox, each cut to
+// turnEndMessageBytes.
+func readEndedTurnMessages(
+	ctx context.Context,
+	tx *repositories.Query,
+	sessionID uuid.UUID,
+	data *TurnEndNotice,
+) error {
+	message := tx.Message
+
+	opening, err := message.WithContext(ctx).Where(
+		message.SessionID.Eq(sessionID),
+		message.TurnID.Eq(data.TurnID),
+		message.Role.Eq(string(models.MessageRoleUser)),
+	).Order(message.Sequence).Limit(1).Find()
+	if err != nil {
+		return ctxerrors.Wrap(err, "read ended turn opening message")
+	}
+
+	if len(opening) > 0 {
+		data.Message = events.TruncateToRuneBoundary(opening[0].Content,
+			turnEndMessageBytes)
+	}
+
+	execution := tx.Execution
+
+	roots, err := execution.WithContext(ctx).Where(
+		execution.SessionID.Eq(sessionID),
+		execution.RootTurnID.Eq(data.TurnID),
+		execution.Kind.Eq(string(models.ExecutionKindRoot)),
+	).Find()
+	if err != nil {
+		return ctxerrors.Wrap(err, "read ended turn roots")
+	}
+
+	if len(roots) == 0 {
+		return nil
+	}
+
+	rootIDs := make([]driver.Valuer, 0, len(roots))
+	for _, root := range roots {
+		rootIDs = append(rootIDs, root.ID)
+	}
+
+	inbox := tx.ExecutionInboxMessage
+
+	queued, err := inbox.WithContext(ctx).Where(
+		inbox.SessionID.Eq(sessionID),
+		inbox.ExecutionID.In(rootIDs...),
+		inbox.State.Eq(string(models.InboxMessageStateQueued)),
+	).Order(inbox.Sequence).Limit(turnEndUndeliveredLimit).Find()
+	if err != nil {
+		return ctxerrors.Wrap(err, "read ended turn queued messages")
+	}
+
+	for _, row := range queued {
+		data.UndeliveredMessages = append(data.UndeliveredMessages,
+			events.TruncateToRuneBoundary(row.Message, turnEndMessageBytes))
+	}
+
+	return nil
+}
+
+// readEndedTurnToolCalls lists the tool calls the ended turn made, with how
+// each came out, keeping the latest turnEndToolCallLimit.
+func readEndedTurnToolCalls(
+	ctx context.Context,
+	tx *repositories.Query,
+	sessionID uuid.UUID,
+	data *TurnEndNotice,
+) error {
+	message := tx.Message
+
+	rows, err := message.WithContext(ctx).Select(message.Role,
+		message.ToolCallsJSON, message.ToolCallID, message.IsError,
+	).Where(
+		message.SessionID.Eq(sessionID),
+		message.TurnID.Eq(data.TurnID),
+		message.Role.In(string(models.MessageRoleAssistant),
+			string(models.MessageRoleTool)),
+	).Order(message.Sequence).Find()
+	if err != nil {
+		return ctxerrors.Wrap(err, "read ended turn tool messages")
+	}
+
+	failed := map[string]bool{}
+
+	for _, row := range rows {
+		if row.Role == models.MessageRoleTool {
+			failed[row.ToolCallID] = row.IsError
+		}
+	}
+
+	var calls []TurnEndToolCall
+
+	for _, row := range rows {
+		if row.Role != models.MessageRoleAssistant || row.ToolCallsJSON == "" {
+			continue
+		}
+
+		var stored []storedToolCall
+		if err := json.Unmarshal([]byte(row.ToolCallsJSON),
+			&stored); err != nil {
+			return ctxerrors.Wrap(err, "decode ended turn tool calls")
+		}
+
+		for _, call := range stored {
+			calls = append(calls, endedTurnToolCall(call, failed))
+		}
+	}
+
+	if len(calls) > turnEndToolCallLimit {
+		data.ToolCallsOmitted = len(calls) - turnEndToolCallLimit
+		calls = calls[data.ToolCallsOmitted:]
+	}
+
+	data.ToolCalls = calls
+
+	return nil
+}
+
+func endedTurnToolCall(
+	call storedToolCall,
+	failed map[string]bool,
+) TurnEndToolCall {
+	outcome := turnEndToolNoResult
+
+	if isError, found := failed[call.ID]; found {
+		outcome = turnEndToolSucceeded
+		if isError {
+			outcome = turnEndToolFailed
+		}
+	}
+
+	return TurnEndToolCall{
+		Name: call.Name,
+		Arguments: events.TruncateToRuneBoundary(string(call.Arguments),
+			turnEndToolArgumentBytes),
+		Outcome: outcome,
+	}
 }
 
 // boundTurnEndDetail keeps a worker-supplied error within the size a frame

@@ -29,10 +29,12 @@ func (p *preparedTurn) injectSessionEvents(
 	ctx context.Context,
 	_ *elelem.ToolEvent,
 ) (*elelem.MessageInjection, error) {
+	// A workflow tool phase runs on a buffering turn with no store of its
+	// own and drains through the runtime instead, so only a turn with
+	// neither path has no durable session to read.
 	if p.opened == nil || p.opened.Session == nil || p.turn == nil ||
-		p.turn.store == nil {
-		// No durable session can have pending notices.
-		return nil, nil //nolint:nilnil
+		(p.drainNotices == nil && p.turn.store == nil) {
+		return nil, nil //nolint:nilnil // No durable session has notices.
 	}
 
 	batch, err := p.drainSessionEvents(ctx)
@@ -57,9 +59,14 @@ func (p *preparedTurn) injectSessionEvents(
 		"dropped_count", batch.Dropped,
 	)
 
+	content := renderModelEvents(batch)
+	if content == "" {
+		return nil, nil //nolint:nilnil // Only turn-end notices: no injection.
+	}
+
 	return &elelem.MessageInjection{
 		Type:    elelem.RoleUser,
-		Content: renderSessionEvents(batch),
+		Content: content,
 	}, nil
 }
 
