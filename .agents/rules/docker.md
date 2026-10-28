@@ -15,6 +15,7 @@
 - The controller runs as the fixed non-root `appuser` (UID and GID 10001). `COPY` sets ownership explicitly.
 - `tini` is PID 1, in exec form, so signals reach Peen and `runCommand` children are reaped.
 - There is no `HEALTHCHECK`, because a worker container from the same image has no HTTP listener. Readiness belongs to whatever starts the controller. `docs/deployment.md` documents the probe.
+- The Node stage runs on the build host's platform (`FROM --platform=$BUILDPLATFORM`), because its output is platform-independent and the bundler can crash under arm64 QEMU emulation. The global `ARG BUILDPLATFORM=linux/amd64` default is for the classic builder, which does not set it. A stage whose output depends on the target platform never uses `$BUILDPLATFORM`.
 - Set file modes with `RUN chmod`, not `COPY --chmod`. testcontainers builds this image with the classic builder, which does not support `--chmod`.
 - Build arguments are `BUILD_COMMIT`, `BUILD_VERSION`, and the coverage switch. Never pass a secret as an `ARG`, an `ENV`, or a copied file.
 

@@ -1,7 +1,12 @@
 # Node builds the static control-surface client. Its output is copied into the
 # Go build stage and embedded into the final binary, so the runtime has no Node
-# package manager or frontend source tree.
-FROM node:22.22.0-alpine@sha256:e4bf2a82ad0a4037d28035ae71529873c069b13eb0455466ae0bc13363826e34 AS web-builder
+# package manager or frontend source tree. The output is the same for every
+# platform, so the stage runs on the build host's own platform: building it
+# for arm64 under QEMU emulation can crash the bundler and hang the build.
+# BuildKit sets BUILDPLATFORM itself. The default serves the classic builder
+# the integration tests use, which does not.
+ARG BUILDPLATFORM=linux/amd64
+FROM --platform=$BUILDPLATFORM node:22.22.0-alpine@sha256:e4bf2a82ad0a4037d28035ae71529873c069b13eb0455466ae0bc13363826e34 AS web-builder
 
 WORKDIR /web
 

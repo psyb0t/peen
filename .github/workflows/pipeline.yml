@@ -68,12 +68,16 @@ jobs:
       dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
 
   # A tag run waits here for the main push run of the tagged commit. It fails
-  # when that run failed or when the commit was never pushed to main.
+  # when that run failed or when the commit was never pushed to main. The main
+  # run's tests and multi-arch image build take longer than the default two
+  # hours, so it waits up to 300 minutes, under GitHub's 360-minute job limit.
   wait:
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
       actions: read
     uses: psyb0t/reusable-github-workflows/.github/workflows/wait-for-default-branch.yml@master
+    with:
+      timeout_minutes: 300
 
   # Re-tags the sha-<commit> image the main run tested as the release tag, by
   # digest and for every platform. No build. The release job below owns the
