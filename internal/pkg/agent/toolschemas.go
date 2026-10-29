@@ -273,13 +273,16 @@ the same access as the user running this service.
 State the purpose: one short line saying why you are running it. It is
 stored with the job so a later turn can tell what a running process is for.
 It runs in the current workspace unless directory is set.
-timeout is a Go duration string such as "90s", "5m", or "1h30m"; empty uses the
-default. It bounds how long THIS CALL WAITS, never how long the command may
-run. A command still running when the bound elapses is left running and you get
-a jobId back, with running true. That is how you start builds, servers, and
-long test runs. Use background true to skip the wait entirely.
-Cancellation or a turn/tool deadline while this call is still waiting kills
-the foreground process group. A returned job handle has detached and keeps
+timeout is a Go duration string such as "90s", "5m", or "2h"; empty waits %s.
+It bounds how long THIS CALL WAITS, never how long the command may run, and it
+has no upper limit: pass a longer timeout, such as "2h", for a build or test
+run you expect to take long. A command still running when the wait ends keeps
+running and you get a jobId back, with running true. To keep waiting, call
+waitJob with that jobId and a longer timeout; calling runCommand again would
+start a second copy. Use background true to skip the wait entirely, for
+servers and anything you do not need to wait on.
+Cancelling or stopping the turn while this call is still waiting kills the
+foreground process group. A returned job handle has detached and keeps
 running after later turn cancellation.
 Follow a running job with readJobOutput, block on it with waitJob, and
 stop it with signalJob. Clean up what you no longer need.
@@ -313,7 +316,7 @@ const runCommandSchema = `{
     },
     "timeout": {
       "type": "string",
-      "description": "Go duration to WAIT, like \"90s\" or \"5m\"."
+      "description": "Go duration to WAIT, like \"2h\". No upper limit."
     },
     "background": {
       "type": "boolean",

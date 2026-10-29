@@ -4537,6 +4537,8 @@ func (v TurnCompleted) Validate() error {
 type TurnCompletedData struct {
 	Model string `json:"model"`
 	Text  string `json:"text"`
+	// Why the model stopped its final reply, as the provider reported it, such as `stop`, or `length` when the reply reached the output token limit and was cut off. Absent when the provider reported no reason.
+	FinishReason *string `json:"finishReason,omitempty"`
 }
 
 // UnmarshalJSON decodes TurnCompletedData strictly. Required properties must be
@@ -4552,7 +4554,7 @@ func (v *TurnCompletedData) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	if err := asyncapirt.RejectUnknownKeys("TurnCompletedData", members, "model", "text"); err != nil {
+	if err := asyncapirt.RejectUnknownKeys("TurnCompletedData", members, "model", "text", "finishReason"); err != nil {
 		return err
 	}
 

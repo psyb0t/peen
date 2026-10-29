@@ -34,8 +34,7 @@ func stateTestConfig() config.Config {
 		CompactionMode:         config.CompactionModeDropOldest,
 		CrashRecovery:          config.CrashRecoveryPause,
 		CompactionOutputTokens: stateTestOutputTokens,
-		CompactionTimeout:      time.Minute,
-		TurnTimeout:            time.Minute,
+		ModelRequestTimeout:    time.Minute,
 		HTTPListenAddress:      ":8080",
 		MetricsListenAddress:   "127.0.0.1:9090",
 	}

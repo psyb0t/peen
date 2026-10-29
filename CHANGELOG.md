@@ -2,6 +2,21 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.33.0 (2026-10-29)
+
+Reworks the timeout settings so each name says what it limits and lets `runCommand` and `waitJob` wait as long as a call asks, fixes a turn that failed after Peen retried a provider error and the retry succeeded, and reports why the final reply stopped. Before upgrading, rename the timeout variables listed below in your `.env`; Peen refuses to start while a removed one is set and names its replacement.
+
+- Breaking: renames `PEEN_TURN_TIMEOUT` to `PEEN_MODEL_REQUEST_TIMEOUT` and removes `PEEN_COMPACTION_TIMEOUT`. The setting always limited each model request, never the whole turn, and now also limits each compaction summary, which `PEEN_COMPACTION_TIMEOUT` (default `2m`) used to. A turn has no overall time limit. Migrate by setting `PEEN_MODEL_REQUEST_TIMEOUT` to your old `PEEN_TURN_TIMEOUT` value. The `pkg/peen` option `TurnTimeout` is now `ModelRequestTimeout`, and `CompactionTimeout` is gone.
+- Breaking: renames `PEEN_TOOL_COMMAND_TIMEOUT` to `PEEN_DEFAULT_TOOL_COMMAND_TIMEOUT`, raises its default from `2m` to `10m`, applies it to `waitJob` as well as `runCommand`, and removes `PEEN_TOOL_MAX_COMMAND_TIMEOUT`. A `runCommand` or `waitJob` call may now ask for any wait, such as `"2h"` for a long build, and those two tools are no longer cut off at `PEEN_TOOL_TIMEOUT`. `waitJob` used to default to `30s` and cap at `10m`. The `pkg/peen` `ToolLimits` lose `MaxCommandTimeout` and `MaxWaitJobTimeout`.
+- Breaking: renames `PEEN_HOOK_COMMAND_TIMEOUT` to `PEEN_DEFAULT_HOOK_COMMAND_TIMEOUT` and drops the rule that it may not exceed `PEEN_TOOL_TIMEOUT`. A hook action's own `timeout` still wins.
+- Breaking: removes the `timeout` argument of the `ask` tool. `PEEN_ASK_TIMEOUT` alone decides how long `ask` waits, and the model cannot change it.
+- Changes the `runCommand` and `waitJob` tool descriptions to state the default wait and that a longer one may be requested, and adds a `note` to their result when the wait ends with the process still running, telling the model to call `waitJob` with a longer `timeout` instead of running the command again.
+- Fixes a turn that failed with `decode tool round context: json: cannot unmarshal object into Go struct field RetryAttempt.usage.Retry.FailedAttempts.Err of type error` on the round after a model call that succeeded on retry, such as after a provider `500`. The saved turn context kept each failed attempt's error in a form Peen could not read back. It now keeps each attempt's number, reason, status, and tokens, and the model call record still holds the error text.
+- Adds `finishReason` to the `turn.completed` event: why the model stopped its final reply, as the provider reported it. A turn whose reply reached the output token limit used to complete with an empty `text` and no sign it was cut off; it now carries `finishReason: "length"`.
+- Adds [benchmark results](docs/benchmarks.md): Aider Polyglot and Long-Horizon Terminal-Bench runs on Z.ai GLM-5.3 in a networkless sandbox, the earlier Terminal-Bench, long-context and compaction runs, and the Peen defects each one found.
+- Fixes the documentation that said the root's `ask` ends with its turn. It waits up to `PEEN_ASK_TIMEOUT`, like a child's.
+- Fixes an `arm64` image build that could crash the web bundler under emulation and hang until CI cancelled it. The web client now builds on the build host's own platform, since its output is the same for every platform.
+
 ## v0.32.0 (2026-10-27)
 
 Sizes `summarize` summaries as a share of the context, replays a turn that did not finish in the next turn's history with a system message saying how it ended, and fixes a paused child that a message resumed but that never moved, a summarize-mode turn that hung after leaving out old history, session events that never reached a running turn, and turn records that did not say what the failed turn was asked. Before upgrading, stop Peen and delete `peen.db`, `peen.db-wal`, and `peen.db-shm` from the state directory, because the messages table changed. API clients that switch on a message `role` must accept `system`.

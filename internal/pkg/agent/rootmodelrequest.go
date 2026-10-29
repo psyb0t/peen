@@ -84,9 +84,9 @@ func (r *Runtime) workflowRootModelRoundWithAssistant(
 
 	monitor := rootWorkflowModelMonitor{startedAt: time.Now()}
 	request = monitor.bind(request, prepared, assistant, audit, input.Round).
-		WithTimeout(r.turnTimeout)
+		WithTimeout(r.modelRequestTimeout)
 
-	response, err := runWorkflowModelResponse(ctx, request, conversation)
+	response, err := runWorkflowModelResponse(ctx, request)
 
 	err = monitor.closeInterruptedStream(ctx, prepared, err)
 	if auditErr := audit.finish(context.WithoutCancel(ctx), response,
@@ -155,7 +155,7 @@ func (r *Runtime) rootWorkflowModelAudit(
 	settings, err := newModelAuditSettings(prepared.model.Model,
 		false, workflowManualRequestRoundLimit, conversation.MaxContextTokens,
 		0, r.maxConcurrentTools,
-		r.toolTimeout, r.maxToolResultTokens, r.turnTimeout)
+		r.toolTimeout, r.maxToolResultTokens, r.modelRequestTimeout)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "encode workflow model audit settings")
 	}

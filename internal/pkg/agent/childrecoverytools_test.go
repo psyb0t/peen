@@ -85,9 +85,12 @@ func TestRecoveredWaitKeepsTheMessagingToolCap(t *testing.T) {
 		input string
 		want  time.Duration
 	}{
-		{name: "unbounded ask", tool: toolNameAsk, want: messageToolTimeout},
-		{name: "unbounded wait", tool: toolNameWaitMessages, want: messageToolTimeout},
-		{name: "short ask", tool: toolNameAsk, input: "1s", want: time.Second},
+		{name: "unbounded ask", tool: toolNameAsk, want: waitingToolTimeout},
+		{name: "unbounded wait", tool: toolNameWaitMessages, want: waitingToolTimeout},
+		{
+			name: "ask ignores a call timeout", tool: toolNameAsk, input: "1s",
+			want: waitingToolTimeout,
+		},
 		{name: "short wait", tool: toolNameWaitMessages, input: "1s", want: time.Second},
 	}
 	for _, tc := range testCases {

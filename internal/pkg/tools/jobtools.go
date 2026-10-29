@@ -130,7 +130,7 @@ func (e *JobExecutor) resolveReadJobOutputLines(requested int) int {
 	return requested
 }
 
-// WaitJob blocks up to a bounded time for one job to leave the running
+// WaitJob blocks up to the requested time for one job to leave the running
 // state, then reports its status and whatever output arrived while
 // waiting. Found is false when JobID names no job in this session.
 func (e *JobExecutor) WaitJob(
@@ -152,27 +152,12 @@ func (e *JobExecutor) WaitJob(
 	return jobWaitOutput(job, input), nil
 }
 
-// resolveWaitJobTimeout maps the requested Go duration string onto a bounded
-// wait. Empty takes the configured default; anything above the configured
-// maximum is clamped down to it.
+// resolveWaitJobTimeout returns the wait a waitJob call asked for, or the
+// configured default when it asked for none. A call may ask for any wait.
 func (e *JobExecutor) resolveWaitJobTimeout(
 	raw string,
 ) (time.Duration, error) {
-	limits := e.Limits()
-	if raw == "" {
-		return limits.WaitJobTimeout, nil
-	}
-
-	bound, err := parseToolTimeout(raw)
-	if err != nil {
-		return 0, err
-	}
-
-	if bound > limits.MaxWaitJobTimeout {
-		return limits.MaxWaitJobTimeout, nil
-	}
-
-	return bound, nil
+	return resolveWaitTimeout(raw, e.Limits().WaitJobTimeout)
 }
 
 func jobWaitOutput(job *Job, input WaitJobInput) WaitJobOutput {
@@ -190,7 +175,7 @@ func jobWaitOutput(job *Job, input WaitJobInput) WaitJobOutput {
 		durationMs = snapshot.EndedAt.Sub(snapshot.StartedAt).Milliseconds()
 	}
 
-	return WaitJobOutput{
+	output := WaitJobOutput{
 		JobID:              snapshot.ID,
 		Found:              true,
 		Running:            snapshot.State == JobStateRunning,
@@ -205,6 +190,11 @@ func jobWaitOutput(job *Job, input WaitJobInput) WaitJobOutput {
 		StdoutDroppedLines: stdoutDropped,
 		StderrDroppedLines: stderrDropped,
 	}
+	if output.Running {
+		output.Note = waitJobStillRunningNote
+	}
+
+	return output
 }
 
 // SignalJob asks one job's process group to stop or die. Signalling an

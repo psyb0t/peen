@@ -474,16 +474,16 @@ func newRuntimeFixtureWithOptions(
 
 	eventBus := events.NewBus(events.Options{})
 	options := RuntimeOptions{
-		Store:            store,
-		Resolver:         resolver,
-		Models:           registry,
-		RootAgent:        runtimeTestAgentName,
-		DefaultModel:     runtimeTestModelReference,
-		DefaultWorkspace: workspace,
-		MaxContextTokens: runtimeTestMaxContextTokens,
-		TurnTimeout:      runtimeTestTurnTimeout,
-		Events:           eventBus,
-		ConfigDirectory:  configDirectory,
+		Store:               store,
+		Resolver:            resolver,
+		Models:              registry,
+		RootAgent:           runtimeTestAgentName,
+		DefaultModel:        runtimeTestModelReference,
+		DefaultWorkspace:    workspace,
+		MaxContextTokens:    runtimeTestMaxContextTokens,
+		ModelRequestTimeout: runtimeTestTurnTimeout,
+		Events:              eventBus,
+		ConfigDirectory:     configDirectory,
 	}
 
 	if customize != nil {

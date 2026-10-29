@@ -1712,6 +1712,10 @@ export function validateTurnCompleted(
 export interface TurnCompletedData {
   model: string;
   text: string;
+  /**
+   * Why the model stopped its final reply, as the provider reported it, such as `stop`, or `length` when the reply reached the output token limit and was cut off. Absent when the provider reported no reason.
+   */
+  finishReason?: string;
 }
 
 /** validateTurnCompletedData throws a ValidationError when value is not a valid TurnCompletedData. */
@@ -1721,9 +1725,12 @@ export function validateTurnCompletedData(
 ): asserts value is TurnCompletedData {
   const object = rtObject(value, path);
   rtRequire(path, object, ["model", "text"]);
-  rtKnownKeys(path, object, ["model", "text"]);
+  rtKnownKeys(path, object, ["model", "text", "finishReason"]);
   rtString(object["model"], path + ".model");
   rtString(object["text"], path + ".text");
+  if (object["finishReason"] !== undefined) {
+    rtString(object["finishReason"], path + ".finishReason");
+  }
 }
 
 export interface TurnFailed {

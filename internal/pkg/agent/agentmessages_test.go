@@ -797,9 +797,13 @@ func TestAskFromANestedChildReachesItsParentsInbox(t *testing.T) {
 		&parent.ID,
 	)
 
+	shortWait, err := time.ParseDuration(messageTestShortWait)
+	require.NoError(t, err)
+	fixture.runtime.askTimeout = shortWait
+
 	output, err := messageDeps(fixture, sessionID).ask(
 		childCtx,
-		askInput{Question: "keep going?", Timeout: messageTestShortWait},
+		askInput{Question: "keep going?"},
 	)
 	require.NoError(t, err)
 	assert.False(t, output.Answered)
@@ -966,47 +970,5 @@ func TestListSessionAgentRunsShowsWaitingRunsAndFiltersByParent(t *testing.T) {
 		sessionID,
 		api.ListSessionAgentRunsParams{ParentAgentRunId: &badFilter},
 	)
-	require.ErrorIs(t, err, commerr.ErrValidationFailed)
-}
-
-func TestAskTimeoutForCombinesTheCallAndTheDeployment(t *testing.T) {
-	t.Parallel()
-
-	testCases := []struct {
-		name       string
-		deployment time.Duration
-		requested  string
-		want       time.Duration
-	}{
-		{name: "neither", want: 0},
-		{name: "deployment only", deployment: time.Hour, want: time.Hour},
-		{name: "call only", requested: "5m", want: 5 * time.Minute},
-		{
-			name:       "call shortens",
-			deployment: time.Hour,
-			requested:  "5m",
-			want:       5 * time.Minute,
-		},
-		{
-			name:       "call cannot lengthen",
-			deployment: time.Minute,
-			requested:  "1h",
-			want:       time.Minute,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			runtime := &Runtime{askTimeout: tc.deployment}
-
-			got, err := runtime.askTimeoutFor(tc.requested)
-			require.NoError(t, err)
-			assert.Equal(t, tc.want, got)
-		})
-	}
-
-	_, err := (&Runtime{}).askTimeoutFor("-1s")
 	require.ErrorIs(t, err, commerr.ErrValidationFailed)
 }

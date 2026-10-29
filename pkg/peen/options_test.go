@@ -27,9 +27,8 @@ func TestNewRejectsInvalidTuningAndDependencies(t *testing.T) {
 		{name: "negative event buffer", change: func(o *peen.Options) { o.EventLimits.SubscriberBuffer = -1 }, wantError: commerr.ErrValidationFailed},
 		{name: "negative ask timeout", change: func(o *peen.Options) { o.AskTimeout = -time.Second }, wantError: commerr.ErrValidationFailed},
 		{name: "negative tool count", change: func(o *peen.Options) { o.ToolLimits.MaxEdits = -1 }},
-		{name: "command timeout above maximum", change: func(o *peen.Options) {
-			o.ToolLimits.CommandTimeout = time.Hour
-			o.ToolLimits.MaxCommandTimeout = time.Minute
+		{name: "negative command timeout", change: func(o *peen.Options) {
+			o.ToolLimits.CommandTimeout = -time.Minute
 		}},
 		{name: "negative child depth", change: func(o *peen.Options) { o.AgentLimits.MaxDepth = -1 }},
 		{name: "negative harness bytes", change: func(o *peen.Options) { o.HarnessLimits.MaxFileBytes = -1 }},

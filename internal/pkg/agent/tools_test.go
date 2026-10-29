@@ -305,6 +305,43 @@ func TestWaitTimeoutToolSchemasDeclareTimeoutAsAString(t *testing.T) {
 	assert.NotContains(t, runCommandDescription, "timeoutSeconds")
 }
 
+// runCommand and waitJob wait as long as the call asks, so PEEN_TOOL_TIMEOUT
+// must not cut them off, and the model has to learn the default wait and that
+// it may ask for a longer one. Every other tool keeps the configured limit.
+func TestWaitingToolsOutliveTheToolTimeout(t *testing.T) {
+	t.Parallel()
+
+	set := hostToolSet(newToolTestExecutor(t), nil, harness.Snapshot{}, nil, nil)
+	defaultWait := tools.DefaultLimits().CommandTimeout.String()
+
+	for _, name := range []string{toolNameRunCommand, toolNameWaitJob} {
+		tool, ok := set.Get(name)
+		require.True(t, ok)
+		assert.Equal(t, waitingToolTimeout, tool.Timeout, name)
+		assert.Contains(t, tool.Description, "empty waits "+defaultWait, name)
+		assert.Contains(t, tool.Description, "upper limit", name)
+	}
+
+	for _, name := range []string{toolNameReadFile, toolNameListJobs} {
+		tool, ok := set.Get(name)
+		require.True(t, ok)
+		assert.Zero(t, tool.Timeout, name)
+	}
+}
+
+// Only PEEN_ASK_TIMEOUT decides how long ask waits, so the model is not
+// offered a timeout argument.
+func TestAskSchemaOffersNoTimeout(t *testing.T) {
+	t.Parallel()
+
+	schema := struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}{}
+	require.NoError(t, json.Unmarshal([]byte(askSchema), &schema))
+	assert.Contains(t, schema.Properties, "question")
+	assert.NotContains(t, schema.Properties, "timeout")
+}
+
 func TestHostToolHandlerReturnsEncodedResult(t *testing.T) {
 	t.Parallel()
 

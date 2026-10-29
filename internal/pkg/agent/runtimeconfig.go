@@ -31,7 +31,7 @@ func RuntimeOptionsFromConfig(
 
 		MaxContextTokens:    deployment.MaxContextTokens,
 		OutputReserveTokens: deployment.OutputReserveTokens,
-		TurnTimeout:         deployment.TurnTimeout,
+		ModelRequestTimeout: deployment.ModelRequestTimeout,
 
 		MaxSystemPromptBytes:  deployment.MaxSystemPromptBytes,
 		MaxMessageBytes:       deployment.MaxMessageBytes,
@@ -42,7 +42,6 @@ func RuntimeOptionsFromConfig(
 		CompactionModel:          deployment.CompactionModel,
 		CompactionOutputTokens:   deployment.CompactionOutputTokens,
 		CompactionSummaryPercent: deployment.CompactionSummaryPercent,
-		CompactionTimeout:        deployment.CompactionTimeout,
 
 		Events: events.NewBus(
 			EventBusOptions(deployment, metricRegistry),
@@ -57,7 +56,7 @@ func RuntimeOptionsFromConfig(
 		MaxConcurrentTools:   deployment.MaxConcurrentTools,
 		ToolTimeout:          deployment.ToolTimeout,
 		MaxToolResultTokens:  deployment.MaxToolResultTokens,
-		HookCommandTimeout:   deployment.HookCommandTimeout,
+		HookCommandTimeout:   deployment.DefaultHookCommandTimeout,
 		MaxHookCommandOutput: deployment.MaxHookCommandOutput,
 		HookStateRoot:        hooks.DefaultStateRoot(deployment.StateDirectory),
 	}
@@ -150,7 +149,7 @@ func ConfiguredToolLimits(deployment config.Config) tools.Limits {
 		MaxDiffBytes:          deployment.ToolMaxDiffBytes,
 		MaxRemoveEntries:      deployment.ToolMaxRemoveEntries,
 		MaxCommandOutputBytes: deployment.ToolMaxCommandOutputBytes,
-		CommandTimeout:        deployment.ToolCommandTimeout,
-		MaxCommandTimeout:     deployment.ToolMaxCommandTimeout,
+		CommandTimeout:        deployment.DefaultToolCommandTimeout,
+		WaitJobTimeout:        deployment.DefaultToolCommandTimeout,
 	}
 }

@@ -138,7 +138,7 @@ func (o compactionOptions) withDefaults(defaultModel string) compactionOptions {
 	}
 
 	if o.Timeout <= 0 {
-		o.Timeout = defaultCompactionTimeout
+		o.Timeout = defaultModelRequestTimeout
 	}
 
 	return o

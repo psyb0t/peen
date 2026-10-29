@@ -139,7 +139,7 @@ func TestResolveCommandTimeout(t *testing.T) {
 		{name: "empty uses the default", timeout: "", want: limits.CommandTimeout},
 		{name: "minutes and seconds", timeout: "1m30s", want: 90 * time.Second},
 		{name: "seconds", timeout: "90s", want: 90 * time.Second},
-		{name: "above the maximum is clamped", timeout: "999h", want: limits.MaxCommandTimeout},
+		{name: "a long wait is kept", timeout: "999h", want: 999 * time.Hour},
 	}
 
 	for _, tc := range testCases {
@@ -458,6 +458,7 @@ func TestRunCommand_ExitsInBound_ReturnsStatusNoJobLeftRunning(t *testing.T) {
 
 	assert.Equal(t, JobStateExited, out.State)
 	assert.False(t, out.Running)
+	assert.Empty(t, out.Note)
 	assert.Equal(t, 0, out.ExitCode)
 	assert.Equal(t, "hello", out.Stdout)
 	assert.Empty(t, out.Stderr)
@@ -559,6 +560,7 @@ func TestRunCommand_StillRunningWhenBoundExpires(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, out.Running)
 	assert.Equal(t, JobStateRunning, out.State)
+	assert.Equal(t, runCommandStillRunningNote, out.Note)
 	assert.Less(t, elapsed, commandWaitSlack)
 	assert.True(t, processAlive(t, out.PID), "process must still be running")
 

@@ -243,11 +243,11 @@ func TestChildCallbackFinishReopensSQLiteWithoutRestoringAnActiveScope(
 	runtime, err := NewRuntime(t.Context(), RuntimeOptions{
 		Store: store, Resolver: fixture.base.runtime.resolver,
 		Models: fixture.base.runtime.models, RootAgent: runtimeTestAgentName,
-		DefaultModel:     runtimeTestModelReference,
-		DefaultWorkspace: fixture.base.workspace,
-		ConfigDirectory:  fixture.base.configDirectory,
-		TurnTimeout:      runtimeTestTurnTimeout,
-		MaxContextTokens: runtimeTestMaxContextTokens,
+		DefaultModel:        runtimeTestModelReference,
+		DefaultWorkspace:    fixture.base.workspace,
+		ConfigDirectory:     fixture.base.configDirectory,
+		ModelRequestTimeout: runtimeTestTurnTimeout,
+		MaxContextTokens:    runtimeTestMaxContextTokens,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {

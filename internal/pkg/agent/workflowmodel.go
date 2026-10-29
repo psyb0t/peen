@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
@@ -30,7 +29,6 @@ type workflowConversation struct {
 	// which keeps no reserve, as they did.
 	OutputReserveTokens int                    `json:"outputReserveTokens"`
 	ReasoningEffort     elelem.ReasoningEffort `json:"reasoningEffort"`
-	Deadline            time.Time              `json:"deadline"`
 	Usage               elelem.Usage           `json:"usage"`
 	Cost                float64                `json:"cost"`
 	// ReasoningParts holds each round's reasoning as its own string. One
@@ -190,7 +188,7 @@ func workflowRunModelRequest(
 	request *elelem.Request,
 	conversation workflowConversation,
 ) (workflowRoundResult, error) {
-	response, err := runWorkflowModelResponse(ctx, request, conversation)
+	response, err := runWorkflowModelResponse(ctx, request)
 	if err != nil {
 		return workflowRoundResult{}, ctxerrors.Wrap(err, "run workflow model")
 	}
@@ -201,15 +199,7 @@ func workflowRunModelRequest(
 func runWorkflowModelResponse(
 	ctx context.Context,
 	request *elelem.Request,
-	conversation workflowConversation,
 ) (*elelem.Response, error) {
-	if !conversation.Deadline.IsZero() {
-		var cancel context.CancelFunc
-
-		ctx, cancel = context.WithDeadline(ctx, conversation.Deadline)
-		defer cancel()
-	}
-
 	response, err := request.Run(ctx)
 	if err != nil {
 		return response, ctxerrors.Wrap(err, "run workflow model")
@@ -226,7 +216,9 @@ func workflowModelResult(
 	conversation.Messages = directoryHistory(response.Messages)
 	releaseDroppedCompactionPlan(ctx, &conversation)
 
-	conversation.Usage = mergeDirectoryUsage(conversation.Usage, response.Usage)
+	conversation.Usage = workflowSavedUsage(
+		mergeDirectoryUsage(conversation.Usage, response.Usage),
+	)
 
 	conversation.Cost += response.Cost
 	if response.Reasoning != "" {
@@ -246,7 +238,29 @@ func workflowModelResult(
 
 	return workflowRoundResult{
 		Context: encoded, Calls: response.ToolCalls, Text: response.Text,
+		FinishReason: response.FinishReason,
 	}, nil
+}
+
+// workflowSavedUsage returns usage without the error of each failed provider
+// attempt. The conversation is saved as JSON, where an error encodes as an
+// object that cannot be decoded back, so a call that succeeded after a retry
+// would make the next round fail. The model call record keeps each attempt's
+// error text.
+func workflowSavedUsage(usage elelem.Usage) elelem.Usage {
+	if len(usage.Retry.FailedAttempts) == 0 {
+		return usage
+	}
+
+	attempts := make([]elelem.RetryAttempt, len(usage.Retry.FailedAttempts))
+	for index, attempt := range usage.Retry.FailedAttempts {
+		attempt.Err = nil
+		attempts[index] = attempt
+	}
+
+	usage.Retry.FailedAttempts = attempts
+
+	return usage
 }
 
 func workflowMergeRound(

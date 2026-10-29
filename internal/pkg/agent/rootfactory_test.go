@@ -91,11 +91,11 @@ func TestRootFactoryRetainsOriginalAgentAfterDefaultChanges(t *testing.T) {
 	runtime, err := NewRuntime(t.Context(), RuntimeOptions{
 		Store: fixture.base.store, Resolver: fixture.base.runtime.resolver,
 		Models: fixture.base.runtime.models, RootAgent: replacementRootAgentName,
-		DefaultModel:     runtimeTestModelReference,
-		DefaultWorkspace: fixture.base.workspace,
-		ConfigDirectory:  fixture.base.configDirectory,
-		MaxContextTokens: runtimeTestMaxContextTokens,
-		TurnTimeout:      runtimeTestTurnTimeout,
+		DefaultModel:        runtimeTestModelReference,
+		DefaultWorkspace:    fixture.base.workspace,
+		ConfigDirectory:     fixture.base.configDirectory,
+		MaxContextTokens:    runtimeTestMaxContextTokens,
+		ModelRequestTimeout: runtimeTestTurnTimeout,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -256,9 +256,9 @@ func TestRootFactoryRestoresCompactionAfterDatabaseReopen(t *testing.T) {
 		Store: store, Resolver: base.runtime.resolver, Models: base.runtime.models,
 		RootAgent: runtimeTestAgentName, DefaultModel: runtimeTestModelReference,
 		DefaultWorkspace: base.workspace, ConfigDirectory: base.configDirectory,
-		MaxContextTokens: runtimeTestMaxContextTokens,
-		CompactionMode:   config.CompactionModeDropOldest,
-		TurnTimeout:      runtimeTestTurnTimeout,
+		MaxContextTokens:    runtimeTestMaxContextTokens,
+		CompactionMode:      config.CompactionModeDropOldest,
+		ModelRequestTimeout: runtimeTestTurnTimeout,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -392,11 +392,11 @@ func TestRootFactoryRestoresInFreshRuntimeAfterDatabaseReopen(t *testing.T) {
 	runtime, err := NewRuntime(t.Context(), RuntimeOptions{
 		Store: store, Resolver: fixture.base.runtime.resolver,
 		Models: fixture.base.runtime.models, RootAgent: replacementRootAgentName,
-		DefaultModel:     runtimeTestModelReference,
-		DefaultWorkspace: fixture.base.workspace,
-		ConfigDirectory:  fixture.base.configDirectory,
-		MaxContextTokens: runtimeTestMaxContextTokens,
-		TurnTimeout:      runtimeTestTurnTimeout,
+		DefaultModel:        runtimeTestModelReference,
+		DefaultWorkspace:    fixture.base.workspace,
+		ConfigDirectory:     fixture.base.configDirectory,
+		MaxContextTokens:    runtimeTestMaxContextTokens,
+		ModelRequestTimeout: runtimeTestTurnTimeout,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() {

@@ -22,15 +22,20 @@ const (
 	defaultMaxPatchChangedBytes  = 4 * 1024 * 1024
 	defaultMaxRemoveEntries      = 20000
 	defaultMaxCommandOutputBytes = 64 * 1024
-	defaultCommandTimeout        = 2 * time.Minute
-	defaultMaxCommandTimeout     = 15 * time.Minute
+	defaultCommandTimeout        = 10 * time.Minute
 
 	defaultMaxJobOutputLines     = 2000
 	defaultMaxReadJobOutputLines = 500
-	defaultWaitJobTimeout        = 30 * time.Second
-	defaultMaxWaitJobTimeout     = 10 * time.Minute
+	defaultWaitJobTimeout        = 10 * time.Minute
 	defaultJobStopGracePeriod    = 10 * time.Second
 	defaultMaxListJobs           = 500
+)
+
+// Notes returned to the model when a wait ends with the process still
+// running, so it knows how to keep waiting without starting a second copy.
+const (
+	runCommandStillRunningNote = `The wait ended and the command is still running as this job. To keep waiting, call waitJob with this jobId and a longer timeout, such as "1h". Do not call runCommand again for it: that starts a second copy.` //nolint:lll // One model-facing sentence.
+	waitJobStillRunningNote    = `The wait ended and the job is still running. To keep waiting, call waitJob again with this jobId, and a longer timeout, such as "1h", if it needs more time.`                                                   //nolint:lll // One model-facing sentence.
 )
 
 // Limits bounds every host tool result. Zero fields take the default.
@@ -50,8 +55,9 @@ type Limits struct {
 	MaxPatchChangedBytes  int
 	MaxRemoveEntries      int
 	MaxCommandOutputBytes int
-	CommandTimeout        time.Duration
-	MaxCommandTimeout     time.Duration
+	// CommandTimeout is how long runCommand waits when a call passes no
+	// timeout. A call may ask for any wait.
+	CommandTimeout time.Duration
 
 	// MaxJobOutputLines bounds how many lines a job's stdout/stderr ring
 	// buffer retains. MaxCommandOutputBytes bounds the same buffer's total
@@ -60,10 +66,9 @@ type Limits struct {
 	// MaxReadJobOutputLines bounds one readJobOutput/waitJob window,
 	// independent of how much a job's ring buffer retains overall.
 	MaxReadJobOutputLines int
-	// WaitJobTimeout and MaxWaitJobTimeout bound waitJob the same way
-	// CommandTimeout and MaxCommandTimeout bound runCommand's wait.
-	WaitJobTimeout    time.Duration
-	MaxWaitJobTimeout time.Duration
+	// WaitJobTimeout is how long waitJob waits when a call passes no
+	// timeout. A call may ask for any wait.
+	WaitJobTimeout time.Duration
 	// JobStopGracePeriod bounds how long signalJob's stop and the registry's
 	// Shutdown wait after SIGTERM before escalating to SIGKILL.
 	JobStopGracePeriod time.Duration
@@ -90,11 +95,9 @@ func DefaultLimits() Limits {
 		MaxRemoveEntries:      defaultMaxRemoveEntries,
 		MaxCommandOutputBytes: defaultMaxCommandOutputBytes,
 		CommandTimeout:        defaultCommandTimeout,
-		MaxCommandTimeout:     defaultMaxCommandTimeout,
 		MaxJobOutputLines:     defaultMaxJobOutputLines,
 		MaxReadJobOutputLines: defaultMaxReadJobOutputLines,
 		WaitJobTimeout:        defaultWaitJobTimeout,
-		MaxWaitJobTimeout:     defaultMaxWaitJobTimeout,
 		JobStopGracePeriod:    defaultJobStopGracePeriod,
 		MaxListJobs:           defaultMaxListJobs,
 	}
@@ -165,10 +168,6 @@ func (l Limits) withFileToolDefaults(defaults Limits) Limits {
 		l.CommandTimeout = defaults.CommandTimeout
 	}
 
-	if l.MaxCommandTimeout == 0 {
-		l.MaxCommandTimeout = defaults.MaxCommandTimeout
-	}
-
 	return l
 }
 
@@ -203,10 +202,6 @@ func (l Limits) withJobToolDefaults(defaults Limits) Limits {
 
 	if l.WaitJobTimeout == 0 {
 		l.WaitJobTimeout = defaults.WaitJobTimeout
-	}
-
-	if l.MaxWaitJobTimeout == 0 {
-		l.MaxWaitJobTimeout = defaults.MaxWaitJobTimeout
 	}
 
 	if l.JobStopGracePeriod == 0 {
@@ -251,27 +246,16 @@ func (l Limits) validate() error {
 		return ctxerrors.Wrap(ErrInvalidLimits, "search file bound")
 	}
 
-	if l.CommandTimeout <= 0 || l.MaxCommandTimeout <= 0 {
+	if l.CommandTimeout <= 0 {
 		return ctxerrors.Wrap(ErrInvalidLimits, "command timeout bound")
-	}
-
-	if l.CommandTimeout > l.MaxCommandTimeout {
-		return ctxerrors.Wrap(ErrInvalidLimits, "default exceeds maximum")
 	}
 
 	return l.validateJobLimits()
 }
 
 func (l Limits) validateJobLimits() error {
-	if l.WaitJobTimeout <= 0 || l.MaxWaitJobTimeout <= 0 {
+	if l.WaitJobTimeout <= 0 {
 		return ctxerrors.Wrap(ErrInvalidLimits, "wait job timeout bound")
-	}
-
-	if l.WaitJobTimeout > l.MaxWaitJobTimeout {
-		return ctxerrors.Wrap(
-			ErrInvalidLimits,
-			"wait job default exceeds maximum",
-		)
 	}
 
 	if l.JobStopGracePeriod <= 0 {

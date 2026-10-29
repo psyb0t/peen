@@ -26,10 +26,11 @@ const (
 	// deployment default.
 	defaultOutputReserveTokens  = 4096
 	defaultMaxEventWakesPerHour = 60
-	// defaultTurnTimeout mirrors PEEN_TURN_TIMEOUT's deployment default.
-	defaultTurnTimeout   = 10 * time.Minute
-	stateDirectorySuffix = "-state"
-	temporaryStatePrefix = "peen-state-"
+	// defaultModelRequestTimeout mirrors PEEN_MODEL_REQUEST_TIMEOUT's
+	// deployment default.
+	defaultModelRequestTimeout = 10 * time.Minute
+	stateDirectorySuffix       = "-state"
+	temporaryStatePrefix       = "peen-state-"
 )
 
 // Runtime owns storage and execution for one or more durable sessions.
@@ -176,7 +177,7 @@ func runtimeOptions(
 		DefaultWorkspace:    workspace,
 		MaxContextTokens:    options.MaxContextTokens,
 		OutputReserveTokens: options.OutputReserveTokens,
-		TurnTimeout:         options.TurnTimeout,
+		ModelRequestTimeout: options.ModelRequestTimeout,
 		BaseSystemPrompt:    options.BaseSystemPrompt,
 		AppendSystemPrompt:  options.AppendSystemPrompt,
 		AskTimeout:          options.AskTimeout,
@@ -195,7 +196,6 @@ func runtimeOptions(
 		CompactionPrompt:         options.CompactionPrompt,
 		CompactionOutputTokens:   options.CompactionOutputTokens,
 		CompactionSummaryPercent: options.CompactionSummaryPercent,
-		CompactionTimeout:        options.CompactionTimeout,
 
 		MaxToolRounds:        options.MaxToolRounds,
 		MaxConcurrentTools:   options.MaxConcurrentTools,

@@ -119,14 +119,14 @@ func TestChildConversationUsesOriginalModelAfterCatalogChange(t *testing.T) {
 	assert.Equal(t, original, *conversation.Child.Model)
 	encoded, err := json.Marshal(conversation)
 	require.NoError(t, err)
-	request, saved, err := workflowModelRequest(childConversationModelResolver{
+	request, _, err := workflowModelRequest(childConversationModelResolver{
 		model: deps.model,
 	}, workflowRoundInput{Execution: workflowExecutionInput{
 		SessionID: deps.sessionID, MaxRounds: prepared.remainingRounds,
 		Context: encoded,
 	}})
 	require.NoError(t, err)
-	response, err := runWorkflowModelResponse(t.Context(), request, saved)
+	response, err := runWorkflowModelResponse(t.Context(), request)
 	require.NoError(t, err)
 	assert.Equal(t, "child reply", response.Text)
 	assert.Equal(t, original.ID, response.Model)

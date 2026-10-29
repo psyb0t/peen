@@ -17,9 +17,8 @@ These are the in-process equivalents of deployment settings. `pkg/peen` accepts 
 | `PEEN_COMPACTION_MODE` | `CompactionMode` | `drop-oldest` |
 | `PEEN_COMPACTION_SUMMARY_PERCENT` | `CompactionSummaryPercent` | `30` |
 | `PEEN_COMPACTION_MAX_OUTPUT_TOKENS` | `CompactionOutputTokens` | `16384` |
-| `PEEN_COMPACTION_TIMEOUT` | `CompactionTimeout` | `2m` |
 | `PEEN_CRASH_RECOVERY` | `ResumeAfterCrash` (`true` is `resume`) | `false` |
-| `PEEN_TURN_TIMEOUT` | `TurnTimeout` | `10m` |
+| `PEEN_MODEL_REQUEST_TIMEOUT` | `ModelRequestTimeout` | `10m` |
 | `PEEN_MAX_CONCURRENT_TURNS` | `MaxConcurrentTurns` | `16` |
 | `PEEN_MAX_QUEUED_USER_MESSAGES` | `MaxQueuedUserMessages` | `16` |
 | `PEEN_MAX_MESSAGE_BYTES` | `MaxMessageBytes` | `262144` |
@@ -29,7 +28,7 @@ These are the in-process equivalents of deployment settings. `pkg/peen` accepts 
 | `PEEN_MAX_CONCURRENT_TOOLS` | `MaxConcurrentTools` | `4` |
 | `PEEN_TOOL_TIMEOUT` | `ToolTimeout` | `15m` |
 | `PEEN_MAX_TOOL_RESULT_TOKENS` | `MaxToolResultTokens` | `8192` |
-| `PEEN_HOOK_COMMAND_TIMEOUT` | `HookCommandTimeout` | `30s` |
+| `PEEN_DEFAULT_HOOK_COMMAND_TIMEOUT` | `HookCommandTimeout` | `30s` |
 | `PEEN_MAX_HOOK_COMMAND_OUTPUT` | `MaxHookCommandOutput` | `65536` |
 | `PEEN_TOOL_MAX_LIST_ENTRIES` | `ToolLimits.MaxListEntries` | `1000` |
 | `PEEN_TOOL_MAX_LIST_DEPTH` | `ToolLimits.MaxListDepth` | `16` |
@@ -42,8 +41,7 @@ These are the in-process equivalents of deployment settings. `pkg/peen` accepts 
 | `PEEN_TOOL_MAX_DIFF_BYTES` | `ToolLimits.MaxDiffBytes` | `65536` |
 | `PEEN_TOOL_MAX_REMOVE_ENTRIES` | `ToolLimits.MaxRemoveEntries` | `20000` |
 | `PEEN_TOOL_MAX_COMMAND_OUTPUT_BYTES` | `ToolLimits.MaxCommandOutputBytes` | `65536` |
-| `PEEN_TOOL_COMMAND_TIMEOUT` | `ToolLimits.CommandTimeout` | `2m` |
-| `PEEN_TOOL_MAX_COMMAND_TIMEOUT` | `ToolLimits.MaxCommandTimeout` | `15m` |
+| `PEEN_DEFAULT_TOOL_COMMAND_TIMEOUT` | `ToolLimits.CommandTimeout` and `ToolLimits.WaitJobTimeout` | `10m` |
 | `PEEN_MAX_PENDING_EVENTS` | `EventLimits.MaxPendingPerSession` | `256` |
 | `PEEN_MAX_EVENT_SUMMARY_BYTES` | `EventLimits.MaxSummaryBytes` | `4096` |
 | `PEEN_MAX_EVENT_DATA_BYTES` | `EventLimits.MaxDataBytes` | `65536` |
@@ -60,7 +58,7 @@ Audit settings map `PEEN_LOG_DIRECTORY` to `AuditLog.Directory` and `PEEN_LOG_RE
 
 HarnessLimits uses the harness defaults: 256 files, 64 instructions, 64 skills, 64 agents, 64 event handlers, 256 hooks, 1024 directory entries, 128 KiB per file and 1 MiB total context. EventLimits.SubscriberBuffer defaults to 32. These values have no corresponding PEEN environment variables.
 
-Additional ToolLimits fields cover patches and jobs: MaxPatchBytes 1 MiB, MaxPatchFiles 64, MaxPatchHunks 256, MaxPatchChangedBytes 4 MiB, MaxJobOutputLines 2000, MaxReadJobOutputLines 500, WaitJobTimeout 30 seconds, MaxWaitJobTimeout 10 minutes, JobStopGracePeriod 10 seconds and MaxListJobs 500. They use the same tool defaults as a controller.
+Additional ToolLimits fields cover patches and jobs: MaxPatchBytes 1 MiB, MaxPatchFiles 64, MaxPatchHunks 256, MaxPatchChangedBytes 4 MiB, MaxJobOutputLines 2000, MaxReadJobOutputLines 500, JobStopGracePeriod 10 seconds and MaxListJobs 500. They use the same tool defaults as a controller.
 
 Workspace defaults to the current directory captured at construction. Filesystem and WorkspaceID supply a virtual workspace instead. InMemoryStore uses ephemeral SQLite and temporary hook state. BaseSystemPrompt and AppendSystemPrompt provide prompt values; CompactionPrompt provides summarizer instructions. Harness, Tools, DisableTools, Hooks and CommandRunner provide extensions.
 

@@ -422,9 +422,9 @@ func validOptions(t *testing.T) peen.Options {
 				Model:  elelem.Model{ID: testModelID},
 			},
 		},
-		DefaultModel:     testModelReference,
-		MaxContextTokens: testMaxContextSize,
-		TurnTimeout:      time.Minute,
+		DefaultModel:        testModelReference,
+		MaxContextTokens:    testMaxContextSize,
+		ModelRequestTimeout: time.Minute,
 	}
 }
 
@@ -532,9 +532,9 @@ func newTestRuntime(t *testing.T, driver elelem.Driver) *peen.Runtime {
 				Model:  elelem.Model{ID: testModelID},
 			},
 		},
-		DefaultModel:     testModelReference,
-		MaxContextTokens: testMaxContextSize,
-		TurnTimeout:      time.Minute,
+		DefaultModel:        testModelReference,
+		MaxContextTokens:    testMaxContextSize,
+		ModelRequestTimeout: time.Minute,
 	})
 	require.NoError(t, err)
 

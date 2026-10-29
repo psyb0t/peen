@@ -12,6 +12,7 @@
 | `docs/architecture.md` | Controller, workers, one turn, durable state, terms and identifiers. |
 | `docs/harness.md`, `rules.md`, `skills.md`, `agents.md`, `hooks.md`, `events.md` | The harness formats users write. |
 | `docs/http-api.md` | The REST and WebSocket contract, next to `api/api.yml`. |
+| `docs/benchmarks.md` | Benchmark method, results, and the Peen defects each run found. Update it after a benchmark run. |
 | `docs/development.md` | Changing Peen itself: layout, Make targets, test tiers, generated code, docs sync, and releases. Do not name it `contributing.md`, which makes GitHub show a Contributing tab. |
 | `pkg/peen/README.md` | The public Go API. |
 | `.agents/skills/peen/` | The published agent skill for operating Peen. |

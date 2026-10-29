@@ -71,7 +71,7 @@ type Runtime struct {
 	sessionID           uuid.UUID
 	maxContextTokens    int
 	outputReserveTokens int
-	turnTimeout         time.Duration
+	modelRequestTimeout time.Duration
 	baseSystemPrompt    string
 	now                 func() time.Time
 
@@ -275,7 +275,7 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 		sessionID:           startup.id,
 		maxContextTokens:    options.MaxContextTokens,
 		outputReserveTokens: options.OutputReserveTokens,
-		turnTimeout:         options.TurnTimeout,
+		modelRequestTimeout: options.ModelRequestTimeout,
 		baseSystemPrompt:    options.BaseSystemPrompt,
 		now:                 time.Now,
 
@@ -1881,7 +1881,7 @@ func (r *Runtime) runProvider(
 		r.maxConcurrentTools,
 		r.toolTimeout,
 		r.maxToolResultTokens,
-		r.turnTimeout,
+		r.modelRequestTimeout,
 	)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "marshal root model request settings")
@@ -1913,7 +1913,7 @@ func (r *Runtime) runProvider(
 		WithPrompt(prepared.prompt).
 		WithMaxContextTokens(r.maxContextTokens).
 		WithOutputReserveTokens(r.outputReserveTokens).
-		WithTimeout(r.turnTimeout).
+		WithTimeout(r.modelRequestTimeout).
 		WithTools(scope.context().tools).
 		WithToolProvider(scope.provideTools).
 		WithAutoToolCalls().
@@ -1956,7 +1956,9 @@ func (r *Runtime) runProvider(
 		request = request.PreMaxTokensReached(prepared.compactor.handle)
 	}
 
-	response, err := scope.run(ctx, request, r.maxToolRounds, r.turnTimeout)
+	response, err := scope.run(
+		ctx, request, r.maxToolRounds, r.modelRequestTimeout,
+	)
 
 	persistCtx := context.WithoutCancel(ctx)
 	if auditErr := audit.finish(persistCtx, response, err); auditErr != nil {
@@ -2167,7 +2169,7 @@ func compactionSettings(
 		Metrics:         options.Metrics,
 		ModelReference:  options.CompactionModel,
 		MaxOutputTokens: summaryTokens,
-		Timeout:         options.CompactionTimeout,
+		Timeout:         options.ModelRequestTimeout,
 	}.withDefaults(options.DefaultModel)
 
 	prompt, err := resolveCompactionPrompt(mode, options)
@@ -2298,8 +2300,9 @@ func (r *Runtime) completeLease(
 		ctx,
 		EventTypeTurnCompleted,
 		turnCompletedPayload{
-			Model: prepared.modelReference,
-			Text:  response.Text,
+			Model:        prepared.modelReference,
+			Text:         response.Text,
+			FinishReason: response.FinishReason,
 		},
 	); err != nil {
 		return nil, ctxerrors.Wrap(err, "emit turn completed")

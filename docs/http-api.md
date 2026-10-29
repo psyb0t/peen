@@ -121,7 +121,7 @@ A protocol event is a stored record of one step of a turn. Each one goes out liv
 | `tool.use` | `{callId, name, arguments}` | The model asked for a tool call. |
 | `tool.result` | `{callId, name, content, isError}` | A tool call finished. |
 | `provider.retry` | `{attempt, reason, status, delayMs}` | Peen is retrying a failed provider request. |
-| `turn.completed` | `{model, text}` | The turn finished. `text` is the final answer. |
+| `turn.completed` | `{model, text, finishReason?}` | The turn finished. `text` is the final answer. `finishReason` is why the model stopped that answer, as the provider reported it; `length` means the answer reached the output token limit and was cut off, which can leave `text` empty when the model spent the limit on reasoning. |
 | `turn.failed` | `{reason, error?}` | The turn failed. `error` is the error it ended with, without source locations. The same error is also recorded as a `turn.failed` [session event](events.md#turn-events). |
 | `turn.cancelled` | `{reason}` | The turn was cancelled. |
 | `question.asked` | `{question, callId?}` | The root conversation asked you a question with `ask`. Your next message is the answer. |

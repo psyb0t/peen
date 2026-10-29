@@ -97,9 +97,10 @@ type Options struct {
 	// by itself when the runtime starts. False, the default, pauses it until
 	// a turn resumes it.
 	ResumeAfterCrash bool
-	// TurnTimeout bounds one turn's provider call. Zero takes the package
-	// default.
-	TurnTimeout time.Duration
+	// ModelRequestTimeout bounds each model request, a turn's rounds and a
+	// compaction summary alike. A turn has no overall time limit. Zero takes
+	// the package default.
+	ModelRequestTimeout time.Duration
 	// MaxConcurrentTurns bounds turns running at once across every session.
 	// Zero takes the internal default; negative disables the bound.
 	MaxConcurrentTurns int
@@ -130,9 +131,6 @@ type Options struct {
 	// gets, up to CompactionOutputTokens, from 1 to 50. Zero takes the
 	// internal default.
 	CompactionSummaryPercent int
-	// CompactionTimeout bounds the separate summarization call. Zero takes
-	// the internal default.
-	CompactionTimeout time.Duration
 
 	// MaxToolRounds bounds how many tool rounds one turn may run. Zero takes
 	// the internal default.
@@ -140,14 +138,15 @@ type Options struct {
 	// MaxConcurrentTools bounds parallel tool execution inside one round.
 	// Zero takes the internal default.
 	MaxConcurrentTools int
-	// ToolTimeout bounds one tool call, hooks included. Zero takes the
-	// internal default.
+	// ToolTimeout bounds one call of any tool except runCommand and waitJob,
+	// hooks included. Those two are bounded by the wait they ask for. Zero
+	// takes the internal default.
 	ToolTimeout time.Duration
 	// MaxToolResultTokens bounds one tool result before it enters context.
 	// Zero takes the internal default.
 	MaxToolResultTokens int
-	// HookCommandTimeout bounds one executable hook action. Zero takes the
-	// internal default.
+	// HookCommandTimeout bounds an executable hook action that sets no
+	// timeout of its own. Zero takes the internal default.
 	HookCommandTimeout time.Duration
 	// MaxHookCommandOutput bounds stdout or stderr from an executable hook
 	// action. Zero takes the internal default.

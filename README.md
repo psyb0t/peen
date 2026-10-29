@@ -136,4 +136,5 @@ openclaw skills install @psyb0t/peen
 | Build a WebSocket or REST client | [API reference](docs/http-api.md), [api/api.yml](api/api.yml), and [api/asyncapi.yaml](api/asyncapi.yaml) |
 | Embed Peen in a Go process | [Go embedding guide](pkg/peen/README.md) |
 | See how it fits together and what it is built with | [Architecture](docs/architecture.md) |
+| See how it does on coding benchmarks and what they found | [Benchmarks](docs/benchmarks.md) |
 | Change Peen itself | [Development](docs/development.md) |

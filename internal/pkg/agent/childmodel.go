@@ -41,7 +41,7 @@ func (r *Runtime) workflowChildModelRoundWithAssistant(
 	monitor := rootWorkflowModelMonitor{startedAt: time.Now()}
 	bindChildWorkflowModel(request, sink, assistant, audit, &monitor)
 
-	response, err := runWorkflowModelResponse(ctx, request, conversation)
+	response, err := runWorkflowModelResponse(ctx, request)
 	if auditErr := audit.finish(context.WithoutCancel(ctx), response,
 		err); auditErr != nil {
 		err = errors.Join(err, auditErr)

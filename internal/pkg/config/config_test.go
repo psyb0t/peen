@@ -304,8 +304,8 @@ func TestParseUsesFixedEnvironmentBindings(t *testing.T) {
 	t.Setenv("PEEN_COMPACTION_MODE", string(CompactionModeSummarize))
 	t.Setenv("PEEN_COMPACTION_MAX_OUTPUT_TOKENS", "1024")
 	t.Setenv("PEEN_COMPACTION_SUMMARY_PERCENT", "20")
-	t.Setenv("PEEN_COMPACTION_TIMEOUT", "3m")
-	t.Setenv("PEEN_TURN_TIMEOUT", "4m")
+	t.Setenv("PEEN_MODEL_REQUEST_TIMEOUT", "4m")
+	t.Setenv("PEEN_DEFAULT_TOOL_COMMAND_TIMEOUT", "30m")
 	t.Setenv("PEEN_HTTP_LISTEN_ADDRESS", "127.0.0.1:8081")
 	t.Setenv("PEEN_METRICS_LISTEN_ADDRESS", "127.0.0.1:9091")
 	t.Setenv("PEEN_API_TOKEN", "test-token")
@@ -314,7 +314,7 @@ func TestParseUsesFixedEnvironmentBindings(t *testing.T) {
 	t.Setenv("PEEN_MAX_MESSAGE_BYTES", "131072")
 	t.Setenv("PEEN_MAX_SYSTEM_PROMPT_BYTES", "32768")
 	t.Setenv("PEEN_MAX_STORED_MESSAGE_BYTES", "524288")
-	t.Setenv("PEEN_HOOK_COMMAND_TIMEOUT", "20s")
+	t.Setenv("PEEN_DEFAULT_HOOK_COMMAND_TIMEOUT", "20s")
 	t.Setenv("PEEN_MAX_HOOK_COMMAND_OUTPUT", "8192")
 
 	config, err := Parse()
@@ -329,8 +329,8 @@ func TestParseUsesFixedEnvironmentBindings(t *testing.T) {
 	assert.Equal(t, 1024, config.CompactionOutputTokens)
 	assert.Equal(t, 20, config.CompactionSummaryPercent)
 	assert.Equal(t, 1024, config.CompactionSummaryTokens())
-	assert.Equal(t, 3*time.Minute, config.CompactionTimeout)
-	assert.Equal(t, 4*time.Minute, config.TurnTimeout)
+	assert.Equal(t, 4*time.Minute, config.ModelRequestTimeout)
+	assert.Equal(t, 30*time.Minute, config.DefaultToolCommandTimeout)
 	assert.Equal(t, "127.0.0.1:8081", config.HTTPListenAddress)
 	assert.Equal(t, "127.0.0.1:9091", config.MetricsListenAddress)
 	assert.Equal(t, 8, config.MaxConcurrentTurns)
@@ -338,7 +338,7 @@ func TestParseUsesFixedEnvironmentBindings(t *testing.T) {
 	assert.Equal(t, 131072, config.MaxMessageBytes)
 	assert.Equal(t, 32768, config.MaxSystemPromptBytes)
 	assert.Equal(t, 524288, config.MaxStoredMessageBytes)
-	assert.Equal(t, 20*time.Second, config.HookCommandTimeout)
+	assert.Equal(t, 20*time.Second, config.DefaultHookCommandTimeout)
 	assert.Equal(t, 8192, config.MaxHookCommandOutput)
 
 	upstreams, err := config.Upstreams()
@@ -452,8 +452,7 @@ func testConfig(t *testing.T) Config {
 		CompactionMode:         CompactionModeDropOldest,
 		CrashRecovery:          CrashRecoveryPause,
 		CompactionOutputTokens: 1024,
-		CompactionTimeout:      time.Minute,
-		TurnTimeout:            time.Minute,
+		ModelRequestTimeout:    time.Minute,
 		HTTPListenAddress:      ":8080",
 		MetricsListenAddress:   "127.0.0.1:9090",
 
@@ -474,9 +473,8 @@ func testConfig(t *testing.T) Config {
 		ToolMaxDiffBytes:          65536,
 		ToolMaxRemoveEntries:      20000,
 		ToolMaxCommandOutputBytes: 65536,
-		ToolCommandTimeout:        2 * time.Minute,
-		ToolMaxCommandTimeout:     15 * time.Minute,
-		HookCommandTimeout:        30 * time.Second,
+		DefaultToolCommandTimeout: 10 * time.Minute,
+		DefaultHookCommandTimeout: 30 * time.Second,
 		MaxHookCommandOutput:      65536,
 		MaxPendingEvents:          256,
 		MaxEventSummaryBytes:      4096,
@@ -508,9 +506,8 @@ func clearToolBounds(c *Config) {
 	c.ToolMaxDiffBytes = 0
 	c.ToolMaxRemoveEntries = 0
 	c.ToolMaxCommandOutputBytes = 0
-	c.ToolCommandTimeout = 0
-	c.ToolMaxCommandTimeout = 0
-	c.HookCommandTimeout = 0
+	c.DefaultToolCommandTimeout = 0
+	c.DefaultHookCommandTimeout = 0
 	c.MaxHookCommandOutput = 0
 	c.MaxPendingEvents = 0
 	c.MaxEventSummaryBytes = 0
@@ -555,12 +552,12 @@ func TestConfigValidateToolLimits(t *testing.T) {
 		},
 		{
 			name:    "negative command timeout",
-			mutate:  func(c *Config) { c.ToolCommandTimeout = -1 },
+			mutate:  func(c *Config) { c.DefaultToolCommandTimeout = -1 },
 			wantErr: true,
 		},
 		{
 			name:    "negative hook command timeout",
-			mutate:  func(c *Config) { c.HookCommandTimeout = -1 },
+			mutate:  func(c *Config) { c.DefaultHookCommandTimeout = -1 },
 			wantErr: true,
 		},
 		{
@@ -569,28 +566,18 @@ func TestConfigValidateToolLimits(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name: "hook command timeout outlives the harness tool timeout",
+			name: "a hook command default may outlive the tool timeout",
 			mutate: func(c *Config) {
 				c.ToolTimeout = time.Minute
-				c.HookCommandTimeout = time.Hour
+				c.DefaultHookCommandTimeout = time.Hour
 			},
-			wantErr: true,
 		},
 		{
-			name: "command maximum outlives the harness tool timeout",
+			name: "a command default may outlive the tool timeout",
 			mutate: func(c *Config) {
 				c.ToolTimeout = time.Minute
-				c.ToolMaxCommandTimeout = time.Hour
+				c.DefaultToolCommandTimeout = 2 * time.Hour
 			},
-			wantErr: true,
-		},
-		{
-			name: "default command timeout above the maximum",
-			mutate: func(c *Config) {
-				c.ToolCommandTimeout = time.Hour
-				c.ToolMaxCommandTimeout = time.Minute
-			},
-			wantErr: true,
 		},
 	}
 
@@ -609,6 +596,79 @@ func TestConfigValidateToolLimits(t *testing.T) {
 			}
 
 			require.ErrorIs(t, err, ErrInvalidConfig)
+		})
+	}
+}
+
+// Parse reads a removed variable from the environment and refuses it, so a
+// deployment that still sets one fails at startup.
+func TestParseRefusesARetiredTimeout(t *testing.T) {
+	workingDirectory := filepath.Join(t.TempDir(), "workspace")
+	require.NoError(t, os.Mkdir(workingDirectory, testDirectoryMode))
+	t.Chdir(workingDirectory)
+	t.Setenv("PEEN_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+	t.Setenv("PEEN_STATE_DIR", filepath.Join(t.TempDir(), "state"))
+	t.Setenv("PEEN_AGENT", "coding")
+	t.Setenv("PEEN_UPSTREAMS", `[{"name":"aigate","type":"openai"}]`)
+	t.Setenv("PEEN_DEFAULT_MODEL", testQualifiedModel)
+	t.Setenv("PEEN_TURN_TIMEOUT", "10m")
+
+	_, err := Parse()
+	require.ErrorIs(t, err, ErrInvalidConfig)
+	assert.ErrorContains(t, err, "PEEN_TURN_TIMEOUT")
+	assert.ErrorContains(t, err, "PEEN_MODEL_REQUEST_TIMEOUT")
+}
+
+// A removed timeout variable still set would otherwise be silently ignored,
+// so startup refuses it and names what replaced it.
+func TestConfigValidateRefusesRetiredTimeouts(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		set         func(*Config)
+		replacement string
+	}{
+		{
+			name:        "PEEN_TURN_TIMEOUT",
+			set:         func(c *Config) { c.RetiredTurnTimeout = "10m" },
+			replacement: "PEEN_MODEL_REQUEST_TIMEOUT",
+		},
+		{
+			name:        "PEEN_COMPACTION_TIMEOUT",
+			set:         func(c *Config) { c.RetiredCompactionTimeout = "2m" },
+			replacement: "PEEN_MODEL_REQUEST_TIMEOUT",
+		},
+		{
+			name:        "PEEN_TOOL_COMMAND_TIMEOUT",
+			set:         func(c *Config) { c.RetiredToolCommandTimeout = "2m" },
+			replacement: "PEEN_DEFAULT_TOOL_COMMAND_TIMEOUT",
+		},
+		{
+			name: "PEEN_TOOL_MAX_COMMAND_TIMEOUT",
+			set: func(c *Config) {
+				c.RetiredToolMaxCommandTimeout = "15m"
+			},
+			replacement: "may ask for any wait",
+		},
+		{
+			name:        "PEEN_HOOK_COMMAND_TIMEOUT",
+			set:         func(c *Config) { c.RetiredHookCommandTimeout = "30s" },
+			replacement: "PEEN_DEFAULT_HOOK_COMMAND_TIMEOUT",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			config := testConfig(t)
+			tc.set(&config)
+
+			err := config.Validate()
+			require.ErrorIs(t, err, ErrInvalidConfig)
+			assert.ErrorContains(t, err, tc.name)
+			assert.ErrorContains(t, err, tc.replacement)
 		})
 	}
 }

@@ -145,9 +145,7 @@ root through an agent.question session event. The root conversation asks the
 user, and the user's next message is the answer.
 The call returns when the next message reaches you, with answered true. That
 message, normally the answer, comes right after this tool result. When the
-timeout passes first, answered is false and timedOut is true.
-timeout is a Go duration string such as "10m". Empty waits up to the
-deployment's limit, or 30 days when it sets none.
+deployment's wait limit passes first, answered is false and timedOut is true.
 Ask only when you cannot go on without the answer.`
 
 const askSchema = `{
@@ -156,10 +154,6 @@ const askSchema = `{
     "question": {
       "type": "string",
       "description": "The question to ask."
-    },
-    "timeout": {
-      "type": "string",
-      "description": "Go duration to wait, like \"10m\"."
     }
   },
   "required": ["question"],

@@ -63,13 +63,15 @@ const readJobOutputSchema = `{
   "additionalProperties": false
 }`
 
-const waitJobDescription = `Block until one job exits, up to a bound.
+const waitJobDescription = `Block until one job exits or the wait ends.
 Returns the job's final state and exit code plus whatever output arrived while
 waiting, continuing from the cursors you pass.
-timeout is a Go duration string such as "30s", "5m", or "1h30m"; empty uses the
-default. It limits how long YOU wait, never how long the job may run. When it
-elapses first, running is true and the job is still going; call again or leave
-it and carry on with something else.
+timeout is a Go duration string such as "30s", "5m", or "2h"; empty waits %s.
+It limits how long YOU wait, never how long the job may run, and it has no
+upper limit: pass a longer timeout, such as "2h", for work you expect to take
+long. When it elapses first, running is true and the job is still going; call
+waitJob again, with a longer timeout if needed, or carry on with something
+else.
 found is false when the job ID is not one of this session's jobs.`
 
 const waitJobSchema = `{
@@ -82,7 +84,7 @@ const waitJobSchema = `{
     },
     "timeout": {
       "type": "string",
-      "description": "Go duration to wait, like \"30s\" or \"5m\"."
+      "description": "Go duration to wait, like \"2h\". No upper limit."
     },
     "stdoutCursor": {
       "type": "integer",

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
@@ -18,17 +19,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func childQuestionPhaseFixture(t *testing.T, timeout string) (
+// childQuestionPhaseFixture prepares a child's ask call. askTimeout is the
+// deployment's PEEN_ASK_TIMEOUT, the only bound on how long ask waits.
+func childQuestionPhaseFixture(t *testing.T, askTimeout string) (
 	executionLoopFixture, workflowToolPhaseInput, *workflowDispatch,
 ) {
 	t.Helper()
-	arguments, err := json.Marshal(askInput{
-		Question: "which path?", Timeout: timeout,
-	})
+	wait, err := time.ParseDuration(askTimeout)
+	require.NoError(t, err)
+	arguments, err := json.Marshal(askInput{Question: "which path?"})
 	require.NoError(t, err)
 	fixture, round, _ := childModelFixture(t,
 		elelemtest.ToolCall("childQuestion", toolNameAsk,
 			string(arguments)), elelemtest.Text(runtimeToolFinalText))
+	fixture.base.runtime.askTimeout = wait
 	round.Execution.MaxConcurrentTools = 1
 	dispatch := newWorkflowDispatch(t.Context(), fixture.base.runtime,
 		fixture.engine.options.GenerationID, nil)

@@ -83,12 +83,7 @@ func (r *Runtime) rootWorkflowQuestionArguments(
 		return arguments, 0, false
 	}
 
-	timeout, err := r.askTimeoutFor(arguments.Timeout)
-	if err != nil {
-		return arguments, 0, false
-	}
-
-	return arguments, timeout, true
+	return arguments, r.askTimeout, true
 }
 
 func retainRootWorkflowAnswer(state *workflowToolPhaseState) error {

@@ -2,10 +2,12 @@ package agent
 
 import (
 	"encoding/json"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/elelem/elelemtest"
@@ -127,6 +129,79 @@ func TestWorkflowModelRoundReleasesPlanAfterDroppingHistory(t *testing.T) {
 			require.NoError(t, json.Unmarshal(result.Context, &next))
 			assert.Equal(t, tc.wantPlan, next.Compaction != nil)
 			require.NoError(t, validateWorkflowCompactionConversation(next))
+		})
+	}
+}
+
+// A provider call that succeeded after a retry reports the failed attempt with
+// its error. The saved round must still decode when its tool results merge.
+func TestWorkflowModelRoundSavesUsageOfARetriedCall(t *testing.T) {
+	t.Parallel()
+	usage := elelem.Usage{Retry: elelem.RetryInfo{
+		TotalAttempts: 2,
+		FailedAttempts: []elelem.RetryAttempt{{
+			Attempt: 1, Reason: elelem.RetryReasonServerError,
+			Err:    ctxerrors.Wrap(commerr.ErrFetchFailed, "provider stream"),
+			Status: http.StatusInternalServerError,
+		}},
+	}}
+	driver := elelemtest.NewScriptedDriver(elelemtest.ToolCall(
+		"call-1", toolNameReadFile, `{"path":"notes.txt"}`,
+	).WithUsage(usage))
+	fixture := newExecutionLoopFixture(t, driver, true)
+	request, saved, err := workflowModelRequest(fixture.base.runtime.models,
+		workflowRoundInput{Execution: fixture.input})
+	require.NoError(t, err)
+	result, err := workflowRunModelRequest(t.Context(), request, saved)
+	require.NoError(t, err)
+	require.Len(t, result.Calls, 1)
+
+	merged, err := workflowMergeRound(result.Context,
+		[]workflowToolInput{{Call: result.Calls[0]}},
+		[]workflowToolResult{{Result: elelem.ToolResult{Content: "notes"}}})
+	require.NoError(t, err)
+
+	var conversation workflowConversation
+	require.NoError(t, json.Unmarshal(merged, &conversation))
+	assert.Equal(t, 2, conversation.Usage.Retry.TotalAttempts)
+	require.Len(t, conversation.Usage.Retry.FailedAttempts, 1)
+	attempt := conversation.Usage.Retry.FailedAttempts[0]
+	assert.Equal(t, elelem.RetryReasonServerError, attempt.Reason)
+	assert.Equal(t, http.StatusInternalServerError, attempt.Status)
+}
+
+func TestWorkflowModelRoundRecordsFinishReason(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name string
+		turn elelemtest.Turn
+		want elelem.FinishReason
+	}{
+		{
+			name: "a finished reply", turn: elelemtest.Text("done"),
+			want: elelem.FinishReasonStop,
+		},
+		{
+			name: "a reply cut off at the output limit",
+			turn: elelemtest.Turn{Deltas: []elelem.Delta{{
+				Reasoning: "still thinking", FinishReason: elelem.FinishReasonLength,
+			}}},
+			want: elelem.FinishReasonLength,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			driver := elelemtest.NewScriptedDriver(tc.turn)
+			fixture := newExecutionLoopFixture(t, driver, true)
+			request, saved, err := workflowModelRequest(
+				fixture.base.runtime.models,
+				workflowRoundInput{Execution: fixture.input})
+			require.NoError(t, err)
+			result, err := workflowRunModelRequest(t.Context(), request, saved)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, result.FinishReason)
 		})
 	}
 }

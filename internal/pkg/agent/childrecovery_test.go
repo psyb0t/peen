@@ -50,7 +50,7 @@ func TestChildRecoveryContinuesStoredIdentityAndHistory(t *testing.T) {
 		RootAgent: runtimeTestAgentName, DefaultModel: runtimeTestModelReference,
 		DefaultWorkspace: fixture.workspace, StartupSessionID: sessionID,
 		MaxContextTokens: runtimeTestMaxContextTokens, ConfigDirectory: fixture.configDirectory,
-		TurnTimeout: runtimeTestTurnTimeout,
+		ModelRequestTimeout: runtimeTestTurnTimeout,
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, restarted.ShutdownAgentRuns(ctx)) })
@@ -106,7 +106,7 @@ func TestChildRecoveryValidatesTheWholeBatchBeforeClaiming(t *testing.T) {
 				RootAgent: runtimeTestAgentName, DefaultModel: runtimeTestModelReference,
 				DefaultWorkspace: fixture.workspace, StartupSessionID: first.SessionID,
 				MaxContextTokens: runtimeTestMaxContextTokens, ConfigDirectory: fixture.configDirectory,
-				TurnTimeout: runtimeTestTurnTimeout,
+				ModelRequestTimeout: runtimeTestTurnTimeout,
 			}
 			tc.configure(second, &options)
 			repository := repositories.Use(fixture.handle.GormDB).AgentRun
@@ -219,7 +219,7 @@ func restartRecoveryFixtureWithOptions(t *testing.T, fixture runtimeFixture, cus
 		RootAgent: runtimeTestAgentName, DefaultModel: runtimeTestModelReference,
 		DefaultWorkspace: fixture.workspace, StartupSessionID: fixture.runtime.SessionID(),
 		MaxContextTokens: runtimeTestMaxContextTokens, ConfigDirectory: fixture.configDirectory,
-		TurnTimeout: runtimeTestTurnTimeout,
+		ModelRequestTimeout: runtimeTestTurnTimeout,
 	}
 	if customize != nil {
 		customize(&options)

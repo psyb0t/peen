@@ -289,15 +289,15 @@ func TestRuntimeUsesTheDeploymentSystemPromptFile(t *testing.T) {
 	)
 
 	reloadOptions := RuntimeOptions{
-		Store:            fixture.store,
-		Resolver:         fixture.runtime.resolver,
-		Models:           fixture.runtime.models,
-		RootAgent:        runtimeTestAgentName,
-		DefaultModel:     runtimeTestModelReference,
-		DefaultWorkspace: fixture.workspace,
-		MaxContextTokens: runtimeTestMaxContextTokens,
-		TurnTimeout:      runtimeTestTurnTimeout,
-		ConfigDirectory:  fixture.configDirectory,
+		Store:               fixture.store,
+		Resolver:            fixture.runtime.resolver,
+		Models:              fixture.runtime.models,
+		RootAgent:           runtimeTestAgentName,
+		DefaultModel:        runtimeTestModelReference,
+		DefaultWorkspace:    fixture.workspace,
+		MaxContextTokens:    runtimeTestMaxContextTokens,
+		ModelRequestTimeout: runtimeTestTurnTimeout,
+		ConfigDirectory:     fixture.configDirectory,
 	}
 
 	reloaded, err := NewRuntime(context.Background(), reloadOptions)

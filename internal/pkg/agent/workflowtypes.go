@@ -44,6 +44,9 @@ type workflowRoundResult struct {
 	Calls    []elelem.ToolCall `json:"calls"`
 	Text     string            `json:"text"`
 	Continue bool              `json:"continue,omitempty"`
+	// FinishReason is why the model stopped this round's reply. Results saved
+	// before it existed read empty.
+	FinishReason elelem.FinishReason `json:"finishReason,omitempty"`
 
 	ChildProjection *childPhaseBuffer   `json:"childProjection,omitempty"`
 	RootProjection  *rootToolProjection `json:"rootProjection,omitempty"`

@@ -122,8 +122,8 @@ func (o Options) validateBounds() error {
 	}
 
 	durations := []time.Duration{
-		o.TurnTimeout, o.ToolTimeout,
-		o.HookCommandTimeout, o.CompactionTimeout, o.AskTimeout,
+		o.ModelRequestTimeout, o.ToolTimeout,
+		o.HookCommandTimeout, o.AskTimeout,
 	}
 	for _, value := range durations {
 		if value < 0 {
@@ -204,8 +204,8 @@ func (o Options) withDefaults() Options {
 		o.OutputReserveTokens = defaultOutputReserveTokens
 	}
 
-	if o.TurnTimeout <= 0 {
-		o.TurnTimeout = defaultTurnTimeout
+	if o.ModelRequestTimeout <= 0 {
+		o.ModelRequestTimeout = defaultModelRequestTimeout
 	}
 
 	return o

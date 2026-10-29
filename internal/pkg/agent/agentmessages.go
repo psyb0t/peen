@@ -19,10 +19,11 @@ import (
 )
 
 const (
-	// messageToolTimeout replaces the per-tool timeout for waitMessages and
-	// ask. Their own timeout argument bounds the wait, and an answer from a
-	// person can take longer than any tool call should.
-	messageToolTimeout = 30 * 24 * time.Hour
+	// waitingToolTimeout replaces the per-tool timeout for the tools whose
+	// job is to wait: waitMessages, ask, runCommand and waitJob. Their own
+	// wait bounds them, and an answer from a person or a long build can take
+	// longer than any other tool call should.
+	waitingToolTimeout = 30 * 24 * time.Hour
 
 	agentMessageSummaryFormat  = "agent %q run %s sent a message"
 	agentQuestionSummaryFormat = events.AgentQuestionSummaryFormat
@@ -61,7 +62,10 @@ type stopAgentOutput struct {
 
 type askInput struct {
 	Question string `json:"question"`
-	Timeout  string `json:"timeout"`
+	// Timeout is read only so an ask call saved before ask lost its timeout
+	// argument still decodes. It is ignored: PEEN_ASK_TIMEOUT alone decides
+	// how long ask waits.
+	Timeout string `json:"timeout,omitempty"`
 }
 
 // askOutput says whether an answer arrived. The answer itself reaches the
@@ -99,7 +103,7 @@ func messageTools(
 		deps.waitMessages,
 		onPostRun,
 	)
-	waitMessages.Timeout = messageToolTimeout
+	waitMessages.Timeout = waitingToolTimeout
 
 	ask := hostTool(
 		toolNameAsk,
@@ -108,7 +112,7 @@ func messageTools(
 		deps.ask,
 		onPostRun,
 	)
-	ask.Timeout = messageToolTimeout
+	ask.Timeout = waitingToolTimeout
 
 	return []elelem.Tool{
 		hostTool(
@@ -605,10 +609,7 @@ func (d *launchAgentDeps) ask(
 		)
 	}
 
-	timeout, err := d.runtime.askTimeoutFor(input.Timeout)
-	if err != nil {
-		return askOutput{}, err
-	}
+	timeout := d.runtime.askTimeout
 
 	if _, isChild := parentAgentRunFromContext(ctx); isChild {
 		return d.askParent(ctx, input.Question, timeout)
@@ -777,24 +778,6 @@ func (d *launchAgentDeps) askUser(
 	}
 
 	return askOutput{Answered: answered, TimedOut: waited.TimedOut}, nil
-}
-
-// askTimeoutFor resolves how long ask waits: the deployment's bound, which
-// the call's own timeout may shorten. Zero waits without a bound.
-func (r *Runtime) askTimeoutFor(raw string) (time.Duration, error) {
-	requested, err := optionalWaitTimeout(raw)
-	if err != nil {
-		return 0, err
-	}
-
-	switch {
-	case requested == 0:
-		return r.askTimeout, nil
-	case r.askTimeout == 0:
-		return requested, nil
-	default:
-		return min(requested, r.askTimeout), nil
-	}
 }
 
 // optionalWaitTimeout parses a wait bound given as a Go duration. Empty means

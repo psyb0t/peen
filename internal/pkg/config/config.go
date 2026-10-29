@@ -45,6 +45,15 @@ const (
 	percentDenominator              = 100
 )
 
+// Timeout variable names that the worker allowlist and the retired-setting
+// messages both refer to.
+const (
+	envModelRequestTimeout       = "PEEN_MODEL_REQUEST_TIMEOUT"
+	envDefaultToolCommandTimeout = "PEEN_DEFAULT_TOOL_COMMAND_TIMEOUT"
+	envDefaultHookCommandTimeout = "PEEN_DEFAULT_HOOK_COMMAND_TIMEOUT"
+	retiredToolMaxCommandHint    = "nothing; a runCommand or waitJob call may ask for any wait" //nolint:lll // One operator-facing phrase.
+)
+
 // CrashRecoveryMode decides what happens to work a crashed controller or
 // worker left unfinished.
 type CrashRecoveryMode string
@@ -157,8 +166,9 @@ type Config struct {
 	CompactionMode           CompactionMode `default:"drop-oldest" env:"PEEN_COMPACTION_MODE"`              //nolint:lll // Immutable env tag.
 	CompactionOutputTokens   int            `default:"16384"       env:"PEEN_COMPACTION_MAX_OUTPUT_TOKENS"` //nolint:lll // Immutable env tag.
 	CompactionSummaryPercent int            `default:"30"          env:"PEEN_COMPACTION_SUMMARY_PERCENT"`   //nolint:lll // Immutable env tag.
-	CompactionTimeout        time.Duration  `default:"2m"          env:"PEEN_COMPACTION_TIMEOUT"`           //nolint:lll // Immutable env tag.
-	TurnTimeout              time.Duration  `default:"10m"         env:"PEEN_TURN_TIMEOUT"`                 //nolint:lll // Immutable env tag.
+	// ModelRequestTimeout bounds each model request, a turn's rounds and a
+	// compaction summary alike. A turn has no overall time limit.
+	ModelRequestTimeout time.Duration `default:"10m" env:"PEEN_MODEL_REQUEST_TIMEOUT"` //nolint:lll // Immutable env tag.
 
 	// CrashRecovery applies to every workspace this controller serves. It is
 	// controller-only: recovery runs before any worker starts.
@@ -182,26 +192,31 @@ type Config struct {
 	MaxSystemPromptBytes  int `default:"65536"   env:"PEEN_MAX_SYSTEM_PROMPT_BYTES"`  //nolint:lll // Immutable env tag.
 	MaxStoredMessageBytes int `default:"1048576" env:"PEEN_MAX_STORED_MESSAGE_BYTES"` //nolint:lll // Immutable env tag.
 
-	MaxToolRounds        int           `default:"32"   env:"PEEN_MAX_TOOL_ROUNDS"`          //nolint:lll // Immutable env tag.
-	MaxConcurrentTools   int           `default:"4"    env:"PEEN_MAX_CONCURRENT_TOOLS"`     //nolint:lll // Immutable env tag.
-	ToolTimeout          time.Duration `default:"15m"  env:"PEEN_TOOL_TIMEOUT"`             //nolint:lll // Immutable env tag.
-	MaxToolResultTokens  int           `default:"8192" env:"PEEN_MAX_TOOL_RESULT_TOKENS"`   //nolint:lll // Immutable env tag.
-	HookCommandTimeout   time.Duration `default:"30s" env:"PEEN_HOOK_COMMAND_TIMEOUT"`      //nolint:lll // Immutable env tag.
-	MaxHookCommandOutput int           `default:"65536" env:"PEEN_MAX_HOOK_COMMAND_OUTPUT"` //nolint:lll // Immutable env tag.
+	MaxToolRounds      int `default:"32"   env:"PEEN_MAX_TOOL_ROUNDS"`      //nolint:lll // Immutable env tag.
+	MaxConcurrentTools int `default:"4"    env:"PEEN_MAX_CONCURRENT_TOOLS"` //nolint:lll // Immutable env tag.
+	// ToolTimeout bounds one call of any tool except runCommand and waitJob,
+	// which a wait bounds instead.
+	ToolTimeout         time.Duration `default:"15m"  env:"PEEN_TOOL_TIMEOUT"`           //nolint:lll // Immutable env tag.
+	MaxToolResultTokens int           `default:"8192" env:"PEEN_MAX_TOOL_RESULT_TOKENS"` //nolint:lll // Immutable env tag.
+	// DefaultHookCommandTimeout bounds a command hook action that sets no
+	// timeout of its own.
+	DefaultHookCommandTimeout time.Duration `default:"30s" env:"PEEN_DEFAULT_HOOK_COMMAND_TIMEOUT"` //nolint:lll // Immutable env tag.
+	MaxHookCommandOutput      int           `default:"65536" env:"PEEN_MAX_HOOK_COMMAND_OUTPUT"`    //nolint:lll // Immutable env tag.
 
-	ToolMaxListEntries        int           `default:"1000"    env:"PEEN_TOOL_MAX_LIST_ENTRIES"`         //nolint:lll // Immutable env tag.
-	ToolMaxListDepth          int           `default:"16"      env:"PEEN_TOOL_MAX_LIST_DEPTH"`           //nolint:lll // Immutable env tag.
-	ToolMaxSearchMatches      int           `default:"200"     env:"PEEN_TOOL_MAX_SEARCH_MATCHES"`       //nolint:lll // Immutable env tag.
-	ToolMaxSearchFileBytes    int64         `default:"2097152" env:"PEEN_TOOL_MAX_SEARCH_FILE_BYTES"`    //nolint:lll // Immutable env tag.
-	ToolMaxReadBytes          int           `default:"262144"  env:"PEEN_TOOL_MAX_READ_BYTES"`           //nolint:lll // Immutable env tag.
-	ToolMaxReadLines          int           `default:"2000"    env:"PEEN_TOOL_MAX_READ_LINES"`           //nolint:lll // Immutable env tag.
-	ToolMaxWriteBytes         int           `default:"4194304" env:"PEEN_TOOL_MAX_WRITE_BYTES"`          //nolint:lll // Immutable env tag.
-	ToolMaxEdits              int           `default:"64"      env:"PEEN_TOOL_MAX_EDITS"`                //nolint:lll // Immutable env tag.
-	ToolMaxDiffBytes          int           `default:"65536"   env:"PEEN_TOOL_MAX_DIFF_BYTES"`           //nolint:lll // Immutable env tag.
-	ToolMaxRemoveEntries      int           `default:"20000"   env:"PEEN_TOOL_MAX_REMOVE_ENTRIES"`       //nolint:lll // Immutable env tag.
-	ToolMaxCommandOutputBytes int           `default:"65536"   env:"PEEN_TOOL_MAX_COMMAND_OUTPUT_BYTES"` //nolint:lll // Immutable env tag.
-	ToolCommandTimeout        time.Duration `default:"2m"      env:"PEEN_TOOL_COMMAND_TIMEOUT"`          //nolint:lll // Immutable env tag.
-	ToolMaxCommandTimeout     time.Duration `default:"15m"     env:"PEEN_TOOL_MAX_COMMAND_TIMEOUT"`      //nolint:lll // Immutable env tag.
+	ToolMaxListEntries        int   `default:"1000"    env:"PEEN_TOOL_MAX_LIST_ENTRIES"`         //nolint:lll // Immutable env tag.
+	ToolMaxListDepth          int   `default:"16"      env:"PEEN_TOOL_MAX_LIST_DEPTH"`           //nolint:lll // Immutable env tag.
+	ToolMaxSearchMatches      int   `default:"200"     env:"PEEN_TOOL_MAX_SEARCH_MATCHES"`       //nolint:lll // Immutable env tag.
+	ToolMaxSearchFileBytes    int64 `default:"2097152" env:"PEEN_TOOL_MAX_SEARCH_FILE_BYTES"`    //nolint:lll // Immutable env tag.
+	ToolMaxReadBytes          int   `default:"262144"  env:"PEEN_TOOL_MAX_READ_BYTES"`           //nolint:lll // Immutable env tag.
+	ToolMaxReadLines          int   `default:"2000"    env:"PEEN_TOOL_MAX_READ_LINES"`           //nolint:lll // Immutable env tag.
+	ToolMaxWriteBytes         int   `default:"4194304" env:"PEEN_TOOL_MAX_WRITE_BYTES"`          //nolint:lll // Immutable env tag.
+	ToolMaxEdits              int   `default:"64"      env:"PEEN_TOOL_MAX_EDITS"`                //nolint:lll // Immutable env tag.
+	ToolMaxDiffBytes          int   `default:"65536"   env:"PEEN_TOOL_MAX_DIFF_BYTES"`           //nolint:lll // Immutable env tag.
+	ToolMaxRemoveEntries      int   `default:"20000"   env:"PEEN_TOOL_MAX_REMOVE_ENTRIES"`       //nolint:lll // Immutable env tag.
+	ToolMaxCommandOutputBytes int   `default:"65536"   env:"PEEN_TOOL_MAX_COMMAND_OUTPUT_BYTES"` //nolint:lll // Immutable env tag.
+	// DefaultToolCommandTimeout is how long runCommand and waitJob wait when a
+	// call passes no timeout. A call may ask for any wait, longer or shorter.
+	DefaultToolCommandTimeout time.Duration `default:"10m" env:"PEEN_DEFAULT_TOOL_COMMAND_TIMEOUT"` //nolint:lll // Immutable env tag.
 
 	MaxPendingEvents     int `default:"256"   env:"PEEN_MAX_PENDING_EVENTS"`       //nolint:lll // Immutable env tag.
 	MaxEventSummaryBytes int `default:"4096"  env:"PEEN_MAX_EVENT_SUMMARY_BYTES"`  //nolint:lll // Immutable env tag.
@@ -216,6 +231,14 @@ type Config struct {
 	MaxAdHocAgentInstructionBytes    int `default:"65536" env:"PEEN_MAX_ADHOC_AGENT_INSTRUCTION_BYTES"` //nolint:lll // Immutable env tag.
 
 	AskTimeout time.Duration `default:"0" env:"PEEN_ASK_TIMEOUT"` //nolint:lll // Immutable env tag.
+
+	// Retired settings are read only so startup can refuse them by name and
+	// point at what replaced them. See retiredSettings.
+	RetiredTurnTimeout           string `env:"PEEN_TURN_TIMEOUT"`
+	RetiredCompactionTimeout     string `env:"PEEN_COMPACTION_TIMEOUT"`
+	RetiredToolCommandTimeout    string `env:"PEEN_TOOL_COMMAND_TIMEOUT"`
+	RetiredToolMaxCommandTimeout string `env:"PEEN_TOOL_MAX_COMMAND_TIMEOUT"`
+	RetiredHookCommandTimeout    string `env:"PEEN_HOOK_COMMAND_TIMEOUT"`
 
 	HTTPListenAddress    string `default:":8080"           env:"PEEN_HTTP_LISTEN_ADDRESS"`   //nolint:lll // Immutable env tag.
 	MetricsListenAddress string `default:"127.0.0.1:9090" env:"PEEN_METRICS_LISTEN_ADDRESS"` //nolint:lll // Immutable env tag.
@@ -302,6 +325,7 @@ func (c Config) ValidateWorker() error {
 
 func (c Config) validate(requireStateDirectory bool) error {
 	validators := []func() error{
+		c.validateRetiredSettings,
 		func() error { return c.validateDirectories(requireStateDirectory) },
 		c.validateDockerHostIdentity,
 		c.validateRuntime,
@@ -600,9 +624,7 @@ func (c Config) validateRuntime() error {
 		)
 	}
 
-	if !c.hasContextBudget() ||
-		c.CompactionTimeout <= 0 ||
-		c.TurnTimeout <= 0 {
+	if !c.hasContextBudget() || c.ModelRequestTimeout <= 0 {
 		return ctxerrors.Wrap(ErrInvalidConfig, "invalid Peen runtime limits")
 	}
 
@@ -710,39 +732,58 @@ func (c Config) validateToolLimits() error {
 	return c.validateToolTimeouts()
 }
 
-//nolint:cyclop // Each timeout relationship needs an explicit validation error.
 func (c Config) validateToolTimeouts() error {
 	if c.ToolTimeout < 0 ||
-		c.ToolCommandTimeout < 0 ||
-		c.ToolMaxCommandTimeout < 0 ||
-		c.HookCommandTimeout < 0 {
+		c.DefaultToolCommandTimeout < 0 ||
+		c.DefaultHookCommandTimeout < 0 {
 		return ctxerrors.Wrap(ErrInvalidConfig, "tool timeout is negative")
 	}
 
-	if c.ToolCommandTimeout > 0 && c.ToolMaxCommandTimeout > 0 &&
-		c.ToolCommandTimeout > c.ToolMaxCommandTimeout {
-		return ctxerrors.Wrap(
-			ErrInvalidConfig,
-			"default command timeout exceeds the maximum",
-		)
-	}
+	return nil
+}
 
-	// The harness bounds a whole tool call, so a command can never be allowed
-	// a longer timeout than the harness will wait. Otherwise a command that
-	// asked for the maximum would be killed by the harness first and report a
-	// confusing failure instead of its own timeout.
-	if c.ToolTimeout > 0 && c.ToolMaxCommandTimeout > c.ToolTimeout {
-		return ctxerrors.Wrap(
-			ErrInvalidConfig,
-			"maximum command timeout exceeds the tool timeout",
-		)
-	}
+// retiredSetting names a removed variable and the one that replaced it.
+type retiredSetting struct {
+	name        string
+	value       string
+	replacement string
+}
 
-	if c.ToolTimeout > 0 && c.HookCommandTimeout > c.ToolTimeout {
-		return ctxerrors.Wrap(
-			ErrInvalidConfig,
-			"hook command timeout exceeds the tool timeout",
-		)
+func (c Config) retiredSettings() []retiredSetting {
+	return []retiredSetting{
+		{
+			"PEEN_TURN_TIMEOUT", c.RetiredTurnTimeout,
+			envModelRequestTimeout,
+		},
+		{
+			"PEEN_COMPACTION_TIMEOUT", c.RetiredCompactionTimeout,
+			envModelRequestTimeout,
+		},
+		{
+			"PEEN_TOOL_COMMAND_TIMEOUT", c.RetiredToolCommandTimeout,
+			envDefaultToolCommandTimeout,
+		},
+		{
+			"PEEN_TOOL_MAX_COMMAND_TIMEOUT", c.RetiredToolMaxCommandTimeout,
+			retiredToolMaxCommandHint,
+		},
+		{
+			"PEEN_HOOK_COMMAND_TIMEOUT", c.RetiredHookCommandTimeout,
+			envDefaultHookCommandTimeout,
+		},
+	}
+}
+
+// validateRetiredSettings refuses a removed variable that is still set, so a
+// deployment does not silently lose the value it configured.
+func (c Config) validateRetiredSettings() error {
+	for _, setting := range c.retiredSettings() {
+		if setting.value == "" {
+			continue
+		}
+
+		return ctxerrors.Wrapf(ErrInvalidConfig,
+			"%s was removed; use %s", setting.name, setting.replacement)
 	}
 
 	return nil

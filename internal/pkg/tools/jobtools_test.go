@@ -238,6 +238,7 @@ func TestWaitJob_ReturnsOnceJobExits(t *testing.T) {
 
 	assert.True(t, out.Found)
 	assert.False(t, out.Running)
+	assert.Empty(t, out.Note)
 	assert.Equal(t, JobStateExited, out.State)
 	assert.Equal(t, 3, out.ExitCode)
 	assert.GreaterOrEqual(t, out.DurationMs, int64(0))
@@ -276,6 +277,8 @@ func TestWaitJob_BoundExpiresJobStillRunning(t *testing.T) {
 		Background: true,
 	})
 	require.NoError(t, err)
+	assert.True(t, started.Running)
+	assert.Empty(t, started.Note, "a background start skips the wait")
 
 	out, err := executor.WaitJob(context.Background(), WaitJobInput{
 		JobID:   started.JobID,
@@ -286,6 +289,7 @@ func TestWaitJob_BoundExpiresJobStillRunning(t *testing.T) {
 	assert.True(t, out.Found)
 	assert.True(t, out.Running)
 	assert.Equal(t, JobStateRunning, out.State)
+	assert.Equal(t, waitJobStillRunningNote, out.Note)
 
 	_, ok := executor.jobs.Signal(context.Background(), started.JobID, JobSignalKill)
 	require.True(t, ok)
@@ -345,7 +349,7 @@ func TestResolveWaitJobTimeout(t *testing.T) {
 	}{
 		{name: "empty uses the default", timeout: "", want: limits.WaitJobTimeout},
 		{name: "minutes and seconds", timeout: "1m30s", want: 90 * time.Second},
-		{name: "above the maximum is clamped", timeout: "999h", want: limits.MaxWaitJobTimeout},
+		{name: "a long wait is kept", timeout: "999h", want: 999 * time.Hour},
 	}
 
 	for _, tc := range testCases {

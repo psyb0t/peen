@@ -90,17 +90,22 @@ func retainRootQuestionPhases(
 	return input.State
 }
 
-func rootWorkflowQuestionFixture(t *testing.T, timeout string) (
+// rootWorkflowQuestionFixture prepares the root's ask call. askTimeout is the
+// deployment's PEEN_ASK_TIMEOUT, the only bound on how long ask waits.
+func rootWorkflowQuestionFixture(t *testing.T, askTimeout string) (
 	executionLoopFixture, *rootWorkflowCallbacks, *rootCallbackScope,
 	workflowToolPhaseInput,
 ) {
 	t.Helper()
+	wait, err := time.ParseDuration(askTimeout)
+	require.NoError(t, err)
 	arguments, err := json.Marshal(askInput{
-		Question: "Which workspace change should continue?", Timeout: timeout,
+		Question: "Which workspace change should continue?",
 	})
 	require.NoError(t, err)
 	fixture, callbacks, shared := rootModelProjectionFixture(t,
 		elelemtest.ToolCall("savedQuestion", toolNameAsk, string(arguments)))
+	fixture.base.runtime.askTimeout = wait
 	round := workflowRoundInput{Execution: fixture.input}
 	model, err := fixture.engine.modelRound(t.Context(), round)
 	require.NoError(t, err)
@@ -289,12 +294,17 @@ func TestRootWorkflowQuestionArguments(t *testing.T) {
 			cap: time.Minute, valid: true, timeout: time.Minute,
 		},
 		{
-			name: "request cap", arguments: `{"question":"Continue?","timeout":"1s"}`,
-			cap: time.Minute, valid: true, timeout: time.Second,
+			name:      "a saved call timeout is ignored",
+			arguments: `{"question":"Continue?","timeout":"1s"}`,
+			cap:       time.Minute, valid: true, timeout: time.Minute,
 		},
 		{name: "blank question", arguments: `{"question":"  "}`},
 		{name: "unknown", arguments: `{"question":"Continue?","extra":true}`},
-		{name: "invalid timeout", arguments: `{"question":"Continue?","timeout":"0s"}`},
+		{
+			name:      "an unparsable saved timeout is ignored",
+			arguments: `{"question":"Continue?","timeout":"0s"}`,
+			valid:     true,
+		},
 		{name: "malformed", arguments: `{"question":false}`},
 	}
 	for _, tc := range testCases {

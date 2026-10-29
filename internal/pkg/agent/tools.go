@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -234,13 +235,16 @@ func mutatingHostTools(
 			executor.RemovePath,
 			onPostRun,
 		),
-		hostTool(
+		waitingTool(hostTool(
 			toolNameRunCommand,
-			runCommandDescription,
+			fmt.Sprintf(
+				runCommandDescription,
+				executor.Limits().CommandTimeout,
+			),
 			runCommandSchema,
 			executor.RunCommand,
 			onPostRun,
-		),
+		)),
 	}
 }
 
@@ -324,13 +328,13 @@ func jobHostTools(
 			executor.ReadJobOutput,
 			onPostRun,
 		),
-		hostTool(
+		waitingTool(hostTool(
 			toolNameWaitJob,
-			waitJobDescription,
+			fmt.Sprintf(waitJobDescription, executor.Limits().WaitJobTimeout),
 			waitJobSchema,
 			executor.WaitJob,
 			onPostRun,
-		),
+		)),
 		hostTool(
 			toolNameSignalJob,
 			signalJobDescription,
@@ -339,6 +343,14 @@ func jobHostTools(
 			onPostRun,
 		),
 	}
+}
+
+// waitingTool lets a tool that waits run past PEEN_TOOL_TIMEOUT. Its own wait
+// argument bounds the call instead, so a model can wait hours for a build.
+func waitingTool(tool elelem.Tool) elelem.Tool {
+	tool.Timeout = waitingToolTimeout
+
+	return tool
 }
 
 // hostTool builds one registered tool. onPostRun runs after every call and is

@@ -27,14 +27,14 @@ func TestNewRuntimeValidatesDependenciesAndOptions(t *testing.T) {
 	fixture := newRuntimeFixture(t, elelemtest.NewScriptedDriver())
 
 	base := RuntimeOptions{
-		Store:            fixture.runtime.store,
-		Resolver:         fixture.runtime.resolver,
-		Models:           fixture.runtime.models,
-		RootAgent:        fixture.runtime.rootAgent,
-		DefaultModel:     fixture.runtime.defaultModel,
-		DefaultWorkspace: fixture.runtime.defaultWorkspace,
-		MaxContextTokens: fixture.runtime.maxContextTokens,
-		TurnTimeout:      fixture.runtime.turnTimeout,
+		Store:               fixture.runtime.store,
+		Resolver:            fixture.runtime.resolver,
+		Models:              fixture.runtime.models,
+		RootAgent:           fixture.runtime.rootAgent,
+		DefaultModel:        fixture.runtime.defaultModel,
+		DefaultWorkspace:    fixture.runtime.defaultWorkspace,
+		MaxContextTokens:    fixture.runtime.maxContextTokens,
+		ModelRequestTimeout: fixture.runtime.modelRequestTimeout,
 	}
 	testCases := []struct {
 		name   string
@@ -69,7 +69,7 @@ func TestNewRuntimeValidatesDependenciesAndOptions(t *testing.T) {
 				options.DefaultModel = ""
 				options.DefaultWorkspace = ""
 				options.MaxContextTokens = 0
-				options.TurnTimeout = 0
+				options.ModelRequestTimeout = 0
 			},
 			want: commerr.ErrValidationFailed,
 		},

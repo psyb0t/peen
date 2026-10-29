@@ -252,6 +252,9 @@ type RunCommandOutput struct {
 	Stderr             string    `json:"stderr"`
 	StdoutDroppedLines int       `json:"stdoutDroppedLines"`
 	StderrDroppedLines int       `json:"stderrDroppedLines"`
+	// Note tells the model how to keep waiting when the wait ended with the
+	// command still running. Empty otherwise.
+	Note string `json:"note,omitempty"`
 }
 
 // JobState names the lifecycle stage of one supervised process job. It is an
@@ -385,6 +388,9 @@ type WaitJobOutput struct {
 	NextStderrCursor   int       `json:"nextStderrCursor"`
 	StdoutDroppedLines int       `json:"stdoutDroppedLines"`
 	StderrDroppedLines int       `json:"stderrDroppedLines"`
+	// Note tells the model how to keep waiting when the wait ended with the
+	// job still running. Empty otherwise.
+	Note string `json:"note,omitempty"`
 }
 
 // SignalJobInput asks one job's process group to stop or die. Signalling an

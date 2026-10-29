@@ -210,7 +210,7 @@ The published event's `source` is always `hooks`. A `summary` longer than `PEEN_
 
 Runs an executable. `command` is required. `args`, `environment`, `workingDir` (relative to the agent's current directory), and `timeout` are optional. See [the command protocol](#the-command-protocol).
 
-`timeout` is a Go duration such as `20s`, `5m`, or `1h30m`. It must be positive. A hooks file with an unparsable, zero, or negative `timeout` is skipped with a warning. `timeout` has no upper cap. A command on a tool event still stops with the tool call at `PEEN_TOOL_TIMEOUT`. A command on a lifecycle event is not inside a tool call, so only `PEEN_TURN_TIMEOUT` bounds it.
+`timeout` is a Go duration such as `20s`, `5m`, or `1h30m`. It must be positive. A hooks file with an unparsable, zero, or negative `timeout` is skipped with a warning. `timeout` has no upper cap. Without one, `PEEN_DEFAULT_HOOK_COMMAND_TIMEOUT` applies. A command on a tool event also stops if its tool call stops, at `PEEN_TOOL_TIMEOUT` for every tool except `runCommand` and `waitJob`. A command on a lifecycle event is not inside a tool call, so only its own limit bounds it.
 
 ## The command protocol
 
@@ -294,7 +294,7 @@ A `hook.action.failed` event has the summary "Hook action failed after the opera
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PEEN_HOOK_COMMAND_TIMEOUT` | `30s` | Time limit for one `command` action. `timeout` overrides it per action. The whole tool call stays bounded by `PEEN_TOOL_TIMEOUT`. |
+| `PEEN_DEFAULT_HOOK_COMMAND_TIMEOUT` | `30s` | Time limit for a `command` action that sets no `timeout` of its own. A command on a tool event also stops if its tool call stops. |
 | `PEEN_MAX_HOOK_COMMAND_OUTPUT` | `65536` | Maximum stdout or stderr from one command. |
 
 At most 256 hook groups across all layers. Unlike an invalid file, which Peen skips, going over this limit fails every turn until you remove some groups. See [the harness limits](harness.md#mistakes-and-limits).

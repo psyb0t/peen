@@ -148,7 +148,9 @@ const (
 	defaultMaxToolResultTokens = 8192
 
 	defaultCompactionOutputTokens = 16384
-	defaultCompactionTimeout      = 2 * time.Minute
+	// defaultModelRequestTimeout mirrors PEEN_MODEL_REQUEST_TIMEOUT's default
+	// for a compaction set up without one.
+	defaultModelRequestTimeout = 10 * time.Minute
 
 	// workflowExecutorCacheTTL keeps a session's workflow executors cached
 	// far longer than any workflow task. go-workflows evicts on TTL and
@@ -377,7 +379,9 @@ type RuntimeOptions struct {
 	// OutputReserveTokens is the room kept for the reply inside
 	// MaxContextTokens, so the prompt gets the difference. Zero keeps none.
 	OutputReserveTokens int
-	TurnTimeout         time.Duration
+	// ModelRequestTimeout bounds each model request: a turn's rounds and a
+	// compaction summary. A turn has no overall time limit.
+	ModelRequestTimeout time.Duration
 
 	// BaseSystemPrompt overrides the deployment prompt. Empty reads SYSTEM.md
 	// and APPEND_SYSTEM.md from ConfigDirectory and otherwise takes the
@@ -418,9 +422,6 @@ type RuntimeOptions struct {
 	// CompactionSummaryPercent is the share of MaxContextTokens a summary
 	// gets, up to CompactionOutputTokens. Zero takes the package default.
 	CompactionSummaryPercent int
-	// CompactionTimeout bounds the separate summarization call. Zero takes
-	// the package default.
-	CompactionTimeout time.Duration
 
 	// ToolLimits bounds every host tool result. Zero fields take the package
 	// defaults.
@@ -433,12 +434,13 @@ type RuntimeOptions struct {
 	MaxToolRounds int
 	// MaxConcurrentTools bounds parallel tool execution inside one round.
 	MaxConcurrentTools int
-	// ToolTimeout bounds one tool call, hooks included.
+	// ToolTimeout bounds one call of any tool except runCommand and waitJob,
+	// hooks included. Those two are bounded by the wait they ask for.
 	ToolTimeout time.Duration
 	// MaxToolResultTokens bounds one tool result before it enters context.
 	MaxToolResultTokens int
-	// HookCommandTimeout bounds one executable hook action. Zero takes the
-	// hook package default.
+	// HookCommandTimeout bounds an executable hook action that sets no timeout
+	// of its own. Zero takes the hook package default.
 	HookCommandTimeout time.Duration
 	// MaxHookCommandOutput bounds combined stdout or stderr from one executable
 	// hook action. Zero takes the hook package default.
@@ -452,8 +454,8 @@ type RuntimeOptions struct {
 	// session. Zero or negative disables the bound.
 	MaxEventWakesPerHour int
 
-	// AskTimeout bounds how long the ask tool waits for an answer. A call's
-	// own timeout may shorten it. Zero waits without a bound.
+	// AskTimeout bounds how long the ask tool waits for an answer. The model
+	// cannot change it. Zero waits up to the messaging tools' cap.
 	AskTimeout time.Duration
 
 	// Events delivers notices the agent did not ask about: a finished process
@@ -487,7 +489,7 @@ func (o RuntimeOptions) validate() error {
 	// DefaultWorkspace is absent from this check on purpose. An empty value is
 	// the control surface asking for a runtime that starts with no session.
 	if o.RootAgent == "" || o.DefaultModel == "" || !o.hasContextBudget() ||
-		o.TurnTimeout <= 0 || o.MaxQueuedUserMessages < 0 ||
+		o.ModelRequestTimeout <= 0 || o.MaxQueuedUserMessages < 0 ||
 		o.AskTimeout < 0 {
 		return ctxerrors.Wrap(commerr.ErrValidationFailed, "runtime options")
 	}
@@ -636,6 +638,9 @@ type providerRetryPayload struct {
 type turnCompletedPayload struct {
 	Model string `json:"model"`
 	Text  string `json:"text"`
+	// FinishReason is why the model stopped its final reply, such as length
+	// when the reply reached the output token limit.
+	FinishReason elelem.FinishReason `json:"finishReason,omitempty"`
 }
 
 type turnFailedPayload struct {

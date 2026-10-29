@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/elelem/elelemtest"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/session"
@@ -39,6 +40,42 @@ func TestRootFinalProjectionUsesStableFailureClassification(t *testing.T) {
 		fixture.input.SessionID, fixture.input.ExecutionID)
 	require.NoError(t, err)
 	assert.Equal(t, input.Result.Finish.FailureDetail, execution.FailureDetail)
+}
+
+// A completed turn tells clients why the final reply stopped, so a reply cut
+// off at the output limit is not mistaken for a finished one.
+func TestRootFinalProjectionReportsFinishReason(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name   string
+		reason elelem.FinishReason
+	}{
+		{name: "finished", reason: elelem.FinishReasonStop},
+		{name: "cut off", reason: elelem.FinishReasonLength},
+		{name: "not reported", reason: elelem.FinishReasonUnset},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fixture, _, _ := newRootCallbackFixture(t,
+				elelemtest.NewScriptedDriver())
+			input := callbackFinishInput(fixture)
+			input.Result.Result.FinishReason = tc.reason
+			result, err := fixture.engine.finishExecution(t.Context(), input)
+			require.NoError(t, err)
+			events := result.Output.Finish.Turn.Events
+			require.NotEmpty(t, events)
+			final := events[len(events)-1]
+			require.Equal(t, EventTypeTurnCompleted, final.EventType)
+			var payload turnCompletedPayload
+			require.NoError(t, json.Unmarshal([]byte(final.PayloadJSON), &payload))
+			assert.Equal(t, tc.reason, payload.FinishReason)
+			if tc.reason == elelem.FinishReasonUnset {
+				assert.NotContains(t, final.PayloadJSON, "finishReason")
+			}
+		})
+	}
 }
 
 type rootFinalReleaseStore struct {

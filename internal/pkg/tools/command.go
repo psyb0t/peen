@@ -149,14 +149,15 @@ func jobRunOutput(job *Job, background bool) RunCommandOutput {
 	snapshot := job.Snapshot()
 	stdout, stdoutDropped := job.stdout.All()
 	stderr, stderrDropped := job.stderr.All()
+	running := snapshot.State == JobStateRunning
 
-	return RunCommandOutput{
+	output := RunCommandOutput{
 		JobID:              snapshot.ID,
 		PID:                snapshot.PID,
 		Directory:          snapshot.Directory,
 		Purpose:            snapshot.Purpose,
 		Background:         background,
-		Running:            snapshot.State == JobStateRunning,
+		Running:            running,
 		State:              snapshot.State,
 		ExitCode:           snapshot.ExitCode,
 		Stdout:             strings.Join(stdout, "\n"),
@@ -164,6 +165,11 @@ func jobRunOutput(job *Job, background bool) RunCommandOutput {
 		StdoutDroppedLines: stdoutDropped,
 		StderrDroppedLines: stderrDropped,
 	}
+	if running && !background {
+		output.Note = runCommandStillRunningNote
+	}
+
+	return output
 }
 
 // resolveCommandDirectory maps input.Directory onto the host filesystem and
@@ -188,27 +194,25 @@ func (e *JobExecutor) resolveCommandDirectory(
 	return resolved, nil
 }
 
-// resolveCommandTimeout maps the requested Go duration string onto a bounded
-// wait duration. Empty takes the configured default; anything above the
-// configured maximum is clamped down to it.
+// resolveCommandTimeout returns the wait a runCommand call asked for, or the
+// configured default when it asked for none. A call may ask for any wait.
 func (e *JobExecutor) resolveCommandTimeout(
 	raw string,
 ) (time.Duration, error) {
-	limits := e.Limits()
+	return resolveWaitTimeout(raw, e.Limits().CommandTimeout)
+}
+
+// resolveWaitTimeout parses a requested wait, taking fallback when the
+// request is empty.
+func resolveWaitTimeout(
+	raw string,
+	fallback time.Duration,
+) (time.Duration, error) {
 	if raw == "" {
-		return limits.CommandTimeout, nil
+		return fallback, nil
 	}
 
-	timeout, err := parseToolTimeout(raw)
-	if err != nil {
-		return 0, err
-	}
-
-	if timeout > limits.MaxCommandTimeout {
-		return limits.MaxCommandTimeout, nil
-	}
-
-	return timeout, nil
+	return parseToolTimeout(raw)
 }
 
 // parseToolTimeout parses a non-empty timeout argument as a Go duration and

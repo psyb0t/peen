@@ -96,8 +96,7 @@ func newCoreFixtureWith(
 		CompactionMode:         peenconfig.CompactionModeDropOldest,
 		CrashRecovery:          peenconfig.CrashRecoveryPause,
 		CompactionOutputTokens: coreTestOutputTokens,
-		CompactionTimeout:      time.Minute,
-		TurnTimeout:            time.Minute,
+		ModelRequestTimeout:    time.Minute,
 		HTTPListenAddress:      reserveLoopbackAddress(t),
 		MetricsListenAddress:   reserveLoopbackAddress(t),
 	}

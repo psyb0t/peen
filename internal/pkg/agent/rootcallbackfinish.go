@@ -82,6 +82,7 @@ func (c *rootWorkflowCallbacks) finalEvent(
 
 	var payload any = turnCompletedPayload{
 		Model: prepared.modelReference, Text: result.Result.Text,
+		FinishReason: result.Result.FinishReason,
 	}
 	if result.Finish.State == models.ExecutionStateFailed {
 		kind = EventTypeTurnFailed

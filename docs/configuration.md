@@ -188,7 +188,7 @@ The value must be a loopback IP address and a port other than 0, such as `127.0.
 
 ## Context and turn limits
 
-Every time setting is a Go duration such as `90s`, `10m`, or `1h30m`. A bare number such as `120` and an empty value are rejected at startup. `PEEN_TURN_TIMEOUT` and `PEEN_COMPACTION_TIMEOUT` must be positive. For `PEEN_TOOL_TIMEOUT`, `PEEN_TOOL_COMMAND_TIMEOUT`, `PEEN_TOOL_MAX_COMMAND_TIMEOUT`, and `PEEN_HOOK_COMMAND_TIMEOUT`, `0` means the default and a negative value fails startup. For `PEEN_LOG_RETENTION`, `0` means the default, as [logging](#logging-and-audit-trail) explains.
+Every time setting is a Go duration such as `90s`, `10m`, or `1h30m`. A bare number such as `120` and an empty value are rejected at startup. `PEEN_MODEL_REQUEST_TIMEOUT` must be positive. For `PEEN_TOOL_TIMEOUT`, `PEEN_DEFAULT_TOOL_COMMAND_TIMEOUT`, and `PEEN_DEFAULT_HOOK_COMMAND_TIMEOUT`, `0` means the default and a negative value fails startup. A setting whose name starts with `PEEN_DEFAULT_` is a default that the call or file it applies to can override; the others are limits. For `PEEN_LOG_RETENTION`, `0` means the default, as [logging](#logging-and-audit-trail) explains.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -197,8 +197,7 @@ Every time setting is a Go duration such as `90s`, `10m`, or `1h30m`. A bare num
 | `PEEN_COMPACTION_MODE` | `drop-oldest` | `drop-oldest` or `summarize`. See [compaction](#compaction). |
 | `PEEN_COMPACTION_SUMMARY_PERCENT` | `30` | Share of `PEEN_MAX_CONTEXT_TOKENS` a generated summary gets, from `1` to `50`, never more than `PEEN_COMPACTION_MAX_OUTPUT_TOKENS`. That summary room and `PEEN_OUTPUT_RESERVE_TOKENS` together must be smaller than `PEEN_MAX_CONTEXT_TOKENS`, and the check runs even when `drop-oldest` is active. |
 | `PEEN_COMPACTION_MAX_OUTPUT_TOKENS` | `16384` | Ceiling on the summary room. Keep it within the output limit of `PEEN_COMPACTION_MODEL`. |
-| `PEEN_COMPACTION_TIMEOUT` | `2m` | Limit on the separate summarization call. |
-| `PEEN_TURN_TIMEOUT` | `10m` | Limit on one turn. |
+| `PEEN_MODEL_REQUEST_TIMEOUT` | `10m` | Limit on each model request: every round of a turn and every compaction summary. A turn has no overall time limit; `PEEN_MAX_TOOL_ROUNDS` bounds how many model requests it makes. |
 | `PEEN_CRASH_RECOVERY` | `pause` | What happens to work a crashed controller or worker left unfinished, for every workspace this controller serves. `pause` keeps it paused until a turn asks the agent to continue it. `resume` lets the next worker continue it by itself, for deployments that run unattended. |
 | `PEEN_MAX_CONCURRENT_TURNS` | `16` | Turns that may run at once, across every session in the process. |
 | `PEEN_MAX_QUEUED_USER_MESSAGES` | `16` | Messages sent while a turn is running wait until the model's current round ends. At most this many can wait at once, counting each skill message or already-loaded note that follows a queued message. A long turn can accept more in total, because delivery frees slots. Each one is reported with `userMessage.queued` and then `userMessage.delivered`. See [queued messages](http-api.md#send-and-watch-turns-over-websocket). |
@@ -208,7 +207,7 @@ Every time setting is a Go duration such as `90s`, `10m`, or `1h30m`. A bare num
 A conversation grows until its prompt no longer fits in `PEEN_MAX_CONTEXT_TOKENS` minus `PEEN_OUTPUT_RESERVE_TOKENS`. Compaction is what Peen does then, and `PEEN_COMPACTION_MODE` picks how:
 
 - `drop-oldest` leaves whole old exchanges out of the request, each a user message with everything up to the next one, and stores nothing. The transcript keeps every message.
-- `summarize` replaces the oldest turns that have ended, including ones that failed or were stopped, with a summary made by `PEEN_COMPACTION_MODEL`, stores the summary, and never deletes transcript rows. The summary room, `PEEN_COMPACTION_SUMMARY_PERCENT` of the context up to `PEEN_COMPACTION_MAX_OUTPUT_TOKENS`, is kept free in the request and is the summarization call's output limit. When the ended turns cannot free that much, for example when the system prompt and the current turn fill most of a small context, Peen tries half the room, then a quarter, down to 512 tokens, and leaves out the oldest history without a summary only when none of them fits. The model's reasoning shares that limit, so Peen asks the model for the least reasoning it accepts. A later compaction summarizes the previous summary together with the messages after it. When the previous summary already fills three quarters of the room, Peen tells the model to write a tighter one, keeping open work, requirements, decisions, and exact identifiers ahead of finished detail. When a summary still stops at the limit, Peen asks once more for one in half the room and logs a warning with reason `summary_over_limit_retried`. `PEEN_COMPACTION_TIMEOUT` limits each call. An optional `COMPACTION.md` in `PEEN_CONFIG_DIR` replaces the built-in summarizer instructions. Only this mode runs the `preCompact` and `postCompact` [hooks](hooks.md).
+- `summarize` replaces the oldest turns that have ended, including ones that failed or were stopped, with a summary made by `PEEN_COMPACTION_MODEL`, stores the summary, and never deletes transcript rows. The summary room, `PEEN_COMPACTION_SUMMARY_PERCENT` of the context up to `PEEN_COMPACTION_MAX_OUTPUT_TOKENS`, is kept free in the request and is the summarization call's output limit. When the ended turns cannot free that much, for example when the system prompt and the current turn fill most of a small context, Peen tries half the room, then a quarter, down to 512 tokens, and leaves out the oldest history without a summary only when none of them fits. The model's reasoning shares that limit, so Peen asks the model for the least reasoning it accepts. A later compaction summarizes the previous summary together with the messages after it. When the previous summary already fills three quarters of the room, Peen tells the model to write a tighter one, keeping open work, requirements, decisions, and exact identifiers ahead of finished detail. When a summary still stops at the limit, Peen asks once more for one in half the room and logs a warning with reason `summary_over_limit_retried`. `PEEN_MODEL_REQUEST_TIMEOUT` limits each call. An optional `COMPACTION.md` in `PEEN_CONFIG_DIR` replaces the built-in summarizer instructions. Only this mode runs the `preCompact` and `postCompact` [hooks](hooks.md).
 
 The budget is a target. When nothing more can be left out, for example when one round's tool results alone exceed it, the request goes out over the budget with a warning in the log, and the provider decides whether it fits its real window.
 
@@ -228,7 +227,7 @@ Under `summarize` a child agent compacts its own transcript into its own stored 
 | --- | --- | --- |
 | `PEEN_MAX_TOOL_ROUNDS` | `32` | Tool-call rounds allowed in one turn. |
 | `PEEN_MAX_CONCURRENT_TOOLS` | `4` | Tool calls one turn may run at once. |
-| `PEEN_TOOL_TIMEOUT` | `15m` | Limit on one tool call, including a `runCommand` wait. |
+| `PEEN_TOOL_TIMEOUT` | `15m` | Limit on one call of any tool except `runCommand` and `waitJob`, its hooks included. Those two wait as long as the call asks; see [process jobs](#process-jobs). |
 | `PEEN_MAX_TOOL_RESULT_TOKENS` | `8192` | Limits a tool result before it goes back to the model. |
 | `PEEN_TOOL_MAX_LIST_ENTRIES` | `1000` | `listFiles` entry limit. |
 | `PEEN_TOOL_MAX_LIST_DEPTH` | `16` | `listFiles` recursion depth limit. |
@@ -241,14 +240,13 @@ Under `summarize` a child agent compacts its own transcript into its own stored 
 | `PEEN_TOOL_MAX_DIFF_BYTES` | `65536` | Size limit on the diff `editFile` returns. |
 | `PEEN_TOOL_MAX_REMOVE_ENTRIES` | `20000` | `removePath` recursive entry limit. |
 | `PEEN_TOOL_MAX_COMMAND_OUTPUT_BYTES` | `65536` | `runCommand` captured stdout and stderr limit. |
-| `PEEN_TOOL_COMMAND_TIMEOUT` | `2m` | Default `runCommand` wait. The command is never killed when this elapses. A command still running returns a job handle instead. |
-| `PEEN_TOOL_MAX_COMMAND_TIMEOUT` | `15m` | Longest wait a call may request. Must not exceed `PEEN_TOOL_TIMEOUT`. |
+| `PEEN_DEFAULT_TOOL_COMMAND_TIMEOUT` | `10m` | How long `runCommand` and `waitJob` wait when a call passes no `timeout`. A call may ask for any wait. The command is never killed when the wait ends. A command still running returns a job handle instead. |
 
 ## Hook execution limits
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PEEN_HOOK_COMMAND_TIMEOUT` | `30s` | Limit on one `command` hook action. Must not exceed `PEEN_TOOL_TIMEOUT`. |
+| `PEEN_DEFAULT_HOOK_COMMAND_TIMEOUT` | `30s` | Limit on a `command` hook action that sets no `timeout` of its own. |
 | `PEEN_MAX_HOOK_COMMAND_OUTPUT` | `65536` | Maximum stdout or stderr captured from one hook command. |
 
 See [hooks](hooks.md) for the file format, matching rules, event order, and how actions run.
@@ -276,7 +274,7 @@ See [session events](events.md) for event types, delivery, wakes, and event hand
 | `PEEN_MAX_AGENT_RUN_EVENT_COUNT` | `2000` | How many of a running child's recent events Peen keeps in memory for clients following it live. SQLite keeps every event regardless. |
 | `PEEN_MAX_AGENT_RUN_EVENT_BYTES` | `65536` | Byte limit on that same in-memory list. |
 | `PEEN_MAX_ADHOC_AGENT_INSTRUCTION_BYTES` | `65536` | Size limit on an inline `agentDefinition.instructions` string. |
-| `PEEN_ASK_TIMEOUT` | `0` | How long the `ask` tool waits for an answer, as a Go duration such as `30m`. A call may ask for a shorter wait. `0` sets no limit of its own, so `ask` waits up to the 30-day cap every messaging tool has, and a child whose question nobody answers holds one of the `PEEN_MAX_CONCURRENT_AGENT_RUNS` slots until someone answers or stops it. The root's `ask` still ends with its turn, at `PEEN_TURN_TIMEOUT`. A negative value stops startup. |
+| `PEEN_ASK_TIMEOUT` | `0` | How long the `ask` tool waits for an answer, as a Go duration such as `30m`. The model cannot change it. `0` sets no limit of its own, so `ask` waits up to the 30-day cap every messaging tool has, and a child whose question nobody answers holds one of the `PEEN_MAX_CONCURRENT_AGENT_RUNS` slots until someone answers or stops it. The root's `ask` waits the same way. A negative value stops startup. |
 
 A child's inbox holds at most `PEEN_MAX_QUEUED_USER_MESSAGES` messages that it has not read yet, the same bound as the root's queue. See [running children](agents.md#running-children).
 
@@ -288,11 +286,11 @@ Every root and child turn also receives the server's current local time, timezon
 
 ## Process jobs
 
-`runCommand` never kills a process because a wait ran out. A command that exits within `PEEN_TOOL_COMMAND_TIMEOUT`, or a caller-requested `timeout` up to `PEEN_TOOL_MAX_COMMAND_TIMEOUT`, returns its exit status and output normally. A command still running when the wait ends keeps running, and the tool returns a job handle plus the output captured so far. The `background` argument skips the wait and returns the handle at once.
+`runCommand` never kills a process because a wait ran out. A command that exits within its wait returns its exit status and output normally. A command still running when the wait ends keeps running, and the tool returns a job handle, the output captured so far, and a `note` telling the model to call `waitJob` with that job and a longer `timeout` to keep waiting, rather than run the command a second time. The `background` argument skips the wait and returns the handle at once.
 
-Stop, caller cancellation or a turn/tool deadline while `runCommand` is still awaiting a foreground command kills that command's process group. Peen records the kill request and waits for job finalization within the job stop bound. A signal-recording failure still kills the process and is returned with the cancellation error. Cancellation keeps foreground completion out of detached-job wake events.
+Stopping or cancelling the turn while `runCommand` is still awaiting a foreground command kills that command's process group. Peen records the kill request and waits for job finalization within the job stop bound. A signal-recording failure still kills the process and is returned with the cancellation error. Cancellation keeps foreground completion out of detached-job wake events.
 
-`runCommand` and `waitJob` take `timeout` as a Go duration string such as `"90s"`, `"5m"`, or `"1h30m"`. Leaving it out uses the default, and `0s`, negative values, and bare numbers are rejected. For `runCommand` the default is `PEEN_TOOL_COMMAND_TIMEOUT`, and a value above `PEEN_TOOL_MAX_COMMAND_TIMEOUT` is lowered to that maximum rather than rejected. For `waitJob` the default is `30s`, and Peen lowers any value above `10m` to `10m`. No `PEEN_` variable changes these two `waitJob` limits.
+`runCommand` and `waitJob` take `timeout` as a Go duration string such as `"90s"`, `"5m"`, or `"1h30m"`. Leaving it out uses `PEEN_DEFAULT_TOOL_COMMAND_TIMEOUT`, and `0s`, negative values, and bare numbers are rejected. There is no upper limit, so an agent can wait hours for a build in one call, and the tool descriptions tell the model the default and that it may ask for longer. These two tools are exempt from `PEEN_TOOL_TIMEOUT`; only the 30-day cap the waiting tools share bounds them.
 
 Detached jobs belong to the session, not the turn. Once `runCommand` returns a running job handle, that command stays listable, readable and signalable from a later turn; cancelling the earlier turn does not stop it. Peen writes every stdout and stderr line to SQLite before it enters a small in-memory buffer, which only the active tool call reads. REST output replay, job details, and signal history come from SQLite and survive reconnects and restarts. On shutdown, Peen stops every running job, waits a grace period, then kills its process group, so no job outlives Peen. A job that finishes after its `runCommand` call returned publishes a `job.exited`, `job.signalled`, or `job.failed` [session event](events.md).
 

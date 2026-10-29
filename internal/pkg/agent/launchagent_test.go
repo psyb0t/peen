@@ -105,17 +105,17 @@ func newLaunchAgentFixture(
 	eventBus := events.NewBus(events.Options{})
 
 	runtimeOptions := RuntimeOptions{
-		Store:            store,
-		Resolver:         resolver,
-		Models:           registry,
-		RootAgent:        runtimeTestAgentName,
-		DefaultModel:     runtimeTestModelReference,
-		DefaultWorkspace: workspace,
-		MaxContextTokens: runtimeTestMaxContextTokens,
-		TurnTimeout:      runtimeTestTurnTimeout,
-		Events:           eventBus,
-		AgentLimits:      options.AgentLimits,
-		ConfigDirectory:  configDirectory,
+		Store:               store,
+		Resolver:            resolver,
+		Models:              registry,
+		RootAgent:           runtimeTestAgentName,
+		DefaultModel:        runtimeTestModelReference,
+		DefaultWorkspace:    workspace,
+		MaxContextTokens:    runtimeTestMaxContextTokens,
+		ModelRequestTimeout: runtimeTestTurnTimeout,
+		Events:              eventBus,
+		AgentLimits:         options.AgentLimits,
+		ConfigDirectory:     configDirectory,
 	}
 
 	if options.Customize != nil {

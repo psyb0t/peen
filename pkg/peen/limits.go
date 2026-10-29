@@ -3,7 +3,9 @@ package peen
 import "time"
 
 // ToolLimits bounds file, patch, command and job operations. Zero fields use
-// the same defaults as the controller.
+// the same defaults as the controller. CommandTimeout and WaitJobTimeout are
+// the waits runCommand and waitJob use when a call passes no timeout; a call
+// may ask for any wait.
 type ToolLimits struct {
 	MaxListEntries        int
 	MaxListDepth          int
@@ -21,11 +23,9 @@ type ToolLimits struct {
 	MaxRemoveEntries      int
 	MaxCommandOutputBytes int
 	CommandTimeout        time.Duration
-	MaxCommandTimeout     time.Duration
 	MaxJobOutputLines     int
 	MaxReadJobOutputLines int
 	WaitJobTimeout        time.Duration
-	MaxWaitJobTimeout     time.Duration
 	JobStopGracePeriod    time.Duration
 	MaxListJobs           int
 }

@@ -200,7 +200,7 @@ When a turn fails, is interrupted, or is stopped, Peen records a [`turn.failed` 
 
 The asker answers with `sendMessage` to the asking run, and you can answer a child's question directly with a message whose `to` names it. While a child waits on a question, `GET /api/v1/session/agents` shows it with `waiting: true` and the `question`, and `?state=waiting` lists only those runs.
 
-`PEEN_ASK_TIMEOUT` bounds how long `ask` waits, and a call's own `timeout` may shorten it. The default `0` sets no limit of its own, so `ask` waits up to the 30-day cap every messaging tool has, and a child whose question nobody answers holds one of the session's `PEEN_MAX_CONCURRENT_AGENT_RUNS` slots until someone answers or stops it. The root's `ask` still ends with its turn, at `PEEN_TURN_TIMEOUT`. A timed out `ask` returns `answered: false`. Interrupting a root or child wait leaves its recorded question open. Cancellation or a deadline interrupting delivery to the parent also leaves the child's question open; an ordinary delivery refusal closes it unanswered and returns the error.
+`PEEN_ASK_TIMEOUT` bounds how long `ask` waits, and the model cannot change it. The default `0` sets no limit of its own, so `ask` waits up to the 30-day cap every messaging tool has, and a child whose question nobody answers holds one of the session's `PEEN_MAX_CONCURRENT_AGENT_RUNS` slots until someone answers or stops it. The root's `ask` waits the same way. A timed out `ask` returns `answered: false`. Interrupting a root or child wait leaves its recorded question open. Cancellation or a deadline interrupting delivery to the parent also leaves the child's question open; an ordinary delivery refusal closes it unanswered and returns the error.
 
 ### Stopping a child
 

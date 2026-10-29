@@ -142,22 +142,19 @@ func recoveredWaitInput(call elelem.ToolCall) (askInput, error) {
 func (r *Runtime) recoveredWaitTimeout(
 	name, input string,
 ) (time.Duration, error) {
-	var (
-		timeout time.Duration
-		err     error
-	)
-	if name == toolNameAsk {
-		timeout, err = r.askTimeoutFor(input)
-	} else {
-		timeout, err = optionalWaitTimeout(input)
+	timeout := r.askTimeout
+
+	if name != toolNameAsk {
+		parsed, err := optionalWaitTimeout(input)
+		if err != nil {
+			return 0, ctxerrors.Wrap(err, "parse recovered wait timeout")
+		}
+
+		timeout = parsed
 	}
 
-	if err != nil {
-		return 0, ctxerrors.Wrap(err, "parse recovered wait timeout")
-	}
-
-	if timeout == 0 || timeout > messageToolTimeout {
-		timeout = messageToolTimeout
+	if timeout == 0 || timeout > waitingToolTimeout {
+		timeout = waitingToolTimeout
 	}
 
 	return timeout, nil

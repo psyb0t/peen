@@ -100,8 +100,7 @@ func newAPIFixture(t *testing.T) apiFixture {
 		CompactionMode:         peenconfig.CompactionModeDropOldest,
 		CrashRecovery:          peenconfig.CrashRecoveryPause,
 		CompactionOutputTokens: apiTestOutputTokens,
-		CompactionTimeout:      time.Minute,
-		TurnTimeout:            time.Minute,
+		ModelRequestTimeout:    time.Minute,
 		HTTPListenAddress:      reserveLoopbackAddress(t),
 		MetricsListenAddress:   reserveLoopbackAddress(t),
 		APIToken:               apiTestToken,
@@ -148,13 +147,13 @@ func newTestCore(t *testing.T, config peenconfig.Config) *control.Core {
 	assembled, err := agent.Assemble(t.Context(), agent.AssembleOptions{
 		StateDirectory: config.StateDirectory,
 		Runtime: agent.RuntimeOptions{
-			Models:           models,
-			RootAgent:        config.Agent,
-			DefaultModel:     config.DefaultModel,
-			MaxContextTokens: config.MaxContextTokens,
-			TurnTimeout:      config.TurnTimeout,
-			CompactionMode:   config.CompactionMode,
-			ConfigDirectory:  config.ConfigDirectory,
+			Models:              models,
+			RootAgent:           config.Agent,
+			DefaultModel:        config.DefaultModel,
+			MaxContextTokens:    config.MaxContextTokens,
+			ModelRequestTimeout: config.ModelRequestTimeout,
+			CompactionMode:      config.CompactionMode,
+			ConfigDirectory:     config.ConfigDirectory,
 		},
 	})
 	require.NoError(t, err)

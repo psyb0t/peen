@@ -257,11 +257,11 @@ func reopenModelProjectionRuntime(
 	replacement, err := NewRuntime(t.Context(), RuntimeOptions{
 		Store: store, Resolver: original.resolver, Models: original.models,
 		RootAgent: original.rootAgent, DefaultModel: original.defaultModel,
-		StartupSessionID:   input.Execution.SessionID,
-		MaxContextTokens:   original.maxContextTokens,
-		TurnTimeout:        original.turnTimeout,
-		WorkerGenerationID: fixture.engine.options.GenerationID,
-		ConfigDirectory:    fixture.base.configDirectory,
+		StartupSessionID:    input.Execution.SessionID,
+		MaxContextTokens:    original.maxContextTokens,
+		ModelRequestTimeout: original.modelRequestTimeout,
+		WorkerGenerationID:  fixture.engine.options.GenerationID,
+		ConfigDirectory:     fixture.base.configDirectory,
 	})
 	require.NoError(t, err)
 
