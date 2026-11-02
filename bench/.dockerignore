@@ -1,0 +1,3 @@
+# The driver image needs only its locked requirements.
+*
+!requirements.txt

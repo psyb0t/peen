@@ -30,9 +30,7 @@ func (r *Runtime) workflowRootCompactRound(
 
 	units, room, err := selectWorkflowCompactionPrefix(r.models, input)
 	if errors.Is(err, ErrCompactionUnavailable) {
-		logNothingToSummarize(ctx, err)
-
-		return workflowCompactionResult{Context: input.Execution.Context}, nil
+		return r.workflowRootTurnCompaction(ctx, prepared, input)
 	}
 
 	if err != nil {
@@ -70,6 +68,32 @@ func (r *Runtime) workflowRootCompactRound(
 
 	return r.workflowCompactedResult(ctx, built, conversation, input,
 		units, summary)
+}
+
+// workflowRootTurnCompaction summarizes earlier rounds of the root's turn in
+// progress when no ended turn can be summarized.
+func (r *Runtime) workflowRootTurnCompaction(
+	ctx context.Context,
+	prepared *preparedTurn,
+	input workflowRoundInput,
+) (workflowCompactionResult, error) {
+	var conversation workflowConversation
+
+	err := json.Unmarshal(input.Execution.Context, &conversation)
+	if err != nil {
+		return workflowCompactionResult{}, ctxerrors.Wrap(err,
+			"decode root turn compaction context")
+	}
+
+	built, err := r.restoreWorkflowCompactor(prepared, conversation.Compaction)
+	if err != nil {
+		return workflowCompactionResult{}, ctxerrors.Wrap(err,
+			"restore root turn summarizer")
+	}
+
+	built.workflowInput = &input
+
+	return r.compactWorkflowCurrentTurn(ctx, built, input)
 }
 
 func (r *Runtime) workflowCompactedResult(

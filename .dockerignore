@@ -25,6 +25,10 @@ docs/
 # Local tooling that must never enter an image
 git-update.sh
 
+# The benchmark runner builds its own image from bench/ and never enters
+# Peen's.
+bench/
+
 # Agent skill / plugin manifests. Repo distribution material, published from
 # the repo itself, never built into or read by the binary. .claude links to it.
 .agents

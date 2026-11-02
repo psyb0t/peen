@@ -49,7 +49,7 @@ Four offline tasks from [LHTB](https://github.com/zli12321/lhtb), each run once 
 | A turn failed on the round after a model call that succeeded on retry, because the saved turn context could not decode the failed attempt's error. | Aider, a Z.ai `500` | Fixed in v0.33.0 |
 | `PEEN_TURN_TIMEOUT` limited each model request, not the turn, so a long task ran past it to the grader's time limit. | LHTB | Renamed `PEEN_MODEL_REQUEST_TIMEOUT` in v0.33.0 |
 | A reply cut off at the output limit completed with empty text and no sign it was cut off. | LHTB `rush_hour_campaign` | `turn.completed` carries `finishReason` in v0.33.0 |
-| `summarize` compaction summarizes only turns that have ended, so inside one long turn it leaves out the oldest rounds without a summary. In the 128K `langchain-version-migration` run it did so 34 times. | LHTB at 128K | Open |
+| `summarize` compaction summarizes only turns that have ended, so inside one long turn it leaves out the oldest rounds without a summary. In the 128K `langchain-version-migration` run it did so 34 times. | LHTB at 128K | Fixed in v0.34.0 |
 | go-workflows instance lookups took 220 to 525 ms under SQLite contention. | 3 of 29 Aider trials | Open |
 
 ## Earlier runs
@@ -83,4 +83,33 @@ The first glm-5.3 run found that a fixed summary room never fit a 24K context, s
 
 ## Running them
 
-The runner is Harbor 0.24 with a Peen agent adapter that copies in the binary and a relay, and a small proxy that holds the key. Each benchmark's reference solutions run first under the same sandbox. Put the provider key only in the proxy, never in the task container, and give each trial's Peen its own state directory so the SQLite records can be read afterwards.
+The `bench-*` Make targets run the setup above from a checkout. They need Docker, Make, Git, `jq`, and a `.env` holding the provider key. Only the proxy container reads the key. The driver and the task containers never see it. Runs cost provider money and start one container per task through the host's Docker daemon, so no default suite runs them.
+
+```sh
+make bench-image      # Harbor driver image from bench/
+make bench-build      # static peen and relay binaries from this checkout
+make bench-datasets   # Aider Polyglot 1.0 and the pinned LHTB tasks
+make bench-proxy      # provider proxy, reads ZAI_TOKEN from .env
+
+make bench-aider BENCH_AGENT=oracle   # reference solutions, checks the graders offline
+make bench-aider                      # every offline-gradable Aider task with Peen
+make bench-lhtb BENCH_CONTEXT_TOKENS=131072
+
+make bench-proxy-stop
+```
+
+Run `make bench-build` again after changing Peen, so the task containers get the new binary.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `BENCH_TASKS` | every offline-gradable Aider task, or the four LHTB tasks | Space-separated task directory names, such as `polyglot_go_react`. |
+| `BENCH_AGENT` | `peen` | `oracle` runs the reference solutions instead. |
+| `BENCH_MODEL` | `zai/glm-5.3` | Peen's `PEEN_DEFAULT_MODEL`. |
+| `BENCH_COMPACTION_MODEL` | `zai/glm-5.3-flash` | Peen's `PEEN_COMPACTION_MODEL`. |
+| `BENCH_CONTEXT_TOKENS` | `1000000` | Peen's `PEEN_MAX_CONTEXT_TOKENS`. |
+| `BENCH_CONCURRENCY` | 3 for Aider, 2 for LHTB | Trials running at once. |
+| `BENCH_JOB` | suite, agent and UTC time | The job name under `.testing/bench/jobs/`. |
+
+The proxy forwards to the Z.ai coding endpoint for `glm-5.3` and `glm-5.3-flash` by default. To use another OpenAI-compatible provider, set `BENCH_BASE_URL`, `BENCH_MODELS`, and `BENCH_KEY_ENV` (the `.env` variable holding the key) on `make bench-proxy`, and change the upstream type in `bench/peen_agent.py`, which configures Peen's `zai-coding` upstream.
+
+Everything a run writes stays under the gitignored `.testing/bench`. Each trial directory in `jobs/<job>/` holds Harbor's `result.json` and the verifier output, and its `agent/peen/` holds Peen's `frames.jsonl`, `runtime.log`, and the whole state directory with the SQLite databases. `proxy.log` has one line per model request.

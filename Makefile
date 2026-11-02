@@ -126,6 +126,36 @@ test-installer: dev-image ## Run the installer and peen command end to end in Do
 test-real: ## Run opt-in real provider tests with the deployment .env
 	@bash scripts/make/test_real.sh
 
+# The bench-* targets run Peen against Aider Polyglot and LHTB through Harbor,
+# one networkless task container per task. They cost provider money, need the
+# Docker socket to start the task containers, and read the provider key from
+# .env only inside the proxy container, so they stay out of every default
+# suite. docs/benchmarks.md walks through a run. The BENCH_* settings pass
+# through the environment to scripts/make/bench.sh, which validates them.
+.PHONY: bench-image bench-build bench-datasets bench-proxy bench-proxy-stop \
+	bench-aider bench-lhtb
+
+bench-image: ## Build the Harbor benchmark driver image
+	@BENCH_REPO_ROOT="$(CURDIR)" bash scripts/make/bench.sh image
+
+bench-build: ## Build static peen and relay binaries for the benchmark task containers
+	@BENCH_REPO_ROOT="$(CURDIR)" bash scripts/make/bench.sh build
+
+bench-datasets: ## Download Aider Polyglot and the pinned LHTB tasks
+	@BENCH_REPO_ROOT="$(CURDIR)" bash scripts/make/bench.sh datasets
+
+bench-proxy: ## Start the benchmark provider proxy, the only holder of the key from .env
+	@BENCH_REPO_ROOT="$(CURDIR)" bash scripts/make/bench.sh proxy
+
+bench-proxy-stop: ## Stop the benchmark provider proxy
+	@BENCH_REPO_ROOT="$(CURDIR)" bash scripts/make/bench.sh proxy-stop
+
+bench-aider: ## Run Aider Polyglot, set BENCH_TASKS, BENCH_MODEL, BENCH_AGENT=oracle, ...
+	@BENCH_REPO_ROOT="$(CURDIR)" bash scripts/make/bench.sh run aider
+
+bench-lhtb: ## Run the LHTB long-horizon tasks, set BENCH_CONTEXT_TOKENS, BENCH_TASKS, ...
+	@BENCH_REPO_ROOT="$(CURDIR)" bash scripts/make/bench.sh run lhtb
+
 web-generate: dev-image ## Regenerate TypeScript API types from api/api.yml
 	@$(DEV_RUN) bash scripts/web/run.sh generate
 

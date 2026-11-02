@@ -486,7 +486,8 @@ func awaitCrashTreeWait(t *testing.T, sessionID, runID uuid.UUID) {
 		content, ok := payload["content"].(string)
 		require.True(t, ok)
 		var result tools.RunCommandOutput
-		require.NoError(t, json.Unmarshal([]byte(content), &result))
+		require.NoError(t, json.Unmarshal([]byte(toolOutputText(t, content)),
+			&result))
 		require.Zero(t, result.ExitCode, "command output: %+v", result)
 	}
 }

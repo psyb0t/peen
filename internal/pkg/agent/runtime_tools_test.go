@@ -122,7 +122,8 @@ func TestRuntimeRunExecutesHostToolAndPairsCallID(t *testing.T) {
 	assert.False(t, toolResult.IsError)
 
 	output := tools.ReadFileOutput{}
-	require.NoError(t, json.Unmarshal([]byte(toolResult.Content), &output))
+	require.NoError(t, json.Unmarshal(
+		[]byte(toolOutputText(t, toolResult.Content)), &output))
 	assert.Equal(t, runtimeToolFileBody, output.Content)
 
 	messages, err := fixture.store.ListMessages(

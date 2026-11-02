@@ -161,7 +161,8 @@ func decodeLaunchAgentOutput(t *testing.T, content string) launchAgentOutput {
 	t.Helper()
 
 	output := launchAgentOutput{}
-	require.NoError(t, json.Unmarshal([]byte(content), &output))
+	require.NoError(t, json.Unmarshal([]byte(toolOutputText(t, content)),
+		&output))
 
 	return output
 }

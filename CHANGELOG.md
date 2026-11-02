@@ -2,6 +2,14 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.34.0 (2026-11-02)
+
+Marks every tool result as untrusted data so text planted in files and command output is harder to pass off as instructions, fixes `summarize` compaction inside one long turn, and adds Make targets that run the benchmarks. No configuration migration is needed. Before upgrading, change any API client that parses tool results as JSON to first take the text inside the new `<toolOutput>` block.
+
+- Breaking: adds a `<toolOutput>` wrapper around every tool result except `ask`, `useSkill`, and a hook's `deny` reason. It names the tool and where the text came from, such as file contents or command output, and ends with a notice that the text is data, not instructions, and that only the user's messages can ask for new actions. The default system prompt tells the model the same. Text that a file, web page, or command plants to steer the agent no longer reads like a message from the user. The transcript, the WebSocket `tool_result` blocks, and `GET /api/v1/messages` now carry the wrapped result, so a client that parsed tool results as JSON must read the text between the opening and closing `<toolOutput>` lines. Hooks still receive the raw result. [Security](docs/security.md#prompt-injection) describes it.
+- Fixes `summarize` compaction leaving out the oldest tool rounds of a long turn without a summary. It only summarized turns that had ended, so a single turn that outgrew the context lost its earliest rounds silently. When no ended turn can free the summary room, Peen now summarizes the oldest rounds of the turn in progress, keeps the turn's opening message and newest round as they are, and folds an earlier summary of the same turn into the next one. The transcript still keeps every round.
+- Adds `make bench-image`, `bench-build`, `bench-datasets`, `bench-proxy`, `bench-aider`, and `bench-lhtb`, which run Aider Polyglot and LHTB against a live provider in the networkless sandbox [Benchmarks](docs/benchmarks.md#running-them) describes. The runner lives in `bench/`.
+
 ## v0.33.0 (2026-10-29)
 
 Reworks the timeout settings so each name says what it limits and lets `runCommand` and `waitJob` wait as long as a call asks, fixes a turn that failed after Peen retried a provider error and the retry succeeded, and reports why the final reply stopped. Before upgrading, rename the timeout variables listed below in your `.env`; Peen refuses to start while a removed one is set and names its replacement.

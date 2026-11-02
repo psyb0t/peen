@@ -256,7 +256,7 @@ func (s *directoryScope) newHooks(
 	r := s.options.runtime
 	deps := s.options.deps
 
-	return newToolHookRuntime(
+	runner, err := newToolHookRuntime(
 		snapshot, executor.Workspace(), r.hookStateRoot,
 		deps.requestID, deps.sessionID, deps.parentTurnID,
 		s.options.agentRunID, executor, s.options.sessionEvents,
@@ -267,6 +267,13 @@ func (s *directoryScope) newHooks(
 			Callback: r.hookCallback, RunCommand: r.hookCommandRunner,
 		},
 	)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "create directory hook runtime")
+	}
+
+	runner.maxResultTokens = r.maxToolResultTokens
+
+	return runner, nil
 }
 
 func (s *directoryScope) change(

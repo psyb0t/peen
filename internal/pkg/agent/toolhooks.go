@@ -46,6 +46,9 @@ type toolHookRuntime struct {
 	executor      *tools.JobExecutor
 	sessionEvents elelem.MessageInjector
 	tokenCounter  elelem.TokenCounter
+	// maxResultTokens is the tool result cap the wrapped output must fit,
+	// so the cap never cuts the untrusted-output notice.
+	maxResultTokens int
 
 	mutex    sync.Mutex
 	messages map[string][]string
@@ -132,6 +135,8 @@ func (r *Runtime) newToolHookRuntime(
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create turn hook runtime")
 	}
+
+	runner.maxResultTokens = r.maxToolResultTokens
 
 	return runner, nil
 }
@@ -374,11 +379,31 @@ func (h *toolHookRuntime) failure(
 	return h.run(ctx, event, failureHookEvents(event.Tool.Name))
 }
 
+// post runs the postToolUse hooks on the raw result, then wraps it as
+// untrusted tool output. It is the last hook before the result is recorded
+// and sent to the model, so the stored transcript holds what the model read.
 func (h *toolHookRuntime) post(
 	ctx context.Context,
 	event *elelem.ToolEvent,
 ) error {
-	return h.run(ctx, event, []harness.HookEvent{harness.HookEventPostToolUse})
+	if err := h.run(ctx, event,
+		[]harness.HookEvent{harness.HookEventPostToolUse}); err != nil {
+		return err
+	}
+
+	if event.Result == nil || isHookDenialResult(*event.Result) {
+		return nil
+	}
+
+	content, err := markToolOutput(ctx, event.Tool.Name,
+		event.Result.Content, h.maxResultTokens)
+	if err != nil {
+		return ctxerrors.Wrap(err, "mark untrusted tool output")
+	}
+
+	event.Result.Content = content
+
+	return nil
 }
 
 func (h *toolHookRuntime) run(
@@ -905,7 +930,7 @@ func (h *toolHookRuntime) deny(event *elelem.ToolEvent, reason string) {
 	h.discard(event.CallID)
 
 	if event.Result != nil {
-		result := elelem.NewToolErrorResult(reason)
+		result := hookDenialResult(reason)
 		event.Result = &result
 
 		return
@@ -925,7 +950,7 @@ func (h *toolHookRuntime) handler(
 		input elelem.ToolInput,
 	) (elelem.ToolResult, error) {
 		if reason, denied := h.takeDenial(input.CallID); denied {
-			return elelem.NewToolErrorResult(reason), nil
+			return hookDenialResult(reason), nil
 		}
 
 		return handler(ctx, input)

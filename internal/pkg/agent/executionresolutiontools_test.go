@@ -171,7 +171,8 @@ func TestAgentInspectionAcceptsWrittenEffectWithoutRepeatingIt(t *testing.T) {
 	toolResults := 0
 	for _, message := range requests[3].Messages {
 		if message.Role == elelem.RoleTool && message.ToolCallID == "writeUnknownEffect" {
-			assert.Equal(t, accepted.Outcome.Result.Content, message.Text())
+			assert.Equal(t, accepted.Outcome.Result.Content,
+				toolOutputText(t, message.Text()))
 			toolResults++
 		}
 	}

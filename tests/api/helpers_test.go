@@ -5,6 +5,7 @@ package api_test
 import (
 	"encoding/json"
 	"path"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -20,6 +21,18 @@ const (
 
 	apiTestFrameSkillInjected = "skill.injected"
 )
+
+const apiTestToolOutputOpen = "<toolOutput tool="
+
+// toolOutputText returns the result text inside the <toolOutput> wrapper Peen
+// puts around a tool result, and fails the test when it is missing.
+func toolOutputText(t *testing.T, content string) string {
+	t.Helper()
+
+	require.True(t, strings.HasPrefix(content, apiTestToolOutputOpen), content)
+
+	return testinfra.ToolOutputText(content)
+}
 
 // freshWorkspace is a workspace directory only one test opens, so its session,
 // harness files, jobs, and notices cannot be touched by any other test.

@@ -22,6 +22,12 @@ A worker container receives the workspace, `PEEN_CONFIG_DIR` read-only, its own 
 
 Tool calls and their results are recorded verbatim in the session transcript and sent live over the global WebSocket feed, like any other message. If the agent reads a file containing a secret, or a command prints one to stdout, that secret is now in the SQLite transcript and in every connected client that did not ask for one session only. Peen does not scan for or redact secret-shaped content in tool output. Treat the transcript and the event stream as sensitive as the files and commands the agent can reach.
 
+## Prompt injection
+
+A file, a web page a command fetched, a command's output, or another agent's reply can carry text written to steer the agent. Peen wraps every tool result in a `<toolOutput>` block that names the tool and where its text came from, and ends the result with a notice. The notice says the text is data from that source, did not come from the user, and holds no instructions to follow, and that only the user's messages can ask for new actions. The default system prompt says the same. Peen escapes `<toolOutput` and `</toolOutput` inside a result, so planted text cannot close the block early. The wrapped result, notice included, fits within `PEEN_MAX_TOOL_RESULT_TOKENS`. Peen shortens the raw text to make room. Results of `ask` and `useSkill` are not wrapped, because an answer to `ask` comes from the user or the parent agent and a skill holds instructions the agent loads on purpose. A hook's `deny` reason is not wrapped either, because it is your own configuration. Hooks see the raw result before Peen wraps it. The transcript and the WebSocket feed carry the wrapped result, as the model read it.
+
+The wrapper helps the model recognize injected instructions. It does not make them harmless, and a model can still follow them. The [agent space](#docker-agent-spaces) stays the boundary that limits what a misled agent can reach.
+
 ## Unattended sessions
 
 A session with no client attached keeps running. Nothing but Stop, cancelling a child, shutting down the controller or an embedded `Close`, a failed turn, or a crash stops it, so an unattended session keeps calling the model and spending provider budget until something explicitly stops it.

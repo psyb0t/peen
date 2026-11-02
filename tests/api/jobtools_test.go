@@ -274,16 +274,20 @@ func TestAPIWaitJobHonorsItsTimeoutThroughTheWorker(t *testing.T) {
 	assert.Equal(t, time.Duration(finished.DurationMs)*time.Millisecond, parsed)
 
 	assert.True(t, toolFailed(tools[4]))
-	assert.Equal(t, jobToolsBadTimeoutError, tools[4].Content)
+	assert.Equal(t, jobToolsBadTimeoutError,
+		toolOutputText(t, tools[4].Content))
 
 	assert.True(t, toolFailed(tools[5]))
-	assert.Equal(t, jobToolsOldArgumentError, tools[5].Content)
+	assert.Equal(t, jobToolsOldArgumentError,
+		toolOutputText(t, tools[5].Content))
 
 	assert.True(t, toolFailed(tools[6]))
-	assert.Equal(t, jobToolsBadTimeoutError, tools[6].Content)
+	assert.Equal(t, jobToolsBadTimeoutError,
+		toolOutputText(t, tools[6].Content))
 
 	assert.True(t, toolFailed(tools[7]))
-	assert.Equal(t, jobToolsOldArgumentError, tools[7].Content)
+	assert.Equal(t, jobToolsOldArgumentError,
+		toolOutputText(t, tools[7].Content))
 }
 
 // A job that ends after its runCommand call returned publishes job.exited
@@ -412,7 +416,8 @@ func TestAPILaunchAgentRunsACoreAgentWithATaskSkill(t *testing.T) {
 		Name             string    `json:"name"`
 		ParentAgentRunID string    `json:"parentAgentRunId"`
 	}{}
-	require.NoError(t, json.Unmarshal([]byte(tools[0].Content), &output))
+	require.NoError(t, json.Unmarshal(
+		[]byte(toolOutputText(t, tools[0].Content)), &output))
 	assert.Equal(t, agentToolsAgent, output.Name)
 	assert.Equal(t, "root", output.ParentAgentRunID)
 	assert.NotEqual(t, uuid.Nil, output.AgentRunID)
@@ -487,7 +492,8 @@ func decodeJobToolsResult(t *testing.T, message api.Message) jobToolsResult {
 	t.Helper()
 
 	result := jobToolsResult{}
-	require.NoError(t, json.Unmarshal([]byte(message.Content), &result))
+	require.NoError(t, json.Unmarshal(
+		[]byte(toolOutputText(t, message.Content)), &result))
 
 	return result
 }

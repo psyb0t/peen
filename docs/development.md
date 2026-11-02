@@ -10,7 +10,8 @@ This page is for changing Peen itself. To run an agent against a project, start 
 | --- | --- |
 | `api/api.yml` | The OpenAPI contract. Source for the Go server, the Go client, and the web client types. `api/spec.go` embeds it for request validation. It is hand-written today and moves to a spec generated from Go in `cmd/apigen`; see `.agents/rules/http-api.md`. |
 | `api/asyncapi.yaml` | The WebSocket contract. Source for the Go frame types in `internal/pkg/http/wsapi` and the web client's frame types. |
-| `cmd/` | Entry point. `main.go` is Servicepack's, `init.go` and `commands.go` are Peen's, `repogen/` is the gorm/gen generator, `envexample/` writes `.env.example` from the env file template. |
+| `cmd/` | Entry point. `main.go` is Servicepack's, `init.go` and `commands.go` are Peen's, `repogen/` is the gorm/gen generator, `envexample/` writes `.env.example` from the env file template, `benchrelay/` is the model relay the benchmark task containers run. |
+| `bench/` | The benchmark runner: the Harbor driver image, the Peen agent adapter, the provider proxy, the job writer, and the task sandbox. See [Benchmarks](benchmarks.md#running-them). |
 | `internal/app/` | Servicepack's application lifecycle. Not edited here. |
 | `internal/pkg/agent/` | Agent runtime: turns, provider calls, tools wiring, skills, child agents, compaction. |
 | `internal/pkg/harness/` | Harness discovery and layering: `AGENTS.md`, rules, skills, agents, event handlers, hooks. `builtin/` is the embedded baseline shipped to every user. |
@@ -66,6 +67,7 @@ Every operation is a Make target. Targets run Go, Node, and the linters inside t
 | Build the production image | `make docker-build` |
 | Run this checkout's local controller | `make run-dev` |
 | Run the opt-in live provider tests, which cost money | `make test-real` |
+| Run Aider Polyglot or LHTB against a live provider in a networkless sandbox, which costs money | `make bench-aider`, `make bench-lhtb`, after the setup in [Benchmarks](benchmarks.md#running-them) |
 
 Pick the tier that can see your change. A change inside one package needs `make test-unit` while you work. A change to HTTP, WebSocket, or wiring needs `make test-api`. A control surface change needs the web targets, `make web-build`, and `make test-browser`. A Dockerfile or entrypoint change needs `make test-docker-worker-source`. Before you call any change done, run `make lint` and `make test-coverage`, which is what `pre-commit.sh` and CI run. Every Go test target runs with `-race`. Fix reported races instead of disabling the detector.
 

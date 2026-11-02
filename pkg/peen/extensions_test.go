@@ -3,6 +3,7 @@ package peen_test
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/psyb0t/ctxerrors/commerr"
@@ -173,7 +174,9 @@ func TestCustomToolReplacementAndDisable(t *testing.T) {
 			require.NotNil(t, result)
 			assert.Equal(t, tc.disabled, result.IsError)
 			if !tc.disabled {
-				assert.Equal(t, "replacement result", result.Content)
+				assert.True(t, strings.HasPrefix(result.Content,
+					"<toolOutput tool=\"readFile\" source=\"file contents\">\n"+
+						"replacement result\n</toolOutput>\n"), result.Content)
 			}
 		})
 	}

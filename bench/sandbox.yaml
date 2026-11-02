@@ -1,0 +1,18 @@
+# Harbor merges this into every task's compose file. The task container gets
+# no network and no capabilities beyond the three root needs to unpack the
+# reference solution and write the grader's logs. Peen runs as uid 10001 and
+# holds none of them.
+services:
+  main:
+    network_mode: none
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: [no-new-privileges:true]
+    init: true
+    pids_limit: 256
+    restart: "no"
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "2"

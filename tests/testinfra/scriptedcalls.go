@@ -11,7 +11,29 @@ const (
 	taggedMessageOpen  = "<message "
 	taggedMessageClose = "\n</message>"
 	taggedMessageBreak = "\n"
+
+	// toolOutputOpen and toolOutputClose frame the untrusted-output wrapper
+	// Peen puts around a tool result.
+	toolOutputOpen  = "<toolOutput tool="
+	toolOutputClose = "\n</toolOutput>\n"
 )
+
+// ToolOutputText returns the result text inside the <toolOutput> wrapper Peen
+// puts around a tool result. Text without the wrapper is returned as it is.
+func ToolOutputText(content string) string {
+	if !strings.HasPrefix(content, toolOutputOpen) {
+		return content
+	}
+
+	_, rest, hasBody := strings.Cut(content, taggedMessageBreak)
+	end := strings.LastIndex(rest, toolOutputClose)
+
+	if !hasBody || end < 0 {
+		return content
+	}
+
+	return rest[:end]
+}
 
 // writeScriptedCalls answers a request of a Calls-mode script. The round is
 // the number of tool results after the script's user message, so the same
@@ -92,9 +114,10 @@ func (m *openAIModelsMock) writeChildScriptedCalls(
 	m.writeCompletion(writer)
 }
 
-// toolResultsAfter returns the content of the tool messages after the last
-// user message that equals userMessage, or whose tagged body does, and
-// whether such a message exists.
+// toolResultsAfter returns the text of the tool results after the last user
+// message that equals userMessage, or whose tagged body does, and whether
+// such a message exists. Each result is taken out of its <toolOutput> wrapper,
+// so scripted arguments read the tool's own output.
 func (r providerCompletionRequest) toolResultsAfter(
 	userMessage string,
 ) ([]string, bool) {
@@ -119,7 +142,7 @@ func (r providerCompletionRequest) toolResultsAfter(
 
 	for _, message := range r.Messages[start:] {
 		if message.Role == providerRoleTool {
-			results = append(results, message.contentText())
+			results = append(results, ToolOutputText(message.contentText()))
 		}
 	}
 

@@ -149,7 +149,8 @@ func TestRootWorkflowToolPersistsTranscriptStreamAndReadState(t *testing.T) {
 	assert.Equal(t, models.MessageRoleTool, messages.Items[2].Role)
 	assert.Equal(t, runtimeToolCallID, messages.Items[2].ToolCallID)
 	var read tools.ReadFileOutput
-	require.NoError(t, json.Unmarshal([]byte(messages.Items[2].Content), &read))
+	require.NoError(t, json.Unmarshal(
+		[]byte(toolOutputText(t, messages.Items[2].Content)), &read))
 	assert.Equal(t, runtimeToolFileBody, read.Content)
 	page, err := fixture.base.store.ListExecutionActivities(t.Context(),
 		fixture.input.SessionID, fixture.input.ExecutionID,
@@ -231,7 +232,8 @@ func TestRootWorkflowToolReusesSavedReadAfterDatabaseReopen(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, session.ActivityDecisionReuse, reused.Decision)
 	var read tools.ReadFileOutput
-	require.NoError(t, json.Unmarshal([]byte(reused.Output.Outcome.Result.Content), &read))
+	require.NoError(t, json.Unmarshal([]byte(toolOutputText(t,
+		reused.Output.Outcome.Result.Content)), &read))
 	assert.Equal(t, runtimeToolFileBody, read.Content)
 	assert.Equal(t, 2, driver.Calls())
 	var contextAfter workflowConversation

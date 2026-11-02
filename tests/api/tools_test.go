@@ -168,7 +168,8 @@ func TestAPIExecutionHistoryToolsInspectPausedWorkWithoutResuming(t *testing.T) 
 		}
 	}
 	var page session.ExecutionPage
-	require.NoError(t, json.Unmarshal([]byte(results[testinfra.ScriptedCallID(0)].Content), &page))
+	require.NoError(t, json.Unmarshal([]byte(toolOutputText(t,
+		results[testinfra.ScriptedCallID(0)].Content)), &page))
 	require.Len(t, page.Items, 1)
 	assert.Equal(t, oldTask, page.Items[0].Task)
 	assert.Equal(t, "paused", string(page.Items[0].State))
@@ -179,14 +180,16 @@ func TestAPIExecutionHistoryToolsInspectPausedWorkWithoutResuming(t *testing.T) 
 			ControlRevision int64     `json:"controlRevision"`
 		} `json:"execution"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(results[testinfra.ScriptedCallID(1)].Content), &saved))
+	require.NoError(t, json.Unmarshal([]byte(toolOutputText(t,
+		results[testinfra.ScriptedCallID(1)].Content)), &saved))
 	assert.Equal(t, page.Items[0].ID, saved.Execution.ID)
 	assert.Equal(t, "paused", saved.Execution.State)
 	assert.Equal(t, page.Items[0].ControlRevision, saved.Execution.ControlRevision)
 	var events struct {
 		Events session.ExecutionEventPage `json:"events"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(results[testinfra.ScriptedCallID(2)].Content), &events))
+	require.NoError(t, json.Unmarshal([]byte(toolOutputText(t,
+		results[testinfra.ScriptedCallID(2)].Content)), &events))
 	require.NotEmpty(t, events.Events.Items)
 	assert.Equal(t, page.Items[0].ID, events.Events.Items[0].ExecutionID)
 	assert.Len(t, providerRequestsSince(before), 4, "reading history must not restart the old model request")
@@ -247,20 +250,23 @@ func TestAPIExecutionResumeHandsOffAfterCurrentTurn(t *testing.T) {
 		}
 	}
 	var page session.ExecutionPage
-	require.NoError(t, json.Unmarshal([]byte(results[testinfra.ScriptedCallID(0)].Content), &page))
+	require.NoError(t, json.Unmarshal([]byte(toolOutputText(t,
+		results[testinfra.ScriptedCallID(0)].Content)), &page))
 	require.Len(t, page.Items, 1)
 	original := page.Items[0]
 	var resumed struct {
 		ExecutionID uuid.UUID   `json:"executionId"`
 		ResumedIDs  []uuid.UUID `json:"resumedIds"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(results[testinfra.ScriptedCallID(1)].Content), &resumed))
+	require.NoError(t, json.Unmarshal([]byte(toolOutputText(t,
+		results[testinfra.ScriptedCallID(1)].Content)), &resumed))
 	assert.Equal(t, original.ID, resumed.ExecutionID)
 	assert.Equal(t, []uuid.UUID{original.ID}, resumed.ResumedIDs)
 	var inspected struct {
 		Execution *models.Execution `json:"execution"`
 	}
-	require.NoError(t, json.Unmarshal([]byte(results[testinfra.ScriptedCallID(2)].Content), &inspected))
+	require.NoError(t, json.Unmarshal([]byte(toolOutputText(t,
+		results[testinfra.ScriptedCallID(2)].Content)), &inspected))
 	require.NotNil(t, inspected.Execution)
 	assert.Contains(t, []models.ExecutionState{models.ExecutionStateQueued, models.ExecutionStateRunning}, inspected.Execution.State)
 	assert.Equal(t, original.ControlRevision+1, inspected.Execution.ControlRevision)
@@ -352,12 +358,14 @@ func TestAPIExecutionEffectCrashRequiresInspectionAndExplicitRetry(t *testing.T)
 		for _, message := range messages {
 			require.False(t, toolFailed(message), "%s", message.Content)
 		}
-		require.NoError(t, json.Unmarshal([]byte(messages[0].Content), &page))
+		require.NoError(t, json.Unmarshal(
+			[]byte(toolOutputText(t, messages[0].Content)), &page))
 		require.Len(t, page.Items, 1)
 		var saved struct {
 			Events session.ExecutionEventPage `json:"events"`
 		}
-		require.NoError(t, json.Unmarshal([]byte(messages[2].Content), &saved))
+		require.NoError(t, json.Unmarshal(
+			[]byte(toolOutputText(t, messages[2].Content)), &saved))
 		require.False(t, saved.Events.HasMore)
 		for _, event := range saved.Events.Items {
 			if event.EventType != string(session.ExecutionEventTypeStepUncertain) {
@@ -752,7 +760,8 @@ func assertHostToolsTranscript(
 		var output struct {
 			Files []json.RawMessage `json:"files"`
 		}
-		require.NoError(t, json.Unmarshal([]byte(messages[4].Content), &output))
+		require.NoError(t, json.Unmarshal(
+			[]byte(toolOutputText(t, messages[4].Content)), &output))
 		require.Len(t, output.Files, 1)
 	}
 	assertToolRound(
