@@ -117,7 +117,7 @@ A group's `match`, and an action's `when`, decide whether it runs. Leave both ou
 | --- | --- |
 | `tool` | The exact tool name. |
 | `root` | Affected paths inside this directory, relative to the current directory or absolute. Without `root`, the current directory is the base. |
-| `path` | Affected paths matching this glob, relative to `root`, or to the current directory when `root` is unset. `*`, `**`, and `?` work. |
+| `path` | Affected paths matching this glob, relative to `root`, or to the current directory when `root` is unset. It uses the same patterns as [scoped rules](rules.md#rules-for-certain-files): `*`, `**`, `?`, `[a-z]`, `{a,b}`, and `\` to escape. A pattern that does not parse makes the whole file invalid. |
 | `extensions` | Affected paths whose extension is in the list. Each entry starts with `.`, such as `.go`. `_test.go` is not an extension, so match it with `path`. |
 | `input` | A map from a JSON Pointer into the event input to a check: `exists: true`, `equals: <value>`, or `regex: <pattern>`. |
 
@@ -153,7 +153,15 @@ Stops the operation. On a tool event the model gets `reason` verbatim as the too
   message: Run make test before you report this as done.
 ```
 
-Gives the model extra context. Where it lands depends on the event:
+Gives the model extra context. Set exactly one of `message`, the text itself, and `messageFile`, a file whose contents are the text. A relative `messageFile` is relative to the directory that holds `hooks.yaml`, so `messageFile: messages/go.md` in `.agents/hooks.yaml` reads `.agents/messages/go.md`. Peen reads the file when it loads the harness at the start of every turn, so an edit shows up on the next turn. The file counts against the [harness limits](harness.md#mistakes-and-limits), and a missing or empty file makes the whole hooks file invalid. Keep a message file out of `rules/`, or Peen also loads it as a rule.
+
+```yaml
+- name: go-standards
+  type: inject
+  messageFile: messages/go.md
+```
+
+Where the text lands depends on the event:
 
 - `preUserMessage`, `sessionStart`, `postUserMessage`, `turnStart`: appended to the system prompt as a `<hook>` block.
 - tool events: a user-role message right after that tool's result, as a `<hook>` block.
@@ -365,68 +373,98 @@ postWriteFile:
         summary: A migration file changed. Run make migrate-check.
 ```
 
-## Example: hand the model a rule once
+## Rules for certain files
 
-Peen has no per-file rule loading. This recipe gives the model a project rule the first time it changes a matching file, then lets its retry through. It is one hooks file and two short scripts.
+A rule with `paths` frontmatter already reaches the model the first time a file tool touches a matching file, and again after compaction drops it. See [rules for certain files](rules.md#rules-for-certain-files). The two recipes below change when a rule arrives. Both need `jq` on the `PATH` a hook command gets, and both keep the rule file within `PEEN_MAX_HOOK_COMMAND_OUTPUT`, because the rule travels as the command's output.
+
+### Example: hand the model a rule before the first write
+
+An existing file is read before it is changed, so a scoped rule arrives before the first edit. A new file gets it only after its first `writeFile`. This hook denies the first write of a new `.go` file in each conversation and hands the model the rule as the deny reason. The model writes again with the rule in mind, and the write goes through.
 
 ```yaml
 version: 1
 preWriteFile:
-  - name: go-rules
+  - name: go-rule-before-new-files
     match:
       extensions: [".go"]
     actions:
-      - name: deliver-go-rules
+      - name: deliver-go-rule
         type: command
-        command: /opt/peen-hooks/deliver-rule.sh
+        command: /opt/peen-hooks/rule-before-write.sh
         environment:
           RULE_FILE: /opt/peen-hooks/rules/go.md
           RULE_ID: go
-preEditFile:
-  - name: go-rules
-    match:
-      extensions: [".go"]
-    actions:
-      - name: deliver-go-rules
-        type: command
-        command: /opt/peen-hooks/deliver-rule.sh
-        environment:
-          RULE_FILE: /opt/peen-hooks/rules/go.md
-          RULE_ID: go
-postCompact:
-  - name: forget-delivered-rules
-    actions:
-      - name: forget-rules
-        type: command
-        command: /opt/peen-hooks/forget-rules.sh
 ```
 
-`deliver-rule.sh` keeps one marker per rule and per conversation in the hook's `stateDirectory`. A child agent has its own model context, so `agentRunId` keeps its marker apart from the root turn's:
+`rule-before-write.sh` keeps one marker per rule and per conversation in the hook's `stateDirectory`. A child agent has its own conversation, so `agentRunId` keeps its marker apart from the root's. The marker holds `contextTokens` from the delivery, and a smaller count later means compaction dropped history, so the rule is sent again.
 
 ```sh
 #!/bin/sh
 set -eu
 invocation="$(cat)"
-state="$(printf '%s' "$invocation" | jq -r '.stateDirectory')"
-owner="$(printf '%s' "$invocation" | jq -r '.agentRunId // "root"')"
-marker="$state/rule-$RULE_ID-$owner.delivered"
-[ -f "$marker" ] && exit 0
-: > "$marker"
+field() { printf '%s' "$invocation" | jq -r "$1"; }
+target="$(field '.paths[0] // ""')"
+[ -n "$target" ] && [ ! -e "$target" ] || exit 0
+marker="$(field '.stateDirectory')/rule-$RULE_ID-$(field '.agentRunId // "root"')"
+tokens="$(field '.contextTokens')"
+if [ -f "$marker" ] && [ "$tokens" -ge "$(cat "$marker")" ]; then
+	exit 0
+fi
+printf '%s' "$tokens" >"$marker"
 exec jq -n --rawfile rule "$RULE_FILE" '{decision: "deny", reason: $rule}'
 ```
 
-`forget-rules.sh` removes the markers after a compaction, because the summary may have dropped the rule from the model's context:
+### Example: send a rule again as the context grows
+
+A rule sent 200,000 tokens ago is still in the context, but a model pays less attention to it than to recent text. This hook sends the rule after a matching read, write, or edit when it was never sent in this conversation, when the context has grown by more than `REFRESH_TOKENS` since, or when the context shrank because compaction dropped history.
+
+```yaml
+version: 1
+postReadFile:
+  - name: go-rule-refresh
+    match:
+      extensions: [".go"]
+    actions:
+      - &go-rule-refresh
+        name: refresh-go-rule
+        type: command
+        command: /opt/peen-hooks/rule-refresh.sh
+        environment:
+          RULE_FILE: /opt/peen-hooks/rules/go.md
+          RULE_ID: go
+          REFRESH_TOKENS: "100000"
+postWriteFile:
+  - name: go-rule-refresh
+    match:
+      extensions: [".go"]
+    actions: [*go-rule-refresh]
+postEditFile:
+  - name: go-rule-refresh
+    match:
+      extensions: [".go"]
+    actions: [*go-rule-refresh]
+```
+
+`rule-refresh.sh` returns the rule as a `message`, which reaches the model as a `<hook>` block after the tool result:
 
 ```sh
 #!/bin/sh
 set -eu
-state="$(jq -r '.stateDirectory')"
-find "$state" -maxdepth 1 -name 'rule-*.delivered' -delete
+invocation="$(cat)"
+field() { printf '%s' "$invocation" | jq -r "$1"; }
+marker="$(field '.stateDirectory')/refresh-$RULE_ID-$(field '.agentRunId // "root"')"
+tokens="$(field '.contextTokens')"
+if [ -f "$marker" ]; then
+	sent="$(cat "$marker")"
+	if [ "$tokens" -ge "$sent" ] && [ $((tokens - sent)) -lt "$REFRESH_TOKENS" ]; then
+		exit 0
+	fi
+fi
+printf '%s' "$tokens" >"$marker"
+exec jq -n --rawfile rule "$RULE_FILE" '{message: $rule}'
 ```
 
-The first `.go` write is denied and the model reads the rule as the tool result. It writes again with the rule in mind, the marker exists, and the write goes through. The forget script clears every marker, so a compaction that lands between a denial and the model's retry delivers the rule once more. Keep the context budget comfortably above the size of your rule files so one write does not trigger a compaction on its own.
-
-The scripts need `jq`. Keep each rule file within `PEEN_MAX_HOOK_COMMAND_OUTPUT`, because the rule travels as the command's output. A `postCompact` hook only runs in `summarize` compaction mode.
+Give this hook a rule file that is not also a scoped rule, or the model gets the same text twice the first time. For a rule that should arrive on every matching call without any bookkeeping, an `inject` action with `messageFile` is enough.
 
 ## Logging
 

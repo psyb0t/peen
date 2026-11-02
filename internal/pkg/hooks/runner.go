@@ -22,6 +22,7 @@ import (
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/pathglob"
 	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 )
 
@@ -904,53 +905,11 @@ func matchesPath(
 		return true
 	}
 
-	return matchGlob(match.Path, filepath.ToSlash(relative))
+	return pathglob.Match(match.Path, filepath.ToSlash(relative))
 }
 
 func matchesExtension(extension string, allowed []string) bool {
 	return slices.Contains(allowed, extension)
-}
-
-func matchGlob(pattern string, value string) bool {
-	var expression strings.Builder
-	expression.WriteString("^")
-
-	for index := 0; index < len(pattern); {
-		switch pattern[index] {
-		case '*':
-			if index+1 < len(pattern) && pattern[index+1] == '*' {
-				isDirectoryPattern := index+2 < len(pattern) &&
-					pattern[index+2] == pathSeparator[0]
-
-				if isDirectoryPattern {
-					expression.WriteString("(?:.*/)?")
-
-					index += 3
-
-					continue
-				}
-
-				expression.WriteString(".*")
-
-				index += 2
-
-				continue
-			}
-
-			expression.WriteString("[^/]*")
-		case '?':
-			expression.WriteString("[^/]")
-		default:
-			expression.WriteString(regexp.QuoteMeta(string(pattern[index])))
-		}
-
-		index++
-	}
-
-	expression.WriteString("$")
-	matched, err := regexp.MatchString(expression.String(), value)
-
-	return err == nil && matched
 }
 
 //nolint:cyclop // Keep each optional predicate explicit.

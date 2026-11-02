@@ -61,6 +61,26 @@ func TestWorkerEnvironmentCarriesDisabledCoreSettings(t *testing.T) {
 	assert.Equal(t, "all", environment["PEEN_DISABLED_CORE_AGENTS"])
 }
 
+// A worker resolves its own harness and system prompt, so it has to see every
+// switch that removes built-in text, or its prompt differs from the
+// controller's.
+func TestWorkerEnvironmentCarriesBlankAgentSettings(t *testing.T) {
+	t.Setenv("PEEN_DISABLE_CORE_INSTRUCTIONS", "true")
+	t.Setenv("PEEN_DISABLE_BASE_SYSTEM_PROMPT", "true")
+	t.Setenv("PEEN_BLANK_AGENT", "true")
+
+	environment, err := testConfig(t).WorkerEnvironment()
+	require.NoError(t, err)
+
+	for _, key := range []string{
+		"PEEN_DISABLE_CORE_INSTRUCTIONS",
+		"PEEN_DISABLE_BASE_SYSTEM_PROMPT",
+		"PEEN_BLANK_AGENT",
+	} {
+		assert.Equal(t, "true", environment[key], key)
+	}
+}
+
 func TestWorkerEnvironmentDoesNotForwardAuditLogSettings(t *testing.T) {
 	t.Setenv("PEEN_LOG_RETENTION", "48h")
 	t.Setenv("PEEN_LOG_DIRECTORY", "/controller/logs")

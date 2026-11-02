@@ -28,8 +28,9 @@ const (
 	// skillsTestPlanningMessagePrefix is how every rendered core:planning
 	// message begins, through the SKILL.md frontmatter's name line.
 	skillsTestPlanningMessagePrefix = "<skill>\n<name>core:planning</name>\n" +
-		"<description>Create evidence-based plans and test plans before any " +
-		"request that changes something.</description>\n" +
+		"<description>Create evidence-based plans and test plans before a " +
+		"request that changes something in several steps or files." +
+		"</description>\n" +
 		"<directory>embedded://skills/planning</directory>\n\n---\nname: planning\n"
 	skillsTestMessageSuffix = "\n</skill>"
 

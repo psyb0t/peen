@@ -888,7 +888,7 @@ func (r *Runtime) childSystemPrompt(
 		r.currentTimeBlock(),
 	)
 
-	return strings.Join(sections, systemSectionGap), nil
+	return joinSystemSections(sections...), nil
 }
 
 // childPrompt is the child's first request: its system prompt, the task, and

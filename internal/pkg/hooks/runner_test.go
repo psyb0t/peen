@@ -16,6 +16,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/pathglob"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -769,9 +770,9 @@ func TestRunCommandStopsWhenItsContextExpires(t *testing.T) {
 func TestMatchGlobAndInputMatching(t *testing.T) {
 	t.Parallel()
 
-	assert.True(t, matchGlob("**/*.go", "internal/test.go"))
-	assert.True(t, matchGlob("**/*.go", "test.go"))
-	assert.False(t, matchGlob("*.go", "internal/test.go"))
+	assert.True(t, pathglob.Match("**/*.go", "internal/test.go"))
+	assert.True(t, pathglob.Match("**/*.go", "test.go"))
+	assert.False(t, pathglob.Match("*.go", "internal/test.go"))
 	assert.True(t, matchesInput(map[string]harness.HookInputMatch{
 		"/nested/enabled": {
 			Regex: "^true$",

@@ -1,0 +1,1 @@
+Start the server with `/app/run-server.sh`. It runs until it is stopped, and it takes a few seconds before it listens on `127.0.0.1:8099`. Once it is up, fetch `http://127.0.0.1:8099/answer` and save the response body to `/app/ANSWER.txt`. Stop the server when you are done.

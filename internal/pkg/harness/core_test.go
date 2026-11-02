@@ -284,6 +284,74 @@ func TestAllCoreSkillsDisabledLeavesNoSkills(t *testing.T) {
 	assert.Equal(t, skillCatalogueEmpty, renderSkillCatalogue(snapshot.Skills()))
 }
 
+func TestDisabledCoreInstructionsLeaveOnlyLayerInstructions(t *testing.T) {
+	t.Parallel()
+
+	fixture := newResolverFixture(t)
+	fixture.writeAgents(t, fixture.workspace, "workspace instructions")
+
+	for _, disabled := range []bool{false, true} {
+		snapshot := resolveWithOptions(
+			t,
+			fixture,
+			WithCoreInstructionsDisabled(disabled),
+		)
+
+		instructions := snapshot.Instructions()
+
+		sources := make([]string, 0, len(instructions))
+		for _, instruction := range instructions {
+			sources = append(sources, instruction.Source)
+		}
+
+		if disabled {
+			assert.NotContains(t, sources, embeddedInstructionSource)
+		} else {
+			assert.Contains(t, sources, embeddedInstructionSource)
+		}
+
+		assert.Contains(t,
+			instructionContents(snapshot.Instructions()),
+			"workspace instructions",
+		)
+	}
+
+	resolver, err := NewResolver(
+		fixture.configRoot,
+		Limits{},
+		WithCoreInstructionsDisabled(true),
+	)
+	require.NoError(t, err)
+
+	directory, err := resolver.ResolveDirectory(fixture.workspace)
+	require.NoError(t, err)
+
+	for _, instruction := range directory.Instructions() {
+		assert.NotEqual(t, embeddedInstructionSource, instruction.Source)
+	}
+}
+
+func TestNoRootAgentHasNoInstructionsAndNoToolLimit(t *testing.T) {
+	t.Parallel()
+
+	snapshot := resolveFixture(t, newResolverFixture(t))
+
+	agent, err := snapshot.Agent(NoRootAgent)
+	require.NoError(t, err)
+	assert.Equal(t, NoRootAgent, agent.Name)
+	assert.Empty(t, agent.Instructions)
+	assert.Nil(t, agent.AllowedTools)
+	require.NoError(t, ValidateCoreAgentReference(NoRootAgent, nil))
+	require.Error(t, validateKebabName(NoRootAgent))
+
+	withAgent, err := snapshot.PromptBlocks(NoRootAgent)
+	require.NoError(t, err)
+
+	withoutAgent, err := snapshot.PromptBlocks("")
+	require.NoError(t, err)
+	assert.Equal(t, withoutAgent, withAgent)
+}
+
 func TestParseDisabledCoreSelection(t *testing.T) {
 	t.Parallel()
 

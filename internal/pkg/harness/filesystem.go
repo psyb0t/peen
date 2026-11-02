@@ -49,10 +49,7 @@ func (s *resolutionState) requireReadableLayer(directory string) error {
 
 func (r Resolver) resolveVirtual(identity string) (Snapshot, error) {
 	state := newResolutionState(r.limits)
-	if err := state.discoverEmbedded(
-		r.disabledSkills,
-		r.disabledAgents,
-	); err != nil {
+	if err := state.discoverEmbedded(r.coreSelection()); err != nil {
 		return Snapshot{}, err
 	}
 

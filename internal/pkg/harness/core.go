@@ -18,6 +18,11 @@ const (
 	// DisableAllCore selects every core skill or agent in a disable list.
 	DisableAllCore = "all"
 
+	// NoRootAgent is the root agent of a blank agent: no agent instructions
+	// and every tool. It is not lowercase kebab case, so no agent file can
+	// take the name.
+	NoRootAgent = "(none)"
+
 	coreSkillKind = "skill"
 	coreAgentKind = "agent"
 
@@ -33,6 +38,24 @@ type resolverSettings struct {
 	filesystem     workspacefs.Reader
 	disabledSkills []string
 	disabledAgents []string
+
+	withoutCoreInstructions bool
+}
+
+// coreSelection is which embedded entries a resolver loads.
+type coreSelection struct {
+	disabledSkills      []string
+	disabledAgents      []string
+	withoutInstructions bool
+}
+
+// WithCoreInstructionsDisabled leaves Peen's embedded AGENTS.md out of every
+// snapshot when disabled is true, so only the configured layers give the
+// agent instructions.
+func WithCoreInstructionsDisabled(disabled bool) ResolverOption {
+	return func(settings *resolverSettings) {
+		settings.withoutCoreInstructions = disabled
+	}
 }
 
 // WithMemoryLayers adds immutable layers after disk and workspace discovery.

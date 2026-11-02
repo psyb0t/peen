@@ -5,7 +5,7 @@ The harness is everything Peen tells the model besides your message: `AGENTS.md`
 | Piece | File | What it does | Details |
 | --- | --- | --- | --- |
 | Instructions | `AGENTS.md` | The project's instructions file in the agents.md format, always in the system prompt | [AGENTS.md and rules](rules.md) |
-| Rules | `.agents/rules/*.md`, `.claude/rules/*.md` | One topic per file, always in the system prompt | [AGENTS.md and rules](rules.md) |
+| Rules | `.agents/rules/**/*.md`, `.claude/rules/**/*.md` | One topic per file, in the system prompt, or given to the model when it works on matching files | [AGENTS.md and rules](rules.md) |
 | Skills | `.agents/skills/<name>/SKILL.md`, `.claude/skills/<name>/SKILL.md` | Named procedures the model loads when a task fits | [Skills](skills.md) |
 | Named agents | `.agents/agents/<name>.md` | Child agents with their own instructions and tool set | [Agents](agents.md) |
 | Event handlers | `.agents/events/<type>.md` | What to do when a session event arrives, and whether it starts a turn | [Session events](events.md) |
@@ -21,13 +21,13 @@ Peen builds the harness from layers. It reads them in this order, and each later
 
 For a workspace at `/home/me/work/my-app`, Peen reads the config directory, then `/`, `/home`, `/home/me`, `/home/me/work`, and finally `/home/me/work/my-app`. Put instructions that apply to every project in `/home/me/work/AGENTS.md` and project instructions in `/home/me/work/my-app/AGENTS.md`. Missing files and directories are normal and cost nothing. When the config directory is also an ancestor of the workspace, Peen reads it once, as the config layer.
 
-Layers stop at the agent's current directory. Peen loads descendant definitions when the agent enters their directory with `changeDirectory`. A hop reloads all harness pieces together, including rules, skills, named agents, event handlers and hooks. Leaving a directory removes its local definitions from the active harness. Inherited ancestor definitions still apply. The `changeDirectory` result lists the sources the hop added in `loaded`, removed in `unloaded`, and whose content changed in `changed`, each with its `kind`, `name` and `source` path, so the model sees what its instructions gained or lost. Nothing loads merely because the model reads a file. To add a rule when it changes a matching file, use the [hook recipe](hooks.md#example-hand-the-model-a-rule-once).
+Layers stop at the agent's current directory. Peen loads descendant definitions when the agent enters their directory with `changeDirectory`. A hop reloads all harness pieces together, including rules, skills, named agents, event handlers and hooks. Leaving a directory removes its local definitions from the active harness. Inherited ancestor definitions still apply. The `changeDirectory` result lists the sources the hop added in `loaded`, removed in `unloaded`, and whose content changed in `changed`, each with its `kind`, `name` and `source` path, so the model sees what its instructions gained or lost. A rule with `paths` frontmatter is the one piece that loads because of a file: it reaches the model after a file tool touches a matching file. See [rules for certain files](rules.md#rules-for-certain-files).
 
 Inside one layer Peen reads, in this order:
 
 1. `AGENTS.md`
-2. `.claude/rules/*.md`
-3. `.agents/rules/*.md`
+2. `.claude/rules/**/*.md`
+3. `.agents/rules/**/*.md`
 4. `.claude/skills/*/SKILL.md`
 5. `.agents/skills/*/SKILL.md`
 6. `.agents/agents/*.md`
@@ -38,7 +38,7 @@ Directory entries are sorted bytewise, so the order is stable. The `.claude/` pa
 
 ## How layers combine
 
-- `AGENTS.md` files and rules always add. Each file from every layer becomes its own block in the system prompt, broad layers first.
+- `AGENTS.md` files and rules always add. Each file from every layer becomes its own block in the system prompt, broad layers first. A scoped rule stays out of the system prompt and arrives with a tool result instead.
 - Custom skills, custom named agents, and event handlers replace by name. A later layer's `reviewer` agent replaces an earlier `reviewer` as a whole. Inside one layer, `.agents/skills/x` wins over `.claude/skills/x`.
 - The embedded skills and agent are core and are never replaced. A custom skill or agent with the same name sits beside the core one. See [Core and custom skills and agents](#core-and-custom-skills-and-agents).
 - Hook groups always add, in layer order, and every layer's hooks run.
@@ -53,7 +53,23 @@ The skill and agent catalogues list the core group first, with the `core:` names
 
 To turn core entries off, set `PEEN_DISABLED_CORE_SKILLS` and `PEEN_DISABLED_CORE_AGENTS` to comma-separated core names without the prefix, or to `all`. A disabled entry is gone from the catalogue, from `useSkill` and `:name`, and from agent lookup. A custom entry of the same name stays. Startup fails on an unknown name, and when `PEEN_AGENT` is a `core:` name that is disabled, which includes the default `core:general-purpose`. A plain `PEEN_AGENT` name passes startup and fails at a turn whose workspace defines no such custom agent. To disable `general-purpose`, set `PEEN_AGENT` to a custom agent. Each worker gets both settings, so a worker resolves the same harness as the controller. The harness hash changes when either setting changes.
 
-Peen's embedded operating rules are always on and have no switch. Later `AGENTS.md` files add to them and cannot replace them. They tell the agent to write a plan at `.plans/<UTC datetime>-<scope>.md`, for example `.plans/20261010T120501Z-fix-login.md`, before any request that changes code, config, docs, or tests. A pure question gets no plan. The agent adds `.plans/` to the workspace `.gitignore` when it is missing, and a child agent writes its own plan and links its parent's. The `core:planning` skill describes the plan.
+Peen's embedded operating rules are on unless you turn them off with `PEEN_DISABLE_CORE_INSTRUCTIONS=true` or `PEEN_BLANK_AGENT=true`. Later `AGENTS.md` files add to them and cannot replace them. They tell the agent to write a plan at `.plans/<UTC datetime>-<scope>.md`, for example `.plans/20261010T120501Z-fix-login.md`, before a request that changes code, config, docs, or tests in several steps or across several files. A small change, such as a one-line fix, and a pure question get no plan. The agent adds `.plans/` to the workspace `.gitignore` when it is missing, and a child agent writes its own plan and links its parent's. The `core:planning` skill describes the plan.
+
+## A blank agent
+
+Every piece of instruction text Peen ships can be turned off, so you can start from an agent that knows only what your own files tell it.
+
+| Setting | Removes |
+| --- | --- |
+| `PEEN_DISABLE_BASE_SYSTEM_PROMPT=true` | Peen's embedded base system prompt. `PEEN_CONFIG_DIR/SYSTEM.md` and `APPEND_SYSTEM.md` still apply when present. |
+| `PEEN_DISABLE_CORE_INSTRUCTIONS=true` | Peen's embedded operating rules, the built-in `AGENTS.md`. |
+| `PEEN_DISABLED_CORE_SKILLS=all` | The core skills. |
+| `PEEN_DISABLED_CORE_AGENTS=all` | The core agents. Set `PEEN_AGENT` to one of your own agents too. |
+| `PEEN_BLANK_AGENT=true` | All of the above at once. While `PEEN_AGENT` is still the default `core:general-purpose`, the root runs with no agent instructions and every tool. A `PEEN_AGENT` naming one of your own agents still applies. |
+
+What stays is what the model needs to use Peen at all: the tool descriptions, the current directory and runtime facts, the skill and agent catalogues (which say that none exist when you have none), harness diagnostics, and the blocks Peen adds to messages, such as the notice at the end of each `<toolOutput>` block and the system message after a turn that did not finish. Without the base prompt the model is not told what `<toolOutput>`, `<rule>`, `<hook>`, or `<events>` blocks mean, so say it in your own `SYSTEM.md` if your model needs it.
+
+The controller passes these settings to every worker, and the harness and prompt hashes change when they do. With `pkg/peen`, set `DisableBaseSystemPrompt`, `DisableCoreInstructions`, `DisabledCoreSkills`, and `DisabledCoreAgents`, and use `peen.NoRootAgent` as `RootAgent`.
 
 ## When it is read
 
@@ -71,9 +87,9 @@ Each resolved scope stores its exact context and prompt snapshots. A successful 
 
 The system prompt for a root turn is assembled in this order:
 
-1. The base prompt: Peen's embedded prompt, or `PEEN_CONFIG_DIR/SYSTEM.md` when present, followed by `APPEND_SYSTEM.md` when present. Peen reads these two files once at startup. A message can append to or replace this base for one turn with `systemPrompt`.
-2. Every `AGENTS.md` and rule block, in layer order, without descendant files.
-3. The root agent's instructions, from the agent named by `PEEN_AGENT` (default `core:general-purpose`).
+1. The base prompt: Peen's embedded prompt, or `PEEN_CONFIG_DIR/SYSTEM.md` when present, followed by `APPEND_SYSTEM.md` when present. Peen reads these two files once at startup. A message can append to or replace this base for one turn with `systemPrompt`. With `PEEN_DISABLE_BASE_SYSTEM_PROMPT` and no `SYSTEM.md`, there is no embedded base.
+2. Every `AGENTS.md` and unscoped rule block, in layer order, without descendant files.
+3. The root agent's instructions, from the agent named by `PEEN_AGENT` (default `core:general-purpose`). A blank agent has none.
 4. The skill catalogue: one line per skill with its name, description, and source path, core skills first under their `core:` names, then custom skills.
 5. The named-agent catalogue: one line per agent with its name, description, allowed tools, and source path, core agents first under their `core:` names, then custom agents.
 6. Harness diagnostics, when a file was invalid.
@@ -81,7 +97,7 @@ The system prompt for a root turn is assembled in this order:
 8. Runtime facts: local time, timezone, operating system, architecture, CPU count, and Go version.
 9. Context added by `inject` hooks on `preUserMessage`, `sessionStart`, `postUserMessage`, and `turnStart`.
 
-A skill you name with `:skill-name` is not part of the system prompt. It reaches the model as its own `<skill>` user message right after your message, see [Forcing a skill](skills.md#forcing-a-skill).
+A skill you name with `:skill-name` is not part of the system prompt. It reaches the model as its own `<skill>` user message right after your message, see [Forcing a skill](skills.md#forcing-a-skill). A scoped rule is not part of it either. It reaches the model as a `<rule>` block after a tool result, see [how a scoped rule reaches the model](rules.md#how-a-scoped-rule-reaches-the-model). Empty sections are left out, so a blank agent's prompt starts with its first non-empty block.
 
 ## Mistakes and limits
 
@@ -91,7 +107,7 @@ An invalid optional file never breaks the turn. Peen skips that one file, keeps 
 - a durable `harness.warning` event at turn start or during a root directory hop, with `{"warnings":[{"kind","source","reason"}]}`, which the control surface shows as a workspace configuration warning. `kind` is `instruction` (an `AGENTS.md`), `rule`, `skill`, `agent`, `event-handler`, or `hook`, and `source` is the file's path;
 - a diagnostics block in the system prompt, so the model knows the file was ignored.
 
-Typical reasons are an empty rule file, a skill whose `name` does not match its directory, unknown frontmatter keys, and an unknown hook event. A skill whose body names a skill that does not exist with `:name` is reported too, and the reference is skipped when the skill is delivered. A `:skill-name` in your message that names an ignored skill still fails the message.
+Typical reasons are an empty rule file, rule frontmatter that does not parse, a rule pattern that is not a valid glob, a skill whose `name` does not match its directory, unknown frontmatter keys in a skill, and an unknown hook event. A skill whose body names a skill that does not exist with `:name` is reported too, and the reference is skipped when the skill is delivered. A `:skill-name` in your message that names an ignored skill still fails the message.
 
 During a directory hop, the model gets the new diagnostics and Peen logs each ignored source. A root hop also emits `harness.warning`.
 

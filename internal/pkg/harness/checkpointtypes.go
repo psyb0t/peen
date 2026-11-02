@@ -7,6 +7,9 @@ type checkpointInstruction struct {
 	Content  string     `json:"content"`
 	Hash     string     `json:"hash"`
 	Scope    string     `json:"scope"`
+	Name     string     `json:"name,omitempty"`
+	Paths    []string   `json:"paths,omitempty"`
+	Base     string     `json:"base,omitempty"`
 }
 
 type checkpointSkill struct {

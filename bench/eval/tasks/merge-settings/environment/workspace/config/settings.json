@@ -1,0 +1,13 @@
+{
+  "name": "billing-api",
+  "port": 8080,
+  "debug": false,
+  "allowedOrigins": [
+    "https://example.com",
+    "https://admin.example.com"
+  ],
+  "database": {
+    "host": "db.internal",
+    "pool": 12
+  }
+}

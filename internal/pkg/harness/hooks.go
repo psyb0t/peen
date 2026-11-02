@@ -12,6 +12,7 @@ import (
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/peen/internal/pkg/events"
+	"github.com/psyb0t/peen/internal/pkg/pathglob"
 	"go.yaml.in/yaml/v3" //nolint:depguard // Parses Peen's hook configuration.
 )
 
@@ -53,6 +54,10 @@ func (s *resolutionState) discoverHooks(
 		return ctxerrors.Wrap(ErrResourceLimit, "hook limit exceeded")
 	}
 
+	if err := s.readHookMessageFiles(agentsDirectory, hooks); err != nil {
+		return ctxerrors.Wrap(err, "read hook message files")
+	}
+
 	contentHash := hashString(content)
 
 	for index := range hooks {
@@ -63,6 +68,51 @@ func (s *resolutionState) discoverHooks(
 	}
 
 	s.hooks = append(s.hooks, hooks...)
+
+	return nil
+}
+
+// readHookMessageFiles loads every inject action's messageFile into its
+// message when the harness resolves, so the file counts against the harness
+// limits and its text is part of the snapshot. A relative path is relative to
+// the directory holding hooks.yaml.
+func (s *resolutionState) readHookMessageFiles(
+	agentsDirectory string,
+	hooks []Hook,
+) error {
+	for hookIndex := range hooks {
+		actions := hooks[hookIndex].Actions
+		for actionIndex := range actions {
+			messageFile := strings.TrimSpace(actions[actionIndex].MessageFile)
+			if messageFile == "" {
+				continue
+			}
+
+			if !filepath.IsAbs(messageFile) {
+				messageFile = filepath.Join(agentsDirectory, messageFile)
+			}
+
+			_, content, found, err := s.readOptionalFile(messageFile)
+			if err != nil {
+				return ctxerrors.Wrapf(
+					errors.Join(ErrInvalidHook, err),
+					"read message file %s",
+					actions[actionIndex].MessageFile,
+				)
+			}
+
+			message := strings.TrimSpace(content)
+			if !found || message == "" {
+				return ctxerrors.Wrapf(
+					ErrInvalidHook,
+					"message file %s is missing or empty",
+					actions[actionIndex].MessageFile,
+				)
+			}
+
+			actions[actionIndex].Message = message
+		}
+	}
 
 	return nil
 }
@@ -267,8 +317,14 @@ func validateHookAction(action HookAction) error {
 			return err
 		}
 	case HookActionInject:
-		if strings.TrimSpace(action.Message) == "" {
-			return ctxerrors.Wrap(ErrInvalidHook, "inject action needs message")
+		hasMessage := strings.TrimSpace(action.Message) != ""
+		hasMessageFile := strings.TrimSpace(action.MessageFile) != ""
+
+		if hasMessage == hasMessageFile {
+			return ctxerrors.Wrap(
+				ErrInvalidHook,
+				"inject action needs exactly one of message and messageFile",
+			)
 		}
 	case HookActionEmitEvent:
 		// ErrInvalidHook is joined so the resolver skips the file with a
@@ -329,6 +385,13 @@ func validateHookMatch(match HookMatch) error {
 		return ctxerrors.Wrap(
 			ErrInvalidHook,
 			"tool matcher contains whitespace",
+		)
+	}
+
+	if err := pathglob.Validate(match.Path); err != nil {
+		return ctxerrors.Wrap(
+			errors.Join(ErrInvalidHook, err),
+			"validate path matcher",
 		)
 	}
 

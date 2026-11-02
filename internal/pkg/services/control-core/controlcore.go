@@ -548,7 +548,7 @@ func newSessionRegistry(
 		Policy:       policy,
 		AgentSpaces:  agentSpaces,
 		Workers:      workers,
-		RootAgent:    config.Agent,
+		RootAgent:    config.RootAgent(),
 		DefaultModel: config.DefaultModel,
 	})
 	if err != nil {

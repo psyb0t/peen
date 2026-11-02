@@ -180,9 +180,11 @@ func runtimeOptions(
 		ModelRequestTimeout: options.ModelRequestTimeout,
 		BaseSystemPrompt:    options.BaseSystemPrompt,
 		AppendSystemPrompt:  options.AppendSystemPrompt,
-		AskTimeout:          options.AskTimeout,
-		ToolLimits:          tools.Limits(options.ToolLimits),
-		AgentLimits:         agent.AgentRunLimits(options.AgentLimits),
+
+		DisableBaseSystemPrompt: options.DisableBaseSystemPrompt,
+		AskTimeout:              options.AskTimeout,
+		ToolLimits:              tools.Limits(options.ToolLimits),
+		AgentLimits:             agent.AgentRunLimits(options.AgentLimits),
 
 		MaxSystemPromptBytes:  options.MaxSystemPromptBytes,
 		MaxMessageBytes:       options.MaxMessageBytes,

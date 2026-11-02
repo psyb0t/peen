@@ -38,7 +38,10 @@ type turnStopHookPayload struct {
 // lifecycle. It keeps action injections per call because different tool calls
 // can run concurrently in the same tool round.
 type toolHookRuntime struct {
-	runner        hooks.Runner
+	runner hooks.Runner
+	// snapshot is the harness the tools run under. Its scoped rules load
+	// after file tool results.
+	snapshot      harness.Snapshot
 	requestID     uuid.UUID
 	sessionID     uuid.UUID
 	turnID        uuid.UUID
@@ -49,6 +52,10 @@ type toolHookRuntime struct {
 	// maxResultTokens is the tool result cap the wrapped output must fit,
 	// so the cap never cuts the untrusted-output notice.
 	maxResultTokens int
+	// ruleRefreshTokens is how much conversation may follow a scoped rule
+	// before the next matching tool call sends it again. Zero never resends
+	// a rule the conversation still holds.
+	ruleRefreshTokens int
 
 	mutex    sync.Mutex
 	messages map[string][]string
@@ -97,6 +104,7 @@ func newToolHookRuntime(
 
 	return &toolHookRuntime{
 		runner:        runner,
+		snapshot:      snapshot,
 		requestID:     requestID,
 		sessionID:     sessionID,
 		turnID:        turnID,
@@ -137,8 +145,17 @@ func (r *Runtime) newToolHookRuntime(
 	}
 
 	runner.maxResultTokens = r.maxToolResultTokens
+	runner.ruleRefreshTokens = r.scopedRuleRefreshTokens()
 
 	return runner, nil
+}
+
+// scopedRuleRefreshTokens is half the prompt budget. drop-oldest leaves out
+// history until the system prompt, the tools, and what is left fit the budget,
+// so a block that far back may be gone from the request.
+func (r *Runtime) scopedRuleRefreshTokens() int {
+	return max(r.maxContextTokens-r.outputReserveTokens, 0) /
+		scopedRuleRefreshDivisor
 }
 
 func (r *Runtime) appendPreUserHookContext(
@@ -380,8 +397,9 @@ func (h *toolHookRuntime) failure(
 }
 
 // post runs the postToolUse hooks on the raw result, then wraps it as
-// untrusted tool output. It is the last hook before the result is recorded
-// and sent to the model, so the stored transcript holds what the model read.
+// untrusted tool output and queues the scoped rules the call loads after the
+// hook context. It is the last hook before the result is recorded and sent to
+// the model, so the stored transcript holds what the model read.
 func (h *toolHookRuntime) post(
 	ctx context.Context,
 	event *elelem.ToolEvent,
@@ -402,6 +420,13 @@ func (h *toolHookRuntime) post(
 	}
 
 	event.Result.Content = content
+
+	rules, err := h.scopedRuleBlocks(ctx, event)
+	if err != nil {
+		return ctxerrors.Wrap(err, "load scoped rules")
+	}
+
+	h.add(event.CallID, rules)
 
 	return nil
 }

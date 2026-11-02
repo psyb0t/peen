@@ -11,7 +11,7 @@
 #   datasets    download Aider Polyglot and the pinned LHTB tasks
 #   proxy       start the provider proxy, which alone reads the key from .env
 #   proxy-stop  stop the provider proxy this script started
-#   run SUITE   write a job for SUITE (aider or lhtb) and run it with Harbor
+#   run SUITE   write a job for SUITE (aider, lhtb, or eval) and run it with Harbor
 
 set -euo pipefail
 
@@ -286,9 +286,9 @@ proxy) start_proxy ;;
 proxy-stop) stop_proxy ;;
 run)
 	case "${2:-}" in
-	aider | lhtb) run_suite "$2" ;;
+	aider | lhtb | eval) run_suite "$2" ;;
 	*)
-		log ERROR "run needs a suite: aider or lhtb"
+		log ERROR "run needs a suite: aider, lhtb, or eval"
 		exit 1
 		;;
 	esac

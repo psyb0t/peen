@@ -272,6 +272,7 @@ func (s *directoryScope) newHooks(
 	}
 
 	runner.maxResultTokens = r.maxToolResultTokens
+	runner.ruleRefreshTokens = r.scopedRuleRefreshTokens()
 
 	return runner, nil
 }

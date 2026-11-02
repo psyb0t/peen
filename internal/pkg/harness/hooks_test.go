@@ -1,7 +1,9 @@
 package harness
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -232,6 +234,53 @@ preToolUse:
         message: no
 `,
 		},
+		{
+			name: "inject with message and messageFile",
+			document: `version: 1
+postReadFile:
+  - actions:
+      - type: inject
+        message: no
+        messageFile: rule.md
+`,
+		},
+		{
+			name: "inject with neither message nor messageFile",
+			document: `version: 1
+postReadFile:
+  - actions:
+      - type: inject
+`,
+		},
+		{
+			name: "inject messageFile that is missing",
+			document: `version: 1
+postReadFile:
+  - actions:
+      - type: inject
+        messageFile: missing.md
+`,
+		},
+		{
+			name: "inject messageFile that is empty",
+			document: `version: 1
+postReadFile:
+  - actions:
+      - type: inject
+        messageFile: empty.md
+`,
+		},
+		{
+			name: "path matcher that is not a glob",
+			document: `version: 1
+postReadFile:
+  - match:
+      path: "photos [2024/**"
+    actions:
+      - type: inject
+        message: no
+`,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -239,6 +288,11 @@ preToolUse:
 			t.Parallel()
 
 			fixture := newResolverFixture(t)
+			writeFile(t, filepath.Join(
+				fixture.configRoot,
+				agentsDirectoryName,
+				"empty.md",
+			), " \n")
 			fixture.writeHook(t, fixture.configRoot, tc.document)
 
 			resolver, err := NewResolver(fixture.configRoot, Limits{})
@@ -395,6 +449,88 @@ preToolUse:
 
 	_, err = resolver.Resolve(fixture.workspace)
 	require.ErrorIs(t, err, ErrResourceLimit)
+}
+
+// Users copy the hooks.yaml examples in docs/hooks.md as written, so every
+// one has to be a valid hook document.
+func TestHooksDocumentExamplesParse(t *testing.T) {
+	t.Parallel()
+
+	const (
+		hooksDocument = "../../../docs/hooks.md"
+		yamlFence     = "```yaml\n"
+		fenceEnd      = "```"
+		documentStart = "version: 1"
+	)
+
+	content, err := os.ReadFile(hooksDocument)
+	require.NoError(t, err)
+
+	examples := 0
+
+	for _, block := range strings.Split(string(content), yamlFence)[1:] {
+		example, _, closed := strings.Cut(block, fenceEnd)
+		require.True(t, closed)
+
+		if !strings.HasPrefix(example, documentStart) {
+			continue
+		}
+
+		_, err := parseHookDocument(example)
+		require.NoError(t, err, example)
+
+		examples++
+	}
+
+	assert.Positive(t, examples)
+}
+
+func TestInjectMessageFileLoadsIntoTheMessage(t *testing.T) {
+	t.Parallel()
+
+	fixture := newResolverFixture(t)
+	writeFile(t, filepath.Join(
+		fixture.workspace,
+		agentsDirectoryName,
+		"messages",
+		"go.md",
+	), "\nUse gofmt.\n")
+	absolute := filepath.Join(fixture.root, "shared.md")
+	writeFile(t, absolute, "Shared text.")
+	fixture.writeHook(t, fixture.workspace, `version: 1
+postReadFile:
+  - match:
+      extensions: [".go"]
+    actions:
+      - name: relative
+        type: inject
+        messageFile: messages/go.md
+      - name: absolute
+        type: inject
+        messageFile: `+absolute+`
+`)
+
+	snapshot := resolveFixture(t, fixture)
+	require.Empty(t, snapshot.Warnings())
+
+	hooks := snapshot.Hooks()
+	require.Len(t, hooks, 1)
+	require.Len(t, hooks[0].Actions, 2)
+	assert.Equal(t, "Use gofmt.", hooks[0].Actions[0].Message)
+	assert.Equal(t, "messages/go.md", hooks[0].Actions[0].MessageFile)
+	assert.Equal(t, "Shared text.", hooks[0].Actions[1].Message)
+
+	writeFile(t, filepath.Join(
+		fixture.workspace,
+		agentsDirectoryName,
+		"messages",
+		"go.md",
+	), "Use gofmt and go vet.")
+
+	changed := resolveFixture(t, fixture)
+	assert.NotEqual(t, snapshot.Hash(), changed.Hash())
+	assert.Equal(t, "Use gofmt and go vet.",
+		changed.Hooks()[0].Actions[0].Message)
 }
 
 func (f resolverFixture) writeHook(

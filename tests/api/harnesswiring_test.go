@@ -74,7 +74,8 @@ postToolUse:
 	variantTestFreshnessEntry = "- core:freshness: Verify time-sensitive " +
 		"facts with current authoritative evidence before using them."
 	variantTestPlanningEntry = "- core:planning: Create evidence-based " +
-		"plans and test plans before any request that changes something."
+		"plans and test plans before a request that changes something in " +
+		"several steps or files."
 	variantTestGeneralPurposeEntry = "- core:general-purpose: " +
 		"General-purpose agent for coding and other repository tasks."
 	variantTestCustomBody  = "Follow the request and return the result."

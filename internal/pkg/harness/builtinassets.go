@@ -71,8 +71,8 @@ func embeddedAgentAssetFor(name string) embeddedAgentAsset {
 
 // embeddedHarness holds the immutable base context that ships in every binary.
 // Its skills and agents are the core group. Filesystem layers add custom ones
-// beside them and never replace them, and nothing removes the baseline
-// instruction block.
+// beside them and never replace them. Resolver options remove core skills,
+// core agents, or the baseline instruction block.
 //
 //go:embed builtin/AGENTS.md
 //go:embed builtin/agents/general-purpose.md

@@ -398,12 +398,17 @@ func resumeStartupSession(
 func resolveRuntimeBaseSystemPrompt(options *RuntimeOptions) error {
 	explicitBase := options.BaseSystemPrompt != ""
 	if options.BaseSystemPrompt == "" {
-		load := LoadSystemPrompt
+		fallback := defaultSystemPrompt
+		if options.DisableBaseSystemPrompt {
+			fallback = ""
+		}
+
+		load := loadSystemPrompt
 		if options.AppendSystemPrompt != "" {
 			load = loadBaseSystemPrompt
 		}
 
-		deploymentPrompt, err := load(options.ConfigDirectory)
+		deploymentPrompt, err := load(options.ConfigDirectory, fallback)
 		if err != nil {
 			return ctxerrors.Wrap(err, "load deployment system prompt")
 		}
@@ -417,10 +422,10 @@ func resolveRuntimeBaseSystemPrompt(options *RuntimeOptions) error {
 		}
 	}
 
-	if options.AppendSystemPrompt != "" {
-		addition := systemSectionGap + options.AppendSystemPrompt
-		options.BaseSystemPrompt += addition
-	}
+	options.BaseSystemPrompt = joinSystemSections(
+		options.BaseSystemPrompt,
+		options.AppendSystemPrompt,
+	)
 
 	return nil
 }
@@ -450,9 +455,10 @@ func resolveWorkspaceSystemPrompt(options *RuntimeOptions) error {
 		return ctxerrors.Wrap(err, "load workspace append prompt")
 	}
 
-	if appended != "" {
-		options.BaseSystemPrompt += systemSectionGap + appended
-	}
+	options.BaseSystemPrompt = joinSystemSections(
+		options.BaseSystemPrompt,
+		appended,
+	)
 
 	return nil
 }
@@ -1656,9 +1662,7 @@ func (r *Runtime) systemPromptForAgent(
 
 	sections = append(sections, workspaceBlock, r.currentTimeBlock())
 
-	content := strings.Join(sections, systemSectionGap)
-
-	return content, nil
+	return joinSystemSections(sections...), nil
 }
 
 func (r *Runtime) currentTimeBlock() string {

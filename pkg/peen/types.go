@@ -9,6 +9,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/psyb0t/commander"
 	"github.com/psyb0t/elelem"
+	"github.com/psyb0t/peen/internal/pkg/harness"
 )
 
 // ModelClient is one already-resolved Elelem model made available under a
@@ -35,6 +36,10 @@ const (
 	CompactionModeSummarize CompactionMode = "summarize"
 )
 
+// NoRootAgent, as Options.RootAgent, runs the root with no agent instructions
+// and every tool. No agent file can have this name.
+const NoRootAgent = harness.NoRootAgent
+
 // Options supplies Peen's explicit runtime dependencies and validated values.
 //
 // New never reads environment variables, starts Servicepack, opens an HTTP
@@ -54,25 +59,32 @@ type Options struct {
 	AskTimeout         time.Duration
 	DisabledCoreSkills []string
 	DisabledCoreAgents []string
-	ToolLimits         ToolLimits
-	AgentLimits        AgentLimits
-	HarnessLimits      HarnessLimits
-	EventLimits        EventLimits
-	Tools              []Tool
-	DisableTools       []string
-	ModelResolver      ModelResolver
-	Hooks              map[string]HookHandler
-	Filesystem         FS
-	WorkspaceID        string
-	Harness            []HarnessLayer
-	Logger             *slog.Logger
-	MetricsRegisterer  prometheus.Registerer
-	AuditLog           AuditLogOptions
-	CommandRunner      commander.Commander
+	// DisableCoreInstructions leaves Peen's embedded AGENTS.md out of every
+	// system prompt.
+	DisableCoreInstructions bool
+	// DisableBaseSystemPrompt leaves out the embedded base prompt when
+	// BaseSystemPrompt is empty and ConfigDirectory has no SYSTEM.md.
+	DisableBaseSystemPrompt bool
+	ToolLimits              ToolLimits
+	AgentLimits             AgentLimits
+	HarnessLimits           HarnessLimits
+	EventLimits             EventLimits
+	Tools                   []Tool
+	DisableTools            []string
+	ModelResolver           ModelResolver
+	Hooks                   map[string]HookHandler
+	Filesystem              FS
+	WorkspaceID             string
+	Harness                 []HarnessLayer
+	Logger                  *slog.Logger
+	MetricsRegisterer       prometheus.Registerer
+	AuditLog                AuditLogOptions
+	CommandRunner           commander.Commander
 	// ConfigDirectory must already exist. It holds the optional SYSTEM.md,
 	// APPEND_SYSTEM.md, COMPACTION.md and trusted harness files.
 	ConfigDirectory string
 	// RootAgent names the base agent definition every session starts from.
+	// NoRootAgent runs the root with no agent instructions and every tool.
 	RootAgent string
 
 	// Models is this deployment's named Elelem upstream registry. Every

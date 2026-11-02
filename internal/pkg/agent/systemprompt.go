@@ -32,7 +32,16 @@ const (
 // bound, because a deployment that meant to shape the agent and instead
 // silently shipped an empty file is worse than one that fails to start.
 func LoadSystemPrompt(configDirectory string) (string, error) {
-	base, err := loadBaseSystemPrompt(configDirectory)
+	return loadSystemPrompt(configDirectory, defaultSystemPrompt)
+}
+
+// loadSystemPrompt is LoadSystemPrompt with fallback in place of the embedded
+// default. An empty fallback leaves the base empty when SYSTEM.md is absent.
+func loadSystemPrompt(
+	configDirectory string,
+	fallback string,
+) (string, error) {
+	base, err := loadBaseSystemPrompt(configDirectory, fallback)
 	if err != nil {
 		return "", err
 	}
@@ -45,14 +54,13 @@ func LoadSystemPrompt(configDirectory string) (string, error) {
 		return "", err
 	}
 
-	if appended == "" {
-		return base, nil
-	}
-
-	return base + systemSectionGap + appended, nil
+	return joinSystemSections(base, appended), nil
 }
 
-func loadBaseSystemPrompt(configDirectory string) (string, error) {
+func loadBaseSystemPrompt(
+	configDirectory string,
+	fallback string,
+) (string, error) {
 	replacement, err := readPromptFile(configDirectory, systemPromptFileName)
 	if err != nil {
 		return "", err
@@ -62,7 +70,21 @@ func loadBaseSystemPrompt(configDirectory string) (string, error) {
 		return replacement, nil
 	}
 
-	return defaultSystemPrompt, nil
+	return fallback, nil
+}
+
+// joinSystemSections joins the non-empty sections of a system prompt, so an
+// empty base prompt leaves no leading gap.
+func joinSystemSections(sections ...string) string {
+	nonEmpty := make([]string, 0, len(sections))
+
+	for _, section := range sections {
+		if strings.TrimSpace(section) != "" {
+			nonEmpty = append(nonEmpty, section)
+		}
+	}
+
+	return strings.Join(nonEmpty, systemSectionGap)
 }
 
 func readFilesystemPrompt(

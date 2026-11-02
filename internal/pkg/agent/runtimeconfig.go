@@ -26,8 +26,10 @@ func RuntimeOptionsFromConfig(
 ) RuntimeOptions {
 	return RuntimeOptions{
 		Models:       models,
-		RootAgent:    deployment.Agent,
+		RootAgent:    deployment.RootAgent(),
 		DefaultModel: deployment.DefaultModel,
+
+		DisableBaseSystemPrompt: deployment.BaseSystemPromptDisabled(),
 
 		MaxContextTokens:    deployment.MaxContextTokens,
 		OutputReserveTokens: deployment.OutputReserveTokens,
@@ -112,9 +114,9 @@ func HarnessLimits() harness.Limits {
 	return harness.DefaultLimits()
 }
 
-// HarnessOptions maps the deployment's disabled core skills and agents onto
-// the harness resolver. The controller and every worker build their resolver
-// from it, so both see the same skills and agents.
+// HarnessOptions maps the deployment's disabled core skills, agents, and
+// instructions onto the harness resolver. The controller and every worker
+// build their resolver from it, so both see the same harness.
 func HarnessOptions(
 	deployment config.Config,
 ) ([]harness.ResolverOption, error) {
@@ -131,6 +133,9 @@ func HarnessOptions(
 	return []harness.ResolverOption{
 		harness.WithDisabledCoreSkills(skills),
 		harness.WithDisabledCoreAgents(agents),
+		harness.WithCoreInstructionsDisabled(
+			deployment.CoreInstructionsDisabled(),
+		),
 	}, nil
 }
 

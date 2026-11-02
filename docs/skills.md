@@ -60,7 +60,7 @@ Skills come in two groups. Core skills are embedded in Peen. Custom skills are t
 
 | Core skill | What it tells the agent |
 | --- | --- |
-| `planning` | Write an evidence-based plan under `.plans/` before any change. |
+| `planning` | Write an evidence-based plan under `.plans/` before a change that takes several steps or files. |
 | `freshness` | Check facts that change over time against a current source instead of memory. |
 | `delegation` | Hand parts of a task to child agents, talk to them while they work, and collect their answers. See [running children](agents.md#running-children). |
 | `plan-and-delegate` | Plan a larger change, split it into parts that touch different files, delegate each part, and verify the combined result. |
@@ -79,7 +79,7 @@ Core skills (address as core:<name>):
 - core:delegation: Hand parts of a task to child agents, talk to them while they work, and collect their answers. (embedded://skills/delegation/SKILL.md)
 - core:freshness: Verify time-sensitive facts with current authoritative evidence before using them. (embedded://skills/freshness/SKILL.md)
 - core:plan-and-delegate: Plan a larger change, split it into independent parts, delegate them to child agents, and verify the combined result. (embedded://skills/plan-and-delegate/SKILL.md)
-- core:planning: Create evidence-based plans and test plans before any request that changes something. (embedded://skills/planning/SKILL.md)
+- core:planning: Create evidence-based plans and test plans before a request that changes something in several steps or files. (embedded://skills/planning/SKILL.md)
 Custom skills (defined by you, no prefix):
 - release-notes: Write RELEASE_NOTES.md from the files and changes in this workspace. (/home/me/work/my-app/.agents/skills/release-notes/SKILL.md)
 ```

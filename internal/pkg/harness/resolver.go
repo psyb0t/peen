@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -45,6 +46,10 @@ const (
 	nodeModulesDirectory   = "node_modules"
 	vendorDirectory        = "vendor"
 	nestedWalkLimitMessage = "nested AGENTS.md search hit the directory limit"
+
+	// maxRuleDirectoryDepth bounds how deep rule files may be grouped in
+	// subdirectories of rules/.
+	maxRuleDirectoryDepth = 8
 )
 
 // Resolver discovers the layered harness context for one workspace at a time.
@@ -55,6 +60,16 @@ type Resolver struct {
 	limits         Limits
 	disabledSkills []string
 	disabledAgents []string
+
+	withoutCoreInstructions bool
+}
+
+func (r Resolver) coreSelection() coreSelection {
+	return coreSelection{
+		disabledSkills:      r.disabledSkills,
+		disabledAgents:      r.disabledAgents,
+		withoutInstructions: r.withoutCoreInstructions,
+	}
 }
 
 type resolutionState struct {
@@ -133,6 +148,8 @@ func NewResolver(
 		limits:         resolvedLimits,
 		disabledSkills: settings.disabledSkills,
 		disabledAgents: settings.disabledAgents,
+
+		withoutCoreInstructions: settings.withoutCoreInstructions,
 	}, nil
 }
 
@@ -156,10 +173,7 @@ func (r Resolver) Resolve(workspace string) (Snapshot, error) {
 	}
 
 	state := newResolutionState(r.limits)
-	if err := state.discoverEmbedded(
-		r.disabledSkills,
-		r.disabledAgents,
-	); err != nil {
+	if err := state.discoverEmbedded(r.coreSelection()); err != nil {
 		return Snapshot{}, ctxerrors.Wrap(err, "discover embedded harness")
 	}
 
@@ -332,10 +346,37 @@ func newResolutionState(limits Limits) *resolutionState {
 	}
 }
 
-func (s *resolutionState) discoverEmbedded(
-	disabledSkills []string,
-	disabledAgents []string,
-) error {
+func (s *resolutionState) discoverEmbedded(core coreSelection) error {
+	if !core.withoutInstructions {
+		if err := s.discoverEmbeddedInstructions(); err != nil {
+			return err
+		}
+	}
+
+	for _, asset := range embeddedSkillAssets() {
+		if slices.Contains(core.disabledSkills, asset.name) {
+			continue
+		}
+
+		if err := s.discoverEmbeddedSkill(asset); err != nil {
+			return err
+		}
+	}
+
+	for _, asset := range embeddedAgentAssets() {
+		if slices.Contains(core.disabledAgents, asset.name) {
+			continue
+		}
+
+		if err := s.discoverEmbeddedAgent(asset); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *resolutionState) discoverEmbeddedInstructions() error {
 	instructions, err := embeddedHarnessAsset(embeddedInstructionAsset)
 	if err != nil {
 		return ctxerrors.Wrap(err, "read embedded instructions")
@@ -355,26 +396,6 @@ func (s *resolutionState) discoverEmbedded(
 		Content:  instructions,
 		Hash:     hashString(instructions),
 	})
-
-	for _, asset := range embeddedSkillAssets() {
-		if slices.Contains(disabledSkills, asset.name) {
-			continue
-		}
-
-		if err := s.discoverEmbeddedSkill(asset); err != nil {
-			return err
-		}
-	}
-
-	for _, asset := range embeddedAgentAssets() {
-		if slices.Contains(disabledAgents, asset.name) {
-			continue
-		}
-
-		if err := s.discoverEmbeddedAgent(asset); err != nil {
-			return err
-		}
-	}
 
 	return nil
 }
@@ -476,7 +497,12 @@ func (s *resolutionState) discoverLayer(
 		return ctxerrors.Wrap(err, "discover instruction file")
 	}
 
-	if err := s.discoverRules(layer, priority); err != nil {
+	ruleBase := layer
+	if configLayer {
+		ruleBase = ""
+	}
+
+	if err := s.discoverRules(layer, ruleBase, priority); err != nil {
 		return ctxerrors.Wrap(err, "discover rule files")
 	}
 
@@ -744,15 +770,22 @@ func isSkippedNestedDirectory(name string) bool {
 
 // discoverRules loads compatible and Peen-native modular rule files after a
 // layer's AGENTS.md. Rules are all additive, unlike skills and named agents,
-// because each is standing context rather than one named definition.
-func (s *resolutionState) discoverRules(layer string, priority int) error {
+// because each is standing context rather than one named definition. base is
+// the directory a scoped rule's patterns are relative to, or empty when the
+// resolved directory is.
+func (s *resolutionState) discoverRules(
+	layer string,
+	base string,
+	priority int,
+) error {
 	ruleDirectories := []string{
 		filepath.Join(layer, claudeDirectoryName, rulesDirectoryName),
 		filepath.Join(layer, agentsDirectoryName, rulesDirectoryName),
 	}
 
 	for _, directory := range ruleDirectories {
-		if err := s.discoverRuleDirectory(directory, priority); err != nil {
+		location := ruleLocation{base: base, priority: priority}
+		if err := s.discoverRuleDirectory(directory, location); err != nil {
 			return ctxerrors.Wrap(err, "discover rule directory")
 		}
 	}
@@ -760,9 +793,25 @@ func (s *resolutionState) discoverRules(layer string, priority int) error {
 	return nil
 }
 
+// ruleLocation is where a rule directory sits: the base its scoped rules
+// match against, the layer priority, and its path below the rules directory.
+type ruleLocation struct {
+	base     string
+	priority int
+	prefix   string
+	depth    int
+}
+
+func (l ruleLocation) child(name string) ruleLocation {
+	l.prefix = path.Join(l.prefix, name)
+	l.depth++
+
+	return l
+}
+
 func (s *resolutionState) discoverRuleDirectory(
 	directory string,
-	priority int,
+	location ruleLocation,
 ) error {
 	rulesDirectory, found, err := s.optionalDirectory(directory)
 	if err != nil {
@@ -786,20 +835,12 @@ func (s *resolutionState) discoverRuleDirectory(
 	}
 
 	for _, entry := range entries {
-		if filepath.Ext(entry.Name()) != agentsFileExtension {
-			continue
-		}
+		entryPath := filepath.Join(rulesDirectory, entry.Name())
 
 		if entry.IsDir() {
-			if err := s.discoverOptional(
-				SourceKindRule,
-				filepath.Join(rulesDirectory, entry.Name()),
-				func() error {
-					return ctxerrors.Wrap(
-						ErrInvalidInstruction,
-						"rule entry is a directory",
-					)
-				},
+			if err := s.discoverRuleSubdirectory(
+				entryPath,
+				location.child(entry.Name()),
 			); err != nil {
 				return err
 			}
@@ -807,11 +848,15 @@ func (s *resolutionState) discoverRuleDirectory(
 			continue
 		}
 
+		if filepath.Ext(entry.Name()) != agentsFileExtension {
+			continue
+		}
+
 		if err := s.discoverOptional(
 			SourceKindRule,
-			filepath.Join(rulesDirectory, entry.Name()),
+			entryPath,
 			func() error {
-				return s.discoverRule(rulesDirectory, entry.Name(), priority)
+				return s.discoverRule(rulesDirectory, entry.Name(), location)
 			},
 		); err != nil {
 			return ctxerrors.Wrap(err, "discover rule file")
@@ -821,10 +866,29 @@ func (s *resolutionState) discoverRuleDirectory(
 	return nil
 }
 
+// discoverRuleSubdirectory reads a directory below rules/, which groups rule
+// files as Claude Code allows. Nesting deeper than maxRuleDirectoryDepth is
+// reported and skipped.
+func (s *resolutionState) discoverRuleSubdirectory(
+	directory string,
+	location ruleLocation,
+) error {
+	if location.depth > maxRuleDirectoryDepth {
+		return s.discoverOptional(SourceKindRule, directory, func() error {
+			return ctxerrors.Wrap(
+				ErrInvalidInstruction,
+				"rule directory nesting is too deep",
+			)
+		})
+	}
+
+	return s.discoverRuleDirectory(directory, location)
+}
+
 func (s *resolutionState) discoverRule(
 	rulesDirectory string,
 	entryName string,
-	priority int,
+	location ruleLocation,
 ) error {
 	source, content, found, err := s.readOptionalFile(
 		filepath.Join(rulesDirectory, entryName),
@@ -837,7 +901,12 @@ func (s *resolutionState) discoverRule(
 		return ctxerrors.Wrap(ErrInvalidInstruction, "rule file is missing")
 	}
 
-	if strings.TrimSpace(content) == "" {
+	document, frontMatterErr := parseRuleDocument(content)
+	if frontMatterErr != nil {
+		s.warn(SourceKindRule, source, frontMatterErr)
+	}
+
+	if strings.TrimSpace(document.body) == "" {
 		return ctxerrors.Wrap(ErrInvalidInstruction, "rule file is empty")
 	}
 
@@ -845,13 +914,24 @@ func (s *resolutionState) discoverRule(
 		return ctxerrors.Wrap(ErrResourceLimit, "instruction limit exceeded")
 	}
 
-	s.instructions = append(s.instructions, Instruction{
+	instruction := Instruction{
 		Kind:     SourceKindRule,
 		Source:   source,
-		Priority: priority,
-		Content:  content,
+		Priority: location.priority,
+		Content:  document.body,
 		Hash:     hashString(content),
-	})
+		Name: path.Join(
+			location.prefix,
+			strings.TrimSuffix(entryName, agentsFileExtension),
+		),
+	}
+
+	if len(document.paths) > 0 {
+		instruction.Paths = document.paths
+		instruction.Base = location.base
+	}
+
+	s.instructions = append(s.instructions, instruction)
 	s.filesystemInstructions++
 
 	return nil
@@ -1416,6 +1496,7 @@ func (s *resolutionState) snapshot(
 	workspace string,
 ) (Snapshot, error) {
 	s.warnUnknownSkillReferences()
+	s.resolveRuleBases(workspace)
 
 	skills, skillContents := resolvedSkills(s.skills)
 	agents := resolvedAgents(s.agents)
@@ -1458,6 +1539,24 @@ func (s *resolutionState) snapshot(
 		skillContents: skillContents,
 		skillBudget:   s.limits.MaxFileBytes,
 	}, nil
+}
+
+// resolveRuleBases points every scoped rule from the configuration directory
+// or a caller's in-memory layer at the resolved directory, the way Claude Code
+// matches user-level rules against the session's working directory.
+func (s *resolutionState) resolveRuleBases(workspace string) {
+	for index := range s.instructions {
+		instruction := &s.instructions[index]
+		if !instruction.IsScoped() {
+			continue
+		}
+
+		isHostWorkspace := filepath.IsAbs(workspace)
+		if instruction.Base == "" ||
+			(isHostWorkspace && !filepath.IsAbs(instruction.Base)) {
+			instruction.Base = workspace
+		}
+	}
 }
 
 // warnUnknownSkillReferences reports every :name in a skill body that names no
@@ -1546,6 +1645,7 @@ func resolvedManifest(
 	for _, instruction := range instructions {
 		manifest = append(manifest, ManifestEntry{
 			Kind:     instruction.kind(),
+			Name:     instruction.Name,
 			Source:   instruction.Source,
 			Priority: instruction.Priority,
 			Hash:     instruction.Hash,

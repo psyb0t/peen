@@ -94,4 +94,4 @@ workspace/
     hooks.yaml
 ```
 
-`AGENTS.md` gives the model standing project instructions. Rules are topic files that join them on every turn. Skills are procedures the model loads when a task needs them. Named agents handle bounded jobs the main agent hands off. Event handlers tell Peen how to handle an outside notice. Hooks enforce mechanical behavior around turn and tool events. Hooks from every layer run, so only open workspaces whose hooks you trust.
+`AGENTS.md` gives the model standing project instructions. Rules are topic files that join them on every turn, or, with `paths:` frontmatter, reach the model when it reads or changes a matching file. Skills are procedures the model loads when a task needs them. Named agents handle bounded jobs the main agent hands off. Event handlers tell Peen how to handle an outside notice. Hooks enforce mechanical behavior around turn and tool events. Hooks from every layer run, so only open workspaces whose hooks you trust.

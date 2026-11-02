@@ -34,6 +34,7 @@ type HarnessHookAction struct {
 	WorkingDir  string            `yaml:"workingDir" json:"workingDir,omitempty"`   //nolint:lll // Immutable schema tags.
 	Timeout     string            `yaml:"timeout" json:"timeout,omitempty"`
 	Message     string            `yaml:"message" json:"message,omitempty"`
+	MessageFile string            `yaml:"messageFile" json:"messageFile,omitempty"` //nolint:lll // Immutable schema tags.
 	EventType   string            `yaml:"eventType" json:"eventType,omitempty"`
 	Summary     string            `yaml:"summary" json:"summary,omitempty"`
 	Data        map[string]any    `yaml:"data" json:"data,omitempty"`

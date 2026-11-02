@@ -26,6 +26,10 @@ type HarnessSnapshot struct {
 	Manifest      []ContextManifestEntry
 }
 
+// HarnessInstruction is one AGENTS.md or rule file. A rule with Paths stays
+// out of the system prompt and reaches the model after a file tool touches a
+// file matching one of them, relative to Base. Content never holds a rule's
+// frontmatter.
 type HarnessInstruction struct {
 	Kind     string
 	Source   string
@@ -33,6 +37,9 @@ type HarnessInstruction struct {
 	Content  string
 	Hash     string
 	Scope    string
+	Name     string
+	Paths    []string
+	Base     string
 }
 
 type HarnessSkill struct {

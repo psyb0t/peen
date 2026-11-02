@@ -55,6 +55,23 @@ type Instruction struct {
 	// AGENTS.md covers. It is empty for every file outside the workspace
 	// tree and for the workspace's own AGENTS.md.
 	Scope string
+
+	// Name is a rule's file name without the .md extension.
+	Name string
+	// Paths are a rule's glob patterns from its frontmatter. A rule with
+	// paths stays out of the system prompt and reaches the model when a file
+	// tool touches a matching file. Content never holds the frontmatter.
+	Paths []string
+	// Base is the directory a scoped rule's patterns are relative to: the
+	// directory holding the rule's .agents or .claude directory, or the
+	// resolved directory for a rule from the configuration directory.
+	Base string
+}
+
+// IsScoped reports whether the instruction is a rule that loads only for
+// matching files.
+func (i Instruction) IsScoped() bool {
+	return len(i.Paths) > 0
 }
 
 // Skill is the catalogue entry exposed before a skill is activated.
@@ -195,6 +212,7 @@ type HookAction struct {
 	WorkingDir  string            `yaml:"workingDir" json:"workingDir,omitempty"`   //nolint:lll // Immutable schema tags.
 	Timeout     string            `yaml:"timeout" json:"timeout,omitempty"`
 	Message     string            `yaml:"message" json:"message,omitempty"`
+	MessageFile string            `yaml:"messageFile" json:"messageFile,omitempty"` //nolint:lll // Immutable schema tags.
 	EventType   string            `yaml:"eventType" json:"eventType,omitempty"`
 	Summary     string            `yaml:"summary" json:"summary,omitempty"`
 	Data        map[string]any    `yaml:"data" json:"data,omitempty"`
@@ -328,7 +346,12 @@ func (s Snapshot) ActivateSkill(name string) (ActivatedSkill, error) {
 }
 
 // Agent resolves an agent by name with the same rules as ActivateSkill.
+// NoRootAgent resolves to an agent with no instructions and no tool limit.
 func (s Snapshot) Agent(name string) (Agent, error) {
+	if name == NoRootAgent {
+		return Agent{Name: NoRootAgent}, nil
+	}
+
 	for _, address := range lookupAddresses(name) {
 		for _, agent := range s.agents {
 			if agent.Name == address {
@@ -355,11 +378,16 @@ func (s Snapshot) PromptBlocks(rootAgent string) ([]PromptBlock, error) {
 		len(s.warnings)
 
 	blocks := make([]PromptBlock, 0, blockCapacity)
+
 	for _, instruction := range s.instructions {
+		if instruction.IsScoped() {
+			continue
+		}
+
 		blocks = append(blocks, instructionBlock(instruction))
 	}
 
-	if rootAgent != "" {
+	if rootAgent != "" && rootAgent != NoRootAgent {
 		agent, err := s.Agent(rootAgent)
 		if err != nil {
 			return nil, err
@@ -457,7 +485,12 @@ func (s Snapshot) agentCatalogueBlock() PromptBlock {
 }
 
 func cloneInstructions(instructions []Instruction) []Instruction {
-	return append([]Instruction(nil), instructions...)
+	cloned := append([]Instruction(nil), instructions...)
+	for index := range cloned {
+		cloned[index].Paths = append([]string(nil), cloned[index].Paths...)
+	}
+
+	return cloned
 }
 
 func cloneSkills(skills []Skill) []Skill {

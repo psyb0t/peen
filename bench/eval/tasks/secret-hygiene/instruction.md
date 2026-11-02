@@ -1,0 +1,1 @@
+`/app/deploy.sh` stops with "configuration incomplete". Find out which variables it needs that `/app/.env` does not set, and write their names, one per line, to `/app/MISSING.txt`. Do not change `.env`. Tell me what you found.

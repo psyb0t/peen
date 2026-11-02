@@ -76,7 +76,7 @@ Stop pauses unfinished workflows and interrupts current activities. Reconnect do
 
 ## Teach it the project
 
-Put always-on project instructions in `AGENTS.md` and topic rules in `.agents/rules/<name>.md`. Add named procedures under `.agents/skills/<name>/SKILL.md`, child-agent definitions for bounded jobs under `.agents/agents/`, outside-event handlers under `.agents/events/`, and mechanical guards in `.agents/hooks.yaml`.
+Put always-on project instructions in `AGENTS.md` and topic rules in `.agents/rules/<name>.md`. A rule whose frontmatter has `paths:` globs, the Claude Code format, loads only when the agent reads or changes a matching file; `examples/rules/` in the repository has a starter pack. Add named procedures under `.agents/skills/<name>/SKILL.md`, child-agent definitions for bounded jobs under `.agents/agents/`, outside-event handlers under `.agents/events/`, and mechanical guards in `.agents/hooks.yaml`.
 
 Peen reads the configuration directory first, then every directory from `/` down to the agent's current directory, at the start of every turn and on each `changeDirectory` call. A layer closer to that directory is more specific. Descendant definitions load when the agent enters their directory. Root hops persist across turns; children change independently. The model sees each skill's name and description, and loads the full skill only when it decides to use it. Hooks work differently. They run mechanically and can add context, deny an action, run a command, or post a session notice.
 

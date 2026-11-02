@@ -176,6 +176,9 @@ func embeddingAssembly(
 			),
 			harness.WithDisabledCoreSkills(options.DisabledCoreSkills),
 			harness.WithDisabledCoreAgents(options.DisabledCoreAgents),
+			harness.WithCoreInstructionsDisabled(
+				options.DisableCoreInstructions,
+			),
 		},
 		StoreOptions: session.Options{
 			Clock:                 options.Clock,

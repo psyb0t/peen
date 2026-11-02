@@ -37,6 +37,10 @@ const (
 	CompactionModeSummarize  CompactionMode = "summarize"
 )
 
+// DefaultAgent is PEEN_AGENT's default, the core general-purpose agent. It
+// must match the default tag on Config.Agent.
+const DefaultAgent = harness.CorePrefix + "general-purpose"
+
 // PEEN_COMPACTION_SUMMARY_PERCENT default and ceiling. A summary above half
 // the context leaves too little room for the conversation it makes room for.
 const (
@@ -103,6 +107,15 @@ type Config struct {
 	// parses them with the same rules as the controller.
 	DisabledCoreSkills string `env:"PEEN_DISABLED_CORE_SKILLS"`
 	DisabledCoreAgents string `env:"PEEN_DISABLED_CORE_AGENTS"`
+
+	// DisableCoreInstructions leaves Peen's embedded AGENTS.md out of the
+	// system prompt. DisableBaseSystemPrompt leaves out the embedded base
+	// prompt, which SYSTEM.md would otherwise replace. BlankAgent sets both,
+	// disables every core skill and agent, and runs the root with no agent
+	// instructions unless PEEN_AGENT names a custom agent.
+	DisableCoreInstructions bool `default:"false" env:"PEEN_DISABLE_CORE_INSTRUCTIONS"`  //nolint:lll // Immutable env tag.
+	DisableBaseSystemPrompt bool `default:"false" env:"PEEN_DISABLE_BASE_SYSTEM_PROMPT"` //nolint:lll // Immutable env tag.
+	BlankAgent              bool `default:"false" env:"PEEN_BLANK_AGENT"`
 
 	UpstreamsJSON   string `env:"PEEN_UPSTREAMS,required"`
 	DefaultModel    string `env:"PEEN_DEFAULT_MODEL,required"`
@@ -345,10 +358,39 @@ func (c Config) validate(requireStateDirectory bool) error {
 	return nil
 }
 
+// CoreInstructionsDisabled reports whether the embedded AGENTS.md stays out
+// of the system prompt.
+func (c Config) CoreInstructionsDisabled() bool {
+	return c.DisableCoreInstructions || c.BlankAgent
+}
+
+// BaseSystemPromptDisabled reports whether the embedded base system prompt
+// stays out of the system prompt.
+func (c Config) BaseSystemPromptDisabled() bool {
+	return c.DisableBaseSystemPrompt || c.BlankAgent
+}
+
+// RootAgent is the root agent turns run as. A blank agent whose PEEN_AGENT is
+// still the default core agent runs as harness.NoRootAgent instead, because
+// PEEN_BLANK_AGENT disables every core agent.
+func (c Config) RootAgent() string {
+	agent := strings.TrimSpace(c.Agent)
+	if c.BlankAgent && agent == DefaultAgent {
+		return harness.NoRootAgent
+	}
+
+	return agent
+}
+
 // DisabledCoreSkillNames returns the core skills PEEN_DISABLED_CORE_SKILLS
-// removes, without the core: prefix.
+// removes, without the core: prefix. A blank agent removes them all.
 func (c Config) DisabledCoreSkillNames() ([]string, error) {
-	names, err := harness.ParseDisabledCoreSkills(c.DisabledCoreSkills)
+	raw := c.DisabledCoreSkills
+	if c.BlankAgent {
+		raw = harness.DisableAllCore
+	}
+
+	names, err := harness.ParseDisabledCoreSkills(raw)
 	if err != nil {
 		return nil, ctxerrors.Wrap(
 			errors.Join(ErrInvalidConfig, err),
@@ -360,9 +402,14 @@ func (c Config) DisabledCoreSkillNames() ([]string, error) {
 }
 
 // DisabledCoreAgentNames returns the core agents PEEN_DISABLED_CORE_AGENTS
-// removes, without the core: prefix.
+// removes, without the core: prefix. A blank agent removes them all.
 func (c Config) DisabledCoreAgentNames() ([]string, error) {
-	names, err := harness.ParseDisabledCoreAgents(c.DisabledCoreAgents)
+	raw := c.DisabledCoreAgents
+	if c.BlankAgent {
+		raw = harness.DisableAllCore
+	}
+
+	names, err := harness.ParseDisabledCoreAgents(raw)
 	if err != nil {
 		return nil, ctxerrors.Wrap(
 			errors.Join(ErrInvalidConfig, err),
@@ -388,7 +435,7 @@ func (c Config) validateCoreSelection() error {
 	}
 
 	if err := harness.ValidateCoreAgentReference(
-		strings.TrimSpace(c.Agent),
+		c.RootAgent(),
 		disabledAgents,
 	); err != nil {
 		return ctxerrors.Wrap(

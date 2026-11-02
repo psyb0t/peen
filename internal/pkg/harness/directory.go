@@ -11,9 +11,7 @@ import (
 // loading definitions from descendants the agent has not entered.
 func (r Resolver) ResolveDirectory(directory string) (Snapshot, error) {
 	state := newResolutionState(r.limits)
-	if err := state.discoverEmbedded(
-		r.disabledSkills, r.disabledAgents,
-	); err != nil {
+	if err := state.discoverEmbedded(r.coreSelection()); err != nil {
 		return Snapshot{}, ctxerrors.Wrap(err, "discover directory baseline")
 	}
 
