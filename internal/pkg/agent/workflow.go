@@ -104,12 +104,18 @@ func awaitWorkflowActivityResult[T any](
 	input any,
 	result workflowActivityResult[T],
 ) (workflowActivityResult[T], error) {
+	gate := workflowResumeGate(ctx)
+
 	for result.Decision == session.ActivityDecisionPaused ||
 		result.Decision == session.ActivityDecisionReconcile {
 		var err error
 
-		// Another step may have consumed the signal for this execution.
-		// Recheck its durable decision before waiting for another signal.
+		// The execution may have been resumed already. Recheck its durable
+		// decision before waiting, and note the resume epoch first, so a
+		// signal another step receives during the recheck still wakes this
+		// one.
+		seen := gate.epoch
+
 		result, err = workflow.ExecuteActivity[workflowActivityResult[T]](ctx,
 			workflow.DefaultActivityOptions, name, input).Get(ctx)
 		if err != nil {
@@ -121,9 +127,7 @@ func awaitWorkflowActivityResult[T any](
 			return result, nil
 		}
 
-		_, ok := workflow.NewSignalChannel[struct{}](ctx,
-			workflowResumeSignal).Receive(ctx)
-		if !ok {
+		if !gate.wait(ctx, seen) {
 			return result, ctxerrors.Wrap(workflow.Canceled,
 				"workflow continuation wait cancelled")
 		}

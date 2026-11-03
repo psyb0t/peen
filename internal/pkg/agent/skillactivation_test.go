@@ -76,7 +76,8 @@ func TestUnknownSkillReferenceMessageNamesTheWrongName(t *testing.T) {
 		t,
 		`unknown skill "ghost-skill" in :ghost-skill; available skills: `+
 			`core:delegation, core:freshness, core:plan-and-delegate, `+
-			`core:planning, `+skillTestAlpha,
+			`core:planning, core:writing-rules, core:writing-skills, `+
+			skillTestAlpha,
 		unknown.Message,
 	)
 }

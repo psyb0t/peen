@@ -8,8 +8,8 @@ then copies Peen's frames, logs and SQLite state into the trial's log
 directory.
 
 Harbor passes the job's agent ``kwargs`` to the constructor, so a job sets the
-context window, compaction model, round limit and run timeout without a code
-change.
+context window, compaction model, round limit, run timeout and auto-evolve
+without a code change.
 """
 
 import json
@@ -69,9 +69,11 @@ class PeenAgent(BaseAgent):
         compaction_model=None,
         compaction_mode=None,
         max_tool_rounds=None,
+        auto_evolve=False,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
+        self.auto_evolve = bool(auto_evolve)
         self.workspace = workspace
         self.run_timeout_sec = int(run_timeout_sec or DEFAULT_RUN_TIMEOUT_SECONDS)
         self.context_window_tokens = str(
@@ -139,6 +141,7 @@ class PeenAgent(BaseAgent):
             "LOG_FORMAT": "json",
             "LOG_ADD_SOURCE": "true",
             "PEEN_HTTP_LISTEN_ADDRESS": "127.0.0.1:8080",
+            "PEEN_AUTO_EVOLVE": "true" if self.auto_evolve else "false",
         }
 
     async def run(self, instruction, environment, context):

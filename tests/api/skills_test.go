@@ -38,7 +38,8 @@ const (
 	skillsTestUnknownTurnStart = "start this with :no-such-skill in it"
 	skillsTestUnknownText      = `unknown skill "no-such-skill" in ` +
 		`:no-such-skill; available skills: core:delegation, ` +
-		`core:freshness, core:plan-and-delegate, core:planning`
+		`core:freshness, core:plan-and-delegate, core:planning, ` +
+		`core:writing-rules, core:writing-skills`
 
 	apiTestFrameUserMessageDelivered = "userMessage.delivered"
 )

@@ -15,7 +15,7 @@ func (r Resolver) ResolveDirectory(directory string) (Snapshot, error) {
 		return Snapshot{}, ctxerrors.Wrap(err, "discover directory baseline")
 	}
 
-	if err := state.discoverLayer(r.configRoot, 0, true); err != nil {
+	if err := r.discoverConfigLayer(state); err != nil {
 		return Snapshot{}, ctxerrors.Wrap(err, "discover trusted layer")
 	}
 

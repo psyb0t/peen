@@ -284,6 +284,73 @@ func TestBuildCreateRequestKeepsLiteralPaths(t *testing.T) {
 	assert.Equal(t, sessionSocketDir, socketMount.Source)
 }
 
+// An auto-evolving worker gets the global learned directory writable after the
+// read-only config mount, so the learned directory stays writable when it sits
+// inside the config directory. PEEN_WRITABLE_CONFIG_DIR makes the config mount
+// writable.
+func TestBuildCreateRequestMountsTheLearnedAndConfigDirectories(t *testing.T) {
+	t.Parallel()
+
+	learned := filepath.Join(testConfigDir, ".agents", "learned")
+
+	testCases := []struct {
+		name           string
+		learned        string
+		writableConfig bool
+	}{
+		{name: "auto-evolve off"},
+		{name: "auto-evolve on", learned: learned},
+		{name: "writable config", writableConfig: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			document := testDocument(uuid.New())
+			document.LearnedDirectory = tc.learned
+			document.WritableConfigDirectory = tc.writableConfig
+
+			create, err := docker.BuildCreateRequest(docker.LaunchSpec{
+				Document:   document,
+				AgentSpace: sandboxSpace(),
+				Identity:   testIdentity(),
+			})
+			require.NoError(t, err)
+
+			configIndex := slices.IndexFunc(
+				create.Mounts,
+				func(mount worker.Mount) bool {
+					return mount.Target == testConfigDir
+				},
+			)
+			require.GreaterOrEqual(t, configIndex, 0)
+			assert.Equal(
+				t,
+				!tc.writableConfig,
+				create.Mounts[configIndex].ReadOnly,
+			)
+
+			learnedIndex := slices.IndexFunc(
+				create.Mounts,
+				func(mount worker.Mount) bool {
+					return mount.Target == learned
+				},
+			)
+
+			if tc.learned == "" {
+				assert.Equal(t, -1, learnedIndex)
+
+				return
+			}
+
+			require.Greater(t, learnedIndex, configIndex)
+			assert.Equal(t, learned, create.Mounts[learnedIndex].Source)
+			assert.False(t, create.Mounts[learnedIndex].ReadOnly)
+		})
+	}
+}
+
 // A worker receives its own session's socket directory, never the shared root.
 // The root holds every live session's socket, so mounting it would show one
 // worker where every other session's controller surface lives.

@@ -23,6 +23,8 @@ func (e *workflowExecution) run(
 			commerr.ErrValidationFailed, "workflow execution input")
 	}
 
+	ctx = withResumeGate(ctx)
+
 	opened, err := openWorkflow(ctx, input)
 	if err != nil {
 		return finishFailedWorkflow(ctx, opened,

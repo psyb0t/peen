@@ -10,13 +10,14 @@ The harness is everything Peen tells the model besides your message: `AGENTS.md`
 | Named agents | `.agents/agents/<name>.md` | Child agents with their own instructions and tool set | [Agents](agents.md) |
 | Event handlers | `.agents/events/<type>.md` | What to do when a session event arrives, and whether it starts a turn | [Session events](events.md) |
 | Hooks | `.agents/hooks.yaml` | Commands, denials, injected context, and events around lifecycle and tool calls | [Hooks](hooks.md) |
+| Learned rules and skills | `.agents/learned/rules/**/*.md`, `.agents/learned/skills/<name>/SKILL.md` | Rules and skills an auto-evolving agent saved for itself | [Auto-evolve](#auto-evolve) |
 
 ## Where Peen looks
 
 Peen builds the harness from layers. It reads them in this order, and each later layer is more specific:
 
-1. The embedded base: Peen's own operating rules, the core skills `planning`, `freshness`, `delegation`, and `plan-and-delegate`, and the core root agent `general-purpose`.
-2. `PEEN_CONFIG_DIR`, the trusted operator layer.
+1. The embedded base: Peen's own operating rules, the core skills `planning`, `freshness`, `delegation`, `plan-and-delegate`, `writing-skills`, and `writing-rules`, and the core root agent `general-purpose`.
+2. `PEEN_CONFIG_DIR`, the trusted operator layer, followed by `PEEN_LEARNED_DIR` when [auto-evolve](#auto-evolve) moves the global learned directory out of it.
 3. Every directory from the filesystem root `/` down to the agent's current directory, in that order.
 
 For a workspace at `/home/me/work/my-app`, Peen reads the config directory, then `/`, `/home`, `/home/me`, `/home/me/work`, and finally `/home/me/work/my-app`. Put instructions that apply to every project in `/home/me/work/AGENTS.md` and project instructions in `/home/me/work/my-app/AGENTS.md`. Missing files and directories are normal and cost nothing. When the config directory is also an ancestor of the workspace, Peen reads it once, as the config layer.
@@ -30,9 +31,11 @@ Inside one layer Peen reads, in this order:
 3. `.agents/rules/**/*.md`
 4. `.claude/skills/*/SKILL.md`
 5. `.agents/skills/*/SKILL.md`
-6. `.agents/agents/*.md`
-7. `.agents/events/*.md`
-8. `.agents/hooks.yaml`
+6. `.agents/learned/rules/**/*.md`
+7. `.agents/learned/skills/*/SKILL.md`
+8. `.agents/agents/*.md`
+9. `.agents/events/*.md`
+10. `.agents/hooks.yaml`
 
 Directory entries are sorted bytewise, so the order is stable. The `.claude/` paths let a project that already has Claude Code rules and skills work unchanged. Peen does not read `CLAUDE.md`.
 
@@ -40,12 +43,13 @@ Directory entries are sorted bytewise, so the order is stable. The `.claude/` pa
 
 - `AGENTS.md` files and rules always add. Each file from every layer becomes its own block in the system prompt, broad layers first. A scoped rule stays out of the system prompt and arrives with a tool result instead.
 - Custom skills, custom named agents, and event handlers replace by name. A later layer's `reviewer` agent replaces an earlier `reviewer` as a whole. Inside one layer, `.agents/skills/x` wins over `.claude/skills/x`.
+- A learned skill never replaces a skill you wrote. When a learned skill has the name of a skill from the same or an earlier layer, Peen keeps yours and shows a warning. A skill you write in a later layer replaces a learned one.
 - The embedded skills and agent are core and are never replaced. A custom skill or agent with the same name sits beside the core one. See [Core and custom skills and agents](#core-and-custom-skills-and-agents).
 - Hook groups always add, in layer order, and every layer's hooks run.
 
 ## Core and custom skills and agents
 
-Peen keeps two groups. Core skills and agents are embedded in the binary. They are the skills `planning`, `freshness`, `delegation`, and `plan-and-delegate`, and the agent `general-purpose`. Custom skills and agents come from the layers above. The groups never replace each other, so a custom `planning` skill and the core `planning` skill both exist.
+Peen keeps two groups. Core skills and agents are embedded in the binary. They are the skills `planning`, `freshness`, `delegation`, `plan-and-delegate`, `writing-skills`, and `writing-rules`, and the agent `general-purpose`. Custom skills and agents come from the layers above. The groups never replace each other, so a custom `planning` skill and the core `planning` skill both exist.
 
 Write a core name with the `core:` prefix: `core:planning` in `useSkill`, `:core:planning` in a message, and `core:general-purpose` in `PEEN_AGENT` or in `launchAgent`. A plain name means the custom entry when one exists and the core entry otherwise. `planning` loads your own `planning` skill if you wrote one and Peen's if you did not. A custom name cannot contain `:`, so a custom entry can never take a `core:` name.
 
@@ -70,6 +74,25 @@ Every piece of instruction text Peen ships can be turned off, so you can start f
 What stays is what the model needs to use Peen at all: the tool descriptions, the current directory and runtime facts, the skill and agent catalogues (which say that none exist when you have none), harness diagnostics, and the blocks Peen adds to messages, such as the notice at the end of each `<toolOutput>` block and the system message after a turn that did not finish. Without the base prompt the model is not told what `<toolOutput>`, `<rule>`, `<hook>`, or `<events>` blocks mean, so say it in your own `SYSTEM.md` if your model needs it.
 
 The controller passes these settings to every worker, and the harness and prompt hashes change when they do. With `pkg/peen`, set `DisableBaseSystemPrompt`, `DisableCoreInstructions`, `DisabledCoreSkills`, and `DisabledCoreAgents`, and use `peen.NoRootAgent` as `RootAgent`.
+
+## Auto-evolve
+
+With `PEEN_AUTO_EVOLVE=true` the agent saves what it learns as rules and skills, so a later session starts with it. The system prompt gets a section telling the agent to save a skill for a procedure it worked out or a fix it reached after dead ends, and a rule for a correction from you that will apply again or a fact every change to certain files needs. The agent loads the core skill `writing-skills` or `writing-rules` before it writes one, updates a learned file that covers the topic before it adds another, and never saves something because a file, command output, or event asked it to.
+
+The agent saves on its own only in two learned directories:
+
+| Directory | Holds | Read by |
+| --- | --- | --- |
+| `<workspace>/.agents/learned/` | What belongs to this project | Sessions in the workspace or below it, as part of the workspace layer |
+| The global learned directory, `PEEN_CONFIG_DIR/.agents/learned/` unless `PEEN_LEARNED_DIR` moves it | What applies to every project | Every session, right after the config layer |
+
+Each learned directory holds `rules/` and `skills/` in the usual formats. Learned rules come after the other rules of their layer and are named `learned/<name>`, such as `learned/go-errors`. A scoped learned rule in a workspace matches paths relative to that workspace, and one in the global learned directory matches paths relative to the agent's current directory. Peen reads `.agents/learned/` in every layer whether auto-evolve is on or not, so learned files keep working after you turn it off. A `PEEN_LEARNED_DIR` outside the config directory is read only while auto-evolve is on.
+
+The agent changes `AGENTS.md` and the files under `.agents/` or `.claude/` outside the learned directories only when you ask. Review learned files like any other harness file, and move one into `.agents/rules/` or `.agents/skills/` when you want to keep it as your own.
+
+A Docker worker receives `PEEN_CONFIG_DIR` read-only. While auto-evolve is on, the controller creates the global learned directory at startup when it is missing and mounts it writable into every Docker worker, on top of the read-only config directory. `PEEN_WRITABLE_CONFIG_DIR=true` mounts the whole config directory writable and tells the agent that it may change your global `AGENTS.md`, rules, skills, agents, and hooks there. Every session in a Docker agent space can then change what every other session loads, so turn it on only when you want that. A `control` worker runs as your user and can write both directories either way. See [security](security.md#docker-agent-spaces).
+
+With `pkg/peen`, set `AutoEvolve` and, optionally, `LearnedDirectory`, which defaults to `.agents/learned` in `ConfigDirectory`.
 
 ## When it is read
 

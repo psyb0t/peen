@@ -27,9 +27,10 @@ const (
 	agentNameSeparator = ", "
 	agentsNoneMessage  = "no agents are available"
 	// childPromptAdditionalCapacity counts the sections a child prompt adds
-	// around the resolved harness blocks: the base system prompt, the child's
-	// own instructions, the workspace block, and the runtime block.
-	childPromptAdditionalCapacity = 4
+	// around the resolved harness blocks: the base system prompt, the
+	// learning section, the child's own instructions, the workspace block, and
+	// the runtime block.
+	childPromptAdditionalCapacity = 5
 	rootAgentDepth                = 0
 
 	// agentCancelledText and agentFailedLead are the body of the message a
@@ -876,6 +877,11 @@ func (r *Runtime) childSystemPrompt(
 		sections = append(sections, block.Content)
 	}
 
+	learningBlock, err := r.autoEvolveBlock(workspace)
+	if err != nil {
+		return "", err
+	}
+
 	workspaceBlock, err := workspaceMetadataBlock(workspace)
 	if err != nil {
 		return "", err
@@ -883,6 +889,7 @@ func (r *Runtime) childSystemPrompt(
 
 	sections = append(
 		sections,
+		learningBlock,
 		childInstructions,
 		workspaceBlock,
 		r.currentTimeBlock(),

@@ -49,6 +49,12 @@ type Options struct {
 
 	// ConfigDirectory is the global Peen configuration every worker reads.
 	ConfigDirectory string
+	// WritableConfigDirectory mounts ConfigDirectory writable into Docker
+	// workers instead of read-only.
+	WritableConfigDirectory bool
+	// LearnedDirectory is the global learned directory a Docker worker gets
+	// writable, or empty when auto-evolve is off and no worker writes it.
+	LearnedDirectory string
 
 	ReadyTimeout time.Duration
 	StopTimeout  time.Duration
@@ -293,6 +299,9 @@ func (s *Supervisor) recordGeneration(
 		Workspace:       request.Workspace,
 		ConfigDirectory: s.options.ConfigDirectory,
 		AgentSpace:      agentSpace.Name,
+
+		WritableConfigDirectory: s.options.WritableConfigDirectory,
+		LearnedDirectory:        s.options.LearnedDirectory,
 	}, nil
 }
 

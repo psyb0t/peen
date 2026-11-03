@@ -53,7 +53,7 @@ func (r Resolver) resolveVirtual(identity string) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 
-	if err := state.discoverLayer(r.configRoot, 0, true); err != nil {
+	if err := r.discoverConfigLayer(state); err != nil {
 		return Snapshot{}, err
 	}
 

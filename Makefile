@@ -134,7 +134,7 @@ test-real: ## Run opt-in real provider tests with the deployment .env
 # settings pass through the environment to scripts/make/bench.sh, which
 # validates them.
 .PHONY: bench-image bench-build bench-datasets bench-proxy bench-proxy-stop \
-	bench-aider bench-lhtb bench-eval
+	bench-aider bench-lhtb bench-eval bench-evolve
 
 bench-image: ## Build the Harbor benchmark driver image
 	@BENCH_REPO_ROOT="$(CURDIR)" bash scripts/make/bench.sh image
@@ -159,6 +159,9 @@ bench-lhtb: ## Run the LHTB long-horizon tasks, set BENCH_CONTEXT_TOKENS, BENCH_
 
 bench-eval: ## Run Peen's behavior eval tasks from bench/eval, set BENCH_TASKS, BENCH_MODEL, ...
 	@BENCH_REPO_ROOT="$(CURDIR)" bash scripts/make/bench.sh run eval
+
+bench-evolve: ## Run the auto-evolve eval tasks from bench/eval/evolve-tasks with PEEN_AUTO_EVOLVE on
+	@BENCH_REPO_ROOT="$(CURDIR)" bash scripts/make/bench.sh run evolve
 
 web-generate: dev-image ## Regenerate TypeScript API types from api/api.yml
 	@$(DEV_RUN) bash scripts/web/run.sh generate

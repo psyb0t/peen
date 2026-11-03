@@ -18,8 +18,10 @@ import (
 )
 
 // Workflow completion includes SQLite checkpoints under race and coverage
-// instrumentation.
-const workflowTestResultTimeout = time.Minute
+// instrumentation. On a loaded host the eight-agent trees and the paused
+// parallel tools took more than a minute, so the bound leaves a wide margin.
+// A passing test returns as soon as its workflow finishes.
+const workflowTestResultTimeout = 5 * time.Minute
 
 func TestWorkflowDispatchRunsRootThroughOwnedCallbacks(t *testing.T) {
 	t.Parallel()

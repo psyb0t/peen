@@ -130,6 +130,10 @@ type Runtime struct {
 	agentLimits     AgentRunLimits
 	configDirectory string
 
+	autoEvolve              bool
+	learnedDirectory        string
+	writableConfigDirectory bool
+
 	// agentRunsMutex guards agentRuns. An agent run registry is per SESSION,
 	// exactly like jobs above, so a run started by one turn stays listable,
 	// followable, and cancellable from a later one.
@@ -305,6 +309,10 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 		agentLimits:          options.AgentLimits.withDefaults(),
 		configDirectory:      options.ConfigDirectory,
 		agentRuns:            map[uuid.UUID]*AgentRunRegistry{},
+
+		autoEvolve:              options.AutoEvolve,
+		learnedDirectory:        options.LearnedDirectory,
+		writableConfigDirectory: options.WritableConfigDirectory,
 	}
 	if startup.id != uuid.Nil {
 		if err := runtime.recoverSessionChildren(ctx, startup.id); err != nil {
@@ -1655,12 +1663,22 @@ func (r *Runtime) systemPromptForAgent(
 		sections = append(sections, block.Content)
 	}
 
+	learningBlock, err := r.autoEvolveBlock(workspace)
+	if err != nil {
+		return "", err
+	}
+
 	workspaceBlock, err := workspaceMetadataBlock(workspace)
 	if err != nil {
 		return "", err
 	}
 
-	sections = append(sections, workspaceBlock, r.currentTimeBlock())
+	sections = append(
+		sections,
+		learningBlock,
+		workspaceBlock,
+		r.currentTimeBlock(),
+	)
 
 	return joinSystemSections(sections...), nil
 }

@@ -98,6 +98,15 @@ type LaunchDocument struct {
 	// so the database is never reachable through this mount.
 	ConfigDirectory string `json:"configDirectory"`
 
+	// WritableConfigDirectory mounts ConfigDirectory writable, an operator
+	// opt-in through PEEN_WRITABLE_CONFIG_DIR.
+	WritableConfigDirectory bool `json:"writableConfigDirectory,omitempty"`
+
+	// LearnedDirectory is the global learned directory, mounted writable so an
+	// auto-evolving agent can save skills and rules every session loads.
+	// Empty when auto-evolve is off.
+	LearnedDirectory string `json:"learnedDirectory,omitempty"`
+
 	// AgentSpace names the agent space this generation runs under. The worker
 	// reports it back; it cannot choose another.
 	AgentSpace string `json:"agentSpace"`
@@ -130,6 +139,13 @@ func (d LaunchDocument) Validate() error {
 		return ctxerrors.Wrap(
 			commerr.ErrValidationFailed,
 			"worker launch requires absolute workspace and config paths",
+		)
+	}
+
+	if d.LearnedDirectory != "" && !filepath.IsAbs(d.LearnedDirectory) {
+		return ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"worker launch requires an absolute learned directory",
 		)
 	}
 

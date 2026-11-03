@@ -179,6 +179,9 @@ func embeddingAssembly(
 			harness.WithCoreInstructionsDisabled(
 				options.DisableCoreInstructions,
 			),
+			harness.WithLearnedDirectory(
+				configuration.runtime.LearnedDirectory,
+			),
 		},
 		StoreOptions: session.Options{
 			Clock:                 options.Clock,

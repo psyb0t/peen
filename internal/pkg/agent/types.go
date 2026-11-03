@@ -428,6 +428,14 @@ type RuntimeOptions struct {
 	// BaseSystemPrompt with no SYSTEM.md gives an empty base prompt.
 	DisableBaseSystemPrompt bool
 
+	// AutoEvolve adds a section telling the agent to save skills and rules it
+	// learns in the workspace's .agents/learned and in LearnedDirectory.
+	// WritableConfigDirectory also tells it that it may change the files in
+	// ConfigDirectory.
+	AutoEvolve              bool
+	LearnedDirectory        string
+	WritableConfigDirectory bool
+
 	// MaxSystemPromptBytes bounds a request's own prompt text. Zero takes the
 	// package default.
 	MaxSystemPromptBytes int

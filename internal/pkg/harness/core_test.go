@@ -14,6 +14,8 @@ const (
 	testCoreFreshnessName    = CorePrefix + "freshness"
 	testCoreDelegationName   = CorePrefix + embeddedDelegationSkillName
 	testCorePlanDelegateName = CorePrefix + embeddedPlanAndDelegateSkillName
+	testCoreWritingRules     = CorePrefix + embeddedWritingRulesSkillName
+	testCoreWritingSkills    = CorePrefix + embeddedWritingSkillsSkillName
 	testCoreGeneralPurpose   = CorePrefix + embeddedGeneralPurposeAgentName
 	testCustomPlanningBody   = "custom planning content"
 	testCustomAgentBody      = "custom general purpose instructions"
@@ -101,6 +103,8 @@ func TestCoreAndCustomSkillsCoexistUnderOneName(t *testing.T) {
 			testCoreFreshnessName,
 			testCorePlanDelegateName,
 			testCorePlanningName,
+			testCoreWritingRules,
+			testCoreWritingSkills,
 			embeddedPlanningSkillName,
 		},
 		skillNames(snapshot.Skills()),
@@ -221,6 +225,8 @@ func TestDisabledCoreSkillIsGoneEverywhere(t *testing.T) {
 			testCoreDelegationName,
 			testCoreFreshnessName,
 			testCorePlanDelegateName,
+			testCoreWritingRules,
+			testCoreWritingSkills,
 		},
 		skillNames(snapshot.Skills()),
 	)
@@ -522,7 +528,7 @@ func TestManifestSeparatesCoreFromCustomEntries(t *testing.T) {
 		}
 	}
 
-	require.Len(t, byName, 7)
+	require.Len(t, byName, 9)
 	assert.True(t, strings.HasPrefix(
 		byName["skill "+testCorePlanningName].Source,
 		embeddedSourcePrefix,
@@ -731,7 +737,8 @@ func TestUnknownDisabledCoreNameMessageIsExact(t *testing.T) {
 		t,
 		err.Error(),
 		`core skill "bogus" does not exist, valid names are `+
-			`delegation, freshness, plan-and-delegate, planning and all`,
+			`delegation, freshness, plan-and-delegate, planning, `+
+			`writing-rules, writing-skills and all`,
 	)
 
 	_, err = ParseDisabledCoreAgents("bogus")
@@ -855,6 +862,8 @@ func allCoreSkillNames() []string {
 		embeddedFreshnessSkillName,
 		embeddedPlanAndDelegateSkillName,
 		embeddedPlanningSkillName,
+		embeddedWritingRulesSkillName,
+		embeddedWritingSkillsSkillName,
 	}
 }
 
@@ -865,6 +874,8 @@ func allCoreSkillRefs() []string {
 		testCoreFreshnessName,
 		testCorePlanDelegateName,
 		testCorePlanningName,
+		testCoreWritingRules,
+		testCoreWritingSkills,
 	}
 }
 

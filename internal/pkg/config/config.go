@@ -41,6 +41,11 @@ const (
 // must match the default tag on Config.Agent.
 const DefaultAgent = harness.CorePrefix + "general-purpose"
 
+// defaultLearnedDirectoryPath is PEEN_LEARNED_DIR's default inside
+// PEEN_CONFIG_DIR: the config layer's own learned directory, which every
+// session already reads.
+const defaultLearnedDirectoryPath = ".agents/learned"
+
 // PEEN_COMPACTION_SUMMARY_PERCENT default and ceiling. A summary above half
 // the context leaves too little room for the conversation it makes room for.
 const (
@@ -116,6 +121,16 @@ type Config struct {
 	DisableCoreInstructions bool `default:"false" env:"PEEN_DISABLE_CORE_INSTRUCTIONS"`  //nolint:lll // Immutable env tag.
 	DisableBaseSystemPrompt bool `default:"false" env:"PEEN_DISABLE_BASE_SYSTEM_PROMPT"` //nolint:lll // Immutable env tag.
 	BlankAgent              bool `default:"false" env:"PEEN_BLANK_AGENT"`
+
+	// AutoEvolve lets the agent write and update its own skills and rules in
+	// the learned directories. LearnedDirectory is the global one, every
+	// session's learned layer, defaulting to .agents/learned in
+	// PEEN_CONFIG_DIR.
+	// WritableConfigDirectory mounts PEEN_CONFIG_DIR writable into Docker
+	// workers and tells the agent it may change the files there.
+	AutoEvolve              bool   `default:"false" env:"PEEN_AUTO_EVOLVE"`
+	LearnedDirectory        string `env:"PEEN_LEARNED_DIR"`
+	WritableConfigDirectory bool   `default:"false" env:"PEEN_WRITABLE_CONFIG_DIR"` //nolint:lll // Immutable env tag.
 
 	UpstreamsJSON   string `env:"PEEN_UPSTREAMS,required"`
 	DefaultModel    string `env:"PEEN_DEFAULT_MODEL,required"`
@@ -358,6 +373,26 @@ func (c Config) validate(requireStateDirectory bool) error {
 	return nil
 }
 
+// LearnedDir is the global learned directory: PEEN_LEARNED_DIR, or
+// .agents/learned inside PEEN_CONFIG_DIR.
+func (c Config) LearnedDir() string {
+	if strings.TrimSpace(c.LearnedDirectory) != "" {
+		return filepath.Clean(c.LearnedDirectory)
+	}
+
+	return filepath.Join(c.ConfigDirectory, defaultLearnedDirectoryPath)
+}
+
+// WorkerLearnedDirectory is the learned directory Docker workers get
+// writable: LearnedDir when auto-evolve is on, and empty otherwise.
+func (c Config) WorkerLearnedDirectory() string {
+	if !c.AutoEvolve {
+		return ""
+	}
+
+	return c.LearnedDir()
+}
+
 // CoreInstructionsDisabled reports whether the embedded AGENTS.md stays out
 // of the system prompt.
 func (c Config) CoreInstructionsDisabled() bool {
@@ -506,7 +541,57 @@ func (c Config) validateDirectories(requireStateDirectory bool) error {
 		)
 	}
 
+	return c.validateLearnedDirectory(requireStateDirectory)
+}
+
+// validateLearnedDirectory keeps the global learned directory, which an
+// auto-evolving Docker worker receives writable, away from the directories
+// that must stay read-only or private. It may sit inside PEEN_CONFIG_DIR, but
+// may not be or contain it, and may not overlap PEEN_STATE_DIR or the worker
+// socket root.
+func (c Config) validateLearnedDirectory(requireStateDirectory bool) error {
+	learned := c.LearnedDir()
+	if !filepath.IsAbs(learned) {
+		return ctxerrors.Wrap(
+			ErrInvalidConfig,
+			"PEEN_LEARNED_DIR must be absolute",
+		)
+	}
+
+	config := filepath.Clean(c.ConfigDirectory)
+	if learned == config || isAncestorPath(learned, config) {
+		return ctxerrors.Wrap(
+			ErrInvalidConfig,
+			"PEEN_LEARNED_DIR must not be or contain PEEN_CONFIG_DIR",
+		)
+	}
+
+	if !requireStateDirectory {
+		return nil
+	}
+
+	for _, private := range []string{c.StateDirectory, c.WorkerSocketRoot()} {
+		if PathsOverlap(learned, private) {
+			return ctxerrors.Wrap(
+				ErrInvalidConfig,
+				"PEEN_LEARNED_DIR must not overlap PEEN_STATE_DIR "+
+					"or PEEN_WORKER_SOCKET_DIR",
+			)
+		}
+	}
+
 	return nil
+}
+
+// PathsOverlap reports whether two absolute paths are the same directory or
+// one contains the other, compared after cleaning.
+func PathsOverlap(first, second string) bool {
+	first = filepath.Clean(first)
+	second = filepath.Clean(second)
+
+	return first == second ||
+		isAncestorPath(first, second) ||
+		isAncestorPath(second, first)
 }
 
 // validateDockerHostIdentity keeps the two explicit host-identity values

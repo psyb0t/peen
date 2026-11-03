@@ -927,7 +927,8 @@ func TestRuntimeRefusesADisabledCoreSkillNamedInAMessage(t *testing.T) {
 		t,
 		`unknown skill "core:planning" in :core:planning; `+
 			`available skills: core:delegation, core:freshness, `+
-			`core:plan-and-delegate`,
+			`core:plan-and-delegate, core:writing-rules, `+
+			`core:writing-skills`,
 		unknown.Message,
 	)
 }

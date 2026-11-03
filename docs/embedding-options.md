@@ -9,6 +9,8 @@ These are the in-process equivalents of deployment settings. `pkg/peen` accepts 
 | `PEEN_AGENT` | `RootAgent` | `required explicitly` |
 | `PEEN_DISABLED_CORE_SKILLS` | `DisabledCoreSkills` | empty |
 | `PEEN_DISABLED_CORE_AGENTS` | `DisabledCoreAgents` | empty |
+| `PEEN_AUTO_EVOLVE` | `AutoEvolve` | `false` |
+| `PEEN_LEARNED_DIR` | `LearnedDirectory` | `ConfigDirectory + "/.agents/learned"` |
 | `PEEN_UPSTREAMS` | `Models or ModelResolver` | `caller-supplied` |
 | `PEEN_DEFAULT_MODEL` | `DefaultModel` | `caller-supplied` |
 | `PEEN_COMPACTION_MODEL` | `CompactionModel` | `DefaultModel` |

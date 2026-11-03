@@ -12,7 +12,7 @@ Peen runs model-chosen commands with real access to a workspace, so its own boun
 
 ## Directories and workspaces
 
-- `PEEN_CONFIG_DIR` is read by every Docker worker, read-only. Put nothing there that one session must not see. A `control` worker runs as the controller's user and can write it.
+- `PEEN_CONFIG_DIR` is read by every Docker worker, read-only unless the operator sets `PEEN_WRITABLE_CONFIG_DIR`. Put nothing there that one session must not see. A `control` worker runs as the controller's user and can write it. With `PEEN_AUTO_EVOLVE`, Docker workers also get the global learned directory (`PEEN_LEARNED_DIR`) writable, and startup refuses one that is or contains the config directory or overlaps the state directory, the worker socket root, or the audit log directory. `internal/pkg/config/learneddirectory_test.go` holds that rule.
 - `PEEN_STATE_DIR` holds SQLite, audit logs, and worker sockets. No Docker worker receives it, so one Docker session cannot read another's transcript. A `control` worker runs as the controller's user and can read it, and the docs say so. Startup refuses a state directory equal to, inside, or containing the config directory, after resolving symlinks.
 - A requested workspace is resolved through its symlinks and must sit inside `PEEN_WORKSPACE_ROOT`. Anything outside answers `WORKSPACE_NOT_ALLOWED` and creates nothing.
 - A workspace may not be, contain, or sit inside the state directory, the worker socket root, or the audit log directory, and may not be or contain the config directory, because a Docker worker mounts its workspace writable. The refusal is the same `WORKSPACE_NOT_ALLOWED` and names no directory. `internal/pkg/control/workspace_test.go` and `tests/api/workspacepolicy_test.go` hold that rule.

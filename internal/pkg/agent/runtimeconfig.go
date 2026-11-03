@@ -31,6 +31,10 @@ func RuntimeOptionsFromConfig(
 
 		DisableBaseSystemPrompt: deployment.BaseSystemPromptDisabled(),
 
+		AutoEvolve:              deployment.AutoEvolve,
+		LearnedDirectory:        deployment.WorkerLearnedDirectory(),
+		WritableConfigDirectory: deployment.WritableConfigDirectory,
+
 		MaxContextTokens:    deployment.MaxContextTokens,
 		OutputReserveTokens: deployment.OutputReserveTokens,
 		ModelRequestTimeout: deployment.ModelRequestTimeout,
@@ -136,6 +140,7 @@ func HarnessOptions(
 		harness.WithCoreInstructionsDisabled(
 			deployment.CoreInstructionsDisabled(),
 		),
+		harness.WithLearnedDirectory(deployment.WorkerLearnedDirectory()),
 	}, nil
 }
 

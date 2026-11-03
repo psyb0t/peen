@@ -138,6 +138,19 @@ func (s *ControlCore) Run(ctx context.Context) (runErr error) {
 
 	logValidatedConfig(ctx, config, upstreams)
 
+	auditLogDirectory, err := s.dependencies.auditLogDirectory()
+	if err != nil {
+		return ctxerrors.Wrap(err, "load the audit log directory")
+	}
+
+	if err := prepareLearnedDirectory(
+		ctx,
+		config,
+		auditLogDirectory,
+	); err != nil {
+		return err
+	}
+
 	core, err := s.openCore(ctx, config, upstreams)
 	if err != nil {
 		return err
@@ -365,6 +378,9 @@ func newWorkerSupervisor(
 		SocketRoot:       config.WorkerSocketRoot(),
 		ConfigDirectory:  config.ConfigDirectory,
 		ResumeAfterCrash: config.ResumesAfterCrash(),
+
+		WritableConfigDirectory: config.WritableConfigDirectory,
+		LearnedDirectory:        config.WorkerLearnedDirectory(),
 	})
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create the worker supervisor")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
@@ -31,6 +32,12 @@ const (
 	defaultModelRequestTimeout = 10 * time.Minute
 	stateDirectorySuffix       = "-state"
 	temporaryStatePrefix       = "peen-state-"
+
+	// defaultLearnedDirectoryParent and defaultLearnedDirectoryName place the
+	// default global learned directory at .agents/learned in the config
+	// directory, the config layer's own learned directory.
+	defaultLearnedDirectoryParent = ".agents"
+	defaultLearnedDirectoryName   = "learned"
 )
 
 // Runtime owns storage and execution for one or more durable sessions.
@@ -163,6 +170,30 @@ func removeTemporaryState(path string) error {
 	return nil
 }
 
+// learnedDirectory is the global learned directory an auto-evolving runtime
+// reads and names to its agent: Options.LearnedDirectory, or .agents/learned
+// in the config directory. It is empty when auto-evolve is off or there is
+// neither.
+func learnedDirectory(configDirectory string, options Options) string {
+	if !options.AutoEvolve {
+		return ""
+	}
+
+	if options.LearnedDirectory != "" {
+		return filepath.Clean(options.LearnedDirectory)
+	}
+
+	if configDirectory == "" {
+		return ""
+	}
+
+	return filepath.Join(
+		configDirectory,
+		defaultLearnedDirectoryParent,
+		defaultLearnedDirectoryName,
+	)
+}
+
 // runtimeOptions maps embedding values to the shared assembly pipeline.
 func runtimeOptions(
 	configDirectory string,
@@ -182,6 +213,8 @@ func runtimeOptions(
 		AppendSystemPrompt:  options.AppendSystemPrompt,
 
 		DisableBaseSystemPrompt: options.DisableBaseSystemPrompt,
+		AutoEvolve:              options.AutoEvolve,
+		LearnedDirectory:        learnedDirectory(configDirectory, options),
 		AskTimeout:              options.AskTimeout,
 		ToolLimits:              tools.Limits(options.ToolLimits),
 		AgentLimits:             agent.AgentRunLimits(options.AgentLimits),

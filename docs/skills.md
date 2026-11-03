@@ -22,7 +22,9 @@ my-app/
 
 Peen reads `.claude/skills/<name>/SKILL.md` and `.agents/skills/<name>/SKILL.md`. Every entry in a `skills/` directory must be a directory. A stray file there is reported as "skill entry is not a directory".
 
-Peen ships four core skills of its own, `planning`, `freshness`, `delegation`, and `plan-and-delegate`. A skill you define with the same name does not replace one. Both exist, and [core and custom skills](#core-and-custom-skills) explains how a name picks between them.
+With [auto-evolve](harness.md#auto-evolve) on, the agent saves its own skills in `.agents/learned/skills/<name>/SKILL.md` instead. A learned skill never replaces a skill you wrote.
+
+Peen ships six core skills of its own, `planning`, `freshness`, `delegation`, `plan-and-delegate`, `writing-skills`, and `writing-rules`. A skill you define with the same name does not replace one. Both exist, and [core and custom skills](#core-and-custom-skills) explains how a name picks between them.
 
 ## Format
 
@@ -64,6 +66,8 @@ Skills come in two groups. Core skills are embedded in Peen. Custom skills are t
 | `freshness` | Check facts that change over time against a current source instead of memory. |
 | `delegation` | Hand parts of a task to child agents, talk to them while they work, and collect their answers. See [running children](agents.md#running-children). |
 | `plan-and-delegate` | Plan a larger change, split it into parts that touch different files, delegate each part, and verify the combined result. |
+| `writing-skills` | Write or update a skill: where it goes, how to name it, and what stays out of it. |
+| `writing-rules` | Write or update a rule, scoped with `paths` to the files it covers. |
 
 A core skill is addressed with the `core:` prefix: `core:planning` in `useSkill`, `:core:planning` in a message. A plain name means the custom skill when one exists and the core skill otherwise. With no custom `planning` skill, `:planning` loads the core one. Once you write `.agents/skills/planning/SKILL.md`, `:planning` loads yours and `:core:planning` still loads Peen's. A custom skill name cannot contain `:`.
 

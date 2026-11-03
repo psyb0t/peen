@@ -65,21 +65,27 @@ type Options struct {
 	// DisableBaseSystemPrompt leaves out the embedded base prompt when
 	// BaseSystemPrompt is empty and ConfigDirectory has no SYSTEM.md.
 	DisableBaseSystemPrompt bool
-	ToolLimits              ToolLimits
-	AgentLimits             AgentLimits
-	HarnessLimits           HarnessLimits
-	EventLimits             EventLimits
-	Tools                   []Tool
-	DisableTools            []string
-	ModelResolver           ModelResolver
-	Hooks                   map[string]HookHandler
-	Filesystem              FS
-	WorkspaceID             string
-	Harness                 []HarnessLayer
-	Logger                  *slog.Logger
-	MetricsRegisterer       prometheus.Registerer
-	AuditLog                AuditLogOptions
-	CommandRunner           commander.Commander
+	// AutoEvolve tells the agent to save the skills and rules it learns in
+	// the workspace's .agents/learned and in LearnedDirectory, which every
+	// session reads. Empty LearnedDirectory takes .agents/learned inside
+	// ConfigDirectory.
+	AutoEvolve        bool
+	LearnedDirectory  string
+	ToolLimits        ToolLimits
+	AgentLimits       AgentLimits
+	HarnessLimits     HarnessLimits
+	EventLimits       EventLimits
+	Tools             []Tool
+	DisableTools      []string
+	ModelResolver     ModelResolver
+	Hooks             map[string]HookHandler
+	Filesystem        FS
+	WorkspaceID       string
+	Harness           []HarnessLayer
+	Logger            *slog.Logger
+	MetricsRegisterer prometheus.Registerer
+	AuditLog          AuditLogOptions
+	CommandRunner     commander.Commander
 	// ConfigDirectory must already exist. It holds the optional SYSTEM.md,
 	// APPEND_SYSTEM.md, COMPACTION.md and trusted harness files.
 	ConfigDirectory string

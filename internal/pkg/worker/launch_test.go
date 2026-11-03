@@ -131,6 +131,62 @@ func TestCredentialMatching(t *testing.T) {
 	assert.False(t, worker.Credential("").Matches(hash))
 }
 
+// The learned directory is optional in a launch document, and absolute when
+// present, because a Docker worker mounts it at its literal path. It survives
+// an encode and decode round trip.
+func TestLaunchDocumentLearnedDirectory(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name    string
+		learned string
+		wantErr error
+	}{
+		{name: "absent"},
+		{name: "absolute", learned: "/etc/peen/.agents/learned"},
+		{
+			name:    "relative",
+			learned: "learned",
+			wantErr: commerr.ErrValidationFailed,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sessionID := uuid.New()
+			document := worker.LaunchDocument{
+				SessionID:               sessionID,
+				GenerationID:            uuid.New(),
+				Credential:              worker.Credential("test-credential"),
+				SocketPath:              worker.SocketPathFor(testSocketRoot, sessionID),
+				Workspace:               "/srv/work/project",
+				ConfigDirectory:         "/etc/peen",
+				WritableConfigDirectory: true,
+				LearnedDirectory:        tc.learned,
+				AgentSpace:              "docker:sandbox",
+			}
+
+			err := document.Validate()
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			encoded, err := document.Encode()
+			require.NoError(t, err)
+
+			decoded, err := worker.DecodeLaunchDocument(encoded)
+			require.NoError(t, err)
+			assert.Equal(t, document, decoded)
+		})
+	}
+}
+
 // socketRootOfPathLength builds a root whose longest session socket path is
 // exactly want bytes.
 func socketRootOfPathLength(t *testing.T, want int) string {

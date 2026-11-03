@@ -18,6 +18,8 @@ const (
 	embeddedPlanningSkillName        = "planning"
 	embeddedDelegationSkillName      = "delegation"
 	embeddedPlanAndDelegateSkillName = "plan-and-delegate"
+	embeddedWritingSkillsSkillName   = "writing-skills"
+	embeddedWritingRulesSkillName    = "writing-rules"
 
 	embeddedGeneralPurposeAgentName = "general-purpose"
 )
@@ -41,6 +43,8 @@ func embeddedSkillAssets() []embeddedSkillAsset {
 		embeddedSkillAssetFor(embeddedPlanningSkillName),
 		embeddedSkillAssetFor(embeddedDelegationSkillName),
 		embeddedSkillAssetFor(embeddedPlanAndDelegateSkillName),
+		embeddedSkillAssetFor(embeddedWritingSkillsSkillName),
+		embeddedSkillAssetFor(embeddedWritingRulesSkillName),
 	}
 }
 
@@ -80,6 +84,8 @@ func embeddedAgentAssetFor(name string) embeddedAgentAsset {
 //go:embed builtin/skills/planning/SKILL.md
 //go:embed builtin/skills/delegation/SKILL.md
 //go:embed builtin/skills/plan-and-delegate/SKILL.md
+//go:embed builtin/skills/writing-skills/SKILL.md
+//go:embed builtin/skills/writing-rules/SKILL.md
 var embeddedHarness embed.FS
 
 func embeddedHarnessAsset(name string) (string, error) {

@@ -160,7 +160,7 @@ func TestResolverIncludesEmbeddedBaseHarness(t *testing.T) {
 	)
 
 	manifest := snapshot.Manifest()
-	require.Len(t, manifest, 6)
+	require.Len(t, manifest, 8)
 	assert.Equal(t, embeddedInstructionSource, manifest[0].Source)
 
 	for index, name := range allCoreSkillNames() {
@@ -175,7 +175,7 @@ func TestResolverIncludesEmbeddedBaseHarness(t *testing.T) {
 		t,
 		embeddedAgentsSourcePrefix+embeddedGeneralPurposeAgentName+
 			agentsFileExtension,
-		manifest[5].Source,
+		manifest[len(allCoreSkillNames())+1].Source,
 	)
 }
 

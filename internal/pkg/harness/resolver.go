@@ -23,6 +23,7 @@ const (
 	claudeDirectoryName         = ".claude"
 	rulesDirectoryName          = "rules"
 	skillsDirectoryName         = "skills"
+	learnedDirectoryName        = "learned"
 	agentsSubdirectory          = "agents"
 	eventHandlersSubdirectory   = "events"
 	hooksFileName               = "hooks.yaml"
@@ -61,6 +62,10 @@ type Resolver struct {
 	disabledSkills []string
 	disabledAgents []string
 
+	// learnedDirectory is the global learned directory, read right after
+	// the config layer. Empty when the caller set none.
+	learnedDirectory string
+
 	withoutCoreInstructions bool
 }
 
@@ -91,6 +96,10 @@ type resolutionState struct {
 type discoveredSkill struct {
 	skill   Skill
 	content string
+
+	// learned marks a skill from a learned directory, which never replaces
+	// a skill of the same name that the user wrote.
+	learned bool
 }
 
 type manifestSnapshot struct {
@@ -149,8 +158,49 @@ func NewResolver(
 		disabledSkills: settings.disabledSkills,
 		disabledAgents: settings.disabledAgents,
 
+		learnedDirectory:        settings.learnedDirectory,
 		withoutCoreInstructions: settings.withoutCoreInstructions,
 	}, nil
+}
+
+// discoverConfigLayer reads the config layer and then the global learned
+// directory from the host filesystem, both at the config layer's priority.
+// The default global learned directory is the config layer's own
+// .agents/learned, which the config layer has already read.
+func (r Resolver) discoverConfigLayer(state *resolutionState) error {
+	if err := state.discoverLayer(r.configRoot, 0, true); err != nil {
+		return ctxerrors.Wrap(err, "discover config layer")
+	}
+
+	if r.learnedDirectory == "" {
+		return nil
+	}
+
+	learned, found, err := optionalCanonicalPath(r.learnedDirectory)
+	if err != nil {
+		state.warn(SourceKindRule, r.learnedDirectory, err)
+
+		return nil
+	}
+
+	if !found {
+		return nil
+	}
+
+	configLearned, _, err := optionalCanonicalPath(filepath.Join(
+		r.configRoot,
+		agentsDirectoryName,
+		learnedDirectoryName,
+	))
+	if err != nil {
+		return ctxerrors.Wrap(err, "resolve config layer learned directory")
+	}
+
+	if learned == configLearned {
+		return nil
+	}
+
+	return state.discoverLearned(learned, "", 0)
 }
 
 // Resolve rebuilds the harness snapshot for the selected workspace.
@@ -177,18 +227,8 @@ func (r Resolver) Resolve(workspace string) (Snapshot, error) {
 		return Snapshot{}, ctxerrors.Wrap(err, "discover embedded harness")
 	}
 
-	for priority, layer := range layers {
-		if err := state.discoverLayer(
-			layer,
-			priority,
-			layer == r.configRoot,
-		); err != nil {
-			return Snapshot{}, ctxerrors.Wrapf(
-				err,
-				"discover harness layer %s",
-				layer,
-			)
-		}
+	if err := r.discoverLayers(state, layers); err != nil {
+		return Snapshot{}, err
 	}
 
 	if err := state.discoverNestedInstructions(
@@ -212,6 +252,29 @@ func (r Resolver) Resolve(workspace string) (Snapshot, error) {
 	}
 
 	return snapshot, nil
+}
+
+// discoverLayers reads the config layer and then each workspace ancestor, in
+// order, with the ancestor's index as its priority.
+func (r Resolver) discoverLayers(
+	state *resolutionState,
+	layers []string,
+) error {
+	for priority, layer := range layers {
+		if layer == r.configRoot {
+			if err := r.discoverConfigLayer(state); err != nil {
+				return err
+			}
+
+			continue
+		}
+
+		if err := state.discoverLayer(layer, priority, false); err != nil {
+			return ctxerrors.Wrapf(err, "discover harness layer %s", layer)
+		}
+	}
+
+	return nil
 }
 
 func canonicalDirectory(path string) (string, error) {
@@ -497,17 +560,17 @@ func (s *resolutionState) discoverLayer(
 		return ctxerrors.Wrap(err, "discover instruction file")
 	}
 
-	ruleBase := layer
-	if configLayer {
-		ruleBase = ""
-	}
-
-	if err := s.discoverRules(layer, ruleBase, priority); err != nil {
+	if err := s.discoverRules(
+		layer,
+		layerRuleBase(layer, configLayer),
+		priority,
+	); err != nil {
 		return ctxerrors.Wrap(err, "discover rule files")
 	}
 
 	if err := s.discoverSkillsDirectory(
 		filepath.Join(layer, claudeDirectoryName, skillsDirectoryName),
+		false,
 	); err != nil {
 		return ctxerrors.Wrap(err, "discover Claude-compatible skills")
 	}
@@ -541,8 +604,17 @@ func (s *resolutionState) discoverAgentsDirectory(
 
 	if err := s.discoverSkillsDirectory(
 		filepath.Join(agentsDirectory, skillsDirectoryName),
+		false,
 	); err != nil {
 		return ctxerrors.Wrap(err, "discover skills")
+	}
+
+	if err := s.discoverLearned(
+		filepath.Join(agentsDirectory, learnedDirectoryName),
+		layerRuleBase(layer, configLayer),
+		priority,
+	); err != nil {
+		return ctxerrors.Wrap(err, "discover learned directory")
 	}
 
 	if err := s.discoverNamedAgents(agentsDirectory); err != nil {
@@ -793,6 +865,48 @@ func (s *resolutionState) discoverRules(
 	return nil
 }
 
+// layerRuleBase is the directory a layer's scoped rules match against: the
+// layer itself, or empty for the config layer, whose rules match the resolved
+// directory.
+func layerRuleBase(layer string, configLayer bool) string {
+	if configLayer {
+		return ""
+	}
+
+	return layer
+}
+
+// discoverLearned reads one learned directory: rules/ and skills/ the agent
+// wrote for itself. Its rules are named learned/<name>, after the layer's own
+// rules, and its skills never replace a skill of the same name a user wrote.
+func (s *resolutionState) discoverLearned(
+	directory string,
+	base string,
+	priority int,
+) error {
+	location := ruleLocation{
+		base:     base,
+		priority: priority,
+		prefix:   learnedDirectoryName,
+	}
+
+	if err := s.discoverRuleDirectory(
+		filepath.Join(directory, rulesDirectoryName),
+		location,
+	); err != nil {
+		return ctxerrors.Wrap(err, "discover learned rules")
+	}
+
+	if err := s.discoverSkillsDirectory(
+		filepath.Join(directory, skillsDirectoryName),
+		true,
+	); err != nil {
+		return ctxerrors.Wrap(err, "discover learned skills")
+	}
+
+	return nil
+}
+
 // ruleLocation is where a rule directory sits: the base its scoped rules
 // match against, the layer priority, and its path below the rules directory.
 type ruleLocation struct {
@@ -939,6 +1053,7 @@ func (s *resolutionState) discoverRule(
 
 func (s *resolutionState) discoverSkillsDirectory(
 	skillsDirectory string,
+	learned bool,
 ) error {
 	resolvedDirectory, found, err := s.optionalDirectory(skillsDirectory)
 	if err != nil {
@@ -974,7 +1089,11 @@ func (s *resolutionState) discoverSkillsDirectory(
 			SourceKindSkill,
 			filepath.Join(resolvedDirectory, entry.Name()),
 			func() error {
-				return s.discoverSkill(resolvedDirectory, entry.Name())
+				return s.discoverSkill(
+					resolvedDirectory,
+					entry.Name(),
+					learned,
+				)
 			},
 		); err != nil {
 			return ctxerrors.Wrap(err, "discover skill")
@@ -987,6 +1106,7 @@ func (s *resolutionState) discoverSkillsDirectory(
 func (s *resolutionState) discoverSkill(
 	skillsDirectory string,
 	entryName string,
+	learned bool,
 ) error {
 	skillDirectory, err := s.canonicalDirectory(
 		filepath.Join(skillsDirectory, entryName),
@@ -1022,13 +1142,44 @@ func (s *resolutionState) discoverSkill(
 		)
 	}
 
-	return s.registerSkill(
+	if err := s.refuseLearnedReplacement(metadata.Name, learned); err != nil {
+		return err
+	}
+
+	if err := s.registerSkill(
 		metadata.Name,
 		metadata,
 		source,
 		skillDirectory,
 		content,
 		true,
+	); err != nil {
+		return ctxerrors.Wrap(err, "register skill")
+	}
+
+	discovered := s.skills[metadata.Name]
+	discovered.learned = learned
+	s.skills[metadata.Name] = discovered
+
+	return nil
+}
+
+// refuseLearnedReplacement keeps a learned skill from replacing a skill of
+// the same name that a user wrote in an earlier layer.
+func (s *resolutionState) refuseLearnedReplacement(
+	name string,
+	learned bool,
+) error {
+	existing, found := s.skills[name]
+	if !learned || !found || existing.learned {
+		return nil
+	}
+
+	return ctxerrors.Wrapf(
+		ErrInvalidSkill,
+		"learned skill %s does not replace the skill in %s",
+		name,
+		existing.skill.Source,
 	)
 }
 

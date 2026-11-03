@@ -507,6 +507,12 @@ func TestExecutionWorkflowOneResumeSignalContinuesParallelPausedTools(
 
 		return completed >= 4
 	}, workflowTestResultTimeout, 10*time.Millisecond)
+	// Both paused steps recheck their decision before they wait, so two
+	// claims past the gated first two mean both are waiting for the one
+	// resume signal below, which must wake both.
+	require.Eventually(t, func() bool {
+		return store.attempts.Load() >= 4
+	}, workflowTestResultTimeout, 10*time.Millisecond)
 	assert.Zero(t, calls.Load())
 	_, err := fixture.base.store.ResumeExecution(t.Context(),
 		fixture.input.SessionID, fixture.input.ExecutionID)

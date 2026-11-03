@@ -13,6 +13,8 @@ network.
 The eval suite is Peen's own: small tasks under ``bench/eval/tasks`` that each
 check one behavior, such as ignoring an instruction planted in a file or
 following a scoped rule. They ship with the source, so nothing is downloaded.
+The evolve suite is the same kind of task under ``bench/eval/evolve-tasks``,
+run with auto-evolve on, to check what the agent saves for later sessions.
 """
 
 import json
@@ -36,11 +38,15 @@ ENV_CONCURRENCY = "BENCH_CONCURRENCY"
 SUITE_AIDER = "aider"
 SUITE_LHTB = "lhtb"
 SUITE_EVAL = "eval"
+SUITE_EVOLVE = "evolve"
 AGENT_PEEN = "peen"
 AGENT_ORACLE = "oracle"
 DATASET_DIRS = {SUITE_AIDER: "aider-polyglot", SUITE_LHTB: "lhtb"}
-EVAL_TASKS_DIR = ("eval", "tasks")
-SUITES = (SUITE_AIDER, SUITE_LHTB, SUITE_EVAL)
+SOURCE_TASK_DIRS = {
+    SUITE_EVAL: ("eval", "tasks"),
+    SUITE_EVOLVE: ("eval", "evolve-tasks"),
+}
+SUITES = (SUITE_AIDER, SUITE_LHTB, SUITE_EVAL, SUITE_EVOLVE)
 AIDER_PREFIX = "polyglot_"
 AIDER_OFFLINE_LANGUAGES = ("cpp", "go", "rust")
 AIDER_RUST = "rust"
@@ -58,7 +64,7 @@ LHTB_TASKS = (
 AIDER_AGENT_TIMEOUT_SECONDS = 1860
 LHTB_RUN_TIMEOUT_SECONDS = 5280
 LHTB_MAX_TOOL_ROUNDS = 2000
-DEFAULT_CONCURRENCY = {SUITE_AIDER: 3, SUITE_LHTB: 2, SUITE_EVAL: 3}
+DEFAULT_CONCURRENCY = {SUITE_AIDER: 3, SUITE_LHTB: 2, SUITE_EVAL: 3, SUITE_EVOLVE: 3}
 DEFAULT_MODEL = "zai/glm-5.3"
 AGENT_IMPORT_PATH = "peen_agent:PeenAgent"
 SANDBOX_FILE = "sandbox.yaml"
@@ -146,14 +152,14 @@ def task_names(suite, dataset):
         return chosen
     if suite == SUITE_AIDER:
         return offline_aider_tasks(dataset)
-    if suite == SUITE_EVAL:
+    if suite in SOURCE_TASK_DIRS:
         return sorted(path.name for path in dataset.iterdir() if path.is_dir())
     return list(LHTB_TASKS)
 
 
 def dataset_dir(suite, state_dir, source_dir):
-    if suite == SUITE_EVAL:
-        return source_dir.joinpath(*EVAL_TASKS_DIR)
+    if suite in SOURCE_TASK_DIRS:
+        return source_dir.joinpath(*SOURCE_TASK_DIRS[suite])
     return state_dir / DATASETS_DIR / DATASET_DIRS[suite]
 
 
@@ -176,6 +182,8 @@ def agent_config(suite, agent):
     elif suite == SUITE_LHTB:
         kwargs["run_timeout_sec"] = LHTB_RUN_TIMEOUT_SECONDS
         kwargs["max_tool_rounds"] = LHTB_MAX_TOOL_ROUNDS
+    elif suite == SUITE_EVOLVE:
+        kwargs["auto_evolve"] = True
     if kwargs:
         config["kwargs"] = kwargs
     return config

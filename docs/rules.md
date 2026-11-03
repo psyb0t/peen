@@ -67,6 +67,8 @@ Peen reads rule directories from the config directory and from every directory b
 
 A rule's name is its path under `rules/` without `.md`, such as `go` or `frontend/react`. The name shows up in the context snapshot and in the block a scoped rule reaches the model as.
 
+With [auto-evolve](harness.md#auto-evolve) on, the agent saves its own rules in `.agents/learned/rules/`. Peen reads them after the other rules of the same layer and names them `learned/<name>`, such as `learned/go`.
+
 ## Rules for certain files
 
 A rule can start with YAML frontmatter that names the files it covers. Peen then leaves it out of the system prompt and gives it to the model when the agent works on a matching file. Claude Code uses this format for `.claude/rules/`, so those rule files work unchanged.

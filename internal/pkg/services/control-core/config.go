@@ -2,13 +2,60 @@ package controlcore
 
 import (
 	"context"
+	"os"
 
+	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/agent"
 	peenconfig "github.com/psyb0t/peen/internal/pkg/config"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
 )
+
+// learnedDirectoryMode keeps the global learned directory to the controller's
+// account and group, like the state directory.
+const learnedDirectoryMode = 0o750
+
+// prepareLearnedDirectory creates the global learned directory when
+// auto-evolve is on, because a Docker bind mount needs its source to exist,
+// and refuses one that overlaps a custom audit log directory. It warns when
+// every Docker worker gets the config directory writable.
+func prepareLearnedDirectory(
+	ctx context.Context,
+	config peenconfig.Config,
+	auditLogDirectory string,
+) error {
+	if config.WritableConfigDirectory {
+		ctxscope.GetLogger(ctx).Warn(
+			"config directory is writable by every worker",
+			"config_directory", config.ConfigDirectory,
+			"reason", "PEEN_WRITABLE_CONFIG_DIR",
+		)
+	}
+
+	learnedDirectory := config.WorkerLearnedDirectory()
+	if learnedDirectory == "" {
+		return nil
+	}
+
+	if auditLogDirectory != "" &&
+		peenconfig.PathsOverlap(learnedDirectory, auditLogDirectory) {
+		return ctxerrors.Wrap(
+			peenconfig.ErrInvalidConfig,
+			"PEEN_LEARNED_DIR must not overlap PEEN_LOG_DIRECTORY",
+		)
+	}
+
+	if err := os.MkdirAll(learnedDirectory, learnedDirectoryMode); err != nil {
+		return ctxerrors.Wrapf(
+			err,
+			"create learned directory %q",
+			learnedDirectory,
+		)
+	}
+
+	return nil
+}
 
 // runtimeOptions maps the deployment's configuration onto the runtime.
 //
@@ -56,6 +103,9 @@ func logValidatedConfig(
 		"blank_agent", config.BlankAgent,
 		"core_instructions_disabled", config.CoreInstructionsDisabled(),
 		"base_system_prompt_disabled", config.BaseSystemPromptDisabled(),
+		"auto_evolve", config.AutoEvolve,
+		"learned_directory", config.WorkerLearnedDirectory(),
+		"writable_config_directory", config.WritableConfigDirectory,
 		"default_model", config.DefaultModel,
 		"compaction_model", config.CompactionModel,
 		"compaction_mode", config.CompactionMode,

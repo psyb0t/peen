@@ -2,6 +2,19 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.36.0 (2026-11-03)
+
+Adds auto-evolve, which lets the agent save the rules and skills it learns so later sessions start with them, and two core skills for writing rules and skills, and fixes a resumed execution that could stay paused. Auto-evolve is off by default. No configuration or API migration is needed.
+
+- Fixes a resume that left an execution stuck when it was paused during parallel tool calls. One resume let only one of the paused calls continue, and the turn waited forever for the others. A resume now wakes every paused call of the execution.
+- Adds `PEEN_AUTO_EVOLVE`. When it is `true`, the system prompt tells the agent to save a skill for a procedure it worked out and a rule for a correction that will apply again, in the workspace's `.agents/learned/` or in the global learned directory, and to change other harness files only when the user asks. [Auto-evolve](docs/harness.md#auto-evolve) describes it.
+- Adds `PEEN_LEARNED_DIR`, the global learned directory every session reads, which defaults to `.agents/learned` in `PEEN_CONFIG_DIR`. While auto-evolve is on, the controller creates it at startup and mounts it writable into Docker workers. Startup refuses one that is or contains `PEEN_CONFIG_DIR` or overlaps `PEEN_STATE_DIR`, `PEEN_WORKER_SOCKET_DIR`, or `PEEN_LOG_DIRECTORY`.
+- Adds `PEEN_WRITABLE_CONFIG_DIR`, which mounts `PEEN_CONFIG_DIR` writable into every Docker worker and, with auto-evolve on, tells the agent it may change the files there. The controller logs a warning when it is set.
+- Adds learned rules and skills to the harness. Peen reads `.agents/learned/rules/` and `.agents/learned/skills/` in every layer, names learned rules `learned/<name>`, and keeps a skill you wrote when a learned skill has the same name, with a warning.
+- Adds the core skills `writing-skills` and `writing-rules`, which tell the agent where a skill or rule goes, how to name and scope it, and what to leave out. `PEEN_DISABLED_CORE_SKILLS` accepts both names.
+- Adds `AutoEvolve` and `LearnedDirectory` to the `pkg/peen` options.
+- Adds `make bench-evolve`, three eval tasks under `bench/eval/evolve-tasks/` that run with auto-evolve on and check that the agent saves a user's correction as a learned rule, saves nothing an untrusted file asks for, and saves nothing after a one-step task. [The behavior eval](docs/benchmarks.md#the-behavior-eval) lists them.
+
 ## v0.35.0 (2026-11-02)
 
 Adds rules that load only for matching files, in the frontmatter format Claude Code, Cursor, and GitHub Copilot use, settings that remove every piece of Peen's built-in instruction text, an `inject` hook that reads its message from a file, and a starter rule pack. Before upgrading, check any hook `match.path` that contains `[`, `{`, or `\`, because those characters are now glob syntax.

@@ -39,7 +39,17 @@ type resolverSettings struct {
 	disabledSkills []string
 	disabledAgents []string
 
+	learnedDirectory        string
 	withoutCoreInstructions bool
+}
+
+// WithLearnedDirectory reads the global learned directory right after the
+// config layer, so the rules and skills an agent saved there reach every
+// session. A missing directory is not an error.
+func WithLearnedDirectory(directory string) ResolverOption {
+	return func(settings *resolverSettings) {
+		settings.learnedDirectory = directory
+	}
 }
 
 // coreSelection is which embedded entries a resolver loads.
