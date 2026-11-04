@@ -2,6 +2,12 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.38.1 (2026-11-04)
+
+Fixes the audit log missing how a child agent ended. No configuration or API migration is needed.
+
+- Fixes a child agent's outcome missing from the audit log and the controller log. A child that runs as a workflow, which is how every child in a worker runs, logged `child agent started` and never `child agent completed`, `child agent failed`, or `child agent cancelled`. Peen now logs the outcome when the child's workflow finishes.
+
 ## v0.38.0 (2026-11-04)
 
 Adds image input: a `message.send` frame can carry images, `readFile` shows the agent PNG, JPEG, GIF, and WebP files, and an operator can mark an upstream's models as text-only. Adds MCP servers, whose tools the agent can call. Before upgrading, stop Peen and delete `peen.db`, `peen.db-wal`, and `peen.db-shm` from `PEEN_STATE_DIR`, because the session schema changed and Peen refuses to open a database created by an earlier version.

@@ -66,7 +66,25 @@ func (r *Runtime) prepareChildWorkflowFinish(
 			"frame child completion report")
 	}
 
+	logChildWorkflowOutcome(ctx, conversation.Child, result.Finish.Child)
+
 	return result, nil
+}
+
+// logChildWorkflowOutcome records how a workflow child ended in the audit
+// trail, the same as for a child that ran in process.
+func logChildWorkflowOutcome(
+	ctx context.Context,
+	child *workflowChildBootstrap,
+	outcome *session.ExecutionFinishChild,
+) {
+	logChildAgentOutcome(ctx,
+		&AgentRun{ID: child.AgentRunID, Name: child.Name},
+		AgentRunResult{
+			State:         string(outcome.State),
+			Response:      outcome.ResponseText,
+			FailureDetail: outcome.FailureDetail,
+		}, nil)
 }
 
 func childWorkflowCompletionReport(
