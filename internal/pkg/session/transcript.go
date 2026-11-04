@@ -515,6 +515,11 @@ func (s *Store) appendMessages(
 			return appendResult{}, err
 		}
 
+		message.ImagesJSON, err = encodeMessageImages(ctx, tx, input.Images)
+		if err != nil {
+			return appendResult{}, err
+		}
+
 		messages = append(messages, message)
 	}
 

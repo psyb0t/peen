@@ -45,6 +45,7 @@ func (c *rootWorkflowCallbacks) toolPhase(
 			Timeout:         c.runtime.toolTimeout,
 			MaxResultTokens: c.runtime.maxToolResultTokens,
 			Counter:         modelTokenCounter(prepared.model),
+			ImageInput:      modelAcceptsImages(prepared.model),
 		})
 	if err != nil {
 		return state, ctxerrors.Wrap(err, "run root tool phase")

@@ -41,6 +41,12 @@ const (
 	CodeAgentRunNotFound          Code = "agentRunNotFound"
 	CodeExecutionInboxPending     Code = "executionInboxPending"
 	CodePromptBudgetExceeded      Code = "promptBudgetExceeded"
+	CodeImagesNotAccepted         Code = "imagesNotAccepted"
+	CodeHistoryImagesNotAccepted  Code = "historyImagesNotAccepted"
+	CodeImagesNeedNewTurn         Code = "imagesNeedNewTurn"
+	CodeTooManyImages             Code = "tooManyImages"
+	CodeImageTooLarge             Code = "imageTooLarge"
+	CodeImageType                 Code = "imageType"
 )
 
 // Error is one failure as it crosses the socket.
@@ -108,6 +114,36 @@ var detailedFailures = []detailedFailure{
 	{
 		code:   CodePromptBudgetExceeded,
 		detail: harness.ErrPromptBudgetExceeded,
+		class:  commerr.ErrValidationFailed,
+	},
+	{
+		code:   CodeImagesNotAccepted,
+		detail: session.ErrImagesNotAccepted,
+		class:  commerr.ErrValidationFailed,
+	},
+	{
+		code:   CodeHistoryImagesNotAccepted,
+		detail: session.ErrHistoryImagesNotAccepted,
+		class:  commerr.ErrValidationFailed,
+	},
+	{
+		code:   CodeImagesNeedNewTurn,
+		detail: session.ErrImagesNeedNewTurn,
+		class:  commerr.ErrValidationFailed,
+	},
+	{
+		code:   CodeTooManyImages,
+		detail: session.ErrTooManyImages,
+		class:  commerr.ErrValidationFailed,
+	},
+	{
+		code:   CodeImageTooLarge,
+		detail: session.ErrImageTooLarge,
+		class:  commerr.ErrValidationFailed,
+	},
+	{
+		code:   CodeImageType,
+		detail: session.ErrImageType,
 		class:  commerr.ErrValidationFailed,
 	},
 }

@@ -44,6 +44,8 @@ func RuntimeOptionsFromConfig(
 		MaxSystemPromptPercent: runtimeSystemPromptPercent(
 			deployment.MaxSystemPromptPercent,
 		),
+		MaxImagesPerMessage:   deployment.MaxImagesPerMessage,
+		MaxImageBytes:         deployment.MaxImageBytes,
 		MaxMessageBytes:       deployment.MaxMessageBytes,
 		MaxConcurrentTurns:    deployment.MaxConcurrentTurns,
 		MaxQueuedUserMessages: deployment.MaxQueuedUserMessages,
@@ -165,5 +167,6 @@ func ConfiguredToolLimits(deployment config.Config) tools.Limits {
 		MaxCommandOutputBytes: deployment.ToolMaxCommandOutputBytes,
 		CommandTimeout:        deployment.DefaultToolCommandTimeout,
 		WaitJobTimeout:        deployment.DefaultToolCommandTimeout,
+		MaxImageBytes:         deployment.MaxImageBytes,
 	}
 }

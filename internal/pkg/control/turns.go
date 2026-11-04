@@ -202,6 +202,7 @@ func runInWorker(
 		ExpectedStopRevision: &revision,
 		RequestID:            requestID,
 		Message:              request.Message,
+		Images:               request.Images,
 		Model:                optionalString(request.Model),
 		ReasoningEffort:      optionalString(request.ReasoningEffort),
 		SystemPrompt:         promptContent(request),

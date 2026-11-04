@@ -113,13 +113,16 @@ func (s *ControlAPI) Run(ctx context.Context) error {
 	}
 
 	server, err := peenhttp.New(peenhttp.Dependencies{
-		Runtime:        core.Runtime,
-		Sessions:       core.Sessions,
-		Turns:          core.Turns,
-		APIToken:       core.Config.APIToken,
-		ListenAddress:  core.Config.HTTPListenAddress,
-		Metrics:        core.Metrics,
-		ServiceContext: func() context.Context { return ctx },
+		Runtime:       core.Runtime,
+		Sessions:      core.Sessions,
+		Turns:         core.Turns,
+		APIToken:      core.Config.APIToken,
+		ListenAddress: core.Config.HTTPListenAddress,
+		// A message.send may carry images, so the hub reads frames as large
+		// as the deployment's message, prompt, and image bounds allow.
+		WebSocketReadLimit: core.Config.WebSocketReadLimit(),
+		Metrics:            core.Metrics,
+		ServiceContext:     func() context.Context { return ctx },
 	})
 	if err != nil {
 		return ctxerrors.Wrap(err, "create control API server")

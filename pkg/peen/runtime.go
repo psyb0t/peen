@@ -194,6 +194,17 @@ func learnedDirectory(configDirectory string, options Options) string {
 	)
 }
 
+// toolLimits is ToolLimits with MaxImageBytes taken from the message image
+// limit when the tool limit leaves it unset.
+func toolLimits(options Options) tools.Limits {
+	limits := tools.Limits(options.ToolLimits)
+	if limits.MaxImageBytes == 0 {
+		limits.MaxImageBytes = options.MaxImageBytes
+	}
+
+	return limits
+}
+
 // runtimeOptions maps embedding values to the shared assembly pipeline.
 func runtimeOptions(
 	configDirectory string,
@@ -217,12 +228,14 @@ func runtimeOptions(
 		LearnedDirectory:         learnedDirectory(configDirectory, options),
 		WritableLearnedDirectory: options.WritableLearnedDirectory,
 		AskTimeout:               options.AskTimeout,
-		ToolLimits:               tools.Limits(options.ToolLimits),
+		ToolLimits:               toolLimits(options),
 		AgentLimits:              agent.AgentRunLimits(options.AgentLimits),
 
 		MaxSystemPromptBytes:   options.MaxSystemPromptBytes,
 		MaxSystemPromptPercent: options.MaxSystemPromptPercent,
 		MaxMessageBytes:        options.MaxMessageBytes,
+		MaxImagesPerMessage:    options.MaxImagesPerMessage,
+		MaxImageBytes:          options.MaxImageBytes,
 		MaxConcurrentTurns:     options.MaxConcurrentTurns,
 		MaxQueuedUserMessages:  options.MaxQueuedUserMessages,
 

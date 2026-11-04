@@ -58,6 +58,7 @@ func (r *Runtime) workflowRootToolCall(
 	outcome, err := runWorkflowTool(ctx, registered, input, workflowToolOptions{
 		Timeout: r.toolTimeout, MaxResultTokens: r.maxToolResultTokens,
 		Counter: modelTokenCounter(prepared.model), Finish: scope.finishTool,
+		ImageInput: modelAcceptsImages(prepared.model),
 	})
 	if err != nil {
 		return outcome, ctxerrors.Wrap(err, "run root workflow tool")
@@ -98,6 +99,10 @@ func (p *preparedTurn) checkpointWorkflowTool(
 		if err := p.onMessageInjection(ctx, injection); err != nil {
 			return ctxerrors.Wrap(err, "checkpoint root tool injection")
 		}
+	}
+
+	if err := p.onToolImage(ctx, outcome.Result); err != nil {
+		return ctxerrors.Wrap(err, "checkpoint root tool image")
 	}
 
 	return nil

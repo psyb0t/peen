@@ -86,6 +86,9 @@ const (
 
 	InjectedKindNone  InjectedKind = ""
 	InjectedKindSkill InjectedKind = "skill"
+	// InjectedKindImage is a message that attaches an image a tool read, such
+	// as readFile on a PNG, after the tool round.
+	InjectedKindImage InjectedKind = "image"
 
 	AgentRunStateRunning     AgentRunState = "running"
 	AgentRunStateCompleted   AgentRunState = "completed"

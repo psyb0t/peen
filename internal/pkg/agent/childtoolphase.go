@@ -55,6 +55,8 @@ func (c *childWorkflowCallbacks) toolPhase(
 			Timeout:         c.runtime.toolTimeout,
 			MaxResultTokens: c.runtime.maxToolResultTokens,
 			Counter:         counter,
+			ImageInput: modelAcceptsImages(
+				prepared.scope.options.deps.model),
 		})
 	if err != nil {
 		return state, ctxerrors.Wrap(err, "execute child tool phase")
@@ -141,6 +143,10 @@ func (c *childWorkflowCallbacks) finishToolPhase(
 		if err := actor.sink.onMessageInjection(ctx, injection); err != nil {
 			return ctxerrors.Wrap(err, "record child phase injection")
 		}
+	}
+
+	if err := actor.sink.onToolImage(ctx, state.Outcome.Result); err != nil {
+		return ctxerrors.Wrap(err, "record child phase image")
 	}
 
 	encoded, err := rootWorkflowToolContext(input.Tool, scope)

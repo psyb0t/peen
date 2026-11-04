@@ -191,7 +191,43 @@ func compactedColumns(dest any) []*string {
 		return columns
 	}
 
+	if columns, ok := loadedModelCallColumns(dest); ok {
+		return columns
+	}
+
 	return loadedExecutionColumns(dest)
+}
+
+func loadedModelCallColumns(dest any) ([]*string, bool) {
+	var columns []*string
+
+	switch loaded := dest.(type) {
+	case *models.ModelCall:
+		columns = modelCallColumns(columns, loaded)
+	case *[]*models.ModelCall:
+		for _, call := range *loaded {
+			columns = modelCallColumns(columns, call)
+		}
+	case *[]models.ModelCall:
+		for index := range *loaded {
+			columns = modelCallColumns(columns, &(*loaded)[index])
+		}
+	default:
+		return nil, false
+	}
+
+	return columns, true
+}
+
+func modelCallColumns(
+	columns []*string,
+	call *models.ModelCall,
+) []*string {
+	if call == nil {
+		return columns
+	}
+
+	return appendCompacted(columns, &call.RequestMessagesJSON)
 }
 
 func loadedActivityColumns(dest any) ([]*string, bool) {

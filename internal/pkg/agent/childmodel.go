@@ -115,7 +115,7 @@ func (r *Runtime) childWorkflowModelRequest(
 			"child model sink belongs to another actor")
 	}
 
-	request, saved, err := workflowModelRequest(r.models, input)
+	request, saved, err := workflowSendRequest(ctx, r.models, r.store, input)
 	if err != nil {
 		return nil, saved, ctxerrors.Wrap(err,
 			"build saved child model request")

@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 
 	"github.com/google/uuid"
+	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/worker"
 )
 
@@ -110,6 +111,9 @@ type RunTurn struct {
 	ReasoningEffort string    `json:"reasoningEffort,omitempty"`
 	SystemPrompt    string    `json:"systemPrompt,omitempty"`
 	PromptMode      string    `json:"promptMode,omitempty"`
+
+	// Images follow Message in the turn's first user message.
+	Images []session.MessageImage `json:"images,omitempty"`
 
 	// Origin is set only for a turn a session event started. The worker runs
 	// it as a woken turn, so its prompt is stored as injected rather than as

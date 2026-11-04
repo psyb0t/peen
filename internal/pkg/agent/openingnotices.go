@@ -121,6 +121,7 @@ func (o *turnOpening) admissionInput(
 		WakeNoticeID: turnWakeNoticeID(input), ExpectedStopRevision: revision,
 		Messages: turnStartMessages(turnStartContent{
 			prompt:           input.Message,
+			images:           input.Images,
 			isPromptInjected: input.Origin != nil,
 			skills:           o.assembly.skills,
 			pendingEvents:    o.pendingEvents,

@@ -26,7 +26,7 @@ func (r *Runtime) rootWorkflowConversation(
 		},
 		ModelReference:      prepared.modelReference,
 		SystemPrompt:        current.prompt,
-		Messages:            directoryHistory(prepared.prompt.Messages()),
+		Messages:            savedHistory(prepared.prompt.Messages()),
 		MaxContextTokens:    r.maxContextTokens,
 		OutputReserveTokens: r.outputReserveTokens,
 		ReasoningEffort:     prepared.reasoningEffort,

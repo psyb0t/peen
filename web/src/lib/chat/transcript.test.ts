@@ -114,6 +114,28 @@ describe("groupTranscript", () => {
 			],
 		});
 	});
+
+	it("names the image an injected image message carries", () => {
+		const prompt = message({ content: "look at it", role: "user" });
+		const shown = message({
+			content: "The image below is the file /work/shot.png, returned by readFile.",
+			images: [{ mediaType: "image/png", sizeBytes: 2048 }],
+			injected: true,
+			injectedKind: "image",
+			role: "user",
+		});
+
+		const items = groupTranscript([prompt, shown]);
+
+		expect(items[1]).toMatchObject({
+			blocks: [
+				{
+					kind: "injected",
+					text: "The image below is the file /work/shot.png, returned by readFile.\nImage: PNG, 2 KB",
+				},
+			],
+		});
+	});
 });
 
 const skillText =
@@ -353,6 +375,7 @@ describe("handler wake messages with an agent", () => {
 			isFinished: false,
 			originEventType: "ci.build.failed",
 			prompt: realWithAgent,
+			promptImages: undefined,
 			queue: undefined,
 			requestID: "r",
 			sessionID: "s",
@@ -536,6 +559,7 @@ describe("liveSegments", () => {
 		isFinished: false,
 		originEventType: undefined,
 		prompt: "typed by a person",
+		promptImages: undefined,
 		queue: undefined,
 		requestID: "r",
 		sessionID: "s",

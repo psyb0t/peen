@@ -56,7 +56,7 @@ func nativeChildCompactionFixture(
 		fixture.input.MaxRounds, 0)
 	require.NoError(t, err)
 	conversation.SystemPrompt = run.SystemPrompt
-	conversation.Messages, _, err = convertRecoveredHistory(stored)
+	conversation.Messages, _, err = convertRecoveredHistory(stored, nil)
 	require.NoError(t, err)
 	conversation.Compaction.Plan, err = buildChildReconstructionPlan(1,
 		false, stored)

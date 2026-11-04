@@ -13,6 +13,9 @@ var (
 	ErrNotRegularFile = errors.New("path is not a regular file")
 	// ErrBinaryContent reports a text operation refused on binary content.
 	ErrBinaryContent = errors.New("binary content is not supported")
+	// ErrImageContent reports a file named as an image whose bytes are not
+	// that image format.
+	ErrImageContent = errors.New("file is not the image its extension names")
 	// ErrNotObserved reports a mutation on a path never read in this turn.
 	ErrNotObserved = errors.New("path was not observed in the current turn")
 	// ErrStaleHash reports a mismatch between expected and actual content.

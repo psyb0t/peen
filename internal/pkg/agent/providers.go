@@ -26,6 +26,10 @@ const (
 
 	providerMaximumAttempts = providerRetryCount + 1
 
+	// upstreamClientOptionCount is the most options one model client takes:
+	// its model, its token counter, and an image input override.
+	upstreamClientOptionCount = 3
+
 	settingDefaultModel    = "PEEN_DEFAULT_MODEL"
 	settingCompactionModel = "PEEN_COMPACTION_MODEL"
 
@@ -216,13 +220,14 @@ func (r *Registry) ListModels() api.ModelList {
 	models := make([]api.Model, 0, len(references))
 
 	for _, reference := range references {
-		model := r.models[reference].Model
+		client := r.models[reference]
 		connectionName, modelID, _ := strings.Cut(reference, "/")
 		models = append(models, api.Model{
 			Name:                reference,
 			ConnectionName:      connectionName,
 			ModelId:             modelID,
-			ContextWindowTokens: int64(model.ContextSize),
+			ContextWindowTokens: int64(client.Model.ContextSize),
+			ImageInput:          modelAcceptsImages(client),
 		})
 	}
 
@@ -340,12 +345,49 @@ func (r *Registry) discover(
 		model := modelMetadata(upstream.Type, modelID, maxContextTokens)
 		qualifiedModel := upstream.Name + "/" + modelID
 		r.models[qualifiedModel] = ModelClient{
-			Client: elelem.New(driver, elelem.WithDefaultModel(model)),
-			Model:  model,
+			Client: elelem.New(driver,
+				upstreamClientOptions(driver, upstream, model)...),
+			Model: model,
 		}
 	}
 
 	return nil
+}
+
+// upstreamClientOptions builds one model's client options. Its token counter
+// counts images, so elelem's own context budget makes room for them. An
+// upstream the operator marked text-only has image input turned off for
+// every model, so elelem and Peen both refuse images before a request is
+// sent.
+func upstreamClientOptions(
+	driver elelem.Driver,
+	upstream config.Upstream,
+	model elelem.Model,
+) []elelem.Option {
+	options := make([]elelem.Option, 0, upstreamClientOptionCount)
+	options = append(options,
+		elelem.WithDefaultModel(model),
+		elelem.WithClientTokenCounter(withImageTokens(
+			driverTextTokenCounter(driver, model),
+		)),
+	)
+
+	if upstream.AcceptsImageInput() {
+		return options
+	}
+
+	return append(options, elelem.WithCapabilityOverride(withoutImageInput))
+}
+
+// withoutImageInput turns image input off, for an upstream the operator
+// marked text-only.
+func withoutImageInput(
+	_ elelem.Model,
+	capabilities elelem.Capabilities,
+) elelem.Capabilities {
+	capabilities.SupportsImageInput = false
+
+	return capabilities
 }
 
 // modelMetadata returns what the driver publishes about one discovered model.

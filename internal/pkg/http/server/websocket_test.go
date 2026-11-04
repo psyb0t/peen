@@ -210,6 +210,77 @@ func TestWebSocketRoutesTheMessageToTheSessionWorker(t *testing.T) {
 	assert.Equal(t, testWebSocketAgentMessage, runtime.lastRequest.Message)
 }
 
+func TestWebSocketDecodesMessageImagesWithinTheConfiguredFrameLimit(
+	t *testing.T,
+) {
+	sessionID := uuid.New()
+	runtime := newTestRuntime(sessionID)
+	router := &testTurnRouter{runtime: runtime}
+
+	instance, err := newTestServer(Dependencies{
+		Runtime:            runtime,
+		Turns:              router,
+		APIToken:           testAPIToken,
+		WebSocketReadLimit: 4 << 20,
+	})
+	require.NoError(t, err)
+	t.Cleanup(instance.webSocketHub.Close)
+
+	httpServer := httptest.NewServer(instance.inProcessHandler)
+	t.Cleanup(httpServer.Close)
+
+	connection := dialWebSocket(t, httpServer.URL, nil)
+	t.Cleanup(func() { require.NoError(t, connection.Close()) })
+
+	// Larger in base64 than the hub's default 1 MiB frame limit.
+	image := append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 1<<20)...)
+	data, err := json.Marshal(map[string]any{
+		"message": "look",
+		"images": []map[string]string{{
+			"mediaType": "image/png",
+			"data":      base64.StdEncoding.EncodeToString(image),
+		}},
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, connection.WriteJSON(
+		newWebSocketMessage(json.RawMessage(data)),
+	))
+
+	assertWebSocketMessageCompleted(t, connection)
+	require.Len(t, runtime.lastRequest.Images, 1)
+	assert.Equal(t, "image/png", runtime.lastRequest.Images[0].MediaType)
+	assert.Equal(t, image, runtime.lastRequest.Images[0].Data)
+}
+
+func TestWebSocketRefusesMessageImagesThatAreNotBase64(t *testing.T) {
+	sessionID := uuid.New()
+	runtime := newTestRuntime(sessionID)
+	instance, err := newTestServer(Dependencies{Runtime: runtime})
+	require.NoError(t, err)
+	t.Cleanup(instance.webSocketHub.Close)
+
+	httpServer := httptest.NewServer(instance.inProcessHandler)
+	t.Cleanup(httpServer.Close)
+
+	connection := dialWebSocket(t, httpServer.URL, nil)
+	t.Cleanup(func() { require.NoError(t, connection.Close()) })
+
+	inbound := newWebSocketMessage(json.RawMessage(
+		`{"message":"look","images":[{"mediaType":"image/png","data":"%%%"}]}`,
+	))
+	require.NoError(t, connection.WriteJSON(inbound))
+
+	received := readWebSocketEvent(t, connection)
+	require.Equal(t, webSocketMessageFailedEventType, string(received.Type))
+	assertWebSocketMetadata(t, received, sessionID, inbound.ID)
+
+	failure := webSocketMessageFailure{}
+	require.NoError(t, json.Unmarshal(received.Data, &failure))
+	assert.Equal(t, aichteeteapee.ErrorCodeValidationFailed, failure.Code)
+	assert.Zero(t, runtime.runCalls)
+}
+
 func TestWebSocketRejectsUnknownMessageFields(t *testing.T) {
 	sessionID := uuid.New()
 	runtime := newTestRuntime(sessionID)
@@ -396,6 +467,30 @@ func TestWebSocketMessageFailureFor(t *testing.T) {
 			want: newWebSocketMessageFailure(
 				aichteeteapee.ErrorCodeValidationFailed,
 				session.ErrRunningTurnSettingsChange.Error(),
+				"",
+			),
+		},
+		{
+			name: "model takes no images",
+			err: errors.Join(
+				commerr.ErrValidationFailed,
+				session.ErrImagesNotAccepted,
+			),
+			want: newWebSocketMessageFailure(
+				aichteeteapee.ErrorCodeValidationFailed,
+				session.ErrImagesNotAccepted.Error(),
+				"",
+			),
+		},
+		{
+			name: "image not its declared type",
+			err: errors.Join(
+				commerr.ErrValidationFailed,
+				session.ErrImageType,
+			),
+			want: newWebSocketMessageFailure(
+				aichteeteapee.ErrorCodeValidationFailed,
+				session.ErrImageType.Error(),
 				"",
 			),
 		},

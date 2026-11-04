@@ -94,6 +94,8 @@ type MessageInput struct {
 	Incomplete            bool                `json:"incomplete"`
 	Injected              bool                `json:"injected"`
 	InjectedKind          models.InjectedKind `json:"injectedKind"`
+	// Images are the message's images, stored in images_json.
+	Images []MessageImage `json:"images,omitempty"`
 }
 
 // EventInput describes one exact internal or protocol event.
@@ -157,6 +159,8 @@ type AgentRunMessageInput struct {
 	Incomplete    bool               `json:"incomplete"`
 	Directory     string             `json:"directory,omitempty"`
 	SystemPrompt  string             `json:"systemPrompt,omitempty"`
+	// Images are the message's images, stored in images_json.
+	Images []MessageImage `json:"images,omitempty"`
 }
 
 // ListAgentRunMessagesOptions bounds one child transcript page.

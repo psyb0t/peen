@@ -65,8 +65,31 @@ type queuedUserMessage struct {
 }
 
 type userMessagePayload struct {
-	Message       string `json:"message"`
-	SourceEventID string `json:"sourceEventId,omitempty"`
+	Message       string             `json:"message"`
+	SourceEventID string             `json:"sourceEventId,omitempty"`
+	Images        []userMessageImage `json:"images,omitempty"`
+}
+
+// userMessageImage describes one image a user message carries, without its
+// bytes, for the userMessage.created frame.
+type userMessageImage struct {
+	MediaType string `json:"mediaType"`
+	SizeBytes int    `json:"sizeBytes"`
+}
+
+func userMessageImages(images []MessageImage) []userMessageImage {
+	if len(images) == 0 {
+		return nil
+	}
+
+	described := make([]userMessageImage, 0, len(images))
+	for _, image := range images {
+		described = append(described, userMessageImage{
+			MediaType: image.MediaType, SizeBytes: len(image.Data),
+		})
+	}
+
+	return described
 }
 
 func newActiveUserMessageQueue(
@@ -516,6 +539,11 @@ func (r *Runtime) queueActiveUserMessage(
 			session.ErrSessionBusy,
 			"an event cannot start a turn while one runs",
 		)
+	}
+
+	if len(input.Images) > 0 {
+		return nil, true, imageRefusal(session.ErrImagesNeedNewTurn,
+			"queue active user message")
 	}
 
 	if queue.changesRunningTurn(input) {

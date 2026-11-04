@@ -133,6 +133,7 @@ openclaw skills install @psyb0t/peen
 | Define child agents for contained jobs | [Named agents](docs/agents.md) |
 | React to background jobs, child agents, and outside systems | [Session events](docs/events.md) |
 | Add hard checks or model instructions around actions | [Hooks](docs/hooks.md) |
+| Give the agent the tools of MCP servers | [MCP servers](docs/mcp.md) |
 | Build a WebSocket or REST client | [API reference](docs/http-api.md), [api/api.yml](api/api.yml), and [api/asyncapi.yaml](api/asyncapi.yaml) |
 | Embed Peen in a Go process | [Go embedding guide](pkg/peen/README.md) |
 | See how it fits together and what it is built with | [Architecture](docs/architecture.md) |

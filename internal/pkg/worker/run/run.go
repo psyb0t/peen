@@ -29,6 +29,7 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/hooks"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
+	"github.com/psyb0t/peen/internal/pkg/mcptools"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"github.com/psyb0t/peen/internal/pkg/worker"
 	"github.com/psyb0t/peen/internal/pkg/worker/protocol"
@@ -61,6 +62,33 @@ type Options struct {
 	Driver agent.DriverFactory
 }
 
+// workerConfig parses the worker's deployment settings and points them at
+// the configuration directory the launch document names.
+func workerConfig(
+	options Options,
+	document worker.LaunchDocument,
+) (peenconfig.Config, error) {
+	parseConfig := options.ParseConfig
+	if parseConfig == nil {
+		// ParseWorker rather than Parse: a worker owns no durable state, so it
+		// neither requires nor reads PEEN_STATE_DIR. The controller keeps that
+		// path out of a Docker worker's environment on purpose.
+		parseConfig = peenconfig.ParseWorker
+	}
+
+	deployment, err := parseConfig()
+	if err != nil {
+		return peenconfig.Config{}, ctxerrors.Wrap(err,
+			"load worker configuration")
+	}
+
+	// The controller decides where the worker reads its configuration from,
+	// so the launch document wins over anything the environment says.
+	deployment.ConfigDirectory = document.ConfigDirectory
+
+	return deployment, nil
+}
+
 // Run executes one worker to completion.
 //
 // It returns when the controller asks the worker to shut down, when the
@@ -80,22 +108,10 @@ func Run(ctx context.Context, options Options) error {
 		ctxscope.Attr("agent_space", document.AgentSpace),
 	)
 
-	parseConfig := options.ParseConfig
-	if parseConfig == nil {
-		// ParseWorker rather than Parse: a worker owns no durable state, so it
-		// neither requires nor reads PEEN_STATE_DIR. The controller keeps that
-		// path out of a Docker worker's environment on purpose.
-		parseConfig = peenconfig.ParseWorker
-	}
-
-	deployment, err := parseConfig()
+	deployment, err := workerConfig(options, document)
 	if err != nil {
-		return ctxerrors.Wrap(err, "load worker configuration")
+		return err
 	}
-
-	// The controller decides where the worker reads its configuration from,
-	// so the launch document wins over anything the environment says.
-	deployment.ConfigDirectory = document.ConfigDirectory
 
 	handler := newCommandHandler()
 
@@ -118,12 +134,20 @@ func Run(ctx context.Context, options Options) error {
 
 	go func() { served <- connection.Serve(serveCtx) }()
 
+	servers, err := startMCP(ctx, deployment, connection.Ack.Workspace)
+	if err != nil {
+		return err
+	}
+
+	defer stopMCP(ctx, servers)
+
 	runtime, err := buildRuntime(
 		ctx,
 		deployment,
 		document,
 		connection,
 		options.Driver,
+		servers,
 	)
 	if err != nil {
 		return err
@@ -239,6 +263,7 @@ func buildRuntime(
 	document worker.LaunchDocument,
 	connection *protocol.Connection,
 	driver agent.DriverFactory,
+	servers *mcptools.Manager,
 ) (*agent.Runtime, error) {
 	upstreams, err := deployment.Upstreams()
 	if err != nil {
@@ -256,18 +281,9 @@ func buildRuntime(
 		return nil, ctxerrors.Wrap(err, "discover the worker provider models")
 	}
 
-	harnessOptions, err := agent.HarnessOptions(deployment)
+	resolver, err := workerResolver(deployment)
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "load the worker harness options")
-	}
-
-	resolver, err := harness.NewResolver(
-		deployment.ConfigDirectory,
-		agent.HarnessLimits(),
-		harnessOptions...,
-	)
-	if err != nil {
-		return nil, ctxerrors.Wrap(err, "create the worker harness resolver")
+		return nil, err
 	}
 
 	options := agent.RuntimeOptionsFromConfig(
@@ -281,6 +297,7 @@ func buildRuntime(
 
 	options.Store = connection.Store()
 	options.Resolver = resolver
+	options.MCP = servers
 	options.WorkerGenerationID = document.GenerationID
 	options.HookStateRoot = workerHookStateRoot(document)
 
@@ -298,6 +315,28 @@ func buildRuntime(
 	}
 
 	return runtime, nil
+}
+
+// workerResolver reads the harness from the configuration directory the
+// launch document named.
+func workerResolver(deployment peenconfig.Config) (harness.Resolver, error) {
+	harnessOptions, err := agent.HarnessOptions(deployment)
+	if err != nil {
+		return harness.Resolver{}, ctxerrors.Wrap(err,
+			"load the worker harness options")
+	}
+
+	resolver, err := harness.NewResolver(
+		deployment.ConfigDirectory,
+		agent.HarnessLimits(),
+		harnessOptions...,
+	)
+	if err != nil {
+		return harness.Resolver{}, ctxerrors.Wrap(err,
+			"create the worker harness resolver")
+	}
+
+	return resolver, nil
 }
 
 // workerHookStateRoot keeps executable hook state inside the one writable
@@ -518,6 +557,7 @@ func turnMessage(
 		ExpectedStopRevision: request.ExpectedStopRevision,
 		SessionID:            &sessionID,
 		Message:              request.Message,
+		Images:               request.Images,
 		SystemPrompt:         systemPrompt(request),
 		To:                   request.To,
 	}

@@ -133,6 +133,7 @@ func applyMessageOptionalFields(
 	}
 
 	applyMessageInjection(message, stored)
+	applyMessageImages(message, stored)
 
 	if stored.TurnID != uuid.Nil {
 		turnID := stored.TurnID
@@ -172,6 +173,29 @@ func applyMessageInjection(message *api.Message, stored *models.Message) {
 		kind := api.MessageInjectedKind(stored.InjectedKind)
 		message.InjectedKind = &kind
 	}
+}
+
+// applyMessageImages lists a message's images without their bytes.
+func applyMessageImages(message *api.Message, stored *models.Message) {
+	message.Images = messageImageInfo(stored.ImagesJSON)
+}
+
+// messageImageInfo describes an images_json column for the API. A column
+// that does not parse lists nothing rather than failing the whole page.
+func messageImageInfo(imagesJSON string) *[]api.MessageImageInfo {
+	images, err := session.DecodeStoredImages(imagesJSON)
+	if err != nil || len(images) == 0 {
+		return nil
+	}
+
+	described := make([]api.MessageImageInfo, 0, len(images))
+	for _, image := range images {
+		described = append(described, api.MessageImageInfo{
+			MediaType: image.MediaType, SizeBytes: int64(image.SizeBytes),
+		})
+	}
+
+	return &described
 }
 
 func messageRoleToAPI(role models.MessageRole) (api.MessageRole, error) {

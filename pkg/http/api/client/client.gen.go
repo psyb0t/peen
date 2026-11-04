@@ -396,14 +396,71 @@ func (e LearnedScope) Valid() bool {
 	}
 }
 
+// Defines values for MCPServerStatusSource.
+const (
+	MCPServerStatusSourceConfig    MCPServerStatusSource = "config"
+	MCPServerStatusSourceWorkspace MCPServerStatusSource = "workspace"
+)
+
+// Valid indicates whether the value is a known member of the MCPServerStatusSource enum.
+func (e MCPServerStatusSource) Valid() bool {
+	switch e {
+	case MCPServerStatusSourceConfig:
+		return true
+	case MCPServerStatusSourceWorkspace:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MCPServerStatusState.
+const (
+	MCPServerStatusStateFailed MCPServerStatusState = "failed"
+	MCPServerStatusStateReady  MCPServerStatusState = "ready"
+)
+
+// Valid indicates whether the value is a known member of the MCPServerStatusState enum.
+func (e MCPServerStatusState) Valid() bool {
+	switch e {
+	case MCPServerStatusStateFailed:
+		return true
+	case MCPServerStatusStateReady:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MCPServerStatusTransport.
+const (
+	MCPServerStatusTransportHttp  MCPServerStatusTransport = "http"
+	MCPServerStatusTransportStdio MCPServerStatusTransport = "stdio"
+)
+
+// Valid indicates whether the value is a known member of the MCPServerStatusTransport enum.
+func (e MCPServerStatusTransport) Valid() bool {
+	switch e {
+	case MCPServerStatusTransportHttp:
+		return true
+	case MCPServerStatusTransportStdio:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MessageInjectedKind.
 const (
+	MessageInjectedKindImage MessageInjectedKind = "image"
 	MessageInjectedKindSkill MessageInjectedKind = "skill"
 )
 
 // Valid indicates whether the value is a known member of the MessageInjectedKind enum.
 func (e MessageInjectedKind) Valid() bool {
 	switch e {
+	case MessageInjectedKindImage:
+		return true
 	case MessageInjectedKindSkill:
 		return true
 	default:
@@ -926,19 +983,22 @@ type AgentRunMessage struct {
 	AgentRunId openapi_types.UUID `json:"agentRunId"`
 
 	// CompactionId The child compaction that directly covered this message, or null while it is still raw.
-	CompactionId *openapi_types.UUID       `json:"compactionId,omitempty"`
-	Content      string                    `json:"content"`
-	CreatedAt    time.Time                 `json:"createdAt"`
-	Id           openapi_types.UUID        `json:"id"`
-	Incomplete   bool                      `json:"incomplete"`
-	IsError      bool                      `json:"isError"`
-	Model        *string                   `json:"model,omitempty"`
-	Role         AgentRunMessageRole       `json:"role"`
-	Sequence     int64                     `json:"sequence"`
-	SessionId    openapi_types.UUID        `json:"sessionId"`
-	Thinking     *string                   `json:"thinking,omitempty"`
-	ToolCallId   *string                   `json:"toolCallId,omitempty"`
-	ToolCalls    *[]map[string]interface{} `json:"toolCalls,omitempty"`
+	CompactionId *openapi_types.UUID `json:"compactionId,omitempty"`
+	Content      string              `json:"content"`
+	CreatedAt    time.Time           `json:"createdAt"`
+	Id           openapi_types.UUID  `json:"id"`
+
+	// Images The images the message carries, without their bytes, such as an image the child's readFile read. Absent when it has none.
+	Images     *[]MessageImageInfo       `json:"images,omitempty"`
+	Incomplete bool                      `json:"incomplete"`
+	IsError    bool                      `json:"isError"`
+	Model      *string                   `json:"model,omitempty"`
+	Role       AgentRunMessageRole       `json:"role"`
+	Sequence   int64                     `json:"sequence"`
+	SessionId  openapi_types.UUID        `json:"sessionId"`
+	Thinking   *string                   `json:"thinking,omitempty"`
+	ToolCallId *string                   `json:"toolCallId,omitempty"`
+	ToolCalls  *[]map[string]interface{} `json:"toolCalls,omitempty"`
 }
 
 // AgentRunMessageRole defines model for AgentRunMessage.Role.
@@ -1248,18 +1308,57 @@ type LearnedKind string
 // LearnedScope workspace is the session workspace's .agents/learned, and global is the global learned directory every session reads.
 type LearnedScope string
 
+// MCPServerStatus defines model for MCPServerStatus.
+type MCPServerStatus struct {
+	// Error Why the server failed.
+	Error *string `json:"error,omitempty"`
+
+	// Name The server name from mcp.json. Empty when a whole mcp.json file was refused.
+	Name string `json:"name"`
+
+	// Source The layer whose .agents/mcp.json defines the server.
+	Source MCPServerStatusSource `json:"source"`
+	State  MCPServerStatusState  `json:"state"`
+
+	// Tools The exposed tool names, mcp__<server>__<tool>.
+	Tools     []string                  `json:"tools"`
+	Transport *MCPServerStatusTransport `json:"transport,omitempty"`
+
+	// Warnings Problems that did not stop the server.
+	Warnings *[]string `json:"warnings,omitempty"`
+}
+
+// MCPServerStatusSource The layer whose .agents/mcp.json defines the server.
+type MCPServerStatusSource string
+
+// MCPServerStatusState defines model for MCPServerStatus.State.
+type MCPServerStatusState string
+
+// MCPServerStatusTransport defines model for MCPServerStatus.Transport.
+type MCPServerStatusTransport string
+
+// MCPStatusReport defines model for MCPStatusReport.
+type MCPStatusReport struct {
+	// ReportedAt When the worker reported, at the start of a turn. Null before the first report.
+	ReportedAt *time.Time        `json:"reportedAt"`
+	Servers    []MCPServerStatus `json:"servers"`
+}
+
 // Message defines model for Message.
 type Message struct {
 	CompactionId *openapi_types.UUID `json:"compactionId,omitempty"`
 	Content      string              `json:"content"`
 	CreatedAt    time.Time           `json:"createdAt"`
 	Id           openapi_types.UUID  `json:"id"`
-	Incomplete   *bool               `json:"incomplete,omitempty"`
+
+	// Images The images the message carries, without their bytes, in the order the model sees them after the text. Absent when it has none.
+	Images     *[]MessageImageInfo `json:"images,omitempty"`
+	Incomplete *bool               `json:"incomplete,omitempty"`
 
 	// Injected True when Peen added this message to the conversation itself, such as a report of session events delivered during a turn or the instructions of an event handler that started a turn, rather than a person or the model writing it.
 	Injected *bool `json:"injected,omitempty"`
 
-	// InjectedKind What an injected message is, when it is more than a generic update. `skill` marks a skill the user invoked with `:name`, delivered as its own message after the message that named it, or the note that the skill was already loaded. Absent for every other message.
+	// InjectedKind What an injected message is, when it is more than a generic update. `skill` marks a skill the user invoked with `:name`, delivered as its own message after the message that named it, or the note that the skill was already loaded. `image` marks the message that shows the model an image readFile read, after that tool round. Absent for every other message.
 	InjectedKind *MessageInjectedKind `json:"injectedKind,omitempty"`
 	IsError      *bool                `json:"isError,omitempty"`
 	Model        *string              `json:"model,omitempty"`
@@ -1276,11 +1375,17 @@ type Message struct {
 	Workspace string              `json:"workspace"`
 }
 
-// MessageInjectedKind What an injected message is, when it is more than a generic update. `skill` marks a skill the user invoked with `:name`, delivered as its own message after the message that named it, or the note that the skill was already loaded. Absent for every other message.
+// MessageInjectedKind What an injected message is, when it is more than a generic update. `skill` marks a skill the user invoked with `:name`, delivered as its own message after the message that named it, or the note that the skill was already loaded. `image` marks the message that shows the model an image readFile read, after that tool round. Absent for every other message.
 type MessageInjectedKind string
 
 // MessageRole `system` is a notice Peen added to the conversation, such as how the previous turn ended and what it was asked. The model receives it as a system message.
 type MessageRole string
+
+// MessageImageInfo defines model for MessageImageInfo.
+type MessageImageInfo struct {
+	MediaType string `json:"mediaType"`
+	SizeBytes int64  `json:"sizeBytes"`
+}
 
 // MessagePage defines model for MessagePage.
 type MessagePage struct {
@@ -1304,6 +1409,9 @@ type Model struct {
 
 	// ContextWindowTokens The model context window Peen will enforce. For an upstream that publishes no window, this is the deployment context budget.
 	ContextWindowTokens int64 `json:"contextWindowTokens"`
+
+	// ImageInput Whether the model takes images, in message.send and from readFile. An upstream with "imageInput": false makes every one of its models text-only.
+	ImageInput bool `json:"imageInput"`
 
 	// ModelId The raw model identifier the upstream accepted.
 	ModelId string `json:"modelId"`
@@ -1851,6 +1959,11 @@ type GetSessionLearnedFileParams struct {
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
+// GetSessionMCPStatusParams defines parameters for GetSessionMCPStatus.
+type GetSessionMCPStatusParams struct {
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
 // ListSessionModelRunsParams defines parameters for ListSessionModelRuns.
 type ListSessionModelRunsParams struct {
 	Limit      *Limit                           `form:"limit,omitempty" json:"limit,omitempty"`
@@ -2150,6 +2263,13 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /session/learned/file (the `GetSessionLearnedFile` operationId).
 	GetSessionLearnedFile(ctx context.Context, params *GetSessionLearnedFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSessionMCPStatus Report the session's MCP servers
+	//
+	// Returns the MCP servers the session's worker last reported: which started, the tools each offers, and why one failed. The worker reports at the start of every turn, so the answer is what the most recent turn saw, and reportedAt says when that was. A session that has not run a turn with MCP configured has no report yet and answers an empty server list with a null reportedAt.
+	//
+	// Corresponds with GET /session/mcp (the `GetSessionMCPStatus` operationId).
+	GetSessionMCPStatus(ctx context.Context, params *GetSessionMCPStatusParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListSessionModelRuns List complete durable model invocations
 	//
@@ -2648,6 +2768,23 @@ func (c *Client) DeleteSessionLearnedFile(ctx context.Context, params *DeleteSes
 // Corresponds with GET /session/learned/file (the `GetSessionLearnedFile` operationId).
 func (c *Client) GetSessionLearnedFile(ctx context.Context, params *GetSessionLearnedFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetSessionLearnedFileRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetSessionMCPStatus Report the session's MCP servers
+//
+// Returns the MCP servers the session's worker last reported: which started, the tools each offers, and why one failed. The worker reports at the start of every turn, so the answer is what the most recent turn saw, and reportedAt says when that was. A session that has not run a turn with MCP configured has no report yet and answers an empty server list with a null reportedAt.
+//
+// Corresponds with GET /session/mcp (the `GetSessionMCPStatus` operationId).
+func (c *Client) GetSessionMCPStatus(ctx context.Context, params *GetSessionMCPStatusParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSessionMCPStatusRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -4583,6 +4720,46 @@ func NewGetSessionLearnedFileRequest(server string, params *GetSessionLearnedFil
 	return req, nil
 }
 
+// NewGetSessionMCPStatusRequest constructs an http.Request for the GetSessionMCPStatus method
+func NewGetSessionMCPStatusRequest(server string, params *GetSessionMCPStatusParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/mcp")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Session-ID", headerParam0)
+
+	}
+
+	return req, nil
+}
+
 // NewListSessionModelRunsRequest constructs an http.Request for the ListSessionModelRuns method
 func NewListSessionModelRunsRequest(server string, params *ListSessionModelRunsParams) (*http.Request, error) {
 	var err error
@@ -5536,6 +5713,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /session/learned/file (the `GetSessionLearnedFile` operationId).
 	GetSessionLearnedFileWithResponse(ctx context.Context, params *GetSessionLearnedFileParams, reqEditors ...RequestEditorFn) (*GetSessionLearnedFileResponse, error)
+
+	// GetSessionMCPStatusWithResponse Report the session's MCP servers
+	//
+	// Returns the MCP servers the session's worker last reported: which started, the tools each offers, and why one failed. The worker reports at the start of every turn, so the answer is what the most recent turn saw, and reportedAt says when that was. A session that has not run a turn with MCP configured has no report yet and answers an empty server list with a null reportedAt.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /session/mcp (the `GetSessionMCPStatus` operationId).
+	GetSessionMCPStatusWithResponse(ctx context.Context, params *GetSessionMCPStatusParams, reqEditors ...RequestEditorFn) (*GetSessionMCPStatusResponse, error)
 
 	// ListSessionModelRunsWithResponse List complete durable model invocations
 	//
@@ -7538,6 +7724,83 @@ func (r GetSessionLearnedFileResponse) ContentType() string {
 	return ""
 }
 
+// GetSessionMCPStatusResponse200Headers the declared response headers of an HTTP 200 response for GetSessionMCPStatus
+type GetSessionMCPStatusResponse200Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type GetSessionMCPStatusResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *MCPStatusReport
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetSessionMCPStatusResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetSessionMCPStatusResponse) GetJSON200() *MCPStatusReport {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r GetSessionMCPStatusResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetSessionMCPStatusResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetSessionMCPStatusResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r GetSessionMCPStatusResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r GetSessionMCPStatusResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSessionMCPStatusResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSessionMCPStatusResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSessionMCPStatusResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // ListSessionModelRunsResponse200Headers the declared response headers of an HTTP 200 response for ListSessionModelRuns
 type ListSessionModelRunsResponse200Headers struct {
 	XRequestID openapi_types.UUID
@@ -8735,6 +8998,21 @@ func (c *ClientWithResponses) GetSessionLearnedFileWithResponse(ctx context.Cont
 		return nil, err
 	}
 	return ParseGetSessionLearnedFileResponse(rsp)
+}
+
+// GetSessionMCPStatusWithResponse Report the session's MCP servers
+//
+// Returns the MCP servers the session's worker last reported: which started, the tools each offers, and why one failed. The worker reports at the start of every turn, so the answer is what the most recent turn saw, and reportedAt says when that was. A session that has not run a turn with MCP configured has no report yet and answers an empty server list with a null reportedAt.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /session/mcp (the `GetSessionMCPStatus` operationId).
+func (c *ClientWithResponses) GetSessionMCPStatusWithResponse(ctx context.Context, params *GetSessionMCPStatusParams, reqEditors ...RequestEditorFn) (*GetSessionMCPStatusResponse, error) {
+	rsp, err := c.GetSessionMCPStatus(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSessionMCPStatusResponse(rsp)
 }
 
 // ListSessionModelRunsWithResponse List complete durable model invocations
@@ -10717,6 +10995,80 @@ func ParseGetSessionLearnedFileResponse(rsp *http.Response) (*GetSessionLearnedF
 	switch {
 	case rsp.StatusCode == 200:
 		var headers GetSessionLearnedFileResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGetSessionMCPStatusResponse parses an HTTP response from a GetSessionMCPStatusWithResponse call
+func ParseGetSessionMCPStatusResponse(rsp *http.Response) (*GetSessionMCPStatusResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSessionMCPStatusResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest MCPStatusReport
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetSessionMCPStatusResponse200Headers
 		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
 			var value openapi_types.UUID
 			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {

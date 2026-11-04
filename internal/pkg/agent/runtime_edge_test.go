@@ -260,7 +260,7 @@ func TestPromptHistoryAndRuntimeHelpers(t *testing.T) {
 		},
 	}
 
-	prompt, plan, err := promptFromHistory("base prompt", history)
+	prompt, plan, err := promptFromHistory("base prompt", history, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "base prompt", prompt.SystemMessage())
 	assert.NotContains(
@@ -314,7 +314,7 @@ func TestPromptHistoryAndRuntimeHelpers(t *testing.T) {
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, convertErr := elelemMessage(tc.message)
+			_, convertErr := elelemMessage(tc.message, nil)
 			require.Error(t, convertErr)
 
 			if tc.wantErr != nil {

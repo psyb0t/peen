@@ -52,6 +52,10 @@ func (c Config) WorkerEnvironment() (map[string]string, error) {
 		return nil, err
 	}
 
+	if c.MCP {
+		addWorkerMCPEnvironment(environment, c.MCPEnvNames(), os.LookupEnv)
+	}
+
 	addWorkerLogSettings(environment)
 
 	return environment, nil
@@ -161,6 +165,8 @@ func addWorkerCredentials(
 
 // workerRuntimeEnvironmentKey is the controller-to-worker configuration
 // contract. Keep a new worker runtime setting here when adding one to Config.
+//
+//nolint:funlen // One allowlisted key per line keeps the contract reviewable.
 func workerRuntimeEnvironmentKey(key string) bool {
 	switch key {
 	case "PEEN_AGENT",
@@ -173,6 +179,10 @@ func workerRuntimeEnvironmentKey(key string) bool {
 		"PEEN_LEARNED_DIR",
 		"PEEN_WRITABLE_LEARNED_DIR",
 		"PEEN_WRITABLE_CONFIG_DIR",
+		"PEEN_MCP",
+		"PEEN_WORKSPACE_MCP",
+		"PEEN_MCP_ENV",
+		"PEEN_MCP_START_TIMEOUT",
 		"PEEN_UPSTREAMS",
 		"PEEN_DEFAULT_MODEL",
 		"PEEN_COMPACTION_MODEL",
@@ -187,6 +197,8 @@ func workerRuntimeEnvironmentKey(key string) bool {
 		"PEEN_MAX_MESSAGE_BYTES",
 		"PEEN_MAX_SYSTEM_PROMPT_BYTES",
 		"PEEN_MAX_SYSTEM_PROMPT_PERCENT",
+		"PEEN_MAX_IMAGES_PER_MESSAGE",
+		"PEEN_MAX_IMAGE_BYTES",
 		"PEEN_MAX_STORED_MESSAGE_BYTES",
 		"PEEN_MAX_TOOL_ROUNDS",
 		"PEEN_MAX_CONCURRENT_TOOLS",

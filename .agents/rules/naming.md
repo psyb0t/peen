@@ -22,6 +22,7 @@ Every name Peen invents and owns is camelCase. Another convention is used only w
 - Skill and agent frontmatter keys fixed by the Agent Skills specification: `allowed-tools`, `user-invocable`, and the other specification keys.
 - Embedded `SKILL.md` and agent file names, and the directory layout under `.agents/`.
 - Names that a library, a protocol, or a vendored tool defines, such as the OpenAI chat completions fields and the Docker Engine API fields.
+- MCP tool names, `mcp__<server>__<tool>`. elelem builds them from the server's own tool name, in the format other agent tools use. The server name in `mcp.json` is Peen's and stays camelCase.
 - Existing kebab-case values, such as `drop-oldest` for `PEEN_COMPACTION_MODE`, `ad-hoc` for an agent run definition, and the `event-handler` source kind. They are values, not names, and stay as they are. The camelCase rule is about not using `snake_case`.
 
 ## Enforcement

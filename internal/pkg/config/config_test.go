@@ -315,6 +315,8 @@ func TestParseUsesFixedEnvironmentBindings(t *testing.T) {
 	t.Setenv("PEEN_MAX_MESSAGE_BYTES", "131072")
 	t.Setenv("PEEN_MAX_SYSTEM_PROMPT_BYTES", "32768")
 	t.Setenv("PEEN_MAX_STORED_MESSAGE_BYTES", "524288")
+	t.Setenv("PEEN_MAX_IMAGES_PER_MESSAGE", "2")
+	t.Setenv("PEEN_MAX_IMAGE_BYTES", "1048576")
 	t.Setenv("PEEN_DEFAULT_HOOK_COMMAND_TIMEOUT", "20s")
 	t.Setenv("PEEN_MAX_HOOK_COMMAND_OUTPUT", "8192")
 
@@ -339,6 +341,8 @@ func TestParseUsesFixedEnvironmentBindings(t *testing.T) {
 	assert.Equal(t, 131072, config.MaxMessageBytes)
 	assert.Equal(t, 32768, config.MaxSystemPromptBytes)
 	assert.Equal(t, 524288, config.MaxStoredMessageBytes)
+	assert.Equal(t, 2, config.MaxImagesPerMessage)
+	assert.Equal(t, 1048576, config.MaxImageBytes)
 	assert.Equal(t, 20*time.Second, config.DefaultHookCommandTimeout)
 	assert.Equal(t, 8192, config.MaxHookCommandOutput)
 
@@ -735,6 +739,25 @@ func TestConfigValidateRefusesRetiredTimeouts(t *testing.T) {
 	}
 }
 
+func TestWebSocketReadLimitHoldsTheLargestMessageSend(t *testing.T) {
+	t.Parallel()
+
+	config := Config{
+		MaxMessageBytes:      1000,
+		MaxSystemPromptBytes: 500,
+		MaxImagesPerMessage:  2,
+		MaxImageBytes:        3000,
+	}
+
+	// Two images of 3,000 bytes are 4,000 base64 characters each.
+	assert.Equal(t, int64(1000+500+2*4000+webSocketFrameOverheadBytes),
+		config.WebSocketReadLimit())
+
+	config.MaxImageBytes = 3001
+	assert.Equal(t, int64(1000+500+2*4004+webSocketFrameOverheadBytes),
+		config.WebSocketReadLimit())
+}
+
 func TestConfigValidateMessageLimits(t *testing.T) {
 	t.Parallel()
 
@@ -794,6 +817,31 @@ func TestConfigValidateMessageLimits(t *testing.T) {
 		{
 			name:    "negative stored message byte bound",
 			mutate:  func(c *Config) { c.MaxStoredMessageBytes = -1 },
+			wantErr: true,
+		},
+		{
+			name:    "negative image count bound",
+			mutate:  func(c *Config) { c.MaxImagesPerMessage = -1 },
+			wantErr: true,
+		},
+		{
+			name:    "negative image byte bound",
+			mutate:  func(c *Config) { c.MaxImageBytes = -1 },
+			wantErr: true,
+		},
+		{
+			name: "default image bounds fit one worker frame",
+			mutate: func(c *Config) {
+				c.MaxImagesPerMessage = 4
+				c.MaxImageBytes = 5 << 20
+			},
+		},
+		{
+			name: "image bounds past one worker frame",
+			mutate: func(c *Config) {
+				c.MaxImagesPerMessage = 6
+				c.MaxImageBytes = 5 << 20
+			},
 			wantErr: true,
 		},
 		{

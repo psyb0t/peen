@@ -101,6 +101,13 @@ type ReadFileOutput struct {
 	NextOffset int    `json:"nextOffset"`
 	Truncated  bool   `json:"truncated"`
 	SHA256     string `json:"sha256"`
+
+	// MediaType and SizeBytes describe an image file. Its bytes are in
+	// Image, which the agent attaches as an image instead of encoding it in
+	// the text result.
+	MediaType string `json:"mediaType,omitempty"`
+	SizeBytes int    `json:"sizeBytes,omitempty"`
+	Image     []byte `json:"-"`
 }
 
 // WriteFileInput creates or replaces one text file. ExpectedSHA256 is required

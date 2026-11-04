@@ -126,7 +126,8 @@ func (r *Runtime) rootWorkflowModelRequest(
 		return nil, workflowConversation{}, err
 	}
 
-	request, conversation, err := workflowModelRequest(r.models, input)
+	request, conversation, err := workflowSendRequest(ctx, r.models, r.store,
+		input)
 	if err != nil {
 		return nil, conversation, ctxerrors.Wrap(err,
 			"build saved model request")

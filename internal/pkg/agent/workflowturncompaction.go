@@ -103,7 +103,7 @@ func (r *Runtime) summarizeWorkflowTurnCut(
 			ErrCompactionEmptySummary, "summarizer returned no turn summary")
 	}
 
-	conversation.Messages = directoryHistory(spliceTurnSummary(messages, cut,
+	conversation.Messages = savedHistory(spliceTurnSummary(messages, cut,
 		compactionTurnSummaryLead+text))
 	if err := r.checkCompactedWorkflowBudget(conversation, input); err != nil {
 		return workflowCompactionResult{}, ctxerrors.Wrap(err,

@@ -14,6 +14,8 @@ func runDirectoryWorkflowToolPhase(
 ) (workflowToolPhaseState, error) {
 	defer scope.finishTool(input.Tool.Call.ID)
 
+	ctx = contextWithImageInput(ctx, options.ImageInput)
+
 	if err := scope.restoreWorkflowPendingDirectory(ctx,
 		input.State.Pending); err != nil {
 		return input.State, ctxerrors.Wrap(err, "restore staged tool directory")

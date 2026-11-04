@@ -149,6 +149,42 @@ func TestErrorKeepsAgentRunRefusalsAcrossTheWire(t *testing.T) {
 			class:    commerr.ErrValidationFailed,
 			wantCode: CodePromptBudgetExceeded,
 		},
+		{
+			name:     "model takes no images",
+			detail:   session.ErrImagesNotAccepted,
+			class:    commerr.ErrValidationFailed,
+			wantCode: CodeImagesNotAccepted,
+		},
+		{
+			name:     "history images on a text-only model",
+			detail:   session.ErrHistoryImagesNotAccepted,
+			class:    commerr.ErrValidationFailed,
+			wantCode: CodeHistoryImagesNotAccepted,
+		},
+		{
+			name:     "images on a queued message",
+			detail:   session.ErrImagesNeedNewTurn,
+			class:    commerr.ErrValidationFailed,
+			wantCode: CodeImagesNeedNewTurn,
+		},
+		{
+			name:     "too many images",
+			detail:   session.ErrTooManyImages,
+			class:    commerr.ErrValidationFailed,
+			wantCode: CodeTooManyImages,
+		},
+		{
+			name:     "image too large",
+			detail:   session.ErrImageTooLarge,
+			class:    commerr.ErrValidationFailed,
+			wantCode: CodeImageTooLarge,
+		},
+		{
+			name:     "image not its declared type",
+			detail:   session.ErrImageType,
+			class:    commerr.ErrValidationFailed,
+			wantCode: CodeImageType,
+		},
 	}
 
 	for _, tc := range testCases {

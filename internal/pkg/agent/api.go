@@ -206,6 +206,11 @@ func (r *Runtime) RunMessage(
 	sink EventSink,
 ) (*MessageRunResult, error) {
 	if request.To != nil {
+		if len(request.Images) > 0 {
+			return nil, imageRefusal(session.ErrImagesNeedNewTurn,
+				"message a child agent")
+		}
+
 		return r.messageAgentRun(ctx, request, requestID)
 	}
 
@@ -375,6 +380,7 @@ func messageRequestToTurnRequest(
 
 	input := TurnRequest{
 		Message:              request.Message,
+		Images:               request.Images,
 		Model:                optionalString(request.Model),
 		ReasoningEffort:      optionalString(request.ReasoningEffort),
 		SessionID:            request.SessionID,

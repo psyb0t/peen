@@ -28,6 +28,7 @@ type ToolLimits struct {
 	WaitJobTimeout        time.Duration
 	JobStopGracePeriod    time.Duration
 	MaxListJobs           int
+	MaxImageBytes         int
 }
 
 // AgentLimits bounds concurrent children, nesting and live event buffers.

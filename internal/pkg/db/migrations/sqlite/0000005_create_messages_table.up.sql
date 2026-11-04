@@ -18,8 +18,12 @@ CREATE TABLE messages (
     created_at DATETIME NOT NULL,
     compaction_id TEXT,
     injected BOOLEAN NOT NULL DEFAULT FALSE,
-    injected_kind TEXT NOT NULL DEFAULT '' CHECK (injected_kind IN ('', 'skill')),
+    injected_kind TEXT NOT NULL DEFAULT '' CHECK (injected_kind IN ('', 'skill', 'image')),
     provider_reasoning_json TEXT NOT NULL DEFAULT '',
+    -- images_json lists the message's images as {mediaType, sizeBytes, blob}.
+    -- The bytes live once in content_blobs under the blob hash.
+    images_json TEXT NOT NULL DEFAULT '[]'
+        CHECK (json_valid(images_json) AND json_type(images_json) = 'array'),
     FOREIGN KEY (session_id) REFERENCES sessions (id),
     FOREIGN KEY (session_id, turn_id) REFERENCES turns (session_id, id),
     FOREIGN KEY (compaction_id) REFERENCES compactions (id),

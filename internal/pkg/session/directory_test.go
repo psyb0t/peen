@@ -64,8 +64,8 @@ func TestGetDirectoryStateRequiresSuccessfulPairedCalls(t *testing.T) {
 				callSequence, resultSequence = resultSequence, callSequence
 			}
 			require.NoError(t, store.query.Message.WithContext(ctx).Create(
-				&models.Message{ID: uuid.New(), SessionID: opened.ID, TurnID: lease.TurnID, Sequence: callSequence, Role: models.MessageRoleAssistant, ToolCallsJSON: tc.calls},
-				&models.Message{ID: uuid.New(), SessionID: resultSessionID, TurnID: resultTurnID, Sequence: resultSequence, Role: tc.role, ToolCallsJSON: "[]", ToolCallID: "hop", Workspace: tc.workspace, IsError: tc.isError, Content: "truncated"},
+				&models.Message{ID: uuid.New(), SessionID: opened.ID, TurnID: lease.TurnID, Sequence: callSequence, Role: models.MessageRoleAssistant, ToolCallsJSON: tc.calls, ImagesJSON: "[]"},
+				&models.Message{ID: uuid.New(), SessionID: resultSessionID, TurnID: resultTurnID, Sequence: resultSequence, Role: tc.role, ToolCallsJSON: "[]", ImagesJSON: "[]", ToolCallID: "hop", Workspace: tc.workspace, IsError: tc.isError, Content: "truncated"},
 			))
 			state, err := store.GetDirectoryState(ctx, opened.ID)
 			require.NoError(t, err)
@@ -122,8 +122,8 @@ func TestDirectoryStatePairsReusedIDsWithTheClosestCall(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			sequence := int64(index*2 + 1)
 			require.NoError(t, store.query.Message.WithContext(ctx).Create(
-				&models.Message{ID: uuid.New(), SessionID: opened.ID, TurnID: lease.TurnID, Sequence: sequence, Role: models.MessageRoleAssistant, ToolCallsJSON: tc.calls},
-				&models.Message{ID: uuid.New(), SessionID: opened.ID, TurnID: lease.TurnID, Sequence: sequence + 1, Role: models.MessageRoleTool, ToolCallID: "reused", ToolCallsJSON: "[]", Workspace: tc.workspace},
+				&models.Message{ID: uuid.New(), SessionID: opened.ID, TurnID: lease.TurnID, Sequence: sequence, Role: models.MessageRoleAssistant, ToolCallsJSON: tc.calls, ImagesJSON: "[]"},
+				&models.Message{ID: uuid.New(), SessionID: opened.ID, TurnID: lease.TurnID, Sequence: sequence + 1, Role: models.MessageRoleTool, ToolCallID: "reused", ToolCallsJSON: "[]", ImagesJSON: "[]", Workspace: tc.workspace},
 			))
 			state, err := store.GetDirectoryState(ctx, opened.ID)
 			require.NoError(t, err)

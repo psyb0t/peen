@@ -256,6 +256,13 @@ func (request MessageRequest) internalRequest(
 		SessionID: &sessionID,
 		Message:   request.Message,
 	}
+
+	for _, image := range request.Images {
+		input.Images = append(input.Images, agent.MessageImage{
+			MediaType: image.MediaType, Data: image.Data,
+		})
+	}
+
 	if request.Model != "" {
 		input.Model = &request.Model
 	}

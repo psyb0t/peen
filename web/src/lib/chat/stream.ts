@@ -7,6 +7,8 @@ import type {
 	SkillInjectedData,
 } from "$lib/ws/generated";
 
+import type { ImageInfo } from "$lib/chat/images";
+
 const EVENT_TYPE_USER_MESSAGE_CREATED = "userMessage.created";
 const EVENT_TYPE_USER_MESSAGE_QUEUED = "userMessage.queued";
 const EVENT_TYPE_USER_MESSAGE_DELIVERED = "userMessage.delivered";
@@ -105,6 +107,8 @@ export interface LiveTurn {
 	// prompt is the event handler's instructions, not something a person typed.
 	originEventType: string | undefined;
 	prompt: string | undefined;
+	// promptImages describes the images sent with the prompt, without bytes.
+	promptImages: ImageInfo[] | undefined;
 	queue: QueueState | undefined;
 	requestID: string;
 	sessionID: string;
@@ -159,6 +163,7 @@ function nextTurn(
 			return {
 				...(current ?? emptyTurn(sessionID, requestID)),
 				prompt: event.data.message,
+				promptImages: event.data.images,
 			};
 		case EVENT_TYPE_USER_MESSAGE_QUEUED:
 			return { ...(current ?? emptyTurn(sessionID, requestID)), queue: "queued" };
@@ -258,6 +263,7 @@ function emptyTurn(sessionID: string, requestID: string): LiveTurn {
 		isFinished: false,
 		originEventType: undefined,
 		prompt: undefined,
+		promptImages: undefined,
 		queue: undefined,
 		requestID,
 		sessionID,

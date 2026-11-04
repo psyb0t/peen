@@ -111,6 +111,8 @@ type MessageSendData struct {
 	SystemPrompt    *MessageSystemPrompt        `json:"systemPrompt,omitempty"`
 	// Not enforced by the generated code: format uuid.
 	To *string `json:"to,omitempty"`
+	// Images the model sees after the message text, at most PEEN_MAX_IMAGES_PER_MESSAGE, 4 by default. Only a message that starts a turn may carry images, and only for a model that accepts image input.
+	Images []MessageImage `json:"images,omitempty"`
 }
 
 // UnmarshalJSON decodes MessageSendData strictly. Required properties must be
@@ -126,7 +128,7 @@ func (v *MessageSendData) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	if err := asyncapirt.RejectUnknownKeys("MessageSendData", members, "message", "model", "reasoningEffort", "systemPrompt", "to"); err != nil {
+	if err := asyncapirt.RejectUnknownKeys("MessageSendData", members, "message", "model", "reasoningEffort", "systemPrompt", "to", "images"); err != nil {
 		return err
 	}
 
@@ -155,6 +157,11 @@ func (v MessageSendData) Validate() error {
 	if v.SystemPrompt != nil {
 		if err := (*v.SystemPrompt).Validate(); err != nil {
 			return ctxerrors.Wrap(err, "systemPrompt")
+		}
+	}
+	for i0, item0 := range v.Images {
+		if err := item0.Validate(); err != nil {
+			return ctxerrors.Wrap(err, fmt.Sprintf("%s[%d]", "images", i0))
 		}
 	}
 
@@ -246,6 +253,73 @@ func (v MessageSystemPromptMode) Validate() error {
 	}
 
 	return asyncapirt.Invalid("MessageSystemPromptMode", fmt.Sprintf("unknown value %v", v))
+}
+
+type MessageImage struct {
+	MediaType MessageImageMediaType `json:"mediaType"`
+	// The image bytes, base64-encoded. At most PEEN_MAX_IMAGE_BYTES bytes once decoded, 5242880 by default.
+	Data string `json:"data"`
+}
+
+// UnmarshalJSON decodes MessageImage strictly. Required properties must be
+// present and the decoded value must pass Validate.
+// Properties the schema does not declare are rejected.
+func (v *MessageImage) UnmarshalJSON(data []byte) error {
+	members, err := asyncapirt.DecodeObject(data, "MessageImage")
+	if err != nil {
+		return err
+	}
+
+	if err := asyncapirt.RequireKeys("MessageImage", members, "mediaType", "data"); err != nil {
+		return err
+	}
+
+	if err := asyncapirt.RejectUnknownKeys("MessageImage", members, "mediaType", "data"); err != nil {
+		return err
+	}
+
+	type plain MessageImage
+
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return asyncapirt.DecodeError("MessageImage", err)
+	}
+
+	*v = MessageImage(decoded)
+
+	return v.Validate()
+}
+
+// Validate checks the constraints the schema declares for MessageImage.
+func (v MessageImage) Validate() error {
+	if err := v.MediaType.Validate(); err != nil {
+		return ctxerrors.Wrap(err, "mediaType")
+	}
+	if err := asyncapirt.CheckMinLength("data", string(v.Data), 1); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+type MessageImageMediaType string
+
+// Values of MessageImageMediaType.
+const (
+	MessageImageMediaTypeImagePng  MessageImageMediaType = "image/png"
+	MessageImageMediaTypeImageJpeg MessageImageMediaType = "image/jpeg"
+	MessageImageMediaTypeImageGif  MessageImageMediaType = "image/gif"
+	MessageImageMediaTypeImageWebp MessageImageMediaType = "image/webp"
+)
+
+// Validate reports whether v is one of the values the schema lists.
+func (v MessageImageMediaType) Validate() error {
+	switch v {
+	case MessageImageMediaTypeImagePng, MessageImageMediaTypeImageJpeg, MessageImageMediaTypeImageGif, MessageImageMediaTypeImageWebp:
+		return nil
+	}
+
+	return asyncapirt.Invalid("MessageImageMediaType", fmt.Sprintf("unknown value %v", v))
 }
 
 // Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
@@ -704,6 +778,32 @@ func (v ServerEvent) AsHarnessWarning() (HarnessWarning, error) {
 	var decoded HarnessWarning
 	if err := asyncapirt.UnmarshalStrict(v.union, &decoded); err != nil {
 		return decoded, ctxerrors.Wrap(err, "ServerEvent as HarnessWarning")
+	}
+
+	return decoded, nil
+}
+
+// FromMcpStatus sets the held value to a McpStatus.
+func (v *ServerEvent) FromMcpStatus(value McpStatus) error {
+	if err := asyncapirt.ValidateValue(value); err != nil {
+		return err
+	}
+
+	data, err := json.Marshal(value)
+	if err != nil {
+		return ctxerrors.Wrapf(commerr.ErrInvalidValue, "ServerEvent: %v", err)
+	}
+
+	v.union = data
+
+	return nil
+}
+
+// AsMcpStatus decodes the held value as a McpStatus.
+func (v ServerEvent) AsMcpStatus() (McpStatus, error) {
+	var decoded McpStatus
+	if err := asyncapirt.UnmarshalStrict(v.union, &decoded); err != nil {
+		return decoded, ctxerrors.Wrap(err, "ServerEvent as McpStatus")
 	}
 
 	return decoded, nil
@@ -1352,6 +1452,10 @@ func (v ServerEvent) Value() (any, error) {
 		return value, err
 	case "harness.warning":
 		value, err := v.AsHarnessWarning()
+
+		return value, err
+	case "mcp.status":
+		value, err := v.AsMcpStatus()
 
 		return value, err
 	case "question.asked":
@@ -3177,6 +3281,8 @@ type UserMessage struct {
 	Message string `json:"message"`
 	// Not enforced by the generated code: format uuid.
 	SourceEventID *string `json:"sourceEventId,omitempty"`
+	// The images sent with the message, without their bytes.
+	Images []UserMessageImage `json:"images,omitempty"`
 }
 
 // UnmarshalJSON decodes UserMessage strictly. Required properties must be
@@ -3192,7 +3298,7 @@ func (v *UserMessage) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	if err := asyncapirt.RejectUnknownKeys("UserMessage", members, "message", "sourceEventId"); err != nil {
+	if err := asyncapirt.RejectUnknownKeys("UserMessage", members, "message", "sourceEventId", "images"); err != nil {
 		return err
 	}
 
@@ -3210,6 +3316,51 @@ func (v *UserMessage) UnmarshalJSON(data []byte) error {
 
 // Validate checks the constraints the schema declares for UserMessage.
 func (v UserMessage) Validate() error {
+	for i0, item0 := range v.Images {
+		if err := item0.Validate(); err != nil {
+			return ctxerrors.Wrap(err, fmt.Sprintf("%s[%d]", "images", i0))
+		}
+	}
+
+	return nil
+}
+
+type UserMessageImage struct {
+	MediaType string `json:"mediaType"`
+	SizeBytes int64  `json:"sizeBytes"`
+}
+
+// UnmarshalJSON decodes UserMessageImage strictly. Required properties must be
+// present and the decoded value must pass Validate.
+// Properties the schema does not declare are rejected.
+func (v *UserMessageImage) UnmarshalJSON(data []byte) error {
+	members, err := asyncapirt.DecodeObject(data, "UserMessageImage")
+	if err != nil {
+		return err
+	}
+
+	if err := asyncapirt.RequireKeys("UserMessageImage", members, "mediaType", "sizeBytes"); err != nil {
+		return err
+	}
+
+	if err := asyncapirt.RejectUnknownKeys("UserMessageImage", members, "mediaType", "sizeBytes"); err != nil {
+		return err
+	}
+
+	type plain UserMessageImage
+
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return asyncapirt.DecodeError("UserMessageImage", err)
+	}
+
+	*v = UserMessageImage(decoded)
+
+	return v.Validate()
+}
+
+// Validate checks the constraints the schema declares for UserMessageImage.
+func (v UserMessageImage) Validate() error {
 
 	return nil
 }
@@ -4230,6 +4381,240 @@ func (v HarnessWarningKind) Validate() error {
 	}
 
 	return asyncapirt.Invalid("HarnessWarningKind", fmt.Sprintf("unknown value %v", v))
+}
+
+type McpStatus struct {
+	// Not enforced by the generated code: format uuid.
+	ID        string        `json:"id"`
+	Type      string        `json:"type"`
+	Data      McpStatusData `json:"data"`
+	Timestamp int64         `json:"timestamp"`
+	// Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+	Metadata Metadata `json:"metadata"`
+	// Not enforced by the generated code: format uuid.
+	TriggeredBy *string `json:"triggeredBy,omitempty"`
+}
+
+// UnmarshalJSON decodes McpStatus strictly. Required properties must be
+// present and the decoded value must pass Validate.
+// Properties the schema does not declare are rejected.
+func (v *McpStatus) UnmarshalJSON(data []byte) error {
+	members, err := asyncapirt.DecodeObject(data, "McpStatus")
+	if err != nil {
+		return err
+	}
+
+	if err := asyncapirt.RequireKeys("McpStatus", members, "id", "type", "data", "timestamp", "metadata"); err != nil {
+		return err
+	}
+
+	if err := asyncapirt.RejectUnknownKeys("McpStatus", members, "id", "type", "data", "timestamp", "metadata", "triggeredBy"); err != nil {
+		return err
+	}
+
+	type plain McpStatus
+
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return asyncapirt.DecodeError("McpStatus", err)
+	}
+
+	*v = McpStatus(decoded)
+
+	if _, ok := members["type"]; ok {
+		if err := asyncapirt.CheckConst("McpStatus.type", v.Type, "mcp.status"); err != nil {
+			return err
+		}
+	}
+
+	return v.Validate()
+}
+
+// MarshalJSON encodes McpStatus with its const properties filled in.
+func (v McpStatus) MarshalJSON() ([]byte, error) {
+	type plain McpStatus
+
+	encoded := plain(v)
+	encoded.Type = "mcp.status"
+
+	data, err := json.Marshal(encoded)
+	if err != nil {
+		return nil, ctxerrors.Wrapf(commerr.ErrInvalidValue, "McpStatus: %v", err)
+	}
+
+	return data, nil
+}
+
+// Validate checks the constraints the schema declares for McpStatus.
+func (v McpStatus) Validate() error {
+	if err := v.Data.Validate(); err != nil {
+		return ctxerrors.Wrap(err, "data")
+	}
+	if err := v.Metadata.Validate(); err != nil {
+		return ctxerrors.Wrap(err, "metadata")
+	}
+
+	return nil
+}
+
+type McpStatusData struct {
+	Servers []McpServerStatus `json:"servers"`
+}
+
+// UnmarshalJSON decodes McpStatusData strictly. Required properties must be
+// present and the decoded value must pass Validate.
+// Properties the schema does not declare are rejected.
+func (v *McpStatusData) UnmarshalJSON(data []byte) error {
+	members, err := asyncapirt.DecodeObject(data, "McpStatusData")
+	if err != nil {
+		return err
+	}
+
+	if err := asyncapirt.RequireKeys("McpStatusData", members, "servers"); err != nil {
+		return err
+	}
+
+	if err := asyncapirt.RejectUnknownKeys("McpStatusData", members, "servers"); err != nil {
+		return err
+	}
+
+	type plain McpStatusData
+
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return asyncapirt.DecodeError("McpStatusData", err)
+	}
+
+	*v = McpStatusData(decoded)
+
+	return v.Validate()
+}
+
+// Validate checks the constraints the schema declares for McpStatusData.
+func (v McpStatusData) Validate() error {
+	for i0, item0 := range v.Servers {
+		if err := item0.Validate(); err != nil {
+			return ctxerrors.Wrap(err, fmt.Sprintf("%s[%d]", "servers", i0))
+		}
+	}
+
+	return nil
+}
+
+type McpServerStatus struct {
+	// The server name from mcp.json. Empty when a whole mcp.json file was refused.
+	Name string `json:"name"`
+	// The layer whose .agents/mcp.json defines the server.
+	Source    McpServerSource     `json:"source"`
+	Transport *McpServerTransport `json:"transport,omitempty"`
+	State     McpServerState      `json:"state"`
+	// The exposed tool names, mcp__<server>__<tool>.
+	Tools []string `json:"tools"`
+	// Why the server failed.
+	Error *string `json:"error,omitempty"`
+	// Problems that did not stop the server.
+	Warnings []string `json:"warnings,omitempty"`
+}
+
+// UnmarshalJSON decodes McpServerStatus strictly. Required properties must be
+// present and the decoded value must pass Validate.
+// Properties the schema does not declare are rejected.
+func (v *McpServerStatus) UnmarshalJSON(data []byte) error {
+	members, err := asyncapirt.DecodeObject(data, "McpServerStatus")
+	if err != nil {
+		return err
+	}
+
+	if err := asyncapirt.RequireKeys("McpServerStatus", members, "name", "source", "state", "tools"); err != nil {
+		return err
+	}
+
+	if err := asyncapirt.RejectUnknownKeys("McpServerStatus", members, "name", "source", "transport", "state", "tools", "error", "warnings"); err != nil {
+		return err
+	}
+
+	type plain McpServerStatus
+
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return asyncapirt.DecodeError("McpServerStatus", err)
+	}
+
+	*v = McpServerStatus(decoded)
+
+	return v.Validate()
+}
+
+// Validate checks the constraints the schema declares for McpServerStatus.
+func (v McpServerStatus) Validate() error {
+	if err := v.Source.Validate(); err != nil {
+		return ctxerrors.Wrap(err, "source")
+	}
+	if v.Transport != nil {
+		if err := (*v.Transport).Validate(); err != nil {
+			return ctxerrors.Wrap(err, "transport")
+		}
+	}
+	if err := v.State.Validate(); err != nil {
+		return ctxerrors.Wrap(err, "state")
+	}
+
+	return nil
+}
+
+// The layer whose .agents/mcp.json defines the server.
+type McpServerSource string
+
+// Values of McpServerSource.
+const (
+	McpServerSourceConfig    McpServerSource = "config"
+	McpServerSourceWorkspace McpServerSource = "workspace"
+)
+
+// Validate reports whether v is one of the values the schema lists.
+func (v McpServerSource) Validate() error {
+	switch v {
+	case McpServerSourceConfig, McpServerSourceWorkspace:
+		return nil
+	}
+
+	return asyncapirt.Invalid("McpServerSource", fmt.Sprintf("unknown value %v", v))
+}
+
+type McpServerTransport string
+
+// Values of McpServerTransport.
+const (
+	McpServerTransportStdio McpServerTransport = "stdio"
+	McpServerTransportHTTP  McpServerTransport = "http"
+)
+
+// Validate reports whether v is one of the values the schema lists.
+func (v McpServerTransport) Validate() error {
+	switch v {
+	case McpServerTransportStdio, McpServerTransportHTTP:
+		return nil
+	}
+
+	return asyncapirt.Invalid("McpServerTransport", fmt.Sprintf("unknown value %v", v))
+}
+
+type McpServerState string
+
+// Values of McpServerState.
+const (
+	McpServerStateReady  McpServerState = "ready"
+	McpServerStateFailed McpServerState = "failed"
+)
+
+// Validate reports whether v is one of the values the schema lists.
+func (v McpServerState) Validate() error {
+	switch v {
+	case McpServerStateReady, McpServerStateFailed:
+		return nil
+	}
+
+	return asyncapirt.Invalid("McpServerState", fmt.Sprintf("unknown value %v", v))
 }
 
 type QuestionAskedEvent struct {

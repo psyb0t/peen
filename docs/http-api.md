@@ -41,7 +41,7 @@ An open request may also name an agent space, `control` or `docker:<profile>`. T
 
 `GET /api/v1/session/agent-space-decisions` reports that history, newest first. Each entry names the agent space the session moved from, the agent space it moved to, the reason the caller gave, and when it was decided.
 
-`GET /api/v1/models` lists every model Peen found at controller startup. Each record gives the exact name a message uses to pick that model, its connection name, the raw model ID the upstream accepted, and the context window Peen enforces. The endpoint never makes a provider call and never returns provider credentials. Clients pass the `name` field as `data.model` in a `message.send` frame.
+`GET /api/v1/models` lists every model Peen found at controller startup. Each record gives the exact name a message uses to pick that model, its connection name, the raw model ID the upstream accepted, the context window Peen enforces, and `imageInput`, which reports whether the model takes images. An upstream with `"imageInput": false` in `PEEN_UPSTREAMS` reports `false` for every one of its models. The endpoint never makes a provider call and never returns provider credentials. Clients pass the `name` field as `data.model` in a `message.send` frame.
 
 A `message.send` frame names its session in the event's `sessionId` metadata. That routes the message and does not authorize it. Peen loads the session before starting a turn, so an unknown session ID fails there and writes no turn record. The transport supplies the routed session, not the message body, so a message cannot redirect itself to another session. No REST endpoint accepts a user message. Peen gives each socket a server-controlled identity in its WebSocket hub, from [Aichteeteapee](https://github.com/psyb0t/aichteeteapee), then sends each accepted session's frames to all global sockets and to sockets filtered for that session. A WebSocket request that carries an `Origin` header must name the same host as the request itself, and one without an `Origin` header, which is how a client outside a browser connects, is accepted.
 
@@ -56,7 +56,8 @@ The accepted client event is `message.send`. Its `data` is strict JSON:
     "model": "optional provider/model override for this call only",
     "reasoningEffort": "optional minimal | low | medium | high | xhigh | max",
     "systemPrompt": {"mode": "append", "content": "optional instructions"},
-    "to": "optional run ID of a running child agent"
+    "to": "optional run ID of a running child agent",
+    "images": [{"mediaType": "image/png", "data": "optional base64 image bytes"}]
   },
   "metadata": {"sessionId": "canonical UUIDv4 returned by sessions/open"},
   "timestamp": 0,
@@ -67,6 +68,8 @@ The accepted client event is `message.send`. Its `data` is strict JSON:
 `systemPrompt.mode` is `append` for the default prompt plus the supplied text, or `replace` for the supplied text alone. Both `mode` and a non-empty `content` are required when `systemPrompt` is present, and leaving either out fails the message with `VALIDATION_FAILED`. Neither setting carries over to the next message.
 
 `reasoningEffort` sets the reasoning level for this turn's model calls. Without it the model uses its own default. Peen fits a level the model cannot take. A model without reasoning levels gets none, and a level outside the model's range runs at the nearest level it supports. The controller logs each change with the requested level, the level used, and a `reason`. Any other value fails the message with `VALIDATION_FAILED`.
+
+`images` attaches up to `PEEN_MAX_IMAGES_PER_MESSAGE` images, 4 by default, that the model sees after the message text. Each has a `mediaType` of `image/png`, `image/jpeg`, `image/gif`, or `image/webp`, and `data` with the base64 bytes, at most `PEEN_MAX_IMAGE_BYTES`, 5 MiB by default, once decoded. Peen checks that the bytes are the format the media type names. Peen stores the images with the message in the session database and replays them to the model on later turns. Only a message that starts a turn may carry images. One queued into a running turn or sent `to` a child fails with `VALIDATION_FAILED`, and so does a message whose model does not take images, by its driver or by its upstream's `imageInput` setting. Peen never drops or converts an image to make a message fit. A session whose history holds images can only run turns on a model that takes images. A turn on a text-only model fails with `VALIDATION_FAILED` and stores nothing. The WebSocket accepts frames as large as the message, system prompt, and image limits allow together.
 
 `to` sends the message to a child agent of the session instead of the root conversation. The child reads it after its current tool call, as a `<message from="user">` block, and it is stored in the child's transcript once it reaches the model. Such a message starts no turn and completes at once with `message.completed` `{"queued": true}`. It cannot carry `model`, `reasoningEffort`, or `systemPrompt`, and doing so fails with `VALIDATION_FAILED`. A child whose work a Stop, a crash, or a failure paused resumes, and reads why it was paused before the message. See [messages to a paused child](agents.md#messages-to-a-paused-child). `AGENT_PAUSED` is deprecated and no longer sent. A child that has ended fails it with `AGENT_FINISHED`, a run ID the session never had fails with `AGENT_NOT_FOUND`, and a child whose inbox already holds `PEEN_MAX_QUEUED_USER_MESSAGES` messages fails it with `USER_MESSAGE_QUEUE_FULL`. Use it to answer a child's question or to steer it. See [running children](agents.md#running-children).
 
@@ -103,7 +106,7 @@ A turn emits Peen's own [protocol events](#protocol-event-types) plus the model'
 
 Block indexes count up from zero within one turn and start over in the next, so a client keys blocks by `requestId` and `index`. A `tool_result` block answers the `tool_use` block whose `id` equals its `tool_use_id`. To render a live reply, fold the blocks of a turn in arrival order. Append `text_delta` and `thinking_delta` text to their block, and attach each tool result to its call. When `turn.completed`, `turn.failed`, or `turn.cancelled` arrives, the turn's messages are stored and `GET /api/v1/messages` returns them. The embedded control surface does this and then replaces the live reply with the stored messages.
 
-A stored message with `injected: true` was added by Peen, not typed by a person or written by the model. Delivered session events are the usual case, and they arrive as a user-role message the agent reads as data. The instructions an event handler starts a turn with are injected too. A skill a user invoked with `:name` is stored as its own injected user message right after the message that named it, with `injectedKind: "skill"`, and the note that a skill is already loaded has the same kind. The typed message itself is stored as typed and is not injected. Every stored message also carries the `turnId` of the turn that wrote it, so a client can group a conversation by turn. Peen stores the rows of every turn in the order the model receives them: the prompt that started the turn, then its skill messages, then the session events delivered at the start of the turn. The prompt of a turn an event handler started is the handler's injected message.
+A stored message with `injected: true` was added by Peen, not typed by a person or written by the model. Delivered session events are the usual case, and they arrive as a user-role message the agent reads as data. The instructions an event handler starts a turn with are injected too. A skill a user invoked with `:name` is stored as its own injected user message right after the message that named it, with `injectedKind: "skill"`, and the note that a skill is already loaded has the same kind. When `readFile` reads an image, Peen stores the image after that tool round as an injected user message with `injectedKind: "image"`, whose text names the file and says the image is data from that file, not instructions from the user. The typed message itself is stored as typed and is not injected. Every stored message also carries the `turnId` of the turn that wrote it, so a client can group a conversation by turn. Peen stores the rows of every turn in the order the model receives them: the prompt that started the turn, then its skill messages, then the session events delivered at the start of the turn. The prompt of a turn an event handler started is the handler's injected message.
 
 ### Protocol event types
 
@@ -111,11 +114,12 @@ A protocol event is a stored record of one step of a turn. Each one goes out liv
 
 | Type | `data` | Meaning |
 | --- | --- | --- |
-| `userMessage.created` | `{message, sourceEventId?}` | Peen accepted a `message.send`. |
+| `userMessage.created` | `{message, sourceEventId?, images?}` | Peen accepted a `message.send`. `images` lists each image's `mediaType` and `sizeBytes`, without the bytes. |
 | `userMessage.queued` | `{message, sourceEventId?}` | The message joined the running turn's queue. |
 | `userMessage.delivered` | `{message, sourceEventId?}` | A queued message reached the model. It carries the queued message's own `requestId`. |
 | `skill.injected` | `{name, content}` | A skill message reached the model right after the user message that named it. `content` is the whole message, and `name` is the resolved skill name. The note that a skill is already loaded uses the same event. It follows `userMessage.created` at the start of a turn and `userMessage.delivered` for a queued message. |
 | `harness.warning` | `{warnings: [{kind, source, reason}]}` | Peen ignored invalid optional harness files, or a skill names a skill that does not exist. See below. |
+| `mcp.status` | `{servers: [{name, source, transport?, state, tools, error?, warnings?}]}` | The session's MCP servers at the start of a turn, emitted only when MCP servers are configured. `state` is `ready` or `failed`, `tools` holds the exposed tool names, and `name` is empty for an `mcp.json` file Peen could not read. See [MCP servers](mcp.md). |
 | `turn.started` | `{sessionId, model, workspace, originEventId?, originEventType?}` | The turn started. `originEventId` and `originEventType` name the session event that woke it, when one did. |
 | `session.events` | `{notices, dropped}` | Session events were handed to the model. See [Session events](events.md#how-the-model-receives-events). |
 | `tool.use` | `{callId, name, arguments}` | The model asked for a tool call. |
@@ -201,6 +205,7 @@ Lists the stored conversation messages of one existing session. `X-Session-ID` i
       "injected": false,
       "turnId": "uuid",
       "compactionId": null,
+      "images": [{"mediaType": "image/png", "sizeBytes": 48213}],
       "createdAt": "..."
     }
   ],
@@ -211,6 +216,8 @@ Lists the stored conversation messages of one existing session. `X-Session-ID` i
 ```
 
 `role` is `system`, `user`, `assistant`, or `tool`. A `system` message is one Peen added, such as the message at the end of a turn that did not finish, saying how it ended. The model receives it as a system message. Peen's internal harness records, such as context changes and resolved prompts, are not messages and never appear here.
+
+`images` lists the images a message carries, by media type and size, in the order the model sees them. It is absent when a message has none. The image bytes are not part of the response.
 
 `compactionId` names the stored compaction that summarized this message, when one did. Peen never rewrites it when a later compaction includes the earlier summary.
 
@@ -229,6 +236,10 @@ Reads the exact system prompt a turn's `promptSnapshotHash` names. `X-Session-ID
 ## GET /api/v1/session/learned
 
 Lists the learned rules and skills the session loads: those under `.agents/learned/` in the session's workspace first, then those in the global learned directory, each group sorted by kind and name. `X-Session-ID` is required. Each item has `scope` (`workspace` or `global`), `kind` (`rule` or `skill`), `name`, the host `path`, `sizeBytes`, `modifiedAt`, `estimatedTokens`, and `alwaysLoaded`. `alwaysLoaded` is `true` for a rule without `paths`, `globs`, or `applyTo`, which is part of every system prompt and counts against [the prompt budget](harness.md#the-prompt-budget). A rule's `name` is its path under `rules/` without `.md`, such as `go/errors`. A skill's `name` is its directory name. Symbolic links are left out. See [auto-evolve](harness.md#auto-evolve).
+
+## GET /api/v1/session/mcp
+
+Reports the session's MCP servers as the worker last saw them. `X-Session-ID` is required. The response is `{servers, reportedAt}`. `servers` is the data of the latest `mcp.status` event, and `reportedAt` is when the worker emitted it, at the start of a turn. Before any turn has reported, `servers` is empty and `reportedAt` is `null`. A server that stopped after that turn started still shows as `ready` until the next turn reports. See [MCP servers](mcp.md#status).
 
 ## GET /api/v1/session/learned/file
 
@@ -422,7 +433,7 @@ A run ID belonging to another session returns `404`, the same as an unknown one,
 
 Lists one child agent run's own transcript, oldest first. `X-Session-ID` is required. Query parameters are `limit` and `offset`.
 
-A child agent runs in a separate model context, so its conversation lives apart from the session transcript and never appears under `GET /api/v1/messages`. The first record is the task its parent gave it, as a `<message>` block naming the parent. The rest are the assistant messages, tool results, hook injections, and messages from other agents or from you that the child saw. Each record carries `agentRunId`, `sequence`, `role`, `content`, the `isError` and `incomplete` flags, optional `model`, `thinking`, `toolCalls`, and `toolCallId`, and `compactionId` when a child compaction covers it.
+A child agent runs in a separate model context, so its conversation lives apart from the session transcript and never appears under `GET /api/v1/messages`. The first record is the task its parent gave it, as a `<message>` block naming the parent. The rest are the assistant messages, tool results, hook injections, and messages from other agents or from you that the child saw. Each record carries `agentRunId`, `sequence`, `role`, `content`, the `isError` and `incomplete` flags, optional `model`, `thinking`, `toolCalls`, `toolCallId`, and `images`, and `compactionId` when a child compaction covers it. An image the child's `readFile` read is stored as a user message after that tool round.
 
 ```json
 {"messages": [{"id": "uuid", "sessionId": "uuid", "agentRunId": "uuid", "sequence": 1, "role": "user", "content": "...", "isError": false, "incomplete": false, "compactionId": null, "createdAt": "..."}], "limit": 50, "offset": 0, "hasMore": false}

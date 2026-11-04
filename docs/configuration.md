@@ -38,6 +38,10 @@ These values decide where Peen keeps its state and which model handles a task. S
 | `PEEN_LEARNED_DIR` | `PEEN_CONFIG_DIR/.agents/learned` | The global learned directory, an absolute path every session reads while auto-evolve is on. It may sit inside `PEEN_CONFIG_DIR` but may not be or contain it, and may not overlap `PEEN_STATE_DIR`, `PEEN_WORKER_SOCKET_DIR`, or `PEEN_LOG_DIRECTORY`. The controller creates it at startup. |
 | `PEEN_WRITABLE_LEARNED_DIR` | `false` | With auto-evolve on, `true` mounts the global learned directory writable into every Docker worker and tells the agent it may save rules and skills there. Any Docker session can then change what every session loads. The controller logs a warning at startup. |
 | `PEEN_WRITABLE_CONFIG_DIR` | `false` | `true` mounts `PEEN_CONFIG_DIR` writable into every Docker worker, and with auto-evolve on tells the agent it may change the files there. Any Docker session can then change the global harness, hooks included, that every session loads. The controller logs a warning at startup. |
+| `PEEN_MCP` | `true` | `false` turns MCP servers off. With it on, every session starts the servers in `PEEN_CONFIG_DIR/.agents/mcp.json`. See [MCP servers](mcp.md). |
+| `PEEN_WORKSPACE_MCP` | `false` | `true` also reads `<workspace>/.agents/mcp.json`. Opening a session then runs any stdio server the workspace names. A workspace server gets no secrets. |
+| `PEEN_MCP_ENV` | empty | Comma-separated variables that `mcp.json` may hand a server through `envFrom` or `bearerTokenEnv`. Peen passes them to workers and removes them from every command the agent runs. A `PEEN_` setting is refused. |
+| `PEEN_MCP_START_TIMEOUT` | `30s` | Limits starting one MCP server and listing its tools. Zero takes the default. |
 | `PEEN_UPSTREAMS` | required, JSON | Named provider list. See [providers](#providers). |
 | `PEEN_DEFAULT_MODEL` | required | `provider/model` for the root agent and, unless `PEEN_COMPACTION_MODEL` is set, compaction. |
 | `PEEN_COMPACTION_MODEL` | `PEEN_DEFAULT_MODEL` | `provider/model` used only for the summarization call. See [compaction](#compaction). |
@@ -176,6 +180,7 @@ ZAI_TOKEN=your-token-here
 | `type` | yes | Wire protocol: `openai`, `anthropic`, or `zai-coding`. |
 | `baseUrl` | no | API base URL. Left out, the protocol's own default endpoint is used. |
 | `apiKeyEnv` | no | Name of the environment variable that holds the key. Never put the key itself here. If set, that variable must be set and non-empty, or Peen refuses to start. |
+| `imageInput` | no | `false` marks every model of the entry as text-only. Peen then refuses images in `message.send` and from `readFile` for those models, and `GET /api/v1/models` reports `imageInput: false`. Left out or `true`, Peen trusts what the provider driver reports for each model. |
 
 Peen asks every listed provider for its models at startup. Delete every entry you do not use, together with its key variable. An entry whose key variable is missing or empty stops Peen from starting. An entry with a placeholder key such as `REPLACE_ME` fails discovery. Peen logs a warning and offers none of its models, and startup fails if `PEEN_DEFAULT_MODEL` or `PEEN_COMPACTION_MODEL` names one of them.
 
@@ -227,6 +232,8 @@ Under `summarize` a child agent compacts its own transcript into its own stored 
 | `PEEN_MAX_MESSAGE_BYTES` | `262144` | Limits the `message` field in a `message.send` WebSocket frame. |
 | `PEEN_MAX_SYSTEM_PROMPT_BYTES` | `65536` | Limits the optional [`systemPrompt.content`](http-api.md#send-and-watch-turns-over-websocket) field of a `message.send` frame. |
 | `PEEN_MAX_SYSTEM_PROMPT_PERCENT` | `50` | Refuses a turn, or a child agent launch, whose system prompt is estimated at more than this percent of `PEEN_MAX_CONTEXT_TOKENS`. The system prompt includes the base prompt, every rule and `AGENTS.md` file that loads on every turn, learned rules, and the agent's instructions. Rules scoped with `paths` do not count. Peen estimates with the o200k tokenizer, so the count is close to, not equal to, what a provider bills. The refusal is `message.failed` with `HARNESS_CONFIGURATION_INVALID`, and the controller log names the three largest sections. `0` turns the check off. See [The prompt budget](harness.md#the-prompt-budget). |
+| `PEEN_MAX_IMAGES_PER_MESSAGE` | `4` | Limits the [`images`](http-api.md#send-and-watch-turns-over-websocket) one `message.send` frame carries. |
+| `PEEN_MAX_IMAGE_BYTES` | `5242880` | Limits one image, decoded, in a `message.send` frame or one `readFile` call. Startup refuses a value that, times `PEEN_MAX_IMAGES_PER_MESSAGE`, comes to more than 28 MiB of base64, because the message crosses the worker socket in one frame. Raising both raises the largest frame the WebSocket reads. |
 | `PEEN_MAX_STORED_MESSAGE_BYTES` | `1048576` | Limits any stored message of any role, since an assistant or tool message has no caller-facing limit of its own. It does not limit a turn's whole context, which Peen saves under its own 12 MiB limit, or this value if it is larger. That holds a 1,000,000-token context. |
 
 ## Tool execution limits

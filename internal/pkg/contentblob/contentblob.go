@@ -602,3 +602,8 @@ func hashOf(data []byte) string {
 
 	return hex.EncodeToString(sum[:])
 }
+
+// Hash is the key a blob is stored under: the hex SHA-256 of its bytes.
+func Hash(data []byte) string {
+	return hashOf(data)
+}

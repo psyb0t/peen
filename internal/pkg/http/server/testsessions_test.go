@@ -46,6 +46,20 @@ type testSessionRegistry struct {
 	learnedErr     error
 	// learnedReferences records every learned file the handler named.
 	learnedReferences []harness.LearnedFileReference
+
+	mcpReport api.MCPStatusReport
+	mcpErr    error
+}
+
+func (r *testSessionRegistry) MCPStatus(
+	_ context.Context,
+	_ uuid.UUID,
+) (api.MCPStatusReport, error) {
+	if r.mcpErr != nil {
+		return api.MCPStatusReport{}, r.mcpErr
+	}
+
+	return r.mcpReport, nil
 }
 
 func (r *testSessionRegistry) ListLearnedFiles(

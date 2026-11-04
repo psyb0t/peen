@@ -126,6 +126,38 @@ components:
         sourceEventId:
           type: string
           format: uuid
+        images:
+          type: array
+          description: The images sent with the message, without their bytes.
+          items:
+            $ref: "#/components/schemas/UserMessageImage"
+
+    UserMessageImage:
+      title: UserMessageImage
+      type: object
+      additionalProperties: false
+      required: [mediaType, sizeBytes]
+      properties:
+        mediaType:
+          type: string
+        sizeBytes:
+          type: integer
+
+    MessageImage:
+      title: MessageImage
+      type: object
+      additionalProperties: false
+      required: [mediaType, data]
+      properties:
+        mediaType:
+          type: string
+          enum: [image/png, image/jpeg, image/gif, image/webp]
+        data:
+          type: string
+          minLength: 1
+          description: >-
+            The image bytes, base64-encoded. At most PEEN_MAX_IMAGE_BYTES
+            bytes once decoded, 5242880 by default.
 
     AgentRunInboxMessage:
       title: AgentRunInboxMessage
@@ -280,6 +312,15 @@ components:
         to:
           type: string
           format: uuid
+        images:
+          type: array
+          description: >-
+            Images the model sees after the message text, at most
+            PEEN_MAX_IMAGES_PER_MESSAGE, 4 by default. Only a message that
+            starts a turn may carry images, and only for a model that accepts
+            image input.
+          items:
+            $ref: "#/components/schemas/MessageImage"
 
     MessageSend:
       title: MessageSend
@@ -940,6 +981,76 @@ components:
           const: harness.warning
         data:
           $ref: "#/components/schemas/HarnessWarningData"
+        timestamp:
+          type: integer
+          format: int64
+        metadata:
+          $ref: "#/components/schemas/Metadata"
+        triggeredBy:
+          type: [string, "null"]
+          format: uuid
+
+    MCPServerStatus:
+      title: MCPServerStatus
+      type: object
+      additionalProperties: false
+      required: [name, source, state, tools]
+      properties:
+        name:
+          type: string
+          description: The server name from mcp.json. Empty when a whole mcp.json file was refused.
+        source:
+          title: MCPServerSource
+          type: string
+          enum: [config, workspace]
+          description: The layer whose .agents/mcp.json defines the server.
+        transport:
+          title: MCPServerTransport
+          type: string
+          enum: [stdio, http]
+        state:
+          title: MCPServerState
+          type: string
+          enum: [ready, failed]
+        tools:
+          type: array
+          description: The exposed tool names, mcp__<server>__<tool>.
+          items:
+            type: string
+        error:
+          type: string
+          description: Why the server failed.
+        warnings:
+          type: array
+          description: Problems that did not stop the server.
+          items:
+            type: string
+
+    MCPStatusData:
+      title: MCPStatusData
+      type: object
+      additionalProperties: false
+      required: [servers]
+      properties:
+        servers:
+          type: array
+          items:
+            $ref: "#/components/schemas/MCPServerStatus"
+
+    MCPStatus:
+      title: MCPStatus
+      type: object
+      additionalProperties: false
+      required: [id, type, data, timestamp, metadata]
+      properties:
+        id:
+          type: string
+          format: uuid
+        type:
+          type: string
+          const: mcp.status
+        data:
+          $ref: "#/components/schemas/MCPStatusData"
         timestamp:
           type: integer
           format: int64
@@ -1951,6 +2062,7 @@ components:
         - $ref: "#/components/schemas/ToolResultEvent"
         - $ref: "#/components/schemas/SessionEvents"
         - $ref: "#/components/schemas/HarnessWarning"
+        - $ref: "#/components/schemas/MCPStatus"
         - $ref: "#/components/schemas/QuestionAskedEvent"
         - $ref: "#/components/schemas/QuestionAnsweredEvent"
         - $ref: "#/components/schemas/TurnCompleted"

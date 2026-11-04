@@ -26,6 +26,7 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/hooks"
+	"github.com/psyb0t/peen/internal/pkg/mcptools"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"github.com/psyb0t/peen/internal/pkg/publicerror"
 	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
@@ -53,6 +54,7 @@ type Runtime struct {
 	) (hooks.Outcome, error)
 	hookCommandRunner hooks.CommandRunner
 	extraTools        []elelem.Tool
+	mcp               *mcptools.Manager
 	disableTools      []string
 	observeEvent      func(uuid.UUID, Event)
 	lifecycle         runtimeLifecycle
@@ -78,6 +80,8 @@ type Runtime struct {
 	maxSystemPromptBytes  int
 	maxMessageBytes       int
 	maxQueuedUserMessages int
+	maxImagesPerMessage   int
+	maxImageBytes         int
 	// systemPromptTokenLimit is the largest assembled system prompt a turn or
 	// child launch may send, in estimated tokens. Zero turns the check off.
 	systemPromptTokenLimit int
@@ -259,6 +263,7 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 		logger:              options.Logger,
 		commandRunner:       options.CommandRunner,
 		extraTools:          options.Tools,
+		mcp:                 options.MCP,
 		disableTools:        options.DisableTools,
 		observeEvent:        options.ObserveEvent,
 		store:               options.Store,
@@ -279,6 +284,8 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 		maxSystemPromptBytes:  options.MaxSystemPromptBytes,
 		maxMessageBytes:       options.MaxMessageBytes,
 		maxQueuedUserMessages: options.MaxQueuedUserMessages,
+		maxImagesPerMessage:   options.MaxImagesPerMessage,
+		maxImageBytes:         options.MaxImageBytes,
 		systemPromptTokenLimit: systemPromptTokenLimit(
 			options.MaxContextTokens,
 			options.MaxSystemPromptPercent,
@@ -608,6 +615,11 @@ func (r *Runtime) prepareTurn(
 		return nil, err
 	}
 
+	if err := requireHistoryImageInput(basis.model,
+		opening.assembly.prompt); err != nil {
+		return nil, err
+	}
+
 	turn, lease, err := r.openTurn(ctx, input, basis.workspace, &opening)
 	if err != nil {
 		return nil, err
@@ -698,6 +710,10 @@ func (r *Runtime) resolveTurnBasis(
 	model, err := r.models.ResolveModel(modelReference)
 	if err != nil {
 		return turnBasis{}, ctxerrors.Wrap(err, "resolve model")
+	}
+
+	if err := requireImageInput(model, input.Images); err != nil {
+		return turnBasis{}, err
 	}
 
 	snapshot,
@@ -815,18 +831,10 @@ func (r *Runtime) openPrompt(
 		Created: firstTurn,
 	}
 
-	history, err := r.store.CompletedHistory(ctx, opened.Session.ID)
+	history, prompt, plan, err := r.historyPrompt(ctx, opened.Session.ID,
+		systemPrompt)
 	if err != nil {
-		return nil,
-			promptAssembly{},
-			ctxerrors.Wrap(err, "load completed history")
-	}
-
-	prompt, plan, err := promptFromHistory(systemPrompt, history)
-	if err != nil {
-		return nil,
-			promptAssembly{},
-			ctxerrors.Wrap(err, "assemble persisted history")
+		return nil, promptAssembly{}, err
 	}
 
 	skillHistory := make([]*models.Message, 0, len(history.Messages))
@@ -845,7 +853,7 @@ func (r *Runtime) openPrompt(
 
 	ledger.recordMessages(skills)
 
-	prompt = prompt.UserText(input.Message)
+	prompt = prompt.User(contentWithImages(input.Message, input.Images)...)
 	for _, skill := range skills {
 		prompt = prompt.UserText(skill.text)
 	}
@@ -857,6 +865,35 @@ func (r *Runtime) openPrompt(
 		skills: skills,
 		ledger: ledger,
 	}, nil
+}
+
+// historyPrompt loads the session's completed history with its images and
+// builds the prompt it replays.
+func (r *Runtime) historyPrompt(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	systemPrompt string,
+) (*session.History, elelem.Prompt, reconstructionPlan, error) {
+	history, err := r.store.CompletedHistory(ctx, sessionID)
+	if err != nil {
+		return nil, elelem.Prompt{}, reconstructionPlan{},
+			ctxerrors.Wrap(err, "load completed history")
+	}
+
+	images, err := loadMessageImages(ctx, r.store,
+		messageImageColumns(history.Messages))
+	if err != nil {
+		return nil, elelem.Prompt{}, reconstructionPlan{},
+			ctxerrors.Wrap(err, "load history images")
+	}
+
+	prompt, plan, err := promptFromHistory(systemPrompt, history, images)
+	if err != nil {
+		return nil, elelem.Prompt{}, reconstructionPlan{},
+			ctxerrors.Wrap(err, "assemble persisted history")
+	}
+
+	return history, prompt, plan, nil
 }
 
 // newTurnSkillLedger returns the skills a turn counts as already delivered.
@@ -1351,6 +1388,7 @@ func turnStartEvents(
 ) ([]Event, []session.EventInput, error) {
 	userMessageEvent, userMessageEventInput, err := newUserMessageEvent(
 		input.Message,
+		input.Images,
 		requestID,
 		input.SourceEventID,
 	)
@@ -1405,6 +1443,7 @@ func newSkillInjectedEvent(
 // turnStartContent is what a turn opens with, before any model call.
 type turnStartContent struct {
 	prompt           string
+	images           []MessageImage
 	isPromptInjected bool
 	skills           []skillMessage
 	pendingEvents    string
@@ -1431,6 +1470,7 @@ func turnStartMessages(
 		Role:     models.MessageRoleUser,
 		Content:  content.prompt,
 		Injected: content.isPromptInjected,
+		Images:   content.images,
 	})
 
 	for _, skill := range content.skills {
@@ -1451,10 +1491,13 @@ func turnStartMessages(
 
 func newUserMessageEvent(
 	message string,
+	images []MessageImage,
 	requestID uuid.UUID,
 	triggeringEventID uuid.UUID,
 ) (Event, session.EventInput, error) {
-	payload := userMessagePayload{Message: message}
+	payload := userMessagePayload{
+		Message: message, Images: userMessageImages(images),
+	}
 	if triggeringEventID != uuid.Nil {
 		payload.SourceEventID = triggeringEventID.String()
 	}
@@ -1613,7 +1656,7 @@ func (r *Runtime) validateTurnInput(input TurnRequest) error {
 		)
 	}
 
-	return nil
+	return r.validateImages(input.Images)
 }
 
 func (r *Runtime) systemPrompt(
@@ -1818,6 +1861,10 @@ func (r *Runtime) startLease(
 
 	if err := prepared.emitHarnessWarnings(ctx); err != nil {
 		return ctxerrors.Wrap(err, "emit harness configuration warnings")
+	}
+
+	if err := prepared.emitMCPStatus(ctx, r); err != nil {
+		return err
 	}
 
 	if err := prepared.runLifecycleHook(
@@ -2544,6 +2591,22 @@ func (p *preparedTurn) onMessageInjection(
 	return p.turn.checkpoint(ctx)
 }
 
+// onToolImage stores the message that attaches an image a tool read. The
+// round merge adds the same message to the model context.
+func (p *preparedTurn) onToolImage(
+	ctx context.Context,
+	result elelem.ToolResult,
+) error {
+	image, err := resultImage(result)
+	if err != nil || image == nil {
+		return err
+	}
+
+	p.turn.appendMessage(toolImageInput(image, p.workspace))
+
+	return p.turn.checkpoint(ctx)
+}
+
 func injectedMessageRole(role elelem.Role) (models.MessageRole, error) {
 	switch role {
 	case elelem.RoleUser:
@@ -2657,6 +2720,7 @@ func failedTurnDetail(state models.TurnState, err error) string {
 func promptFromHistory(
 	systemPrompt string,
 	history *session.History,
+	images imageBytes,
 ) (elelem.Prompt, reconstructionPlan, error) {
 	prompt := elelem.NewPrompt().WithSystem(systemPrompt)
 
@@ -2676,7 +2740,7 @@ func promptFromHistory(
 
 	messages := make([]elelem.Message, 0, len(rows))
 	for _, message := range rows {
-		converted, err := elelemMessage(message)
+		converted, err := elelemMessage(message, images)
 		if err != nil {
 			return elelem.Prompt{}, reconstructionPlan{}, ctxerrors.Wrap(
 				err,
@@ -2702,7 +2766,12 @@ func promptFromHistory(
 	return prompt.WithHistory(messages), plan, nil
 }
 
-func elelemMessage(message *models.Message) (elelem.Message, error) {
+// elelemMessage converts a stored message. images must hold every image the
+// message names, as loadMessageImages returns them.
+func elelemMessage(
+	message *models.Message,
+	images imageBytes,
+) (elelem.Message, error) {
 	if message == nil {
 		return elelem.Message{}, ctxerrors.Wrap(
 			commerr.ErrInvalidState,
@@ -2727,9 +2796,14 @@ func elelemMessage(message *models.Message) (elelem.Message, error) {
 		)
 	}
 
+	content, err := messageContent(message.Content, message.ImagesJSON, images)
+	if err != nil {
+		return elelem.Message{}, err
+	}
+
 	return elelem.Message{
 		Role:              role,
-		Content:           elelem.Text(message.Content),
+		Content:           content,
 		ToolCalls:         toolCalls,
 		ToolCallID:        message.ToolCallID,
 		ToolResultIsError: message.IsError,
@@ -2773,7 +2847,7 @@ func elelemMessageInput(input session.MessageInput) (elelem.Message, error) {
 
 	return elelem.Message{
 		Role:              role,
-		Content:           elelem.Text(input.Content),
+		Content:           contentWithImages(input.Content, input.Images),
 		ToolCalls:         toolCalls,
 		ToolCallID:        input.ToolCallID,
 		ToolResultIsError: input.IsError,

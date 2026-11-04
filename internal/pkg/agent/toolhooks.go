@@ -532,17 +532,37 @@ func (p *preparedTurn) hookContextTokens(
 
 //nolint:ireturn // Elelem exposes token counting as an interface dependency.
 func modelTokenCounter(model ModelClient) elelem.TokenCounter {
-	if model.Client == nil || model.Client.Driver() == nil {
+	return withImageTokens(modelTextTokenCounter(model))
+}
+
+//nolint:ireturn // Elelem exposes token counting as an interface dependency.
+func modelTextTokenCounter(model ModelClient) elelem.TokenCounter {
+	if model.Client == nil {
 		return elelem.DefaultTokenCounter()
 	}
 
-	counter := model.Client.Driver().TokenCounter()
+	return driverTextTokenCounter(model.Client.Driver(), model.Model)
+}
+
+// driverTextTokenCounter is the driver's own counter bound to model, or the
+// default when the driver has none. It counts text only.
+//
+//nolint:ireturn // Elelem exposes token counting as an interface dependency.
+func driverTextTokenCounter(
+	driver elelem.Driver,
+	model elelem.Model,
+) elelem.TokenCounter {
+	if driver == nil {
+		return elelem.DefaultTokenCounter()
+	}
+
+	counter := driver.TokenCounter()
 	if counter == nil {
 		return elelem.DefaultTokenCounter()
 	}
 
 	if bound, ok := counter.(elelem.ModelTokenCounter); ok {
-		return bound.ForModel(model.Model)
+		return bound.ForModel(model)
 	}
 
 	return counter

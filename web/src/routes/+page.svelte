@@ -5,6 +5,7 @@
 	import { agentSpaceLabel } from "$lib/agentspace";
 	import { activities, isActivityEvent, type AgentActivity } from "$lib/chat/activity";
 	import ReplyBlocks from "$lib/chat/ReplyBlocks.svelte";
+	import { describeImages } from "$lib/chat/images";
 	import { groupTranscript, liveSegments } from "$lib/chat/transcript";
 	import {
 		applyStreamEvent,
@@ -981,6 +982,9 @@
 					{#each transcriptItems as item (item.kind === "user" ? item.message.id : item.id)}
 						{#if item.kind === "user"}<article class="message user">
 								<div class="message-content">{item.message.content}</div>
+								{#if describeImages(item.message.images)}<p class="message-images">
+										{describeImages(item.message.images)}
+									</p>{/if}
 								<time class="message-time" datetime={item.message.createdAt}
 									>{messageTime(item.message.createdAt)}</time
 								>
@@ -996,6 +1000,9 @@
 									class:queued={turn.queue === "queued"}
 								>
 									<div class="message-content">{turn.prompt}</div>
+									{#if describeImages(turn.promptImages)}<p class="message-images">
+											{describeImages(turn.promptImages)}
+										</p>{/if}
 									{#if turn.queue === "queued"}<p class="queue-note">
 											Queued. Lands after the current step.
 										</p>{/if}
@@ -1604,6 +1611,11 @@
 		font-weight: 700;
 		margin: 0.45rem 0 0;
 		text-align: right;
+	}
+	.message-images {
+		color: #989ba4;
+		font-size: 0.72rem;
+		margin: 0.4rem 0 0;
 	}
 	.message-time {
 		color: #989ba4;

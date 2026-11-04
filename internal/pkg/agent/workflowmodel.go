@@ -57,27 +57,68 @@ func (c workflowConversation) reasoning() string {
 }
 
 // A fresh request runs one model round. No automatic tool continuation is set.
+// historyResolver prepares a saved history for a provider request.
+type historyResolver func(history []elelem.Message) ([]elelem.Message, error)
+
+// workflowModelRequest builds the request a saved context describes, with
+// image parts still naming their content blobs. It is for counting and
+// fitting the context, not for sending it.
 func workflowModelRequest(
 	models ModelResolver,
 	input workflowRoundInput,
 ) (*elelem.Request, workflowConversation, error) {
+	return workflowModelRequestWith(models, input, nil)
+}
+
+// workflowSendRequest builds the request a model round sends, with every
+// image the history names read back from content_blobs. The returned
+// conversation keeps the references.
+func workflowSendRequest(
+	ctx context.Context,
+	models ModelResolver,
+	images imageBlobReader,
+	input workflowRoundInput,
+) (*elelem.Request, workflowConversation, error) {
+	return workflowModelRequestWith(models, input,
+		func(history []elelem.Message) ([]elelem.Message, error) {
+			return resolveImageReferences(ctx, images, history)
+		})
+}
+
+// decodeWorkflowConversation reads and checks a round's saved context.
+func decodeWorkflowConversation(
+	input workflowRoundInput,
+) (workflowConversation, error) {
 	var conversation workflowConversation
 
 	err := json.Unmarshal(input.Execution.Context, &conversation)
 	if err != nil {
-		return nil, conversation, ctxerrors.Wrap(err,
+		return conversation, ctxerrors.Wrap(err,
 			"decode workflow conversation")
 	}
 
 	if err := validateWorkflowCompactionConversation(conversation); err != nil {
-		return nil, conversation, ctxerrors.Wrap(err,
+		return conversation, ctxerrors.Wrap(err,
 			"validate saved compaction context")
 	}
 
 	if err := validateWorkflowChildConversation(conversation,
 		input); err != nil {
-		return nil, conversation, ctxerrors.Wrap(err,
+		return conversation, ctxerrors.Wrap(err,
 			"validate saved child conversation")
+	}
+
+	return conversation, nil
+}
+
+func workflowModelRequestWith(
+	models ModelResolver,
+	input workflowRoundInput,
+	resolve historyResolver,
+) (*elelem.Request, workflowConversation, error) {
+	conversation, err := decodeWorkflowConversation(input)
+	if err != nil {
+		return nil, conversation, err
 	}
 
 	model, err := models.ResolveModel(conversation.ModelReference)
@@ -98,6 +139,13 @@ func workflowModelRequest(
 	}
 
 	history := seededWorkflowHistory(conversation.Messages)
+	if resolve != nil {
+		history, err = resolve(history)
+		if err != nil {
+			return nil, conversation, ctxerrors.Wrap(err,
+				"read workflow history images")
+		}
+	}
 
 	request := elelem.NewRequest(model.Client).WithModel(model.Model).
 		WithPrompt(elelem.NewPrompt().WithSystem(conversation.SystemPrompt).
@@ -213,7 +261,7 @@ func workflowModelResult(
 	response *elelem.Response,
 	conversation workflowConversation,
 ) (workflowRoundResult, error) {
-	conversation.Messages = directoryHistory(response.Messages)
+	conversation.Messages = savedHistory(response.Messages)
 	releaseDroppedCompactionPlan(ctx, &conversation)
 
 	conversation.Usage = workflowSavedUsage(
@@ -263,6 +311,34 @@ func workflowSavedUsage(usage elelem.Usage) elelem.Usage {
 	return usage
 }
 
+// workflowRoundInjections are the messages a tool round adds after its
+// results: each result's injections, then the image it read, if any.
+func workflowRoundInjections(
+	results []workflowToolResult,
+) ([]elelem.Message, error) {
+	var messages []elelem.Message
+
+	for _, result := range results {
+		for _, injection := range result.Injections {
+			messages = append(messages, elelem.Message{
+				Role: injection.Type, Content: elelem.Text(injection.Content),
+				Origin: elelem.MessageOriginInjection, Injection: &injection,
+			})
+		}
+
+		image, err := resultImage(result.Result)
+		if err != nil {
+			return nil, ctxerrors.Wrap(err, "attach tool round image")
+		}
+
+		if image != nil {
+			messages = append(messages, toolImageMessage(image))
+		}
+	}
+
+	return messages, nil
+}
+
 func workflowMergeRound(
 	encoded json.RawMessage,
 	calls []workflowToolInput,
@@ -308,15 +384,12 @@ func workflowMergeRound(
 	}
 
 	// Providers require every result before any injected message in the round.
-	for _, result := range results {
-		for _, injection := range result.Injections {
-			message := elelem.Message{
-				Role: injection.Type, Content: elelem.Text(injection.Content),
-				Origin: elelem.MessageOriginInjection, Injection: &injection,
-			}
-			conversation.Messages = append(conversation.Messages, message)
-		}
+	messages, err := workflowRoundInjections(results)
+	if err != nil {
+		return nil, err
 	}
+
+	conversation.Messages = append(conversation.Messages, messages...)
 
 	output, err := json.Marshal(conversation)
 	if err != nil {

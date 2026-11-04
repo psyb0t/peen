@@ -21,6 +21,9 @@ type workflowToolOptions struct {
 	MaxResultBytes  int
 	Counter         elelem.TokenCounter
 	Finish          func(string)
+	// ImageInput reports that the turn's model takes images, so readFile may
+	// attach one.
+	ImageInput bool
 }
 
 // Each activity runs the complete hook lifecycle for one recorded call.
@@ -33,6 +36,8 @@ func runWorkflowTool(
 	if options.Finish != nil {
 		defer options.Finish(input.Call.ID)
 	}
+
+	ctx = contextWithImageInput(ctx, options.ImageInput)
 
 	if err := ctx.Err(); err != nil {
 		return workflowToolResult{}, ctxerrors.Wrap(err,

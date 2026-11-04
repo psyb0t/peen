@@ -42,6 +42,7 @@ func newAgentRunMessage(db *gorm.DB, opts ...gen.DOOption) agentRunMessage {
 	_agentRunMessage.IsError = field.NewBool(tableName, "is_error")
 	_agentRunMessage.Incomplete = field.NewBool(tableName, "incomplete")
 	_agentRunMessage.CreatedAt = field.NewTime(tableName, "created_at")
+	_agentRunMessage.ImagesJSON = field.NewString(tableName, "images_json")
 
 	_agentRunMessage.fillFieldMap()
 
@@ -66,6 +67,7 @@ type agentRunMessage struct {
 	IsError       field.Bool
 	Incomplete    field.Bool
 	CreatedAt     field.Time
+	ImagesJSON    field.String
 
 	fieldMap map[string]field.Expr
 }
@@ -96,6 +98,7 @@ func (a *agentRunMessage) updateTableName(table string) *agentRunMessage {
 	a.IsError = field.NewBool(table, "is_error")
 	a.Incomplete = field.NewBool(table, "incomplete")
 	a.CreatedAt = field.NewTime(table, "created_at")
+	a.ImagesJSON = field.NewString(table, "images_json")
 
 	a.fillFieldMap()
 
@@ -112,7 +115,7 @@ func (a *agentRunMessage) GetFieldByName(fieldName string) (field.OrderExpr, boo
 }
 
 func (a *agentRunMessage) fillFieldMap() {
-	a.fieldMap = make(map[string]field.Expr, 14)
+	a.fieldMap = make(map[string]field.Expr, 15)
 	a.fieldMap["id"] = a.ID
 	a.fieldMap["session_id"] = a.SessionID
 	a.fieldMap["agent_run_id"] = a.AgentRunID
@@ -127,6 +130,7 @@ func (a *agentRunMessage) fillFieldMap() {
 	a.fieldMap["is_error"] = a.IsError
 	a.fieldMap["incomplete"] = a.Incomplete
 	a.fieldMap["created_at"] = a.CreatedAt
+	a.fieldMap["images_json"] = a.ImagesJSON
 }
 
 func (a agentRunMessage) clone(db *gorm.DB) agentRunMessage {

@@ -21,6 +21,7 @@ import {
 	SKILL_MESSAGE_NAME_PATTERN,
 	SKILL_NOTE_NAME_PATTERN,
 } from "$lib/common/constants";
+import { describeImages } from "$lib/chat/images";
 import { formatJSON, stringField } from "$lib/common/json";
 
 type Message = components["schemas"]["Message"];
@@ -188,7 +189,14 @@ function injectedBlock(message: Message): ReplyBlock {
 		};
 	}
 
-	return { key: message.id, kind: "injected", text: injectedText(message.content) };
+	const text = injectedText(message.content);
+	const images = describeImages(message.images);
+
+	return {
+		key: message.id,
+		kind: "injected",
+		text: images === undefined ? text : `${text}\n${images}`,
+	};
 }
 
 /**

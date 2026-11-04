@@ -75,11 +75,10 @@ func (r *Runtime) recoverChildPrompt(child recoveredChild) (
 		))
 	}
 
-	converted, ledgerHistory, err := convertRecoveredHistory(history.Messages)
+	converted, ledgerHistory, err := r.convertRecoveredChildHistory(child,
+		history.Messages)
 	if err != nil {
-		return elelem.Prompt{}, nil, ctxerrors.Wrap(
-			err, "convert recovered child history",
-		)
+		return elelem.Prompt{}, nil, err
 	}
 
 	pending := pendingChildCalls(converted)
@@ -99,6 +98,27 @@ func (r *Runtime) recoverChildPrompt(child recoveredChild) (
 	))
 
 	return prompt.WithHistory(converted), ledger, nil
+}
+
+// convertRecoveredChildHistory loads the images a recovered child's history
+// names and converts the history to model messages.
+func (r *Runtime) convertRecoveredChildHistory(
+	child recoveredChild,
+	records []*models.AgentRunMessage,
+) ([]elelem.Message, []*models.Message, error) {
+	images, err := loadMessageImages(child.ctx, r.store,
+		agentRunMessageImageColumns(records))
+	if err != nil {
+		return nil, nil, ctxerrors.Wrap(err, "load recovered child images")
+	}
+
+	converted, ledgerHistory, err := convertRecoveredHistory(records, images)
+	if err != nil {
+		return nil, nil, ctxerrors.Wrap(err,
+			"convert recovered child history")
+	}
+
+	return converted, ledgerHistory, nil
 }
 
 func (r *Runtime) ensureRecoveredHistory(
@@ -293,6 +313,7 @@ func (r *Runtime) addChildSegmentBudget(
 
 func convertRecoveredHistory(
 	records []*models.AgentRunMessage,
+	images imageBytes,
 ) ([]elelem.Message, []*models.Message, error) {
 	converted := make([]elelem.Message, 0, len(records))
 
@@ -308,9 +329,10 @@ func convertRecoveredHistory(
 			ToolCallsJSON: record.ToolCallsJSON,
 			ToolCallID:    record.ToolCallID,
 			IsError:       record.IsError,
+			ImagesJSON:    record.ImagesJSON,
 		}
 
-		entry, err := elelemMessage(message)
+		entry, err := elelemMessage(message, images)
 		if err != nil {
 			return nil, nil, ctxerrors.Wrap(
 				err,

@@ -57,7 +57,7 @@ func (r *Runtime) childWorkflowConversation(
 			MaxConcurrentTools: r.maxConcurrentTools,
 		},
 		ModelReference: deps.modelReference, SystemPrompt: current.prompt,
-		Messages:            directoryHistory(prepared.prompt.Messages()),
+		Messages:            savedHistory(prepared.prompt.Messages()),
 		MaxContextTokens:    r.maxContextTokens,
 		OutputReserveTokens: r.outputReserveTokens, Streaming: &streaming,
 		Runtime: state, Child: bootstrap,

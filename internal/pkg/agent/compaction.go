@@ -25,6 +25,9 @@ const (
 	compactionToolCallLead       = "tool call "
 	compactionArgumentSeparator  = " "
 	compactionLineBreak          = "\n"
+	// compactionImageNoteFormat stands in for an image part, which the text
+	// transcript cannot carry, so the summary still records that it was there.
+	compactionImageNoteFormat = "[image %s]\n"
 
 	// compactionReasonBudgetExceeded is the stable reason logged when a
 	// request's transcript no longer fits the configured budget.
@@ -1062,6 +1065,14 @@ func writeCompactionMessage(
 	builder.WriteString(compactionRoleSeparator)
 	builder.WriteString(message.Text())
 	builder.WriteString(compactionLineBreak)
+
+	for _, part := range message.Content {
+		if part.Type != elelem.PartTypeImage || part.Image == nil {
+			continue
+		}
+
+		fmt.Fprintf(builder, compactionImageNoteFormat, part.Image.MediaType)
+	}
 
 	for _, call := range message.ToolCalls {
 		builder.WriteString(compactionToolCallLead)

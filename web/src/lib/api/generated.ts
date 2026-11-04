@@ -579,6 +579,26 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	"/session/mcp": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Report the session's MCP servers
+		 * @description Returns the MCP servers the session's worker last reported: which started, the tools each offers, and why one failed. The worker reports at the start of every turn, so the answer is what the most recent turn saw, and reportedAt says when that was. A session that has not run a turn with MCP configured has no report yet and answers an empty server list with a null reportedAt.
+		 */
+		get: operations["getSessionMCPStatus"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	"/session/learned": {
 		parameters: {
 			query?: never;
@@ -648,10 +668,12 @@ export interface components {
 			/** @description True when Peen added this message to the conversation itself, such as a report of session events delivered during a turn or the instructions of an event handler that started a turn, rather than a person or the model writing it. */
 			injected?: boolean;
 			/**
-			 * @description What an injected message is, when it is more than a generic update. `skill` marks a skill the user invoked with `:name`, delivered as its own message after the message that named it, or the note that the skill was already loaded. Absent for every other message.
+			 * @description What an injected message is, when it is more than a generic update. `skill` marks a skill the user invoked with `:name`, delivered as its own message after the message that named it, or the note that the skill was already loaded. `image` marks the message that shows the model an image readFile read, after that tool round. Absent for every other message.
 			 * @enum {string}
 			 */
-			injectedKind?: "skill";
+			injectedKind?: "skill" | "image";
+			/** @description The images the message carries, without their bytes, in the order the model sees them after the text. Absent when it has none. */
+			images?: components["schemas"]["MessageImageInfo"][];
 			/**
 			 * Format: uuid
 			 * @description The turn that wrote this message. Messages that share it belong to one turn.
@@ -768,6 +790,33 @@ export interface components {
 			/** @description Workspace files first, then global ones, each sorted by kind and name. */
 			items: components["schemas"]["LearnedFile"][];
 		};
+		MCPStatusReport: {
+			servers: components["schemas"]["MCPServerStatus"][];
+			/**
+			 * Format: date-time
+			 * @description When the worker reported, at the start of a turn. Null before the first report.
+			 */
+			reportedAt: string | null;
+		};
+		MCPServerStatus: {
+			/** @description The server name from mcp.json. Empty when a whole mcp.json file was refused. */
+			name: string;
+			/**
+			 * @description The layer whose .agents/mcp.json defines the server.
+			 * @enum {string}
+			 */
+			source: "config" | "workspace";
+			/** @enum {string} */
+			transport?: "stdio" | "http";
+			/** @enum {string} */
+			state: "ready" | "failed";
+			/** @description The exposed tool names, mcp__<server>__<tool>. */
+			tools: string[];
+			/** @description Why the server failed. */
+			error?: string;
+			/** @description Problems that did not stop the server. */
+			warnings?: string[];
+		};
 		LearnedFileContent: {
 			file: components["schemas"]["LearnedFile"];
 			content: string;
@@ -775,6 +824,11 @@ export interface components {
 		WorkspaceRootList: {
 			/** @description Canonical absolute directories the authenticated controller will accept as workspace roots. */
 			roots: string[];
+		};
+		MessageImageInfo: {
+			mediaType: string;
+			/** Format: int64 */
+			sizeBytes: number;
 		};
 		Model: {
 			/** @description Exact connection/model reference accepted by message.send for a one-turn model override. */
@@ -788,6 +842,8 @@ export interface components {
 			 * @description The model context window Peen will enforce. For an upstream that publishes no window, this is the deployment context budget.
 			 */
 			contextWindowTokens: number;
+			/** @description Whether the model takes images, in message.send and from readFile. An upstream with "imageInput": false makes every one of its models text-only. */
+			imageInput: boolean;
 		};
 		ModelList: {
 			/** @description Models available to this authenticated controller. */
@@ -1057,6 +1113,8 @@ export interface components {
 			incomplete: boolean;
 			/** Format: date-time */
 			createdAt: string;
+			/** @description The images the message carries, without their bytes, such as an image the child's readFile read. Absent when it has none. */
+			images?: components["schemas"]["MessageImageInfo"][];
 		};
 		AgentRunMessagePage: {
 			messages: components["schemas"]["AgentRunMessage"][];
@@ -2626,6 +2684,34 @@ export interface operations {
 				};
 				content: {
 					"application/json": components["schemas"]["AgentRunCancelResponse"];
+				};
+			};
+			400: components["responses"]["ErrorBadRequest"];
+			401: components["responses"]["ErrorUnauthorized"];
+			404: components["responses"]["ErrorNotFound"];
+			500: components["responses"]["ErrorInternal"];
+		};
+	};
+	getSessionMCPStatus: {
+		parameters: {
+			query?: never;
+			header: {
+				"X-Session-ID": components["parameters"]["SessionIDRequired"];
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description MCP server status */
+			200: {
+				headers: {
+					"X-Session-ID": components["headers"]["SessionID"];
+					"X-Request-ID": components["headers"]["RequestID"];
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["MCPStatusReport"];
 				};
 			};
 			400: components["responses"]["ErrorBadRequest"];

@@ -11,6 +11,7 @@ The harness is everything Peen tells the model besides your message: `AGENTS.md`
 | Event handlers | `.agents/events/<type>.md` | What to do when a session event arrives, and whether it starts a turn | [Session events](events.md) |
 | Hooks | `.agents/hooks.yaml` | Commands, denials, injected context, and events around lifecycle and tool calls | [Hooks](hooks.md) |
 | Learned rules and skills | `.agents/learned/rules/**/*.md`, `.agents/learned/skills/<name>/SKILL.md` | Rules and skills an auto-evolving agent saved for itself | [Auto-evolve](#auto-evolve) |
+| MCP servers | `.agents/mcp.json` in `PEEN_CONFIG_DIR`, and in the workspace with `PEEN_WORKSPACE_MCP=true` | Tool servers whose tools the agent can call. Read once when the session's worker starts, not per directory. | [MCP servers](mcp.md) |
 
 ## Where Peen looks
 

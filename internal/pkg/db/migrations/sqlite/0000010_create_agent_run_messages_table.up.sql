@@ -16,6 +16,9 @@ CREATE TABLE agent_run_messages (
     is_error BOOLEAN NOT NULL DEFAULT FALSE,
     incomplete BOOLEAN NOT NULL DEFAULT FALSE,
     created_at DATETIME NOT NULL,
+    -- images_json is the same image list messages.images_json holds.
+    images_json TEXT NOT NULL DEFAULT '[]'
+        CHECK (json_valid(images_json) AND json_type(images_json) = 'array'),
     FOREIGN KEY (session_id) REFERENCES sessions (id),
     FOREIGN KEY (session_id, agent_run_id)
         REFERENCES agent_runs (session_id, id),

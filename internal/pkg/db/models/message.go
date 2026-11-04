@@ -33,6 +33,9 @@ type Message struct {
 	// invoked. It is empty for any other message.
 	InjectedKind InjectedKind
 	CreatedAt    time.Time
+	// ImagesJSON lists the message's images, a JSON array of MessageImage.
+	// The bytes live in content_blobs.
+	ImagesJSON string
 }
 
 // TableName pins the schema-owned messages table name.

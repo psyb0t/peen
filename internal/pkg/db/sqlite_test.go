@@ -157,6 +157,7 @@ func TestOpenRebuildsDirectCompactionLinksAfterUpgrade(t *testing.T) {
 			Role:          models.MessageRoleUser,
 			Content:       "message",
 			ToolCallsJSON: "[]",
+			ImagesJSON:    "[]",
 			CreatedAt:     now,
 		}))
 	}

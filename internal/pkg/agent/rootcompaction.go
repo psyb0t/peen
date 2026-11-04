@@ -120,7 +120,7 @@ func (r *Runtime) workflowCompactedResult(
 
 	compaction := built.compactionInput(units, text, summary)
 	compaction.ID = lease.ID
-	conversation.Messages = directoryHistory(built.replacePrefix(
+	conversation.Messages = savedHistory(built.replacePrefix(
 		workflowCompactionMessages(conversation), units,
 		compactionSummaryLead+text))
 

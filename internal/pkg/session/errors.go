@@ -24,6 +24,33 @@ var (
 		"a message sent during a running turn cannot change its model, reasoning, or system prompt", //nolint:lll // One user-facing sentence.
 	)
 
+	// The image refusals below are always joined with
+	// commerr.ErrValidationFailed, and their text is written for the person
+	// who sent the message.
+
+	// ErrImagesNotAccepted reports images sent to a model that does not take
+	// image input, by its driver or by its upstream's imageInput setting.
+	ErrImagesNotAccepted = errors.New("the model does not accept images")
+	// ErrHistoryImagesNotAccepted reports a turn whose replayed history
+	// carries images, run on a model that does not take image input.
+	ErrHistoryImagesNotAccepted = errors.New(
+		"the session history has images and the model does not accept images",
+	)
+	// ErrImagesNeedNewTurn reports images on a message that joins a running
+	// turn or goes to a child agent.
+	ErrImagesNeedNewTurn = errors.New(
+		"only a message that starts a turn can carry images",
+	)
+	// ErrTooManyImages reports more images than PEEN_MAX_IMAGES_PER_MESSAGE.
+	ErrTooManyImages = errors.New("the message carries too many images")
+	// ErrImageTooLarge reports an image over PEEN_MAX_IMAGE_BYTES.
+	ErrImageTooLarge = errors.New("an image is larger than the image limit")
+	// ErrImageType reports an image whose bytes are not the PNG, JPEG, GIF, or
+	// WebP its media type names.
+	ErrImageType = errors.New(
+		"an image is not PNG, JPEG, GIF, or WebP data matching its media type",
+	)
+
 	// ErrAgentRunFinished reports a message sent to a child agent that is no
 	// longer running, so nothing would ever read it, or a non-terminal event
 	// recorded after the run ended. It is always joined with

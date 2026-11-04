@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -586,7 +587,44 @@ func messageSendDataToRequest(
 		request.To = &to
 	}
 
+	images, err := decodeMessageImages(data.Images)
+	if err != nil {
+		return agent.MessageRequest{}, err
+	}
+
+	request.Images = images
+
 	return request, nil
+}
+
+// decodeMessageImages decodes each frame image's base64 data. The runtime
+// checks the count, sizes, and model support.
+func decodeMessageImages(
+	images []wsapi.MessageImage,
+) ([]agent.MessageImage, error) {
+	if len(images) == 0 {
+		return nil, nil
+	}
+
+	decoded := make([]agent.MessageImage, 0, len(images))
+
+	for index, image := range images {
+		data, err := base64.StdEncoding.DecodeString(image.Data)
+		if err != nil {
+			return nil, ctxerrors.Wrapf(
+				errors.Join(commerr.ErrValidationFailed, err),
+				"image %d is not valid base64",
+				index,
+			)
+		}
+
+		decoded = append(decoded, agent.MessageImage{
+			MediaType: string(image.MediaType),
+			Data:      data,
+		})
+	}
+
+	return decoded, nil
 }
 
 func newWebSocketEvent(
@@ -609,6 +647,7 @@ func webSocketMessageFailureFor(err error) webSocketMessageFailure {
 	specificFailures := []func(error) (webSocketMessageFailure, bool){
 		harnessConfigurationFailureFor,
 		runningTurnFailureFor,
+		imageFailureFor,
 		unknownSkillFailureFor,
 		agentRunFailureFor,
 	}
@@ -695,6 +734,31 @@ func runningTurnFailureFor(err error) (webSocketMessageFailure, bool) {
 		session.ErrRunningTurnSettingsChange.Error(),
 		"",
 	), true
+}
+
+// imageFailureFor reports a message whose images Peen refused. Each image
+// sentinel's text is written for the sender, so the client shows it as is.
+func imageFailureFor(err error) (webSocketMessageFailure, bool) {
+	refusals := []error{
+		session.ErrImagesNotAccepted,
+		session.ErrHistoryImagesNotAccepted,
+		session.ErrImagesNeedNewTurn,
+		session.ErrTooManyImages,
+		session.ErrImageTooLarge,
+		session.ErrImageType,
+	}
+
+	for _, refusal := range refusals {
+		if errors.Is(err, refusal) {
+			return newWebSocketMessageFailure(
+				aichteeteapee.ErrorCodeValidationFailed,
+				refusal.Error(),
+				"",
+			), true
+		}
+	}
+
+	return webSocketMessageFailure{}, false
 }
 
 // unknownSkillFailureFor reports a message that named a skill that does not

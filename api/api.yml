@@ -1070,6 +1070,39 @@ paths:
           $ref: '#/components/responses/ErrorNotFound'
         '500':
           $ref: '#/components/responses/ErrorInternal'
+  /session/mcp:
+    get:
+      operationId: getSessionMCPStatus
+      summary: Report the session's MCP servers
+      description: >
+        Returns the MCP servers the session's worker last reported: which
+        started, the tools each offers, and why one failed. The worker reports
+        at the start of every turn, so the answer is what the most recent turn
+        saw, and reportedAt says when that was. A session that has not run a
+        turn with MCP configured has no report yet and answers an empty server
+        list with a null reportedAt.
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+      responses:
+        '200':
+          description: MCP server status
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPStatusReport'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
   /session/learned:
     get:
       operationId: listSessionLearnedFiles
@@ -1373,12 +1406,21 @@ components:
             person or the model writing it.
         injectedKind:
           type: string
-          enum: [skill]
+          enum: [skill, image]
           description: >-
             What an injected message is, when it is more than a generic update.
             `skill` marks a skill the user invoked with `:name`, delivered as
             its own message after the message that named it, or the note that
-            the skill was already loaded. Absent for every other message.
+            the skill was already loaded. `image` marks the message that shows
+            the model an image readFile read, after that tool round. Absent for
+            every other message.
+        images:
+          type: array
+          description: >-
+            The images the message carries, without their bytes, in the order
+            the model sees them after the text. Absent when it has none.
+          items:
+            $ref: '#/components/schemas/MessageImageInfo'
         turnId:
           type: string
           format: uuid
@@ -1590,6 +1632,50 @@ components:
           description: Workspace files first, then global ones, each sorted by kind and name.
           items:
             $ref: '#/components/schemas/LearnedFile'
+    MCPStatusReport:
+      type: object
+      additionalProperties: false
+      required: [servers, reportedAt]
+      properties:
+        servers:
+          type: array
+          items:
+            $ref: '#/components/schemas/MCPServerStatus'
+        reportedAt:
+          type: [string, 'null']
+          format: date-time
+          description: When the worker reported, at the start of a turn. Null before the first report.
+    MCPServerStatus:
+      type: object
+      additionalProperties: false
+      required: [name, source, state, tools]
+      properties:
+        name:
+          type: string
+          description: The server name from mcp.json. Empty when a whole mcp.json file was refused.
+        source:
+          type: string
+          enum: [config, workspace]
+          description: The layer whose .agents/mcp.json defines the server.
+        transport:
+          type: string
+          enum: [stdio, http]
+        state:
+          type: string
+          enum: [ready, failed]
+        tools:
+          type: array
+          description: The exposed tool names, mcp__<server>__<tool>.
+          items:
+            type: string
+        error:
+          type: string
+          description: Why the server failed.
+        warnings:
+          type: array
+          description: Problems that did not stop the server.
+          items:
+            type: string
     LearnedFileContent:
       type: object
       additionalProperties: false
@@ -1612,10 +1698,20 @@ components:
           items:
             type: string
             minLength: 1
+    MessageImageInfo:
+      type: object
+      additionalProperties: false
+      required: [mediaType, sizeBytes]
+      properties:
+        mediaType:
+          type: string
+        sizeBytes:
+          type: integer
+          format: int64
     Model:
       type: object
       additionalProperties: false
-      required: [name, connectionName, modelId, contextWindowTokens]
+      required: [name, connectionName, modelId, contextWindowTokens, imageInput]
       properties:
         name:
           type: string
@@ -1635,6 +1731,12 @@ components:
           description: >
             The model context window Peen will enforce. For an upstream that
             publishes no window, this is the deployment context budget.
+        imageInput:
+          type: boolean
+          description: >
+            Whether the model takes images, in message.send and from readFile.
+            An upstream with "imageInput": false makes every one of its models
+            text-only.
     ModelList:
       type: object
       additionalProperties: false
@@ -2155,6 +2257,13 @@ components:
         createdAt:
           type: string
           format: date-time
+        images:
+          type: array
+          description: >-
+            The images the message carries, without their bytes, such as an
+            image the child's readFile read. Absent when it has none.
+          items:
+            $ref: '#/components/schemas/MessageImageInfo'
     AgentRunMessagePage:
       type: object
       additionalProperties: false

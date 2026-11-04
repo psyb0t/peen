@@ -225,6 +225,8 @@ func agentRunMessageToAPI(
 		message.ToolCallId = &stored.ToolCallID
 	}
 
+	message.Images = messageImageInfo(stored.ImagesJSON)
+
 	if stored.ToolCallsJSON == "" {
 		return message, nil
 	}

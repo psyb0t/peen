@@ -51,6 +51,12 @@ type sessionStorage interface {
 		ctx context.Context,
 		sessionID uuid.UUID,
 	) (*History, error)
+	// GetContentBlobs reads stored blobs by hash, such as the images a
+	// message's images_json names.
+	GetContentBlobs(
+		ctx context.Context,
+		hashes []string,
+	) (map[string][]byte, error)
 	ListMessages(
 		ctx context.Context,
 		sessionID uuid.UUID,

@@ -184,13 +184,7 @@ func readOnlyHostTools(
 			executor.SearchText,
 			onPostRun,
 		),
-		hostTool(
-			toolNameReadFile,
-			readFileDescription,
-			readFileSchema,
-			executor.ReadFile,
-			onPostRun,
-		),
+		readFileTool(executor, onPostRun),
 	}
 }
 

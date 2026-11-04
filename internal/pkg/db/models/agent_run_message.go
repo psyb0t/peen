@@ -28,6 +28,8 @@ type AgentRunMessage struct {
 	IsError       bool
 	Incomplete    bool
 	CreatedAt     time.Time
+	// ImagesJSON lists the message's images, a JSON array of MessageImage.
+	ImagesJSON string
 }
 
 // TableName pins the schema-owned agent_run_messages table name.

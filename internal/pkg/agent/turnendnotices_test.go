@@ -139,7 +139,7 @@ func TestPromptFromHistoryReplaysAnUnfinishedTurn(t *testing.T) {
 	built, plan, err := promptFromHistory(turnEndTestSystemPrompt,
 		&session.History{
 			Messages: []*models.Message{prompt, reply, result, ended},
-		})
+		}, nil)
 	require.NoError(t, err)
 
 	messages := built.Messages()
@@ -238,7 +238,7 @@ func TestPromptFromHistoryReplaysALateToolResult(t *testing.T) {
 	built, plan, err := promptFromHistory(turnEndTestSystemPrompt,
 		&session.History{Messages: []*models.Message{
 			prompt, reply, ended, question, answer, late,
-		}})
+		}}, nil)
 	require.NoError(t, err)
 
 	messages := built.Messages()

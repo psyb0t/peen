@@ -139,6 +139,16 @@ type Config struct {
 	WritableLearnedDirectory bool   `default:"false" env:"PEEN_WRITABLE_LEARNED_DIR"` //nolint:lll // Immutable env tag.
 	WritableConfigDirectory  bool   `default:"false" env:"PEEN_WRITABLE_CONFIG_DIR"`  //nolint:lll // Immutable env tag.
 
+	// MCP starts the MCP servers in .agents/mcp.json in the config directory,
+	// and in the workspace too when WorkspaceMCP is set. MCPEnv lists the
+	// variables mcp.json may hand to a server through envFrom or
+	// bearerTokenEnv: workers receive them and the agent's commands never
+	// do. MCPStartTimeout bounds starting one server and listing its tools.
+	MCP             bool          `default:"true"  env:"PEEN_MCP"`
+	WorkspaceMCP    bool          `default:"false" env:"PEEN_WORKSPACE_MCP"`
+	MCPEnv          string        `env:"PEEN_MCP_ENV"`
+	MCPStartTimeout time.Duration `default:"30s"   env:"PEEN_MCP_START_TIMEOUT"` //nolint:lll // Immutable env tag.
+
 	UpstreamsJSON   string `env:"PEEN_UPSTREAMS,required"`
 	DefaultModel    string `env:"PEEN_DEFAULT_MODEL,required"`
 	CompactionModel string `env:"PEEN_COMPACTION_MODEL"`
@@ -227,7 +237,11 @@ type Config struct {
 	// message row, of any role, before it is written to the durable
 	// transcript, since a stored assistant or tool message is not otherwise
 	// bounded by a caller-facing setting.
-	MaxMessageBytes       int `default:"262144"  env:"PEEN_MAX_MESSAGE_BYTES"`        //nolint:lll // Immutable env tag.
+	MaxMessageBytes int `default:"262144"  env:"PEEN_MAX_MESSAGE_BYTES"` //nolint:lll // Immutable env tag.
+	// MaxImagesPerMessage and MaxImageBytes bound the images a message.send
+	// frame or one readFile call may carry.
+	MaxImagesPerMessage   int `default:"4"       env:"PEEN_MAX_IMAGES_PER_MESSAGE"`   //nolint:lll // Immutable env tag.
+	MaxImageBytes         int `default:"5242880" env:"PEEN_MAX_IMAGE_BYTES"`          //nolint:lll // Immutable env tag.
 	MaxSystemPromptBytes  int `default:"65536"   env:"PEEN_MAX_SYSTEM_PROMPT_BYTES"`  //nolint:lll // Immutable env tag.
 	MaxStoredMessageBytes int `default:"1048576" env:"PEEN_MAX_STORED_MESSAGE_BYTES"` //nolint:lll // Immutable env tag.
 
@@ -297,6 +311,16 @@ type Upstream struct {
 	Type      UpstreamType `json:"type"`
 	BaseURL   string       `json:"baseUrl"`
 	APIKeyEnv string       `json:"apiKeyEnv"`
+	// ImageInput false marks every model of the upstream as text-only, so
+	// Peen refuses images for them. Unset or true leaves it to what the
+	// driver reports for each model.
+	ImageInput *bool `json:"imageInput,omitempty"`
+}
+
+// AcceptsImageInput reports whether the operator left image input to the
+// driver. Only an explicit false turns it off.
+func (u Upstream) AcceptsImageInput() bool {
+	return u.ImageInput == nil || *u.ImageInput
 }
 
 // Parse reads and validates the fixed PEEN_ environment bindings for a
@@ -374,6 +398,7 @@ func (c Config) validate(requireStateDirectory bool) error {
 		c.validateUpstreamConfiguration,
 		c.validateAgentRunLimits,
 		c.validateMessageLimits,
+		c.validateMCP,
 	}
 	for _, validate := range validators {
 		if err := validate(); err != nil {
@@ -402,6 +427,37 @@ func (c Config) WorkerLearnedDirectory() string {
 	}
 
 	return c.LearnedDir()
+}
+
+// maxImagePayloadBytes bounds the base64 size of one message's images
+// together. The message crosses the worker socket as one frame, which holds
+// at most 32 MiB, so the images leave room for the rest of the turn request.
+const maxImagePayloadBytes = 28 << 20
+
+// webSocketFrameOverheadBytes is the room a message.send frame needs beyond
+// its message, system prompt, and images: the envelope, field names, and
+// settings.
+const webSocketFrameOverheadBytes = 64 << 10
+
+// base64Size is the size base64 encoding gives n bytes, rounded up: four
+// characters for every three bytes.
+func base64Size(n int) int64 {
+	const (
+		base64InputBlock  = 3
+		base64OutputBlock = 4
+	)
+
+	return int64((n + base64InputBlock - 1) / base64InputBlock *
+		base64OutputBlock)
+}
+
+// WebSocketReadLimit is the largest client frame the WebSocket reads: a
+// message.send with the largest message, system prompt, and images the
+// deployment allows.
+func (c Config) WebSocketReadLimit() int64 {
+	return int64(c.MaxMessageBytes) + int64(c.MaxSystemPromptBytes) +
+		int64(c.MaxImagesPerMessage)*base64Size(c.MaxImageBytes) +
+		webSocketFrameOverheadBytes
 }
 
 // LoadedLearnedDirectory is the global learned directory sessions load:
@@ -1010,6 +1066,8 @@ func (c Config) validateMessageLimits() error {
 		c.MaxMessageBytes,
 		c.MaxSystemPromptBytes,
 		c.MaxStoredMessageBytes,
+		c.MaxImagesPerMessage,
+		c.MaxImageBytes,
 	}
 
 	for _, value := range bounds {
@@ -1019,6 +1077,16 @@ func (c Config) validateMessageLimits() error {
 				"message or turn bound is negative",
 			)
 		}
+	}
+
+	if int64(c.MaxImagesPerMessage)*base64Size(c.MaxImageBytes) >
+		maxImagePayloadBytes {
+		return ctxerrors.Wrapf(
+			ErrInvalidConfig,
+			"PEEN_MAX_IMAGES_PER_MESSAGE times PEEN_MAX_IMAGE_BYTES must "+
+				"stay under %d bytes of base64",
+			maxImagePayloadBytes,
+		)
 	}
 
 	return nil

@@ -1118,6 +1118,10 @@ func (r *Runtime) agentToolSet(
 		allowedTools = withoutTool(allowedTools, toolNameLaunchAgent)
 	}
 
+	for _, tool := range r.mcpTools(onPostRun) {
+		toolSet.Add(instrumentTool(tool, r.metrics))
+	}
+
 	toolSet, allowedTools = r.extendToolSet(toolSet, allowedTools, depth)
 
 	messaging := messageTools(deps, onPostRun)
@@ -1588,6 +1592,25 @@ func (s *agentRunSink) onAssistantMessage(
 		EventTypeAgentRunAssistantMessage,
 		newAgentRunAssistantMessagePayload(message),
 	)
+}
+
+// onToolImage stores the message that attaches an image a child's tool read.
+func (s *agentRunSink) onToolImage(
+	ctx context.Context,
+	result elelem.ToolResult,
+) error {
+	image, err := resultImage(result)
+	if err != nil || image == nil {
+		return err
+	}
+
+	stored := toolImageInput(image, "")
+
+	return s.persistMessages(ctx, session.AgentRunMessageInput{
+		Role:    stored.Role,
+		Content: stored.Content,
+		Images:  stored.Images,
+	})
 }
 
 func (s *agentRunSink) onMessageInjection(

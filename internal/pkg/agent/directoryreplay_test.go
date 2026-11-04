@@ -65,6 +65,7 @@ func TestDirectoryRecoveryDoesNotPageThroughUnchangedHistory(t *testing.T) {
 					ID: uuid.New(), SessionID: result.SessionID, TurnID: turn.ID,
 					Sequence: int64(index + 3), Role: models.MessageRoleUser,
 					Content: "unchanged history", ToolCallsJSON: "[]",
+					ImagesJSON: "[]",
 				}
 				if tc.tools {
 					message.Role = models.MessageRoleAssistant
@@ -120,10 +121,12 @@ func TestCurrentDirectoryIncludesCompactedRows(t *testing.T) {
 			ID: uuid.New(), SessionID: result.SessionID, TurnID: turn.ID, Sequence: 3,
 			Role: models.MessageRoleAssistant, CompactionID: &compactionID,
 			ToolCallsJSON: directoryToolCalls(t, elelem.ToolCall{ID: "hop", Name: toolNameChangeDirectory}),
+			ImagesJSON:    "[]",
 		},
 		{
 			ID: uuid.New(), SessionID: result.SessionID, TurnID: turn.ID, Sequence: 4,
 			Role: models.MessageRoleTool, Workspace: "nested", ToolCallID: "hop", CompactionID: &compactionID, ToolCallsJSON: "[]",
+			ImagesJSON: "[]",
 		},
 	}
 	// Recovery must include old records after a long compacted history.
@@ -131,6 +134,7 @@ func TestCurrentDirectoryIncludesCompactedRows(t *testing.T) {
 		messages = append(messages, &models.Message{
 			ID: uuid.New(), SessionID: result.SessionID, TurnID: turn.ID,
 			Sequence: sequence, Role: models.MessageRoleUser, Content: "padding", ToolCallsJSON: "[]",
+			ImagesJSON: "[]",
 		})
 	}
 	require.NoError(t, query.Message.WithContext(ctx).Create(messages...))

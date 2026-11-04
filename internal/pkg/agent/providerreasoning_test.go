@@ -45,7 +45,7 @@ func TestProviderReasoningRoundTripsThroughStoredMessages(t *testing.T) {
 				Content:               input.Content,
 				ToolCallsJSON:         input.ToolCallsJSON,
 				ProviderReasoningJSON: input.ProviderReasoningJSON,
-			})
+			}, nil)
 			require.NoError(t, err)
 
 			for _, message := range []elelem.Message{active, replayed} {

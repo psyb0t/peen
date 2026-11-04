@@ -12,6 +12,7 @@ const (
 	defaultMaxSearchMatches      = 200
 	defaultMaxSearchFileBytes    = 2 * 1024 * 1024
 	defaultMaxReadBytes          = 256 * 1024
+	defaultMaxImageBytes         = 5 * 1024 * 1024
 	defaultMaxReadLines          = 2000
 	defaultMaxWriteBytes         = 4 * 1024 * 1024
 	defaultMaxEdits              = 64
@@ -74,6 +75,9 @@ type Limits struct {
 	JobStopGracePeriod time.Duration
 	// MaxListJobs bounds how many jobs listJobs returns in one call.
 	MaxListJobs int
+	// MaxImageBytes bounds an image file readFile returns as an image,
+	// instead of MaxReadBytes, which bounds text.
+	MaxImageBytes int
 }
 
 // DefaultLimits returns the bounded defaults every deployment starts from.
@@ -100,6 +104,7 @@ func DefaultLimits() Limits {
 		WaitJobTimeout:        defaultWaitJobTimeout,
 		JobStopGracePeriod:    defaultJobStopGracePeriod,
 		MaxListJobs:           defaultMaxListJobs,
+		MaxImageBytes:         defaultMaxImageBytes,
 	}
 }
 
@@ -114,6 +119,10 @@ func (l Limits) withDefaults() Limits {
 	l = l.withFileToolDefaults(defaults)
 	l = l.withPatchToolDefaults(defaults)
 	l = l.withJobToolDefaults(defaults)
+
+	if l.MaxImageBytes == 0 {
+		l.MaxImageBytes = defaults.MaxImageBytes
+	}
 
 	return l
 }
@@ -234,6 +243,7 @@ func (l Limits) validate() error {
 		l.MaxJobOutputLines,
 		l.MaxReadJobOutputLines,
 		l.MaxListJobs,
+		l.MaxImageBytes,
 	}
 
 	for _, value := range positives {

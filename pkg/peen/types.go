@@ -145,6 +145,13 @@ type Options struct {
 	// MaxStoredMessageBytes bounds one durable transcript row. Zero takes the
 	// internal default.
 	MaxStoredMessageBytes int
+	// MaxImagesPerMessage bounds the images one message carries. Zero takes
+	// the internal default of 4.
+	MaxImagesPerMessage int
+	// MaxImageBytes bounds one image, in a message or one readFile call reads.
+	// Zero takes the internal default of 5 MiB. ToolLimits.MaxImageBytes, when
+	// set, bounds readFile instead.
+	MaxImageBytes int
 
 	// CompactionMode selects what happens over budget. Empty takes
 	// CompactionModeDropOldest.
@@ -222,6 +229,19 @@ type MessageRequest struct {
 	// SystemPrompt overrides or extends the base system prompt for only this
 	// message.
 	SystemPrompt *SystemPrompt
+	// Images follow Message in the turn's first user message. Only a message
+	// that starts a turn may carry them, and only for a model that accepts
+	// image input. Peen refuses them otherwise.
+	Images []Image
+}
+
+// Image is one PNG, JPEG, GIF, or WebP image a message carries.
+type Image struct {
+	// MediaType is image/png, image/jpeg, image/gif, or image/webp, and must
+	// match the bytes.
+	MediaType string
+	// Data is the raw image, not base64.
+	Data []byte
 }
 
 // MessageResult carries a final answer or acceptance into an active turn.

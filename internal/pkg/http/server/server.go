@@ -37,6 +37,10 @@ type Dependencies struct {
 	ListenAddress  string
 	Metrics        *metrics.Metrics
 	ServiceContext func() context.Context
+
+	// WebSocketReadLimit bounds one client frame. Zero keeps the hub's
+	// default, which has no room for images.
+	WebSocketReadLimit int64
 }
 
 // TurnRouter sends one accepted client message to its session's worker.
@@ -118,6 +122,16 @@ type SessionRegistry interface {
 		sessionID uuid.UUID,
 		params api.ListSessionAgentSpaceDecisionsParams,
 	) (api.SessionAgentSpaceDecisionPage, error)
+	SessionHarnessReader
+}
+
+// SessionHarnessReader is the part of the registry that reads what a
+// session's harness loads: its learned files and its MCP servers.
+type SessionHarnessReader interface {
+	MCPStatus(
+		ctx context.Context,
+		sessionID uuid.UUID,
+	) (api.MCPStatusReport, error)
 	ListLearnedFiles(
 		ctx context.Context,
 		sessionID uuid.UUID,
@@ -250,10 +264,17 @@ func (s *Server) configureWebSocketHub() {
 		webSocketMessageSendEventType,
 		s.handleWebSocketMessage,
 	)
-	s.webSocketUpgradeHandler = wshub.UpgradeHandler(
-		s.webSocketHub,
+
+	options := []wshub.UpgradeHandlerOption{
 		wshub.WithUpgradeHandlerSubprotocols(webSocketSubprotocol),
-	)
+	}
+	if s.deps.WebSocketReadLimit > 0 {
+		options = append(options, wshub.WithUpgradeHandlerClientOptions(
+			wshub.WithReadLimit(s.deps.WebSocketReadLimit),
+		))
+	}
+
+	s.webSocketUpgradeHandler = wshub.UpgradeHandler(s.webSocketHub, options...)
 }
 
 func (s *Server) newAPIHandler() http.Handler {

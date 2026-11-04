@@ -113,6 +113,10 @@ export interface MessageSendData {
    * Not enforced by the generated code: format uuid.
    */
   to?: string;
+  /**
+   * Images the model sees after the message text, at most PEEN_MAX_IMAGES_PER_MESSAGE, 4 by default. Only a message that starts a turn may carry images, and only for a model that accepts image input.
+   */
+  images?: Array<MessageImage>;
 }
 
 /** validateMessageSendData throws a ValidationError when value is not a valid MessageSendData. */
@@ -122,7 +126,7 @@ export function validateMessageSendData(
 ): asserts value is MessageSendData {
   const object = rtObject(value, path);
   rtRequire(path, object, ["message"]);
-  rtKnownKeys(path, object, ["message", "model", "reasoningEffort", "systemPrompt", "to"]);
+  rtKnownKeys(path, object, ["message", "model", "reasoningEffort", "systemPrompt", "to", "images"]);
   const v1 = rtString(object["message"], path + ".message");
   rtMinLength(path + ".message", v1, 1);
   if (object["model"] !== undefined) {
@@ -136,6 +140,12 @@ export function validateMessageSendData(
   }
   if (object["to"] !== undefined) {
     rtString(object["to"], path + ".to");
+  }
+  if (object["images"] !== undefined) {
+    const a4 = rtArray(object["images"], path + ".images");
+    for (let i5 = 0; i5 < a4.length; i5++) {
+      validateMessageImage(a4[i5], path + ".images" + "[" + i5 + "]");
+    }
   }
 }
 
@@ -186,6 +196,40 @@ export function validateMessageSystemPromptMode(
   rtEnum(path, value, MessageSystemPromptModeValues);
 }
 
+export interface MessageImage {
+  mediaType: MessageImageMediaType;
+  /**
+   * The image bytes, base64-encoded. At most PEEN_MAX_IMAGE_BYTES bytes once decoded, 5242880 by default.
+   */
+  data: string;
+}
+
+/** validateMessageImage throws a ValidationError when value is not a valid MessageImage. */
+export function validateMessageImage(
+  value: unknown,
+  path: string = "MessageImage",
+): asserts value is MessageImage {
+  const object = rtObject(value, path);
+  rtRequire(path, object, ["mediaType", "data"]);
+  rtKnownKeys(path, object, ["mediaType", "data"]);
+  validateMessageImageMediaType(object["mediaType"], path + ".mediaType");
+  const v1 = rtString(object["data"], path + ".data");
+  rtMinLength(path + ".data", v1, 1);
+}
+
+export type MessageImageMediaType = "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+
+/** Values of MessageImageMediaType. */
+export const MessageImageMediaTypeValues = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
+
+/** validateMessageImageMediaType throws a ValidationError when value is not a valid MessageImageMediaType. */
+export function validateMessageImageMediaType(
+  value: unknown,
+  path: string = "MessageImageMediaType",
+): asserts value is MessageImageMediaType {
+  rtEnum(path, value, MessageImageMediaTypeValues);
+}
+
 /**
  * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
  */
@@ -220,7 +264,7 @@ export function validateMetadata(
   }
 }
 
-export type ServerEvent = MessageCompleted | MessageFailed | ContentBlockStart | ContentBlockDelta | ContentBlockStop | TurnStarted | UserMessageCreated | UserMessageQueued | UserMessageDelivered | SkillInjected | ProviderRetryEvent | ToolUseEvent | ToolResultEvent | SessionEvents | HarnessWarning | QuestionAskedEvent | QuestionAnsweredEvent | TurnCompleted | TurnFailed | TurnCancelled | NoticeCreated | AgentRunStarted | AgentRunTextDelta | AgentRunThinkingDelta | AgentRunToolUse | AgentRunToolResult | AgentRunAssistantMessage | AgentRunMessageInjected | AgentRunProviderRetry | AgentRunMessageQueued | AgentRunMessageDelivered | AgentRunMessageUndelivered | AgentRunQuestion | AgentRunAnswer | AgentRunCompleted | AgentRunFailed | AgentRunCancelled;
+export type ServerEvent = MessageCompleted | MessageFailed | ContentBlockStart | ContentBlockDelta | ContentBlockStop | TurnStarted | UserMessageCreated | UserMessageQueued | UserMessageDelivered | SkillInjected | ProviderRetryEvent | ToolUseEvent | ToolResultEvent | SessionEvents | HarnessWarning | McpStatus | QuestionAskedEvent | QuestionAnsweredEvent | TurnCompleted | TurnFailed | TurnCancelled | NoticeCreated | AgentRunStarted | AgentRunTextDelta | AgentRunThinkingDelta | AgentRunToolUse | AgentRunToolResult | AgentRunAssistantMessage | AgentRunMessageInjected | AgentRunProviderRetry | AgentRunMessageQueued | AgentRunMessageDelivered | AgentRunMessageUndelivered | AgentRunQuestion | AgentRunAnswer | AgentRunCompleted | AgentRunFailed | AgentRunCancelled;
 
 /** validateServerEvent throws a ValidationError when value is not a valid ServerEvent. */
 export function validateServerEvent(
@@ -288,6 +332,10 @@ export function validateServerEvent(
     }
     case "harness.warning": {
       validateHarnessWarning(value, path);
+      return;
+    }
+    case "mcp.status": {
+      validateMcpStatus(value, path);
       return;
     }
     case "question.asked": {
@@ -1031,6 +1079,10 @@ export interface UserMessage {
    * Not enforced by the generated code: format uuid.
    */
   sourceEventId?: string;
+  /**
+   * The images sent with the message, without their bytes.
+   */
+  images?: Array<UserMessageImage>;
 }
 
 /** validateUserMessage throws a ValidationError when value is not a valid UserMessage. */
@@ -1040,11 +1092,34 @@ export function validateUserMessage(
 ): asserts value is UserMessage {
   const object = rtObject(value, path);
   rtRequire(path, object, ["message"]);
-  rtKnownKeys(path, object, ["message", "sourceEventId"]);
+  rtKnownKeys(path, object, ["message", "sourceEventId", "images"]);
   rtString(object["message"], path + ".message");
   if (object["sourceEventId"] !== undefined) {
     rtString(object["sourceEventId"], path + ".sourceEventId");
   }
+  if (object["images"] !== undefined) {
+    const a3 = rtArray(object["images"], path + ".images");
+    for (let i4 = 0; i4 < a3.length; i4++) {
+      validateUserMessageImage(a3[i4], path + ".images" + "[" + i4 + "]");
+    }
+  }
+}
+
+export interface UserMessageImage {
+  mediaType: string;
+  sizeBytes: number;
+}
+
+/** validateUserMessageImage throws a ValidationError when value is not a valid UserMessageImage. */
+export function validateUserMessageImage(
+  value: unknown,
+  path: string = "UserMessageImage",
+): asserts value is UserMessageImage {
+  const object = rtObject(value, path);
+  rtRequire(path, object, ["mediaType", "sizeBytes"]);
+  rtKnownKeys(path, object, ["mediaType", "sizeBytes"]);
+  rtString(object["mediaType"], path + ".mediaType");
+  rtInteger(object["sizeBytes"], path + ".sizeBytes");
 }
 
 export interface UserMessageQueued {
@@ -1561,6 +1636,156 @@ export function validateHarnessWarningKind(
   path: string = "HarnessWarningKind",
 ): asserts value is HarnessWarningKind {
   rtEnum(path, value, HarnessWarningKindValues);
+}
+
+export interface McpStatus {
+  /**
+   * Not enforced by the generated code: format uuid.
+   */
+  id: string;
+  type: "mcp.status";
+  data: McpStatusData;
+  timestamp: number;
+  /**
+   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   */
+  metadata: Metadata;
+  /**
+   * Not enforced by the generated code: format uuid.
+   */
+  triggeredBy?: string | null;
+}
+
+/** validateMcpStatus throws a ValidationError when value is not a valid McpStatus. */
+export function validateMcpStatus(
+  value: unknown,
+  path: string = "McpStatus",
+): asserts value is McpStatus {
+  const object = rtObject(value, path);
+  rtRequire(path, object, ["id", "type", "data", "timestamp", "metadata"]);
+  rtKnownKeys(path, object, ["id", "type", "data", "timestamp", "metadata", "triggeredBy"]);
+  rtString(object["id"], path + ".id");
+  rtConst(path + ".type", object["type"], "mcp.status");
+  validateMcpStatusData(object["data"], path + ".data");
+  rtInteger(object["timestamp"], path + ".timestamp");
+  validateMetadata(object["metadata"], path + ".metadata");
+  if (object["triggeredBy"] !== undefined && object["triggeredBy"] !== null) {
+    rtString(object["triggeredBy"], path + ".triggeredBy");
+  }
+}
+
+export interface McpStatusData {
+  servers: Array<McpServerStatus>;
+}
+
+/** validateMcpStatusData throws a ValidationError when value is not a valid McpStatusData. */
+export function validateMcpStatusData(
+  value: unknown,
+  path: string = "McpStatusData",
+): asserts value is McpStatusData {
+  const object = rtObject(value, path);
+  rtRequire(path, object, ["servers"]);
+  rtKnownKeys(path, object, ["servers"]);
+  const a1 = rtArray(object["servers"], path + ".servers");
+  for (let i2 = 0; i2 < a1.length; i2++) {
+    validateMcpServerStatus(a1[i2], path + ".servers" + "[" + i2 + "]");
+  }
+}
+
+export interface McpServerStatus {
+  /**
+   * The server name from mcp.json. Empty when a whole mcp.json file was refused.
+   */
+  name: string;
+  /**
+   * The layer whose .agents/mcp.json defines the server.
+   */
+  source: McpServerSource;
+  transport?: McpServerTransport;
+  state: McpServerState;
+  /**
+   * The exposed tool names, mcp__<server>__<tool>.
+   */
+  tools: Array<string>;
+  /**
+   * Why the server failed.
+   */
+  error?: string;
+  /**
+   * Problems that did not stop the server.
+   */
+  warnings?: Array<string>;
+}
+
+/** validateMcpServerStatus throws a ValidationError when value is not a valid McpServerStatus. */
+export function validateMcpServerStatus(
+  value: unknown,
+  path: string = "McpServerStatus",
+): asserts value is McpServerStatus {
+  const object = rtObject(value, path);
+  rtRequire(path, object, ["name", "source", "state", "tools"]);
+  rtKnownKeys(path, object, ["name", "source", "transport", "state", "tools", "error", "warnings"]);
+  rtString(object["name"], path + ".name");
+  validateMcpServerSource(object["source"], path + ".source");
+  if (object["transport"] !== undefined) {
+    validateMcpServerTransport(object["transport"], path + ".transport");
+  }
+  validateMcpServerState(object["state"], path + ".state");
+  const a2 = rtArray(object["tools"], path + ".tools");
+  for (let i3 = 0; i3 < a2.length; i3++) {
+    rtString(a2[i3], path + ".tools" + "[" + i3 + "]");
+  }
+  if (object["error"] !== undefined) {
+    rtString(object["error"], path + ".error");
+  }
+  if (object["warnings"] !== undefined) {
+    const a6 = rtArray(object["warnings"], path + ".warnings");
+    for (let i7 = 0; i7 < a6.length; i7++) {
+      rtString(a6[i7], path + ".warnings" + "[" + i7 + "]");
+    }
+  }
+}
+
+/**
+ * The layer whose .agents/mcp.json defines the server.
+ */
+export type McpServerSource = "config" | "workspace";
+
+/** Values of McpServerSource. */
+export const McpServerSourceValues = ["config", "workspace"] as const;
+
+/** validateMcpServerSource throws a ValidationError when value is not a valid McpServerSource. */
+export function validateMcpServerSource(
+  value: unknown,
+  path: string = "McpServerSource",
+): asserts value is McpServerSource {
+  rtEnum(path, value, McpServerSourceValues);
+}
+
+export type McpServerTransport = "stdio" | "http";
+
+/** Values of McpServerTransport. */
+export const McpServerTransportValues = ["stdio", "http"] as const;
+
+/** validateMcpServerTransport throws a ValidationError when value is not a valid McpServerTransport. */
+export function validateMcpServerTransport(
+  value: unknown,
+  path: string = "McpServerTransport",
+): asserts value is McpServerTransport {
+  rtEnum(path, value, McpServerTransportValues);
+}
+
+export type McpServerState = "ready" | "failed";
+
+/** Values of McpServerState. */
+export const McpServerStateValues = ["ready", "failed"] as const;
+
+/** validateMcpServerState throws a ValidationError when value is not a valid McpServerState. */
+export function validateMcpServerState(
+  value: unknown,
+  path: string = "McpServerState",
+): asserts value is McpServerState {
+  rtEnum(path, value, McpServerStateValues);
 }
 
 export interface QuestionAskedEvent {

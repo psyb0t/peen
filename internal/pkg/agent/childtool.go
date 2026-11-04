@@ -40,8 +40,9 @@ func (r *Runtime) workflowChildToolCall(
 
 	outcome, err := runWorkflowTool(ctx, registered, input, workflowToolOptions{
 		Timeout: r.toolTimeout, MaxResultTokens: r.maxToolResultTokens,
-		Counter: modelTokenCounter(scope.options.deps.model),
-		Finish:  scope.finishTool,
+		Counter:    modelTokenCounter(scope.options.deps.model),
+		Finish:     scope.finishTool,
+		ImageInput: modelAcceptsImages(scope.options.deps.model),
 	})
 	if err != nil {
 		return outcome, ctxerrors.Wrap(err, "run child workflow tool")
@@ -164,6 +165,10 @@ func checkpointChildWorkflowTool(
 		if err := sink.onMessageInjection(ctx, injection); err != nil {
 			return ctxerrors.Wrap(err, "record child tool injection")
 		}
+	}
+
+	if err := sink.onToolImage(ctx, outcome.Result); err != nil {
+		return ctxerrors.Wrap(err, "record child tool image")
 	}
 
 	return nil

@@ -2,6 +2,24 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.38.0 (2026-11-04)
+
+Adds image input: a `message.send` frame can carry images, `readFile` shows the agent PNG, JPEG, GIF, and WebP files, and an operator can mark an upstream's models as text-only. Adds MCP servers, whose tools the agent can call. Before upgrading, stop Peen and delete `peen.db`, `peen.db-wal`, and `peen.db-shm` from `PEEN_STATE_DIR`, because the session schema changed and Peen refuses to open a database created by an earlier version.
+
+- Breaking: changes the `messages` and `agent_run_messages` tables, so a database from v0.37.0 or earlier no longer opens. Delete it as described above. Peen creates a new one on start.
+- Adds `images` to `message.send`: up to `PEEN_MAX_IMAGES_PER_MESSAGE` base64 images, 4 by default, of at most `PEEN_MAX_IMAGE_BYTES` each, 5 MiB by default. Peen stores them with the message and replays them on later turns. Only a message that starts a turn may carry images. A queued message, a message to a child, a model that does not take images, and bytes that are not the declared format each fail with `VALIDATION_FAILED`. See [HTTP API](docs/http-api.md#send-and-watch-turns-over-websocket).
+- Adds the `imageInput` field to `PEEN_UPSTREAMS` entries. `false` makes every model of that entry text-only, and Peen refuses images for them instead of dropping or converting them.
+- Adds `imageInput` to each `GET /api/v1/models` record, `images` metadata to messages in `GET /api/v1/messages` and child transcripts, and `images` metadata to the `userMessage.created` frame. None of them carry image bytes.
+- Adds `Images` to the `pkg/peen` `MessageRequest`, and `MaxImagesPerMessage` and `MaxImageBytes` to its options.
+- Changes `readFile` on a `.png`, `.jpg`, `.jpeg`, `.gif`, or `.webp` file. It used to refuse the binary content. It now returns the file's media type and size, and Peen shows the model the image in a user message after that tool round, marked as data from the file and not instructions from the user. A model without image input gets a tool error instead. The control surface shows the image's format and size on that message.
+- Changes a turn on a text-only model in a session whose history holds images. It fails with `VALIDATION_FAILED` before anything is stored, so switch back to a model that takes images.
+- Changes the stored request messages of each model call to keep long strings once in `content_blobs`, so a conversation's images are not copied into every round's record. `GET /api/v1/session/model-runs/{modelRunId}/calls` returns the same messages as before.
+- Changes compaction summaries to note each image as `[image <media type>]` in the summarized transcript, because the summarizer reads text only.
+- Adds MCP servers. Peen starts the stdio and Streamable HTTP servers in `PEEN_CONFIG_DIR/.agents/mcp.json` for every session, in the session's worker, and the agent gets their tools as `mcp__<server>__<tool>`. Hooks, `allowed-tools`, and the transcript treat them like Peen's own tools, and a tool's first image reaches a model that takes images. Only tools are supported. HTTP servers authenticate with a bearer token. See [MCP servers](docs/mcp.md).
+- Adds `PEEN_MCP` to turn MCP off, `PEEN_WORKSPACE_MCP` to also read `<workspace>/.agents/mcp.json`, `PEEN_MCP_ENV` to list the variables `mcp.json` may hand a server through `envFrom` or `bearerTokenEnv`, and `PEEN_MCP_START_TIMEOUT`. The `PEEN_MCP_ENV` variables reach workers and never the agent's commands, and a workspace server gets none of them.
+- Adds the `mcp.status` protocol event, which lists every configured MCP server at the start of a turn with its state, tools, and why it failed, and `GET /api/v1/session/mcp`, which returns the latest one.
+- Updates elelem to v0.13.0, which adds image tool results and the MCP client Peen uses.
+
 ## v0.37.0 (2026-11-04)
 
 Adds a token budget for the system prompt, makes the global learned directory read-only to the agent by default, adds endpoints to review and delete learned rules and skills, fixes where an auto-evolving agent saves a user's correction, and lets `pkg/peen` start without a `RootAgent`. Before upgrading, set `PEEN_WRITABLE_LEARNED_DIR=true` if you want auto-evolving agents to keep saving to the global learned directory, and check that your always-loaded rules fit in half of `PEEN_MAX_CONTEXT_TOKENS` or set `PEEN_MAX_SYSTEM_PROMPT_PERCENT`.

@@ -13,6 +13,7 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/http/wsapi"
+	"github.com/psyb0t/peen/internal/pkg/mcptools"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -76,6 +77,10 @@ type (
 
 	contractHarnessWarningPayload struct {
 		Warnings []harness.Warning `json:"warnings"`
+	}
+
+	contractMCPStatusPayload struct {
+		Servers []mcptools.Status `json:"servers"`
 	}
 
 	contractTurnCompletedPayload struct {
@@ -307,6 +312,32 @@ func contractFrameCases() []contractFrameCase {
 					Source: ".agents/skills/broken/SKILL.md",
 					Reason: "missing name",
 				}},
+			},
+		),
+		contractRootCase(
+			"mcp.status",
+			agent.EventTypeMCPStatus,
+			contractMCPStatusPayload{
+				Servers: []mcptools.Status{
+					{
+						Name: "docs", Source: mcptools.SourceConfig,
+						Transport: mcptools.TransportHTTP,
+						State:     mcptools.StateReady,
+						Tools:     []string{"mcp__docs__search"},
+						Warnings:  []string{"the server does not offer x"},
+					},
+					{
+						Name: "local", Source: mcptools.SourceWorkspace,
+						Transport: mcptools.TransportStdio,
+						State:     mcptools.StateFailed, Tools: []string{},
+						Error: "connect: executable file not found",
+					},
+					{
+						Source: mcptools.SourceConfig,
+						State:  mcptools.StateFailed, Tools: []string{},
+						Error: "decode mcp.json: unexpected end of JSON input",
+					},
+				},
 			},
 		),
 		contractRootCase(

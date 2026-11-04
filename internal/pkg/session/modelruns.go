@@ -120,7 +120,18 @@ func (s *Store) CreateModelCall(
 			)
 		}
 
-		if err := tx.ModelCall.WithContext(ctx).Create(result); err != nil {
+		// Every round repeats the conversation, images included, so the
+		// stored request keeps its long strings once in content_blobs. The
+		// caller gets the row with the request as it was sent.
+		row := *result
+
+		row.RequestMessagesJSON, err = compactColumn(ctx, tx,
+			result.RequestMessagesJSON)
+		if err != nil {
+			return ctxerrors.Wrap(err, "compact model call request")
+		}
+
+		if err := tx.ModelCall.WithContext(ctx).Create(&row); err != nil {
 			return ctxerrors.Wrap(err, "create model call")
 		}
 

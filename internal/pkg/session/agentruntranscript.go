@@ -105,6 +105,11 @@ func (s *Store) createAgentRunMessages(
 			input,
 		)
 
+		message.ImagesJSON, err = encodeMessageImages(ctx, tx, input.Images)
+		if err != nil {
+			return nil, err
+		}
+
 		if err := tx.AgentRunMessage.WithContext(ctx).
 			Create(message); err != nil {
 			return nil, ctxerrors.Wrap(err, "create child message")

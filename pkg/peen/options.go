@@ -103,6 +103,7 @@ func (o Options) validateBounds() error {
 	counts := []int{
 		o.MaxContextTokens, o.OutputReserveTokens, o.MaxQueuedUserMessages,
 		o.MaxMessageBytes, o.MaxSystemPromptBytes, o.MaxStoredMessageBytes,
+		o.MaxImagesPerMessage, o.MaxImageBytes,
 		o.MaxToolRounds, o.MaxConcurrentTools, o.MaxToolResultTokens,
 		o.MaxHookCommandOutput, o.CompactionOutputTokens,
 		o.CompactionSummaryPercent,

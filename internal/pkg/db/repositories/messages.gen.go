@@ -49,6 +49,7 @@ func newMessage(db *gorm.DB, opts ...gen.DOOption) message {
 	_message.Injected = field.NewBool(tableName, "injected")
 	_message.InjectedKind = field.NewString(tableName, "injected_kind")
 	_message.CreatedAt = field.NewTime(tableName, "created_at")
+	_message.ImagesJSON = field.NewString(tableName, "images_json")
 
 	_message.fillFieldMap()
 
@@ -77,6 +78,7 @@ type message struct {
 	Injected              field.Bool
 	InjectedKind          field.String
 	CreatedAt             field.Time
+	ImagesJSON            field.String
 
 	fieldMap map[string]field.Expr
 }
@@ -111,6 +113,7 @@ func (m *message) updateTableName(table string) *message {
 	m.Injected = field.NewBool(table, "injected")
 	m.InjectedKind = field.NewString(table, "injected_kind")
 	m.CreatedAt = field.NewTime(table, "created_at")
+	m.ImagesJSON = field.NewString(table, "images_json")
 
 	m.fillFieldMap()
 
@@ -127,7 +130,7 @@ func (m *message) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (m *message) fillFieldMap() {
-	m.fieldMap = make(map[string]field.Expr, 18)
+	m.fieldMap = make(map[string]field.Expr, 19)
 	m.fieldMap["id"] = m.ID
 	m.fieldMap["session_id"] = m.SessionID
 	m.fieldMap["turn_id"] = m.TurnID
@@ -146,6 +149,7 @@ func (m *message) fillFieldMap() {
 	m.fieldMap["injected"] = m.Injected
 	m.fieldMap["injected_kind"] = m.InjectedKind
 	m.fieldMap["created_at"] = m.CreatedAt
+	m.fieldMap["images_json"] = m.ImagesJSON
 }
 
 func (m message) clone(db *gorm.DB) message {

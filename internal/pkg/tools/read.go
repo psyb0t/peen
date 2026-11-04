@@ -28,6 +28,10 @@ func (e *Executor) ReadFile(
 		return ReadFileOutput{}, ctxerrors.Wrap(err, "resolve read path")
 	}
 
+	if mediaType := imageMediaTypeForPath(resolved); mediaType != "" {
+		return e.readImageFile(resolved, mediaType)
+	}
+
 	content, _, err := e.readRegularFile(
 		resolved,
 		int64(e.Limits().MaxReadBytes),

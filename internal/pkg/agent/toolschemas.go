@@ -76,6 +76,10 @@ The result reports firstLine, lastLine, totalLines, and the sha256 of the
 WHOLE file, not of the window.
 When truncated is true, call again with offset set to the nextOffset.
 Binary files are rejected. Use runCommand for those.
+A .png, .jpg, .jpeg, .gif, or .webp file is read whole as an image: the
+result reports its mediaType and sizeBytes, and the image itself follows
+the tool results in a user message. A model without image input gets an
+error instead.
 Reading a file is what makes it eligible for writeFile, editFile,
 applyPatch, movePath, and removePath in this turn. A directory listing
 does not count as reading a regular file.`

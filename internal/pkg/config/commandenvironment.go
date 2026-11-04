@@ -46,6 +46,10 @@ func (c Config) CommandEnvironment(environ []string) ([]string, error) {
 		}
 	}
 
+	// The MCP server secrets reach a server only through envFrom or
+	// bearerTokenEnv, never a command the agent runs.
+	withheld = append(withheld, c.MCPEnvNames()...)
+
 	kept := make([]string, 0, len(environ))
 
 	for _, entry := range environ {

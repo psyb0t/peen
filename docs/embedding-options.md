@@ -27,6 +27,8 @@ These are the in-process equivalents of deployment settings. `pkg/peen` accepts 
 | `PEEN_MAX_MESSAGE_BYTES` | `MaxMessageBytes` | `262144` |
 | `PEEN_MAX_SYSTEM_PROMPT_BYTES` | `MaxSystemPromptBytes` | `65536` |
 | `PEEN_MAX_SYSTEM_PROMPT_PERCENT` | `MaxSystemPromptPercent` (negative turns it off) | `50` |
+| `PEEN_MAX_IMAGES_PER_MESSAGE` | `MaxImagesPerMessage` | `4` |
+| `PEEN_MAX_IMAGE_BYTES` | `MaxImageBytes`, and `ToolLimits.MaxImageBytes` for `readFile` when that is set | `5242880` |
 | `PEEN_MAX_STORED_MESSAGE_BYTES` | `MaxStoredMessageBytes` | `1048576` |
 | `PEEN_MAX_TOOL_ROUNDS` | `MaxToolRounds` | `32` |
 | `PEEN_MAX_CONCURRENT_TOOLS` | `MaxConcurrentTools` | `4` |

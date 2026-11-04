@@ -28,6 +28,10 @@ export const REASONING_EFFORTS = [
 export const DEFAULT_REASONING_EFFORT = "medium";
 export const MAX_LIVE_EVENTS = 200;
 export const INJECTED_KIND_SKILL = "skill";
+// Image sizes show in the largest unit that keeps the number at 1 or more.
+export const BYTES_PER_KIB = 1024;
+export const IMAGE_SIZE_UNITS = ["B", "KB", "MB"] as const;
+export const IMAGE_MEDIA_TYPE_PREFIX = "image/";
 // A skill message starts with its name tag. The note that a skill is already
 // loaded is a note that names the skill in its first sentence.
 export const SKILL_MESSAGE_NAME_PATTERN = /^<skill>\s*<name>([^<\s]+)<\/name>/;
