@@ -38,6 +38,14 @@ func prepareLearnedDirectory(
 		return nil
 	}
 
+	if config.LearnedDirectoryWritable() {
+		ctxscope.GetLogger(ctx).Warn(
+			"global learned directory is writable by every worker",
+			"learned_directory", learnedDirectory,
+			"reason", "PEEN_WRITABLE_LEARNED_DIR",
+		)
+	}
+
 	if auditLogDirectory != "" &&
 		peenconfig.PathsOverlap(learnedDirectory, auditLogDirectory) {
 		return ctxerrors.Wrap(
@@ -105,6 +113,7 @@ func logValidatedConfig(
 		"base_system_prompt_disabled", config.BaseSystemPromptDisabled(),
 		"auto_evolve", config.AutoEvolve,
 		"learned_directory", config.WorkerLearnedDirectory(),
+		"writable_learned_directory", config.LearnedDirectoryWritable(),
 		"writable_config_directory", config.WritableConfigDirectory,
 		"default_model", config.DefaultModel,
 		"compaction_model", config.CompactionModel,
@@ -120,6 +129,7 @@ func logValidatedConfig(
 		"max_queued_user_messages", config.MaxQueuedUserMessages,
 		"max_message_bytes", config.MaxMessageBytes,
 		"max_system_prompt_bytes", config.MaxSystemPromptBytes,
+		"max_system_prompt_percent", config.MaxSystemPromptPercent,
 		"max_stored_message_bytes", config.MaxStoredMessageBytes,
 		"max_tool_rounds", config.MaxToolRounds,
 		"max_concurrent_tools", config.MaxConcurrentTools,

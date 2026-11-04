@@ -8,6 +8,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/agent"
+	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
@@ -39,6 +40,47 @@ type testSessionRegistry struct {
 	// reconfigured records every agent space change the handler asked for, so
 	// a test can assert the request body reached the registry unchanged.
 	reconfigured []api.ReconfigureSessionRequest
+
+	learnedList    api.LearnedFileList
+	learnedContent api.LearnedFileContent
+	learnedErr     error
+	// learnedReferences records every learned file the handler named.
+	learnedReferences []harness.LearnedFileReference
+}
+
+func (r *testSessionRegistry) ListLearnedFiles(
+	_ context.Context,
+	_ uuid.UUID,
+) (api.LearnedFileList, error) {
+	if r.learnedErr != nil {
+		return api.LearnedFileList{}, r.learnedErr
+	}
+
+	return r.learnedList, nil
+}
+
+func (r *testSessionRegistry) ReadLearnedFile(
+	_ context.Context,
+	_ uuid.UUID,
+	reference harness.LearnedFileReference,
+) (api.LearnedFileContent, error) {
+	r.learnedReferences = append(r.learnedReferences, reference)
+
+	if r.learnedErr != nil {
+		return api.LearnedFileContent{}, r.learnedErr
+	}
+
+	return r.learnedContent, nil
+}
+
+func (r *testSessionRegistry) DeleteLearnedFile(
+	_ context.Context,
+	_ uuid.UUID,
+	reference harness.LearnedFileReference,
+) error {
+	r.learnedReferences = append(r.learnedReferences, reference)
+
+	return r.learnedErr
 }
 
 func (r *testSessionRegistry) OpenWorkspaceSession(

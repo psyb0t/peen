@@ -1070,6 +1070,99 @@ paths:
           $ref: '#/components/responses/ErrorNotFound'
         '500':
           $ref: '#/components/responses/ErrorInternal'
+  /session/learned:
+    get:
+      operationId: listSessionLearnedFiles
+      summary: List the learned rules and skills this session loads
+      description: >
+        Lists every rule under .agents/learned/rules and every skill under
+        .agents/learned/skills in the session's workspace and in the global
+        learned directory, so a user can review what an auto-evolving agent
+        saved. Each rule says whether it loads on every turn and its estimated
+        token count. Symbolic links are left out. The list is bounded by the
+        harness file limits, so it has no pages.
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+      responses:
+        '200':
+          description: Learned file list
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LearnedFileList'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/learned/file:
+    get:
+      operationId: getSessionLearnedFile
+      summary: Read one learned rule or skill
+      description: >
+        Returns a learned rule's file, or a learned skill's SKILL.md, as the
+        agent saved it.
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/LearnedScope'
+        - $ref: '#/components/parameters/LearnedKind'
+        - $ref: '#/components/parameters/LearnedName'
+      responses:
+        '200':
+          description: Learned file content
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LearnedFileContent'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+    delete:
+      operationId: deleteSessionLearnedFile
+      summary: Delete one learned rule or skill
+      description: >
+        Removes a learned rule's file, or a learned skill's whole directory.
+        The next turn, child launch, or changeDirectory call no longer loads
+        it. Only files under a learned directory can be deleted this way.
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - $ref: '#/components/parameters/LearnedScope'
+        - $ref: '#/components/parameters/LearnedKind'
+        - $ref: '#/components/parameters/LearnedName'
+      responses:
+        '204':
+          description: Learned file deleted
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
 components:
   securitySchemes:
     bearerAuth:
@@ -1104,6 +1197,29 @@ components:
       schema:
         type: string
         format: uuid
+    LearnedScope:
+      name: scope
+      in: query
+      required: true
+      schema:
+        $ref: '#/components/schemas/LearnedScope'
+    LearnedKind:
+      name: kind
+      in: query
+      required: true
+      schema:
+        $ref: '#/components/schemas/LearnedKind'
+    LearnedName:
+      name: name
+      in: query
+      required: true
+      description: >
+        The rule's path under rules/ without .md, such as go-errors or
+        go/errors, or the skill's directory name.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 512
     AgentRunID:
       name: agentRunId
       in: path
@@ -1422,6 +1538,67 @@ components:
         default:
           type: string
           description: The agent space a session opened without naming one uses.
+    LearnedScope:
+      type: string
+      description: >
+        workspace is the session workspace's .agents/learned, and global is
+        the global learned directory every session reads.
+      enum: [workspace, global]
+    LearnedKind:
+      type: string
+      enum: [rule, skill]
+    LearnedFile:
+      type: object
+      additionalProperties: false
+      required: [scope, kind, name, path, sizeBytes, modifiedAt, alwaysLoaded, estimatedTokens]
+      properties:
+        scope:
+          $ref: '#/components/schemas/LearnedScope'
+        kind:
+          $ref: '#/components/schemas/LearnedKind'
+        name:
+          type: string
+          description: >
+            The rule's path under rules/ without .md, or the skill's directory
+            name. A learned rule loads under the name learned/<name>.
+        path:
+          type: string
+          description: The rule file, or the skill's SKILL.md, on the controller's host.
+        sizeBytes:
+          type: integer
+          format: int64
+        modifiedAt:
+          type: string
+          format: date-time
+        alwaysLoaded:
+          type: boolean
+          description: >
+            True for a rule without paths, globs, or applyTo, which is part of
+            every system prompt and counts against
+            PEEN_MAX_SYSTEM_PROMPT_PERCENT. Always false for a skill.
+        estimatedTokens:
+          type: integer
+          format: int64
+          description: The file's size in tokens, estimated with the o200k tokenizer.
+    LearnedFileList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          description: Workspace files first, then global ones, each sorted by kind and name.
+          items:
+            $ref: '#/components/schemas/LearnedFile'
+    LearnedFileContent:
+      type: object
+      additionalProperties: false
+      required: [file, content]
+      properties:
+        file:
+          $ref: '#/components/schemas/LearnedFile'
+        content:
+          type: string
     WorkspaceRootList:
       type: object
       additionalProperties: false

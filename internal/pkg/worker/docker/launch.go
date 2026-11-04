@@ -291,15 +291,29 @@ func workerEnvironmentReserved(key string) bool {
 	return false
 }
 
+// learnedMounts is the global learned directory's mount, read-only unless the
+// operator made it writable, or nothing when auto-evolve is off.
+func (s LaunchSpec) learnedMounts() []worker.Mount {
+	if s.Document.LearnedDirectory == "" {
+		return nil
+	}
+
+	return []worker.Mount{{
+		Source:   s.Document.LearnedDirectory,
+		Target:   s.Document.LearnedDirectory,
+		ReadOnly: !s.Document.WritableLearnedDirectory,
+	}}
+}
+
 // buildMounts assembles the worker's mounts and the groups it needs for them.
 //
 // The workspace is writable, the global configuration is read-only unless the
 // operator set PEEN_WRITABLE_CONFIG_DIR, and the worker's own socket directory
 // is writable so it can reach its controller. An auto-evolving worker also
-// gets the global learned directory writable, mounted after the configuration
-// so it stays writable when it sits inside it. Extra mounts come from the
-// Docker profile. The Docker socket is added only when the profile says
-// `docker: full`, never by default.
+// gets the global learned directory, read-only unless the operator opted in,
+// mounted after the configuration so its own mode wins when it sits inside
+// it. Extra mounts come from the Docker profile. The Docker socket is added
+// only when the profile says `docker: full`, never by default.
 func (s LaunchSpec) buildMounts() ([]worker.Mount, []string, error) {
 	mounts := []worker.Mount{
 		{
@@ -313,18 +327,11 @@ func (s LaunchSpec) buildMounts() ([]worker.Mount, []string, error) {
 		},
 	}
 
-	if s.Document.LearnedDirectory != "" {
-		mounts = append(mounts, worker.Mount{
-			Source: s.Document.LearnedDirectory,
-			Target: s.Document.LearnedDirectory,
-		})
-	}
-
+	mounts = append(mounts, s.learnedMounts()...)
 	mounts = append(mounts, worker.Mount{
 		Source: socketDirectory(s.Document.SocketPath),
 		Target: socketDirectory(s.Document.SocketPath),
 	})
-
 	mounts = append(mounts, s.AgentSpace.Resolved()...)
 
 	groups := s.Identity.Groups()

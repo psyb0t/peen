@@ -143,6 +143,12 @@ func TestErrorKeepsAgentRunRefusalsAcrossTheWire(t *testing.T) {
 			class:    commerr.ErrNotFound,
 			wantCode: CodeAgentRunNotFound,
 		},
+		{
+			name:     "system prompt over budget",
+			detail:   harness.ErrPromptBudgetExceeded,
+			class:    commerr.ErrValidationFailed,
+			wantCode: CodePromptBudgetExceeded,
+		},
 	}
 
 	for _, tc := range testCases {

@@ -717,6 +717,8 @@ func harnessConfigurationFailureFor(
 	err error,
 ) (webSocketMessageFailure, bool) {
 	switch {
+	case errors.Is(err, harness.ErrPromptBudgetExceeded):
+		return harnessConfigurationFailure(webSocketPromptBudgetReason), true
 	case errors.Is(err, harness.ErrInvalidSkill):
 		return harnessConfigurationFailure(webSocketInvalidSkillReason), true
 	case errors.Is(err, harness.ErrInvalidInstruction):

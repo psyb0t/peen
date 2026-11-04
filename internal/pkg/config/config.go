@@ -54,6 +54,10 @@ const (
 	percentDenominator              = 100
 )
 
+// MaxSystemPromptPercent is PEEN_MAX_SYSTEM_PROMPT_PERCENT's ceiling. Zero
+// turns the check off.
+const MaxSystemPromptPercent = 100
+
 // Timeout variable names that the worker allowlist and the retired-setting
 // messages both refer to.
 const (
@@ -123,14 +127,17 @@ type Config struct {
 	BlankAgent              bool `default:"false" env:"PEEN_BLANK_AGENT"`
 
 	// AutoEvolve lets the agent write and update its own skills and rules in
-	// the learned directories. LearnedDirectory is the global one, every
-	// session's learned layer, defaulting to .agents/learned in
-	// PEEN_CONFIG_DIR.
+	// the workspace's learned directory. LearnedDirectory is the global one,
+	// every session's learned layer, defaulting to .agents/learned in
+	// PEEN_CONFIG_DIR. Docker workers read it, and write it only with
+	// WritableLearnedDirectory or WritableConfigDirectory, because a session
+	// that writes it changes what every other session loads.
 	// WritableConfigDirectory mounts PEEN_CONFIG_DIR writable into Docker
 	// workers and tells the agent it may change the files there.
-	AutoEvolve              bool   `default:"false" env:"PEEN_AUTO_EVOLVE"`
-	LearnedDirectory        string `env:"PEEN_LEARNED_DIR"`
-	WritableConfigDirectory bool   `default:"false" env:"PEEN_WRITABLE_CONFIG_DIR"` //nolint:lll // Immutable env tag.
+	AutoEvolve               bool   `default:"false" env:"PEEN_AUTO_EVOLVE"`
+	LearnedDirectory         string `env:"PEEN_LEARNED_DIR"`
+	WritableLearnedDirectory bool   `default:"false" env:"PEEN_WRITABLE_LEARNED_DIR"` //nolint:lll // Immutable env tag.
+	WritableConfigDirectory  bool   `default:"false" env:"PEEN_WRITABLE_CONFIG_DIR"`  //nolint:lll // Immutable env tag.
 
 	UpstreamsJSON   string `env:"PEEN_UPSTREAMS,required"`
 	DefaultModel    string `env:"PEEN_DEFAULT_MODEL,required"`
@@ -194,6 +201,10 @@ type Config struct {
 	CompactionMode           CompactionMode `default:"drop-oldest" env:"PEEN_COMPACTION_MODE"`              //nolint:lll // Immutable env tag.
 	CompactionOutputTokens   int            `default:"16384"       env:"PEEN_COMPACTION_MAX_OUTPUT_TOKENS"` //nolint:lll // Immutable env tag.
 	CompactionSummaryPercent int            `default:"30"          env:"PEEN_COMPACTION_SUMMARY_PERCENT"`   //nolint:lll // Immutable env tag.
+	// MaxSystemPromptPercent refuses a turn whose assembled system prompt,
+	// estimated in tokens, is over this share of MaxContextTokens. Zero turns
+	// the check off.
+	MaxSystemPromptPercent int `default:"50" env:"PEEN_MAX_SYSTEM_PROMPT_PERCENT"` //nolint:lll // Immutable env tag.
 	// ModelRequestTimeout bounds each model request, a turn's rounds and a
 	// compaction summary alike. A turn has no overall time limit.
 	ModelRequestTimeout time.Duration `default:"10m" env:"PEEN_MODEL_REQUEST_TIMEOUT"` //nolint:lll // Immutable env tag.
@@ -383,14 +394,33 @@ func (c Config) LearnedDir() string {
 	return filepath.Join(c.ConfigDirectory, defaultLearnedDirectoryPath)
 }
 
-// WorkerLearnedDirectory is the learned directory Docker workers get
-// writable: LearnedDir when auto-evolve is on, and empty otherwise.
+// WorkerLearnedDirectory is the learned directory Docker workers mount:
+// LearnedDir when auto-evolve is on, and empty otherwise.
 func (c Config) WorkerLearnedDirectory() string {
 	if !c.AutoEvolve {
 		return ""
 	}
 
 	return c.LearnedDir()
+}
+
+// LoadedLearnedDirectory is the global learned directory sessions load:
+// LearnedDir while auto-evolve is on, and the config layer's own
+// .agents/learned otherwise, which the harness reads either way.
+func (c Config) LoadedLearnedDirectory() string {
+	if c.AutoEvolve {
+		return c.LearnedDir()
+	}
+
+	return filepath.Join(c.ConfigDirectory, defaultLearnedDirectoryPath)
+}
+
+// LearnedDirectoryWritable reports whether workers may write the global
+// learned directory: auto-evolve is on and the operator opted in with
+// PEEN_WRITABLE_LEARNED_DIR or PEEN_WRITABLE_CONFIG_DIR.
+func (c Config) LearnedDirectoryWritable() bool {
+	return c.AutoEvolve &&
+		(c.WritableLearnedDirectory || c.WritableConfigDirectory)
 }
 
 // CoreInstructionsDisabled reports whether the embedded AGENTS.md stays out
@@ -758,6 +788,15 @@ func (c Config) validateRuntime() error {
 
 	if !c.hasContextBudget() || c.ModelRequestTimeout <= 0 {
 		return ctxerrors.Wrap(ErrInvalidConfig, "invalid Peen runtime limits")
+	}
+
+	if c.MaxSystemPromptPercent < 0 ||
+		c.MaxSystemPromptPercent > MaxSystemPromptPercent {
+		return ctxerrors.Wrapf(
+			ErrInvalidConfig,
+			"PEEN_MAX_SYSTEM_PROMPT_PERCENT must be 0 to %d",
+			MaxSystemPromptPercent,
+		)
 	}
 
 	if c.CompactionMode != CompactionModeDropOldest &&

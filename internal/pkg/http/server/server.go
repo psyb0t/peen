@@ -13,6 +13,7 @@ import (
 	"github.com/psyb0t/aichteeteapee/serbewr/dabluvee-es/wshub"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/peen/internal/pkg/agent"
+	"github.com/psyb0t/peen/internal/pkg/harness"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"github.com/psyb0t/peen/internal/pkg/session"
@@ -117,6 +118,20 @@ type SessionRegistry interface {
 		sessionID uuid.UUID,
 		params api.ListSessionAgentSpaceDecisionsParams,
 	) (api.SessionAgentSpaceDecisionPage, error)
+	ListLearnedFiles(
+		ctx context.Context,
+		sessionID uuid.UUID,
+	) (api.LearnedFileList, error)
+	ReadLearnedFile(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		reference harness.LearnedFileReference,
+	) (api.LearnedFileContent, error)
+	DeleteLearnedFile(
+		ctx context.Context,
+		sessionID uuid.UUID,
+		reference harness.LearnedFileReference,
+	) error
 }
 
 // Server owns Peen's Serbewr listener and its generated OpenAPI handler.

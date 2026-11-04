@@ -102,10 +102,14 @@ type LaunchDocument struct {
 	// opt-in through PEEN_WRITABLE_CONFIG_DIR.
 	WritableConfigDirectory bool `json:"writableConfigDirectory,omitempty"`
 
-	// LearnedDirectory is the global learned directory, mounted writable so an
-	// auto-evolving agent can save skills and rules every session loads.
-	// Empty when auto-evolve is off.
+	// LearnedDirectory is the global learned directory every session loads,
+	// mounted read-only unless WritableLearnedDirectory is set. Empty when
+	// auto-evolve is off.
 	LearnedDirectory string `json:"learnedDirectory,omitempty"`
+
+	// WritableLearnedDirectory mounts LearnedDirectory writable, an operator
+	// opt-in through PEEN_WRITABLE_LEARNED_DIR or PEEN_WRITABLE_CONFIG_DIR.
+	WritableLearnedDirectory bool `json:"writableLearnedDirectory,omitempty"`
 
 	// AgentSpace names the agent space this generation runs under. The worker
 	// reports it back; it cannot choose another.

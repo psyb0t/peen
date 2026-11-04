@@ -8,8 +8,8 @@ A skill is the procedure for one class of task, done the way this user wants it:
 
 ## Where it goes
 
-- A skill the user asks for goes where the user says, or in the workspace's `.agents/skills/<name>/SKILL.md` when they name no place.
-- A skill you save on your own, which you do only when your instructions name learned directories, goes in one of those learned directories as `skills/<name>/SKILL.md`. Never save one on your own anywhere else.
+- A skill the user explicitly asks you to write, such as "make a skill for ...", goes where the user says, or in the workspace's `.agents/skills/<name>/SKILL.md` when they name no place.
+- A procedure you decide to keep without the user asking for a skill file is one you save on your own. You do that only when your instructions name learned directories, and it goes in one of those learned directories as `skills/<name>/SKILL.md`. Never save one on your own anywhere else.
 - Change a skill outside the learned directories, such as one in `.agents/skills/`, only when the user asks for that change.
 - Before creating a skill, check the skill catalogue. Update the skill that already covers the class instead of adding a second one.
 

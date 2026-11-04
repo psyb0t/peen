@@ -459,6 +459,14 @@ func TestWebSocketMessageFailureFor(t *testing.T) {
 			want: harnessConfigurationFailure(webSocketInvalidSkillReason),
 		},
 		{
+			name: "system prompt over budget",
+			err: errors.Join(
+				commerr.ErrValidationFailed,
+				harness.ErrPromptBudgetExceeded,
+			),
+			want: harnessConfigurationFailure(webSocketPromptBudgetReason),
+		},
+		{
 			name: "unknown skill reference",
 			err: ctxerrors.Wrap(
 				errors.Join(

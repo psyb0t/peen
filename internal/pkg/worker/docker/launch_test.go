@@ -284,22 +284,28 @@ func TestBuildCreateRequestKeepsLiteralPaths(t *testing.T) {
 	assert.Equal(t, sessionSocketDir, socketMount.Source)
 }
 
-// An auto-evolving worker gets the global learned directory writable after the
-// read-only config mount, so the learned directory stays writable when it sits
-// inside the config directory. PEEN_WRITABLE_CONFIG_DIR makes the config mount
-// writable.
+// An auto-evolving worker gets the global learned directory after the config
+// mount, read-only unless the operator made it writable, so its own mode wins
+// when it sits inside the config directory. PEEN_WRITABLE_CONFIG_DIR makes the
+// config mount writable.
 func TestBuildCreateRequestMountsTheLearnedAndConfigDirectories(t *testing.T) {
 	t.Parallel()
 
 	learned := filepath.Join(testConfigDir, ".agents", "learned")
 
 	testCases := []struct {
-		name           string
-		learned        string
-		writableConfig bool
+		name            string
+		learned         string
+		writableLearned bool
+		writableConfig  bool
 	}{
 		{name: "auto-evolve off"},
 		{name: "auto-evolve on", learned: learned},
+		{
+			name:            "writable learned directory",
+			learned:         learned,
+			writableLearned: true,
+		},
 		{name: "writable config", writableConfig: true},
 	}
 
@@ -309,6 +315,7 @@ func TestBuildCreateRequestMountsTheLearnedAndConfigDirectories(t *testing.T) {
 
 			document := testDocument(uuid.New())
 			document.LearnedDirectory = tc.learned
+			document.WritableLearnedDirectory = tc.writableLearned
 			document.WritableConfigDirectory = tc.writableConfig
 
 			create, err := docker.BuildCreateRequest(docker.LaunchSpec{
@@ -346,7 +353,11 @@ func TestBuildCreateRequestMountsTheLearnedAndConfigDirectories(t *testing.T) {
 
 			require.Greater(t, learnedIndex, configIndex)
 			assert.Equal(t, learned, create.Mounts[learnedIndex].Source)
-			assert.False(t, create.Mounts[learnedIndex].ReadOnly)
+			assert.Equal(
+				t,
+				!tc.writableLearned,
+				create.Mounts[learnedIndex].ReadOnly,
+			)
 		})
 	}
 }

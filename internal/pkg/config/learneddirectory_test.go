@@ -69,6 +69,49 @@ func TestLearnedDirectoryDefaultsAndWorkerGrant(t *testing.T) {
 	}
 }
 
+// Workers write the global learned directory only when auto-evolve is on and
+// the operator opted in, because every session loads what one session saves
+// there.
+func TestLearnedDirectoryWritable(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name            string
+		autoEvolve      bool
+		writableLearned bool
+		writableConfig  bool
+		want            bool
+	}{
+		{name: "auto-evolve alone", autoEvolve: true},
+		{name: "opt-in without auto-evolve", writableLearned: true},
+		{
+			name:            "learned directory opt-in",
+			autoEvolve:      true,
+			writableLearned: true,
+			want:            true,
+		},
+		{
+			name:           "config directory opt-in",
+			autoEvolve:     true,
+			writableConfig: true,
+			want:           true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			deployment := stateTestConfig()
+			deployment.AutoEvolve = tc.autoEvolve
+			deployment.WritableLearnedDirectory = tc.writableLearned
+			deployment.WritableConfigDirectory = tc.writableConfig
+
+			assert.Equal(t, tc.want, deployment.LearnedDirectoryWritable())
+		})
+	}
+}
+
 // A Docker worker mounts the learned directory writable, so it may not be or
 // contain the read-only config directory, and may not overlap controller
 // state or the worker sockets.

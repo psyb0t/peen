@@ -31,15 +31,19 @@ func RuntimeOptionsFromConfig(
 
 		DisableBaseSystemPrompt: deployment.BaseSystemPromptDisabled(),
 
-		AutoEvolve:              deployment.AutoEvolve,
-		LearnedDirectory:        deployment.WorkerLearnedDirectory(),
-		WritableConfigDirectory: deployment.WritableConfigDirectory,
+		AutoEvolve:               deployment.AutoEvolve,
+		LearnedDirectory:         deployment.WorkerLearnedDirectory(),
+		WritableLearnedDirectory: deployment.LearnedDirectoryWritable(),
+		WritableConfigDirectory:  deployment.WritableConfigDirectory,
 
 		MaxContextTokens:    deployment.MaxContextTokens,
 		OutputReserveTokens: deployment.OutputReserveTokens,
 		ModelRequestTimeout: deployment.ModelRequestTimeout,
 
-		MaxSystemPromptBytes:  deployment.MaxSystemPromptBytes,
+		MaxSystemPromptBytes: deployment.MaxSystemPromptBytes,
+		MaxSystemPromptPercent: runtimeSystemPromptPercent(
+			deployment.MaxSystemPromptPercent,
+		),
 		MaxMessageBytes:       deployment.MaxMessageBytes,
 		MaxConcurrentTurns:    deployment.MaxConcurrentTurns,
 		MaxQueuedUserMessages: deployment.MaxQueuedUserMessages,

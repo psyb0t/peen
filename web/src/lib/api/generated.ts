@@ -579,6 +579,50 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	"/session/learned": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * List the learned rules and skills this session loads
+		 * @description Lists every rule under .agents/learned/rules and every skill under .agents/learned/skills in the session's workspace and in the global learned directory, so a user can review what an auto-evolving agent saved. Each rule says whether it loads on every turn and its estimated token count. Symbolic links are left out. The list is bounded by the harness file limits, so it has no pages.
+		 */
+		get: operations["listSessionLearnedFiles"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/session/learned/file": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Read one learned rule or skill
+		 * @description Returns a learned rule's file, or a learned skill's SKILL.md, as the agent saved it.
+		 */
+		get: operations["getSessionLearnedFile"];
+		put?: never;
+		post?: never;
+		/**
+		 * Delete one learned rule or skill
+		 * @description Removes a learned rule's file, or a learned skill's whole directory. The next turn, child launch, or changeDirectory call no longer loads it. Only files under a learned directory can be deleted this way.
+		 */
+		delete: operations["deleteSessionLearnedFile"];
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -693,6 +737,40 @@ export interface components {
 			items: components["schemas"]["AgentSpace"][];
 			/** @description The agent space a session opened without naming one uses. */
 			default: string;
+		};
+		/**
+		 * @description workspace is the session workspace's .agents/learned, and global is the global learned directory every session reads.
+		 * @enum {string}
+		 */
+		LearnedScope: "workspace" | "global";
+		/** @enum {string} */
+		LearnedKind: "rule" | "skill";
+		LearnedFile: {
+			scope: components["schemas"]["LearnedScope"];
+			kind: components["schemas"]["LearnedKind"];
+			/** @description The rule's path under rules/ without .md, or the skill's directory name. A learned rule loads under the name learned/<name>. */
+			name: string;
+			/** @description The rule file, or the skill's SKILL.md, on the controller's host. */
+			path: string;
+			/** Format: int64 */
+			sizeBytes: number;
+			/** Format: date-time */
+			modifiedAt: string;
+			/** @description True for a rule without paths, globs, or applyTo, which is part of every system prompt and counts against PEEN_MAX_SYSTEM_PROMPT_PERCENT. Always false for a skill. */
+			alwaysLoaded: boolean;
+			/**
+			 * Format: int64
+			 * @description The file's size in tokens, estimated with the o200k tokenizer.
+			 */
+			estimatedTokens: number;
+		};
+		LearnedFileList: {
+			/** @description Workspace files first, then global ones, each sorted by kind and name. */
+			items: components["schemas"]["LearnedFile"][];
+		};
+		LearnedFileContent: {
+			file: components["schemas"]["LearnedFile"];
+			content: string;
 		};
 		WorkspaceRootList: {
 			/** @description Canonical absolute directories the authenticated controller will accept as workspace roots. */
@@ -1516,6 +1594,10 @@ export interface components {
 	parameters: {
 		SessionIDOptional: string;
 		SessionIDRequired: string;
+		LearnedScope: components["schemas"]["LearnedScope"];
+		LearnedKind: components["schemas"]["LearnedKind"];
+		/** @description The rule's path under rules/ without .md, such as go-errors or go/errors, or the skill's directory name. */
+		LearnedName: string;
 		AgentRunID: string;
 		CompactionID: string;
 		ModelRunID: string;
@@ -2545,6 +2627,98 @@ export interface operations {
 				content: {
 					"application/json": components["schemas"]["AgentRunCancelResponse"];
 				};
+			};
+			400: components["responses"]["ErrorBadRequest"];
+			401: components["responses"]["ErrorUnauthorized"];
+			404: components["responses"]["ErrorNotFound"];
+			500: components["responses"]["ErrorInternal"];
+		};
+	};
+	listSessionLearnedFiles: {
+		parameters: {
+			query?: never;
+			header: {
+				"X-Session-ID": components["parameters"]["SessionIDRequired"];
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Learned file list */
+			200: {
+				headers: {
+					"X-Session-ID": components["headers"]["SessionID"];
+					"X-Request-ID": components["headers"]["RequestID"];
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["LearnedFileList"];
+				};
+			};
+			400: components["responses"]["ErrorBadRequest"];
+			401: components["responses"]["ErrorUnauthorized"];
+			404: components["responses"]["ErrorNotFound"];
+			500: components["responses"]["ErrorInternal"];
+		};
+	};
+	getSessionLearnedFile: {
+		parameters: {
+			query: {
+				scope: components["parameters"]["LearnedScope"];
+				kind: components["parameters"]["LearnedKind"];
+				/** @description The rule's path under rules/ without .md, such as go-errors or go/errors, or the skill's directory name. */
+				name: components["parameters"]["LearnedName"];
+			};
+			header: {
+				"X-Session-ID": components["parameters"]["SessionIDRequired"];
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Learned file content */
+			200: {
+				headers: {
+					"X-Session-ID": components["headers"]["SessionID"];
+					"X-Request-ID": components["headers"]["RequestID"];
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["LearnedFileContent"];
+				};
+			};
+			400: components["responses"]["ErrorBadRequest"];
+			401: components["responses"]["ErrorUnauthorized"];
+			404: components["responses"]["ErrorNotFound"];
+			500: components["responses"]["ErrorInternal"];
+		};
+	};
+	deleteSessionLearnedFile: {
+		parameters: {
+			query: {
+				scope: components["parameters"]["LearnedScope"];
+				kind: components["parameters"]["LearnedKind"];
+				/** @description The rule's path under rules/ without .md, such as go-errors or go/errors, or the skill's directory name. */
+				name: components["parameters"]["LearnedName"];
+			};
+			header: {
+				"X-Session-ID": components["parameters"]["SessionIDRequired"];
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Learned file deleted */
+			204: {
+				headers: {
+					"X-Session-ID": components["headers"]["SessionID"];
+					"X-Request-ID": components["headers"]["RequestID"];
+					[name: string]: unknown;
+				};
+				content?: never;
 			};
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];

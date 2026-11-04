@@ -36,6 +36,7 @@ const (
 	// runtimeTestMaxContextTokens is far above anything the fixture's turns
 	// count to, so a test that does not set out to hit the limit never does.
 	runtimeTestMaxContextTokens = 32768
+	runtimeTestPromptBudgetOff  = -1
 
 	runtimeTestAgentDocument = "---\nname: default\ndescription: test agent\n---\nFollow the test agent rules."
 	runtimeTestConfigRules   = "Follow config rules."
@@ -484,6 +485,9 @@ func newRuntimeFixtureWithOptions(
 		ModelRequestTimeout: runtimeTestTurnTimeout,
 		Events:              eventBus,
 		ConfigDirectory:     configDirectory,
+		// Compaction tests shrink the context far below any real prompt, so
+		// the prompt budget is off unless a test turns it on.
+		MaxSystemPromptPercent: runtimeTestPromptBudgetOff,
 	}
 
 	if customize != nil {

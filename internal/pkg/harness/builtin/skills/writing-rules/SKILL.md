@@ -8,8 +8,8 @@ A rule is a standing convention the user wants followed every time, such as how 
 
 ## Where it goes
 
-- A rule the user asks for goes where the user says, or in the workspace's `.agents/rules/<name>.md` when they name no place.
-- A rule you save on your own, which you do only when your instructions name learned directories, goes in one of those learned directories as `rules/<name>.md`. Never save one on your own anywhere else.
+- A rule the user explicitly asks you to write, such as "add a rule that ...", goes where the user says, or in the workspace's `.agents/rules/<name>.md` when they name no place.
+- A correction or convention the user states without asking for a rule file is one you save on your own. You do that only when your instructions name learned directories, and it goes in one of those learned directories as `rules/<name>.md`. Never save one on your own anywhere else.
 - Change a rule outside the learned directories, such as one in `.agents/rules/` or AGENTS.md, only when the user asks for that change.
 - Before creating a rule, check the rules already in your instructions. Sharpen the one that covers the topic instead of adding a second.
 
@@ -27,7 +27,7 @@ paths:
 - Wrap every returned error with context: `fmt.Errorf("open config: %w", err)`.
 ```
 
-Patterns are relative to the directory that holds the `.agents` directory the rule is in, or to the current directory for a rule in the configuration directory or the global learned directory. `*` stays inside one directory, `**/` spans directories, and `{a,b}` lists alternatives. Leave `paths` out only for a rule that applies to every task.
+Patterns are relative to the directory that holds the `.agents` directory the rule is in, or to the current directory for a rule in the configuration directory or the global learned directory. `*` stays inside one directory, `**/` spans directories, and `{a,b}` lists alternatives. Leave `paths` out only for a rule that applies to every task. A rule without `paths` is part of every system prompt, and the deployment refuses turns once those rules fill too much of the context, so keep unscoped rules few and short.
 
 ## What goes in
 

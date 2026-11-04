@@ -78,6 +78,9 @@ type Runtime struct {
 	maxSystemPromptBytes  int
 	maxMessageBytes       int
 	maxQueuedUserMessages int
+	// systemPromptTokenLimit is the largest assembled system prompt a turn or
+	// child launch may send, in estimated tokens. Zero turns the check off.
+	systemPromptTokenLimit int
 
 	// turnSlots bounds concurrent turns across every session. A nil channel
 	// disables the bound, which is what an embedding caller that wants none
@@ -130,9 +133,11 @@ type Runtime struct {
 	agentLimits     AgentRunLimits
 	configDirectory string
 
-	autoEvolve              bool
-	learnedDirectory        string
-	writableConfigDirectory bool
+	autoEvolve bool
+	// writableLearnedDirectory is the global learned directory the agent is
+	// told it may write, or empty when it may only read it.
+	writableLearnedDirectory string
+	writableConfigDirectory  bool
 
 	// agentRunsMutex guards agentRuns. An agent run registry is per SESSION,
 	// exactly like jobs above, so a run started by one turn stays listable,
@@ -231,19 +236,7 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 		return nil, err
 	}
 
-	if options.MaxSystemPromptBytes <= 0 {
-		options.MaxSystemPromptBytes = defaultMaxSystemPromptBytes
-	}
-
-	if options.MaxMessageBytes <= 0 {
-		options.MaxMessageBytes = defaultMaxMessageBytes
-	}
-
-	if options.MaxQueuedUserMessages == 0 {
-		options.MaxQueuedUserMessages = defaultMaxQueuedUserMessages
-	}
-
-	options = options.withToolDefaults()
+	options = options.withMessageDefaults().withToolDefaults()
 
 	compactionMode, compaction, err := compactionSettings(options)
 	if err != nil {
@@ -286,9 +279,13 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 		maxSystemPromptBytes:  options.MaxSystemPromptBytes,
 		maxMessageBytes:       options.MaxMessageBytes,
 		maxQueuedUserMessages: options.MaxQueuedUserMessages,
-		turnSlots:             newTurnSlots(options.MaxConcurrentTurns),
-		userMessageQueues:     map[uuid.UUID]*activeUserMessageQueue{},
-		admissions:            session.NewAdmissionGate(),
+		systemPromptTokenLimit: systemPromptTokenLimit(
+			options.MaxContextTokens,
+			options.MaxSystemPromptPercent,
+		),
+		turnSlots:         newTurnSlots(options.MaxConcurrentTurns),
+		userMessageQueues: map[uuid.UUID]*activeUserMessageQueue{},
+		admissions:        session.NewAdmissionGate(),
 
 		compactionMode:       compactionMode,
 		compactionOptions:    compaction,
@@ -310,9 +307,9 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 		configDirectory:      options.ConfigDirectory,
 		agentRuns:            map[uuid.UUID]*AgentRunRegistry{},
 
-		autoEvolve:              options.AutoEvolve,
-		learnedDirectory:        options.LearnedDirectory,
-		writableConfigDirectory: options.WritableConfigDirectory,
+		autoEvolve:               options.AutoEvolve,
+		writableLearnedDirectory: options.writableLearnedDirectory(),
+		writableConfigDirectory:  options.WritableConfigDirectory,
 	}
 	if startup.id != uuid.Nil {
 		if err := runtime.recoverSessionChildren(ctx, startup.id); err != nil {
@@ -1680,7 +1677,12 @@ func (r *Runtime) systemPromptForAgent(
 		r.currentTimeBlock(),
 	)
 
-	return joinSystemSections(sections...), nil
+	prompt := joinSystemSections(sections...)
+	if err := r.checkSystemPromptBudget(prompt, blocks); err != nil {
+		return "", err
+	}
+
+	return prompt, nil
 }
 
 func (r *Runtime) currentTimeBlock() string {

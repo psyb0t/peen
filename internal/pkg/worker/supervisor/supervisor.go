@@ -52,9 +52,11 @@ type Options struct {
 	// WritableConfigDirectory mounts ConfigDirectory writable into Docker
 	// workers instead of read-only.
 	WritableConfigDirectory bool
-	// LearnedDirectory is the global learned directory a Docker worker gets
-	// writable, or empty when auto-evolve is off and no worker writes it.
-	LearnedDirectory string
+	// LearnedDirectory is the global learned directory a Docker worker
+	// mounts, or empty when auto-evolve is off. WritableLearnedDirectory
+	// mounts it writable instead of read-only.
+	LearnedDirectory         string
+	WritableLearnedDirectory bool
 
 	ReadyTimeout time.Duration
 	StopTimeout  time.Duration
@@ -300,8 +302,9 @@ func (s *Supervisor) recordGeneration(
 		ConfigDirectory: s.options.ConfigDirectory,
 		AgentSpace:      agentSpace.Name,
 
-		WritableConfigDirectory: s.options.WritableConfigDirectory,
-		LearnedDirectory:        s.options.LearnedDirectory,
+		WritableConfigDirectory:  s.options.WritableConfigDirectory,
+		LearnedDirectory:         s.options.LearnedDirectory,
+		WritableLearnedDirectory: s.options.WritableLearnedDirectory,
 	}, nil
 }
 

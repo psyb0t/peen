@@ -443,7 +443,7 @@ export interface MessageFailed {
   id: string;
   type: "message.failed";
   /**
-   * `reason` is set only alongside code `HARNESS_CONFIGURATION_INVALID`, one of six fixed client-safe sentences naming what is wrong with the workspace agent configuration.
+   * `reason` is set only alongside code `HARNESS_CONFIGURATION_INVALID`, one of seven fixed client-safe sentences naming what is wrong with the workspace agent configuration, including a system prompt over PEEN_MAX_SYSTEM_PROMPT_PERCENT of the context window.
    */
   data: MessageFailedData;
   timestamp: number;
@@ -476,7 +476,7 @@ export function validateMessageFailed(
 }
 
 /**
- * `reason` is set only alongside code `HARNESS_CONFIGURATION_INVALID`, one of six fixed client-safe sentences naming what is wrong with the workspace agent configuration.
+ * `reason` is set only alongside code `HARNESS_CONFIGURATION_INVALID`, one of seven fixed client-safe sentences naming what is wrong with the workspace agent configuration, including a system prompt over PEEN_MAX_SYSTEM_PROMPT_PERCENT of the context window.
  */
 export interface MessageFailedData {
   /**

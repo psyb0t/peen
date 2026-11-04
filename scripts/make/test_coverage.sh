@@ -82,7 +82,7 @@ else
 	cp "${profile_raw}" "${profile_merged}"
 fi
 
-gate_exclude='(/cmd/|/tests/|\.gen\.go:|/internal/pkg/service-manager/mocks\.go:|/internal/pkg/services/example-)'
+gate_exclude='(/cmd/|/tests/|/examples/|\.gen\.go:|/internal/pkg/service-manager/mocks\.go:|/internal/pkg/services/example-)'
 awk -v exclude="${gate_exclude}" '$1 !~ exclude' \
 	"${profile_merged}" >"${profile_filtered}"
 

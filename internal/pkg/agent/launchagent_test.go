@@ -116,6 +116,8 @@ func newLaunchAgentFixture(
 		Events:              eventBus,
 		AgentLimits:         options.AgentLimits,
 		ConfigDirectory:     configDirectory,
+		// Child compaction tests shrink the context below any real prompt.
+		MaxSystemPromptPercent: runtimeTestPromptBudgetOff,
 	}
 
 	if options.Customize != nil {

@@ -12,3 +12,7 @@
 .testing/
 build/
 vendor/
+# Benchmark task fixtures are the code an agent works on during an eval, such
+# as a deliberately plain HTTP server. Changing them changes the eval.
+bench/eval/tasks/
+bench/eval/evolve-tasks/

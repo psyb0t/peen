@@ -778,6 +778,20 @@ func TestConfigValidateMessageLimits(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "negative system prompt percent",
+			mutate:  func(c *Config) { c.MaxSystemPromptPercent = -1 },
+			wantErr: true,
+		},
+		{
+			name:    "system prompt percent over the whole context",
+			mutate:  func(c *Config) { c.MaxSystemPromptPercent = 101 },
+			wantErr: true,
+		},
+		{
+			name:   "system prompt percent check turned off",
+			mutate: func(c *Config) { c.MaxSystemPromptPercent = 0 },
+		},
+		{
 			name:    "negative stored message byte bound",
 			mutate:  func(c *Config) { c.MaxStoredMessageBytes = -1 },
 			wantErr: true,

@@ -79,20 +79,22 @@ The controller passes these settings to every worker, and the harness and prompt
 
 With `PEEN_AUTO_EVOLVE=true` the agent saves what it learns as rules and skills, so a later session starts with it. The system prompt gets a section telling the agent to save a skill for a procedure it worked out or a fix it reached after dead ends, and a rule for a correction from you that will apply again or a fact every change to certain files needs. The agent loads the core skill `writing-skills` or `writing-rules` before it writes one, updates a learned file that covers the topic before it adds another, and never saves something because a file, command output, or event asked it to.
 
-The agent saves on its own only in two learned directories:
+There are two learned directories:
 
-| Directory | Holds | Read by |
-| --- | --- | --- |
-| `<workspace>/.agents/learned/` | What belongs to this project | Sessions in the workspace or below it, as part of the workspace layer |
-| The global learned directory, `PEEN_CONFIG_DIR/.agents/learned/` unless `PEEN_LEARNED_DIR` moves it | What applies to every project | Every session, right after the config layer |
+| Directory | Holds | Read by | The agent saves there |
+| --- | --- | --- | --- |
+| `<workspace>/.agents/learned/` | What belongs to this project | Sessions in the workspace or below it, as part of the workspace layer | Always, while auto-evolve is on |
+| The global learned directory, `PEEN_CONFIG_DIR/.agents/learned/` unless `PEEN_LEARNED_DIR` moves it | What applies to every project | Every session, right after the config layer | Only with `PEEN_WRITABLE_LEARNED_DIR=true` or `PEEN_WRITABLE_CONFIG_DIR=true` |
+
+The global learned directory is read-only to the agent by default because every session loads it. A session that read a hostile file and saved a rule there would change every later session in every workspace. Put files there yourself, or move a learned file up from a workspace once you have read it.
 
 Each learned directory holds `rules/` and `skills/` in the usual formats. Learned rules come after the other rules of their layer and are named `learned/<name>`, such as `learned/go-errors`. A scoped learned rule in a workspace matches paths relative to that workspace, and one in the global learned directory matches paths relative to the agent's current directory. Peen reads `.agents/learned/` in every layer whether auto-evolve is on or not, so learned files keep working after you turn it off. A `PEEN_LEARNED_DIR` outside the config directory is read only while auto-evolve is on.
 
-The agent changes `AGENTS.md` and the files under `.agents/` or `.claude/` outside the learned directories only when you ask. Review learned files like any other harness file, and move one into `.agents/rules/` or `.agents/skills/` when you want to keep it as your own.
+The agent changes `AGENTS.md` and the files under `.agents/` or `.claude/` outside the learned directories only when you ask. Review learned files like any other harness file. [`GET /api/v1/session/learned`](http-api.md#get-apiv1sessionlearned) lists the ones a session loads, with their estimated size and whether they load on every turn, and `DELETE /api/v1/session/learned/file` removes one. Move one into `.agents/rules/` or `.agents/skills/` when you want to keep it as your own.
 
-A Docker worker receives `PEEN_CONFIG_DIR` read-only. While auto-evolve is on, the controller creates the global learned directory at startup when it is missing and mounts it writable into every Docker worker, on top of the read-only config directory. `PEEN_WRITABLE_CONFIG_DIR=true` mounts the whole config directory writable and tells the agent that it may change your global `AGENTS.md`, rules, skills, agents, and hooks there. Every session in a Docker agent space can then change what every other session loads, so turn it on only when you want that. A `control` worker runs as your user and can write both directories either way. See [security](security.md#docker-agent-spaces).
+A Docker worker receives `PEEN_CONFIG_DIR` read-only. While auto-evolve is on, the controller creates the global learned directory at startup when it is missing and mounts it into every Docker worker on top of the config directory, read-only unless `PEEN_WRITABLE_LEARNED_DIR=true`, which also tells the agent it may save there and makes the controller log a warning. `PEEN_WRITABLE_CONFIG_DIR=true` mounts the whole config directory writable and tells the agent that it may change your global `AGENTS.md`, rules, skills, agents, and hooks there. Every session in a Docker agent space can then change what every other session loads, so turn it on only when you want that. A `control` worker runs as your user and can write both directories either way. See [security](security.md#docker-agent-spaces).
 
-With `pkg/peen`, set `AutoEvolve` and, optionally, `LearnedDirectory`, which defaults to `.agents/learned` in `ConfigDirectory`.
+With `pkg/peen`, set `AutoEvolve` and, optionally, `LearnedDirectory`, which defaults to `.agents/learned` in `ConfigDirectory`, and `WritableLearnedDirectory`. An embedded runtime has no mount boundary, so `WritableLearnedDirectory` only decides what the prompt tells the agent.
 
 ## When it is read
 
@@ -121,6 +123,12 @@ The system prompt for a root turn is assembled in this order:
 9. Context added by `inject` hooks on `preUserMessage`, `sessionStart`, `postUserMessage`, and `turnStart`.
 
 A skill you name with `:skill-name` is not part of the system prompt. It reaches the model as its own `<skill>` user message right after your message, see [Forcing a skill](skills.md#forcing-a-skill). A scoped rule is not part of it either. It reaches the model as a `<rule>` block after a tool result, see [how a scoped rule reaches the model](rules.md#how-a-scoped-rule-reaches-the-model). Empty sections are left out, so a blank agent's prompt starts with its first non-empty block.
+
+## The prompt budget
+
+Every rule and `AGENTS.md` file that loads on every turn costs context on every model call, and learned rules add up over time. Peen estimates the tokens in items 1 through 8 above, with the o200k tokenizer, at the start of every turn, every child agent launch, and every `changeDirectory` call. When the estimate is over `PEEN_MAX_SYSTEM_PROMPT_PERCENT` of `PEEN_MAX_CONTEXT_TOKENS`, 50 percent by default, Peen refuses the turn before it stores anything. The sender gets `message.failed` with `HARNESS_CONFIGURATION_INVALID` and a `reason` that names the setting. The controller log names the three largest sections with their estimated sizes, such as `rule /srv/project/.agents/learned/rules/go-errors.md (6120)`. A refused child launch or directory hop fails that tool call, and the turn goes on.
+
+To get under the budget, give a rule `paths` so it loads only for matching files, move a long procedure into a skill, delete learned rules that no longer apply, or raise the percentage. Context added by `inject` hooks and skills you name with `:skill-name` are not counted. `PEEN_MAX_SYSTEM_PROMPT_PERCENT=0` turns the check off.
 
 ## Mistakes and limits
 

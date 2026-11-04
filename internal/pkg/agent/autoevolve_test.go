@@ -16,20 +16,28 @@ const (
 )
 
 // With auto-evolve on, the root and child prompts name the workspace's
-// learned directory and the global one, and only a writable config directory
-// adds the sentence that lets the agent change it.
+// learned directory. The global one is named only when the operator made it
+// writable, because every session loads it, and only a writable config
+// directory adds the sentence that lets the agent change it.
 func TestRuntimeSystemPromptsCarryTheLearningSection(t *testing.T) {
 	testCases := []struct {
-		name           string
-		autoEvolve     bool
-		writableConfig bool
+		name            string
+		autoEvolve      bool
+		writableLearned bool
+		writableConfig  bool
 	}{
 		{name: "auto-evolve off"},
 		{name: "auto-evolve on", autoEvolve: true},
 		{
-			name:           "auto-evolve with a writable config directory",
-			autoEvolve:     true,
-			writableConfig: true,
+			name:            "auto-evolve with a writable learned directory",
+			autoEvolve:      true,
+			writableLearned: true,
+		},
+		{
+			name:            "auto-evolve with a writable config directory",
+			autoEvolve:      true,
+			writableLearned: true,
+			writableConfig:  true,
 		},
 	}
 
@@ -43,6 +51,7 @@ func TestRuntimeSystemPromptsCarryTheLearningSection(t *testing.T) {
 				func(o *RuntimeOptions) {
 					o.AutoEvolve = tc.autoEvolve
 					o.LearnedDirectory = globalLearned
+					o.WritableLearnedDirectory = tc.writableLearned
 					o.WritableConfigDirectory = tc.writableConfig
 				},
 			)
@@ -79,9 +88,14 @@ func TestRuntimeSystemPromptsCarryTheLearningSection(t *testing.T) {
 
 				assert.Contains(t, prompt, autoEvolveTestHeading)
 				assert.Contains(t, prompt, workspaceLearned)
-				assert.Contains(t, prompt, globalLearned)
 				assert.Contains(t, prompt, "core:writing-skills")
 				assert.Contains(t, prompt, "core:writing-rules")
+
+				if tc.writableLearned {
+					assert.Contains(t, prompt, globalLearned)
+				} else {
+					assert.NotContains(t, prompt, globalLearned)
+				}
 
 				if tc.writableConfig {
 					assert.Contains(t, prompt, autoEvolveTestWritingLead)
@@ -108,7 +122,7 @@ func TestAutoEvolveBlockPaths(t *testing.T) {
 		learnedDirectoryName,
 	)
 
-	runtime := &Runtime{autoEvolve: true, learnedDirectory: ownLearned}
+	runtime := &Runtime{autoEvolve: true, writableLearnedDirectory: ownLearned}
 
 	block, err := runtime.autoEvolveBlock(workspace)
 	require.NoError(t, err)

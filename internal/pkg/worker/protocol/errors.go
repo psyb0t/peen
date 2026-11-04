@@ -40,6 +40,7 @@ const (
 	CodeAgentRunFinished          Code = "agentRunFinished"
 	CodeAgentRunNotFound          Code = "agentRunNotFound"
 	CodeExecutionInboxPending     Code = "executionInboxPending"
+	CodePromptBudgetExceeded      Code = "promptBudgetExceeded"
 )
 
 // Error is one failure as it crosses the socket.
@@ -103,6 +104,11 @@ var detailedFailures = []detailedFailure{
 		code:   CodeAgentRunNotFound,
 		detail: session.ErrAgentRunNotFound,
 		class:  commerr.ErrNotFound,
+	},
+	{
+		code:   CodePromptBudgetExceeded,
+		detail: harness.ErrPromptBudgetExceeded,
+		class:  commerr.ErrValidationFailed,
 	},
 }
 

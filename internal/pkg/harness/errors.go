@@ -3,16 +3,19 @@ package harness
 import "errors"
 
 var (
-	ErrInvalidOptions       = errors.New("invalid harness resolver options")
-	ErrInvalidPath          = errors.New("invalid harness path")
-	ErrNotDirectory         = errors.New("harness path is not a directory")
-	ErrUnreadableLayer      = errors.New("unreadable harness layer")
-	ErrInvalidInstruction   = errors.New("invalid agent instructions")
-	ErrInvalidSkill         = errors.New("invalid agent skill")
-	ErrInvalidAgent         = errors.New("invalid named agent")
-	ErrInvalidEventHandler  = errors.New("invalid event handler")
-	ErrInvalidHook          = errors.New("invalid hook configuration")
-	ErrResourceLimit        = errors.New("harness resource limit exceeded")
+	ErrInvalidOptions      = errors.New("invalid harness resolver options")
+	ErrInvalidPath         = errors.New("invalid harness path")
+	ErrNotDirectory        = errors.New("harness path is not a directory")
+	ErrUnreadableLayer     = errors.New("unreadable harness layer")
+	ErrInvalidInstruction  = errors.New("invalid agent instructions")
+	ErrInvalidSkill        = errors.New("invalid agent skill")
+	ErrInvalidAgent        = errors.New("invalid named agent")
+	ErrInvalidEventHandler = errors.New("invalid event handler")
+	ErrInvalidHook         = errors.New("invalid hook configuration")
+	ErrResourceLimit       = errors.New("harness resource limit exceeded")
+	// ErrPromptBudgetExceeded reports a system prompt, assembled from the
+	// harness, that is over the deployment's share of the context window.
+	ErrPromptBudgetExceeded = errors.New("system prompt over its token budget")
 	ErrSkillNotFound        = errors.New("skill not found")
 	ErrSkillContentTooLarge = errors.New("skill content too large")
 	ErrAgentNotFound        = errors.New("agent not found")

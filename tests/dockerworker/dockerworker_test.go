@@ -123,6 +123,14 @@ const (
 	probeForeignSockEnvKey = "PEEN_PROBE_FOREIGN_SOCKET"
 	probeSessionDirEnvKey  = "PEEN_PROBE_SESSION_SOCKET_DIR"
 	probeSocketRootEnvKey  = "PEEN_PROBE_SOCKET_ROOT"
+	probeLearnedDirEnvKey  = "PEEN_PROBE_LEARNED_DIR"
+	probeLearnedRuleEnvKey = "PEEN_PROBE_LEARNED_RULE"
+
+	// learnedDirectoryPath is the global learned directory's default place
+	// inside the config directory, mounted on top of the config mount.
+	learnedDirectoryPath = ".agents/learned"
+	learnedRulePath      = "rules/learned.md"
+	learnedRuleBody      = "A rule the agent learned.\n"
 
 	probeListBodyEnvKey    = "PEEN_PROBE_LIST_BODY"
 	probeInspectBodyEnvKey = "PEEN_PROBE_INSPECT_BODY"
@@ -192,11 +200,27 @@ if timeout 5 bash -c 'exec 3<>/dev/tcp/1.1.1.1/443' >/dev/null 2>&1; then
     network_reachable=true
 fi
 
+config_writable=false
+if touch "$PEEN_CONFIG_DIR/probe-write" >/dev/null 2>&1; then
+    config_writable=true
+fi
+
+learned_readable=false
+if [ -r "$PEEN_PROBE_LEARNED_RULE" ]; then
+    learned_readable=true
+fi
+
+learned_writable=false
+if touch "$PEEN_PROBE_LEARNED_DIR/probe-write" >/dev/null 2>&1; then
+    learned_writable=true
+fi
+
 touch "$PEEN_PROBE_OWNED_FILE"
 
-printf '{"uid":%s,"gid":%s,"username":"%s","sudoAllowed":%s,"dockerSocketPresent":%s,"configReadable":%s,"stateSecretVisible":%s,"foreignSocketVisible":%s,"sessionSocketVisible":%s,"socketRootEntries":%s,"networkReachable":%s}\n' \
+printf '{"uid":%s,"gid":%s,"username":"%s","sudoAllowed":%s,"dockerSocketPresent":%s,"configReadable":%s,"configWritable":%s,"learnedReadable":%s,"learnedWritable":%s,"stateSecretVisible":%s,"foreignSocketVisible":%s,"sessionSocketVisible":%s,"socketRootEntries":%s,"networkReachable":%s}\n' \
     "$uid" "$gid" "$username" \
     "$sudo_allowed" "$docker_socket_present" "$config_readable" \
+    "$config_writable" "$learned_readable" "$learned_writable" \
     "$state_secret_visible" "$foreign_socket_visible" \
     "$session_socket_visible" "$socket_root_entries" "$network_reachable" \
     > "$PEEN_PROBE_RESULT"
@@ -258,6 +282,9 @@ type probeResult struct {
 	SudoAllowed          bool   `json:"sudoAllowed"`
 	DockerSocketPresent  bool   `json:"dockerSocketPresent"`
 	ConfigReadable       bool   `json:"configReadable"`
+	ConfigWritable       bool   `json:"configWritable"`
+	LearnedReadable      bool   `json:"learnedReadable"`
+	LearnedWritable      bool   `json:"learnedWritable"`
 	StateSecretVisible   bool   `json:"stateSecretVisible"`
 	ForeignSocketVisible bool   `json:"foreignSocketVisible"`
 	SessionSocketVisible bool   `json:"sessionSocketVisible"`
@@ -270,6 +297,7 @@ type probeResult struct {
 type disposableRoot struct {
 	root        string
 	config      string
+	learned     string
 	state       string
 	workspace   string
 	socketRoot  string
@@ -286,42 +314,7 @@ func TestDockerWorkerEntrypointDropsToTheHostAccount(t *testing.T) {
 	requireOptIn(t)
 
 	identity := requireNonRootIdentity(t)
-	paths := newDisposableRoot(t)
-	sessionID := uuid.New()
-	foreignSessionID := uuid.New()
-
-	paths.writeForeignSocketSentinel(t, foreignSessionID)
-
-	client, err := docker.NewDaemonClient(daemonSocket(t))
-	require.NoError(t, err)
-
-	// The request comes from the production builder, so the user, environment,
-	// mounts, and security options under test are the real ones.
-	create, err := docker.BuildCreateRequest(docker.LaunchSpec{
-		Document:   paths.launchDocument(t, sessionID),
-		AgentSpace: sealedSpace(t),
-		Identity:   identity,
-	})
-	require.NoError(t, err)
-
-	assertSealedRequest(t, create, paths, sessionID)
-
-	probe := paths.probeRequest(t, create, sessionID)
-
-	containerID, err := client.CreateContainer(t.Context(), probe)
-	require.NoError(t, err)
-	require.NotEmpty(t, containerID)
-
-	registerOwnedTeardown(t, client, containerID, sessionID)
-
-	// The request is created with stdin open, matching a real worker launch.
-	// Closing it immediately gives the probe an EOF it never reads.
-	require.NoError(t, client.AttachStdin(t.Context(), containerID, nil))
-	require.NoError(t, client.StartContainer(t.Context(), containerID))
-
-	awaitContainerExit(t, client, containerID)
-
-	result := paths.readProbeResult(t)
+	paths, result := runEntrypointProbe(t, identity, false)
 
 	assert.Equal(t, identity.UID, result.UID, "the probe must run as the host UID")
 	assert.Equal(t, identity.GID, result.GID, "the probe must run as the host GID")
@@ -332,6 +325,11 @@ func TestDockerWorkerEntrypointDropsToTheHostAccount(t *testing.T) {
 	assert.False(t, result.NetworkReachable, "the network is disabled")
 
 	assert.True(t, result.ConfigReadable, "the configuration mount is readable")
+	assert.False(t, result.ConfigWritable, "the configuration is read-only")
+	assert.True(t, result.LearnedReadable,
+		"an auto-evolving worker reads the global learned directory")
+	assert.False(t, result.LearnedWritable,
+		"the global learned directory is read-only without the opt-in")
 	assert.False(
 		t,
 		result.StateSecretVisible,
@@ -356,6 +354,73 @@ func TestDockerWorkerEntrypointDropsToTheHostAccount(t *testing.T) {
 	)
 
 	assertHostOwnership(t, paths.ownedFilePath(), identity)
+}
+
+// TestDockerWorkerWritableLearnedDirectory proves that the operator's
+// PEEN_WRITABLE_LEARNED_DIR opt-in makes only the global learned directory
+// writable, even though it sits inside the read-only config directory.
+func TestDockerWorkerWritableLearnedDirectory(t *testing.T) {
+	requireOptIn(t)
+
+	identity := requireNonRootIdentity(t)
+	_, result := runEntrypointProbe(t, identity, true)
+
+	assert.True(t, result.LearnedWritable,
+		"the opted-in learned directory is writable")
+	assert.False(t, result.ConfigWritable,
+		"the rest of the configuration stays read-only")
+}
+
+// runEntrypointProbe creates exactly one container from the production
+// request for an auto-evolving sealed worker, runs the probe in it, and
+// returns what the dropped process reported.
+func runEntrypointProbe(
+	t *testing.T,
+	identity docker.HostIdentity,
+	writableLearned bool,
+) (disposableRoot, probeResult) {
+	t.Helper()
+
+	paths := newDisposableRoot(t)
+	sessionID := uuid.New()
+	foreignSessionID := uuid.New()
+
+	paths.writeForeignSocketSentinel(t, foreignSessionID)
+
+	client, err := docker.NewDaemonClient(daemonSocket(t))
+	require.NoError(t, err)
+
+	document := paths.launchDocument(t, sessionID)
+	document.LearnedDirectory = paths.learned
+	document.WritableLearnedDirectory = writableLearned
+
+	// The request comes from the production builder, so the user, environment,
+	// mounts, and security options under test are the real ones.
+	create, err := docker.BuildCreateRequest(docker.LaunchSpec{
+		Document:   document,
+		AgentSpace: sealedSpace(t),
+		Identity:   identity,
+	})
+	require.NoError(t, err)
+
+	assertSealedRequest(t, create, paths, sessionID)
+
+	probe := paths.probeRequest(t, create, sessionID)
+
+	containerID, err := client.CreateContainer(t.Context(), probe)
+	require.NoError(t, err)
+	require.NotEmpty(t, containerID)
+
+	registerOwnedTeardown(t, client, containerID, sessionID)
+
+	// The request is created with stdin open, matching a real worker launch.
+	// Closing it immediately gives the probe an EOF it never reads.
+	require.NoError(t, client.AttachStdin(t.Context(), containerID, nil))
+	require.NoError(t, client.StartContainer(t.Context(), containerID))
+
+	awaitContainerExit(t, client, containerID)
+
+	return paths, paths.readProbeResult(t)
 }
 
 // TestDockerWorkerReadonlyReachesOnlyTheProxy creates one `docker: readonly`
@@ -641,9 +706,14 @@ func assertSealedRequest(
 
 	assert.ElementsMatch(
 		t,
-		[]string{paths.workspace, paths.config, sessionSocketDir},
+		[]string{
+			paths.workspace,
+			paths.config,
+			paths.learned,
+			sessionSocketDir,
+		},
 		targets,
-		"a sealed worker receives exactly three mounts",
+		"a sealed auto-evolving worker receives exactly four mounts",
 	)
 }
 
@@ -679,6 +749,8 @@ func (d disposableRoot) probeRequest(
 		sessionID,
 	)
 	create.Env[probeForeignSockEnvKey] = d.foreignSocketPath
+	create.Env[probeLearnedDirEnvKey] = d.learned
+	create.Env[probeLearnedRuleEnvKey] = d.learnedRule()
 
 	return create
 }
@@ -814,12 +886,14 @@ func newDisposableRoot(t *testing.T) disposableRoot {
 	}
 	paths.socketRoot = filepath.Join(paths.state, socketRootName)
 	paths.stateSecret = filepath.Join(paths.state, stateSecretName)
+	paths.learned = filepath.Join(paths.config, learnedDirectoryPath)
 
 	for _, directory := range []string{
 		paths.config,
 		paths.state,
 		paths.workspace,
 		paths.socketRoot,
+		filepath.Dir(paths.learnedRule()),
 	} {
 		require.NoError(t, os.MkdirAll(directory, directoryMode))
 	}
@@ -827,6 +901,12 @@ func newDisposableRoot(t *testing.T) disposableRoot {
 	require.NoError(t, os.WriteFile(
 		filepath.Join(paths.config, agentsFileName),
 		[]byte(agentsFileBody),
+		fileMode,
+	))
+
+	require.NoError(t, os.WriteFile(
+		paths.learnedRule(),
+		[]byte(learnedRuleBody),
 		fileMode,
 	))
 
@@ -860,6 +940,10 @@ func (d *disposableRoot) writeForeignSocketSentinel(
 	require.NoError(t, os.WriteFile(sentinel, nil, fileMode))
 
 	d.foreignSocketPath = sentinel
+}
+
+func (d disposableRoot) learnedRule() string {
+	return filepath.Join(d.learned, learnedRulePath)
 }
 
 func (d disposableRoot) resultPath() string {

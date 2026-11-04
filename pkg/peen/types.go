@@ -40,6 +40,10 @@ const (
 // and every tool. No agent file can have this name.
 const NoRootAgent = harness.NoRootAgent
 
+// DefaultRootAgent is the agent an empty Options.RootAgent selects, Peen's
+// core general-purpose agent.
+const DefaultRootAgent = harness.CorePrefix + "general-purpose"
+
 // Options supplies Peen's explicit runtime dependencies and validated values.
 //
 // New never reads environment variables, starts Servicepack, opens an HTTP
@@ -66,31 +70,34 @@ type Options struct {
 	// BaseSystemPrompt is empty and ConfigDirectory has no SYSTEM.md.
 	DisableBaseSystemPrompt bool
 	// AutoEvolve tells the agent to save the skills and rules it learns in
-	// the workspace's .agents/learned and in LearnedDirectory, which every
-	// session reads. Empty LearnedDirectory takes .agents/learned inside
-	// ConfigDirectory.
-	AutoEvolve        bool
-	LearnedDirectory  string
-	ToolLimits        ToolLimits
-	AgentLimits       AgentLimits
-	HarnessLimits     HarnessLimits
-	EventLimits       EventLimits
-	Tools             []Tool
-	DisableTools      []string
-	ModelResolver     ModelResolver
-	Hooks             map[string]HookHandler
-	Filesystem        FS
-	WorkspaceID       string
-	Harness           []HarnessLayer
-	Logger            *slog.Logger
-	MetricsRegisterer prometheus.Registerer
-	AuditLog          AuditLogOptions
-	CommandRunner     commander.Commander
+	// the workspace's .agents/learned. LearnedDirectory is the global learned
+	// directory every session reads, .agents/learned inside ConfigDirectory
+	// when empty. WritableLearnedDirectory also tells the agent it may save
+	// there, which changes what every other session loads.
+	AutoEvolve               bool
+	LearnedDirectory         string
+	WritableLearnedDirectory bool
+	ToolLimits               ToolLimits
+	AgentLimits              AgentLimits
+	HarnessLimits            HarnessLimits
+	EventLimits              EventLimits
+	Tools                    []Tool
+	DisableTools             []string
+	ModelResolver            ModelResolver
+	Hooks                    map[string]HookHandler
+	Filesystem               FS
+	WorkspaceID              string
+	Harness                  []HarnessLayer
+	Logger                   *slog.Logger
+	MetricsRegisterer        prometheus.Registerer
+	AuditLog                 AuditLogOptions
+	CommandRunner            commander.Commander
 	// ConfigDirectory must already exist. It holds the optional SYSTEM.md,
 	// APPEND_SYSTEM.md, COMPACTION.md and trusted harness files.
 	ConfigDirectory string
 	// RootAgent names the base agent definition every session starts from.
-	// NoRootAgent runs the root with no agent instructions and every tool.
+	// Empty takes DefaultRootAgent. NoRootAgent runs the root with no agent
+	// instructions and every tool.
 	RootAgent string
 
 	// Models is this deployment's named Elelem upstream registry. Every
@@ -131,6 +138,10 @@ type Options struct {
 	// MaxSystemPromptBytes bounds one caller-supplied system prompt. Zero
 	// takes the internal default.
 	MaxSystemPromptBytes int
+	// MaxSystemPromptPercent refuses a turn whose assembled system prompt,
+	// estimated in tokens, is over this share of MaxContextTokens. Zero takes
+	// the internal default of 50; negative turns the check off.
+	MaxSystemPromptPercent int
 	// MaxStoredMessageBytes bounds one durable transcript row. Zero takes the
 	// internal default.
 	MaxStoredMessageBytes int

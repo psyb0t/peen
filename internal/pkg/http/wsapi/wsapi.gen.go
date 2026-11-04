@@ -1572,7 +1572,7 @@ type MessageFailed struct {
 	// Not enforced by the generated code: format uuid.
 	ID   string `json:"id"`
 	Type string `json:"type"`
-	// `reason` is set only alongside code `HARNESS_CONFIGURATION_INVALID`, one of six fixed client-safe sentences naming what is wrong with the workspace agent configuration.
+	// `reason` is set only alongside code `HARNESS_CONFIGURATION_INVALID`, one of seven fixed client-safe sentences naming what is wrong with the workspace agent configuration, including a system prompt over PEEN_MAX_SYSTEM_PROMPT_PERCENT of the context window.
 	Data      MessageFailedData `json:"data"`
 	Timestamp int64             `json:"timestamp"`
 	// Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
@@ -1643,7 +1643,7 @@ func (v MessageFailed) Validate() error {
 	return nil
 }
 
-// `reason` is set only alongside code `HARNESS_CONFIGURATION_INVALID`, one of six fixed client-safe sentences naming what is wrong with the workspace agent configuration.
+// `reason` is set only alongside code `HARNESS_CONFIGURATION_INVALID`, one of seven fixed client-safe sentences naming what is wrong with the workspace agent configuration, including a system prompt over PEEN_MAX_SYSTEM_PROMPT_PERCENT of the context window.
 type MessageFailedData struct {
 	// AGENT_PAUSED is deprecated and no longer sent, because a message to a paused child now resumes it.
 	Code    MessageFailedCode `json:"code"`

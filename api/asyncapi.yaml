@@ -350,8 +350,9 @@ components:
       required: [code, message]
       description: >
         `reason` is set only alongside code `HARNESS_CONFIGURATION_INVALID`,
-        one of six fixed client-safe sentences naming what is wrong with the
-        workspace agent configuration.
+        one of seven fixed client-safe sentences naming what is wrong with the
+        workspace agent configuration, including a system prompt over
+        PEEN_MAX_SYSTEM_PROMPT_PERCENT of the context window.
       properties:
         code:
           title: MessageFailedCode

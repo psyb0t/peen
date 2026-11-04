@@ -895,7 +895,12 @@ func (r *Runtime) childSystemPrompt(
 		r.currentTimeBlock(),
 	)
 
-	return joinSystemSections(sections...), nil
+	prompt := joinSystemSections(sections...)
+	if err := r.checkSystemPromptBudget(prompt, blocks); err != nil {
+		return "", err
+	}
+
+	return prompt, nil
 }
 
 // childPrompt is the child's first request: its system prompt, the task, and

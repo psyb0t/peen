@@ -29,6 +29,11 @@ type RegistryOptions struct {
 	// the new agent space. A nil supervisor records the decision without
 	// replacing anything.
 	Workers *supervisor.Supervisor
+
+	// LearnedDirectory is the global learned directory sessions load, which
+	// the learned file endpoints list, read, and delete from. Empty leaves the
+	// global scope out.
+	LearnedDirectory string
 }
 
 // Registry is the control surface's session registry. It is the only place a
@@ -41,6 +46,8 @@ type Registry struct {
 	workers      *supervisor.Supervisor
 	rootAgent    string
 	defaultModel string
+
+	learnedDirectory string
 }
 
 // OpenResult reports the session a workspace resolved to and whether this call
@@ -74,6 +81,8 @@ func NewRegistry(options RegistryOptions) (*Registry, error) {
 		workers:      options.Workers,
 		rootAgent:    options.RootAgent,
 		defaultModel: options.DefaultModel,
+
+		learnedDirectory: options.LearnedDirectory,
 	}, nil
 }
 

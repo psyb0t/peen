@@ -6,11 +6,12 @@ These are the in-process equivalents of deployment settings. `pkg/peen` accepts 
 | --- | --- | --- |
 | `PEEN_CONFIG_DIR` | `ConfigDirectory` | `caller-supplied` |
 | `PEEN_STATE_DIR` | `StateDirectory` | `ConfigDirectory + "-state"` |
-| `PEEN_AGENT` | `RootAgent` | `required explicitly` |
+| `PEEN_AGENT` | `RootAgent` | `DefaultRootAgent` (`core:general-purpose`) |
 | `PEEN_DISABLED_CORE_SKILLS` | `DisabledCoreSkills` | empty |
 | `PEEN_DISABLED_CORE_AGENTS` | `DisabledCoreAgents` | empty |
 | `PEEN_AUTO_EVOLVE` | `AutoEvolve` | `false` |
 | `PEEN_LEARNED_DIR` | `LearnedDirectory` | `ConfigDirectory + "/.agents/learned"` |
+| `PEEN_WRITABLE_LEARNED_DIR` | `WritableLearnedDirectory` | `false` |
 | `PEEN_UPSTREAMS` | `Models or ModelResolver` | `caller-supplied` |
 | `PEEN_DEFAULT_MODEL` | `DefaultModel` | `caller-supplied` |
 | `PEEN_COMPACTION_MODEL` | `CompactionModel` | `DefaultModel` |
@@ -25,6 +26,7 @@ These are the in-process equivalents of deployment settings. `pkg/peen` accepts 
 | `PEEN_MAX_QUEUED_USER_MESSAGES` | `MaxQueuedUserMessages` | `16` |
 | `PEEN_MAX_MESSAGE_BYTES` | `MaxMessageBytes` | `262144` |
 | `PEEN_MAX_SYSTEM_PROMPT_BYTES` | `MaxSystemPromptBytes` | `65536` |
+| `PEEN_MAX_SYSTEM_PROMPT_PERCENT` | `MaxSystemPromptPercent` (negative turns it off) | `50` |
 | `PEEN_MAX_STORED_MESSAGE_BYTES` | `MaxStoredMessageBytes` | `1048576` |
 | `PEEN_MAX_TOOL_ROUNDS` | `MaxToolRounds` | `32` |
 | `PEEN_MAX_CONCURRENT_TOOLS` | `MaxConcurrentTools` | `4` |

@@ -2,25 +2,38 @@
 
 `pkg/peen` runs the durable agent engine inside a Go process. A `Runtime` owns SQLite, in-process workflow workers, jobs, child agents, event delivery and harness resolution. A `Session` addresses one conversation. The engine starts no HTTP listener or Servicepack services and reads no `PEEN_` environment variables.
 
-## Construct and close
+## Quick start
 
-Build an Elelem client with your chosen provider, then supply it under a qualified model reference:
+[`examples/embedding`](../../examples/embedding/main.go) is a complete program that runs one turn against any OpenAI-compatible endpoint:
+
+```sh
+OPENAI_API_KEY=... go run ./examples/embedding -model gpt-5-mini -message "What is this project?"
+```
+
+The core of it is an Elelem client under a qualified model reference, one `New`, and one `Message`:
 
 ```go
+client := elelem.New(openai.NewDriver(openai.WithAPIKey(key)))
+
 runtime, err := peen.New(peen.Options{
     ConfigDirectory: "/srv/peen/config",
-    StateDirectory:  "/srv/peen/state",
     Workspace:       "/srv/project",
-    RootAgent:       "core:general-purpose",
     Models: map[string]peen.ModelClient{
-        "provider/model": {Client: client, Model: model},
+        "openai/gpt-5-mini": {Client: client, Model: elelem.Model{ID: "gpt-5-mini"}},
     },
-    DefaultModel: "provider/model",
+    DefaultModel: "openai/gpt-5-mini",
 })
 if err != nil {
     return err
 }
+defer runtime.Close(ctx)
+
+result, err := runtime.Message(ctx, peen.MessageRequest{Message: "inspect the project"})
 ```
+
+The agent runs with Peen's full tool set and your account's access in the workspace. RootAgent defaults to `DefaultRootAgent`, Peen's general-purpose agent.
+
+## Construct and close
 
 The config directory must exist. SQLite and hook state live in StateDirectory; leaving it empty uses ConfigDirectory with a `-state` suffix. Equal, nested or symlink-overlapping config and state directories fail validation. Workspace selects the initial session; leaving it empty captures the working directory once.
 
@@ -111,6 +124,6 @@ Custom writable adapters must implement atomic replacement and exclusive creatio
 
 The [option mapping](../../docs/embedding-options.md) lists deployment equivalents and defaults. ToolLimits, AgentLimits, HarnessLimits and EventLimits expose the corresponding in-process bounds. Zero values use their runtime defaults. Individual options cover concurrency, queue sizes, model request and tool timeouts, stored messages, prompt size, compaction and wake rates. `AskTimeout: 0` has no independent timeout. MaxConcurrentTurns and MaxEventWakesPerHour accept a negative value to disable their bound. A submitted root retains its turn slot if its caller cancels without Stop. Restored roots acquire the same shared capacity before preparing work. Completion and explicit pause release that capacity; children keep their separate run limit.
 
-DisabledCoreSkills and DisabledCoreAgents remove selected embedded definitions. DisableCoreInstructions leaves out Peen's embedded AGENTS.md, DisableBaseSystemPrompt leaves out the embedded base prompt, and RootAgent set to NoRootAgent runs the root with no agent instructions, so a runtime can start from a blank agent. AutoEvolve tells the agent to save the rules and skills it learns in the workspace's `.agents/learned` and in LearnedDirectory, which defaults to `.agents/learned` in ConfigDirectory and which every session reads while AutoEvolve is on. Logger selects a runtime-local slog sink while preserving request and session scope. AuditLog enables a private daily JSON sink with a whole-day retention duration. MetricsRegisterer receives an owned Peen collector which Close unregisters. Separate runtimes need separate registries, or registerers with distinct constant labels, to avoid duplicate descriptors.
+DisabledCoreSkills and DisabledCoreAgents remove selected embedded definitions. DisableCoreInstructions leaves out Peen's embedded AGENTS.md, DisableBaseSystemPrompt leaves out the embedded base prompt, and RootAgent set to NoRootAgent runs the root with no agent instructions, so a runtime can start from a blank agent. AutoEvolve tells the agent to save the rules and skills it learns in the workspace's `.agents/learned`. LearnedDirectory, which defaults to `.agents/learned` in ConfigDirectory, is the global learned directory every session reads while AutoEvolve is on, and WritableLearnedDirectory tells the agent it may save there too. MaxSystemPromptPercent refuses a turn whose system prompt is estimated at more than that share of MaxContextTokens, 50 percent when zero, and a negative value turns the check off. Logger selects a runtime-local slog sink while preserving request and session scope. AuditLog enables a private daily JSON sink with a whole-day retention duration. MetricsRegisterer receives an owned Peen collector which Close unregisters. Separate runtimes need separate registries, or registerers with distinct constant labels, to avoid duplicate descriptors.
 
 See the executable examples in `example_test.go` and [development checks](../../docs/development.md).

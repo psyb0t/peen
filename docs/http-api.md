@@ -226,6 +226,18 @@ Reads the exact resolved context a turn's `contextSnapshotHash` names. `X-Sessio
 
 Reads the exact system prompt a turn's `promptSnapshotHash` names. `X-Session-ID` is required. A hash belonging to another session returns `404`.
 
+## GET /api/v1/session/learned
+
+Lists the learned rules and skills the session loads: those under `.agents/learned/` in the session's workspace first, then those in the global learned directory, each group sorted by kind and name. `X-Session-ID` is required. Each item has `scope` (`workspace` or `global`), `kind` (`rule` or `skill`), `name`, the host `path`, `sizeBytes`, `modifiedAt`, `estimatedTokens`, and `alwaysLoaded`. `alwaysLoaded` is `true` for a rule without `paths`, `globs`, or `applyTo`, which is part of every system prompt and counts against [the prompt budget](harness.md#the-prompt-budget). A rule's `name` is its path under `rules/` without `.md`, such as `go/errors`. A skill's `name` is its directory name. Symbolic links are left out. See [auto-evolve](harness.md#auto-evolve).
+
+## GET /api/v1/session/learned/file
+
+Reads one learned rule, or a learned skill's `SKILL.md`, named by the `scope`, `kind`, and `name` query parameters. `X-Session-ID` is required. The response is `{file, content}`, and `file` has the fields of a list item. A name with an empty, `.`, or `..` segment, or a skill name with `/`, returns `400`. A file that does not exist, or a path that leaves the learned directory through a symbolic link, returns `404`.
+
+## DELETE /api/v1/session/learned/file
+
+Deletes the named learned rule's file, or the learned skill's whole directory, and answers `204`. It takes the same parameters and returns the same `400` and `404` errors as the read. The next turn, child launch, or `changeDirectory` call no longer loads the file. Nothing outside a learned directory can be deleted this way.
+
 ## GET /api/v1/session/compactions
 
 Lists the session's compaction records, newest first. A compaction record never changes once written. `X-Session-ID` is required. Query parameters are `limit` and `offset`.

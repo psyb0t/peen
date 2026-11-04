@@ -13,6 +13,7 @@ This page is for changing Peen itself. To run an agent against a project, start 
 | `cmd/` | Entry point. `main.go` is Servicepack's, `init.go` and `commands.go` are Peen's, `repogen/` is the gorm/gen generator, `envexample/` writes `.env.example` from the env file template, `benchrelay/` is the model relay the benchmark task containers run. |
 | `bench/` | The benchmark runner: the Harbor driver image, the Peen agent adapter, the provider proxy, the job writer, the task sandbox, and Peen's behavior eval tasks in `eval/tasks/`. See [Benchmarks](benchmarks.md#running-them). |
 | `examples/rules/` | The starter rule pack users copy into their harness. A test parses every file. See [AGENTS.md and rules](rules.md#a-starter-rule-pack). |
+| `examples/embedding/` | A runnable program that embeds `pkg/peen` and runs one turn. `make lint` compiles it, and coverage leaves it out. |
 | `internal/app/` | Servicepack's application lifecycle. Not edited here. |
 | `internal/pkg/agent/` | Agent runtime: turns, provider calls, tools wiring, skills, child agents, compaction. |
 | `internal/pkg/harness/` | Harness discovery and layering: `AGENTS.md`, rules, skills, agents, event handlers, hooks. `builtin/` is the embedded baseline shipped to every user. |

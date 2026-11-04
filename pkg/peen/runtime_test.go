@@ -43,10 +43,6 @@ func TestNewInvalidOptions(t *testing.T) {
 			mutate: func(o *peen.Options) { o.ConfigDirectory = "" },
 		},
 		{
-			name:   "missing root agent",
-			mutate: func(o *peen.Options) { o.RootAgent = "" },
-		},
-		{
 			name:   "missing default model",
 			mutate: func(o *peen.Options) { o.DefaultModel = "" },
 		},
@@ -217,6 +213,21 @@ func TestRuntimeDetails(t *testing.T) {
 	assert.Equal(t, testRootAgent, details.Agent)
 	assert.Equal(t, int64(1), details.CompletedTurnCount)
 	assert.False(t, details.ActiveTurn)
+}
+
+// An embedder that names no root agent gets Peen's general-purpose agent,
+// the same default a deployment uses.
+func TestRuntimeDefaultsTheRootAgent(t *testing.T) {
+	options := validOptions(t)
+	options.RootAgent = ""
+
+	runtime, err := peen.New(options)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, runtime.Close(context.Background())) })
+
+	details, err := runtime.Details(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, peen.DefaultRootAgent, details.Agent)
 }
 
 func TestRuntimeCloseRejectsFurtherWork(t *testing.T) {

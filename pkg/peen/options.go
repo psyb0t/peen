@@ -9,6 +9,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/agent"
+	internalconfig "github.com/psyb0t/peen/internal/pkg/config"
 	"github.com/psyb0t/peen/internal/pkg/tools"
 )
 
@@ -24,10 +25,6 @@ func (o Options) validate() error {
 			commerr.ErrRequiredFieldNotSet,
 			"config directory",
 		)
-	}
-
-	if strings.TrimSpace(o.RootAgent) == "" {
-		return ctxerrors.Wrap(commerr.ErrRequiredFieldNotSet, "root agent")
 	}
 
 	if strings.TrimSpace(o.DefaultModel) == "" {
@@ -121,6 +118,14 @@ func (o Options) validateBounds() error {
 		}
 	}
 
+	if o.MaxSystemPromptPercent > internalconfig.MaxSystemPromptPercent {
+		return ctxerrors.Wrapf(
+			commerr.ErrValidationFailed,
+			"MaxSystemPromptPercent is over %d",
+			internalconfig.MaxSystemPromptPercent,
+		)
+	}
+
 	durations := []time.Duration{
 		o.ModelRequestTimeout, o.ToolTimeout,
 		o.HookCommandTimeout, o.AskTimeout,
@@ -192,6 +197,10 @@ func (o Options) validateModelReferences() error {
 // withDefaults fills the bounds agent.RuntimeOptions requires but Options
 // otherwise lets a caller leave at zero.
 func (o Options) withDefaults() Options {
+	if strings.TrimSpace(o.RootAgent) == "" {
+		o.RootAgent = DefaultRootAgent
+	}
+
 	if o.MaxEventWakesPerHour == 0 {
 		o.MaxEventWakesPerHour = defaultMaxEventWakesPerHour
 	}

@@ -379,8 +379,9 @@ func newWorkerSupervisor(
 		ConfigDirectory:  config.ConfigDirectory,
 		ResumeAfterCrash: config.ResumesAfterCrash(),
 
-		WritableConfigDirectory: config.WritableConfigDirectory,
-		LearnedDirectory:        config.WorkerLearnedDirectory(),
+		WritableConfigDirectory:  config.WritableConfigDirectory,
+		LearnedDirectory:         config.WorkerLearnedDirectory(),
+		WritableLearnedDirectory: config.LearnedDirectoryWritable(),
 	})
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create the worker supervisor")
@@ -566,6 +567,8 @@ func newSessionRegistry(
 		Workers:      workers,
 		RootAgent:    config.RootAgent(),
 		DefaultModel: config.DefaultModel,
+
+		LearnedDirectory: config.LoadedLearnedDirectory(),
 	})
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create control session registry")

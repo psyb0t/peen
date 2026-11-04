@@ -47,7 +47,8 @@ type autoEvolveTemplateData struct {
 // autoEvolveBlock renders the learning section for a turn in workspace, or
 // nothing when auto-evolve is off. A workspace that is not a host path, such
 // as a virtual one, gets its learned directory as a relative path. The global
-// learned directory is left out when it is the workspace's own.
+// learned directory is named only when the operator made it writable, because
+// every session loads it, and is left out when it is the workspace's own.
 func (r *Runtime) autoEvolveBlock(workspace string) (string, error) {
 	if !r.autoEvolve {
 		return "", nil
@@ -60,7 +61,7 @@ func (r *Runtime) autoEvolveBlock(workspace string) (string, error) {
 
 	data := autoEvolveTemplateData{
 		WorkspaceLearned: workspaceLearned,
-		GlobalLearned:    r.learnedDirectory,
+		GlobalLearned:    r.writableLearnedDirectory,
 	}
 
 	if data.GlobalLearned == data.WorkspaceLearned {

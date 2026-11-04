@@ -360,6 +360,42 @@ func (e JobSignalResponseState) Valid() bool {
 	}
 }
 
+// Defines values for LearnedKind.
+const (
+	LearnedKindRule  LearnedKind = "rule"
+	LearnedKindSkill LearnedKind = "skill"
+)
+
+// Valid indicates whether the value is a known member of the LearnedKind enum.
+func (e LearnedKind) Valid() bool {
+	switch e {
+	case LearnedKindRule:
+		return true
+	case LearnedKindSkill:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LearnedScope.
+const (
+	LearnedScopeGlobal    LearnedScope = "global"
+	LearnedScopeWorkspace LearnedScope = "workspace"
+)
+
+// Valid indicates whether the value is a known member of the LearnedScope enum.
+func (e LearnedScope) Valid() bool {
+	switch e {
+	case LearnedScopeGlobal:
+		return true
+	case LearnedScopeWorkspace:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MessageInjectedKind.
 const (
 	MessageInjectedKindSkill MessageInjectedKind = "skill"
@@ -1173,6 +1209,45 @@ type JobSignalResponse struct {
 // JobSignalResponseState defines model for JobSignalResponse.State.
 type JobSignalResponseState string
 
+// LearnedFile defines model for LearnedFile.
+type LearnedFile struct {
+	// AlwaysLoaded True for a rule without paths, globs, or applyTo, which is part of every system prompt and counts against PEEN_MAX_SYSTEM_PROMPT_PERCENT. Always false for a skill.
+	AlwaysLoaded bool `json:"alwaysLoaded"`
+
+	// EstimatedTokens The file's size in tokens, estimated with the o200k tokenizer.
+	EstimatedTokens int64       `json:"estimatedTokens"`
+	Kind            LearnedKind `json:"kind"`
+	ModifiedAt      time.Time   `json:"modifiedAt"`
+
+	// Name The rule's path under rules/ without .md, or the skill's directory name. A learned rule loads under the name learned/<name>.
+	Name string `json:"name"`
+
+	// Path The rule file, or the skill's SKILL.md, on the controller's host.
+	Path string `json:"path"`
+
+	// Scope workspace is the session workspace's .agents/learned, and global is the global learned directory every session reads.
+	Scope     LearnedScope `json:"scope"`
+	SizeBytes int64        `json:"sizeBytes"`
+}
+
+// LearnedFileContent defines model for LearnedFileContent.
+type LearnedFileContent struct {
+	Content string      `json:"content"`
+	File    LearnedFile `json:"file"`
+}
+
+// LearnedFileList defines model for LearnedFileList.
+type LearnedFileList struct {
+	// Items Workspace files first, then global ones, each sorted by kind and name.
+	Items []LearnedFile `json:"items"`
+}
+
+// LearnedKind defines model for LearnedKind.
+type LearnedKind string
+
+// LearnedScope workspace is the session workspace's .agents/learned, and global is the global learned directory every session reads.
+type LearnedScope string
+
 // Message defines model for Message.
 type Message struct {
 	CompactionId *openapi_types.UUID `json:"compactionId,omitempty"`
@@ -1562,6 +1637,9 @@ type ContextHash = string
 // JobID defines model for JobID.
 type JobID = openapi_types.UUID
 
+// LearnedName defines model for LearnedName.
+type LearnedName = string
+
 // Limit defines model for Limit.
 type Limit = int32
 
@@ -1748,6 +1826,31 @@ type ListSessionJobSignalRequestsParams struct {
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
+// ListSessionLearnedFilesParams defines parameters for ListSessionLearnedFiles.
+type ListSessionLearnedFilesParams struct {
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// DeleteSessionLearnedFileParams defines parameters for DeleteSessionLearnedFile.
+type DeleteSessionLearnedFileParams struct {
+	Scope LearnedScope `form:"scope" json:"scope"`
+	Kind  LearnedKind  `form:"kind" json:"kind"`
+
+	// Name The rule's path under rules/ without .md, such as go-errors or go/errors, or the skill's directory name.
+	Name       LearnedName       `form:"name" json:"name"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// GetSessionLearnedFileParams defines parameters for GetSessionLearnedFile.
+type GetSessionLearnedFileParams struct {
+	Scope LearnedScope `form:"scope" json:"scope"`
+	Kind  LearnedKind  `form:"kind" json:"kind"`
+
+	// Name The rule's path under rules/ without .md, such as go-errors or go/errors, or the skill's directory name.
+	Name       LearnedName       `form:"name" json:"name"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
 // ListSessionModelRunsParams defines parameters for ListSessionModelRuns.
 type ListSessionModelRunsParams struct {
 	Limit      *Limit                           `form:"limit,omitempty" json:"limit,omitempty"`
@@ -1892,6 +1995,15 @@ type ServerInterface interface {
 	// ListSessionJobSignalRequests List the durable signal-request history for one job
 	// (GET /session/jobs/{jobId}/signals)
 	ListSessionJobSignalRequests(w http.ResponseWriter, r *http.Request, jobId JobID, params ListSessionJobSignalRequestsParams)
+	// ListSessionLearnedFiles List the learned rules and skills this session loads
+	// (GET /session/learned)
+	ListSessionLearnedFiles(w http.ResponseWriter, r *http.Request, params ListSessionLearnedFilesParams)
+	// DeleteSessionLearnedFile Delete one learned rule or skill
+	// (DELETE /session/learned/file)
+	DeleteSessionLearnedFile(w http.ResponseWriter, r *http.Request, params DeleteSessionLearnedFileParams)
+	// GetSessionLearnedFile Read one learned rule or skill
+	// (GET /session/learned/file)
+	GetSessionLearnedFile(w http.ResponseWriter, r *http.Request, params GetSessionLearnedFileParams)
 	// ListSessionModelRuns List complete durable model invocations
 	// (GET /session/model-runs)
 	ListSessionModelRuns(w http.ResponseWriter, r *http.Request, params ListSessionModelRunsParams)
@@ -3362,6 +3474,219 @@ func (siw *ServerInterfaceWrapper) ListSessionJobSignalRequests(w http.ResponseW
 	handler.ServeHTTP(w, r)
 }
 
+// ListSessionLearnedFiles operation middleware
+func (siw *ServerInterfaceWrapper) ListSessionLearnedFiles(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSessionLearnedFilesParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Session-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
+		var XSessionID SessionIDRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
+			return
+		}
+
+		params.XSessionID = XSessionID
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSessionLearnedFiles(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteSessionLearnedFile operation middleware
+func (siw *ServerInterfaceWrapper) DeleteSessionLearnedFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteSessionLearnedFileParams
+
+	// ------------- Required query parameter "scope" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "scope", r.URL.Query(), &params.Scope, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "kind" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "kind", r.URL.Query(), &params.Kind, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "kind"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "name" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "name", r.URL.Query(), &params.Name, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "name"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Session-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
+		var XSessionID SessionIDRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
+			return
+		}
+
+		params.XSessionID = XSessionID
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteSessionLearnedFile(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSessionLearnedFile operation middleware
+func (siw *ServerInterfaceWrapper) GetSessionLearnedFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetSessionLearnedFileParams
+
+	// ------------- Required query parameter "scope" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "scope", r.URL.Query(), &params.Scope, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "scope"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "scope", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "kind" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "kind", r.URL.Query(), &params.Kind, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "kind"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Required query parameter "name" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "name", r.URL.Query(), &params.Name, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "name"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Session-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
+		var XSessionID SessionIDRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
+			return
+		}
+
+		params.XSessionID = XSessionID
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSessionLearnedFile(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListSessionModelRuns operation middleware
 func (siw *ServerInterfaceWrapper) ListSessionModelRuns(w http.ResponseWriter, r *http.Request) {
 
@@ -4123,6 +4448,9 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/agents/{agentRunId}/compactions", wrapper.ListSessionAgentRunCompactions)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/agents/{agentRunId}/compactions/{compactionId}", wrapper.GetSessionAgentRunCompaction)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/session/agents/{agentRunId}/cancel", wrapper.CancelSessionAgentRun)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/learned", wrapper.ListSessionLearnedFiles)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/session/learned/file", wrapper.DeleteSessionLearnedFile)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/learned/file", wrapper.GetSessionLearnedFile)
 
 	return m
 }
@@ -6026,6 +6354,262 @@ func (response ListSessionJobSignalRequests500JSONResponse) VisitListSessionJobS
 	return err
 }
 
+type ListSessionLearnedFilesRequestObject struct {
+	Params ListSessionLearnedFilesParams
+}
+
+type ListSessionLearnedFilesResponseObject interface {
+	VisitListSessionLearnedFilesResponse(w http.ResponseWriter) error
+}
+
+type ListSessionLearnedFiles200ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListSessionLearnedFiles200JSONResponse struct {
+	Body    LearnedFileList
+	Headers ListSessionLearnedFiles200ResponseHeaders
+}
+
+func (response ListSessionLearnedFiles200JSONResponse) VisitListSessionLearnedFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionLearnedFiles400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response ListSessionLearnedFiles400JSONResponse) VisitListSessionLearnedFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionLearnedFiles401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response ListSessionLearnedFiles401JSONResponse) VisitListSessionLearnedFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionLearnedFiles404JSONResponse struct{ ErrorNotFoundJSONResponse }
+
+func (response ListSessionLearnedFiles404JSONResponse) VisitListSessionLearnedFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionLearnedFiles500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response ListSessionLearnedFiles500JSONResponse) VisitListSessionLearnedFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSessionLearnedFileRequestObject struct {
+	Params DeleteSessionLearnedFileParams
+}
+
+type DeleteSessionLearnedFileResponseObject interface {
+	VisitDeleteSessionLearnedFileResponse(w http.ResponseWriter) error
+}
+
+type DeleteSessionLearnedFile204ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type DeleteSessionLearnedFile204Response struct {
+	Headers DeleteSessionLearnedFile204ResponseHeaders
+}
+
+func (response DeleteSessionLearnedFile204Response) VisitDeleteSessionLearnedFileResponse(w http.ResponseWriter) error {
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteSessionLearnedFile400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response DeleteSessionLearnedFile400JSONResponse) VisitDeleteSessionLearnedFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSessionLearnedFile401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response DeleteSessionLearnedFile401JSONResponse) VisitDeleteSessionLearnedFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSessionLearnedFile404JSONResponse struct{ ErrorNotFoundJSONResponse }
+
+func (response DeleteSessionLearnedFile404JSONResponse) VisitDeleteSessionLearnedFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSessionLearnedFile500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response DeleteSessionLearnedFile500JSONResponse) VisitDeleteSessionLearnedFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionLearnedFileRequestObject struct {
+	Params GetSessionLearnedFileParams
+}
+
+type GetSessionLearnedFileResponseObject interface {
+	VisitGetSessionLearnedFileResponse(w http.ResponseWriter) error
+}
+
+type GetSessionLearnedFile200ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type GetSessionLearnedFile200JSONResponse struct {
+	Body    LearnedFileContent
+	Headers GetSessionLearnedFile200ResponseHeaders
+}
+
+func (response GetSessionLearnedFile200JSONResponse) VisitGetSessionLearnedFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionLearnedFile400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response GetSessionLearnedFile400JSONResponse) VisitGetSessionLearnedFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionLearnedFile401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response GetSessionLearnedFile401JSONResponse) VisitGetSessionLearnedFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionLearnedFile404JSONResponse struct{ ErrorNotFoundJSONResponse }
+
+func (response GetSessionLearnedFile404JSONResponse) VisitGetSessionLearnedFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionLearnedFile500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response GetSessionLearnedFile500JSONResponse) VisitGetSessionLearnedFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListSessionModelRunsRequestObject struct {
 	Params ListSessionModelRunsParams
 }
@@ -7061,6 +7645,15 @@ type StrictServerInterface interface {
 	// ListSessionJobSignalRequests List the durable signal-request history for one job
 	// (GET /session/jobs/{jobId}/signals)
 	ListSessionJobSignalRequests(ctx context.Context, request ListSessionJobSignalRequestsRequestObject) (ListSessionJobSignalRequestsResponseObject, error)
+	// ListSessionLearnedFiles List the learned rules and skills this session loads
+	// (GET /session/learned)
+	ListSessionLearnedFiles(ctx context.Context, request ListSessionLearnedFilesRequestObject) (ListSessionLearnedFilesResponseObject, error)
+	// DeleteSessionLearnedFile Delete one learned rule or skill
+	// (DELETE /session/learned/file)
+	DeleteSessionLearnedFile(ctx context.Context, request DeleteSessionLearnedFileRequestObject) (DeleteSessionLearnedFileResponseObject, error)
+	// GetSessionLearnedFile Read one learned rule or skill
+	// (GET /session/learned/file)
+	GetSessionLearnedFile(ctx context.Context, request GetSessionLearnedFileRequestObject) (GetSessionLearnedFileResponseObject, error)
 	// ListSessionModelRuns List complete durable model invocations
 	// (GET /session/model-runs)
 	ListSessionModelRuns(ctx context.Context, request ListSessionModelRunsRequestObject) (ListSessionModelRunsResponseObject, error)
@@ -7715,6 +8308,84 @@ func (sh *strictHandler) ListSessionJobSignalRequests(w http.ResponseWriter, r *
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListSessionJobSignalRequestsResponseObject); ok {
 		if err := validResponse.VisitListSessionJobSignalRequestsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListSessionLearnedFiles operation middleware
+func (sh *strictHandler) ListSessionLearnedFiles(w http.ResponseWriter, r *http.Request, params ListSessionLearnedFilesParams) {
+	var request ListSessionLearnedFilesRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSessionLearnedFiles(ctx, request.(ListSessionLearnedFilesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSessionLearnedFiles")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSessionLearnedFilesResponseObject); ok {
+		if err := validResponse.VisitListSessionLearnedFilesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteSessionLearnedFile operation middleware
+func (sh *strictHandler) DeleteSessionLearnedFile(w http.ResponseWriter, r *http.Request, params DeleteSessionLearnedFileParams) {
+	var request DeleteSessionLearnedFileRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteSessionLearnedFile(ctx, request.(DeleteSessionLearnedFileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteSessionLearnedFile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteSessionLearnedFileResponseObject); ok {
+		if err := validResponse.VisitDeleteSessionLearnedFileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetSessionLearnedFile operation middleware
+func (sh *strictHandler) GetSessionLearnedFile(w http.ResponseWriter, r *http.Request, params GetSessionLearnedFileParams) {
+	var request GetSessionLearnedFileRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSessionLearnedFile(ctx, request.(GetSessionLearnedFileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSessionLearnedFile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetSessionLearnedFileResponseObject); ok {
+		if err := validResponse.VisitGetSessionLearnedFileResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

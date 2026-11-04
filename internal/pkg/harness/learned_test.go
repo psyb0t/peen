@@ -36,7 +36,7 @@ func writeLearnedRule(
 	writeFile(t, filepath.Join(learned, rulesDirectoryName, name), content)
 }
 
-func writeLearnedSkill(t *testing.T, learned string, body string) {
+func writeLearnedSkill(t *testing.T, learned string) {
 	t.Helper()
 
 	writeFile(
@@ -47,7 +47,11 @@ func writeLearnedSkill(t *testing.T, learned string, body string) {
 			learnedTestSkillName,
 			skillFileName,
 		),
-		skillDocument(learnedTestSkillName, learnedTestSkillSummary, body),
+		skillDocument(
+			learnedTestSkillName,
+			learnedTestSkillSummary,
+			learnedTestLearnedSkill,
+		),
 	)
 }
 
@@ -97,7 +101,7 @@ func TestResolverLoadsWorkspaceLearnedRulesAfterUserRules(t *testing.T) {
 	)
 	writeLearnedRule(t, learned, "style.md", learnedTestLearnedRule)
 	writeLearnedRule(t, learned, "go.md", learnedTestScopedRule)
-	writeLearnedSkill(t, learned, learnedTestLearnedSkill)
+	writeLearnedSkill(t, learned)
 
 	snapshot := resolveFixture(t, fixture)
 	contents := instructionContents(snapshot.Instructions())
@@ -147,11 +151,7 @@ func TestLearnedSkillNeverReplacesAUserSkill(t *testing.T) {
 		learnedTestSkillSummary,
 		learnedTestUserSkill,
 	)
-	writeLearnedSkill(
-		t,
-		learnedDirectory(fixture.workspace),
-		learnedTestLearnedSkill,
-	)
+	writeLearnedSkill(t, learnedDirectory(fixture.workspace))
 
 	snapshot := resolveFixture(t, fixture)
 
@@ -178,11 +178,7 @@ func TestUserSkillReplacesALearnedSkill(t *testing.T) {
 	t.Parallel()
 
 	fixture := newResolverFixture(t)
-	writeLearnedSkill(
-		t,
-		learnedDirectory(fixture.configRoot),
-		learnedTestLearnedSkill,
-	)
+	writeLearnedSkill(t, learnedDirectory(fixture.configRoot))
 	fixture.writeSkill(
 		t,
 		fixture.workspace,

@@ -360,6 +360,42 @@ func (e JobSignalResponseState) Valid() bool {
 	}
 }
 
+// Defines values for LearnedKind.
+const (
+	LearnedKindRule  LearnedKind = "rule"
+	LearnedKindSkill LearnedKind = "skill"
+)
+
+// Valid indicates whether the value is a known member of the LearnedKind enum.
+func (e LearnedKind) Valid() bool {
+	switch e {
+	case LearnedKindRule:
+		return true
+	case LearnedKindSkill:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for LearnedScope.
+const (
+	LearnedScopeGlobal    LearnedScope = "global"
+	LearnedScopeWorkspace LearnedScope = "workspace"
+)
+
+// Valid indicates whether the value is a known member of the LearnedScope enum.
+func (e LearnedScope) Valid() bool {
+	switch e {
+	case LearnedScopeGlobal:
+		return true
+	case LearnedScopeWorkspace:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MessageInjectedKind.
 const (
 	MessageInjectedKindSkill MessageInjectedKind = "skill"
@@ -1173,6 +1209,45 @@ type JobSignalResponse struct {
 // JobSignalResponseState defines model for JobSignalResponse.State.
 type JobSignalResponseState string
 
+// LearnedFile defines model for LearnedFile.
+type LearnedFile struct {
+	// AlwaysLoaded True for a rule without paths, globs, or applyTo, which is part of every system prompt and counts against PEEN_MAX_SYSTEM_PROMPT_PERCENT. Always false for a skill.
+	AlwaysLoaded bool `json:"alwaysLoaded"`
+
+	// EstimatedTokens The file's size in tokens, estimated with the o200k tokenizer.
+	EstimatedTokens int64       `json:"estimatedTokens"`
+	Kind            LearnedKind `json:"kind"`
+	ModifiedAt      time.Time   `json:"modifiedAt"`
+
+	// Name The rule's path under rules/ without .md, or the skill's directory name. A learned rule loads under the name learned/<name>.
+	Name string `json:"name"`
+
+	// Path The rule file, or the skill's SKILL.md, on the controller's host.
+	Path string `json:"path"`
+
+	// Scope workspace is the session workspace's .agents/learned, and global is the global learned directory every session reads.
+	Scope     LearnedScope `json:"scope"`
+	SizeBytes int64        `json:"sizeBytes"`
+}
+
+// LearnedFileContent defines model for LearnedFileContent.
+type LearnedFileContent struct {
+	Content string      `json:"content"`
+	File    LearnedFile `json:"file"`
+}
+
+// LearnedFileList defines model for LearnedFileList.
+type LearnedFileList struct {
+	// Items Workspace files first, then global ones, each sorted by kind and name.
+	Items []LearnedFile `json:"items"`
+}
+
+// LearnedKind defines model for LearnedKind.
+type LearnedKind string
+
+// LearnedScope workspace is the session workspace's .agents/learned, and global is the global learned directory every session reads.
+type LearnedScope string
+
 // Message defines model for Message.
 type Message struct {
 	CompactionId *openapi_types.UUID `json:"compactionId,omitempty"`
@@ -1562,6 +1637,9 @@ type ContextHash = string
 // JobID defines model for JobID.
 type JobID = openapi_types.UUID
 
+// LearnedName defines model for LearnedName.
+type LearnedName = string
+
 // Limit defines model for Limit.
 type Limit = int32
 
@@ -1745,6 +1823,31 @@ type SignalSessionJobParams struct {
 type ListSessionJobSignalRequestsParams struct {
 	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
 	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// ListSessionLearnedFilesParams defines parameters for ListSessionLearnedFiles.
+type ListSessionLearnedFilesParams struct {
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// DeleteSessionLearnedFileParams defines parameters for DeleteSessionLearnedFile.
+type DeleteSessionLearnedFileParams struct {
+	Scope LearnedScope `form:"scope" json:"scope"`
+	Kind  LearnedKind  `form:"kind" json:"kind"`
+
+	// Name The rule's path under rules/ without .md, such as go-errors or go/errors, or the skill's directory name.
+	Name       LearnedName       `form:"name" json:"name"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// GetSessionLearnedFileParams defines parameters for GetSessionLearnedFile.
+type GetSessionLearnedFileParams struct {
+	Scope LearnedScope `form:"scope" json:"scope"`
+	Kind  LearnedKind  `form:"kind" json:"kind"`
+
+	// Name The rule's path under rules/ without .md, such as go-errors or go/errors, or the skill's directory name.
+	Name       LearnedName       `form:"name" json:"name"`
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
@@ -2026,6 +2129,27 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /session/jobs/{jobId}/signals (the `ListSessionJobSignalRequests` operationId).
 	ListSessionJobSignalRequests(ctx context.Context, jobId JobID, params *ListSessionJobSignalRequestsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListSessionLearnedFiles List the learned rules and skills this session loads
+	//
+	// Lists every rule under .agents/learned/rules and every skill under .agents/learned/skills in the session's workspace and in the global learned directory, so a user can review what an auto-evolving agent saved. Each rule says whether it loads on every turn and its estimated token count. Symbolic links are left out. The list is bounded by the harness file limits, so it has no pages.
+	//
+	// Corresponds with GET /session/learned (the `ListSessionLearnedFiles` operationId).
+	ListSessionLearnedFiles(ctx context.Context, params *ListSessionLearnedFilesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteSessionLearnedFile Delete one learned rule or skill
+	//
+	// Removes a learned rule's file, or a learned skill's whole directory. The next turn, child launch, or changeDirectory call no longer loads it. Only files under a learned directory can be deleted this way.
+	//
+	// Corresponds with DELETE /session/learned/file (the `DeleteSessionLearnedFile` operationId).
+	DeleteSessionLearnedFile(ctx context.Context, params *DeleteSessionLearnedFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSessionLearnedFile Read one learned rule or skill
+	//
+	// Returns a learned rule's file, or a learned skill's SKILL.md, as the agent saved it.
+	//
+	// Corresponds with GET /session/learned/file (the `GetSessionLearnedFile` operationId).
+	GetSessionLearnedFile(ctx context.Context, params *GetSessionLearnedFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListSessionModelRuns List complete durable model invocations
 	//
@@ -2473,6 +2597,57 @@ func (c *Client) SignalSessionJob(ctx context.Context, jobId JobID, params *Sign
 // Corresponds with GET /session/jobs/{jobId}/signals (the `ListSessionJobSignalRequests` operationId).
 func (c *Client) ListSessionJobSignalRequests(ctx context.Context, jobId JobID, params *ListSessionJobSignalRequestsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListSessionJobSignalRequestsRequest(c.Server, jobId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListSessionLearnedFiles List the learned rules and skills this session loads
+//
+// Lists every rule under .agents/learned/rules and every skill under .agents/learned/skills in the session's workspace and in the global learned directory, so a user can review what an auto-evolving agent saved. Each rule says whether it loads on every turn and its estimated token count. Symbolic links are left out. The list is bounded by the harness file limits, so it has no pages.
+//
+// Corresponds with GET /session/learned (the `ListSessionLearnedFiles` operationId).
+func (c *Client) ListSessionLearnedFiles(ctx context.Context, params *ListSessionLearnedFilesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSessionLearnedFilesRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteSessionLearnedFile Delete one learned rule or skill
+//
+// Removes a learned rule's file, or a learned skill's whole directory. The next turn, child launch, or changeDirectory call no longer loads it. Only files under a learned directory can be deleted this way.
+//
+// Corresponds with DELETE /session/learned/file (the `DeleteSessionLearnedFile` operationId).
+func (c *Client) DeleteSessionLearnedFile(ctx context.Context, params *DeleteSessionLearnedFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteSessionLearnedFileRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetSessionLearnedFile Read one learned rule or skill
+//
+// Returns a learned rule's file, or a learned skill's SKILL.md, as the agent saved it.
+//
+// Corresponds with GET /session/learned/file (the `GetSessionLearnedFile` operationId).
+func (c *Client) GetSessionLearnedFile(ctx context.Context, params *GetSessionLearnedFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSessionLearnedFileRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -4210,6 +4385,204 @@ func NewListSessionJobSignalRequestsRequest(server string, jobId JobID, params *
 	return req, nil
 }
 
+// NewListSessionLearnedFilesRequest constructs an http.Request for the ListSessionLearnedFiles method
+func NewListSessionLearnedFilesRequest(server string, params *ListSessionLearnedFilesParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/learned")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Session-ID", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewDeleteSessionLearnedFileRequest constructs an http.Request for the DeleteSessionLearnedFile method
+func NewDeleteSessionLearnedFileRequest(server string, params *DeleteSessionLearnedFileParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/learned/file")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "scope", params.Scope, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "kind", params.Kind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "name", params.Name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Session-ID", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewGetSessionLearnedFileRequest constructs an http.Request for the GetSessionLearnedFile method
+func NewGetSessionLearnedFileRequest(server string, params *GetSessionLearnedFileParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/learned/file")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "scope", params.Scope, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "kind", params.Kind, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "name", params.Name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Session-ID", headerParam0)
+
+	}
+
+	return req, nil
+}
+
 // NewListSessionModelRunsRequest constructs an http.Request for the ListSessionModelRuns method
 func NewListSessionModelRunsRequest(server string, params *ListSessionModelRunsParams) (*http.Request, error) {
 	var err error
@@ -5136,6 +5509,33 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET /session/jobs/{jobId}/signals (the `ListSessionJobSignalRequests` operationId).
 	ListSessionJobSignalRequestsWithResponse(ctx context.Context, jobId JobID, params *ListSessionJobSignalRequestsParams, reqEditors ...RequestEditorFn) (*ListSessionJobSignalRequestsResponse, error)
+
+	// ListSessionLearnedFilesWithResponse List the learned rules and skills this session loads
+	//
+	// Lists every rule under .agents/learned/rules and every skill under .agents/learned/skills in the session's workspace and in the global learned directory, so a user can review what an auto-evolving agent saved. Each rule says whether it loads on every turn and its estimated token count. Symbolic links are left out. The list is bounded by the harness file limits, so it has no pages.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /session/learned (the `ListSessionLearnedFiles` operationId).
+	ListSessionLearnedFilesWithResponse(ctx context.Context, params *ListSessionLearnedFilesParams, reqEditors ...RequestEditorFn) (*ListSessionLearnedFilesResponse, error)
+
+	// DeleteSessionLearnedFileWithResponse Delete one learned rule or skill
+	//
+	// Removes a learned rule's file, or a learned skill's whole directory. The next turn, child launch, or changeDirectory call no longer loads it. Only files under a learned directory can be deleted this way.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /session/learned/file (the `DeleteSessionLearnedFile` operationId).
+	DeleteSessionLearnedFileWithResponse(ctx context.Context, params *DeleteSessionLearnedFileParams, reqEditors ...RequestEditorFn) (*DeleteSessionLearnedFileResponse, error)
+
+	// GetSessionLearnedFileWithResponse Read one learned rule or skill
+	//
+	// Returns a learned rule's file, or a learned skill's SKILL.md, as the agent saved it.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /session/learned/file (the `GetSessionLearnedFile` operationId).
+	GetSessionLearnedFileWithResponse(ctx context.Context, params *GetSessionLearnedFileParams, reqEditors ...RequestEditorFn) (*GetSessionLearnedFileResponse, error)
 
 	// ListSessionModelRunsWithResponse List complete durable model invocations
 	//
@@ -6914,6 +7314,230 @@ func (r ListSessionJobSignalRequestsResponse) ContentType() string {
 	return ""
 }
 
+// ListSessionLearnedFilesResponse200Headers the declared response headers of an HTTP 200 response for ListSessionLearnedFiles
+type ListSessionLearnedFilesResponse200Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListSessionLearnedFilesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *LearnedFileList
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ListSessionLearnedFilesResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListSessionLearnedFilesResponse) GetJSON200() *LearnedFileList {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ListSessionLearnedFilesResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListSessionLearnedFilesResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ListSessionLearnedFilesResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListSessionLearnedFilesResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListSessionLearnedFilesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListSessionLearnedFilesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListSessionLearnedFilesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListSessionLearnedFilesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// DeleteSessionLearnedFileResponse204Headers the declared response headers of an HTTP 204 response for DeleteSessionLearnedFile
+type DeleteSessionLearnedFileResponse204Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type DeleteSessionLearnedFileResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers204 the parsed response headers for an HTTP 204 response
+	Headers204 *DeleteSessionLearnedFileResponse204Headers
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r DeleteSessionLearnedFileResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r DeleteSessionLearnedFileResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r DeleteSessionLearnedFileResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r DeleteSessionLearnedFileResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteSessionLearnedFileResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteSessionLearnedFileResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteSessionLearnedFileResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteSessionLearnedFileResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetSessionLearnedFileResponse200Headers the declared response headers of an HTTP 200 response for GetSessionLearnedFile
+type GetSessionLearnedFileResponse200Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type GetSessionLearnedFileResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *LearnedFileContent
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetSessionLearnedFileResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetSessionLearnedFileResponse) GetJSON200() *LearnedFileContent {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r GetSessionLearnedFileResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetSessionLearnedFileResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetSessionLearnedFileResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r GetSessionLearnedFileResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r GetSessionLearnedFileResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSessionLearnedFileResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSessionLearnedFileResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSessionLearnedFileResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // ListSessionModelRunsResponse200Headers the declared response headers of an HTTP 200 response for ListSessionModelRuns
 type ListSessionModelRunsResponse200Headers struct {
 	XRequestID openapi_types.UUID
@@ -8066,6 +8690,51 @@ func (c *ClientWithResponses) ListSessionJobSignalRequestsWithResponse(ctx conte
 		return nil, err
 	}
 	return ParseListSessionJobSignalRequestsResponse(rsp)
+}
+
+// ListSessionLearnedFilesWithResponse List the learned rules and skills this session loads
+//
+// Lists every rule under .agents/learned/rules and every skill under .agents/learned/skills in the session's workspace and in the global learned directory, so a user can review what an auto-evolving agent saved. Each rule says whether it loads on every turn and its estimated token count. Symbolic links are left out. The list is bounded by the harness file limits, so it has no pages.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /session/learned (the `ListSessionLearnedFiles` operationId).
+func (c *ClientWithResponses) ListSessionLearnedFilesWithResponse(ctx context.Context, params *ListSessionLearnedFilesParams, reqEditors ...RequestEditorFn) (*ListSessionLearnedFilesResponse, error) {
+	rsp, err := c.ListSessionLearnedFiles(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListSessionLearnedFilesResponse(rsp)
+}
+
+// DeleteSessionLearnedFileWithResponse Delete one learned rule or skill
+//
+// Removes a learned rule's file, or a learned skill's whole directory. The next turn, child launch, or changeDirectory call no longer loads it. Only files under a learned directory can be deleted this way.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /session/learned/file (the `DeleteSessionLearnedFile` operationId).
+func (c *ClientWithResponses) DeleteSessionLearnedFileWithResponse(ctx context.Context, params *DeleteSessionLearnedFileParams, reqEditors ...RequestEditorFn) (*DeleteSessionLearnedFileResponse, error) {
+	rsp, err := c.DeleteSessionLearnedFile(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteSessionLearnedFileResponse(rsp)
+}
+
+// GetSessionLearnedFileWithResponse Read one learned rule or skill
+//
+// Returns a learned rule's file, or a learned skill's SKILL.md, as the agent saved it.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /session/learned/file (the `GetSessionLearnedFile` operationId).
+func (c *ClientWithResponses) GetSessionLearnedFileWithResponse(ctx context.Context, params *GetSessionLearnedFileParams, reqEditors ...RequestEditorFn) (*GetSessionLearnedFileResponse, error) {
+	rsp, err := c.GetSessionLearnedFile(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSessionLearnedFileResponse(rsp)
 }
 
 // ListSessionModelRunsWithResponse List complete durable model invocations
@@ -9830,6 +10499,224 @@ func ParseListSessionJobSignalRequestsResponse(rsp *http.Response) (*ListSession
 	switch {
 	case rsp.StatusCode == 200:
 		var headers ListSessionJobSignalRequestsResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListSessionLearnedFilesResponse parses an HTTP response from a ListSessionLearnedFilesWithResponse call
+func ParseListSessionLearnedFilesResponse(rsp *http.Response) (*ListSessionLearnedFilesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListSessionLearnedFilesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest LearnedFileList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ListSessionLearnedFilesResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseDeleteSessionLearnedFileResponse parses an HTTP response from a DeleteSessionLearnedFileWithResponse call
+func ParseDeleteSessionLearnedFileResponse(rsp *http.Response) (*DeleteSessionLearnedFileResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteSessionLearnedFileResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		var headers DeleteSessionLearnedFileResponse204Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers204 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseGetSessionLearnedFileResponse parses an HTTP response from a GetSessionLearnedFileWithResponse call
+func ParseGetSessionLearnedFileResponse(rsp *http.Response) (*GetSessionLearnedFileResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSessionLearnedFileResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest LearnedFileContent
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetSessionLearnedFileResponse200Headers
 		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
 			var value openapi_types.UUID
 			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
