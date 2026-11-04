@@ -185,6 +185,12 @@ func TestErrorKeepsAgentRunRefusalsAcrossTheWire(t *testing.T) {
 			class:    commerr.ErrValidationFailed,
 			wantCode: CodeImageType,
 		},
+		{
+			name:     "turn already ended",
+			detail:   session.ErrTurnLeaseInactive,
+			class:    commerr.ErrInvalidState,
+			wantCode: CodeTurnLeaseInactive,
+		},
 	}
 
 	for _, tc := range testCases {

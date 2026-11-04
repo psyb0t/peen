@@ -2,6 +2,18 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.39.0 (2026-11-04)
+
+Adds image attachments and an MCP server list to the control surface, and keeps a session's MCP servers in step with `mcp.json` between turns. No configuration or API migration is needed.
+
+- Adds image attachments to the control surface. Attach images, paste one into the input box, or drop one on the composer, and the next message that starts a turn carries them. See [Control surface](docs/control-surface.md#chat).
+- Adds an MCP servers list to the control surface's session details, with each server's state, tools, and why one failed.
+- Changes MCP servers to follow `mcp.json` between turns. At the start of every turn the worker reads the file again and restarts every server when it changed, restarts a server that stopped, and lists each running server's tools again. A server that never started is tried again only when the file changes. Before, a change needed a new worker. See [MCP servers](docs/mcp.md#where-servers-run).
+- Fixes a message sent just as a turn finished failing with `INTERNAL_SERVER_ERROR`. The message reached the turn's queue after the turn had released the session, and Peen refused it. Peen now waits for that turn to finish and starts the next turn with the message.
+- Fixes the control surface listing a child agent's question and the notice it raises under one row key, which SvelteKit 3 turns into an "Internal Error" page. Each activity row is now keyed by its event type and event ID.
+- Updates SvelteKit to 3.1.0 and its static adapter to 4.0.0, which fixes GHSA-27mw-82g8-phjj and GHSA-pfhg-q3qv-9q6r in the control surface's build, and moves the build configuration from `svelte.config.js` into `vite.config.ts`.
+- Updates elelem to v0.14.0, which lets an MCP connection list its tools again.
+
 ## v0.38.1 (2026-11-04)
 
 Fixes the audit log missing how a child agent ended. No configuration or API migration is needed.

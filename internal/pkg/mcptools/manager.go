@@ -32,6 +32,9 @@ type Options struct {
 	// HTTPTransport carries Streamable HTTP requests. Nil takes
 	// http.DefaultTransport.
 	HTTPTransport http.RoundTripper
+	// Reload reads the configuration again, for Refresh. Nil keeps the
+	// configuration the Manager was built with.
+	Reload func() ([]Server, []Status)
 }
 
 // Manager owns a worker's MCP server connections. Start connects them,
@@ -72,8 +75,14 @@ func New(options Options) *Manager {
 // Configured reports whether any server or refused entry exists, so a
 // caller can skip MCP work for a session that configures none.
 func (m *Manager) Configured() bool {
-	return m != nil &&
-		(len(m.options.Servers) > 0 || len(m.options.Failures) > 0)
+	if m == nil {
+		return false
+	}
+
+	m.mutex.RLock()
+	defer m.mutex.RUnlock()
+
+	return len(m.options.Servers) > 0 || len(m.options.Failures) > 0
 }
 
 // Tools returns the tools of every server still connected, in
@@ -169,6 +178,11 @@ func (m *Manager) Close() error {
 	servers := slices.Clone(m.servers)
 	m.mutex.Unlock()
 
+	return closeServers(servers)
+}
+
+// closeServers stops every connected server in servers, in parallel.
+func closeServers(servers []*serverState) error {
 	errs := make([]error, len(servers))
 
 	var group sync.WaitGroup
@@ -192,6 +206,27 @@ func (m *Manager) Close() error {
 	return nil
 }
 
+// connectAll starts every server in servers, in parallel, in configuration
+// order.
+func (m *Manager) connectAll(
+	ctx context.Context,
+	servers []Server,
+) []*serverState {
+	states := make([]*serverState, len(servers))
+
+	var group sync.WaitGroup
+
+	for index, server := range servers {
+		group.Go(func() {
+			states[index] = m.connect(ctx, server)
+		})
+	}
+
+	group.Wait()
+
+	return states
+}
+
 // Start connects every server, once. Later calls wait for the first to
 // finish. ctx bounds the starts, not the connections, which live until
 // Close.
@@ -212,18 +247,7 @@ func (m *Manager) Start(ctx context.Context) {
 			return
 		}
 
-		servers := make([]*serverState, len(m.options.Servers))
-
-		var group sync.WaitGroup
-		for index, server := range m.options.Servers {
-			group.Go(func() {
-				servers[index] = m.connect(ctx, server)
-			})
-		}
-
-		group.Wait()
-
-		m.servers = servers
+		m.servers = m.connectAll(ctx, m.options.Servers)
 	})
 }
 

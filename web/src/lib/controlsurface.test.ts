@@ -260,8 +260,13 @@ describe("control surface", () => {
 	let sessionFeedSequence = 0;
 	let sessionActiveTurnFeedSequence: number | null = null;
 	let feedFrames: FeedFrameFixture[] = [];
+	let mcpReport: { reportedAt: string | null; servers: unknown[] } = {
+		reportedAt: null,
+		servers: [],
+	};
 
 	beforeEach(() => {
+		mcpReport = { reportedAt: null, servers: [] };
 		sessionOpened = false;
 		openedWorkspace = "";
 		openedBody = {};
@@ -386,6 +391,8 @@ describe("control surface", () => {
 					return response({ hasMore: false, limit: 100, offset: 0, turns: [] });
 				case "/api/v1/session/agent-space-decisions":
 					return response({ hasMore: false, items: [], limit: 100, offset: 0 });
+				case "/api/v1/session/mcp":
+					return response(mcpReport);
 				default:
 					throw new Error(`unexpected request ${url.pathname}`);
 			}
@@ -672,6 +679,92 @@ describe("control surface", () => {
 		await fireEvent.keyDown(messageInput, { key: "Enter" });
 
 		expect(sentMessageData(transport)).toEqual([{ message: "then run the tests" }]);
+	});
+
+	it("sends attached images with a message that starts a turn", async () => {
+		render(Page);
+		const transport = await connectAndOpenChat();
+
+		const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+		const picker = screen.getByLabelText<HTMLInputElement>("Attach images");
+		await fireEvent.change(picker, {
+			target: {
+				files: [
+					new File([png], "shot.png", { type: "image/png" }),
+					new File(["x"], "notes.txt", { type: "text/plain" }),
+				],
+			},
+		});
+
+		const attached = await screen.findByRole("list", { name: "Attached images" });
+		expect(within(attached).getByText("shot.png")).toBeDefined();
+		expect(within(attached).queryByText("notes.txt")).toBeNull();
+
+		const messageInput = screen.getByLabelText<HTMLTextAreaElement>("Message");
+		await fireEvent.input(messageInput, { target: { value: "what is this" } });
+		await fireEvent.submit(messageInput.closest("form") as HTMLFormElement);
+
+		const [sent] = sentMessageData(transport) as Array<{
+			images?: Array<{ data: string; mediaType: string }>;
+			message: string;
+		}>;
+		expect(sent?.message).toBe("what is this");
+		expect(sent?.images).toEqual([
+			{ data: btoa(String.fromCharCode(...png)), mediaType: "image/png" },
+		]);
+		expect(screen.queryByRole("list", { name: "Attached images" })).toBeNull();
+	});
+
+	it("removes an attached image before sending", async () => {
+		render(Page);
+		const transport = await connectAndOpenChat();
+
+		await fireEvent.change(screen.getByLabelText("Attach images"), {
+			target: {
+				files: [new File([new Uint8Array([1])], "a.png", { type: "image/png" })],
+			},
+		});
+		await fireEvent.click(await screen.findByRole("button", { name: "Remove a.png" }));
+
+		const messageInput = screen.getByLabelText<HTMLTextAreaElement>("Message");
+		await fireEvent.input(messageInput, { target: { value: "no image" } });
+		await fireEvent.submit(messageInput.closest("form") as HTMLFormElement);
+
+		expect(sentMessageData(transport)).toEqual([
+			expect.not.objectContaining({ images: expect.anything() }),
+		]);
+	});
+
+	it("shows the session's MCP servers and why one failed", async () => {
+		mcpReport = {
+			reportedAt: "2026-11-04T10:00:00Z",
+			servers: [
+				{
+					name: "docs",
+					source: "config",
+					state: "ready",
+					tools: ["mcp__docs__search"],
+					transport: "http",
+				},
+				{
+					error: "connect: executable file not found",
+					name: "local",
+					source: "workspace",
+					state: "failed",
+					tools: [],
+					transport: "stdio",
+				},
+			],
+		};
+		render(Page);
+		await connectAndOpenChat();
+		await fireEvent.click(screen.getByRole("button", { name: "Details" }));
+
+		expect(await screen.findByText("MCP servers (2)")).toBeDefined();
+		expect(screen.getByText("ready, 1 tool from config over http")).toBeDefined();
+		expect(
+			screen.getByText("failed: connect: executable file not found"),
+		).toBeDefined();
 	});
 
 	it("lists a waiting child, writes to it, and stops it", async () => {

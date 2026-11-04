@@ -59,4 +59,8 @@ var (
 	// ErrAgentRunNotFound reports a message sent to an agent run the session
 	// never had. It is always joined with commerr.ErrNotFound.
 	ErrAgentRunNotFound = errors.New("agent run not found")
+	// ErrTurnLeaseInactive reports a write for a turn whose lease is already
+	// released because the turn ended. It is always joined with
+	// commerr.ErrInvalidState.
+	ErrTurnLeaseInactive = errors.New("inactive turn lease")
 )

@@ -13,6 +13,7 @@ import {
 	ValidationError,
 	validateMessageSend,
 	validateServerEvent,
+	type MessageImage,
 	type MessageSend,
 	type MessageSendData,
 	type MessageSendReasoningEffort,
@@ -90,13 +91,15 @@ export class PeenSocket {
 	 * message queued into a running turn must leave them out, because the
 	 * server rejects a queued message that tries to change them. A message to a
 	 * running child agent names its run in agentRunID, starts no turn, and
-	 * never carries settings.
+	 * never carries settings. Images go only with a message that starts a turn;
+	 * the server refuses them on a queued message or a message to a child.
 	 */
 	public send(
 		sessionID: string,
 		message: string,
 		settings?: TurnSettings,
 		agentRunID?: string,
+		images?: MessageImage[],
 	): string {
 		if (this.socket?.readyState !== WebSocket.OPEN) {
 			throw new Error("The WebSocket is not connected.");
@@ -108,6 +111,10 @@ export class PeenSocket {
 		} else if (settings !== undefined) {
 			data.model = settings.model;
 			data.reasoningEffort = settings.reasoningEffort;
+		}
+
+		if (images !== undefined && images.length > 0) {
+			data.images = images;
 		}
 
 		const event: MessageSend = {

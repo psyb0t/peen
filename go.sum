@@ -686,8 +686,8 @@ github.com/psyb0t/ctxerrors v0.9.0 h1:CUjM/h8z6cVw3jy9+0JCnXWlvBx4Sh4PQYk3nmPhAv
 github.com/psyb0t/ctxerrors v0.9.0/go.mod h1:h1V0vJtlXGn4H7RuHBtxdrdevBx3CmBTEyJXtFIIrk4=
 github.com/psyb0t/ctxscope v1.0.3 h1:VwI7JQPpT1ZwnBOMKigFgM5CluQ46zwrRkHfx7p67bY=
 github.com/psyb0t/ctxscope v1.0.3/go.mod h1:fP6HYWnSze45KVPceVdMRbupfK9ly/m6c5+DknmUYTU=
-github.com/psyb0t/elelem v0.13.0 h1:ha2akkC6syp05kZFmcAgA8fm9zG4CFcPl7zRIMe4v9E=
-github.com/psyb0t/elelem v0.13.0/go.mod h1:1q34OcatiwsmgD49FS8VwYyCDfM3y8CktQMXZ+0E/3k=
+github.com/psyb0t/elelem v0.14.0 h1:mPQAiGGeXKoY4KVp/j6o5EYEX/v3rwbNjFG/aiDFS0k=
+github.com/psyb0t/elelem v0.14.0/go.mod h1:1q34OcatiwsmgD49FS8VwYyCDfM3y8CktQMXZ+0E/3k=
 github.com/psyb0t/essessey v0.7.5 h1:PpiqvZSG1r7Wqb9ITcJBWq0wHJoL+GJ8bSSegDeZ6GY=
 github.com/psyb0t/essessey v0.7.5/go.mod h1:vGuRaA7sIthXEvUT711kV9kFQnfYs8Bkxu7Yy3HFN7Q=
 github.com/psyb0t/gen-asyncapi v0.2.0 h1:W60xs3o7D2oyt4tAC6IrQa21jaMYkfdeoTjc09Fckck=

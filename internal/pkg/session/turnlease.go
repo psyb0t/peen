@@ -1,6 +1,8 @@
 package session
 
 import (
+	"errors"
+
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
@@ -21,8 +23,9 @@ func (s *Store) holdLease(lease Lease) (func(), error) {
 	if !s.hasLeaseLocked(lease) {
 		s.activeMu.Unlock()
 
-		return nil, ctxerrors.Wrap(commerr.ErrInvalidState,
-			"inactive turn lease")
+		return nil, ctxerrors.Wrap(
+			errors.Join(commerr.ErrInvalidState, ErrTurnLeaseInactive),
+			"hold turn lease")
 	}
 
 	return s.activeMu.Unlock, nil

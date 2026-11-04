@@ -556,14 +556,45 @@ func (r *Runtime) queueActiveUserMessage(
 		)
 	}
 
-	if err := queue.enqueue(ctx, input); err != nil {
+	err = queue.enqueue(ctx, input)
+	if err == nil {
+		return &TurnResult{
+			SessionID: sessionID,
+			Queued:    true,
+		}, true, nil
+	}
+
+	if !queue.ended(err) {
 		return nil, true, err
 	}
 
-	return &TurnResult{
-		SessionID: sessionID,
-		Queued:    true,
-	}, true, nil
+	// The turn ended between the lookup and the enqueue, and nothing was
+	// accepted. The message starts the next turn once the old queue is gone.
+	ctxscope.GetLogger(ctx).Debug("queued message found its turn ended",
+		"session_id", sessionID, "turn_id", queue.turn.lease.TurnID,
+		"reason", endedQueueAdmissionReason)
+
+	select {
+	case <-queue.retired:
+	case <-ctx.Done():
+		return nil, true, ctxerrors.Wrap(ctx.Err(),
+			"wait for ended turn cleanup")
+	}
+
+	return r.queueActiveUserMessage(ctx, input)
+}
+
+// ended reports whether err refused a message only because the queue's turn
+// has already ended.
+func (q *activeUserMessageQueue) ended(err error) bool {
+	if errors.Is(err, session.ErrTurnLeaseInactive) {
+		return true
+	}
+
+	q.mutex.Lock()
+	defer q.mutex.Unlock()
+
+	return q.closed
 }
 
 func (t *runtimeTurn) appendQueuedUserMessages(

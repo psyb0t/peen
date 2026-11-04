@@ -14,7 +14,7 @@
 | `src/lib/browser/log.ts` | Allowlisted browser diagnostics. |
 | `src/lib/common/` | Shared constants and JSON helpers. |
 
-Import shared code through `$lib/`. Keep logic in `.ts` modules with tests, and keep components thin. Match the Svelte syntax of the file you are editing.
+Import shared code through `$lib/`. SvelteKit 3 dropped `$lib` in favor of `#lib`, so `vite.config.ts` keeps it as an alias, and the SvelteKit settings live in the `sveltekit()` plugin there, not in a `svelte.config.js`. Keep logic in `.ts` modules with tests, and keep components thin. Match the Svelte syntax of the file you are editing.
 
 ## Code rules
 

@@ -5,7 +5,14 @@
 	import { agentSpaceLabel } from "$lib/agentspace";
 	import { activities, isActivityEvent, type AgentActivity } from "$lib/chat/activity";
 	import ReplyBlocks from "$lib/chat/ReplyBlocks.svelte";
+	import {
+		ATTACHMENT_ACCEPT,
+		imageFiles,
+		readAttachment,
+		type Attachment,
+	} from "$lib/chat/attachments";
 	import { describeImages } from "$lib/chat/images";
+	import { describeMCPServer, mcpServerName, type MCPServerStatus } from "$lib/mcp";
 	import { groupTranscript, liveSegments } from "$lib/chat/transcript";
 	import {
 		applyStreamEvent,
@@ -50,6 +57,9 @@
 	} from "$lib/ws/socket";
 
 	const EVENT_TYPE_MESSAGE_FAILED = "message.failed";
+	const EVENT_TYPE_MCP_STATUS = "mcp.status";
+	// Frame timestamps are Unix seconds.
+	const MS_PER_SECOND = 1000;
 	const PATH_SEPARATOR = "/";
 	const ENTER_KEY = "Enter";
 	// The conversation keeps following new output while the reader is within
@@ -94,6 +104,9 @@
 	// so a session refresh keeps a model the reader picked for the next turn.
 	let modelSessionID = "";
 	let messageText = "";
+	// Images attached to the message being written. Only a message that starts
+	// a turn may carry them.
+	let attachments: Attachment[] = [];
 
 	let sessions: Session[] = [];
 	let workspaceRoots: string[] = [];
@@ -110,6 +123,10 @@
 	let modelRuns: ModelRun[] = [];
 	let notices: SessionNotice[] = [];
 	let workers: WorkerGeneration[] = [];
+	// The MCP servers the session's worker last reported, at the start of a
+	// turn, and when it reported them.
+	let mcpServers: MCPServerStatus[] = [];
+	let mcpReportedAt: string | null = null;
 	let jobs: Job[] = [];
 	let turns: Turn[] = [];
 	let agentSpaceDecisions: SessionAgentSpaceDecision[] = [];
@@ -143,6 +160,7 @@
 	// A child that ends while it is the target drops back to the root.
 	$: sendTo = sendTarget(sendTo, liveAgents);
 	$: isSendingToAgent = sendTo !== SEND_TARGET_ROOT;
+	$: canAttach = !turnRunning && !isSendingToAgent;
 	$: rootQuestion = openRootQuestion(selectedLiveEvents);
 
 	onMount(() => {
@@ -234,6 +252,13 @@
 		liveTurns = applyStreamEvent(liveTurns, event);
 		if (isActivityEvent(event)) {
 			activityEvents = [...activityEvents, event].slice(-MAX_LIVE_EVENTS);
+		}
+		if (
+			event.type === EVENT_TYPE_MCP_STATUS &&
+			isSelectedSession(event.metadata.sessionId)
+		) {
+			mcpServers = event.data.servers;
+			mcpReportedAt = new Date(event.timestamp * MS_PER_SECOND).toISOString();
 		}
 
 		const isTurnOver =
@@ -499,6 +524,7 @@
 				jobPage,
 				turnPage,
 				decisionPage,
+				mcpReport,
 			] = await Promise.all([
 				requireData(
 					connected.GET("/session", { params: { header: sessionHeaders() } }),
@@ -514,6 +540,9 @@
 				requireData(connected.GET("/session/turns", { params: pageParams })),
 				requireData(
 					connected.GET("/session/agent-space-decisions", { params: pageParams }),
+				),
+				requireData(
+					connected.GET("/session/mcp", { params: { header: sessionHeaders() } }),
 				),
 			]);
 
@@ -539,6 +568,8 @@
 			jobs = jobPage.jobs;
 			turns = turnPage.turns;
 			agentSpaceDecisions = decisionPage.items;
+			mcpServers = mcpReport.servers;
+			mcpReportedAt = mcpReport.reportedAt;
 			logBrowserEvent("session.load.complete", {
 				count: messages.length,
 				duration_ms: elapsed(),
@@ -592,6 +623,14 @@
 		if (messageText.trim() === "") {
 			return;
 		}
+		if (attachments.length > 0 && !canAttach) {
+			showError(
+				"message.send",
+				"Images go only with a message that starts a turn. Remove them or wait for the turn to finish.",
+			);
+
+			return;
+		}
 
 		// A message sent while a turn runs joins that turn, which keeps the
 		// model and reasoning level it started with. A message to a child agent
@@ -610,12 +649,68 @@
 		});
 
 		try {
-			socket?.send(selectedSessionID, messageText.trim(), settings, agentRunID);
+			socket?.send(
+				selectedSessionID,
+				messageText.trim(),
+				settings,
+				agentRunID,
+				attachments.map((attachment) => attachment.image),
+			);
 			messageText = "";
+			attachments = [];
 		} catch (cause) {
 			logBrowserEvent("message.send.fail", { session_id: selectedSessionID });
 			setError("message.send", cause);
 		}
+	}
+
+	async function attachFiles(files: File[]): Promise<void> {
+		for (const file of files) {
+			try {
+				attachments = [...attachments, await readAttachment(file)];
+			} catch (cause) {
+				setError("message.send", cause);
+			}
+		}
+	}
+
+	function attachChosenFiles(event: Event): void {
+		const input = event.currentTarget as HTMLInputElement;
+		const files = imageFiles(input.files);
+		input.value = "";
+		attachFiles(files).catch((cause: unknown) => setError("message.send", cause));
+	}
+
+	// A pasted or dropped image attaches. Pasted text still goes into the
+	// message as usual.
+	function attachPastedImages(event: ClipboardEvent): void {
+		const files = imageFiles(event.clipboardData?.files ?? null);
+		if (files.length === 0 || !canAttach) {
+			return;
+		}
+
+		event.preventDefault();
+		attachFiles(files).catch((cause: unknown) => setError("message.send", cause));
+	}
+
+	function attachDroppedImages(event: DragEvent): void {
+		const files = imageFiles(event.dataTransfer?.files ?? null);
+		if (files.length === 0) {
+			return;
+		}
+
+		event.preventDefault();
+		if (!canAttach) {
+			showError("message.send", "Images go only with a message that starts a turn.");
+
+			return;
+		}
+
+		attachFiles(files).catch((cause: unknown) => setError("message.send", cause));
+	}
+
+	function removeAttachment(id: string): void {
+		attachments = attachments.filter((attachment) => attachment.id !== id);
 	}
 
 	async function cancelSession(): Promise<void> {
@@ -1090,7 +1185,12 @@
 						</ul>
 					</section>{/if}
 
-				<form class="composer" onsubmit={sendMessage}>
+				<form
+					class="composer"
+					ondragover={(event) => event.preventDefault()}
+					ondrop={attachDroppedImages}
+					onsubmit={sendMessage}
+				>
 					<div class="composer-controls">
 						{#if liveAgents.length > 0}<label
 								><span>Send to</span><select bind:value={sendTo}
@@ -1124,14 +1224,44 @@
 						><span class="sr-only">Message</span><textarea
 							bind:value={messageText}
 							onkeydown={sendOnEnter}
+							onpaste={attachPastedImages}
 							placeholder={rootQuestion === undefined
 								? "Ask Peen to work on this workspace"
 								: "Answer Peen's question"}
 							required
 							rows="3"></textarea></label
 					>
+					{#if attachments.length > 0}<ul
+							class="attachments"
+							aria-label="Attached images"
+						>
+							{#each attachments as attachment (attachment.id)}<li>
+									<span>{attachment.name}</span>
+									<span class="attachment-info"
+										>{describeImages([attachment.info])}</span
+									><button
+										aria-label={`Remove ${attachment.name}`}
+										class="icon-button"
+										onclick={() => removeAttachment(attachment.id)}
+										type="button">×</button
+									>
+								</li>{/each}
+						</ul>{/if}
 					<div class="composer-footer">
-						<p>Peen will use the selected workspace.</p>
+						<p>
+							Peen will use the selected workspace.{#if !canAttach}
+								Images go only with a message that starts a turn.{/if}
+						</p>
+						<label class="attach-button" class:disabled={!canAttach}
+							>Attach images<input
+								accept={ATTACHMENT_ACCEPT}
+								class="sr-only"
+								disabled={!canAttach}
+								multiple
+								onchange={attachChosenFiles}
+								type="file"
+							/></label
+						>
 						<button disabled={socketState !== "open"} type="submit">Send</button>
 					</div>
 				</form>
@@ -1198,6 +1328,24 @@
 					<details>
 						<summary>Notices ({notices.length})</summary>
 						<pre>{formatJSON(notices)}</pre>
+					</details>
+					<details open={mcpServers.some((server) => server.state === "failed")}>
+						<summary>MCP servers ({mcpServers.length})</summary>
+						{#if mcpReportedAt === null}<p class="mcp-empty">
+								No turn has reported MCP servers yet.
+							</p>{:else}<ul class="mcp-servers">
+								{#each mcpServers as server, index (`${server.source}:${server.name}:${index}`)}<li
+										class:failed={server.state === "failed"}
+									>
+										<strong>{mcpServerName(server)}</strong>
+										<span>{describeMCPServer(server)}</span>
+										{#if server.tools.length > 0}<code>{server.tools.join(", ")}</code
+											>{/if}
+										{#each server.warnings ?? [] as warning (warning)}<span
+												class="mcp-warning">{warning}</span
+											>{/each}
+									</li>{/each}
+							</ul>{/if}
 					</details>
 					<form class="reconfigure" onsubmit={reconfigureSession}>
 						<h3>Change agent space</h3>
@@ -1821,6 +1969,62 @@
 	}
 	.composer-footer button {
 		min-width: 5rem;
+	}
+	.mcp-servers {
+		display: grid;
+		gap: 0.5rem;
+		list-style: none;
+		margin: 0.5rem 0 0;
+		padding: 0;
+	}
+	.mcp-servers li {
+		display: grid;
+		font-size: 0.78rem;
+		gap: 0.2rem;
+	}
+	.mcp-servers li.failed span {
+		color: #f08a8a;
+	}
+	.mcp-servers code {
+		color: #989ba4;
+		overflow-wrap: anywhere;
+	}
+	.mcp-warning,
+	.mcp-empty {
+		color: #c9a961;
+		font-size: 0.75rem;
+	}
+	.attach-button {
+		background: #2a2c32;
+		border-radius: 0.6rem;
+		color: #d8d9de;
+		cursor: pointer;
+		font-size: 0.8rem;
+		padding: 0.45rem 0.7rem;
+	}
+	.attach-button.disabled {
+		cursor: not-allowed;
+		opacity: 0.5;
+	}
+	.attachments {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		list-style: none;
+		margin: 0.4rem 0 0;
+		padding: 0;
+	}
+	.attachments li {
+		align-items: center;
+		background: #22242a;
+		border-radius: 0.6rem;
+		display: inline-flex;
+		font-size: 0.75rem;
+		gap: 0.4rem;
+		padding: 0.2rem 0.2rem 0.2rem 0.6rem;
+	}
+	.attachment-info {
+		color: #989ba4;
 	}
 	.inspector {
 		background: #17181c;

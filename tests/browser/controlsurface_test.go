@@ -1179,6 +1179,13 @@ func reportBrowserFailureState(t *testing.T) {
 	} else {
 		t.Logf("read browser console after failure: %v", err)
 	}
+	// The browser shows only a generic message for a server failure, so the
+	// controller's own log says what went wrong.
+	if logs, err := integrationInfra.AppLogs(ctx); err == nil {
+		t.Logf("controller logs after failure: %s", logs)
+	} else {
+		t.Logf("read controller logs after failure: %v", err)
+	}
 }
 
 //nolint:ireturn // testcontainers hands the started container back as an interface.

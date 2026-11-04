@@ -56,7 +56,7 @@ describe("agent activity", () => {
 			{
 				data: events[0]?.data,
 				detail: "Failed",
-				id: "turn-failure",
+				id: "turn.failed/turn-failure",
 				title: "Agent finished",
 				tone: "error",
 			},
@@ -80,7 +80,7 @@ describe("agent activity", () => {
 				data: events[0]?.data,
 				detail:
 					"Peen could not start this turn because the workspace agent configuration is invalid.",
-				id: "submission-failure",
+				id: "message.failed/submission-failure",
 				reason:
 					"Each directory in .agents/skills must contain a SKILL.md file whose name matches the directory.",
 				title: "Peen could not start this turn",
@@ -107,12 +107,23 @@ describe("agent activity", () => {
 				data: events[0]?.data,
 				detail:
 					"Peen ignored invalid optional workspace configuration and loaded the rest.",
-				id: "harness-warning",
+				id: "harness.warning/harness-warning",
 				reason:
 					"skill at /workspace/.agents/skills/broken-skill: skill directory has no SKILL.md",
 				title: "Workspace configuration warning",
 				tone: "warning",
 			},
 		]);
+	});
+
+	it("gives each event type its own row ID when two share an event ID", () => {
+		const events = [
+			event("shared-id", "agent.run.question", { question: "Which file?" }),
+			event("shared-id", "notice.created", { message: "A child asked" }),
+		];
+
+		const ids = activities(events).map((activity) => activity.id);
+
+		expect(ids).toEqual(["agent.run.question/shared-id", "notice.created/shared-id"]);
 	});
 });

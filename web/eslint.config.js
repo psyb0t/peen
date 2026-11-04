@@ -3,13 +3,17 @@ import js from "@eslint/js";
 import noUnsanitized from "eslint-plugin-no-unsanitized";
 import security from "eslint-plugin-security";
 import svelte from "eslint-plugin-svelte";
-import svelteConfig from "./svelte.config.js";
 import tseslint from "typescript-eslint";
 
 const browserGlobals = {
 	btoa: "readonly",
+	ClipboardEvent: "readonly",
 	crypto: "readonly",
+	DragEvent: "readonly",
+	Event: "readonly",
+	File: "readonly",
 	HTMLDivElement: "readonly",
+	HTMLInputElement: "readonly",
 	HTMLTextAreaElement: "readonly",
 	KeyboardEvent: "readonly",
 	SubmitEvent: "readonly",
@@ -38,7 +42,6 @@ export default defineConfig(
 		languageOptions: {
 			parserOptions: {
 				parser: tseslint.parser,
-				svelteConfig,
 			},
 		},
 	},

@@ -54,7 +54,7 @@ sync_package_files() {
 
 sync_formatted_files() {
 	cp -a "$temporary_root/src/." "$source_root/src/"
-	for file in .prettierrc eslint.config.js package.json svelte.config.js tsconfig.json vite.config.ts; do
+	for file in .prettierrc eslint.config.js package.json tsconfig.json vite.config.ts; do
 		cp "$temporary_root/$file" "$source_root/$file"
 	done
 }

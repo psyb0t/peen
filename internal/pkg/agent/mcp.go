@@ -47,6 +47,10 @@ func (r *Runtime) mcpTools(onPostRun elelem.MessageInjector) []elelem.Tool {
 // emitMCPStatus records the session's MCP servers at the start of a turn,
 // so a client can see which servers run and why one failed.
 func (p *preparedTurn) emitMCPStatus(ctx context.Context, r *Runtime) error {
+	// Refresh first: a session that had no mcp.json when its worker started
+	// may have one now.
+	r.mcp.Refresh(ctx)
+
 	if !r.mcp.Configured() {
 		return nil
 	}

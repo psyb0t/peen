@@ -271,6 +271,36 @@ describe("PeenSocket", () => {
 		]);
 	});
 
+	it.each([
+		["carries attached images", [{ mediaType: "image/png", data: "iVBORw0KGgo=" }]],
+		["leaves out an empty image list", []],
+	] as const)("sends a message that %s", (_name, images) => {
+		vi.spyOn(Date, "now").mockReturnValue(1_750_000_000_000);
+
+		const socket = new PeenSocket({
+			onError: () => undefined,
+			onEvent: () => undefined,
+			onState: () => undefined,
+			token: "token",
+		});
+		socket.connect();
+
+		const transport = TestWebSocket.instances.at(-1);
+		transport?.open();
+		socket.send(sessionID, "look", undefined, undefined, [...images]);
+
+		const sent = JSON.parse(transport?.sent.at(-1) ?? "{}") as {
+			data: Record<string, unknown>;
+		};
+		if (images.length === 0) {
+			expect(sent.data).toEqual({ message: "look" });
+
+			return;
+		}
+
+		expect(sent.data).toEqual({ images, message: "look" });
+	});
+
 	// There is no envelope to report a type or sequence from: no diagnostic
 	// is possible, so the frame is dropped outright.
 	it.each([

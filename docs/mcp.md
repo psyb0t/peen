@@ -52,7 +52,16 @@ HTTP servers authenticate with a static bearer token. The OAuth flow the MCP spe
 
 Servers run in the session's worker, in its agent space. A stdio server runs as the worker's user, with the same mounts, network, and access as `runCommand`, and in a Docker agent space it runs inside the worker container, so the command must exist in the worker image. An HTTP server is reached from the worker's network, so a Docker profile without network access cannot reach one. See [Security](security.md).
 
-The worker starts every server when it starts, in the background, and the first tool set waits for that, at most `PEEN_MCP_START_TIMEOUT` per server. A server that fails to start, or stops later, is left out of the tool list and reported in the status. Servers stop with the worker, and a stdio server's whole process group stops with it. Peen reads each server's tool list once, so a server that adds tools later needs a new worker.
+The worker starts every server when it starts, in the background, and the first tool set waits for that, at most `PEEN_MCP_START_TIMEOUT` per server. A server that fails to start, or stops later, is left out of the tool list and reported in the status. Servers stop with the worker, and a stdio server's whole process group stops with it.
+
+At the start of every turn the worker reads `mcp.json` again and brings the servers up to date:
+
+- When the file changed, every server restarts with the new configuration.
+- A server that ran and then stopped restarts.
+- A server that never started is tried again only when the file changes, so a server that cannot start does not add `PEEN_MCP_START_TIMEOUT` to every turn.
+- Every running server lists its tools again, so a tool the server added or changed shows up in the next turn.
+
+A turn's tool list does not change while the turn runs.
 
 ## Tool names and results
 

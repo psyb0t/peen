@@ -8,7 +8,10 @@ import (
 	"github.com/psyb0t/ctxscope"
 )
 
-const stoppedQueueAdmissionReason = "older_queue_stop_revision"
+const (
+	stoppedQueueAdmissionReason = "older_queue_stop_revision"
+	endedQueueAdmissionReason   = "queue_turn_ended"
+)
 
 func (r *Runtime) admitUserMessageQueue(
 	ctx context.Context,

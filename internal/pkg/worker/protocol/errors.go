@@ -47,6 +47,7 @@ const (
 	CodeTooManyImages             Code = "tooManyImages"
 	CodeImageTooLarge             Code = "imageTooLarge"
 	CodeImageType                 Code = "imageType"
+	CodeTurnLeaseInactive         Code = "turnLeaseInactive"
 )
 
 // Error is one failure as it crosses the socket.
@@ -140,6 +141,11 @@ var detailedFailures = []detailedFailure{
 		code:   CodeImageTooLarge,
 		detail: session.ErrImageTooLarge,
 		class:  commerr.ErrValidationFailed,
+	},
+	{
+		code:   CodeTurnLeaseInactive,
+		detail: session.ErrTurnLeaseInactive,
+		class:  commerr.ErrInvalidState,
 	},
 	{
 		code:   CodeImageType,

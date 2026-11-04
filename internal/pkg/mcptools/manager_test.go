@@ -31,8 +31,9 @@ const (
         capabilities: {tools: {}},
         serverInfo: {name: "fixture", version: "1.0.0"}}' <<<"$line") ;;
     tools/list)
-      result='{"tools":[{"name":"echo","inputSchema":{"type":"object"}},{"name":"secret","inputSchema":{"type":"object"}}]}' ;;
+      result='{"tools":[{"name":"echo","inputSchema":{"type":"object"}},{"name":"secret","inputSchema":{"type":"object"}},{"name":"exit","inputSchema":{"type":"object"}}]}' ;;
     tools/call)
+      [ "$(jq -r '.params.name' <<<"$line")" = exit ] && exit 1
       if [ "$(jq -r '.params.name' <<<"$line")" = secret ]; then
         result=$(jq -nc --arg text "$SECRET" '{content: [{type: "text", text: $text}]}')
       else
@@ -145,8 +146,10 @@ func TestManagerStartsServersAndReportsStatus(t *testing.T) {
 		Source:    SourceConfig,
 		Transport: TransportStdio,
 		State:     StateReady,
-		Tools:     []string{"mcp__fixture__echo", "mcp__fixture__secret"},
-		Warnings:  []string{},
+		Tools: []string{
+			"mcp__fixture__echo", "mcp__fixture__secret", "mcp__fixture__exit",
+		},
+		Warnings: []string{},
 	}, byName["fixture"])
 
 	assert.Equal(t, StateFailed, byName["broken"].State)
@@ -158,7 +161,7 @@ func TestManagerStartsServersAndReportsStatus(t *testing.T) {
 		byName["remote"].Error)
 
 	tools := manager.Tools()
-	require.Len(t, tools, 2)
+	require.Len(t, tools, 3)
 
 	assert.Equal(t, "mcp echo: hi",
 		callTestTool(t, tools, "mcp__fixture__echo", `{"message":"hi"}`).Content)

@@ -42,6 +42,7 @@ const CANCELLED_DETAIL = "Cancelled";
 const RETRYING_DETAIL = "Retrying the provider";
 const CHILD_AGENT_TITLE = "Child agent";
 const AGENT_FINISHED_TITLE = "Agent finished";
+const ACTIVITY_ID_SEPARATOR = "/";
 
 export type ActivityTone = "default" | "error" | "success" | "warning";
 
@@ -82,7 +83,12 @@ export function isActivityEvent(event: ServerEvent): boolean {
 }
 
 export function activities(events: ServerEvent[]): AgentActivity[] {
-	return events.filter(isActivityEvent).map(activityForEvent);
+	// One event ID can carry several event types, such as a child's question
+	// and the notice it raises, so the row ID names both.
+	return events.filter(isActivityEvent).map((event) => ({
+		...activityForEvent(event),
+		id: `${event.type}${ACTIVITY_ID_SEPARATOR}${event.id}`,
+	}));
 }
 
 function activityForEvent(event: ServerEvent): AgentActivity {

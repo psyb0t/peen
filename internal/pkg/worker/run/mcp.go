@@ -24,12 +24,13 @@ func startMCP(
 		return nil, nil //nolint:nilnil // No manager is how MCP is off.
 	}
 
-	servers, failures := mcptools.Load(mcptools.LoadOptions{
+	loadOptions := mcptools.LoadOptions{
 		ConfigDirectory:  deployment.ConfigDirectory,
 		Workspace:        workspace,
 		WorkspaceEnabled: deployment.WorkspaceMCP,
 		SecretEnv:        deployment.MCPEnvNames(),
-	})
+	}
+	servers, failures := mcptools.Load(loadOptions)
 
 	// A stdio server starts from the same environment as the agent's
 	// commands, without Peen's secrets, plus its own env and envFrom.
@@ -44,6 +45,11 @@ func startMCP(
 		BaseEnvironment: environment,
 		LookupEnv:       os.LookupEnv,
 		StartTimeout:    deployment.MCPStartTimeout,
+		// Every turn reads mcp.json again, so an edit applies at the next
+		// turn without a new worker.
+		Reload: func() ([]mcptools.Server, []mcptools.Status) {
+			return mcptools.Load(loadOptions)
+		},
 	})
 
 	if !manager.Configured() {
