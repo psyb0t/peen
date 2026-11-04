@@ -2,6 +2,12 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.41.0 (2026-11-04)
+
+Shows the model every image an MCP tool returns, up to the per-message limit. No configuration or API migration is needed.
+
+- Changes MCP tool results to show the model up to `PEEN_MAX_IMAGES_PER_MESSAGE` images from one call, together in one message after the tool round. Before, only the first image was shown. Each image Peen leaves out still gets a note in the result text, now with "it is over PEEN_MAX_IMAGES_PER_MESSAGE" for the ones past the limit. See [MCP servers](docs/mcp.md#tool-names-and-results).
+
 ## v0.40.0 (2026-11-04)
 
 Adds a `webFetch` tool and a per-turn token limit. No configuration or API migration is needed.

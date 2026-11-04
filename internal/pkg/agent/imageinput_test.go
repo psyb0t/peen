@@ -388,18 +388,43 @@ func TestReadFileHandlerAttachesAnImageOnlyForAnImageModel(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, string(first), string(second))
 
-	image, err := resultImage(attached)
+	images, err := resultImages(attached)
 	require.NoError(t, err)
-	require.NotNil(t, image)
-	assert.Equal(t, data, image.Data)
-	assert.Equal(t, "/work/shot.png", image.Path)
+	require.Len(t, images, 1)
+	assert.Equal(t, data, images[0].Data)
+	assert.Equal(t, "/work/shot.png", images[0].Path)
 
 	refused, err := handler(context.Background(), call)
 	require.NoError(t, err)
 	assert.True(t, refused.IsError)
 	assert.Contains(t, refused.Content, session.ErrImagesNotAccepted.Error())
 
-	none, err := resultImage(refused)
+	none, err := resultImages(refused)
 	require.NoError(t, err)
-	assert.Nil(t, none)
+	assert.Empty(t, none)
+}
+
+// A result saved before a result could carry several images keeps its one
+// image under the older metadata key, and still shows it.
+func TestResultImagesReadsTheSingleImageKey(t *testing.T) {
+	t.Parallel()
+
+	saved := elelem.ToolResult{Metadata: map[string]any{
+		toolImageMetadataKey: map[string]any{
+			"path": "/work/shot.png", "mediaType": elelem.MediaTypePNG,
+			"data": []byte(testPNGBytes),
+		},
+	}}
+
+	images, err := resultImages(saved)
+	require.NoError(t, err)
+	require.Len(t, images, 1)
+	assert.Equal(t, "/work/shot.png", images[0].Path)
+	assert.Equal(t, []byte(testPNGBytes), images[0].Data)
+
+	malformed := elelem.ToolResult{Metadata: map[string]any{
+		toolImagesMetadataKey: "not a list",
+	}}
+	_, err = resultImages(malformed)
+	require.Error(t, err)
 }

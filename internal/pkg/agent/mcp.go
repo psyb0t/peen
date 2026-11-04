@@ -14,7 +14,7 @@ const (
 	mcpImageNotShownFormat  = "[image %d of %d not shown: %s]"
 	mcpNoteSeparator        = "\n"
 	mcpReasonNoImageInput   = "the model does not take image input"
-	mcpReasonOneImage       = "a tool result shows the model one image"
+	mcpReasonTooManyImages  = "it is over PEEN_MAX_IMAGES_PER_MESSAGE"
 	mcpReasonImageTooLarge  = "it is larger than PEEN_MAX_IMAGE_BYTES"
 	mcpReasonImageWrongType = "it is not PNG, JPEG, GIF, or WebP data"
 )
@@ -85,7 +85,7 @@ func (r *Runtime) mcpToolHandler(
 			return elelem.NewToolErrorResult(toolErrorMessage(err)), nil
 		}
 
-		image, notes := r.mcpResultImage(ctx, result.Images)
+		shown, notes := r.mcpResultImages(ctx, name, result.Images)
 		result.Images = nil
 
 		if len(notes) > 0 {
@@ -94,25 +94,24 @@ func (r *Runtime) mcpToolHandler(
 			)
 		}
 
-		if image == nil || result.IsError {
+		if len(shown) == 0 || result.IsError {
 			return result, nil
 		}
 
-		image.Tool = name
-
-		return withToolImage(result, *image)
+		return withToolImages(result, shown)
 	}
 }
 
-// mcpResultImage picks the image a result shows the model and says, for
-// every other image, why it is not shown. Nothing is dropped silently.
-func (r *Runtime) mcpResultImage(
+// mcpResultImages picks the images a result shows the model, at most
+// PEEN_MAX_IMAGES_PER_MESSAGE, and says for every other image why it is not
+// shown. Nothing is dropped silently.
+func (r *Runtime) mcpResultImages(
 	ctx context.Context,
+	tool string,
 	images []elelem.ImageSource,
-) (*toolImage, []string) {
+) ([]toolImage, []string) {
 	notes := make([]string, 0)
-
-	var shown *toolImage
+	shown := make([]toolImage, 0, len(images))
 
 	for index, image := range images {
 		reason := ""
@@ -124,8 +123,8 @@ func (r *Runtime) mcpResultImage(
 			reason = mcpReasonImageTooLarge
 		case !isImageOf(image.MediaType, image.Data):
 			reason = mcpReasonImageWrongType
-		case shown != nil:
-			reason = mcpReasonOneImage
+		case len(shown) >= r.maxImagesPerMessage:
+			reason = mcpReasonTooManyImages
 		}
 
 		if reason != "" {
@@ -136,7 +135,9 @@ func (r *Runtime) mcpResultImage(
 			continue
 		}
 
-		shown = &toolImage{MediaType: image.MediaType, Data: image.Data}
+		shown = append(shown, toolImage{
+			Tool: tool, MediaType: image.MediaType, Data: image.Data,
+		})
 	}
 
 	return shown, notes

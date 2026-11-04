@@ -2599,12 +2599,12 @@ func (p *preparedTurn) onToolImage(
 	ctx context.Context,
 	result elelem.ToolResult,
 ) error {
-	image, err := resultImage(result)
-	if err != nil || image == nil {
+	images, err := resultImages(result)
+	if err != nil || len(images) == 0 {
 		return err
 	}
 
-	p.turn.appendMessage(toolImageInput(image, p.workspace))
+	p.turn.appendMessage(toolImageInput(images, p.workspace))
 
 	return p.turn.checkpoint(ctx)
 }

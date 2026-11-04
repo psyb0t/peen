@@ -355,13 +355,13 @@ func workflowRoundInjections(
 			})
 		}
 
-		image, err := resultImage(result.Result)
+		images, err := resultImages(result.Result)
 		if err != nil {
-			return nil, ctxerrors.Wrap(err, "attach tool round image")
+			return nil, ctxerrors.Wrap(err, "attach tool round images")
 		}
 
-		if image != nil {
-			messages = append(messages, toolImageMessage(image))
+		if len(images) > 0 {
+			messages = append(messages, toolImageMessage(images))
 		}
 	}
 

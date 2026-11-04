@@ -1599,12 +1599,12 @@ func (s *agentRunSink) onToolImage(
 	ctx context.Context,
 	result elelem.ToolResult,
 ) error {
-	image, err := resultImage(result)
-	if err != nil || image == nil {
+	images, err := resultImages(result)
+	if err != nil || len(images) == 0 {
 		return err
 	}
 
-	stored := toolImageInput(image, "")
+	stored := toolImageInput(images, "")
 
 	return s.persistMessages(ctx, session.AgentRunMessageInput{
 		Role:    stored.Role,

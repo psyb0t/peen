@@ -67,7 +67,7 @@ A turn's tool list does not change while the turn runs.
 
 A tool is named `mcp__<server>__<tool>`, so hook matchers and `allowed-tools` entries written for other agent tools work. A tool name with a character providers refuse, or one that makes the name longer than 64 characters, is cleaned and cut, and gets a short hash of the original. The description says which server the tool comes from.
 
-A tool's text goes to the model like any tool output, inside the `<toolOutput>` wrapping and under `PEEN_MAX_TOOL_RESULT_TOKENS`. The first image a tool returns reaches a model that takes images the same way a `readFile` image does, after the tool round, marked as data and not instructions. Every image Peen does not show, because the model takes no images, it is larger than `PEEN_MAX_IMAGE_BYTES`, it is not PNG, JPEG, GIF, or WebP data, or it is not the first, is replaced by a note in the result text. Audio and binary resources become a note too. A server that fails mid-call gives the model a tool error, and the turn goes on.
+A tool's text goes to the model like any tool output, inside the `<toolOutput>` wrapping and under `PEEN_MAX_TOOL_RESULT_TOKENS`. The images a tool returns reach a model that takes images the same way a `readFile` image does, together in one message after the tool round, marked as data and not instructions. Every image Peen does not show, because the model takes no images, it is larger than `PEEN_MAX_IMAGE_BYTES`, it is not PNG, JPEG, GIF, or WebP data, or the call already returned `PEEN_MAX_IMAGES_PER_MESSAGE` images, is replaced by a note in the result text. Audio and binary resources become a note too. A server that fails mid-call gives the model a tool error, and the turn goes on.
 
 ## Status
 

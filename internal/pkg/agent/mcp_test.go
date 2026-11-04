@@ -21,14 +21,15 @@ func mcpTestHandler(
 	}
 }
 
-func TestMCPToolHandlerShowsOneImageAndNotesTheRest(t *testing.T) {
+func TestMCPToolHandlerShowsImagesUpToTheLimitAndNotesTheRest(t *testing.T) {
 	t.Parallel()
 
 	png := []byte(testPNGBytes)
 	large := []byte(testPNGBytes + " larger than the limit")
-	runtime := &Runtime{maxImageBytes: len(png)}
+	runtime := &Runtime{maxImageBytes: len(png), maxImagesPerMessage: 2}
 
 	images := []elelem.ImageSource{
+		{Data: png, MediaType: elelem.MediaTypePNG},
 		{Data: png, MediaType: elelem.MediaTypePNG},
 		{Data: png, MediaType: elelem.MediaTypePNG},
 		{Data: large, MediaType: elelem.MediaTypePNG},
@@ -45,18 +46,28 @@ func TestMCPToolHandlerShowsOneImageAndNotesTheRest(t *testing.T) {
 
 	assert.Nil(t, result.Images, "images travel as Peen's image metadata")
 	assert.Equal(t, "the screen\n"+
-		"[image 2 of 4 not shown: a tool result shows the model one image]\n"+
-		"[image 3 of 4 not shown: it is larger than PEEN_MAX_IMAGE_BYTES]\n"+
-		"[image 4 of 4 not shown: it is not PNG, JPEG, GIF, or WebP data]",
+		"[image 3 of 5 not shown: it is over PEEN_MAX_IMAGES_PER_MESSAGE]\n"+
+		"[image 4 of 5 not shown: it is larger than PEEN_MAX_IMAGE_BYTES]\n"+
+		"[image 5 of 5 not shown: it is not PNG, JPEG, GIF, or WebP data]",
 		result.Content)
 
-	image, err := resultImage(result)
+	shown, err := resultImages(result)
 	require.NoError(t, err)
-	require.NotNil(t, image)
-	assert.Equal(t, png, image.Data)
-	assert.Equal(t, mcpTestToolName, image.Tool)
-	assert.Contains(t, toolImageText(image),
-		"returned by the tool "+mcpTestToolName)
+	require.Len(t, shown, 2)
+
+	for _, image := range shown {
+		assert.Equal(t, png, image.Data)
+		assert.Equal(t, mcpTestToolName, image.Tool)
+	}
+
+	assert.Contains(t, toolImageText(shown),
+		"The 2 images below were returned by the tool "+mcpTestToolName)
+	assert.Contains(t, toolImageText(shown[:1]),
+		"The image below was returned by the tool "+mcpTestToolName)
+
+	message := toolImageMessage(shown)
+	assert.Len(t, message.Content, 1+len(shown),
+		"one text part, then one part per image")
 }
 
 func TestMCPToolHandlerWithoutImageInputNotesEveryImage(t *testing.T) {
@@ -77,9 +88,9 @@ func TestMCPToolHandlerWithoutImageInputNotesEveryImage(t *testing.T) {
 		"[image 1 of 1 not shown: the model does not take image input]",
 		result.Content)
 
-	image, err := resultImage(result)
+	images, err := resultImages(result)
 	require.NoError(t, err)
-	assert.Nil(t, image)
+	assert.Empty(t, images)
 }
 
 func TestMCPToolHandlerErrors(t *testing.T) {
