@@ -5,6 +5,7 @@ package agent
 func WorkspaceToolNames() []string {
 	return []string{
 		toolNameListFiles, toolNameSearchText, toolNameReadFile,
+		toolNameWebFetch,
 		toolNameWriteFile, toolNameEditFile, toolNameApplyPatch,
 		toolNameMovePath, toolNameMakeDirectory, toolNameRemovePath,
 		toolNameChangeDirectory,

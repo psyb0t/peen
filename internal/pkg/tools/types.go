@@ -90,6 +90,23 @@ type ReadFileInput struct {
 	Limit  int    `json:"limit"`
 }
 
+// WebFetchInput names the page webFetch reads.
+type WebFetchInput struct {
+	URL string `json:"url"`
+}
+
+// WebFetchOutput is a fetched page as text. URL is where the request ended
+// after redirects. Text is the body, with an HTML page reduced to its readable
+// text. Truncated reports a body cut at the fetch limit.
+type WebFetchOutput struct {
+	URL         string `json:"url"`
+	Status      int    `json:"status"`
+	ContentType string `json:"contentType"`
+	Title       string `json:"title,omitempty"`
+	Text        string `json:"text"`
+	Truncated   bool   `json:"truncated"`
+}
+
 // ReadFileOutput carries the window plus continuation and identity metadata.
 // NextOffset is zero when the window reached the end of the file.
 type ReadFileOutput struct {

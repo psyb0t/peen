@@ -118,6 +118,8 @@ linters:
             # image via testcontainers-go. Test-only; production never imports it.
             - github.com/testcontainers/testcontainers-go
             - golang.org/x/sys
+            # HTML parsing for the webFetch tool.
+            - golang.org/x/net/html
             - go.opentelemetry.io/otel/trace
             - gorm.io/gen
             - gorm.io/gorm

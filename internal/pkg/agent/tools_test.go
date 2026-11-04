@@ -55,6 +55,7 @@ func TestHostToolSetRegistersEveryTool(t *testing.T) {
 		toolNameListFiles,
 		toolNameSearchText,
 		toolNameReadFile,
+		toolNameWebFetch,
 		toolNameWriteFile,
 		toolNameEditFile,
 		toolNameApplyPatch,

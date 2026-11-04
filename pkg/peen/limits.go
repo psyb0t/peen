@@ -29,6 +29,8 @@ type ToolLimits struct {
 	JobStopGracePeriod    time.Duration
 	MaxListJobs           int
 	MaxImageBytes         int
+	// MaxFetchBytes bounds how much of a response body webFetch reads.
+	MaxFetchBytes int
 }
 
 // AgentLimits bounds concurrent children, nesting and live event buffers.

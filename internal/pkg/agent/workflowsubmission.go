@@ -18,6 +18,19 @@ import (
 type workflowExecutionLimits struct {
 	MaxRounds          int `json:"maxRounds"`
 	MaxConcurrentTools int `json:"maxConcurrentTools"`
+	// MaxTurnTokens is saved with the execution, so a resumed run keeps the
+	// limit it started with. Zero, and executions saved before it existed,
+	// set no limit.
+	MaxTurnTokens int64 `json:"maxTurnTokens,omitempty"`
+}
+
+// workflowLimits is what a new root turn or child run saves as its limits.
+func (r *Runtime) workflowLimits(maxRounds int) *workflowExecutionLimits {
+	return &workflowExecutionLimits{
+		MaxRounds:          maxRounds,
+		MaxConcurrentTools: r.maxConcurrentTools,
+		MaxTurnTokens:      r.maxTurnTokens,
+	}
 }
 
 func nativeWorkflowInstance(

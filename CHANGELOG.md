@@ -2,6 +2,13 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.40.0 (2026-11-04)
+
+Adds a `webFetch` tool and a per-turn token limit. No configuration or API migration is needed.
+
+- Adds the `webFetch` tool, which fetches an `http` or `https` URL from the worker's network and returns the page as text. An HTML page comes back as its readable text, with each link's absolute URL after its text, and other text formats come back as they are. Binary content is refused. `PEEN_TOOL_MAX_FETCH_BYTES`, default 2 MiB, limits how much of a body it reads, and the result goes through the same `<toolOutput>` wrapping as any tool output. See [Security](docs/security.md#what-the-agent-can-do).
+- Adds `PEEN_MAX_TURN_TOKENS`, and `MaxTurnTokens` in `pkg/peen`, which fails a turn before its next model round once its rounds have billed that many tokens, prompt and output together, failed provider attempts included. A child agent's run counts on its own against the same limit. The default `0` sets no limit. See [Configuration](docs/configuration.md#tool-execution-limits).
+
 ## v0.39.0 (2026-11-04)
 
 Adds image attachments and an MCP server list to the control surface, and keeps a session's MCP servers in step with `mcp.json` between turns. No configuration or API migration is needed.

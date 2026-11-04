@@ -34,6 +34,7 @@ These are the in-process equivalents of deployment settings. `pkg/peen` accepts 
 | `PEEN_MAX_CONCURRENT_TOOLS` | `MaxConcurrentTools` | `4` |
 | `PEEN_TOOL_TIMEOUT` | `ToolTimeout` | `15m` |
 | `PEEN_MAX_TOOL_RESULT_TOKENS` | `MaxToolResultTokens` | `8192` |
+| `PEEN_MAX_TURN_TOKENS` | `MaxTurnTokens` | `0` |
 | `PEEN_DEFAULT_HOOK_COMMAND_TIMEOUT` | `HookCommandTimeout` | `30s` |
 | `PEEN_MAX_HOOK_COMMAND_OUTPUT` | `MaxHookCommandOutput` | `65536` |
 | `PEEN_TOOL_MAX_LIST_ENTRIES` | `ToolLimits.MaxListEntries` | `1000` |
@@ -47,6 +48,7 @@ These are the in-process equivalents of deployment settings. `pkg/peen` accepts 
 | `PEEN_TOOL_MAX_DIFF_BYTES` | `ToolLimits.MaxDiffBytes` | `65536` |
 | `PEEN_TOOL_MAX_REMOVE_ENTRIES` | `ToolLimits.MaxRemoveEntries` | `20000` |
 | `PEEN_TOOL_MAX_COMMAND_OUTPUT_BYTES` | `ToolLimits.MaxCommandOutputBytes` | `65536` |
+| `PEEN_TOOL_MAX_FETCH_BYTES` | `ToolLimits.MaxFetchBytes` | `2097152` |
 | `PEEN_DEFAULT_TOOL_COMMAND_TIMEOUT` | `ToolLimits.CommandTimeout` and `ToolLimits.WaitJobTimeout` | `10m` |
 | `PEEN_MAX_PENDING_EVENTS` | `EventLimits.MaxPendingPerSession` | `256` |
 | `PEEN_MAX_EVENT_SUMMARY_BYTES` | `EventLimits.MaxSummaryBytes` | `4096` |

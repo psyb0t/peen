@@ -119,6 +119,11 @@ func (o Options) validateBounds() error {
 		}
 	}
 
+	if o.MaxTurnTokens < 0 {
+		return ctxerrors.Wrap(commerr.ErrValidationFailed,
+			"negative MaxTurnTokens")
+	}
+
 	if o.MaxSystemPromptPercent > internalconfig.MaxSystemPromptPercent {
 		return ctxerrors.Wrapf(
 			commerr.ErrValidationFailed,

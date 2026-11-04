@@ -40,6 +40,9 @@ var (
 	ErrDirectoryNotEmpty = errors.New("directory is not empty")
 	// ErrLimitExceeded reports input too large to bound by truncation.
 	ErrLimitExceeded = errors.New("tool limit exceeded")
+	// ErrUnsupportedURL reports a webFetch URL that is not http or https, or
+	// a redirect to one.
+	ErrUnsupportedURL = errors.New("only http and https URLs are supported")
 	// ErrCommandStartFailed reports a command that could not be launched.
 	ErrCommandStartFailed = errors.New("command could not be started")
 )

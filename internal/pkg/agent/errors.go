@@ -5,6 +5,10 @@ import "errors"
 var (
 	errDirectoryChanged  = errors.New("agent directory changed")
 	errRootAdmissionBusy = errors.New("root turn admission is busy")
+	// ErrTurnTokenLimit reports a turn, or a child agent's run, whose rounds
+	// have billed PEEN_MAX_TURN_TOKENS. It is always joined with
+	// commerr.ErrOutOfRange.
+	ErrTurnTokenLimit = errors.New("the turn reached its token limit")
 	// ErrInvalidModelReference reports a malformed provider/model value.
 	ErrInvalidModelReference = errors.New("invalid qualified model reference")
 	// ErrModelUnavailable reports a model discovery did not find.

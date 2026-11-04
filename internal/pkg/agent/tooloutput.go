@@ -24,6 +24,7 @@ const (
 	toolOutputSourceAgent      = "another agent's output"
 	toolOutputSourceTranscript = "a stored transcript"
 	toolOutputSourceTool       = "tool output"
+	toolOutputSourceWeb        = "a fetched web page"
 
 	// toolOutputSlackTokens absorbs the difference between Peen's token count
 	// and Elelem's own count of the same result, so Elelem's result cap never
@@ -56,6 +57,7 @@ func isHookDenialResult(result elelem.ToolResult) bool {
 //nolint:gochecknoglobals // Read-only lookup table.
 var toolOutputSources = map[string]string{
 	toolNameReadFile:                 toolOutputSourceFile,
+	toolNameWebFetch:                 toolOutputSourceWeb,
 	toolNameListFiles:                toolOutputSourceListing,
 	toolNameSearchText:               toolOutputSourceSearch,
 	toolNameRunCommand:               toolOutputSourceCommand,

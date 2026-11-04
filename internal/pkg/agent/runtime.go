@@ -112,6 +112,7 @@ type Runtime struct {
 	maxConcurrentTools   int
 	toolTimeout          time.Duration
 	maxToolResultTokens  int
+	maxTurnTokens        int64
 	hookCommandTimeout   time.Duration
 	maxHookCommandOutput int
 	hookStateRoot        string
@@ -302,6 +303,7 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 		maxConcurrentTools:   options.MaxConcurrentTools,
 		toolTimeout:          options.ToolTimeout,
 		maxToolResultTokens:  options.MaxToolResultTokens,
+		maxTurnTokens:        options.MaxTurnTokens,
 		hookCommandTimeout:   options.HookCommandTimeout,
 		maxHookCommandOutput: options.MaxHookCommandOutput,
 		hookStateRoot:        options.HookStateRoot,

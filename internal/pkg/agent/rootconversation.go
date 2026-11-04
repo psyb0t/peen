@@ -20,10 +20,7 @@ func (r *Runtime) rootWorkflowConversation(
 	}
 
 	conversation := workflowConversation{
-		Limits: &workflowExecutionLimits{
-			MaxRounds:          r.maxToolRounds,
-			MaxConcurrentTools: r.maxConcurrentTools,
-		},
+		Limits:              r.workflowLimits(r.maxToolRounds),
 		ModelReference:      prepared.modelReference,
 		SystemPrompt:        current.prompt,
 		Messages:            savedHistory(prepared.prompt.Messages()),

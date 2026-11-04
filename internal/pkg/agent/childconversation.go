@@ -52,10 +52,7 @@ func (r *Runtime) childWorkflowConversation(
 	}
 
 	conversation := workflowConversation{
-		Limits: &workflowExecutionLimits{
-			MaxRounds:          prepared.remainingRounds,
-			MaxConcurrentTools: r.maxConcurrentTools,
-		},
+		Limits:         r.workflowLimits(prepared.remainingRounds),
 		ModelReference: deps.modelReference, SystemPrompt: current.prompt,
 		Messages:            savedHistory(prepared.prompt.Messages()),
 		MaxContextTokens:    r.maxContextTokens,

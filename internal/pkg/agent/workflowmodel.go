@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/google/uuid"
@@ -79,10 +80,38 @@ func workflowSendRequest(
 	images imageBlobReader,
 	input workflowRoundInput,
 ) (*elelem.Request, workflowConversation, error) {
-	return workflowModelRequestWith(models, input,
+	request, conversation, err := workflowModelRequestWith(models, input,
 		func(history []elelem.Message) ([]elelem.Message, error) {
 			return resolveImageReferences(ctx, images, history)
 		})
+	if err != nil {
+		return request, conversation, err
+	}
+
+	if err := checkTurnTokenLimit(conversation); err != nil {
+		return nil, conversation, err
+	}
+
+	return request, conversation, nil
+}
+
+// checkTurnTokenLimit refuses another model round once the rounds so far
+// have billed the run's token limit. The check runs before each round, so
+// the round that crosses the limit still finishes.
+func checkTurnTokenLimit(conversation workflowConversation) error {
+	if conversation.Limits == nil || conversation.Limits.MaxTurnTokens <= 0 {
+		return nil
+	}
+
+	used := conversation.Usage.BilledTotalTokens()
+	if used < conversation.Limits.MaxTurnTokens {
+		return nil
+	}
+
+	return ctxerrors.Wrapf(
+		errors.Join(commerr.ErrOutOfRange, ErrTurnTokenLimit),
+		"%d tokens used of %d", used, conversation.Limits.MaxTurnTokens,
+	)
 }
 
 // decodeWorkflowConversation reads and checks a round's saved context.

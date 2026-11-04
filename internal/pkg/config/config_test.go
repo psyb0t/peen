@@ -612,6 +612,15 @@ func TestConfigValidateToolLimits(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "negative turn token limit",
+			mutate:  func(c *Config) { c.MaxTurnTokens = -1 },
+			wantErr: true,
+		},
+		{
+			name:   "turn token limit off",
+			mutate: func(c *Config) { c.MaxTurnTokens = 0 },
+		},
+		{
 			name:    "negative search file bound",
 			mutate:  func(c *Config) { c.ToolMaxSearchFileBytes = -1 },
 			wantErr: true,

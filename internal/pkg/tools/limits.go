@@ -23,6 +23,7 @@ const (
 	defaultMaxPatchChangedBytes  = 4 * 1024 * 1024
 	defaultMaxRemoveEntries      = 20000
 	defaultMaxCommandOutputBytes = 64 * 1024
+	defaultMaxFetchBytes         = 2 * 1024 * 1024
 	defaultCommandTimeout        = 10 * time.Minute
 
 	defaultMaxJobOutputLines     = 2000
@@ -78,6 +79,8 @@ type Limits struct {
 	// MaxImageBytes bounds an image file readFile returns as an image,
 	// instead of MaxReadBytes, which bounds text.
 	MaxImageBytes int
+	// MaxFetchBytes bounds how much of a response body webFetch reads.
+	MaxFetchBytes int
 }
 
 // DefaultLimits returns the bounded defaults every deployment starts from.
@@ -105,6 +108,7 @@ func DefaultLimits() Limits {
 		JobStopGracePeriod:    defaultJobStopGracePeriod,
 		MaxListJobs:           defaultMaxListJobs,
 		MaxImageBytes:         defaultMaxImageBytes,
+		MaxFetchBytes:         defaultMaxFetchBytes,
 	}
 }
 
@@ -122,6 +126,10 @@ func (l Limits) withDefaults() Limits {
 
 	if l.MaxImageBytes == 0 {
 		l.MaxImageBytes = defaults.MaxImageBytes
+	}
+
+	if l.MaxFetchBytes == 0 {
+		l.MaxFetchBytes = defaults.MaxFetchBytes
 	}
 
 	return l
@@ -244,6 +252,7 @@ func (l Limits) validate() error {
 		l.MaxReadJobOutputLines,
 		l.MaxListJobs,
 		l.MaxImageBytes,
+		l.MaxFetchBytes,
 	}
 
 	for _, value := range positives {

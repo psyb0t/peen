@@ -48,7 +48,7 @@ The body is the agent's instructions and must not be empty. The YAML is strict. 
 
 These are the tool names `allowed-tools` accepts:
 
-`listFiles`, `searchText`, `readFile`, `writeFile`, `editFile`, `applyPatch`, `movePath`, `makeDirectory`, `removePath`, `changeDirectory`, `runCommand`, `listJobs`, `readJobOutput`, `waitJob`, `signalJob`, `useSkill`, `launchAgent`, `sendMessage`, `waitMessages`, `stopAgent`, `ask`, `searchExecutions`, `readExecution`
+`listFiles`, `searchText`, `readFile`, `webFetch`, `writeFile`, `editFile`, `applyPatch`, `movePath`, `makeDirectory`, `removePath`, `changeDirectory`, `runCommand`, `listJobs`, `readJobOutput`, `waitJob`, `signalJob`, `useSkill`, `launchAgent`, `sendMessage`, `waitMessages`, `stopAgent`, `ask`, `searchExecutions`, `readExecution`
 
 An empty item or a repeated name makes the file invalid when Peen loads it. A misspelled tool name is caught later, when the agent runs, and that run fails with "agent allowed-tools names unavailable tool". The restriction applies to the agent wherever it runs, including when it is the root agent.
 

@@ -516,6 +516,9 @@ type RuntimeOptions struct {
 	ToolTimeout time.Duration
 	// MaxToolResultTokens bounds one tool result before it enters context.
 	MaxToolResultTokens int
+	// MaxTurnTokens fails a turn, or a child agent's run, before a model
+	// round once its rounds have billed this many tokens. Zero sets no limit.
+	MaxTurnTokens int64
 	// HookCommandTimeout bounds an executable hook action that sets no timeout
 	// of its own. Zero takes the hook package default.
 	HookCommandTimeout time.Duration

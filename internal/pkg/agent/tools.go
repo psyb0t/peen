@@ -21,6 +21,7 @@ const (
 	toolNameListFiles                = "listFiles"
 	toolNameSearchText               = "searchText"
 	toolNameReadFile                 = "readFile"
+	toolNameWebFetch                 = "webFetch"
 	toolNameWriteFile                = "writeFile"
 	toolNameEditFile                 = "editFile"
 	toolNameApplyPatch               = "applyPatch"
@@ -185,6 +186,13 @@ func readOnlyHostTools(
 			onPostRun,
 		),
 		readFileTool(executor, onPostRun),
+		hostTool(
+			toolNameWebFetch,
+			webFetchDescription,
+			webFetchSchema,
+			executor.WebFetch,
+			onPostRun,
+		),
 	}
 }
 

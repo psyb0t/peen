@@ -251,6 +251,9 @@ type Config struct {
 	// which a wait bounds instead.
 	ToolTimeout         time.Duration `default:"15m"  env:"PEEN_TOOL_TIMEOUT"`           //nolint:lll // Immutable env tag.
 	MaxToolResultTokens int           `default:"8192" env:"PEEN_MAX_TOOL_RESULT_TOKENS"` //nolint:lll // Immutable env tag.
+	// MaxTurnTokens stops a turn, or a child agent's run, before a model
+	// round once its rounds have billed this many tokens. 0 sets no limit.
+	MaxTurnTokens int64 `default:"0" env:"PEEN_MAX_TURN_TOKENS"` //nolint:lll // Immutable env tag.
 	// DefaultHookCommandTimeout bounds a command hook action that sets no
 	// timeout of its own.
 	DefaultHookCommandTimeout time.Duration `default:"30s" env:"PEEN_DEFAULT_HOOK_COMMAND_TIMEOUT"` //nolint:lll // Immutable env tag.
@@ -267,6 +270,7 @@ type Config struct {
 	ToolMaxDiffBytes          int   `default:"65536"   env:"PEEN_TOOL_MAX_DIFF_BYTES"`           //nolint:lll // Immutable env tag.
 	ToolMaxRemoveEntries      int   `default:"20000"   env:"PEEN_TOOL_MAX_REMOVE_ENTRIES"`       //nolint:lll // Immutable env tag.
 	ToolMaxCommandOutputBytes int   `default:"65536"   env:"PEEN_TOOL_MAX_COMMAND_OUTPUT_BYTES"` //nolint:lll // Immutable env tag.
+	ToolMaxFetchBytes         int   `default:"2097152" env:"PEEN_TOOL_MAX_FETCH_BYTES"`          //nolint:lll // Immutable env tag.
 	// DefaultToolCommandTimeout is how long runCommand and waitJob wait when a
 	// call passes no timeout. A call may ask for any wait, longer or shorter.
 	DefaultToolCommandTimeout time.Duration `default:"10m" env:"PEEN_DEFAULT_TOOL_COMMAND_TIMEOUT"` //nolint:lll // Immutable env tag.
@@ -940,6 +944,7 @@ func (c Config) validateToolLimits() error {
 		c.ToolMaxDiffBytes,
 		c.ToolMaxRemoveEntries,
 		c.ToolMaxCommandOutputBytes,
+		c.ToolMaxFetchBytes,
 		c.MaxPendingEvents,
 		c.MaxEventSummaryBytes,
 		c.MaxEventDataBytes,
@@ -954,6 +959,10 @@ func (c Config) validateToolLimits() error {
 
 	if c.ToolMaxSearchFileBytes < 0 {
 		return ctxerrors.Wrap(ErrInvalidConfig, "invalid tool search bound")
+	}
+
+	if c.MaxTurnTokens < 0 {
+		return ctxerrors.Wrap(ErrInvalidConfig, "turn token limit is negative")
 	}
 
 	return c.validateToolTimeouts()

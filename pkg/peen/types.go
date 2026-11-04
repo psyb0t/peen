@@ -181,6 +181,10 @@ type Options struct {
 	// MaxToolResultTokens bounds one tool result before it enters context.
 	// Zero takes the internal default.
 	MaxToolResultTokens int
+	// MaxTurnTokens fails a turn, or a child agent's run, before a model
+	// round once its rounds have billed this many tokens. Zero sets no
+	// limit.
+	MaxTurnTokens int64
 	// HookCommandTimeout bounds an executable hook action that sets no
 	// timeout of its own. Zero takes the internal default.
 	HookCommandTimeout time.Duration
