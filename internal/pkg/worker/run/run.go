@@ -148,6 +148,7 @@ func Run(ctx context.Context, options Options) error {
 		connection,
 		options.Driver,
 		servers,
+		handler.reportMetrics(serveCtx, connection.Store()),
 	)
 	if err != nil {
 		return err
@@ -182,6 +183,7 @@ func serve(
 
 	workflowErr := handler.stopNativeWorkflows()
 	handler.shutdownAgentRuns(ctx)
+	handler.flushMetrics(ctx)
 
 	stop()
 
@@ -264,6 +266,7 @@ func buildRuntime(
 	connection *protocol.Connection,
 	driver agent.DriverFactory,
 	servers *mcptools.Manager,
+	collector *metrics.Metrics,
 ) (*agent.Runtime, error) {
 	upstreams, err := deployment.Upstreams()
 	if err != nil {
@@ -289,7 +292,7 @@ func buildRuntime(
 	options := agent.RuntimeOptionsFromConfig(
 		deployment,
 		models,
-		metrics.New(),
+		collector,
 	)
 	if err := applyCommandEnvironment(&options, deployment); err != nil {
 		return nil, err
@@ -355,6 +358,7 @@ type commandHandler struct {
 	runtime       *agent.Runtime
 	store         *protocol.Store
 	stopWorkflows func() error
+	reporter      *metrics.Reporter
 
 	// ready closes once the runtime exists. A worker registers before it can
 	// build that runtime, because building it reads durable state over the
@@ -364,6 +368,37 @@ type commandHandler struct {
 
 	stopped  chan struct{}
 	stopOnce sync.Once
+}
+
+// reportMetrics builds the worker's collector. Everything it records goes to
+// the controller, which holds this deployment's only metrics, until ctx ends.
+func (h *commandHandler) reportMetrics(
+	ctx context.Context,
+	store *protocol.Store,
+) *metrics.Metrics {
+	collector := metrics.New()
+	h.reporter = metrics.NewReporter(store.ReportMetrics)
+	collector.SetSink(h.reporter.Add)
+
+	go h.reporter.Run(ctx, collector)
+
+	return collector
+}
+
+// flushMetrics sends what is still buffered. It is best effort, because a
+// stopping worker must not wait on telemetry.
+func (h *commandHandler) flushMetrics(ctx context.Context) {
+	if h.reporter == nil {
+		return
+	}
+
+	if err := h.reporter.Flush(context.WithoutCancel(ctx)); err != nil {
+		ctxscope.GetLogger(ctx).Warn(
+			"flushing worker metrics failed",
+			"reason", "metrics_flush_failed",
+			"err", err,
+		)
+	}
 }
 
 func newCommandHandler() *commandHandler {

@@ -4,6 +4,8 @@ Peen stores session state in one SQLite file, `peen.db` under `PEEN_STATE_DIR`, 
 
 Runtime assembly also opens `workflows.db` in the state directory for go-workflows. The library owns that file's schema and migrations; never mix them with Peen's session migrations. The controller lends generation-bound backends over authenticated worker RPC and closes workflow storage with the session handle. Worker code never opens the file.
 
+`control-core` also opens `metrics.db` in the state directory through `db.OpenMetricsStorage`. It holds one table, `metric_observations`, with its own migrations under `internal/pkg/db/migrations/metrics/`, and it is disposable telemetry, so it runs with `synchronous(NORMAL)` and a failure to open it never stops the controller. `internal/pkg/metricsstore` is its only writer. Worker code never opens the file: a worker reports over its session socket, and the controller stamps the session and generation. A row holds labels, identifiers, and numbers, never message text or tool output. The pinned schema and the migration count above cover `peen.db` only, and the schema mismatch check does not run on this file. Before 1.0, edit its create migration and delete the file from your development state directory.
+
 ## Layout
 
 | Path | Role |

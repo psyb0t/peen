@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/metrics"
 )
 
 const (
@@ -38,6 +39,9 @@ type Options struct {
 	// single tool result could grow the transcript without bound. Zero takes
 	// the package default.
 	MaxStoredMessageBytes int
+
+	// Metrics receives what committed writes prove. Nil disables observation.
+	Metrics *metrics.Metrics
 }
 
 // OpenSessionOptions supplies immutable session attribution on creation.

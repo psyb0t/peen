@@ -47,7 +47,7 @@ func (r *Runtime) workflowChildModelRoundWithAssistant(
 		err = errors.Join(err, auditErr)
 	}
 
-	observeModelRequest(r.metrics, modelMetricStageChild,
+	observeModelRequest(ctx, r.metrics, modelMetricStageChild,
 		modelMetricFunctionRunChild, conversation.ModelReference,
 		monitor.startedAt, monitor.firstDeltaAt, response, err)
 

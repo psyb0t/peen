@@ -34,6 +34,7 @@ var (
 	JobOutputLine             *jobOutputLine
 	JobSignalRequest          *jobSignalRequest
 	Message                   *message
+	MetricObservation         *metricObservation
 	ModelCall                 *modelCall
 	ModelRun                  *modelRun
 	PromptSnapshot            *promptSnapshot
@@ -64,6 +65,7 @@ func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 	JobOutputLine = &Q.JobOutputLine
 	JobSignalRequest = &Q.JobSignalRequest
 	Message = &Q.Message
+	MetricObservation = &Q.MetricObservation
 	ModelCall = &Q.ModelCall
 	ModelRun = &Q.ModelRun
 	PromptSnapshot = &Q.PromptSnapshot
@@ -95,6 +97,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		JobOutputLine:             newJobOutputLine(db, opts...),
 		JobSignalRequest:          newJobSignalRequest(db, opts...),
 		Message:                   newMessage(db, opts...),
+		MetricObservation:         newMetricObservation(db, opts...),
 		ModelCall:                 newModelCall(db, opts...),
 		ModelRun:                  newModelRun(db, opts...),
 		PromptSnapshot:            newPromptSnapshot(db, opts...),
@@ -127,6 +130,7 @@ type Query struct {
 	JobOutputLine             jobOutputLine
 	JobSignalRequest          jobSignalRequest
 	Message                   message
+	MetricObservation         metricObservation
 	ModelCall                 modelCall
 	ModelRun                  modelRun
 	PromptSnapshot            promptSnapshot
@@ -162,6 +166,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		JobOutputLine:             q.JobOutputLine.clone(db),
 		JobSignalRequest:          q.JobSignalRequest.clone(db),
 		Message:                   q.Message.clone(db),
+		MetricObservation:         q.MetricObservation.clone(db),
 		ModelCall:                 q.ModelCall.clone(db),
 		ModelRun:                  q.ModelRun.clone(db),
 		PromptSnapshot:            q.PromptSnapshot.clone(db),
@@ -202,6 +207,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		JobOutputLine:             q.JobOutputLine.replaceDB(db),
 		JobSignalRequest:          q.JobSignalRequest.replaceDB(db),
 		Message:                   q.Message.replaceDB(db),
+		MetricObservation:         q.MetricObservation.replaceDB(db),
 		ModelCall:                 q.ModelCall.replaceDB(db),
 		ModelRun:                  q.ModelRun.replaceDB(db),
 		PromptSnapshot:            q.PromptSnapshot.replaceDB(db),
@@ -232,6 +238,7 @@ type queryCtx struct {
 	JobOutputLine             IJobOutputLineDo
 	JobSignalRequest          IJobSignalRequestDo
 	Message                   IMessageDo
+	MetricObservation         IMetricObservationDo
 	ModelCall                 IModelCallDo
 	ModelRun                  IModelRunDo
 	PromptSnapshot            IPromptSnapshotDo
@@ -262,6 +269,7 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		JobOutputLine:             q.JobOutputLine.WithContext(ctx),
 		JobSignalRequest:          q.JobSignalRequest.WithContext(ctx),
 		Message:                   q.Message.WithContext(ctx),
+		MetricObservation:         q.MetricObservation.WithContext(ctx),
 		ModelCall:                 q.ModelCall.WithContext(ctx),
 		ModelRun:                  q.ModelRun.WithContext(ctx),
 		PromptSnapshot:            q.PromptSnapshot.WithContext(ctx),

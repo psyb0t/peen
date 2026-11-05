@@ -98,6 +98,10 @@ func (s *Store) saveActivityCompaction(
 		return ctxerrors.Wrap(err, "commit compaction summary")
 	}
 
+	s.observeCompaction(ctx, execution.SessionID, nil,
+		normalized.InputTokenCount, normalized.SummaryTokenCount,
+		normalized.SourceMessageCount)
+
 	return saveCompactionIdentity(ctx, query, activity, input.Compaction)
 }
 

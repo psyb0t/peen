@@ -265,6 +265,7 @@ func (s *directoryScope) newHooks(
 		modelTokenCounter(deps.model),
 		hooks.Options{
 			Callback: r.hookCallback, RunCommand: r.hookCommandRunner,
+			Metrics: r.metrics,
 		},
 	)
 	if err != nil {

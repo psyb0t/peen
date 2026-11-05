@@ -6,6 +6,7 @@ Peen runs model-chosen commands with real access to a workspace, so its own boun
 
 - Never commit a real secret. `.env` and `.env.*` are gitignored. `.env.example` holds only obviously fake values. `.gitleaks.toml` allowlists by path only, and only paths that are not tracked.
 - Provider keys stay in their own environment variables, named by `apiKeyEnv`. Peen's own code never writes them into `PEEN_UPSTREAMS`, SQLite, events, logs, audit records, error messages, or API responses. Model call records keep the connection name, not the key.
+- A worker's metrics reports are untrusted input. `metrics.WorkerIngest` stamps the identity the connection authenticated, refuses oversize reports, accepts only the kinds a worker may report, and caps label values. Turns, child agents, compactions, and worker lifecycles are counted from the controller's own writes, never from a worker's report.
 - A worker's credential is generated per worker generation and handed over on stdin. The controller stores only its SHA-256 hash. It never goes on a command line, into an environment variable, a container label, or a log.
 - Compare tokens, credentials, and hashes with `subtle.ConstantTimeCompare`, never `==`.
 - Generate tokens and credentials with `crypto/rand`.

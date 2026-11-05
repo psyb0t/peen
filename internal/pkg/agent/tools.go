@@ -111,7 +111,7 @@ func instrumentTool(tool elelem.Tool, collector *metrics.Metrics) elelem.Tool {
 			outcome = metrics.OutcomeCancelled
 		}
 
-		collector.ToolCompleted(tool.Name, outcome, time.Since(startedAt))
+		collector.ToolCompleted(ctx, tool.Name, outcome, time.Since(startedAt))
 
 		return result, err
 	}

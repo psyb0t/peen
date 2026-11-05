@@ -58,6 +58,9 @@ const (
 // turns the check off.
 const MaxSystemPromptPercent = 100
 
+// defaultMetricsRetention keeps seven days of observations in metrics.db.
+const defaultMetricsRetention = 7 * 24 * time.Hour
+
 // Timeout variable names that the worker allowlist and the retired-setting
 // messages both refer to.
 const (
@@ -300,7 +303,11 @@ type Config struct {
 
 	HTTPListenAddress    string `default:":8080"           env:"PEEN_HTTP_LISTEN_ADDRESS"`   //nolint:lll // Immutable env tag.
 	MetricsListenAddress string `default:"127.0.0.1:9090" env:"PEEN_METRICS_LISTEN_ADDRESS"` //nolint:lll // Immutable env tag.
-	APIToken             string `env:"PEEN_API_TOKEN"`
+
+	// MetricsRetention is how long metrics.db keeps observations. Zero means
+	// the default, and a negative value stops startup.
+	MetricsRetention time.Duration `default:"168h" env:"PEEN_METRICS_RETENTION"` //nolint:lll // Immutable env tag.
+	APIToken         string        `env:"PEEN_API_TOKEN"`
 
 	// dockerEnv replaces the process environment and platform default the
 	// Docker daemon lookup reads. Only tests set it, so a lookup never needs
@@ -601,7 +608,23 @@ func (c Config) validateMetricsListener() error {
 		)
 	}
 
+	if c.MetricsRetention < 0 {
+		return ctxerrors.Wrap(
+			ErrInvalidConfig,
+			"PEEN_METRICS_RETENTION must not be negative",
+		)
+	}
+
 	return nil
+}
+
+// MetricsObservationRetention returns how long metrics.db keeps observations.
+func (c Config) MetricsObservationRetention() time.Duration {
+	if c.MetricsRetention == 0 {
+		return defaultMetricsRetention
+	}
+
+	return c.MetricsRetention
 }
 
 func (c Config) validateDirectories(requireStateDirectory bool) error {

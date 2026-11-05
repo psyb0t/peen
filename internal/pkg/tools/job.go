@@ -386,7 +386,7 @@ func (r *JobRegistry) Start(
 	r.mu.Lock()
 	r.jobs[job.ID] = job
 	r.mu.Unlock()
-	r.metrics.JobStarted()
+	r.metrics.JobStarted(persistCtx)
 
 	go r.monitor(persistCtx, job)
 
@@ -755,7 +755,7 @@ func (r *JobRegistry) finalize(ctx context.Context, job *Job, waitErr error) {
 		r.publish(ctx, job, state, exitCode, endedAt)
 	}
 
-	r.recordJobMetrics(job, state, exitCode, endedAt)
+	r.recordJobMetrics(ctx, job, state, exitCode, endedAt)
 
 	close(job.done)
 }
@@ -855,6 +855,7 @@ func (r *JobRegistry) observeFinished(
 }
 
 func (r *JobRegistry) recordJobMetrics(
+	ctx context.Context,
 	job *Job,
 	state JobState,
 	exitCode int,
@@ -872,12 +873,17 @@ func (r *JobRegistry) recordJobMetrics(
 	}
 
 	r.metrics.JobCompleted(
+		ctx,
 		jobOperationRunCommand,
 		outcome,
 		endedAt.Sub(job.StartedAt),
 	)
-	r.metrics.JobOutputDropped(jobOutputStdout, snapshot.StdoutDroppedLines)
-	r.metrics.JobOutputDropped(jobOutputStderr, snapshot.StderrDroppedLines)
+	r.metrics.JobOutputDropped(
+		ctx, jobOutputStdout, snapshot.StdoutDroppedLines,
+	)
+	r.metrics.JobOutputDropped(
+		ctx, jobOutputStderr, snapshot.StderrDroppedLines,
+	)
 }
 
 // publish announces one job's completion on the event bus. Summary carries

@@ -156,13 +156,17 @@ func (s *Store) feedTransaction(
 	fn func(ctx context.Context, tx *repositories.Query) error,
 ) error {
 	collector := newFeedCollector()
-	txCtx := contextWithFeedCollector(ctx, collector)
+	txCtx, recordObservations := s.withObservations(
+		contextWithFeedCollector(ctx, collector),
+	)
 
 	if err := s.query.Transaction(func(tx *repositories.Query) error {
 		return fn(txCtx, tx)
 	}); err != nil {
 		return ctxerrors.Wrap(err, "run feed transaction")
 	}
+
+	recordObservations()
 
 	signal := s.getFeedSignal()
 	if signal == nil {

@@ -16,6 +16,7 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/db"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
+	"github.com/psyb0t/peen/internal/pkg/metrics"
 )
 
 // Store persists sessions and protects each active session turn in-process.
@@ -29,6 +30,9 @@ type Store struct {
 	// payload. Each holds the whole turn context, so it is sized for the
 	// context window rather than for one message.
 	maxExecutionStateBytes int
+	// metrics counts turns, child agents, and compactions from the writes that
+	// prove them, so a worker cannot report them for itself.
+	metrics *metrics.Metrics
 
 	activeMu sync.Mutex
 	active   map[uuid.UUID]activeTurn
@@ -132,7 +136,8 @@ func NewStore(handle *db.Handle, options Options) (*Store, error) {
 		maxStoredMessageBytes: maxStoredMessageBytes,
 		maxExecutionStateBytes: max(maxStoredMessageBytes,
 			defaultMaxExecutionStateBytes),
-		active: make(map[uuid.UUID]activeTurn),
+		metrics: options.Metrics,
+		active:  make(map[uuid.UUID]activeTurn),
 	}, nil
 }
 
@@ -261,6 +266,8 @@ func (s *Store) admitTurn(
 	if err := tx.Turn.WithContext(ctx).Create(turn); err != nil {
 		return ctxerrors.Wrap(err, "create running turn")
 	}
+
+	s.observeTurnStarted(ctx, turn)
 
 	if _, err := s.appendTranscript(
 		ctx,

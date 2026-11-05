@@ -1,0 +1,4 @@
+DROP INDEX metric_observations_kind_index;
+DROP INDEX metric_observations_session_index;
+DROP INDEX metric_observations_observed_at_index;
+DROP TABLE metric_observations;

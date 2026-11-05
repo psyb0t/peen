@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/metrics"
 )
 
 const (
@@ -57,6 +58,8 @@ type Options struct {
 	RunCommand          CommandRunner
 	StateRoot           string
 	ContextTokenCounter ContextTokenCounter
+	// Metrics records each hook event that matched a hook. Nil disables it.
+	Metrics *metrics.Metrics
 }
 
 // Invocation is one full lifecycle occurrence available to hook matching and

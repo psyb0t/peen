@@ -504,6 +504,27 @@ func TestParseDefaultsWorkingDirectoryToProcessDirectory(t *testing.T) {
 	assert.Equal(t, wantChildAgentDepth, config.MaxChildAgentDepth)
 }
 
+func TestMetricsRetentionDefaultsToSevenDays(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t)
+
+	config.MetricsRetention = 0
+	assert.Equal(t, 7*24*time.Hour, config.MetricsObservationRetention())
+
+	config.MetricsRetention = time.Hour
+	assert.Equal(t, time.Hour, config.MetricsObservationRetention())
+}
+
+func TestNegativeMetricsRetentionStopsStartup(t *testing.T) {
+	t.Parallel()
+
+	config := testConfig(t)
+	config.MetricsRetention = -time.Hour
+
+	require.ErrorIs(t, config.Validate(), ErrInvalidConfig)
+}
+
 func testConfig(t *testing.T) Config {
 	t.Helper()
 

@@ -10,6 +10,7 @@ import (
 	peenconfig "github.com/psyb0t/peen/internal/pkg/config"
 	"github.com/psyb0t/peen/internal/pkg/db"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
+	"github.com/psyb0t/peen/internal/pkg/metricsstore"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/worker"
 	"github.com/psyb0t/peen/internal/pkg/worker/supervisor"
@@ -43,6 +44,10 @@ type Core struct {
 	Feed *FeedPump
 
 	Metrics *metrics.Metrics
+
+	// MetricsStore writes observations to metrics.db. It is nil when that file
+	// could not be opened, because telemetry never stops the controller.
+	MetricsStore *metricsstore.Store
 }
 
 func (c *Core) validate() error {

@@ -24,7 +24,7 @@ This page is for changing Peen itself. To run an agent against a project, start 
 | `internal/pkg/http/` | `api/` is generated server code. `server/` holds handlers, middleware, WebSocket, and the embedded web build in `server/web/dist`. |
 | `internal/pkg/control/` | Workspace policy and the session registry. |
 | `internal/pkg/worker/` | Controller to worker boundary: protocol, supervisor, control and Docker launchers, agent spaces, the `docker: readonly` proxy in `dockerproxy/`, the worker command, worker logs. |
-| `internal/pkg/events/`, `metrics/`, `auditlog/`, `config/` | Session events, Prometheus metrics, the JSON audit sink, and `PEEN_` configuration. The `.env.example` template is in `internal/pkg/config/envtemplate/`. |
+| `internal/pkg/events/`, `metrics/`, `metricsstore/`, `auditlog/`, `config/` | Session events, Prometheus metrics and worker reports, the `metrics.db` writer, the JSON audit sink, and `PEEN_` configuration. The `.env.example` template is in `internal/pkg/config/envtemplate/`. |
 | `internal/pkg/services/` | Servicepack services `control-core` and `control-api`. `services.gen.go` is generated. |
 | `internal/pkg/service-manager/`, `pkg/runner/` | Servicepack-owned. |
 | `pkg/peen/` | The stable public Go API for running Peen in-process. |

@@ -34,6 +34,7 @@ func basicModels() []any {
 		models.JobOutputLine{},
 		models.JobSignalRequest{},
 		models.Message{},
+		models.MetricObservation{},
 		models.ModelCall{},
 		models.ModelRun{},
 		models.PromptSnapshot{},

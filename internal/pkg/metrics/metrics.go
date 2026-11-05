@@ -3,11 +3,14 @@
 package metrics
 
 import (
+	"context"
 	"database/sql"
 	"runtime/debug"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 )
 
 const (
@@ -31,15 +34,27 @@ const (
 	labelReason    = "reason"
 	labelVersion   = "version"
 	labelRevision  = "revision"
+	labelEvent     = "event"
+	labelScope     = "scope"
+	labelFile      = "file"
+
+	scopeSessionID          = "session_id"
+	scopeWorkerGenerationID = "worker_generation_id"
+	scopeTurnID             = "turn_id"
+	scopeAgentRunID         = "agent_run_id"
 
 	subsystemHTTP     = "http"
 	subsystemDatabase = "database"
 	subsystemModel    = "model"
 	subsystemAgent    = "agent"
 	subsystemEvents   = "events"
+	subsystemWorker   = "worker"
+	subsystemMetrics  = "metrics"
 
-	tokenKindInput  = "input"
-	tokenKindOutput = "output"
+	tokenKindInput      = "input"
+	tokenKindOutput     = "output"
+	tokenKindCacheRead  = "cacheRead"
+	tokenKindCacheWrite = "cacheWrite"
 
 	outcomeSuccess   = "success"
 	outcomeError     = "error"
@@ -98,6 +113,16 @@ type Metrics struct {
 	activeJobs  prometheus.Gauge
 	outputDrops *prometheus.CounterVec
 	eventDrops  *prometheus.CounterVec
+
+	modelRetries *prometheus.CounterVec
+
+	activity activityCollectors
+
+	observationDrops *prometheus.CounterVec
+
+	sink atomic.Pointer[Sink]
+
+	labelGuard labelGuard
 }
 
 // New constructs one isolated application registry. It intentionally does
@@ -107,6 +132,10 @@ func New() *Metrics {
 	instance := newMetrics(prometheus.NewRegistry())
 	version, revision := buildIdentity()
 	instance.buildInfo.WithLabelValues(version, revision).Set(1)
+
+	// The Go collector stays out of the owned collector list, so an embedding
+	// program that registers this instance keeps its own runtime collector.
+	instance.registry.MustRegister(collectors.NewGoCollector())
 
 	return instance
 }
@@ -219,133 +248,151 @@ func (m *Metrics) DatabasePool(stats sql.DBStats) {
 	)
 }
 
-// ModelCompleted records one whole Elelem request. input and output counts are
-// the request's final run totals, already accumulated by Elelem across rounds.
-func (m *Metrics) ModelCompleted(
-	stage string,
-	function string,
-	model string,
-	outcome string,
-	duration time.Duration,
-	timeToFirstToken time.Duration,
-	inputTokens int64,
-	outputTokens int64,
-) {
-	if m == nil {
-		return
-	}
-
-	labels := prometheus.Labels{
-		labelService:  service,
-		labelStage:    stage,
-		labelFunction: function,
-		labelModel:    model,
-		labelOutcome:  outcome,
-	}
-	m.modelCalls.With(labels).Inc()
-	m.modelTime.With(labels).Observe(duration.Seconds())
-
-	if outcome == OutcomeError {
-		m.modelErrors.With(labels).Inc()
-	}
-
-	if timeToFirstToken > 0 {
-		m.modelTTFT.With(labels).Observe(timeToFirstToken.Seconds())
-	}
-
-	m.modelTokens.With(prometheus.Labels{
-		labelService:  service,
-		labelStage:    stage,
-		labelFunction: function,
-		labelModel:    model,
-		labelOutcome:  outcome,
-		labelKind:     tokenKindInput,
-	}).Add(float64(inputTokens))
-	m.modelTokens.With(prometheus.Labels{
-		labelService:  service,
-		labelStage:    stage,
-		labelFunction: function,
-		labelModel:    model,
-		labelOutcome:  outcome,
-		labelKind:     tokenKindOutput,
-	}).Add(float64(outputTokens))
+// ModelCompleted records one whole Elelem request. Token counts are the
+// request's final run totals, already accumulated by Elelem across rounds.
+func (m *Metrics) ModelCompleted(ctx context.Context, request ModelRequest) {
+	m.recordScoped(ctx, Observation{
+		Kind:             KindModel,
+		Name:             request.Model,
+		Stage:            request.Stage,
+		Function:         request.Function,
+		Outcome:          request.Outcome,
+		DurationMS:       request.Duration.Milliseconds(),
+		FirstTokenMS:     request.TimeToFirstToken.Milliseconds(),
+		InputTokens:      request.InputTokens,
+		OutputTokens:     request.OutputTokens,
+		CacheReadTokens:  request.CacheReadTokens,
+		CacheWriteTokens: request.CacheWriteTokens,
+		Retries:          request.Retries,
+	})
 }
 
 // ToolCompleted records one host tool invocation.
 func (m *Metrics) ToolCompleted(
+	ctx context.Context,
 	tool string,
 	outcome string,
 	duration time.Duration,
 ) {
-	if m == nil {
-		return
-	}
+	m.recordScoped(ctx, Observation{
+		Kind:       KindTool,
+		Name:       tool,
+		Outcome:    outcome,
+		DurationMS: duration.Milliseconds(),
+	})
+}
 
-	labels := prometheus.Labels{
-		labelService: service,
-		labelTool:    tool,
-		labelOutcome: outcome,
-	}
-	m.toolCalls.With(labels).Inc()
-	m.toolTime.With(labels).Observe(duration.Seconds())
-
-	if outcome == OutcomeError {
-		m.toolErrors.With(labels).Inc()
-	}
+// HookCompleted records one hook event run. event is a harness hook event
+// name, a closed set.
+func (m *Metrics) HookCompleted(
+	ctx context.Context,
+	event string,
+	outcome string,
+	duration time.Duration,
+) {
+	m.recordScoped(ctx, Observation{
+		Kind:       KindHook,
+		Name:       event,
+		Outcome:    outcome,
+		DurationMS: duration.Milliseconds(),
+	})
 }
 
 // JobStarted increments the number of supervised process jobs currently live.
-func (m *Metrics) JobStarted() {
-	if m == nil {
-		return
-	}
-
-	m.activeJobs.Inc()
+func (m *Metrics) JobStarted(ctx context.Context) {
+	m.recordScoped(ctx, Observation{Kind: KindJobStarted})
 }
 
 // JobCompleted records one supervised process result and removes it from the
 // active-job gauge.
 func (m *Metrics) JobCompleted(
+	ctx context.Context,
 	operation string,
 	outcome string,
 	duration time.Duration,
 ) {
-	if m == nil {
-		return
-	}
-
-	labels := prometheus.Labels{
-		labelService:   service,
-		labelOperation: operation,
-		labelOutcome:   outcome,
-	}
-	m.jobCalls.With(labels).Inc()
-	m.jobTime.With(labels).Observe(duration.Seconds())
-
-	if outcome == OutcomeError {
-		m.jobErrors.With(labels).Inc()
-	}
-
-	m.activeJobs.Dec()
+	m.recordScoped(ctx, Observation{
+		Kind:       KindJob,
+		Name:       operation,
+		Outcome:    outcome,
+		DurationMS: duration.Milliseconds(),
+	})
 }
 
 // JobOutputDropped records lines discarded from a completed job's bounded
 // stdout or stderr buffer.
-func (m *Metrics) JobOutputDropped(stream string, count int) {
-	if m == nil || count <= 0 {
+func (m *Metrics) JobOutputDropped(
+	ctx context.Context,
+	stream string,
+	count int,
+) {
+	if count <= 0 {
 		return
 	}
 
-	m.outputDrops.WithLabelValues(service, stream).Add(float64(count))
+	m.recordScoped(ctx, Observation{
+		Kind:  KindJobOutputDropped,
+		Name:  stream,
+		Count: int64(count),
+	})
 }
 
 // EventDropped records a durable pending-event or live-subscriber drop.
 func (m *Metrics) EventDropped(reason string) {
+	m.Record(Observation{Kind: KindEventDropped, Name: reason, Count: 1})
+}
+
+// ObservationsDropped records observations that never reached metrics.db or
+// the controller. reason is one of the DropReason constants.
+func (m *Metrics) ObservationsDropped(reason string, count int64) {
+	if m == nil || count <= 0 {
+		return
+	}
+
+	m.observationDrops.WithLabelValues(service, reason).Add(float64(count))
+}
+
+// SetSink installs where every recorded observation goes next. A worker
+// forwards to its controller, and the controller stores to metrics.db.
+func (m *Metrics) SetSink(sink Sink) {
 	if m == nil {
 		return
 	}
 
-	m.eventDrops.WithLabelValues(service, reason).Inc()
+	if sink == nil {
+		m.sink.Store(nil)
+
+		return
+	}
+
+	m.sink.Store(&sink)
+}
+
+// Record counts one observation and passes it to the sink. A missing At is
+// the current time.
+func (m *Metrics) Record(observation Observation) {
+	if m == nil {
+		return
+	}
+
+	if observation.At.IsZero() {
+		observation.At = time.Now()
+	}
+
+	m.apply(observation)
+
+	if sink := m.sink.Load(); sink != nil {
+		(*sink)(observation)
+	}
+}
+
+func (m *Metrics) recordScoped(ctx context.Context, observation Observation) {
+	if m == nil {
+		return
+	}
+
+	scopeIdentity(ctx, &observation)
+	m.Record(observation)
 }
 
 //nolint:funlen // All collectors are registered together in the owned registry.
@@ -537,6 +584,28 @@ func newMetrics(registry *prometheus.Registry) *Metrics {
 		Name:      "dropped_total",
 		Help:      "Events dropped by bounded delivery paths.",
 	}, []string{labelService, labelReason})
+	instance.modelRetries = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespace,
+		Subsystem: subsystemModel,
+		Name:      "retries_total",
+		Help:      "Failed provider attempts retried within a request.",
+	}, []string{
+		labelService,
+		labelStage,
+		labelFunction,
+		labelModel,
+		labelOutcome,
+	})
+	instance.observationDrops = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: subsystemMetrics,
+			Name:      "observations_dropped_total",
+			Help:      "Observations lost before reaching metrics.db.",
+		},
+		[]string{labelService, labelReason},
+	)
+	instance.activity = newActivityCollectors()
 
 	instance.collectors = []prometheus.Collector{
 		instance.buildInfo,
@@ -562,7 +631,13 @@ func newMetrics(registry *prometheus.Registry) *Metrics {
 		instance.activeJobs,
 		instance.outputDrops,
 		instance.eventDrops,
+		instance.modelRetries,
+		instance.observationDrops,
 	}
+	instance.collectors = append(
+		instance.collectors,
+		instance.activity.all()...,
+	)
 	registry.MustRegister(instance.collectors...)
 
 	return instance

@@ -264,6 +264,9 @@ func (s *Store) CreateCompaction(
 		return nil, ctxerrors.Wrap(err, "create compaction transaction")
 	}
 
+	s.observeCompaction(ctx, sessionID, nil, compaction.InputTokenCount,
+		compaction.SummaryTokenCount, compaction.SourceMessageCount)
+
 	return compaction, nil
 }
 
@@ -736,6 +739,10 @@ func (s *Store) finishTurn(
 			commerr.ErrInvalidState,
 			"turn is no longer running",
 		)
+	}
+
+	if err := s.observeTurnFinished(ctx, tx, lease, input.State); err != nil {
+		return err
 	}
 
 	if err := s.recordTurnEndNotice(ctx, tx, lease.SessionID,

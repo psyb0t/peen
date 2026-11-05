@@ -1041,6 +1041,7 @@ func (r *Runtime) runChildAgent(
 	}
 
 	observeModelRequest(
+		persistCtx,
 		r.metrics,
 		modelMetricStageChild,
 		modelMetricFunctionRunChild,

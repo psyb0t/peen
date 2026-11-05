@@ -8,6 +8,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/worker"
 )
@@ -22,6 +23,7 @@ type Controller struct {
 	sessionID    uuid.UUID
 	generationID uuid.UUID
 	workflows    *workflowController
+	metrics      *metrics.WorkerIngest
 }
 
 // NewController binds one worker connection to its session.
@@ -541,9 +543,26 @@ func (c *Controller) handleContentBlobCall(
 		return served(c.putContentBlobs(ctx, payload))
 	case MethodGetContentBlobs:
 		return served(c.getContentBlobs(ctx, payload))
+	case MethodReportMetrics:
+		return served(c.reportMetrics(payload))
 	default:
 		return nil, false, nil
 	}
+}
+
+// reportMetrics hands a report to this connection's ingest, which stamps it
+// with the identity this connection authenticated.
+func (c *Controller) reportMetrics(payload json.RawMessage) (any, error) {
+	report, err := decode[metrics.WorkerReport](payload)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := c.metrics.Ingest(report); err != nil {
+		return nil, ctxerrors.Wrap(err, "ingest the worker metrics report")
+	}
+
+	return struct{}{}, nil
 }
 
 func (c *Controller) createOrResume(

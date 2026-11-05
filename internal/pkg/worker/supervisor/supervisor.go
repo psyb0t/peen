@@ -16,6 +16,7 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/db"
+	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/worker"
 	"github.com/psyb0t/peen/internal/pkg/worker/protocol"
@@ -37,6 +38,10 @@ type Options struct {
 	Store       *session.Store
 	Workflows   *db.WorkflowStorage
 	AgentSpaces *worker.AgentSpaceSet
+
+	// Metrics counts worker lifecycles and takes each worker's reports. Nil
+	// disables both.
+	Metrics *metrics.Metrics
 
 	// Launchers holds one launcher per kind. A kind with no launcher cannot
 	// run: a Docker agent space on a controller with no Docker socket is
@@ -234,6 +239,8 @@ func (s *Supervisor) launch(
 	s.sessions[request.SessionID] = held
 	s.mutex.Unlock()
 
+	startedAt := time.Now()
+
 	registered, err := s.start(
 		ctx,
 		request,
@@ -242,6 +249,8 @@ func (s *Supervisor) launch(
 		held,
 		document,
 	)
+	s.observeWorkerStart(request, held, time.Since(startedAt), err)
+
 	if err != nil {
 		s.abandon(ctx, request.SessionID, held, err)
 
@@ -249,6 +258,41 @@ func (s *Supervisor) launch(
 	}
 
 	return registered, nil
+}
+
+func (s *Supervisor) observeWorkerStart(
+	request EnsureRequest,
+	held *supervised,
+	duration time.Duration,
+	startErr error,
+) {
+	outcome := metrics.OutcomeSuccess
+	if startErr != nil {
+		outcome = metrics.OutcomeError
+	}
+
+	s.options.Metrics.Record(metrics.Observation{
+		Kind:               metrics.KindWorkerStarted,
+		SessionID:          request.SessionID.String(),
+		WorkerGenerationID: held.generationID.String(),
+		Name:               string(held.agentSpace.Kind),
+		Outcome:            outcome,
+		DurationMS:         duration.Milliseconds(),
+	})
+}
+
+func (s *Supervisor) observeWorkerExit(held *supervised, exitCode *int) {
+	outcome := metrics.OutcomeError
+	if exitCode != nil && *exitCode == 0 {
+		outcome = metrics.OutcomeSuccess
+	}
+
+	s.options.Metrics.Record(metrics.Observation{
+		Kind:               metrics.KindWorkerExited,
+		WorkerGenerationID: held.generationID.String(),
+		Name:               string(held.agentSpace.Kind),
+		Outcome:            outcome,
+	})
 }
 
 // recordGeneration mints the credential and writes the generation row before
@@ -324,6 +368,7 @@ func (s *Supervisor) start(
 		s,
 		s.options.Store,
 		protocol.WithWorkflowStorage(s.options.Workflows),
+		protocol.WithMetrics(s.options.Metrics),
 	)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "open the worker socket")
@@ -715,9 +760,12 @@ func (s *Supervisor) recordExit(ctx context.Context, held *supervised) {
 			"generation_id", held.generationID.String(),
 			"err", err,
 		)
+		s.observeWorkerExit(held, nil)
 
 		return
 	}
+
+	s.observeWorkerExit(held, &code)
 
 	if err := s.options.Store.RecordWorkerExit(
 		ctx,

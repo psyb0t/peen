@@ -43,20 +43,21 @@ func TestMetricsRecordsBoundedOperationFamilies(t *testing.T) {
 		testDuration,
 	)
 	instance.DatabasePool(sql.DBStats{OpenConnections: 2, InUse: 1, Idle: 1})
-	instance.ModelCompleted(
-		testStage,
-		testFunction,
-		testModel,
-		OutcomeSuccess,
-		testDuration,
-		testDuration,
-		testInputTokens,
-		testOutputTokens,
-	)
-	instance.ToolCompleted(testTool, OutcomeSuccess, testDuration)
-	instance.JobStarted()
-	instance.JobCompleted("runCommand", OutcomeSuccess, testDuration)
-	instance.JobOutputDropped("stdout", 3)
+	ctx := t.Context()
+	instance.ModelCompleted(ctx, ModelRequest{
+		Stage:            testStage,
+		Function:         testFunction,
+		Model:            testModel,
+		Outcome:          OutcomeSuccess,
+		Duration:         testDuration,
+		TimeToFirstToken: testDuration,
+		InputTokens:      testInputTokens,
+		OutputTokens:     testOutputTokens,
+	})
+	instance.ToolCompleted(ctx, testTool, OutcomeSuccess, testDuration)
+	instance.JobStarted(ctx)
+	instance.JobCompleted(ctx, "runCommand", OutcomeSuccess, testDuration)
+	instance.JobOutputDropped(ctx, "stdout", 3)
 	instance.EventDropped("pending")
 
 	families := metricFamilies(t, instance)

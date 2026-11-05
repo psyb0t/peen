@@ -61,6 +61,7 @@ func TestObserveModelRequestRecordsCancellationAndTokens(t *testing.T) {
 	}}
 
 	observeModelRequest(
+		t.Context(),
 		collector,
 		modelMetricStageChild,
 		modelMetricFunctionRunChild,

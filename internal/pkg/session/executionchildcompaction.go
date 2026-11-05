@@ -38,6 +38,10 @@ func (s *Store) saveChildActivityCompaction(
 		return ctxerrors.Wrap(err, "commit child activity summary")
 	}
 
+	s.observeCompaction(ctx, execution.SessionID, execution.AgentRunID,
+		normalized.InputTokenCount, normalized.SummaryTokenCount,
+		normalized.SourceMessageCount)
+
 	return saveCompactionIdentity(ctx, query, activity, input.Compaction)
 }
 

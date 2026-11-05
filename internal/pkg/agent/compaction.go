@@ -963,6 +963,7 @@ func (c *compactor) runCompactionRequest(
 	}
 
 	observeModelRequest(
+		persistCtx,
 		c.options.Metrics,
 		modelMetricStageCompaction,
 		modelMetricFunctionCompaction,

@@ -2,6 +2,15 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.44.0 (2026-11-05)
+
+`/metrics` now shows what workers do, and Peen stores every measurement in a new `metrics.db` you can query with any SQLite tool. No configuration or API migration is needed. The first start creates `metrics.db` in `PEEN_STATE_DIR`.
+
+- Fixes `/metrics` showing nothing for model requests, tokens, tool calls, and jobs on a normal deployment. A worker recorded them in its own process and nothing read them. Workers now report them to the controller over their session socket every five seconds and when they stop.
+- Adds `metrics.db`, with one row per model request, tool call, job, hook run, turn, child agent, compaction, and worker lifecycle event. Each row names its session, worker generation, turn, and child agent, so you can break time and cost down per session or per child agent. The controller writes every row, and workers never open the file. See [stored observations](docs/configuration.md#stored-observations).
+- Adds `PEEN_METRICS_RETENTION`, default `168h`, which sets how long `metrics.db` keeps rows.
+- Adds metrics for turns, child agents, compactions, hook runs, model retries, cache tokens, worker starts and exits, active workers, database file sizes, dropped observations, and the Go runtime.
+
 ## v0.43.2 (2026-11-05)
 
 Publishes the work tagged since v0.34.0. The tags v0.35.0 through v0.43.1 exist in Git, but the installer suite failed on `main`, so none of them has a Docker image or a GitHub release. This is the first published version after v0.34.0. Before upgrading from v0.34.0, read every entry from v0.35.0 through v0.43.1, and follow the migrations marked Breaking, including deleting `peen.db`, `peen.db-wal`, and `peen.db-shm` from `PEEN_STATE_DIR`.

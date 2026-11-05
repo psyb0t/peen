@@ -13,6 +13,7 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/db"
+	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -55,6 +56,7 @@ type Listener struct {
 	registrar  Registrar
 	store      *session.Store
 	workflows  *db.WorkflowStorage
+	metrics    *metrics.Metrics
 	net        net.Listener
 
 	mutex     sync.Mutex
@@ -68,9 +70,16 @@ type Worker struct {
 	conn         *Conn
 	SessionID    uuid.UUID
 	GenerationID uuid.UUID
+	metrics      *metrics.WorkerIngest
 }
 
 type ListenerOption func(*Listener)
+
+// WithMetrics sends authenticated workers' reports to the controller's
+// registry.
+func WithMetrics(collector *metrics.Metrics) ListenerOption {
+	return func(listener *Listener) { listener.metrics = collector }
+}
 
 // WithWorkflowStorage lends controller storage to authenticated generations.
 // The listener never closes the storage.
@@ -276,10 +285,17 @@ func (l *Listener) accept(
 		}
 	}
 
+	if l.metrics != nil {
+		controller.metrics = l.metrics.NewWorkerIngest(
+			hello.SessionID, hello.GenerationID,
+		)
+	}
+
 	registered := &Worker{
 		conn:         conn,
 		SessionID:    hello.SessionID,
 		GenerationID: hello.GenerationID,
+		metrics:      controller.metrics,
 	}
 
 	l.mutex.Lock()
@@ -337,6 +353,8 @@ func (l *Listener) disconnect(ctx context.Context, registered *Worker) {
 
 	l.connected = nil
 	l.mutex.Unlock()
+
+	registered.metrics.Close()
 
 	if observer, found := l.registrar.(disconnectObserver); found {
 		observer.WorkerDisconnected(

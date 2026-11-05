@@ -184,6 +184,7 @@ func embeddingAssembly(
 			),
 		},
 		StoreOptions: session.Options{
+			Metrics:               configuration.runtime.Metrics,
 			Clock:                 options.Clock,
 			NewID:                 options.NewID,
 			MaxStoredMessageBytes: options.MaxStoredMessageBytes,

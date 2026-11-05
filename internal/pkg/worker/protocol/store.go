@@ -12,6 +12,7 @@ import (
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/contentblob"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -371,6 +372,16 @@ func (s *Store) ListTurns(
 			Options:   options,
 		},
 	)
+}
+
+// ReportMetrics sends a batch of this worker's observations to the controller.
+func (s *Store) ReportMetrics(
+	ctx context.Context,
+	report metrics.WorkerReport,
+) error {
+	_, err := call[struct{}](ctx, s, MethodReportMetrics, report)
+
+	return err
 }
 
 func (s *Store) CreateModelRun(

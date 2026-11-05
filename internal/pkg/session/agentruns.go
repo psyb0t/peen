@@ -51,6 +51,8 @@ func (s *Store) CreateAgentRun(
 		return nil, ctxerrors.Wrap(err, "create durable agent run")
 	}
 
+	s.observeAgentRunStarted(ctx, result)
+
 	return result, nil
 }
 
@@ -271,9 +273,11 @@ func (s *Store) FinalizeAgentRun(
 
 	var result *models.AgentRun
 
+	txCtx, recordObservations := s.withObservations(ctx)
+
 	if err := s.query.Transaction(func(tx *repositories.Query) error {
 		finalized, finalizeErr := s.finalizeAgentRunInTransaction(
-			ctx,
+			txCtx,
 			tx,
 			sessionID,
 			agentRunID,
@@ -287,6 +291,8 @@ func (s *Store) FinalizeAgentRun(
 	}); err != nil {
 		return nil, ctxerrors.Wrap(err, "finalize durable agent run")
 	}
+
+	recordObservations()
 
 	return result, nil
 }
@@ -323,6 +329,7 @@ func (s *Store) finalizeAgentRunInTransaction(
 	}
 
 	applyAgentRunFinalization(run, input, now)
+	s.observeAgentRunFinished(ctx, run)
 
 	return run, nil
 }

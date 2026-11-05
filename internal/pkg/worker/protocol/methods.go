@@ -28,6 +28,9 @@ const (
 	MethodCancelSession    Method = "turn.cancel"
 	MethodListTurns        Method = "turn.list"
 
+	// MethodReportMetrics carries a batch of the worker's observations.
+	MethodReportMetrics Method = "metrics.report"
+
 	MethodListMessages Method = "message.list"
 	MethodListEvents   Method = "event.list"
 

@@ -48,6 +48,7 @@ These values decide where Peen keeps its state and which model handles a task. S
 | `PEEN_HTTP_LISTEN_ADDRESS` | `:8080` | Listener address. `:8080` listens on every interface. The installer writes `127.0.0.1:8080`, which only this machine can reach. |
 | `PEEN_API_TOKEN` | empty | Bearer token. Empty turns authentication off. |
 | `PEEN_METRICS_LISTEN_ADDRESS` | `127.0.0.1:9090` | Separate loopback-only Prometheus listener. See [metrics](#metrics). |
+| `PEEN_METRICS_RETENTION` | `168h` | How long `metrics.db` keeps observations. See [stored observations](#stored-observations). |
 
 ## Settings the peen command reads
 
@@ -67,7 +68,7 @@ Peen keeps two directories apart, and refuses to start if they overlap.
 
 `PEEN_CONFIG_DIR` is the global configuration and harness layer: `AGENTS.md`, `.agents/`, and the optional `SYSTEM.md`, `APPEND_SYSTEM.md`, and `COMPACTION.md`. Every Docker worker receives this directory read-only, so anything inside it is readable by every session. A `control` worker runs as the controller's user and can write it.
 
-`PEEN_STATE_DIR` is the controller's own durable state: `peen.db`, `workflows.db`, the audit logs, and the worker socket directories. No Docker worker receives it. A `control` worker runs as the controller's user and can read it, every session's transcript included. See [where it runs](where-it-runs.md#agent-spaces).
+`PEEN_STATE_DIR` is the controller's own durable state: `peen.db`, `workflows.db`, `metrics.db`, the audit logs, and the worker socket directories. No Docker worker receives it. A `control` worker runs as the controller's user and can read it, every session's transcript included. See [where it runs](where-it-runs.md#agent-spaces).
 
 Peen refuses to start when the two are the same path, or when either sits inside the other. Without that rule, the read-only configuration mount would carry SQLite into every worker, and one session could read every other session's transcript.
 
@@ -197,6 +198,37 @@ Peen's Z.ai Coding catalog has GLM 5.3 and GLM 5.3 Flash, each with a 1,000,000-
 `GET /metrics` serves Peen's [Prometheus](https://github.com/prometheus/client_golang) metrics on `PEEN_METRICS_LISTEN_ADDRESS`. It never appears on the API listener, is not part of `/api/v1`, and does not check `PEEN_API_TOKEN`, because the loopback-only listener is the access boundary.
 
 The value must be a loopback IP address and a port other than 0, such as `127.0.0.1:9090` or `[::1]:9090`. Peen refuses to start with a wildcard or non-loopback address. Run a scraper in the same network namespace as Peen. A Docker `-p` rule does not make a listener on the container's loopback interface reachable from the host.
+
+`/metrics` covers the whole controller: model requests, tokens, retries, tool calls, jobs, hooks, turns, child agents, compactions, worker starts and exits, HTTP, SQLite, database file sizes, and the Go runtime. Each worker sends its model, tool, job, and hook measurements to the controller over its session socket every five seconds and when it stops, so a worker crash can lose its last few seconds of them. The counters restart at zero when the controller restarts, which Prometheus treats as a counter reset.
+
+### Stored observations
+
+The controller also writes those measurements, except HTTP and SQLite, to `metrics.db` in `PEEN_STATE_DIR`, one row per observation in the `metric_observations` table. A row holds the time in `observed_at_ms`, the `kind`, the `session_id`, `worker_generation_id`, `turn_id`, and `agent_run_id`, and the durations and token counts, so you can break time and cost down per session, worker, and child agent. Rows never hold message text, tool output, commands, or credentials. Workers never open the file. The controller writes every row and takes the session and worker generation from the connection that sent it.
+
+| `kind` | What it records |
+| --- | --- |
+| `model` | One provider request. `name` is the model, and `stage` and `function_name` say what it was for. |
+| `tool` | One tool call. `name` is the tool. |
+| `job`, `jobStarted`, `jobOutputDropped` | A supervised process ending and starting, and the output lines its buffer dropped. |
+| `hook` | One hook event that matched a hook. `name` is the event. |
+| `turn`, `turnStarted` | A turn reaching a terminal state, and a turn admitted. |
+| `agentRun`, `agentRunStarted` | A child agent reaching a terminal state, and a child agent recorded. |
+| `compaction` | A stored compaction. `input_tokens` is what it summarized, `output_tokens` the summary, and `count` the source messages. |
+| `workerStarted`, `workerExited` | A worker launch attempt and a worker process ending. |
+| `workerSample` | A worker's Go runtime every 30 seconds. `count` is goroutines and `bytes` is heap in use. |
+| `eventDropped` | An event a bounded delivery path dropped. |
+
+Read it with any SQLite tool while Peen runs. This lists the slowest tools of the last hour:
+
+```sh
+sqlite3 "$PEEN_STATE_DIR/metrics.db" "
+  SELECT name, count(*), max(duration_ms) FROM metric_observations
+  WHERE kind = 'tool'
+    AND observed_at_ms > (unixepoch() - 3600) * 1000
+  GROUP BY name ORDER BY max(duration_ms) DESC"
+```
+
+`PEEN_METRICS_RETENTION` is a Go duration, default `168h`. Peen deletes older rows at startup and every hour. `0` means the default, and a negative value stops startup. The file is disposable: stop Peen, delete `metrics.db`, `metrics.db-wal`, and `metrics.db-shm`, and Peen creates it again. Telemetry never fails a turn. If the file cannot be opened, Peen logs a warning and keeps serving `/metrics`, and `peen_metrics_observations_dropped_total` counts observations it could not store. An embedding Go program gets no `metrics.db`.
 
 ## Context and turn limits
 

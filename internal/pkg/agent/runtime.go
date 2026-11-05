@@ -2039,6 +2039,7 @@ func (r *Runtime) runProvider(
 	}
 
 	observeModelRequest(
+		persistCtx,
 		r.metrics,
 		modelMetricStageTurn,
 		modelMetricFunctionRunProvider,
@@ -2093,6 +2094,7 @@ func (p *preparedTurn) rootAssistantMessageCallback(
 }
 
 func observeModelRequest(
+	ctx context.Context,
 	collector *metrics.Metrics,
 	stage string,
 	function string,
@@ -2111,27 +2113,27 @@ func observeModelRequest(
 		}
 	}
 
-	var inputTokens, outputTokens int64
+	request := metrics.ModelRequest{
+		Stage:    stage,
+		Function: function,
+		Model:    model,
+		Outcome:  outcome,
+		Duration: time.Since(startedAt),
+	}
+
 	if response != nil {
-		inputTokens = response.Usage.Prompt
-		outputTokens = response.Usage.Completion
+		request.InputTokens = response.Usage.Prompt
+		request.OutputTokens = response.Usage.Completion
+		request.CacheReadTokens = response.Usage.CacheRead
+		request.CacheWriteTokens = response.Usage.CacheWrite
+		request.Retries = int64(len(response.Usage.Retry.FailedAttempts))
 	}
 
-	firstTokenDuration := time.Duration(0)
 	if !firstDeltaAt.IsZero() {
-		firstTokenDuration = firstDeltaAt.Sub(startedAt)
+		request.TimeToFirstToken = firstDeltaAt.Sub(startedAt)
 	}
 
-	collector.ModelCompleted(
-		stage,
-		function,
-		model,
-		outcome,
-		time.Since(startedAt),
-		firstTokenDuration,
-		inputTokens,
-		outputTokens,
-	)
+	collector.ModelCompleted(ctx, request)
 }
 
 // newTurnCompactor returns the turn's compaction hook, or nil under

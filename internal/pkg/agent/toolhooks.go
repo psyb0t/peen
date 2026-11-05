@@ -95,6 +95,7 @@ func newToolHookRuntime(
 	if len(extensions) > 0 {
 		options.Callback = extensions[0].Callback
 		options.RunCommand = extensions[0].RunCommand
+		options.Metrics = extensions[0].Metrics
 	}
 
 	runner, err := hooks.New(options)
@@ -138,6 +139,7 @@ func (r *Runtime) newToolHookRuntime(
 		hooks.Options{
 			Callback:   r.hookCallback,
 			RunCommand: r.hookCommandRunner,
+			Metrics:    r.metrics,
 		},
 	)
 	if err != nil {
@@ -174,6 +176,7 @@ func (r *Runtime) appendPreUserHookContext(
 		MaxCommandOutput: r.maxHookCommandOutput,
 		Publisher:        r.durableEventPublisher(),
 		StateRoot:        r.hookStateRoot,
+		Metrics:          r.metrics,
 	})
 	if err != nil {
 		return "", ctxerrors.Wrap(err, "create pre-user-message hook runner")

@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -49,6 +50,7 @@ const (
 	// Peen refuses to start when one contains the other, because the
 	// read-only configuration mount would carry SQLite into every worker.
 	appStateDirectory   = "/var/tmp/peen-state"
+	stateFileCopyMode   = 0o600
 	appWorkingDirectory = "/tmp"
 	appAgentName        = "default"
 	// The crash recovery suites prove that work continues in the next worker
@@ -675,6 +677,48 @@ func (i *Infra) WriteWorkspaceFile(
 		appFixtureFileMode,
 	); err != nil {
 		return ctxerrors.Wrap(err, "write application workspace fixture")
+	}
+
+	return nil
+}
+
+// CopyStateFiles copies named files from the container's state directory into
+// directory. A named file that does not exist is skipped, because SQLite's
+// write-ahead files come and go.
+func (i *Infra) CopyStateFiles(
+	ctx context.Context,
+	directory string,
+	names ...string,
+) error {
+	if i == nil || i.App == nil {
+		return ctxerrors.New("application container is unavailable")
+	}
+
+	for _, name := range names {
+		source, err := i.App.CopyFileFromContainer(
+			ctx,
+			path.Join(appStateDirectory, name),
+		)
+		if err != nil {
+			continue
+		}
+
+		content, err := io.ReadAll(source)
+		if closeErr := source.Close(); closeErr != nil {
+			return ctxerrors.Wrapf(closeErr, "close state file %q", name)
+		}
+
+		if err != nil {
+			return ctxerrors.Wrapf(err, "read state file %q", name)
+		}
+
+		if err := os.WriteFile(
+			filepath.Join(directory, name),
+			content,
+			stateFileCopyMode,
+		); err != nil {
+			return ctxerrors.Wrapf(err, "write state file %q", name)
+		}
 	}
 
 	return nil

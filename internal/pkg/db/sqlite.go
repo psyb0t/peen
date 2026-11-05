@@ -263,11 +263,24 @@ func ensurePrivateDatabaseFile(databasePath string) error {
 }
 
 func sqliteDSN(databasePath string, busyTimeoutMilliseconds int64) string {
-	return fmt.Sprintf(
-		//nolint:lll // DSN query parameters are one indivisible connection string.
-		"%s?_pragma=busy_timeout(%d)&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=synchronous(FULL)",
+	return sqliteDSNWithSync(
 		databasePath,
 		busyTimeoutMilliseconds,
+		sqliteSyncFull,
+	)
+}
+
+func sqliteDSNWithSync(
+	databasePath string,
+	busyTimeoutMilliseconds int64,
+	synchronous string,
+) string {
+	return fmt.Sprintf(
+		//nolint:lll // DSN query parameters are one indivisible connection string.
+		"%s?_pragma=busy_timeout(%d)&_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=synchronous(%s)",
+		databasePath,
+		busyTimeoutMilliseconds,
+		synchronous,
 	)
 }
 

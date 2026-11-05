@@ -20,6 +20,7 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/control"
 	"github.com/psyb0t/peen/internal/pkg/db"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
+	"github.com/psyb0t/peen/internal/pkg/metricsstore"
 	"github.com/psyb0t/peen/internal/pkg/nondumpable"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/worker"
@@ -227,6 +228,7 @@ func (s *ControlCore) openCore(
 		HarnessOptions: harnessOptions,
 		StoreOptions: session.Options{
 			MaxStoredMessageBytes: config.MaxStoredMessageBytes,
+			Metrics:               metricRegistry,
 		},
 		ResumeAfterCrash: config.ResumesAfterCrash(),
 	})
@@ -249,6 +251,7 @@ func (s *ControlCore) openCore(
 		assembled.Store,
 		assembled.Handle.Workflows,
 		agentSpaces,
+		metricRegistry,
 	)
 	if err != nil {
 		return nil, errors.Join(err, closeState(ctx, assembled.Handle))
@@ -302,18 +305,73 @@ func (s *ControlCore) openCore(
 	})
 
 	return &control.Core{
-		Config:      config,
-		Upstreams:   upstreams,
-		Runtime:     assembled.Runtime,
-		Store:       assembled.Store,
-		Handle:      assembled.Handle,
-		Sessions:    sessions,
-		AgentSpaces: agentSpaces,
-		Workers:     workers,
-		Turns:       turns,
-		Feed:        feed,
-		Metrics:     metricRegistry,
+		Config:       config,
+		Upstreams:    upstreams,
+		Runtime:      assembled.Runtime,
+		Store:        assembled.Store,
+		Handle:       assembled.Handle,
+		Sessions:     sessions,
+		AgentSpaces:  agentSpaces,
+		Workers:      workers,
+		Turns:        turns,
+		Feed:         feed,
+		Metrics:      metricRegistry,
+		MetricsStore: openMetricsStore(ctx, config, metricRegistry),
 	}, nil
+}
+
+// openMetricsStore sends every observation to metrics.db. A file that cannot
+// be opened costs the stored history, not the controller, so the failure is a
+// warning and /metrics keeps working.
+func openMetricsStore(
+	ctx context.Context,
+	config peenconfig.Config,
+	metricRegistry *metrics.Metrics,
+) *metricsstore.Store {
+	logger := ctxscope.GetLogger(ctx)
+
+	if err := metricRegistry.WatchFiles(
+		db.DatabaseFiles(config.StateDirectory),
+	); err != nil {
+		logger.Warn(
+			"watching database file sizes failed",
+			"reason", "metrics_file_watch_failed",
+			"err", err,
+		)
+	}
+
+	storage, err := db.OpenMetricsStorage(
+		ctx,
+		db.Config{Directory: config.StateDirectory},
+	)
+	if err != nil {
+		logger.Warn(
+			"opening metrics.db failed, keeping no stored observations",
+			"reason", "metrics_storage_unavailable",
+			"err", err,
+		)
+
+		return nil
+	}
+
+	store, err := metricsstore.Start(ctx, metricsstore.Options{
+		Storage:   storage,
+		Metrics:   metricRegistry,
+		Retention: config.MetricsObservationRetention(),
+	})
+	if err != nil {
+		logger.Warn(
+			"starting the metrics.db writer failed",
+			"reason", "metrics_storage_unavailable",
+			"err", err,
+		)
+
+		return nil
+	}
+
+	metricRegistry.SetSink(store.Add)
+
+	return store
 }
 
 // closeCore ends supervised work and closes SQLite. It runs after control-api
@@ -325,6 +383,7 @@ func (s *ControlCore) closeCore(ctx context.Context, core *control.Core) error {
 	return errors.Join(
 		stopSessionJobs(ctx, core.Runtime),
 		stopSessionWorkers(ctx, core.Workers),
+		closeMetricsStore(ctx, core),
 		closeState(ctx, core.Handle),
 	)
 }
@@ -346,6 +405,7 @@ func newWorkerSupervisor(
 	store *session.Store,
 	workflows *db.WorkflowStorage,
 	agentSpaces *worker.AgentSpaceSet,
+	metricRegistry *metrics.Metrics,
 ) (*supervisor.Supervisor, error) {
 	controlLauncher, err := controlspace.New(controlspace.Options{
 		ProviderCredentialKeys: providerCredentialKeys(upstreams),
@@ -374,6 +434,7 @@ func newWorkerSupervisor(
 		Store:            store,
 		Workflows:        workflows,
 		AgentSpaces:      agentSpaces,
+		Metrics:          metricRegistry,
 		Launchers:        launchers,
 		SocketRoot:       config.WorkerSocketRoot(),
 		ConfigDirectory:  config.ConfigDirectory,
@@ -591,6 +652,28 @@ func configuredAuditLogDirectory() (string, error) {
 
 // closeState closes the durable store, reporting rather than hiding a failure
 // so a corrupted shutdown does not look clean.
+// closeMetricsStore runs after the workers stop, so their last reports are
+// written, and it stops the sink first so nothing queues behind the writer.
+func closeMetricsStore(ctx context.Context, core *control.Core) error {
+	if core.MetricsStore == nil {
+		return nil
+	}
+
+	core.Metrics.SetSink(nil)
+
+	if err := core.MetricsStore.Close(); err != nil {
+		ctxscope.GetLogger(ctx).Warn(
+			"closing metrics.db failed",
+			"reason", "metrics_storage_close_failed",
+			"err", err,
+		)
+
+		return ctxerrors.Wrap(err, "close metrics store")
+	}
+
+	return nil
+}
+
 func closeState(ctx context.Context, handle *db.Handle) error {
 	if err := handle.Close(); err != nil {
 		wrapped := ctxerrors.Wrap(err, "close control state")

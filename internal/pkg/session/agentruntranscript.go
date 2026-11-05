@@ -346,6 +346,10 @@ func (s *Store) CreateAgentRunCompaction(
 		)
 	}
 
+	s.observeCompaction(ctx, sessionID, &agentRunID,
+		compaction.InputTokenCount, compaction.SummaryTokenCount,
+		compaction.SourceMessageCount)
+
 	return compaction, nil
 }
 

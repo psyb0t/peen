@@ -22,6 +22,7 @@ import (
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"github.com/psyb0t/peen/internal/pkg/pathglob"
 	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 )
@@ -53,6 +54,7 @@ type Runner struct {
 	publisher           EventPublisher
 	runCommand          CommandRunner
 	stateRoot           string
+	metrics             *metrics.Metrics
 	contextTokenCounter ContextTokenCounter
 }
 
@@ -99,6 +101,7 @@ func New(options Options) (Runner, error) {
 		runCommand:          options.RunCommand,
 		stateRoot:           filepath.Clean(options.StateRoot),
 		contextTokenCounter: options.ContextTokenCounter,
+		metrics:             options.Metrics,
 	}, nil
 }
 
@@ -146,6 +149,15 @@ func (r Runner) Run(
 			"tool_call_id", invocation.CallID,
 			"duration_ms", time.Since(startedAt).Milliseconds(),
 		)
+
+		if matchedHookCount > 0 {
+			r.metrics.HookCompleted(
+				ctx,
+				string(invocation.Event),
+				hookMetricOutcome(runErr),
+				time.Since(startedAt),
+			)
+		}
 	}()
 
 	for _, hook := range r.hooks {
@@ -732,6 +744,14 @@ func hookRunOutcome(err error) string {
 	}
 
 	return hookRunOutcomeFailed
+}
+
+func hookMetricOutcome(err error) string {
+	if err == nil {
+		return metrics.OutcomeSuccess
+	}
+
+	return metrics.OutcomeError
 }
 
 func invocationPayload(invocation Invocation) ([]byte, error) {
