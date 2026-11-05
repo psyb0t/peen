@@ -133,11 +133,14 @@ test-real: ## Run opt-in real provider tests with the deployment .env
 # of every default suite. docs/benchmarks.md walks through a run. The BENCH_*
 # settings pass through the environment to scripts/make/bench.sh, which
 # validates them.
-.PHONY: bench-image bench-build bench-datasets bench-proxy bench-proxy-stop \
-	bench-aider bench-lhtb bench-eval bench-evolve
+.PHONY: bench-image bench-lock bench-build bench-datasets bench-proxy \
+	bench-proxy-stop bench-aider bench-lhtb bench-eval bench-evolve
 
 bench-image: ## Build the Harbor benchmark driver image
 	@BENCH_REPO_ROOT="$(CURDIR)" bash scripts/make/bench.sh image
+
+bench-lock: ## Re-lock bench/requirements.txt from bench/requirements.in, hashed and age-gated
+	@BENCH_REPO_ROOT="$(CURDIR)" bash scripts/make/bench.sh lock
 
 bench-build: ## Build static peen and relay binaries for the benchmark task containers
 	@BENCH_REPO_ROOT="$(CURDIR)" bash scripts/make/bench.sh build

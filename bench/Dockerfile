@@ -12,14 +12,19 @@ RUN apt-get update && \
 		ca-certificates git && \
 	rm -rf /var/lib/apt/lists/*
 
+# requirements.txt is the complete hashed lock, overrides included, so pip
+# installs exactly it and resolves nothing. Its resolver would refuse the
+# filelock override in bench/overrides.txt.
 COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir --require-hashes -r /tmp/requirements.txt && \
+RUN pip install --no-cache-dir --require-hashes --no-deps -r /tmp/requirements.txt && \
 	rm /tmp/requirements.txt
 
 COPY --from=docker /usr/local/bin/docker /usr/local/bin/docker
 COPY --from=docker /usr/local/libexec/docker/cli-plugins/docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
 COPY --from=docker /usr/local/libexec/docker/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx
 
-ENV HARBOR_DISABLE_TELEMETRY=1 HOME=/tmp
+# LITELLM_LOCAL_MODEL_COST_MAP keeps litellm on its packaged model map instead
+# of fetching one from its GitHub main branch on import.
+ENV HARBOR_DISABLE_TELEMETRY=1 HOME=/tmp LITELLM_LOCAL_MODEL_COST_MAP=True
 
 USER 10001:10001

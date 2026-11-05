@@ -2,6 +2,14 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.43.1 (2026-11-05)
+
+Updates the benchmark driver's Python packages. Only the `bench-*` Make targets use them, and the Peen image does not change. No configuration or API migration is needed.
+
+- Updates filelock in the benchmark driver to 4.2.4, which fixes GHSA-567q-5qvw-pf92, GHSA-6627-m3xw-93mp, GHSA-69hj-f68j-2879, GHSA-8mx5-7m5m-r77g, GHSA-9c4x-gm8v-wgc4, GHSA-9j6q-wvj5-jgjg, GHSA-9vhv-jxww-xfm5, GHSA-cwqr-hh33-gh44, GHSA-fq56-3cx3-fjxp, GHSA-j8f7-rjxc-mr56, GHSA-m462-7rxw-wvpg, GHSA-rfpc-qcw5-3pc4, and GHSA-v4x8-3wr5-3wq8. litellm stays pinned to 1.106.2, the last release before its October 2026 compromise, and the lock overrides its `filelock<4.0` cap.
+- Adds `make bench-lock`, which compiles `bench/requirements.in` and `bench/overrides.txt` into the hashed `bench/requirements.txt` and skips releases younger than seven days.
+- Changes the benchmark driver image to install its lock without resolving dependencies, and stops litellm from downloading its model map from GitHub on import.
+
 ## v0.43.0 (2026-11-05)
 
 Lets a message queued into a running turn, or sent to a child agent, carry images. Before upgrading, stop Peen and delete `peen.db`, `peen.db-wal`, and `peen.db-shm` from the state directory, because the session schema changed.

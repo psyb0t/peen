@@ -1,0 +1,10 @@
+# The Harbor driver's direct requirements. `make bench-lock` compiles them,
+# with overrides.txt, into the hashed requirements.txt the driver image
+# installs.
+harbor==0.24.0
+# Harbor requires litellm, and the bench never calls it, because peen_agent.py
+# talks to Peen. litellm stays on 1.106.2, the last release published before
+# the October 2026 compromise of 1.107.0 and the version litellm's incident
+# report says to pin. Do not move it without checking the release against
+# litellm's security advisories.
+litellm==1.106.2

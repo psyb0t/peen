@@ -130,6 +130,8 @@ make bench-proxy-stop
 
 Run `make bench-build` again after changing Peen, so the task containers get the new binary.
 
+The driver image installs `bench/requirements.txt`, a hashed lock that pins every package, and pip installs exactly that list without resolving dependencies. To change it, edit `bench/requirements.in` or `bench/overrides.txt` and run `make bench-lock`. The lock keeps existing pins unless an input needs a newer one, and skips releases younger than seven days. Harbor requires litellm, which the bench never calls. litellm is pinned to 1.106.2, the last release before its October 2026 compromise, and `bench/overrides.txt` lifts its `filelock<4.0` cap so filelock gets its security fixes. The image sets `LITELLM_LOCAL_MODEL_COST_MAP=True`, so importing litellm does not download its model map from GitHub.
+
 ### The behavior eval
 
 `make bench-eval` runs the tasks in `bench/eval/tasks/`. Each one checks one thing that Peen's prompts, harness, or tools should get right, and scores it pass or fail. Run it before and after a change to the system prompt, the built-in `AGENTS.md`, or a tool description, and keep the change only if the score holds or rises.

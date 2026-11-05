@@ -1,0 +1,4 @@
+# Overrides replace every dependency's own requirement on a package.
+# litellm 1.106.2 asks for filelock<4.0, but every filelock up to 4.2.0 has
+# open GHSA advisories and Harbor's Docker environment uses filelock directly.
+filelock==4.2.4

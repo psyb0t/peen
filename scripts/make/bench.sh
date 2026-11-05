@@ -7,6 +7,7 @@
 # binds those paths into it. docs/benchmarks.md explains the setup.
 #
 #   image       build the Harbor driver image from bench/
+#   lock        compile bench/requirements.in into the hashed requirements.txt
 #   build       build static peen and relay binaries from this checkout
 #   datasets    download Aider Polyglot and the pinned LHTB tasks
 #   proxy       start the provider proxy, which alone reads the key from .env
@@ -19,6 +20,9 @@ log_file="${LOG_FILE:-/tmp/peen-bench.log}"
 
 readonly DRIVER_IMAGE="peen-bench-driver:local"
 readonly DEV_IMAGE="peen-dev"
+readonly UV_IMAGE="ghcr.io/astral-sh/uv:0.13.6-python3.12-trixie-slim@sha256:bf889bda77474aa50c351caf1538b855ef2b7a30add45f26ca50dcb6ade06402"
+readonly BENCH_PYTHON_VERSION="3.12"
+readonly MIN_RELEASE_AGE_DAYS=7
 readonly PROXY_CONTAINER="peen-bench-proxy"
 readonly RUN_CONTAINER_PREFIX="peen-bench-run-"
 readonly DOCKER_SOCKET="/var/run/docker.sock"
@@ -104,6 +108,28 @@ driver() {
 build_image() {
 	docker build --tag "${DRIVER_IMAGE}" "${source_dir}"
 	log INFO "built ${DRIVER_IMAGE}"
+}
+
+# lock_requirements compiles requirements.in with hashes. It keeps every pin
+# requirements.txt already holds unless the input needs a newer one, and skips
+# releases younger than MIN_RELEASE_AGE_DAYS.
+lock_requirements() {
+	local cutoff
+	cutoff="$(date -u -d "${MIN_RELEASE_AGE_DAYS} days ago" '+%Y-%m-%dT%H:%M:%SZ')"
+	docker run --rm \
+		--user "$(id -u):$(id -g)" \
+		--tmpfs /tmp \
+		-e UV_CACHE_DIR=/tmp/uv-cache \
+		-v "${source_dir}:/bench" \
+		-w /bench \
+		"${UV_IMAGE}" uv pip compile requirements.in \
+		--override overrides.txt \
+		--output-file requirements.txt \
+		--generate-hashes \
+		--no-header \
+		--python-version "${BENCH_PYTHON_VERSION}" \
+		--exclude-newer "${cutoff}"
+	log INFO "locked ${source_dir}/requirements.txt with releases before ${cutoff}"
 }
 
 build_binaries() {
@@ -280,6 +306,7 @@ run_suite() {
 command="${1:-}"
 case "${command}" in
 image) build_image ;;
+lock) lock_requirements ;;
 build) build_binaries ;;
 datasets) download_datasets ;;
 proxy) start_proxy ;;
