@@ -2,6 +2,13 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.43.2 (2026-11-05)
+
+Publishes the work tagged since v0.34.0. The tags v0.35.0 through v0.43.1 exist in Git, but the installer suite failed on `main`, so none of them has a Docker image or a GitHub release. This is the first published version after v0.34.0. Before upgrading from v0.34.0, read every entry from v0.35.0 through v0.43.1, and follow the migrations marked Breaking, including deleting `peen.db`, `peen.db-wal`, and `peen.db-shm` from `PEEN_STATE_DIR`.
+
+- Fixes the installer suite, which failed on the host control space with control agents. That test's workspace sits inside this repository, so it loaded the repository's own `AGENTS.md` and rules and went over the system prompt budget. The suite now turns the budget off.
+- Fixes the installer suite in a deep checkout, where the default worker socket directory produced a socket path over the 107 byte limit. The suite now moves the directory when the default is too long.
+
 ## v0.43.1 (2026-11-05)
 
 Updates the benchmark driver's Python packages. Only the `bench-*` Make targets use them, and the Peen image does not change. No configuration or API migration is needed.

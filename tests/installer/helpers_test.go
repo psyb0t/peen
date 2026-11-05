@@ -48,6 +48,11 @@ const (
 
 	statusStopped = 3
 
+	// maxDefaultSocketRootBytes is the longest worker socket root whose
+	// sockets fit a Unix socket address: 107 bytes, less the 49 that a session
+	// directory and the socket file add.
+	maxDefaultSocketRootBytes = 58
+
 	webSocketProtocol     = "peen.v1"
 	webSocketBearerPrefix = "peen.bearer." //nolint:gosec // A subprotocol prefix, not a credential.
 	webSocketMessageSend  = "message.send"
@@ -292,6 +297,18 @@ func (i *install) configure(t *testing.T) {
 		{"PEEN_COMPACTION_MODEL", providerName + "/" + providerModel},
 		{"PEEN_API_TOKEN", apiToken},
 		{"PEEN_METRICS_LISTEN_ADDRESS", "127.0.0.1:" + strconv.Itoa(i.metricsPort)},
+		// A control worker sees the whole repository, so a workspace under
+		// .testing inherits this repository's AGENTS.md and rules, which are
+		// larger than the budget at the default context size.
+		{"PEEN_MAX_SYSTEM_PROMPT_PERCENT", "0"},
+	}
+	// A deep checkout pushes the default socket root over the limit, which
+	// only TestDoctorAndStartExplainATooLongWorkerSocketRoot means to test.
+	defaultSocketRoot := filepath.Join(i.peenHome, "state", "workers")
+	if len(defaultSocketRoot) > maxDefaultSocketRootBytes {
+		settings = append(settings, [2]string{
+			"PEEN_WORKER_SOCKET_DIR", filepath.Join(i.dir, "s"),
+		})
 	}
 	for _, setting := range settings {
 		i.mustPeen(t, "config", "set", setting[0], setting[1])
