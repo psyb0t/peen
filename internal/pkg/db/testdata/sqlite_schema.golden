@@ -254,13 +254,15 @@ table execution_inbox_messages
   column 7 working_directory TEXT notnull=1 default=NULL pk=0
   column 8 message TEXT notnull=1 default=NULL pk=0
   column 9 parts_json TEXT notnull=1 default=NULL pk=0
-  column 10 state TEXT notnull=1 default=NULL pk=0
-  column 11 delivered_activity_id TEXT notnull=0 default=NULL pk=0
-  column 12 created_at DATETIME notnull=1 default=NULL pk=0
-  column 13 delivered_at DATETIME notnull=0 default=NULL pk=0
-  column 14 forwarded_execution_id TEXT notnull=0 default=NULL pk=0
-  column 15 stop_revision INTEGER notnull=1 default=0 pk=0
+  column 10 images_json TEXT notnull=1 default='[]' pk=0
+  column 11 state TEXT notnull=1 default=NULL pk=0
+  column 12 delivered_activity_id TEXT notnull=0 default=NULL pk=0
+  column 13 created_at DATETIME notnull=1 default=NULL pk=0
+  column 14 delivered_at DATETIME notnull=0 default=NULL pk=0
+  column 15 forwarded_execution_id TEXT notnull=0 default=NULL pk=0
+  column 16 stop_revision INTEGER notnull=1 default=0 pk=0
   CHECK ((state = 'forwarded') = (forwarded_execution_id IS NOT NULL))
+  CHECK (json_valid(images_json) AND json_type(images_json) = 'array')
   CHECK (json_valid(parts_json) AND json_type(parts_json) = 'array')
   CHECK (sequence > 0)
   CHECK (state <> 'delivered' OR (delivered_activity_id IS NOT NULL AND delivered_at IS NOT NULL))

@@ -38,7 +38,14 @@ func inboxProtocolEvents(
 	message *models.ExecutionInboxMessage,
 	kinds ...string,
 ) ([]EventInput, error) {
-	payload := executionInboxMessagePayload{Message: message.Message}
+	images, err := imageDescriptions(message.ImagesJSON)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "describe inbox message images")
+	}
+
+	payload := executionInboxMessagePayload{
+		Message: message.Message, Images: images,
+	}
 	if message.SourceEventID != nil {
 		payload.SourceEventID = message.SourceEventID.String()
 	}

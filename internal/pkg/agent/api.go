@@ -206,11 +206,6 @@ func (r *Runtime) RunMessage(
 	sink EventSink,
 ) (*MessageRunResult, error) {
 	if request.To != nil {
-		if len(request.Images) > 0 {
-			return nil, imageRefusal(session.ErrImagesNeedNewTurn,
-				"message a child agent")
-		}
-
 		return r.messageAgentRun(ctx, request, requestID)
 	}
 

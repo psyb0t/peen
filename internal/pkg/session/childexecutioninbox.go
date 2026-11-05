@@ -20,7 +20,7 @@ func (s *Store) AcceptChildExecutionMessage(
 	sessionID, executionID uuid.UUID,
 	input AcceptExecutionMessageInput,
 ) (*ExecutionInboxAcceptance, error) {
-	parts, err := s.validateExecutionInboxInput(input)
+	encoded, err := s.validateExecutionInboxInput(input)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "validate accepted child message")
 	}
@@ -31,7 +31,7 @@ func (s *Store) AcceptChildExecutionMessage(
 		var acceptErr error
 
 		result, acceptErr = s.acceptChildInboxMessage(ctx, tx, sessionID,
-			executionID, input, parts)
+			executionID, input, encoded)
 
 		return acceptErr
 	})
@@ -51,7 +51,7 @@ func (s *Store) acceptChildInboxMessage(
 	tx *repositories.Query,
 	sessionID, executionID uuid.UUID,
 	input AcceptExecutionMessageInput,
-	parts string,
+	encoded inboxEncoding,
 ) (*ExecutionInboxAcceptance, error) {
 	execution, err := s.findExecution(ctx, tx, sessionID, executionID)
 	if err != nil {
@@ -70,7 +70,7 @@ func (s *Store) acceptChildInboxMessage(
 	}
 
 	if existing != nil {
-		if !sameInboxInput(existing, executionID, input, parts) {
+		if !sameInboxInput(existing, executionID, input, encoded) {
 			return nil, ctxerrors.Wrap(commerr.ErrConflict,
 				"child inbox request changed")
 		}
@@ -85,10 +85,10 @@ func (s *Store) acceptChildInboxMessage(
 	}
 
 	if execution.State == models.ExecutionStatePaused {
-		return s.resumeChildWithMessage(ctx, tx, execution, input, parts)
+		return s.resumeChildWithMessage(ctx, tx, execution, input, encoded)
 	}
 
-	return s.insertChildInboxMessage(ctx, tx, execution, input, parts)
+	return s.insertChildInboxMessage(ctx, tx, execution, input, encoded)
 }
 
 // resumeChildWithMessage resumes a paused child and the paused work under it,
@@ -100,7 +100,7 @@ func (s *Store) resumeChildWithMessage(
 	tx *repositories.Query,
 	execution *models.Execution,
 	input AcceptExecutionMessageInput,
-	parts string,
+	encoded inboxEncoding,
 ) (*ExecutionInboxAcceptance, error) {
 	payload, err := json.Marshal(struct {
 		RequestID uuid.UUID `json:"requestId"`
@@ -132,13 +132,13 @@ func (s *Store) resumeChildWithMessage(
 		}
 
 		if _, err := s.insertChildInboxMessage(ctx, tx, execution, notice,
-			emptyChildReportPartsJSON); err != nil {
+			emptyInboxEncoding()); err != nil {
 			return nil, ctxerrors.Wrap(err, "queue child resume notice")
 		}
 	}
 
 	accepted, err := s.insertChildInboxMessage(ctx, tx, execution, input,
-		parts)
+		encoded)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "queue resuming child message")
 	}
@@ -153,7 +153,7 @@ func (s *Store) insertChildInboxMessage(
 	tx *repositories.Query,
 	execution *models.Execution,
 	input AcceptExecutionMessageInput,
-	parts string,
+	encoded inboxEncoding,
 ) (*ExecutionInboxAcceptance, error) {
 	if execution.EventCount == math.MaxInt64 {
 		return nil, ctxerrors.Wrap(commerr.ErrInvalidState,
@@ -184,11 +184,16 @@ func (s *Store) insertChildInboxMessage(
 		ExecutionID: execution.ID,
 		TurnID:      execution.RootTurnID, RequestID: input.RequestID,
 		Sequence: sequence, WorkingDirectory: input.WorkingDirectory,
-		Message: input.Message, PartsJSON: parts,
-		State: models.InboxMessageStateQueued, CreatedAt: s.now(),
+		Message: input.Message, PartsJSON: encoded.parts,
+		ImagesJSON: encoded.images.json,
+		State:      models.InboxMessageStateQueued, CreatedAt: s.now(),
 	}
 	if input.SourceEventID != uuid.Nil {
 		message.SourceEventID = &input.SourceEventID
+	}
+
+	if err := encoded.images.store(ctx, tx); err != nil {
+		return nil, ctxerrors.Wrap(err, "save accepted child message images")
 	}
 
 	if err := repository.WithContext(ctx).Create(message); err != nil {

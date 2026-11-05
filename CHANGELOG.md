@@ -2,6 +2,14 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.43.0 (2026-11-05)
+
+Lets a message queued into a running turn, or sent to a child agent, carry images. Before upgrading, stop Peen and delete `peen.db`, `peen.db-wal`, and `peen.db-shm` from the state directory, because the session schema changed.
+
+- Breaking: changes the session schema so queued messages can store images. Peen refuses to open a database an earlier version created. Delete `peen.db`, `peen.db-wal`, and `peen.db-shm` from `PEEN_STATE_DIR` and let Peen create it again.
+- Adds images to queued messages and to messages sent to a child agent. Peen stores them with the message and shows them to the model when the message reaches the turn. A message is refused when the model that would see it takes no images. See [HTTP API](docs/http-api.md).
+- Changes the control surface to let you attach images while a turn runs and when you write to a child agent.
+
 ## v0.42.0 (2026-11-05)
 
 Lets `readFile` read PDFs. No configuration or API migration is needed.

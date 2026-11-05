@@ -160,7 +160,6 @@
 	// A child that ends while it is the target drops back to the root.
 	$: sendTo = sendTarget(sendTo, liveAgents);
 	$: isSendingToAgent = sendTo !== SEND_TARGET_ROOT;
-	$: canAttach = !turnRunning && !isSendingToAgent;
 	$: rootQuestion = openRootQuestion(selectedLiveEvents);
 
 	onMount(() => {
@@ -623,14 +622,6 @@
 		if (messageText.trim() === "") {
 			return;
 		}
-		if (attachments.length > 0 && !canAttach) {
-			showError(
-				"message.send",
-				"Images go only with a message that starts a turn. Remove them or wait for the turn to finish.",
-			);
-
-			return;
-		}
 
 		// A message sent while a turn runs joins that turn, which keeps the
 		// model and reasoning level it started with. A message to a child agent
@@ -685,7 +676,7 @@
 	// message as usual.
 	function attachPastedImages(event: ClipboardEvent): void {
 		const files = imageFiles(event.clipboardData?.files ?? null);
-		if (files.length === 0 || !canAttach) {
+		if (files.length === 0) {
 			return;
 		}
 
@@ -700,12 +691,6 @@
 		}
 
 		event.preventDefault();
-		if (!canAttach) {
-			showError("message.send", "Images go only with a message that starts a turn.");
-
-			return;
-		}
-
 		attachFiles(files).catch((cause: unknown) => setError("message.send", cause));
 	}
 
@@ -1248,15 +1233,11 @@
 								</li>{/each}
 						</ul>{/if}
 					<div class="composer-footer">
-						<p>
-							Peen will use the selected workspace.{#if !canAttach}
-								Images go only with a message that starts a turn.{/if}
-						</p>
-						<label class="attach-button" class:disabled={!canAttach}
+						<p>Peen will use the selected workspace.</p>
+						<label class="attach-button"
 							>Attach images<input
 								accept={ATTACHMENT_ACCEPT}
 								class="sr-only"
-								disabled={!canAttach}
 								multiple
 								onchange={attachChosenFiles}
 								type="file"
@@ -2001,10 +1982,6 @@
 		cursor: pointer;
 		font-size: 0.8rem;
 		padding: 0.45rem 0.7rem;
-	}
-	.attach-button.disabled {
-		cursor: not-allowed;
-		opacity: 0.5;
 	}
 	.attachments {
 		display: flex;

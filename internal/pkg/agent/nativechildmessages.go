@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/google/uuid"
@@ -18,7 +19,7 @@ import (
 func (r *Runtime) deliverNativeChildMessage(
 	ctx context.Context,
 	sessionID, runID, requestID uuid.UUID,
-	text string,
+	message childMessage,
 ) (bool, error) {
 	native := r.nativeWorkflowRunner()
 	if native == nil {
@@ -31,7 +32,7 @@ func (r *Runtime) deliverNativeChildMessage(
 	}
 
 	handled, resumed, err := r.acceptNativeChildRecipientMessage(ctx, native,
-		sessionID, runID, requestID, text)
+		sessionID, runID, requestID, message)
 	if !handled || err != nil || len(resumed) == 0 {
 		return handled, err
 	}
@@ -53,11 +54,18 @@ func (r *Runtime) deliverNativeChildMessage(
 	return true, nil
 }
 
+// childMessage is what a child agent receives: the tagged text and any
+// images.
+type childMessage struct {
+	text   string
+	images []MessageImage
+}
+
 func (r *Runtime) acceptNativeChildRecipientMessage(
 	ctx context.Context,
 	native *nativeWorkflowRunner,
 	sessionID, runID, requestID uuid.UUID,
-	text string,
+	message childMessage,
 ) (bool, []uuid.UUID, error) {
 	// Acceptance and hydration share this lock so neither can miss a message.
 	r.childMessageMutex.Lock()
@@ -81,8 +89,14 @@ func (r *Runtime) acceptNativeChildRecipientMessage(
 			"native child recipient identity changed")
 	}
 
+	if err := r.requireChildImageInput(execution,
+		message.images); err != nil {
+		return true, nil, err
+	}
+
 	input := session.AcceptExecutionMessageInput{
-		RequestID: requestID, Message: text, Capacity: r.maxQueuedUserMessages,
+		RequestID: requestID, Message: message.text, Images: message.images,
+		Capacity: r.maxQueuedUserMessages,
 	}
 
 	if execution.State == models.ExecutionStatePaused {
@@ -101,6 +115,30 @@ func (r *Runtime) acceptNativeChildRecipientMessage(
 	resumed, err := r.acceptNativeChildMessage(ctx, execution, input)
 
 	return true, resumed, err
+}
+
+// requireChildImageInput refuses images for a child whose model does not
+// take them. The model is the one the child's saved conversation runs.
+func (r *Runtime) requireChildImageInput(
+	execution *models.Execution,
+	images []MessageImage,
+) error {
+	if len(images) == 0 {
+		return nil
+	}
+
+	var conversation workflowConversation
+	if err := json.Unmarshal([]byte(execution.ContextJSON),
+		&conversation); err != nil {
+		return ctxerrors.Wrap(err, "read child model for images")
+	}
+
+	model, err := r.models.ResolveModel(conversation.ModelReference)
+	if err != nil {
+		return ctxerrors.Wrap(err, "resolve child model for images")
+	}
+
+	return requireImageInput(model, images)
 }
 
 func (n *nativeWorkflowRunner) retainChildMessageDirectory(

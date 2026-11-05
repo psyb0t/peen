@@ -189,6 +189,12 @@ func (q *activeUserMessageQueue) enqueueLegacyMessage(
 		return ctxerrors.Wrap(commerr.ErrConflict, "active turn has completed")
 	}
 
+	// Only a workflow turn stores a queued message's images.
+	if len(input.Images) > 0 {
+		return imageRefusal(session.ErrImagesNeedNewTurn,
+			"queue in-process user message")
+	}
+
 	// The skills are resolved now, against what the turn already holds, so an
 	// unknown name refuses the message before it leaves any trace.
 	skills, err := buildSkillMessages(ctx, q.snapshot, q.skills, input.Message)
@@ -541,9 +547,8 @@ func (r *Runtime) queueActiveUserMessage(
 		)
 	}
 
-	if len(input.Images) > 0 {
-		return nil, true, imageRefusal(session.ErrImagesNeedNewTurn,
-			"queue active user message")
+	if err := requireImageInput(queue.model, input.Images); err != nil {
+		return nil, true, ctxerrors.Wrap(err, "queue active user message")
 	}
 
 	if queue.changesRunningTurn(input) {

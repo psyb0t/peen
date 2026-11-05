@@ -218,7 +218,7 @@ func (d *launchAgentDeps) deliverToRun(
 	}
 
 	if handled, err := d.runtime.deliverNativeChildMessage(ctx, d.sessionID,
-		runID, uuid.New(), text); handled {
+		runID, uuid.New(), childMessage{text: text}); handled {
 		return err
 	}
 
@@ -243,6 +243,10 @@ func (r *Runtime) messageAgentRun(
 ) (*MessageRunResult, error) {
 	if err := validateAgentRunMessage(request); err != nil {
 		return nil, err
+	}
+
+	if err := r.validateImages(request.Images); err != nil {
+		return nil, ctxerrors.Wrap(err, "validate child message images")
 	}
 
 	sessionID := r.sessionID
@@ -270,9 +274,9 @@ func (r *Runtime) messageAgentRun(
 	}
 
 	handled, err := r.deliverNativeChildMessage(ctx, sessionID, runID,
-		requestID, text)
+		requestID, childMessage{text: text, images: request.Images})
 	if !handled {
-		err = registry.Deliver(ctx, runID, text)
+		err = deliverInProcess(ctx, registry, runID, text, request.Images)
 	}
 
 	if errors.Is(err, commerr.ErrNotFound) {
@@ -295,6 +299,23 @@ func (r *Runtime) messageAgentRun(
 // validateAgentRunMessage refuses an empty message and any turn setting. A
 // message to a child starts no turn, so a setting would have nothing to
 // change.
+// deliverInProcess hands text to a child run that has no durable inbox. Only
+// a durable inbox stores images, so such a child refuses them.
+func deliverInProcess(
+	ctx context.Context,
+	registry *AgentRunRegistry,
+	runID uuid.UUID,
+	text string,
+	images []MessageImage,
+) error {
+	if len(images) > 0 {
+		return imageRefusal(session.ErrImagesNeedNewTurn,
+			"message an in-process child agent")
+	}
+
+	return registry.Deliver(ctx, runID, text)
+}
+
 func validateAgentRunMessage(request MessageRequest) error {
 	if strings.TrimSpace(request.Message) == "" {
 		return ctxerrors.Wrap(commerr.ErrValidationFailed, "message")

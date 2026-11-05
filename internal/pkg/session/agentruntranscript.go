@@ -105,7 +105,9 @@ func (s *Store) createAgentRunMessages(
 			input,
 		)
 
-		message.ImagesJSON, err = encodeMessageImages(ctx, tx, input.Images)
+		message.ImagesJSON, err = transcriptImagesJSON(ctx, tx, MessageInput{
+			Images: input.Images, StoredImagesJSON: input.StoredImagesJSON,
+		})
 		if err != nil {
 			return nil, err
 		}

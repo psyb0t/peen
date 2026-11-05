@@ -19,7 +19,10 @@ type AcceptExecutionMessageInput struct {
 	WorkingDirectory string               `json:"workingDirectory"`
 	Message          string               `json:"message"`
 	Parts            []ExecutionInboxPart `json:"parts"`
-	Capacity         int                  `json:"capacity"`
+	// Images go with the message, stored in images_json when it is accepted
+	// and shown to the model when it is delivered.
+	Images   []MessageImage `json:"images,omitempty"`
+	Capacity int            `json:"capacity"`
 	// ResumeNotice is what a paused child reads ahead of this message: why
 	// it was paused. A message to a paused child resumes it, so the notice is
 	// queued only then, and ignored for a running child.
@@ -58,7 +61,24 @@ type DeliverExecutionMessagesInput struct {
 	RequestIDs []uuid.UUID   `json:"requestIds"`
 }
 
+// inboxEncoding is an accepted message's parts_json and the images it
+// carries, ready to store.
+type inboxEncoding struct {
+	parts  string
+	images preparedImages
+}
+
+// emptyInboxEncoding is the encoding of a message with no parts and no
+// images, such as a resume notice or a child report.
+func emptyInboxEncoding() inboxEncoding {
+	return inboxEncoding{
+		parts:  emptyChildReportPartsJSON,
+		images: preparedImages{json: emptyImagesJSON},
+	}
+}
+
 type executionInboxMessagePayload struct {
-	Message       string `json:"message"`
-	SourceEventID string `json:"sourceEventId,omitempty"`
+	Message       string             `json:"message"`
+	SourceEventID string             `json:"sourceEventId,omitempty"`
+	Images        []ImageDescription `json:"images,omitempty"`
 }

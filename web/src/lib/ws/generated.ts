@@ -114,7 +114,7 @@ export interface MessageSendData {
    */
   to?: string;
   /**
-   * Images the model sees after the message text, at most PEEN_MAX_IMAGES_PER_MESSAGE, 4 by default. Only a message that starts a turn may carry images, and only for a model that accepts image input.
+   * Images the model sees after the message text, at most PEEN_MAX_IMAGES_PER_MESSAGE, 4 by default, only for a model that accepts image input. A message queued into a running turn or sent to a child agent may carry images too.
    */
   images?: Array<MessageImage>;
 }

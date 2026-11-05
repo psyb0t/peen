@@ -76,7 +76,7 @@ func inboxTranscriptMessages(
 
 	messages = append(messages, MessageInput{
 		Role: models.MessageRoleUser, Content: row.Message,
-		Workspace: row.WorkingDirectory,
+		Workspace: row.WorkingDirectory, StoredImagesJSON: row.ImagesJSON,
 	})
 	for _, part := range parts {
 		messages = append(messages, MessageInput{

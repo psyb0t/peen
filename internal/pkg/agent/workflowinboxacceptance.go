@@ -86,6 +86,7 @@ func (q *activeUserMessageQueue) workflowAcceptanceInput(
 	accepted := session.AcceptExecutionMessageInput{
 		RequestID: input.RequestID, SourceEventID: input.SourceEventID,
 		WorkingDirectory: q.workspace, Message: input.Message,
+		Images:   input.Images,
 		Capacity: q.capacity, ExpectedStopRevision: input.ExpectedStopRevision,
 	}
 

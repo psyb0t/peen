@@ -97,7 +97,8 @@ func (s *Store) queueChildNotice(
 		SourceEventID: &notice.ID,
 		Sequence:      sequence, WorkingDirectory: child.WorkingDirectory,
 		Message: text, PartsJSON: emptyChildReportPartsJSON,
-		State: models.InboxMessageStateQueued, CreatedAt: notice.CreatedAt,
+		ImagesJSON: emptyImagesJSON,
+		State:      models.InboxMessageStateQueued, CreatedAt: notice.CreatedAt,
 	}
 	if err := tx.ExecutionInboxMessage.WithContext(ctx).Create(
 		message); err != nil {

@@ -124,6 +124,7 @@ func (s *Store) deliverChildInboxRow(
 	for _, message := range messages {
 		inputs = append(inputs, AgentRunMessageInput{
 			Role: message.Role, Content: message.Content,
+			StoredImagesJSON: message.StoredImagesJSON,
 		})
 	}
 

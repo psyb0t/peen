@@ -18,6 +18,7 @@ type ExecutionInboxMessage struct {
 	WorkingDirectory     string            `json:"workingDirectory"`
 	Message              string            `json:"message"`
 	PartsJSON            string            `json:"partsJson"`
+	ImagesJSON           string            `json:"imagesJson"`
 	State                InboxMessageState `json:"state"`
 	DeliveredActivityID  *uuid.UUID        `json:"deliveredActivityId"`
 	CreatedAt            time.Time         `json:"createdAt"`

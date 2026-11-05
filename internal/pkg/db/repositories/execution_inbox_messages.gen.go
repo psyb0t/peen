@@ -42,6 +42,7 @@ func newExecutionInboxMessage(db *gorm.DB, opts ...gen.DOOption) executionInboxM
 	_executionInboxMessage.WorkingDirectory = field.NewString(tableName, "working_directory")
 	_executionInboxMessage.Message = field.NewString(tableName, "message")
 	_executionInboxMessage.PartsJSON = field.NewString(tableName, "parts_json")
+	_executionInboxMessage.ImagesJSON = field.NewString(tableName, "images_json")
 	_executionInboxMessage.State = field.NewString(tableName, "state")
 	_executionInboxMessage.DeliveredActivityID = field.NewField(tableName, "delivered_activity_id")
 	_executionInboxMessage.CreatedAt = field.NewTime(tableName, "created_at")
@@ -68,6 +69,7 @@ type executionInboxMessage struct {
 	WorkingDirectory     field.String
 	Message              field.String
 	PartsJSON            field.String
+	ImagesJSON           field.String
 	State                field.String
 	DeliveredActivityID  field.Field
 	CreatedAt            field.Time
@@ -100,6 +102,7 @@ func (e *executionInboxMessage) updateTableName(table string) *executionInboxMes
 	e.WorkingDirectory = field.NewString(table, "working_directory")
 	e.Message = field.NewString(table, "message")
 	e.PartsJSON = field.NewString(table, "parts_json")
+	e.ImagesJSON = field.NewString(table, "images_json")
 	e.State = field.NewString(table, "state")
 	e.DeliveredActivityID = field.NewField(table, "delivered_activity_id")
 	e.CreatedAt = field.NewTime(table, "created_at")
@@ -121,7 +124,7 @@ func (e *executionInboxMessage) GetFieldByName(fieldName string) (field.OrderExp
 }
 
 func (e *executionInboxMessage) fillFieldMap() {
-	e.fieldMap = make(map[string]field.Expr, 16)
+	e.fieldMap = make(map[string]field.Expr, 17)
 	e.fieldMap["id"] = e.ID
 	e.fieldMap["session_id"] = e.SessionID
 	e.fieldMap["execution_id"] = e.ExecutionID
@@ -133,6 +136,7 @@ func (e *executionInboxMessage) fillFieldMap() {
 	e.fieldMap["working_directory"] = e.WorkingDirectory
 	e.fieldMap["message"] = e.Message
 	e.fieldMap["parts_json"] = e.PartsJSON
+	e.fieldMap["images_json"] = e.ImagesJSON
 	e.fieldMap["state"] = e.State
 	e.fieldMap["delivered_activity_id"] = e.DeliveredActivityID
 	e.fieldMap["created_at"] = e.CreatedAt

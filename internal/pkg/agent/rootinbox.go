@@ -61,10 +61,15 @@ func appendRootInboxContext(
 		return ctxerrors.Wrap(err, "decode retained inbox skills")
 	}
 
+	content, err := storedReferenceContent(row.Message, row.ImagesJSON)
+	if err != nil {
+		return ctxerrors.Wrap(err, "read retained inbox images")
+	}
+
 	conversation.InboxIDs = append(conversation.InboxIDs, row.RequestID)
 
 	conversation.Messages = append(conversation.Messages, elelem.Message{
-		Role: elelem.RoleUser, Content: elelem.Text(row.Message),
+		Role: elelem.RoleUser, Content: content,
 		Origin: elelem.MessageOriginTurn,
 	})
 	for _, part := range parts {

@@ -9,6 +9,9 @@ CREATE TABLE execution_inbox_messages (
     working_directory TEXT NOT NULL,
     message TEXT NOT NULL,
     parts_json TEXT NOT NULL CHECK (json_valid(parts_json) AND json_type(parts_json) = 'array'),
+    -- images_json is the same image list messages.images_json holds.
+    images_json TEXT NOT NULL DEFAULT '[]'
+        CHECK (json_valid(images_json) AND json_type(images_json) = 'array'),
     state TEXT NOT NULL CHECK (state IN ('queued', 'delivered', 'deferred', 'forwarded')),
     delivered_activity_id TEXT,
     created_at DATETIME NOT NULL,

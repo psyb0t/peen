@@ -22,6 +22,13 @@ type MessageImage struct {
 	Data      []byte `json:"data"`
 }
 
+// ImageDescription names an image's type and size, without its bytes, as
+// the userMessage frames carry it.
+type ImageDescription struct {
+	MediaType string `json:"mediaType"`
+	SizeBytes int    `json:"sizeBytes"`
+}
+
 // StoredImage is one images_json element. The bytes live in content_blobs
 // under Blob as a JSON base64 string, so a history read carries only these
 // references and an image repeated across messages is stored once.
@@ -67,15 +74,18 @@ func DecodeStoredImages(imagesJSON string) ([]StoredImage, error) {
 	return images, nil
 }
 
-// encodeMessageImages stores images' bytes in content_blobs inside the
-// caller's transaction and returns the images_json that names them.
-func encodeMessageImages(
-	ctx context.Context,
-	query *repositories.Query,
-	images []MessageImage,
-) (string, error) {
+// preparedImages is an images_json value and the content blobs it names,
+// before the blobs are stored.
+type preparedImages struct {
+	json  string
+	blobs []*models.ContentBlob
+}
+
+// prepareMessageImages builds the images_json that names images and the
+// blobs that hold their bytes, without writing anything.
+func prepareMessageImages(images []MessageImage) (preparedImages, error) {
 	if len(images) == 0 {
-		return emptyImagesJSON, nil
+		return preparedImages{json: emptyImagesJSON}, nil
 	}
 
 	stored := make([]StoredImage, 0, len(images))
@@ -83,7 +93,7 @@ func encodeMessageImages(
 
 	for _, image := range images {
 		if image.MediaType == "" || len(image.Data) == 0 {
-			return "", ctxerrors.Wrap(
+			return preparedImages{}, ctxerrors.Wrap(
 				commerr.ErrValidationFailed,
 				"message image needs a media type and data",
 			)
@@ -99,16 +109,86 @@ func encodeMessageImages(
 		})
 	}
 
-	if err := query.ContentBlob.WithContext(ctx).
-		Clauses(clause.OnConflict{DoNothing: true}).
-		Create(blobs...); err != nil {
-		return "", ctxerrors.Wrap(err, "store message images")
-	}
-
 	encoded, err := json.Marshal(stored)
 	if err != nil {
-		return "", ctxerrors.Wrap(err, "encode message image list")
+		return preparedImages{}, ctxerrors.Wrap(err,
+			"encode message image list")
 	}
 
-	return string(encoded), nil
+	return preparedImages{json: string(encoded), blobs: blobs}, nil
+}
+
+// store writes the prepared blobs inside the caller's transaction. A blob
+// already stored is kept.
+func (p preparedImages) store(
+	ctx context.Context,
+	query *repositories.Query,
+) error {
+	if len(p.blobs) == 0 {
+		return nil
+	}
+
+	if err := query.ContentBlob.WithContext(ctx).
+		Clauses(clause.OnConflict{DoNothing: true}).
+		Create(p.blobs...); err != nil {
+		return ctxerrors.Wrap(err, "store message images")
+	}
+
+	return nil
+}
+
+// encodeMessageImages stores images' bytes in content_blobs inside the
+// caller's transaction and returns the images_json that names them.
+func encodeMessageImages(
+	ctx context.Context,
+	query *repositories.Query,
+	images []MessageImage,
+) (string, error) {
+	prepared, err := prepareMessageImages(images)
+	if err != nil {
+		return "", err
+	}
+
+	if err := prepared.store(ctx, query); err != nil {
+		return "", err
+	}
+
+	return prepared.json, nil
+}
+
+// transcriptImagesJSON is the images_json a transcript row stores. A message
+// whose images are already stored, such as a delivered inbox message, names
+// them directly.
+func transcriptImagesJSON(
+	ctx context.Context,
+	query *repositories.Query,
+	input MessageInput,
+) (string, error) {
+	if len(input.Images) == 0 && input.StoredImagesJSON != "" {
+		return input.StoredImagesJSON, nil
+	}
+
+	return encodeMessageImages(ctx, query, input.Images)
+}
+
+// imageDescriptions lists each stored image's type and size, for an event
+// that describes a message without carrying its bytes.
+func imageDescriptions(imagesJSON string) ([]ImageDescription, error) {
+	stored, err := DecodeStoredImages(imagesJSON)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(stored) == 0 {
+		return nil, nil
+	}
+
+	described := make([]ImageDescription, 0, len(stored))
+	for _, image := range stored {
+		described = append(described, ImageDescription{
+			MediaType: image.MediaType, SizeBytes: image.SizeBytes,
+		})
+	}
+
+	return described, nil
 }

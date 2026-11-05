@@ -272,8 +272,8 @@ type MessageRequest struct {
 	ReasoningEffort *string              `json:"reasoningEffort,omitempty"`
 	SystemPrompt    *MessageSystemPrompt `json:"systemPrompt,omitempty"`
 
-	// Images follow the message text. Only a message that starts a turn may
-	// carry them, and only for a model that accepts image input.
+	// Images follow the message text, only for a model that accepts image
+	// input. A queued message or one to a child carries them too.
 	Images []MessageImage `json:"images,omitempty"`
 
 	// To sends the message to a running child agent's inbox instead of the

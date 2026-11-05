@@ -120,7 +120,18 @@ func (r *Runtime) loadDeferredRoot(
 		return nil, ctxerrors.Wrap(err, "read deferred source context")
 	}
 
-	return decodeDeferredRoot(source, message, sink)
+	deferred, err := decodeDeferredRoot(source, message, sink)
+	if err != nil {
+		return nil, err
+	}
+
+	deferred.request.Images, err = loadStoredImages(ctx, r.store,
+		message.ImagesJSON)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "read deferred message images")
+	}
+
+	return deferred, nil
 }
 
 func decodeDeferredRoot(

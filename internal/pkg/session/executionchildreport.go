@@ -62,7 +62,8 @@ func (s *Store) recordExecutionChildReport(
 		SourceEventID: &event.ID,
 		Sequence:      sequence, WorkingDirectory: parent.WorkingDirectory,
 		Message: text, PartsJSON: emptyChildReportPartsJSON,
-		State: models.InboxMessageStateQueued, CreatedAt: event.CreatedAt,
+		ImagesJSON: emptyImagesJSON,
+		State:      models.InboxMessageStateQueued, CreatedAt: event.CreatedAt,
 	}
 	if err := tx.ExecutionInboxMessage.WithContext(ctx).Create(
 		message); err != nil {

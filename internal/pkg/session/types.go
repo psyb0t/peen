@@ -96,6 +96,10 @@ type MessageInput struct {
 	InjectedKind          models.InjectedKind `json:"injectedKind"`
 	// Images are the message's images, stored in images_json.
 	Images []MessageImage `json:"images,omitempty"`
+	// StoredImagesJSON names images already in content_blobs, as an
+	// images_json value. It is used when Images is empty, for a message whose
+	// images were stored when it was accepted.
+	StoredImagesJSON string `json:"storedImagesJson,omitempty"`
 }
 
 // EventInput describes one exact internal or protocol event.
@@ -161,6 +165,9 @@ type AgentRunMessageInput struct {
 	SystemPrompt  string             `json:"systemPrompt,omitempty"`
 	// Images are the message's images, stored in images_json.
 	Images []MessageImage `json:"images,omitempty"`
+	// StoredImagesJSON names images already in content_blobs, used when
+	// Images is empty, as MessageInput.StoredImagesJSON is.
+	StoredImagesJSON string `json:"storedImagesJson,omitempty"`
 }
 
 // ListAgentRunMessagesOptions bounds one child transcript page.

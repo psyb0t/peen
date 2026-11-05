@@ -34,7 +34,7 @@ func (s *Store) acceptExecutionInbox(
 	input AcceptExecutionMessageInput,
 	state models.InboxMessageState,
 ) (*ExecutionInboxAcceptance, error) {
-	parts, err := s.validateExecutionInboxInput(input)
+	encoded, err := s.validateExecutionInboxInput(input)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "validate accepted inbox message")
 	}
@@ -54,7 +54,7 @@ func (s *Store) acceptExecutionInbox(
 		var acceptErr error
 
 		result, acceptErr = s.acceptExecutionMessage(ctx, tx, executionID,
-			lease, input, parts, state)
+			lease, input, encoded, state)
 
 		return acceptErr
 	})
@@ -78,20 +78,36 @@ func (s *Store) fitsInboxStorage(input AcceptExecutionMessageInput) bool {
 
 func (s *Store) validateExecutionInboxInput(
 	input AcceptExecutionMessageInput,
-) (string, error) {
+) (inboxEncoding, error) {
 	if input.RequestID == uuid.Nil || input.Capacity <= 0 ||
 		strings.TrimSpace(input.WorkingDirectory) == "" ||
 		strings.TrimSpace(input.Message) == "" ||
 		!s.fitsInboxStorage(input) {
-		return "", ctxerrors.Wrap(commerr.ErrValidationFailed,
+		return inboxEncoding{}, ctxerrors.Wrap(commerr.ErrValidationFailed,
 			"accepted inbox identity or message")
 	}
 
-	if err := validateExecutionInboxParts(input.Parts); err != nil {
+	parts, err := s.encodeInboxParts(input.Parts)
+	if err != nil {
+		return inboxEncoding{}, err
+	}
+
+	images, err := prepareMessageImages(input.Images)
+	if err != nil {
+		return inboxEncoding{}, ctxerrors.Wrap(err,
+			"encode accepted inbox images")
+	}
+
+	return inboxEncoding{parts: parts, images: images}, nil
+}
+
+// encodeInboxParts checks an accepted message's skill parts and returns the
+// parts_json that stores them.
+func (s *Store) encodeInboxParts(parts []ExecutionInboxPart) (string, error) {
+	if err := validateExecutionInboxParts(parts); err != nil {
 		return "", ctxerrors.Wrap(err, "validate accepted inbox skills")
 	}
 
-	parts := input.Parts
 	if parts == nil {
 		parts = []ExecutionInboxPart{}
 	}
@@ -115,7 +131,7 @@ func (s *Store) acceptExecutionMessage(
 	executionID uuid.UUID,
 	lease Lease,
 	input AcceptExecutionMessageInput,
-	parts string,
+	encoded inboxEncoding,
 	state models.InboxMessageState,
 ) (*ExecutionInboxAcceptance, error) {
 	execution, err := s.findExecution(ctx, tx, lease.SessionID, executionID)
@@ -136,7 +152,7 @@ func (s *Store) acceptExecutionMessage(
 
 	if existing != nil {
 		if err := validateInboxReplay(existing, executionID, input,
-			parts, state); err != nil {
+			encoded, state); err != nil {
 			return nil, ctxerrors.Wrap(err, "validate inbox replay")
 		}
 
@@ -147,20 +163,21 @@ func (s *Store) acceptExecutionMessage(
 		return nil, ctxerrors.Wrap(err, "validate inbox admission")
 	}
 
-	return s.insertInboxMessage(ctx, tx, execution, lease, input, parts, state)
+	return s.insertInboxMessage(ctx, tx, execution, lease, input, encoded,
+		state)
 }
 
 func validateInboxReplay(
 	existing *models.ExecutionInboxMessage,
 	executionID uuid.UUID,
 	input AcceptExecutionMessageInput,
-	parts string,
+	encoded inboxEncoding,
 	state models.InboxMessageState,
 ) error {
 	isDeferred := existing.State == models.InboxMessageStateDeferred ||
 		existing.State == models.InboxMessageStateForwarded
 	if isDeferred != (state == models.InboxMessageStateDeferred) ||
-		!sameInboxInput(existing, executionID, input, parts) {
+		!sameInboxInput(existing, executionID, input, encoded) {
 		return ctxerrors.Wrap(commerr.ErrConflict,
 			"accepted inbox input or delivery mode differs")
 	}
@@ -209,12 +226,13 @@ func sameInboxInput(
 	message *models.ExecutionInboxMessage,
 	executionID uuid.UUID,
 	input AcceptExecutionMessageInput,
-	parts string,
+	encoded inboxEncoding,
 ) bool {
 	return message.ExecutionID == executionID &&
 		message.Message == input.Message &&
 		message.WorkingDirectory == input.WorkingDirectory &&
-		message.PartsJSON == parts &&
+		message.PartsJSON == encoded.parts &&
+		message.ImagesJSON == encoded.images.json &&
 		sameOptionalID(message.SourceEventID, input.SourceEventID)
 }
 
@@ -232,7 +250,7 @@ func (s *Store) insertInboxMessage(
 	execution *models.Execution,
 	lease Lease,
 	input AcceptExecutionMessageInput,
-	parts string,
+	encoded inboxEncoding,
 	state models.InboxMessageState,
 ) (*ExecutionInboxAcceptance, error) {
 	revision, err := s.admissionStopRevision(ctx, tx, lease.SessionID,
@@ -264,15 +282,15 @@ func (s *Store) insertInboxMessage(
 		ID: s.newID(), SessionID: lease.SessionID, ExecutionID: execution.ID,
 		TurnID: lease.TurnID, RequestID: input.RequestID, Sequence: sequence,
 		WorkingDirectory: input.WorkingDirectory, Message: input.Message,
-		PartsJSON: parts, State: state, StopRevision: revision,
-		CreatedAt: s.now(),
+		PartsJSON: encoded.parts, ImagesJSON: encoded.images.json,
+		State: state, StopRevision: revision, CreatedAt: s.now(),
 	}
 	if input.SourceEventID != uuid.Nil {
 		message.SourceEventID = &input.SourceEventID
 	}
 
-	if err := repository.WithContext(ctx).Create(message); err != nil {
-		return nil, ctxerrors.Wrap(err, "save accepted inbox message")
+	if err := saveInboxMessage(ctx, tx, message, encoded); err != nil {
+		return nil, err
 	}
 
 	events, err := s.inboxAcceptanceEvents(ctx, tx, lease, message)
@@ -286,6 +304,26 @@ func (s *Store) insertInboxMessage(
 	}
 
 	return &ExecutionInboxAcceptance{Message: message, Events: events}, nil
+}
+
+// saveInboxMessage stores an accepted message's images, then the message
+// row that names them.
+func saveInboxMessage(
+	ctx context.Context,
+	tx *repositories.Query,
+	message *models.ExecutionInboxMessage,
+	encoded inboxEncoding,
+) error {
+	if err := encoded.images.store(ctx, tx); err != nil {
+		return ctxerrors.Wrap(err, "save accepted inbox images")
+	}
+
+	if err := tx.ExecutionInboxMessage.WithContext(ctx).
+		Create(message); err != nil {
+		return ctxerrors.Wrap(err, "save accepted inbox message")
+	}
+
+	return nil
 }
 
 func nextInboxSequence(

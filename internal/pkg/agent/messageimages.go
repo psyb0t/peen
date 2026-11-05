@@ -345,6 +345,87 @@ func messageContent(
 	return contentWithImages(text, resolved), nil
 }
 
+// loadStoredImages reads back the bytes of every image an images_json value
+// names, in order.
+func loadStoredImages(
+	ctx context.Context,
+	store imageBlobReader,
+	imagesJSON string,
+) ([]MessageImage, error) {
+	stored, err := session.DecodeStoredImages(imagesJSON)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "read stored image list")
+	}
+
+	if len(stored) == 0 {
+		return nil, nil
+	}
+
+	hashes := make([]string, 0, len(stored))
+	for _, image := range stored {
+		hashes = append(hashes, image.Blob)
+	}
+
+	blobs, err := store.GetContentBlobs(ctx, hashes)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "read stored image blobs")
+	}
+
+	images := make([]MessageImage, 0, len(stored))
+
+	for _, image := range stored {
+		blob, ok := blobs[image.Blob]
+		if !ok {
+			return nil, ctxerrors.Wrapf(commerr.ErrNotFound,
+				"stored image %s", image.Blob)
+		}
+
+		data, err := session.DecodeImageBlob(blob)
+		if err != nil {
+			return nil, ctxerrors.Wrap(err, "decode stored image")
+		}
+
+		images = append(images, MessageImage{
+			MediaType: image.MediaType, Data: data,
+		})
+	}
+
+	return images, nil
+}
+
+// storedReferenceContent is text followed by one image part per stored
+// image, each naming its content blob instead of carrying bytes. A model
+// round reads the bytes back before it sends the request.
+func storedReferenceContent(
+	text, imagesJSON string,
+) (elelem.Content, error) {
+	stored, err := session.DecodeStoredImages(imagesJSON)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "read stored message images")
+	}
+
+	if len(stored) == 0 {
+		return elelem.Text(text), nil
+	}
+
+	parts := make(elelem.Content, 0, len(stored)+1)
+	if text != "" {
+		parts = append(parts, elelem.TextOf(text))
+	}
+
+	for _, image := range stored {
+		parts = append(parts, elelem.Part{
+			Type: elelem.PartTypeImage,
+			Image: &elelem.ImageSource{
+				URL:       imageReferencePrefix + image.Blob,
+				MediaType: image.MediaType,
+			},
+		})
+	}
+
+	return parts, nil
+}
+
 // contentWithImages is text followed by one image part per image. Text alone
 // stays a single text part, as every message without images is.
 func contentWithImages(

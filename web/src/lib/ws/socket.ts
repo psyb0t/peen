@@ -91,8 +91,7 @@ export class PeenSocket {
 	 * message queued into a running turn must leave them out, because the
 	 * server rejects a queued message that tries to change them. A message to a
 	 * running child agent names its run in agentRunID, starts no turn, and
-	 * never carries settings. Images go only with a message that starts a turn;
-	 * the server refuses them on a queued message or a message to a child.
+	 * never carries settings. Images may go with any of these messages.
 	 */
 	public send(
 		sessionID: string,
