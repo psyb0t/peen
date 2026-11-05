@@ -24,6 +24,7 @@ const (
 	defaultMaxRemoveEntries      = 20000
 	defaultMaxCommandOutputBytes = 64 * 1024
 	defaultMaxFetchBytes         = 2 * 1024 * 1024
+	defaultMaxPDFBytes           = 32 * 1024 * 1024
 	defaultCommandTimeout        = 10 * time.Minute
 
 	defaultMaxJobOutputLines     = 2000
@@ -81,6 +82,9 @@ type Limits struct {
 	MaxImageBytes int
 	// MaxFetchBytes bounds how much of a response body webFetch reads.
 	MaxFetchBytes int
+	// MaxPDFBytes bounds a PDF readFile reads whole to extract its text,
+	// instead of MaxReadBytes, which bounds text.
+	MaxPDFBytes int
 }
 
 // DefaultLimits returns the bounded defaults every deployment starts from.
@@ -109,6 +113,7 @@ func DefaultLimits() Limits {
 		MaxListJobs:           defaultMaxListJobs,
 		MaxImageBytes:         defaultMaxImageBytes,
 		MaxFetchBytes:         defaultMaxFetchBytes,
+		MaxPDFBytes:           defaultMaxPDFBytes,
 	}
 }
 
@@ -130,6 +135,10 @@ func (l Limits) withDefaults() Limits {
 
 	if l.MaxFetchBytes == 0 {
 		l.MaxFetchBytes = defaults.MaxFetchBytes
+	}
+
+	if l.MaxPDFBytes == 0 {
+		l.MaxPDFBytes = defaults.MaxPDFBytes
 	}
 
 	return l
@@ -253,6 +262,7 @@ func (l Limits) validate() error {
 		l.MaxListJobs,
 		l.MaxImageBytes,
 		l.MaxFetchBytes,
+		l.MaxPDFBytes,
 	}
 
 	for _, value := range positives {

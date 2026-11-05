@@ -271,6 +271,7 @@ type Config struct {
 	ToolMaxRemoveEntries      int   `default:"20000"   env:"PEEN_TOOL_MAX_REMOVE_ENTRIES"`       //nolint:lll // Immutable env tag.
 	ToolMaxCommandOutputBytes int   `default:"65536"   env:"PEEN_TOOL_MAX_COMMAND_OUTPUT_BYTES"` //nolint:lll // Immutable env tag.
 	ToolMaxFetchBytes         int   `default:"2097152" env:"PEEN_TOOL_MAX_FETCH_BYTES"`          //nolint:lll // Immutable env tag.
+	ToolMaxPDFBytes           int   `default:"33554432" env:"PEEN_TOOL_MAX_PDF_BYTES"`           //nolint:lll // Immutable env tag.
 	// DefaultToolCommandTimeout is how long runCommand and waitJob wait when a
 	// call passes no timeout. A call may ask for any wait, longer or shorter.
 	DefaultToolCommandTimeout time.Duration `default:"10m" env:"PEEN_DEFAULT_TOOL_COMMAND_TIMEOUT"` //nolint:lll // Immutable env tag.
@@ -945,6 +946,7 @@ func (c Config) validateToolLimits() error {
 		c.ToolMaxRemoveEntries,
 		c.ToolMaxCommandOutputBytes,
 		c.ToolMaxFetchBytes,
+		c.ToolMaxPDFBytes,
 		c.MaxPendingEvents,
 		c.MaxEventSummaryBytes,
 		c.MaxEventDataBytes,

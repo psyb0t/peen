@@ -256,6 +256,7 @@ Under `summarize` a child agent compacts its own transcript into its own stored 
 | `PEEN_TOOL_MAX_DIFF_BYTES` | `65536` | Size limit on the diff `editFile` returns. |
 | `PEEN_TOOL_MAX_REMOVE_ENTRIES` | `20000` | `removePath` recursive entry limit. |
 | `PEEN_TOOL_MAX_COMMAND_OUTPUT_BYTES` | `65536` | `runCommand` captured stdout and stderr limit. |
+| `PEEN_TOOL_MAX_PDF_BYTES` | `33554432` | Largest PDF `readFile` reads to extract its text. A larger PDF is refused. |
 | `PEEN_TOOL_MAX_FETCH_BYTES` | `2097152` | How much of a response body `webFetch` reads. The text it returns is then limited by `PEEN_MAX_TOOL_RESULT_TOKENS`. |
 | `PEEN_DEFAULT_TOOL_COMMAND_TIMEOUT` | `10m` | How long `runCommand` and `waitJob` wait when a call passes no `timeout`. A call may ask for any wait. The command is never killed when the wait ends. A command still running returns a job handle instead. |
 

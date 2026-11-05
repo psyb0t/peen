@@ -6,6 +6,7 @@ require (
 	github.com/getkin/kin-openapi v0.149.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
+	github.com/ledongthuc/pdf v0.0.0-20261020125853-5e46805f718e
 	github.com/moby/moby/api v1.55.0
 	github.com/moby/moby/client v0.5.0
 	github.com/oapi-codegen/runtime v1.7.0

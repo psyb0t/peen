@@ -219,6 +219,7 @@ func workerRuntimeEnvironmentKey(key string) bool {
 		"PEEN_TOOL_MAX_REMOVE_ENTRIES",
 		"PEEN_TOOL_MAX_COMMAND_OUTPUT_BYTES",
 		"PEEN_TOOL_MAX_FETCH_BYTES",
+		"PEEN_TOOL_MAX_PDF_BYTES",
 		envDefaultToolCommandTimeout,
 		"PEEN_MAX_PENDING_EVENTS",
 		"PEEN_MAX_EVENT_SUMMARY_BYTES",

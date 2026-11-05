@@ -49,6 +49,7 @@ These are the in-process equivalents of deployment settings. `pkg/peen` accepts 
 | `PEEN_TOOL_MAX_REMOVE_ENTRIES` | `ToolLimits.MaxRemoveEntries` | `20000` |
 | `PEEN_TOOL_MAX_COMMAND_OUTPUT_BYTES` | `ToolLimits.MaxCommandOutputBytes` | `65536` |
 | `PEEN_TOOL_MAX_FETCH_BYTES` | `ToolLimits.MaxFetchBytes` | `2097152` |
+| `PEEN_TOOL_MAX_PDF_BYTES` | `ToolLimits.MaxPDFBytes` | `33554432` |
 | `PEEN_DEFAULT_TOOL_COMMAND_TIMEOUT` | `ToolLimits.CommandTimeout` and `ToolLimits.WaitJobTimeout` | `10m` |
 | `PEEN_MAX_PENDING_EVENTS` | `EventLimits.MaxPendingPerSession` | `256` |
 | `PEEN_MAX_EVENT_SUMMARY_BYTES` | `EventLimits.MaxSummaryBytes` | `4096` |

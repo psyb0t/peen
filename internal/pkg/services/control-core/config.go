@@ -150,6 +150,7 @@ func logValidatedConfig(
 		"tool_max_remove_entries", config.ToolMaxRemoveEntries,
 		"tool_max_command_output_bytes", config.ToolMaxCommandOutputBytes,
 		"tool_max_fetch_bytes", config.ToolMaxFetchBytes,
+		"tool_max_pdf_bytes", config.ToolMaxPDFBytes,
 		"default_tool_command_timeout", config.DefaultToolCommandTimeout,
 		"max_pending_events", config.MaxPendingEvents,
 		"max_event_summary_bytes", config.MaxEventSummaryBytes,

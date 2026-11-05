@@ -167,6 +167,7 @@ func ConfiguredToolLimits(deployment config.Config) tools.Limits {
 		MaxRemoveEntries:      deployment.ToolMaxRemoveEntries,
 		MaxCommandOutputBytes: deployment.ToolMaxCommandOutputBytes,
 		MaxFetchBytes:         deployment.ToolMaxFetchBytes,
+		MaxPDFBytes:           deployment.ToolMaxPDFBytes,
 		CommandTimeout:        deployment.DefaultToolCommandTimeout,
 		WaitJobTimeout:        deployment.DefaultToolCommandTimeout,
 		MaxImageBytes:         deployment.MaxImageBytes,

@@ -31,6 +31,8 @@ type ToolLimits struct {
 	MaxImageBytes         int
 	// MaxFetchBytes bounds how much of a response body webFetch reads.
 	MaxFetchBytes int
+	// MaxPDFBytes bounds a PDF readFile reads to extract its text.
+	MaxPDFBytes int
 }
 
 // AgentLimits bounds concurrent children, nesting and live event buffers.

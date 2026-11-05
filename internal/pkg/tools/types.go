@@ -125,6 +125,13 @@ type ReadFileOutput struct {
 	MediaType string `json:"mediaType,omitempty"`
 	SizeBytes int    `json:"sizeBytes,omitempty"`
 	Image     []byte `json:"-"`
+
+	// Pages is a PDF's page count. Its text is in Content, a marker line
+	// before each page.
+	Pages int `json:"pages,omitempty"`
+	// Note says something the model needs to know about the content, such as
+	// a PDF with no text layer.
+	Note string `json:"note,omitempty"`
 }
 
 // WriteFileInput creates or replaces one text file. ExpectedSHA256 is required

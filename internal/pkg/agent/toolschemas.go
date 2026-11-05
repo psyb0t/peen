@@ -80,6 +80,9 @@ A .png, .jpg, .jpeg, .gif, or .webp file is read whole as an image: the
 result reports its mediaType and sizeBytes, and the image itself follows
 the tool results in a user message. A model without image input gets an
 error instead.
+A .pdf file comes back as its extracted text, a "--- page N of M ---" line
+before each page, read in line windows like a text file. The result
+reports pages, and a note when the PDF has no text layer.
 Reading a file is what makes it eligible for writeFile, editFile,
 applyPatch, movePath, and removePath in this turn. A directory listing
 does not count as reading a regular file.`

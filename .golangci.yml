@@ -113,6 +113,8 @@ linters:
             - github.com/prometheus/common
             - github.com/psyb0t
             - github.com/joho/godotenv
+            # PDF text extraction for readFile.
+            - github.com/ledongthuc/pdf
             - github.com/spf13/cobra
             # Integration-test harness under tests/ that builds and runs the app
             # image via testcontainers-go. Test-only; production never imports it.

@@ -32,6 +32,10 @@ func (e *Executor) ReadFile(
 		return e.readImageFile(resolved, mediaType)
 	}
 
+	if isPDFPath(resolved) {
+		return e.readPDFFile(resolved, input)
+	}
+
 	content, _, err := e.readRegularFile(
 		resolved,
 		int64(e.Limits().MaxReadBytes),

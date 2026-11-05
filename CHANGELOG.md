@@ -2,6 +2,12 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.42.0 (2026-11-05)
+
+Lets `readFile` read PDFs. No configuration or API migration is needed.
+
+- Adds PDF reading to `readFile`. A `.pdf` file comes back as its extracted text, with a `--- page N of M ---` line before each page, in the same line windows as a text file, and the result reports its page count. A PDF with no text layer, such as a scan, comes back with a note that says so. `PEEN_TOOL_MAX_PDF_BYTES`, default 32 MiB, limits the PDF size. See [Configuration](docs/configuration.md#tool-execution-limits).
+
 ## v0.41.0 (2026-11-04)
 
 Shows the model every image an MCP tool returns, up to the per-message limit. No configuration or API migration is needed.
