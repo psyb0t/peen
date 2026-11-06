@@ -101,6 +101,7 @@ type SessionRegistry interface {
 		workspace string,
 		agentSpace string,
 	) (api.OpenedSession, error)
+	OpenSystemSession(ctx context.Context) (api.OpenedSession, error)
 	ListSessions(
 		ctx context.Context,
 		params api.ListSessionsParams,
@@ -170,6 +171,14 @@ func New(deps Dependencies) (*Server, error) {
 
 	instance := &Server{deps: deps}
 	instance.configureWebSocketHub()
+
+	if err := deps.Metrics.WatchWebSocketClients(func() int {
+		return len(instance.webSocketHub.GetAllClients())
+	}); err != nil {
+		instance.webSocketHub.Close()
+
+		return nil, ctxerrors.Wrap(err, "watch WebSocket clients")
+	}
 
 	if err := instance.configureHandlers(); err != nil {
 		instance.webSocketHub.Close()

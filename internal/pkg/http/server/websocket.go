@@ -587,6 +587,17 @@ func messageSendDataToRequest(
 		request.To = &to
 	}
 
+	if data.System != nil && *data.System {
+		if request.To != nil {
+			return agent.MessageRequest{}, ctxerrors.Wrap(
+				commerr.ErrValidationFailed,
+				"system cannot combine with to",
+			)
+		}
+
+		request.System = true
+	}
+
 	images, err := decodeMessageImages(data.Images)
 	if err != nil {
 		return agent.MessageRequest{}, err

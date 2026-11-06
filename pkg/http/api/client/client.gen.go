@@ -2360,6 +2360,13 @@ type ClientInterface interface {
 	// Corresponds with POST /sessions/open (the `OpenSession` operationId).
 	OpenSession(ctx context.Context, body OpenSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// OpenSystemSession Open or resume the system session
+	//
+	// Returns the deployment's one system session, creating it the first time, and starts no turn. Send it messages over the WebSocket with `system` set. While `PEEN_SYSTEM_AGENT` is off this answers 403 SYSTEM_AGENT_OFF and creates nothing.
+	//
+	// Corresponds with POST /sessions/system (the `OpenSystemSession` operationId).
+	OpenSystemSession(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListWorkspaceRoots List workspace roots this controller may open
 	//
 	// Lists the operator-configured workspace roots available to this authenticated control surface. A client selects one of these roots when it opens its first session instead of guessing a host path. This is the deliberate, authenticated disclosure of the controller's workspace boundary; rejected workspace opens still disclose no roots.
@@ -3004,6 +3011,23 @@ func (c *Client) OpenSessionWithBody(ctx context.Context, contentType string, bo
 // Corresponds with POST /sessions/open (the `OpenSession` operationId).
 func (c *Client) OpenSession(ctx context.Context, body OpenSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewOpenSessionRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// OpenSystemSession Open or resume the system session
+//
+// Returns the deployment's one system session, creating it the first time, and starts no turn. Send it messages over the WebSocket with `system` set. While `PEEN_SYSTEM_AGENT` is off this answers 403 SYSTEM_AGENT_OFF and creates nothing.
+//
+// Corresponds with POST /sessions/system (the `OpenSystemSession` operationId).
+func (c *Client) OpenSystemSession(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewOpenSystemSessionRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -5445,6 +5469,33 @@ func NewOpenSessionRequestWithBody(server string, contentType string, body io.Re
 	return req, nil
 }
 
+// NewOpenSystemSessionRequest constructs an http.Request for the OpenSystemSession method
+func NewOpenSystemSessionRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/sessions/system")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListWorkspaceRootsRequest constructs an http.Request for the ListWorkspaceRoots method
 func NewListWorkspaceRootsRequest(server string) (*http.Request, error) {
 	var err error
@@ -5825,6 +5876,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /sessions/open (the `OpenSession` operationId).
 	OpenSessionWithResponse(ctx context.Context, body OpenSessionJSONRequestBody, reqEditors ...RequestEditorFn) (*OpenSessionResponse, error)
+
+	// OpenSystemSessionWithResponse Open or resume the system session
+	//
+	// Returns the deployment's one system session, creating it the first time, and starts no turn. Send it messages over the WebSocket with `system` set. While `PEEN_SYSTEM_AGENT` is off this answers 403 SYSTEM_AGENT_OFF and creates nothing.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /sessions/system (the `OpenSystemSession` operationId).
+	OpenSystemSessionWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*OpenSystemSessionResponse, error)
 
 	// ListWorkspaceRootsWithResponse List workspace roots this controller may open
 	//
@@ -8584,6 +8644,76 @@ func (r OpenSessionResponse) ContentType() string {
 	return ""
 }
 
+// OpenSystemSessionResponse200Headers the declared response headers of an HTTP 200 response for OpenSystemSession
+type OpenSystemSessionResponse200Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type OpenSystemSessionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *OpenedSession
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorForbidden
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *OpenSystemSessionResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r OpenSystemSessionResponse) GetJSON200() *OpenedSession {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r OpenSystemSessionResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r OpenSystemSessionResponse) GetJSON403() *ErrorForbidden {
+	return r.JSON403
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r OpenSystemSessionResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r OpenSystemSessionResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r OpenSystemSessionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r OpenSystemSessionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r OpenSystemSessionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // ListWorkspaceRootsResponse200Headers the declared response headers of an HTTP 200 response for ListWorkspaceRoots
 type ListWorkspaceRootsResponse200Headers struct {
 	XRequestID openapi_types.UUID
@@ -9194,6 +9324,21 @@ func (c *ClientWithResponses) OpenSessionWithResponse(ctx context.Context, body 
 		return nil, err
 	}
 	return ParseOpenSessionResponse(rsp)
+}
+
+// OpenSystemSessionWithResponse Open or resume the system session
+//
+// Returns the deployment's one system session, creating it the first time, and starts no turn. Send it messages over the WebSocket with `system` set. While `PEEN_SYSTEM_AGENT` is off this answers 403 SYSTEM_AGENT_OFF and creates nothing.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /sessions/system (the `OpenSystemSession` operationId).
+func (c *ClientWithResponses) OpenSystemSessionWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*OpenSystemSessionResponse, error) {
+	rsp, err := c.OpenSystemSession(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseOpenSystemSessionResponse(rsp)
 }
 
 // ListWorkspaceRootsWithResponse List workspace roots this controller may open
@@ -11816,6 +11961,73 @@ func ParseOpenSessionResponse(rsp *http.Response) (*OpenSessionResponse, error) 
 	switch {
 	case rsp.StatusCode == 200:
 		var headers OpenSessionResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseOpenSystemSessionResponse parses an HTTP response from a OpenSystemSessionWithResponse call
+func ParseOpenSystemSessionResponse(rsp *http.Response) (*OpenSystemSessionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &OpenSystemSessionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest OpenedSession
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorForbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers OpenSystemSessionResponse200Headers
 		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
 			var value openapi_types.UUID
 			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {

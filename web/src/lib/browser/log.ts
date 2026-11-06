@@ -46,6 +46,8 @@ export const BROWSER_LOG_EVENTS = [
 	"socket.message.sent",
 	"socket.open",
 	"socket.reconnect.scheduled",
+	"system.open.fail",
+	"system.open.start",
 	"ui.error",
 	"workspace.open.complete",
 	"workspace.open.fail",

@@ -90,6 +90,7 @@ RUN apt-get update && \
         jq \
         less \
         ripgrep \
+        sqlite3 \
         sudo \
         tini \
         tzdata \

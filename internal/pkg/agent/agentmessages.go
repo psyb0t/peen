@@ -135,6 +135,8 @@ func messageTools(
 			searchExecutionsSchema, deps.searchExecutions, onPostRun),
 		hostTool(toolNameReadExecution, readExecutionDescription,
 			readExecutionSchema, deps.readExecution, onPostRun),
+		hostTool(toolNameReadMetrics, readMetricsDescription,
+			readMetricsSchema, deps.readMetrics, onPostRun),
 		hostTool(toolNameResumeExecution, resumeExecutionDescription,
 			resumeExecutionSchema, deps.resumeExecution, onPostRun),
 		hostTool(toolNameResolveExecutionActivity,

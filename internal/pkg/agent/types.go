@@ -281,6 +281,10 @@ type MessageRequest struct {
 	// message to a child starts no turn and cannot carry turn settings.
 	To *uuid.UUID `json:"to,omitempty"`
 
+	// System says the client meant to address the system session. The router
+	// refuses a mismatch in either direction.
+	System bool `json:"-"`
+
 	// SessionID routes the turn to one durable session. The transport sets it
 	// from the session the client named, never from the message body, so a
 	// message cannot redirect itself to another session. An unknown ID fails

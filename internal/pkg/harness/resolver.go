@@ -67,6 +67,9 @@ type Resolver struct {
 	learnedDirectory string
 
 	withoutCoreInstructions bool
+
+	// systemAgent makes this resolver serve the system agent alone.
+	systemAgent *SystemAgentPaths
 }
 
 func (r Resolver) coreSelection() coreSelection {
@@ -157,6 +160,7 @@ func NewResolver(
 		limits:         resolvedLimits,
 		disabledSkills: settings.disabledSkills,
 		disabledAgents: settings.disabledAgents,
+		systemAgent:    settings.systemAgent,
 
 		learnedDirectory:        settings.learnedDirectory,
 		withoutCoreInstructions: settings.withoutCoreInstructions,
@@ -205,6 +209,10 @@ func (r Resolver) discoverConfigLayer(state *resolutionState) error {
 
 // Resolve rebuilds the harness snapshot for the selected workspace.
 func (r Resolver) Resolve(workspace string) (Snapshot, error) {
+	if r.systemAgent != nil {
+		return r.resolveSystemAgent(workspace)
+	}
+
 	if r.filesystem != nil {
 		return r.resolveVirtual(workspace)
 	}
@@ -1326,6 +1334,14 @@ func (s *resolutionState) discoverNamedAgent(
 		return ctxerrors.Wrap(
 			ErrInvalidAgent,
 			"named agent name does not match file",
+		)
+	}
+
+	if IsReservedAgentName(metadata.Name) {
+		return ctxerrors.Wrapf(
+			ErrInvalidAgent,
+			"named agent name %q is reserved",
+			metadata.Name,
 		)
 	}
 

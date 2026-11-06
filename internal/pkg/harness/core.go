@@ -41,6 +41,7 @@ type resolverSettings struct {
 
 	learnedDirectory        string
 	withoutCoreInstructions bool
+	systemAgent             *SystemAgentPaths
 }
 
 // WithLearnedDirectory reads the global learned directory right after the

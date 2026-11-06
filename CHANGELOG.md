@@ -2,6 +2,18 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.45.0 (2026-11-06)
+
+Adds an operator-only system agent, lets agents read their own session's metrics while they work, and shows the WebSocket and message backlog on `/metrics`. The system agent stays off until you set `PEEN_SYSTEM_AGENT=true`. Rename any agent called `system`. No other migration is needed.
+
+- Breaking: reserves the agent names `system` and `core:system`. Startup refuses them in `PEEN_AGENT`, and Peen ignores an agent file named `system` with a warning. Rename the agent.
+- Adds the system agent, started with `peen system "prompt"` or `/system-agent "prompt"` in the control surface, to read every session and change the configuration directory. It runs in the `control` agent space, which is host root when the controller can reach a Docker daemon. It loads no harness and has no `launchAgent`, and the model cannot select it. See [the system agent](docs/agents.md#the-system-agent).
+- Adds `POST /api/v1/sessions/system`, the `SYSTEM_AGENT_OFF` error code, and the `system` field of `message.send`.
+- Adds `sqlite3` to the image.
+- Adds the `readMetrics` tool. Every agent can read totals per tool, model, turn, child agent, or hook event for its own session, and the controller limits each read to the session the worker authenticated as. See [named agents](docs/agents.md#format).
+- Adds `peen_websocket_clients` and `peen_queued_messages` to `/metrics`.
+- Changes what happens when `metrics.db` has a schema this build does not expect. Peen moves the file to `metrics.db.stale` and starts a new one, where it used to keep the file and lose every write.
+
 ## v0.44.0 (2026-11-05)
 
 `/metrics` now shows what workers do, and Peen stores every measurement in a new `metrics.db` you can query with any SQLite tool. No configuration or API migration is needed. The first start creates `metrics.db` in `PEEN_STATE_DIR`.

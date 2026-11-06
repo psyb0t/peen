@@ -54,6 +54,10 @@ type Options struct {
 	// controller's default for a new one.
 	AgentSpace string
 
+	// System runs the turn in the system session. Workspace and AgentSpace
+	// then mean nothing.
+	System bool
+
 	// Message is the turn's message.send data: the prompt and the per-turn
 	// model, reasoning effort, and system prompt.
 	Message wsapi.MessageSendData
@@ -211,6 +215,15 @@ func openSession(
 	client *controlclient.Client,
 	options Options,
 ) (uuid.UUID, error) {
+	if options.System {
+		opened, err := client.OpenSystemSession(ctx)
+		if err != nil {
+			return uuid.Nil, ctxerrors.Wrap(err, "open the system session")
+		}
+
+		return opened.Session.Id, nil
+	}
+
 	agentSpace := NormalizeAgentSpace(options.AgentSpace)
 
 	request := api.OpenSessionRequest{Workspace: options.Workspace}

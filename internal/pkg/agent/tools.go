@@ -11,6 +11,7 @@ import (
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
@@ -42,6 +43,7 @@ const (
 	toolNameAsk                      = "ask"
 	toolNameSearchExecutions         = "searchExecutions"
 	toolNameReadExecution            = "readExecution"
+	toolNameReadMetrics              = "readMetrics"
 	toolNameResumeExecution          = "resumeExecution"
 	toolNameResolveExecutionActivity = "resolveExecutionActivity"
 
@@ -88,6 +90,30 @@ func instrumentTools(
 	return tools
 }
 
+// SystemAgentScopeKey marks a system worker's logging scope.
+const SystemAgentScopeKey = "system_agent"
+
+// auditSystemToolCall leaves one info record per system agent tool call, which
+// reaches the audit log. It names the tool and never its arguments, because a
+// command or a file edit may hold a secret.
+func auditSystemToolCall(
+	ctx context.Context,
+	tool string,
+	outcome string,
+	duration time.Duration,
+) {
+	if _, found := ctxscope.Get(ctx)[SystemAgentScopeKey]; !found {
+		return
+	}
+
+	ctxscope.GetLogger(ctx).Info(
+		"system agent tool call",
+		"tool", tool,
+		"outcome", outcome,
+		"duration_ms", duration.Milliseconds(),
+	)
+}
+
 func instrumentTool(tool elelem.Tool, collector *metrics.Metrics) elelem.Tool {
 	handler := tool.Handler
 	if collector == nil || handler == nil {
@@ -111,7 +137,9 @@ func instrumentTool(tool elelem.Tool, collector *metrics.Metrics) elelem.Tool {
 			outcome = metrics.OutcomeCancelled
 		}
 
-		collector.ToolCompleted(ctx, tool.Name, outcome, time.Since(startedAt))
+		duration := time.Since(startedAt)
+		collector.ToolCompleted(ctx, tool.Name, outcome, duration)
+		auditSystemToolCall(ctx, tool.Name, outcome, duration)
 
 		return result, err
 	}

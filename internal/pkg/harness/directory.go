@@ -10,6 +10,14 @@ import (
 // ResolveDirectory reads the current directory and its ancestors, without
 // loading definitions from descendants the agent has not entered.
 func (r Resolver) ResolveDirectory(directory string) (Snapshot, error) {
+	if r.systemAgent != nil {
+		return r.resolveSystemAgent(directory)
+	}
+
+	return r.resolveDirectoryLayers(directory)
+}
+
+func (r Resolver) resolveDirectoryLayers(directory string) (Snapshot, error) {
 	state := newResolutionState(r.limits)
 	if err := state.discoverEmbedded(r.coreSelection()); err != nil {
 		return Snapshot{}, ctxerrors.Wrap(err, "discover directory baseline")

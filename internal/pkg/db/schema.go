@@ -99,6 +99,26 @@ func expectedSchemaSnapshot(ctx context.Context, version int) (string, error) {
 		return "", errIncompatibleDatabase(version)
 	}
 
+	statements := make([]string, 0, version)
+
+	for index, table := range order[:version] {
+		statement, readErr := createMigrationSQL(index, table)
+		if readErr != nil {
+			return "", readErr
+		}
+
+		statements = append(statements, statement)
+	}
+
+	return memorySchemaSnapshot(ctx, statements)
+}
+
+// memorySchemaSnapshot applies statements to a private in-memory database and
+// returns its normalized schema.
+func memorySchemaSnapshot(
+	ctx context.Context,
+	statements []string,
+) (string, error) {
 	memory, err := sql.Open("sqlite", memoryDatabaseDSN)
 	if err != nil {
 		return "", ctxerrors.Wrap(err, "open in-memory sqlite")
@@ -116,18 +136,9 @@ func expectedSchemaSnapshot(ctx context.Context, version int) (string, error) {
 	// One connection keeps every statement on the same in-memory database.
 	memory.SetMaxOpenConns(1)
 
-	for index, table := range order[:version] {
-		statement, readErr := createMigrationSQL(index, table)
-		if readErr != nil {
-			return "", readErr
-		}
-
+	for _, statement := range statements {
 		if _, err := memory.ExecContext(ctx, statement); err != nil {
-			return "", ctxerrors.Wrapf(
-				err,
-				"apply the create migration for %s in memory",
-				table,
-			)
+			return "", ctxerrors.Wrap(err, "apply a migration in memory")
 		}
 	}
 

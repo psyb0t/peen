@@ -89,6 +89,7 @@ type WorkerIngest struct {
 	metrics      *Metrics
 	sessionID    string
 	generationID string
+	allSessions  bool
 
 	mutex      sync.Mutex
 	activeJobs int64

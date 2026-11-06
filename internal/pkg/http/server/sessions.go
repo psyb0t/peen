@@ -96,6 +96,42 @@ func openSessionFailure(
 	return nil, ctxerrors.Wrap(err, "open workspace session")
 }
 
+// OpenSystemSession opens or resumes the system session. It starts no turn.
+//
+//nolint:ireturn // Generated strict handler response interface.
+func (s *Server) OpenSystemSession(
+	ctx context.Context,
+	_ api.OpenSystemSessionRequestObject,
+) (api.OpenSystemSessionResponseObject, error) {
+	opened, err := s.deps.Sessions.OpenSystemSession(ctx)
+	if errors.Is(err, commerr.ErrPermissionDenied) {
+		return api.OpenSystemSession403JSONResponse{
+			ErrorForbiddenJSONResponse: api.ErrorForbiddenJSONResponse(
+				systemAgentOffError(),
+			),
+		}, nil
+	}
+
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "open system session")
+	}
+
+	return api.OpenSystemSession200JSONResponse{
+		Body: opened,
+		Headers: api.OpenSystemSession200ResponseHeaders{
+			XRequestID: requestID(ctx),
+			XSessionID: opened.Session.Id,
+		},
+	}, nil
+}
+
+func systemAgentOffError() api.Error {
+	return api.Error{
+		Code:    ErrorCodeSystemAgentOff,
+		Message: "the system agent is off",
+	}
+}
+
 // ListSessions reports the sessions this control surface holds, so a client
 // can discover them without already knowing a session ID.
 //

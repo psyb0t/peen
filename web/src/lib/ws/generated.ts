@@ -100,6 +100,10 @@ export function validateMessageSend(
  */
 export interface MessageSendData {
   /**
+   * Set on a message to the system session and on nothing else. The server refuses a mismatch either way, and `system` cannot combine with `to`.
+   */
+  system?: boolean;
+  /**
    * At most PEEN_MAX_MESSAGE_BYTES bytes, 262144 by default. The limit is deployment configuration, so the server enforces it, not this schema.
    */
   message: string;
@@ -126,9 +130,12 @@ export function validateMessageSendData(
 ): asserts value is MessageSendData {
   const object = rtObject(value, path);
   rtRequire(path, object, ["message"]);
-  rtKnownKeys(path, object, ["message", "model", "reasoningEffort", "systemPrompt", "to", "images"]);
-  const v1 = rtString(object["message"], path + ".message");
-  rtMinLength(path + ".message", v1, 1);
+  rtKnownKeys(path, object, ["system", "message", "model", "reasoningEffort", "systemPrompt", "to", "images"]);
+  if (object["system"] !== undefined) {
+    rtBoolean(object["system"], path + ".system");
+  }
+  const v2 = rtString(object["message"], path + ".message");
+  rtMinLength(path + ".message", v2, 1);
   if (object["model"] !== undefined) {
     rtString(object["model"], path + ".model");
   }
@@ -142,9 +149,9 @@ export function validateMessageSendData(
     rtString(object["to"], path + ".to");
   }
   if (object["images"] !== undefined) {
-    const a4 = rtArray(object["images"], path + ".images");
-    for (let i5 = 0; i5 < a4.length; i5++) {
-      validateMessageImage(a4[i5], path + ".images" + "[" + i5 + "]");
+    const a5 = rtArray(object["images"], path + ".images");
+    for (let i6 = 0; i6 < a5.length; i6++) {
+      validateMessageImage(a5[i6], path + ".images" + "[" + i6 + "]");
     }
   }
 }

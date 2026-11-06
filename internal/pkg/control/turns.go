@@ -9,6 +9,7 @@ import (
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/agent"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/harness"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/worker/protocol"
@@ -148,6 +149,10 @@ func (r *TurnRouter) RunReservedSessionMessage(
 		return nil, ctxerrors.Wrap(err, "validate routed stop revision")
 	}
 
+	if err := checkSystemRouting(stored, request); err != nil {
+		return nil, err
+	}
+
 	if err := reservation.Wait(ctx); err != nil {
 		return nil, ctxerrors.Wrap(err, "wait for the session to admit")
 	}
@@ -169,7 +174,37 @@ func (r *TurnRouter) RunReservedSessionMessage(
 		return nil, ctxerrors.Wrap(err, "ensure the session worker")
 	}
 
+	if stored.RootAgent == harness.SystemAgentName {
+		ctxscope.GetLogger(ctx).Info(
+			"system agent turn routed",
+			"session_id", stored.ID.String(),
+			"request_id", requestID.String(),
+		)
+	}
+
 	return runInWorker(ctx, live, stored, request, requestID)
+}
+
+// checkSystemRouting keeps a client's message and the system session apart: the
+// session takes only a frame that asked for it, and a frame that asked for it
+// reaches nothing else. A session event carries no such frame, so it passes.
+func checkSystemRouting(
+	stored *models.Session,
+	request agent.MessageRequest,
+) error {
+	if request.Origin != nil {
+		return nil
+	}
+
+	isSystemSession := stored.RootAgent == harness.SystemAgentName
+	if isSystemSession == request.System {
+		return nil
+	}
+
+	return ctxerrors.Wrap(
+		commerr.ErrValidationFailed,
+		"message.send system does not match the session",
+	)
 }
 
 // runInWorker hands one message to the session's live worker and waits for

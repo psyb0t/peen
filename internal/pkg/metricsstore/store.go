@@ -41,6 +41,7 @@ type Store struct {
 	metrics   *metrics.Metrics
 	retention time.Duration
 	queue     chan metrics.Observation
+	syncs     chan chan struct{}
 
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -63,6 +64,7 @@ func Start(ctx context.Context, options Options) (*Store, error) {
 		metrics:   options.Metrics,
 		retention: options.Retention,
 		queue:     make(chan metrics.Observation, queueSize),
+		syncs:     make(chan chan struct{}),
 		cancel:    cancel,
 		done:      make(chan struct{}),
 	}
@@ -115,7 +117,7 @@ func (s *Store) run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			s.drain(context.WithoutCancel(ctx), batch)
+			s.drain(ctx, batch)
 
 			return
 		case observation := <-s.queue:
@@ -125,16 +127,41 @@ func (s *Store) run(ctx context.Context) {
 			}
 		case <-flushes.C:
 			batch = s.write(ctx, batch)
+		case written := <-s.syncs:
+			batch = s.drain(ctx, batch)
+
+			close(written)
 		case <-prunes.C:
 			s.prune(ctx)
 		}
 	}
 }
 
+// writeQueued waits until everything queued so far is written. A store that is
+// closing, or a caller that gives up, reads what is already there.
+func (s *Store) writeQueued(ctx context.Context) {
+	written := make(chan struct{})
+
+	select {
+	case s.syncs <- written:
+	case <-ctx.Done():
+		return
+	case <-s.done:
+		return
+	}
+
+	select {
+	case <-written:
+	case <-ctx.Done():
+	case <-s.done:
+	}
+}
+
+// drain writes everything queued and returns the emptied batch.
 func (s *Store) drain(
 	ctx context.Context,
 	batch []*models.MetricObservation,
-) {
+) []*models.MetricObservation {
 	for {
 		select {
 		case observation := <-s.queue:
@@ -143,9 +170,7 @@ func (s *Store) drain(
 				batch = s.write(ctx, batch)
 			}
 		default:
-			s.write(ctx, batch)
-
-			return
+			return s.write(ctx, batch)
 		}
 	}
 }

@@ -29,6 +29,9 @@ const (
 	ErrorCodeAgentSpaceNotAllowed = aichteeteapee.ErrorCode(
 		"AGENT_SPACE_NOT_ALLOWED",
 	)
+	// ErrorCodeSystemAgentOff reports a system session request while
+	// PEEN_SYSTEM_AGENT is off.
+	ErrorCodeSystemAgentOff = aichteeteapee.ErrorCode("SYSTEM_AGENT_OFF")
 	// ErrorCodeWorkspaceNotAllowed reports a requested workspace that falls
 	// outside every configured workspace root. It is distinct from a
 	// validation failure because the path is well formed and the deployment

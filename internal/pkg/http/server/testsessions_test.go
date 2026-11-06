@@ -112,6 +112,16 @@ func (r *testSessionRegistry) OpenWorkspaceSession(
 	return r.opened, nil
 }
 
+func (r *testSessionRegistry) OpenSystemSession(
+	_ context.Context,
+) (api.OpenedSession, error) {
+	if r.openErr != nil {
+		return api.OpenedSession{}, r.openErr
+	}
+
+	return r.opened, nil
+}
+
 func (r *testSessionRegistry) AgentSpaces() api.AgentSpaceList {
 	return r.agentSpaceList
 }

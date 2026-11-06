@@ -3,7 +3,10 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"os"
 	"path/filepath"
+	"strings"
 
 	commonsqlite "github.com/psyb0t/common-go/db/sqlite"
 	sqlitegorm "github.com/psyb0t/common-go/db/sqlite/gorm"
@@ -20,6 +23,10 @@ const (
 	MetricsFileName = "metrics.db"
 
 	metricsMigrationsPath = "metrics"
+	metricsStaleSuffix    = ".stale"
+	migrationUpSuffix     = ".up.sql"
+	sqliteWALSuffix       = "-wal"
+	sqliteSHMSuffix       = "-shm"
 	sqliteSyncFull        = "FULL"
 	// sqliteSyncNormal keeps metrics.db consistent across a crash and may lose
 	// the last few writes, which suits disposable telemetry.
@@ -33,7 +40,9 @@ type MetricsStorage struct {
 	sqlDB *sql.DB
 }
 
-// OpenMetricsStorage opens metrics.db and applies its embedded migrations.
+// OpenMetricsStorage opens metrics.db and applies its embedded migrations. The
+// file is disposable, so one whose schema differs from what this build expects
+// is moved aside to metrics.db.stale and a new one takes its place.
 func OpenMetricsStorage(
 	ctx context.Context,
 	cfg Config,
@@ -43,6 +52,119 @@ func OpenMetricsStorage(
 		return nil, ctxerrors.Wrap(err, "prepare metrics sqlite")
 	}
 
+	storage, err := openMetricsFile(ctx, path, busyTimeout)
+	if err != nil {
+		return nil, err
+	}
+
+	current, err := hasCurrentMetricsSchema(ctx, storage.sqlDB)
+	if err != nil {
+		return nil, closeAfterOpenFailure(ctx, storage.sqlDB, err)
+	}
+
+	if current {
+		runtimecontext.Logger(ctx).Info("metrics sqlite ready")
+
+		return storage, nil
+	}
+
+	runtimecontext.Logger(ctx).Warn(
+		"metrics.db has a different schema, starting a new file",
+		"reason", "metrics_schema_mismatch",
+		"stale_file", path+metricsStaleSuffix,
+	)
+
+	if err := storage.Close(); err != nil {
+		return nil, ctxerrors.Wrap(err, "close the mismatched metrics sqlite")
+	}
+
+	if err := retireMetricsFile(path); err != nil {
+		return nil, err
+	}
+
+	if _, _, err := prepareSQLiteFile(cfg, MetricsFileName); err != nil {
+		return nil, ctxerrors.Wrap(err, "prepare the new metrics sqlite")
+	}
+
+	return openMetricsFile(ctx, path, busyTimeout)
+}
+
+// hasCurrentMetricsSchema compares the open file with the schema the embedded
+// migrations build.
+func hasCurrentMetricsSchema(
+	ctx context.Context,
+	sqlDB *sql.DB,
+) (bool, error) {
+	statements, err := metricsMigrationStatements()
+	if err != nil {
+		return false, err
+	}
+
+	expected, err := memorySchemaSnapshot(ctx, statements)
+	if err != nil {
+		return false, err
+	}
+
+	actual, err := schemaSnapshot(ctx, sqlDB)
+	if err != nil {
+		return false, err
+	}
+
+	return actual == expected, nil
+}
+
+func metricsMigrationStatements() ([]string, error) {
+	entries, err := migrations.MetricsFS.ReadDir(metricsMigrationsPath)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "list metrics migrations")
+	}
+
+	statements := make([]string, 0, len(entries))
+
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), migrationUpSuffix) {
+			continue
+		}
+
+		content, err := migrations.MetricsFS.ReadFile(
+			metricsMigrationsPath + "/" + entry.Name(),
+		)
+		if err != nil {
+			return nil, ctxerrors.Wrapf(
+				err, "read metrics migration %q", entry.Name(),
+			)
+		}
+
+		statements = append(statements, string(content))
+	}
+
+	return statements, nil
+}
+
+// retireMetricsFile moves a closed file aside, replacing an earlier stale one.
+// A leftover write-ahead log would replay into the new file, so it goes too.
+func retireMetricsFile(path string) error {
+	if err := os.Rename(path, path+metricsStaleSuffix); err != nil {
+		return ctxerrors.Wrap(err, "move the mismatched metrics sqlite aside")
+	}
+
+	for _, suffix := range []string{sqliteWALSuffix, sqliteSHMSuffix} {
+		err := os.Remove(path + suffix)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return ctxerrors.Wrapf(
+				err, "remove the stale metrics sqlite %s file", suffix,
+			)
+		}
+	}
+
+	return nil
+}
+
+func openMetricsFile(
+	ctx context.Context,
+	path string,
+	busyTimeout int64,
+) (*MetricsStorage, error) {
 	database, err := gorm.Open(
 		sqlitegorm.Open(sqliteDSNWithSync(path, busyTimeout, sqliteSyncNormal)),
 		&gorm.Config{Logger: logger.Discard, TranslateError: true},
@@ -73,8 +195,6 @@ func OpenMetricsStorage(
 	if err := verifySQLiteIntegrity(ctx, sqlDB); err != nil {
 		return nil, closeAfterOpenFailure(ctx, sqlDB, err)
 	}
-
-	runtimecontext.Logger(ctx).Info("metrics sqlite ready")
 
 	return &MetricsStorage{
 		Query: repositories.Use(database),

@@ -30,6 +30,8 @@ const (
 
 	// MethodReportMetrics carries a batch of the worker's observations.
 	MethodReportMetrics Method = "metrics.report"
+	// MethodQueryMetrics reads a summary of the worker's own session.
+	MethodQueryMetrics Method = "metrics.query"
 
 	MethodListMessages Method = "message.list"
 	MethodListEvents   Method = "event.list"

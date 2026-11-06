@@ -545,9 +545,30 @@ func (c *Controller) handleContentBlobCall(
 		return served(c.getContentBlobs(ctx, payload))
 	case MethodReportMetrics:
 		return served(c.reportMetrics(payload))
+	case MethodQueryMetrics:
+		return served(c.queryMetrics(ctx, payload))
 	default:
 		return nil, false, nil
 	}
+}
+
+// queryMetrics answers from this connection's ingest, which reads only the
+// session this connection authenticated.
+func (c *Controller) queryMetrics(
+	ctx context.Context,
+	payload json.RawMessage,
+) (any, error) {
+	query, err := decode[metrics.SummaryQuery](payload)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := c.metrics.Summarize(ctx, query)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "answer the worker metrics query")
+	}
+
+	return result, nil
 }
 
 // reportMetrics hands a report to this connection's ingest, which stamps it

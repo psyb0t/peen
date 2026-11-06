@@ -30,6 +30,7 @@ const (
 	readyPath         = "/ready"
 	sessionsPath      = "/api/v1/sessions"
 	openSessionPath   = "/api/v1/sessions/open"
+	systemSessionPath = "/api/v1/sessions/system"
 	sessionPath       = "/api/v1/session"
 	sessionFeedPath   = "/api/v1/session/feed"
 	cancelSessionPath = "/api/v1/session/cancel"
@@ -141,6 +142,24 @@ func (c *Client) OpenSession(
 		http.MethodPost,
 		openSessionPath,
 		body,
+		&opened,
+	); err != nil {
+		return api.OpenedSession{}, err
+	}
+
+	return opened, nil
+}
+
+// OpenSystemSession opens or resumes the deployment's system session.
+func (c *Client) OpenSystemSession(
+	ctx context.Context,
+) (api.OpenedSession, error) {
+	opened := api.OpenedSession{}
+	if err := c.callJSON(
+		ctx,
+		http.MethodPost,
+		systemSessionPath,
+		nil,
 		&opened,
 	); err != nil {
 		return api.OpenedSession{}, err

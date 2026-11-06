@@ -74,6 +74,7 @@ func commands() []*cobra.Command {
 	return []*cobra.Command{
 		sessionCommand(),
 		execCommand(),
+		systemCommand(),
 		controlCommand(),
 		configCommand(),
 		workerCommand(workerCommandDependencies{}),
@@ -501,19 +502,30 @@ func withController(
 	ctx context.Context,
 	operation func(context.Context, *controlclient.Client) error,
 ) error {
-	client, config, err := newControlClient()
+	client, err := runningControlClient(ctx)
 	if err != nil {
 		return err
+	}
+
+	return operation(ctx, client)
+}
+
+// runningControlClient returns a client for a controller it has made sure is
+// running.
+func runningControlClient(ctx context.Context) (*controlclient.Client, error) {
+	client, config, err := newControlClient()
+	if err != nil {
+		return nil, err
 	}
 
 	if err := client.EnsureRunning(ctx, controlclient.LaunchOptions{
 		StateDirectory: config.StateDirectory,
 		ReadyTimeout:   controlReadyTimeout,
 	}); err != nil {
-		return ctxerrors.Wrap(err, "reach the local controller")
+		return nil, ctxerrors.Wrap(err, "reach the local controller")
 	}
 
-	return operation(ctx, client)
+	return client, nil
 }
 
 // newControlClient reads the same deployment configuration the controller uses,

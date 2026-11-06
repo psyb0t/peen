@@ -321,6 +321,43 @@ func (m *Metrics) WatchFiles(paths map[string]string) error {
 	return nil
 }
 
+// WatchWebSocketClients publishes the connected client count on every scrape.
+func (m *Metrics) WatchWebSocketClients(count func() int) error {
+	if m == nil {
+		return nil
+	}
+
+	gauge := prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Name:      "websocket_clients",
+		Help:      "Connected WebSocket clients.",
+	}, func() float64 { return float64(count()) })
+	if err := m.registry.Register(gauge); err != nil {
+		return ctxerrors.Wrap(err, "register the WebSocket client gauge")
+	}
+
+	return nil
+}
+
+// WatchQueuedMessages publishes how many accepted messages wait for delivery,
+// counted on every scrape.
+func (m *Metrics) WatchQueuedMessages(count func() int64) error {
+	if m == nil {
+		return nil
+	}
+
+	gauge := prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Namespace: namespace,
+		Name:      "queued_messages",
+		Help:      "Accepted messages waiting for delivery, in all sessions.",
+	}, func() float64 { return float64(count()) })
+	if err := m.registry.Register(gauge); err != nil {
+		return ctxerrors.Wrap(err, "register the queued message gauge")
+	}
+
+	return nil
+}
+
 // fileBytes reads zero for a file that does not exist yet, which is a normal
 // state for a write-ahead log.
 func fileBytes(path string) int64 {

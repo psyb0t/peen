@@ -61,6 +61,26 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	"/sessions/system": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Open or resume the system session
+		 * @description Returns the deployment's one system session, creating it the first time, and starts no turn. Send it messages over the WebSocket with `system` set. While `PEEN_SYSTEM_AGENT` is off this answers 403 SYSTEM_AGENT_OFF and creates nothing.
+		 */
+		post: operations["openSystemSession"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	"/agent-spaces": {
 		parameters: {
 			query?: never;
@@ -1764,6 +1784,31 @@ export interface operations {
 			401: components["responses"]["ErrorUnauthorized"];
 			403: components["responses"]["ErrorForbidden"];
 			404: components["responses"]["ErrorNotFound"];
+			500: components["responses"]["ErrorInternal"];
+		};
+	};
+	openSystemSession: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description System session opened or resumed */
+			200: {
+				headers: {
+					"X-Session-ID": components["headers"]["SessionID"];
+					"X-Request-ID": components["headers"]["RequestID"];
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["OpenedSession"];
+				};
+			};
+			401: components["responses"]["ErrorUnauthorized"];
+			403: components["responses"]["ErrorForbidden"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};

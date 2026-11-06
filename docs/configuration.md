@@ -49,6 +49,7 @@ These values decide where Peen keeps its state and which model handles a task. S
 | `PEEN_API_TOKEN` | empty | Bearer token. Empty turns authentication off. |
 | `PEEN_METRICS_LISTEN_ADDRESS` | `127.0.0.1:9090` | Separate loopback-only Prometheus listener. See [metrics](#metrics). |
 | `PEEN_METRICS_RETENTION` | `168h` | How long `metrics.db` keeps observations. See [stored observations](#stored-observations). |
+| `PEEN_SYSTEM_AGENT` | `false` | Offers [the system agent](agents.md#the-system-agent), which runs in the `control` agent space. That is host root when the controller can reach a Docker daemon. |
 
 ## Settings the peen command reads
 
@@ -199,7 +200,7 @@ Peen's Z.ai Coding catalog has GLM 5.3 and GLM 5.3 Flash, each with a 1,000,000-
 
 The value must be a loopback IP address and a port other than 0, such as `127.0.0.1:9090` or `[::1]:9090`. Peen refuses to start with a wildcard or non-loopback address. Run a scraper in the same network namespace as Peen. A Docker `-p` rule does not make a listener on the container's loopback interface reachable from the host.
 
-`/metrics` covers the whole controller: model requests, tokens, retries, tool calls, jobs, hooks, turns, child agents, compactions, worker starts and exits, HTTP, SQLite, database file sizes, and the Go runtime. Each worker sends its model, tool, job, and hook measurements to the controller over its session socket every five seconds and when it stops, so a worker crash can lose its last few seconds of them. The counters restart at zero when the controller restarts, which Prometheus treats as a counter reset.
+`/metrics` covers the whole controller: model requests, tokens, retries, tool calls, jobs, hooks, turns, child agents, compactions, worker starts and exits, HTTP, SQLite, database file sizes, connected WebSocket clients in `peen_websocket_clients`, messages waiting for delivery in `peen_queued_messages`, and the Go runtime. Each worker sends its model, tool, job, and hook measurements to the controller over its session socket every five seconds and when it stops, so a worker crash can lose its last few seconds of them. The counters restart at zero when the controller restarts, which Prometheus treats as a counter reset.
 
 ### Stored observations
 
@@ -228,7 +229,7 @@ sqlite3 "$PEEN_STATE_DIR/metrics.db" "
   GROUP BY name ORDER BY max(duration_ms) DESC"
 ```
 
-`PEEN_METRICS_RETENTION` is a Go duration, default `168h`. Peen deletes older rows at startup and every hour. `0` means the default, and a negative value stops startup. The file is disposable: stop Peen, delete `metrics.db`, `metrics.db-wal`, and `metrics.db-shm`, and Peen creates it again. Telemetry never fails a turn. If the file cannot be opened, Peen logs a warning and keeps serving `/metrics`, and `peen_metrics_observations_dropped_total` counts observations it could not store. An embedding Go program gets no `metrics.db`.
+`PEEN_METRICS_RETENTION` is a Go duration, default `168h`. Peen deletes older rows at startup and every hour. `0` means the default, and a negative value stops startup. The file is disposable: stop Peen, delete `metrics.db`, `metrics.db-wal`, and `metrics.db-shm`, and Peen creates it again. When a build finds a `metrics.db` with a different schema, it logs a warning, moves the file to `metrics.db.stale`, replacing an earlier one, and starts a new file. Agents read their own session's numbers with the [`readMetrics` tool](agents.md#format). Telemetry never fails a turn. If the file cannot be opened, Peen logs a warning and keeps serving `/metrics`, and `peen_metrics_observations_dropped_total` counts observations it could not store. An embedding Go program gets no `metrics.db`.
 
 ## Context and turn limits
 

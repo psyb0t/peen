@@ -7,8 +7,10 @@ package controlcore
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
@@ -36,6 +38,9 @@ const ServiceName = control.CoreServiceName
 // startup. The worker image tracks it, so a release runs the worker published
 // beside it.
 const buildVersionScopeKey = "version"
+
+// queuedMessagesTimeout bounds the store read one metrics scrape makes.
+const queuedMessagesTimeout = time.Second
 
 type serviceDependencies struct {
 	enableNonDumpable func(context.Context) error
@@ -304,6 +309,9 @@ func (s *ControlCore) openCore(
 		return nil
 	})
 
+	watchQueuedMessages(ctx, metricRegistry, assembled.Store)
+	warnAboutSystemAgent(ctx, config)
+
 	return &control.Core{
 		Config:       config,
 		Upstreams:    upstreams,
@@ -318,6 +326,43 @@ func (s *ControlCore) openCore(
 		Metrics:      metricRegistry,
 		MetricsStore: openMetricsStore(ctx, config, metricRegistry),
 	}, nil
+}
+
+// watchQueuedMessages publishes the message backlog. A count that fails reads
+// zero for that scrape, because a scrape must not depend on the session store.
+func watchQueuedMessages(
+	ctx context.Context,
+	metricRegistry *metrics.Metrics,
+	store *session.Store,
+) {
+	logger := ctxscope.GetLogger(ctx)
+	scrapeCtx := context.WithoutCancel(ctx)
+
+	if err := metricRegistry.WatchQueuedMessages(func() int64 {
+		countCtx, cancel := context.WithTimeout(
+			scrapeCtx, queuedMessagesTimeout,
+		)
+		defer cancel()
+
+		count, err := store.CountQueuedMessages(countCtx)
+		if err != nil {
+			logger.Warn(
+				"counting queued messages failed",
+				"reason", "metrics_queue_count_failed",
+				"err", err,
+			)
+
+			return 0
+		}
+
+		return count
+	}); err != nil {
+		logger.Warn(
+			"watching queued messages failed",
+			"reason", "metrics_queue_watch_failed",
+			"err", err,
+		)
+	}
 }
 
 // openMetricsStore sends every observation to metrics.db. A file that cannot
@@ -370,6 +415,7 @@ func openMetricsStore(
 	}
 
 	metricRegistry.SetSink(store.Add)
+	metricRegistry.SetSummaries(store)
 
 	return store
 }
@@ -439,6 +485,8 @@ func newWorkerSupervisor(
 		SocketRoot:       config.WorkerSocketRoot(),
 		ConfigDirectory:  config.ConfigDirectory,
 		ResumeAfterCrash: config.ResumesAfterCrash(),
+		SystemAgent:      config.SystemAgent,
+		StateDirectory:   config.StateDirectory,
 
 		WritableConfigDirectory:  config.WritableConfigDirectory,
 		LearnedDirectory:         config.WorkerLearnedDirectory(),
@@ -630,12 +678,44 @@ func newSessionRegistry(
 		DefaultModel: config.DefaultModel,
 
 		LearnedDirectory: config.LoadedLearnedDirectory(),
+		SystemWorkspace:  systemWorkspace(config),
 	})
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "create control session registry")
 	}
 
 	return registry, nil
+}
+
+// systemWorkspace names the system session's directory, or nothing while the
+// system agent is off.
+func systemWorkspace(config peenconfig.Config) string {
+	if !config.SystemAgent {
+		return ""
+	}
+
+	return filepath.Join(
+		config.StateDirectory,
+		control.SystemWorkspaceDirectory,
+	)
+}
+
+// warnAboutSystemAgent says what turning the system agent on means here.
+func warnAboutSystemAgent(ctx context.Context, config peenconfig.Config) {
+	if !config.SystemAgent {
+		return
+	}
+
+	//nolint:contextcheck // A startup probe bounded by its own timeout.
+	authority := config.DockerAuthority()
+	if !authority.Present() {
+		return
+	}
+
+	ctxscope.GetLogger(ctx).Warn(
+		"the system agent can reach a Docker daemon, which is host root",
+		"reason", "system_agent_host_root",
+	)
 }
 
 // configuredAuditLogDirectory reads PEEN_LOG_DIRECTORY the way the audit sink
@@ -660,6 +740,7 @@ func closeMetricsStore(ctx context.Context, core *control.Core) error {
 	}
 
 	core.Metrics.SetSink(nil)
+	core.Metrics.SetSummaries(nil)
 
 	if err := core.MetricsStore.Close(); err != nil {
 		ctxscope.GetLogger(ctx).Warn(

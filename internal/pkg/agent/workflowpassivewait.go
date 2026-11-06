@@ -111,7 +111,8 @@ func workflowToolPhaseReplayPolicy(
 ) models.ActivityReplayPolicy {
 	if input.Phase == workflowToolPhaseHandler &&
 		(input.Tool.Call.Name == toolNameSearchExecutions ||
-			input.Tool.Call.Name == toolNameReadExecution) {
+			input.Tool.Call.Name == toolNameReadExecution ||
+			input.Tool.Call.Name == toolNameReadMetrics) {
 		return models.ActivityReplayPolicyRetry
 	}
 

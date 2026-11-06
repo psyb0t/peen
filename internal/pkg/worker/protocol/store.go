@@ -35,6 +35,8 @@ type Store struct {
 
 	activeMutex sync.Mutex
 	active      map[uuid.UUID]activeTurn
+
+	flushMetrics func(context.Context) error
 }
 
 // activeTurn is one running turn and the cancellation that reaches it.
@@ -382,6 +384,31 @@ func (s *Store) ReportMetrics(
 	_, err := call[struct{}](ctx, s, MethodReportMetrics, report)
 
 	return err
+}
+
+// SetMetricsFlush installs what QueryMetrics runs first. Call it before the
+// worker serves a turn.
+func (s *Store) SetMetricsFlush(flush func(context.Context) error) {
+	s.flushMetrics = flush
+}
+
+// QueryMetrics reads a summary of this worker's session. It reports what the
+// worker still holds first, so the answer includes the last few seconds.
+func (s *Store) QueryMetrics(
+	ctx context.Context,
+	query metrics.SummaryQuery,
+) (metrics.SummaryResult, error) {
+	if s.flushMetrics != nil {
+		if err := s.flushMetrics(ctx); err != nil {
+			ctxscope.GetLogger(ctx).Warn(
+				"flushing metrics before a query failed, reading older numbers",
+				"reason", "metrics_flush_failed",
+				"err", err,
+			)
+		}
+	}
+
+	return call[metrics.SummaryResult](ctx, s, MethodQueryMetrics, query)
 }
 
 func (s *Store) CreateModelRun(

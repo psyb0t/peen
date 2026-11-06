@@ -309,6 +309,11 @@ type Config struct {
 	MetricsRetention time.Duration `default:"168h" env:"PEEN_METRICS_RETENTION"` //nolint:lll // Immutable env tag.
 	APIToken         string        `env:"PEEN_API_TOKEN"`
 
+	// SystemAgent offers the operator the hardcoded system agent, which runs
+	// in the control agent space. That is host root when the controller can
+	// reach a Docker daemon, so an operator turns it on deliberately.
+	SystemAgent bool `default:"false" env:"PEEN_SYSTEM_AGENT"`
+
 	// dockerEnv replaces the process environment and platform default the
 	// Docker daemon lookup reads. Only tests set it, so a lookup never needs
 	// t.Setenv.
@@ -565,6 +570,14 @@ func (c Config) validateCoreSelection() error {
 	disabledAgents, err := c.DisabledCoreAgentNames()
 	if err != nil {
 		return err
+	}
+
+	if harness.IsReservedAgentName(c.RootAgent()) {
+		return ctxerrors.Wrapf(
+			ErrInvalidConfig,
+			"invalid PEEN_AGENT: %q is reserved for the system agent",
+			c.RootAgent(),
+		)
 	}
 
 	if err := harness.ValidateCoreAgentReference(

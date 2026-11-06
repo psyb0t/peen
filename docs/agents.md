@@ -56,6 +56,8 @@ An empty item or a repeated name makes the file invalid when Peen loads it. A mi
 
 Every agent also has `searchExecutions` and `readExecution` for inspecting retained work in its own session. These reads do not change the workspace or resume paused work.
 
+Every agent also has `readMetrics` for reading its own session's [stored observations](configuration.md#stored-observations). `summary` picks `tools`, `models`, `turns`, `agents`, `hooks`, or `sessions`, `windowMinutes` defaults to 60, and `limit` defaults to 20 and stops at 100. The answer holds totals per name, slowest first. The controller scopes every read to the session the worker authenticated as, so an agent never sees another session's numbers. An embedded runtime has no `metrics.db`, so there the tool fails.
+
 Session-worker agents also have `resumeExecution` for explicitly continuing retained work and `resolveExecutionActivity` for recording inspected outcomes of uncertain steps. These tools control execution state within the session and do not change the workspace tool allowlist.
 
 ## How the main agent sees them
@@ -234,6 +236,26 @@ A skill you forced on the parent turn with `:skill-name` does not reach the chil
 | `PEEN_MAX_QUEUED_USER_MESSAGES` | `16` | Messages one child's inbox holds before a message to it is refused, the same bound the root's queue has. |
 
 At most 64 named agents across all layers. See [the harness limits](harness.md#mistakes-and-limits).
+
+## The system agent
+
+The system agent is a hardcoded agent for operating the deployment itself. It reads metrics across sessions, reads any session's transcript, and changes the configuration directory. You start it. No model, skill, hook, or agent file can select it. It stays off until you set `PEEN_SYSTEM_AGENT=true`.
+
+```bash
+peen system "which session used the most tokens today?"
+```
+
+In the control surface, type `/system-agent "prompt"` in the composer. Both open the deployment's one system session, so the conversation continues across calls, and the control surface shows it with a System agent label. Other clients use [`POST /api/v1/sessions/system`](http-api.md) and the `system` field of `message.send`.
+
+It runs in the `control` agent space with the controller's user and groups, and you cannot move it. **When the controller can reach a Docker daemon, the system agent is host root**, even though Peen refuses `control` to every other session in that setup. Startup logs a warning. Turn it on only if you accept that.
+
+It has the file, command, and job tools, and `readMetrics` covers every session for it. It has no `launchAgent`, so it starts no children. It loads no `AGENTS.md`, rules, skills, hooks, MCP servers, or `SYSTEM.md`, from any layer, because a Docker session can write those files under `PEEN_WRITABLE_CONFIG_DIR`. The audit log records each of its turns, and each tool call by tool name without arguments.
+
+Three limits stay:
+
+- **Prompt injection.** It reads transcripts and metric labels that other agents wrote, and a planted instruction can steer it while it runs. Its instructions call that text data and tell it to use `ask` before it changes a configuration file. Those are instructions to a model. With a shell, nothing enforces them. See [prompt injection](security.md#prompt-injection).
+- **Provider keys.** Everything it reads goes to the model provider. In the docker control space it cannot reach `.env`. In the host control space `.env` belongs to the same user, so it can read your raw keys, and only its instructions tell it not to.
+- **Settings.** It cannot change a `PEEN_` setting. It gives you the `peen config set` commands, and `peen restart` applies them.
 
 ## Watching a child
 

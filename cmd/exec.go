@@ -182,6 +182,11 @@ func runExec(
 		return err
 	}
 
+	return runOneTurn(command, runOptions)
+}
+
+// runOneTurn runs a prepared turn with signal handling and reports its exit.
+func runOneTurn(command *cobra.Command, runOptions oneshot.Options) error {
 	ctx, interrupt, stopSignals := execSignals(command.Context())
 	defer stopSignals()
 

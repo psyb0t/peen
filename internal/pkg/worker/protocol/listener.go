@@ -59,6 +59,9 @@ type Listener struct {
 	metrics    *metrics.Metrics
 	net        net.Listener
 
+	// readsAllMetrics marks the system worker's listener.
+	readsAllMetrics bool
+
 	mutex     sync.Mutex
 	connected *Worker
 	closed    chan struct{}
@@ -79,6 +82,26 @@ type ListenerOption func(*Listener)
 // registry.
 func WithMetrics(collector *metrics.Metrics) ListenerOption {
 	return func(listener *Listener) { listener.metrics = collector }
+}
+
+// workerIngest binds metrics to the identity this connection authenticated.
+func (l *Listener) workerIngest(hello Hello) *metrics.WorkerIngest {
+	if l.metrics == nil {
+		return nil
+	}
+
+	ingest := l.metrics.NewWorkerIngest(hello.SessionID, hello.GenerationID)
+	if l.readsAllMetrics {
+		ingest.ReadAllSessions()
+	}
+
+	return ingest
+}
+
+// WithAllSessionMetrics lets this listener's worker read every session's
+// metrics. The supervisor sets it for the system worker alone.
+func WithAllSessionMetrics(enabled bool) ListenerOption {
+	return func(listener *Listener) { listener.readsAllMetrics = enabled }
 }
 
 // WithWorkflowStorage lends controller storage to authenticated generations.
@@ -285,11 +308,7 @@ func (l *Listener) accept(
 		}
 	}
 
-	if l.metrics != nil {
-		controller.metrics = l.metrics.NewWorkerIngest(
-			hello.SessionID, hello.GenerationID,
-		)
-	}
+	controller.metrics = l.workerIngest(hello)
 
 	registered := &Worker{
 		conn:         conn,

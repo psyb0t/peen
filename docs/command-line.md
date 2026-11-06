@@ -51,6 +51,8 @@ peen session stop <session-id>
 
 `peen control status` reports whether the controller answers and starts nothing, so it tells "not running" apart from "running". `peen session open` prints the session ID, its workspace, and whether the call created the session or resumed one. `peen session attach` streams that session's live events, starts no turn, and reconnects automatically after an unexpected drop, catching up from the session feed; `--cursor <n>` replays from sequence `n` first. `peen session stop` pauses unfinished session work and says when there was nothing to stop. Through the `peen` command, the `session` commands start the controller first when it is not running.
 
+`peen system "prompt"` runs one turn as [the system agent](agents.md#the-system-agent) and needs `PEEN_SYSTEM_AGENT=true`. It takes `--prompt` and `--output`, writes text by default, and has the same exit status as `peen exec`. It starts the managed controller when none is running and never runs one inside the command.
+
 ## Running the server binary yourself
 
 A server binary you run yourself, from `make install` or a source build, takes the same commands and reads the same `PEEN_` environment as the controller, so a command and its controller agree on the address. Its `session` commands start `peen run` themselves when nothing answers. The commands reach the controller over HTTP only, not over a Unix socket.

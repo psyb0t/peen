@@ -103,6 +103,8 @@ func (v MessageSend) Validate() error {
 
 // `to` cannot combine with `model`, `reasoningEffort`, or `systemPrompt`: those settings belong to the root conversation, not a running child's inbox.
 type MessageSendData struct {
+	// Set on a message to the system session and on nothing else. The server refuses a mismatch either way, and `system` cannot combine with `to`.
+	System *bool `json:"system,omitempty"`
 	// At most PEEN_MAX_MESSAGE_BYTES bytes, 262144 by default. The limit is deployment configuration, so the server enforces it, not this schema.
 	Message string `json:"message"`
 	// provider/model, one Peen discovered at startup.
@@ -128,7 +130,7 @@ func (v *MessageSendData) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	if err := asyncapirt.RejectUnknownKeys("MessageSendData", members, "message", "model", "reasoningEffort", "systemPrompt", "to", "images"); err != nil {
+	if err := asyncapirt.RejectUnknownKeys("MessageSendData", members, "system", "message", "model", "reasoningEffort", "systemPrompt", "to", "images"); err != nil {
 		return err
 	}
 

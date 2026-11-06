@@ -2150,6 +2150,9 @@ type ServerInterface interface {
 	// OpenSession Open or resume the session for a workspace
 	// (POST /sessions/open)
 	OpenSession(w http.ResponseWriter, r *http.Request)
+	// OpenSystemSession Open or resume the system session
+	// (POST /sessions/system)
+	OpenSystemSession(w http.ResponseWriter, r *http.Request)
 	// ListWorkspaceRoots List workspace roots this controller may open
 	// (GET /workspace-roots)
 	ListWorkspaceRoots(w http.ResponseWriter, r *http.Request)
@@ -4442,6 +4445,20 @@ func (siw *ServerInterfaceWrapper) OpenSession(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// OpenSystemSession operation middleware
+func (siw *ServerInterfaceWrapper) OpenSystemSession(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.OpenSystemSession(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListWorkspaceRoots operation middleware
 func (siw *ServerInterfaceWrapper) ListWorkspaceRoots(w http.ResponseWriter, r *http.Request) {
 
@@ -4579,6 +4596,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/messages", wrapper.ListMessages)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/sessions", wrapper.ListSessions)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sessions/open", wrapper.OpenSession)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sessions/system", wrapper.OpenSystemSession)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/agent-spaces", wrapper.ListAgentSpaces)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/workspace-roots", wrapper.ListWorkspaceRoots)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/models", wrapper.ListModels)
@@ -7770,6 +7788,79 @@ func (response OpenSession500JSONResponse) VisitOpenSessionResponse(w http.Respo
 	return err
 }
 
+type OpenSystemSessionRequestObject struct {
+}
+
+type OpenSystemSessionResponseObject interface {
+	VisitOpenSystemSessionResponse(w http.ResponseWriter) error
+}
+
+type OpenSystemSession200ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type OpenSystemSession200JSONResponse struct {
+	Body    OpenedSession
+	Headers OpenSystemSession200ResponseHeaders
+}
+
+func (response OpenSystemSession200JSONResponse) VisitOpenSystemSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OpenSystemSession401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response OpenSystemSession401JSONResponse) VisitOpenSystemSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OpenSystemSession403JSONResponse struct{ ErrorForbiddenJSONResponse }
+
+func (response OpenSystemSession403JSONResponse) VisitOpenSystemSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type OpenSystemSession500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response OpenSystemSession500JSONResponse) VisitOpenSystemSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListWorkspaceRootsRequestObject struct {
 }
 
@@ -7937,6 +8028,9 @@ type StrictServerInterface interface {
 	// OpenSession Open or resume the session for a workspace
 	// (POST /sessions/open)
 	OpenSession(ctx context.Context, request OpenSessionRequestObject) (OpenSessionResponseObject, error)
+	// OpenSystemSession Open or resume the system session
+	// (POST /sessions/system)
+	OpenSystemSession(ctx context.Context, request OpenSystemSessionRequestObject) (OpenSystemSessionResponseObject, error)
 	// ListWorkspaceRoots List workspace roots this controller may open
 	// (GET /workspace-roots)
 	ListWorkspaceRoots(ctx context.Context, request ListWorkspaceRootsRequestObject) (ListWorkspaceRootsResponseObject, error)
@@ -8946,6 +9040,30 @@ func (sh *strictHandler) OpenSession(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(OpenSessionResponseObject); ok {
 		if err := validResponse.VisitOpenSessionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// OpenSystemSession operation middleware
+func (sh *strictHandler) OpenSystemSession(w http.ResponseWriter, r *http.Request) {
+	var request OpenSystemSessionRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.OpenSystemSession(ctx, request.(OpenSystemSessionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "OpenSystemSession")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(OpenSystemSessionResponseObject); ok {
+		if err := validResponse.VisitOpenSystemSessionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

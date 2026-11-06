@@ -293,6 +293,12 @@ components:
         `systemPrompt`: those settings belong to the root conversation, not
         a running child's inbox.
       properties:
+        system:
+          type: boolean
+          description: >-
+            Set on a message to the system session and on nothing else. The
+            server refuses a mismatch either way, and `system` cannot combine
+            with `to`.
         message:
           type: string
           minLength: 1

@@ -16,6 +16,7 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/db"
+	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/worker"
@@ -62,6 +63,11 @@ type Options struct {
 	// mounts it writable instead of read-only.
 	LearnedDirectory         string
 	WritableLearnedDirectory bool
+
+	// SystemAgent allows a system session's worker to start. StateDirectory
+	// is the path its instructions name.
+	SystemAgent    bool
+	StateDirectory string
 
 	ReadyTimeout time.Duration
 	StopTimeout  time.Duration
@@ -140,6 +146,9 @@ type EnsureRequest struct {
 	SessionID      uuid.UUID
 	Workspace      string
 	AgentSpaceName string
+
+	// system is set from the session row, never by a caller.
+	system bool
 }
 
 // Ensure returns the session's registered worker, launching one when the
@@ -176,10 +185,12 @@ func (s *Supervisor) Ensure(
 		)
 	}
 
-	agentSpace, err := s.options.AgentSpaces.Select(request.AgentSpaceName)
+	agentSpace, system, err := s.agentSpaceFor(ctx, request)
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "select the agent space")
+		return nil, err
 	}
+
+	request.system = system
 
 	launcher, err := s.launcherFor(agentSpace)
 	if err != nil {
@@ -187,6 +198,44 @@ func (s *Supervisor) Ensure(
 	}
 
 	return s.launch(ctx, request, agentSpace, launcher)
+}
+
+// agentSpaceFor picks where the session's worker runs. The session row decides
+// it here, on every launch, so a turn, a wake-up, and crash recovery all treat
+// a system session the same way. The system session runs in the control agent
+// space whether or not this deployment offers that space to clients.
+func (s *Supervisor) agentSpaceFor(
+	ctx context.Context,
+	request EnsureRequest,
+) (worker.AgentSpace, bool, error) {
+	stored, err := s.options.Store.Get(ctx, request.SessionID)
+	if err != nil {
+		return worker.AgentSpace{}, false, ctxerrors.Wrap(
+			err, "load the session",
+		)
+	}
+
+	if stored.RootAgent == harness.SystemAgentName {
+		if !s.options.SystemAgent {
+			return worker.AgentSpace{}, false, ctxerrors.Wrap(
+				commerr.ErrPermissionDenied, "the system agent is off",
+			)
+		}
+
+		return worker.AgentSpace{
+			Name: worker.AgentSpaceControl,
+			Kind: worker.KindControl,
+		}, true, nil
+	}
+
+	agentSpace, err := s.options.AgentSpaces.Select(request.AgentSpaceName)
+	if err != nil {
+		return worker.AgentSpace{}, false, ctxerrors.Wrap(
+			err, "select the agent space",
+		)
+	}
+
+	return agentSpace, false, nil
 }
 
 // launcherFor resolves the launcher an agent space needs, refusing plainly
@@ -337,7 +386,7 @@ func (s *Supervisor) recordGeneration(
 		)
 	}
 
-	return worker.LaunchDocument{
+	document := worker.LaunchDocument{
 		SessionID:       request.SessionID,
 		GenerationID:    generationID,
 		Credential:      credential,
@@ -349,7 +398,16 @@ func (s *Supervisor) recordGeneration(
 		WritableConfigDirectory:  s.options.WritableConfigDirectory,
 		LearnedDirectory:         s.options.LearnedDirectory,
 		WritableLearnedDirectory: s.options.WritableLearnedDirectory,
-	}, nil
+	}
+
+	if request.system {
+		document.System = &worker.SystemLaunch{
+			ConfigDirectory: s.options.ConfigDirectory,
+			StateDirectory:  s.options.StateDirectory,
+		}
+	}
+
+	return document, nil
 }
 
 // start opens the socket, launches the worker, and waits for registration.
@@ -369,6 +427,7 @@ func (s *Supervisor) start(
 		s.options.Store,
 		protocol.WithWorkflowStorage(s.options.Workflows),
 		protocol.WithMetrics(s.options.Metrics),
+		protocol.WithAllSessionMetrics(request.system),
 	)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "open the worker socket")

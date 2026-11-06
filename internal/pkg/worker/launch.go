@@ -114,6 +114,17 @@ type LaunchDocument struct {
 	// AgentSpace names the agent space this generation runs under. The worker
 	// reports it back; it cannot choose another.
 	AgentSpace string `json:"agentSpace"`
+
+	// System makes this worker the system agent. Only the supervisor sets it,
+	// from the session row. Nil on every other worker.
+	System *SystemLaunch `json:"system,omitempty"`
+}
+
+// SystemLaunch names the real directories to the system worker, whose own
+// configuration directory is its empty workspace.
+type SystemLaunch struct {
+	ConfigDirectory string `json:"configDirectory"`
+	StateDirectory  string `json:"stateDirectory"`
 }
 
 // Validate rejects a launch document a worker cannot act on.

@@ -1545,6 +1545,7 @@ func appEnvironment(
 		"PEEN_UPSTREAMS":                 string(upstreams),
 		"PEEN_DEFAULT_MODEL":             providerModelReference,
 		"PEEN_API_TOKEN":                 TestAPIToken,
+		"PEEN_SYSTEM_AGENT":              "true",
 		// A test workspace configures its own MCP servers, so a server one
 		// test starts never reaches the tool list of another.
 		"PEEN_WORKSPACE_MCP": "true",

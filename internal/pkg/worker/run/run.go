@@ -86,7 +86,45 @@ func workerConfig(
 	// so the launch document wins over anything the environment says.
 	deployment.ConfigDirectory = document.ConfigDirectory
 
+	if document.System != nil {
+		isolateSystemWorker(&deployment, document)
+	}
+
 	return deployment, nil
+}
+
+// isolateSystemWorker points the configuration directory at the system agent's
+// own empty workspace. SYSTEM.md, COMPACTION.md, mcp.json, hooks, and rules all
+// load from there, so none of what a Docker session may have written to the
+// real directory reaches a worker with this much authority.
+func isolateSystemWorker(
+	deployment *peenconfig.Config,
+	document worker.LaunchDocument,
+) {
+	deployment.ConfigDirectory = document.Workspace
+	deployment.Agent = harness.SystemAgentName
+	deployment.BlankAgent = false
+	deployment.MCP = false
+	deployment.AutoEvolve = false
+}
+
+// workerScope puts this worker's identity on every record it logs.
+func workerScope(
+	ctx context.Context,
+	document worker.LaunchDocument,
+) context.Context {
+	ctx = ctxscope.Set(
+		ctx,
+		ctxscope.Attr("session_id", document.SessionID.String()),
+		ctxscope.Attr("worker_generation_id", document.GenerationID.String()),
+		ctxscope.Attr("agent_space", document.AgentSpace),
+	)
+
+	if document.System == nil {
+		return ctx
+	}
+
+	return ctxscope.Set(ctx, ctxscope.Attr(agent.SystemAgentScopeKey, true))
 }
 
 // Run executes one worker to completion.
@@ -101,12 +139,7 @@ func Run(ctx context.Context, options Options) error {
 		return err
 	}
 
-	ctx = ctxscope.Set(
-		ctx,
-		ctxscope.Attr("session_id", document.SessionID.String()),
-		ctxscope.Attr("worker_generation_id", document.GenerationID.String()),
-		ctxscope.Attr("agent_space", document.AgentSpace),
-	)
+	ctx = workerScope(ctx, document)
 
 	deployment, err := workerConfig(options, document)
 	if err != nil {
@@ -284,7 +317,7 @@ func buildRuntime(
 		return nil, ctxerrors.Wrap(err, "discover the worker provider models")
 	}
 
-	resolver, err := workerResolver(deployment)
+	resolver, err := workerResolver(deployment, document)
 	if err != nil {
 		return nil, err
 	}
@@ -322,11 +355,23 @@ func buildRuntime(
 
 // workerResolver reads the harness from the configuration directory the
 // launch document named.
-func workerResolver(deployment peenconfig.Config) (harness.Resolver, error) {
+func workerResolver(
+	deployment peenconfig.Config,
+	document worker.LaunchDocument,
+) (harness.Resolver, error) {
 	harnessOptions, err := agent.HarnessOptions(deployment)
 	if err != nil {
 		return harness.Resolver{}, ctxerrors.Wrap(err,
 			"load the worker harness options")
+	}
+
+	if document.System != nil {
+		harnessOptions = append(harnessOptions, harness.WithSystemAgent(
+			harness.SystemAgentPaths{
+				ConfigDirectory: document.System.ConfigDirectory,
+				StateDirectory:  document.System.StateDirectory,
+			},
+		))
 	}
 
 	resolver, err := harness.NewResolver(
@@ -379,6 +424,7 @@ func (h *commandHandler) reportMetrics(
 	collector := metrics.New()
 	h.reporter = metrics.NewReporter(store.ReportMetrics)
 	collector.SetSink(h.reporter.Add)
+	store.SetMetricsFlush(h.reporter.Flush)
 
 	go h.reporter.Run(ctx, collector)
 

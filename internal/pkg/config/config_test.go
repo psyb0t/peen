@@ -352,6 +352,42 @@ func TestParseUsesFixedEnvironmentBindings(t *testing.T) {
 	assert.Empty(t, upstreams[0].APIKey())
 }
 
+func TestParseRefusesTheReservedSystemAgentNames(t *testing.T) {
+	testCases := []struct {
+		name  string
+		agent string
+	}{
+		{name: "plain", agent: "system"},
+		{name: "core", agent: "core:system"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("PEEN_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+			t.Setenv("PEEN_STATE_DIR", filepath.Join(t.TempDir(), "state"))
+			t.Setenv("PEEN_UPSTREAMS", `[{"name":"aigate","type":"openai"}]`)
+			t.Setenv("PEEN_DEFAULT_MODEL", testQualifiedModel)
+			t.Setenv("PEEN_AGENT", tc.agent)
+
+			_, err := Parse()
+
+			require.ErrorIs(t, err, ErrInvalidConfig)
+		})
+	}
+}
+
+func TestParseLeavesTheSystemAgentOffByDefault(t *testing.T) {
+	t.Setenv("PEEN_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
+	t.Setenv("PEEN_STATE_DIR", filepath.Join(t.TempDir(), "state"))
+	t.Setenv("PEEN_UPSTREAMS", `[{"name":"aigate","type":"openai"}]`)
+	t.Setenv("PEEN_DEFAULT_MODEL", testQualifiedModel)
+
+	config, err := Parse()
+
+	require.NoError(t, err)
+	assert.False(t, config.SystemAgent)
+}
+
 func TestParseDefaultsRootAgentToTheCoreAgent(t *testing.T) {
 	t.Setenv("PEEN_CONFIG_DIR", filepath.Join(t.TempDir(), "config"))
 	t.Setenv("PEEN_STATE_DIR", filepath.Join(t.TempDir(), "state"))

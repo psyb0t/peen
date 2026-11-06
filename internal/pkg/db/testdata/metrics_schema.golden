@@ -1,0 +1,24 @@
+table metric_observations
+  column 0 id INTEGER notnull=0 default=NULL pk=1
+  column 1 observed_at_ms INTEGER notnull=1 default=NULL pk=0
+  column 2 kind TEXT notnull=1 default=NULL pk=0
+  column 3 session_id TEXT notnull=1 default='' pk=0
+  column 4 worker_generation_id TEXT notnull=1 default='' pk=0
+  column 5 turn_id TEXT notnull=1 default='' pk=0
+  column 6 agent_run_id TEXT notnull=1 default='' pk=0
+  column 7 name TEXT notnull=1 default='' pk=0
+  column 8 stage TEXT notnull=1 default='' pk=0
+  column 9 function_name TEXT notnull=1 default='' pk=0
+  column 10 outcome TEXT notnull=1 default='' pk=0
+  column 11 duration_ms INTEGER notnull=1 default=0 pk=0
+  column 12 first_token_ms INTEGER notnull=1 default=0 pk=0
+  column 13 input_tokens INTEGER notnull=1 default=0 pk=0
+  column 14 output_tokens INTEGER notnull=1 default=0 pk=0
+  column 15 cache_read_tokens INTEGER notnull=1 default=0 pk=0
+  column 16 cache_write_tokens INTEGER notnull=1 default=0 pk=0
+  column 17 retries INTEGER notnull=1 default=0 pk=0
+  column 18 count INTEGER notnull=1 default=0 pk=0
+  column 19 bytes INTEGER notnull=1 default=0 pk=0
+  index CREATE INDEX metric_observations_kind_index ON metric_observations (kind,observed_at_ms)
+  index CREATE INDEX metric_observations_observed_at_index ON metric_observations (observed_at_ms)
+  index CREATE INDEX metric_observations_session_index ON metric_observations (session_id,observed_at_ms)

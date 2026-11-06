@@ -13,6 +13,7 @@
 	} from "$lib/chat/attachments";
 	import { describeImages } from "$lib/chat/images";
 	import { describeMCPServer, mcpServerName, type MCPServerStatus } from "$lib/mcp";
+	import { isSystemSession, systemAgentPrompt } from "$lib/system";
 	import { groupTranscript, liveSegments } from "$lib/chat/transcript";
 	import {
 		applyStreamEvent,
@@ -612,8 +613,40 @@
 		(event.currentTarget as HTMLTextAreaElement).form?.requestSubmit();
 	}
 
+	// Opens the system session and sends the prompt there. The session's
+	// transcript then shows the turn as it would for any other session.
+	async function sendToSystemAgent(prompt: string): Promise<void> {
+		if (prompt === "") {
+			showError("message.send", "Name a prompt after /system-agent.");
+
+			return;
+		}
+
+		logBrowserEvent("system.open.start");
+
+		try {
+			const opened = await requireData(controller().POST("/sessions/system"));
+			selectedSessionID = opened.session.id;
+			await refreshController();
+			await loadSession();
+			socket?.send(opened.session.id, prompt, undefined, undefined, undefined, true);
+			messageText = "";
+		} catch (cause) {
+			logBrowserEvent("system.open.fail");
+			setError("message.send", cause);
+		}
+	}
+
 	async function sendMessage(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
+
+		const systemPrompt = systemAgentPrompt(messageText);
+		if (systemPrompt !== undefined) {
+			await sendToSystemAgent(systemPrompt);
+
+			return;
+		}
+
 		if (selectedSessionID === "") {
 			showError("message.send", "Open or select a workspace session first.");
 
@@ -646,6 +679,7 @@
 				settings,
 				agentRunID,
 				attachments.map((attachment) => attachment.image),
+				isSystemSession(selectedSession),
 			);
 			messageText = "";
 			attachments = [];
@@ -1012,7 +1046,9 @@
 						<div class="session-facts">
 							<span>{selectedSession.model}</span><span
 								>{selectedSession.agentSpace || AGENT_SPACE_DEFAULT_OPTION}</span
-							>{#if turnRunning}<span class="working">Working</span>{/if}
+							>{#if isSystemSession(selectedSession)}<span class="working"
+									>System agent</span
+								>{/if}{#if turnRunning}<span class="working">Working</span>{/if}
 						</div>
 					</div>
 				{/if}

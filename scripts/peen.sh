@@ -48,6 +48,7 @@ readonly BINARY_MEMBER="app/app"
 readonly CONTAINER_BINARY="/app/app"
 readonly SERVER_COMMAND_SESSION="session"
 readonly SERVER_COMMAND_CONTROL="control"
+readonly SERVER_COMMAND_SYSTEM="system"
 readonly START_TIMEOUT_SECONDS=90
 readonly STOP_TIMEOUT_SECONDS=30
 readonly DOCKER_INFO_TIMEOUT_SECONDS=20
@@ -157,6 +158,7 @@ Usage: peen [command] [arguments]
   peen doctor                       Check the installation
   peen session open|list|attach|stop ...
                                     Run the server's session commands
+  peen system "prompt"              Run a turn as the system agent
   peen control status               Report whether the controller answers
   peen upgrade [--rolling]          Move to the latest release and restart
   peen uninstall [--keep-data|--delete-data]
@@ -1998,15 +2000,16 @@ uninstall_command() {
 # server_command runs the Peen server binary's own client commands, `session`
 # and `control`, with the controller's configuration: the host binary with the
 # same environment start uses, or the binary inside the controller container.
-# `session` starts the managed controller first, so the binary never starts an
-# unmanaged one of its own. `control status` only reports and starts nothing.
+# `session` and `system` start the managed controller first, so the binary
+# never starts an unmanaged one of its own. `control status` only reports and
+# starts nothing.
 server_command() {
 	local command="$1" name
 	local -a tty=()
 	shift
 	refuse_root
 	require_env_file
-	if [[ "$command" == "$SERVER_COMMAND_SESSION" ]] && ! { controller_running && healthy; }; then
+	if [[ "$command" != "$SERVER_COMMAND_CONTROL" ]] && ! { controller_running && healthy; }; then
 		start_command
 	fi
 
@@ -2156,7 +2159,7 @@ main() {
 	exec) exec_command "$@" ;;
 	config) config_command "$@" ;;
 	doctor) doctor_command ;;
-	"$SERVER_COMMAND_SESSION" | "$SERVER_COMMAND_CONTROL") server_command "$command" "$@" ;;
+	"$SERVER_COMMAND_SESSION" | "$SERVER_COMMAND_CONTROL" | "$SERVER_COMMAND_SYSTEM") server_command "$command" "$@" ;;
 	upgrade) upgrade_command "$@" ;;
 	uninstall) uninstall_command "$@" ;;
 	version | --version) version_command ;;

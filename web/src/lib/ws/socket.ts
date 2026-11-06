@@ -91,7 +91,9 @@ export class PeenSocket {
 	 * message queued into a running turn must leave them out, because the
 	 * server rejects a queued message that tries to change them. A message to a
 	 * running child agent names its run in agentRunID, starts no turn, and
-	 * never carries settings. Images may go with any of these messages.
+	 * never carries settings. Images may go with any of these messages. A
+	 * message to the system session sets system, and the server refuses it on
+	 * any other session.
 	 */
 	public send(
 		sessionID: string,
@@ -99,6 +101,7 @@ export class PeenSocket {
 		settings?: TurnSettings,
 		agentRunID?: string,
 		images?: MessageImage[],
+		system = false,
 	): string {
 		if (this.socket?.readyState !== WebSocket.OPEN) {
 			throw new Error("The WebSocket is not connected.");
@@ -110,6 +113,10 @@ export class PeenSocket {
 		} else if (settings !== undefined) {
 			data.model = settings.model;
 			data.reasoningEffort = settings.reasoningEffort;
+		}
+
+		if (system) {
+			data.system = true;
 		}
 
 		if (images !== undefined && images.length > 0) {

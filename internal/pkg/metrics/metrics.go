@@ -120,7 +120,8 @@ type Metrics struct {
 
 	observationDrops *prometheus.CounterVec
 
-	sink atomic.Pointer[Sink]
+	sink      atomic.Pointer[Sink]
+	summaries atomic.Pointer[SummaryReader]
 
 	labelGuard labelGuard
 }

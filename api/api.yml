@@ -108,6 +108,33 @@ paths:
           $ref: '#/components/responses/ErrorNotFound'
         '500':
           $ref: '#/components/responses/ErrorInternal'
+  /sessions/system:
+    post:
+      operationId: openSystemSession
+      summary: Open or resume the system session
+      description: >
+        Returns the deployment's one system session, creating it the first
+        time, and starts no turn. Send it messages over the WebSocket with
+        `system` set. While `PEEN_SYSTEM_AGENT` is off this answers 403
+        SYSTEM_AGENT_OFF and creates nothing.
+      responses:
+        '200':
+          description: System session opened or resumed
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpenedSession'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
   /agent-spaces:
     get:
       operationId: listAgentSpaces

@@ -68,6 +68,7 @@ var toolOutputSources = map[string]string{
 	toolNameLaunchAgent:              toolOutputSourceAgent,
 	toolNameSearchExecutions:         toolOutputSourceTranscript,
 	toolNameReadExecution:            toolOutputSourceTranscript,
+	toolNameReadMetrics:              toolOutputSourceTranscript,
 	toolNameResumeExecution:          toolOutputSourceTranscript,
 	toolNameResolveExecutionActivity: toolOutputSourceTranscript,
 }

@@ -5,8 +5,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/worker"
@@ -71,6 +73,21 @@ func (r *Registry) ReconfigureSession(
 	sessionID uuid.UUID,
 	request api.ReconfigureSessionRequest,
 ) (api.SessionAgentSpaceDecision, error) {
+	stored, err := r.store.Get(ctx, sessionID)
+	if err != nil {
+		return api.SessionAgentSpaceDecision{}, ctxerrors.Wrap(
+			err,
+			"load session",
+		)
+	}
+
+	if stored.RootAgent == harness.SystemAgentName {
+		return api.SessionAgentSpaceDecision{}, ctxerrors.Wrap(
+			commerr.ErrPermissionDenied,
+			"the system session stays in the control agent space",
+		)
+	}
+
 	agentSpace, err := r.agentSpaces.Select(request.AgentSpace)
 	if err != nil {
 		return api.SessionAgentSpaceDecision{}, ctxerrors.Wrap(

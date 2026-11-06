@@ -34,6 +34,10 @@ type RegistryOptions struct {
 	// the learned file endpoints list, read, and delete from. Empty leaves the
 	// global scope out.
 	LearnedDirectory string
+
+	// SystemWorkspace is the private directory the system session runs in.
+	// Empty means PEEN_SYSTEM_AGENT is off.
+	SystemWorkspace string
 }
 
 // Registry is the control surface's session registry. It is the only place a
@@ -48,6 +52,7 @@ type Registry struct {
 	defaultModel string
 
 	learnedDirectory string
+	systemWorkspace  string
 }
 
 // OpenResult reports the session a workspace resolved to and whether this call
@@ -83,6 +88,7 @@ func NewRegistry(options RegistryOptions) (*Registry, error) {
 		defaultModel: options.DefaultModel,
 
 		learnedDirectory: options.LearnedDirectory,
+		systemWorkspace:  options.SystemWorkspace,
 	}, nil
 }
 
