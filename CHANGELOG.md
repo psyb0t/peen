@@ -2,6 +2,12 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.45.1 (2026-11-06)
+
+Fixes a panic in a compression dependency and publishes the v0.45.0 changes, because v0.45.0 never reached Docker Hub, GitHub releases, or ClawHub. If you are upgrading from v0.44.0, rename any agent called `system`. No other migration is needed.
+
+- Updates `github.com/klauspost/compress` to v1.20.3, which fixes the panic on two-block frames in GO-2026-6865.
+
 ## v0.45.0 (2026-11-06)
 
 Adds an operator-only system agent, lets agents read their own session's metrics while they work, and shows the WebSocket and message backlog on `/metrics`. The system agent stays off until you set `PEEN_SYSTEM_AGENT=true`. Rename any agent called `system`. No other migration is needed.
