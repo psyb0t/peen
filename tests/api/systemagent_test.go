@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -28,6 +29,27 @@ const (
 	systemAgentBinary  = "/app/app"
 
 	systemAgentCommandMessage = "report the deployment from the command line"
+	systemAgentAskMessage     = "ask before you change the deployment"
+	systemAgentSQLMessage     = "count the sessions in the database"
+
+	// systemAgentTerminalScript runs the command under a pty with an answer
+	// already waiting. timeout ends it if the answer never reaches the model,
+	// so a lost answer fails the test instead of hanging the suite.
+	systemAgentTerminalScript = `printf 'yes\n' | ` +
+		`timeout 60 script -qec "$0 system '$1'" /dev/null`
+	systemAgentSQLPurpose = "count the sessions"
+	// The query builds its marker from two parts, so only the output of
+	// sqlite3 satisfies the assertion, never the text of the command.
+	systemAgentSQLCommand = `sqlite3 -readonly ` +
+		`/var/tmp/peen-state/peen.db ` +
+		`"select 'sessions' || ':' || count(*) from sessions"`
+	systemAgentSQLResult = "sessions:"
+
+	systemAgentAskTool       = "ask"
+	systemAgentRunCommand    = "runCommand"
+	systemAgentQuestion      = "change the configuration?"
+	systemAgentAskWait       = 2 * time.Minute
+	systemAgentCancelledExit = 130
 
 	systemAgentAnswer     = "the system agent is done"
 	systemAgentIdentity   = "system agent of this Peen deployment"
@@ -175,6 +197,86 @@ func TestSystemCommandRunsATurnInTheSystemSession(t *testing.T) {
 	require.Zero(t, exitCode, output)
 	assert.Contains(t, output, systemAgentAnswer)
 	assert.Contains(t, integrationInfra.LastSystemPrompt(), systemAgentIdentity)
+}
+
+func scriptSystemQuestion(t *testing.T) {
+	t.Helper()
+	t.Cleanup(integrationInfra.DisableScriptedToolTurn)
+
+	integrationInfra.EnableScriptedToolTurn(testinfra.ScriptedToolTurn{
+		UserMessage: systemAgentAskMessage,
+		Calls: []testinfra.ScriptedToolCall{{
+			Name:      systemAgentAskTool,
+			Arguments: map[string]any{"question": systemAgentQuestion},
+		}},
+		FinalAnswer: systemAgentAnswer,
+	})
+}
+
+// A question reaches a terminal, and the answer has to reach the model. The
+// command runs under a pty because it reads answers only from a terminal.
+func TestSystemCommandAnswersAQuestionAtATerminal(t *testing.T) {
+	scriptSystemQuestion(t)
+
+	ctx, cancel := context.WithTimeout(t.Context(), systemAgentAskWait)
+	defer cancel()
+
+	exitCode, output, err := integrationInfra.App.Exec(ctx, []string{
+		"sh", "-c", systemAgentTerminalScript,
+		systemAgentBinary, systemAgentAskMessage,
+	})
+	require.NoError(t, err)
+
+	content, err := io.ReadAll(output)
+	require.NoError(t, err)
+
+	require.Zero(t, exitCode, string(content))
+	assert.Contains(t, string(content), systemAgentAnswer)
+}
+
+// Without a terminal the turn cancels, and the session stays usable.
+func TestSystemCommandCancelsAQuestionWithoutATerminal(t *testing.T) {
+	scriptSystemQuestion(t)
+
+	exitCode, _ := runSystemCommand(t, systemAgentAskMessage)
+
+	assert.Equal(t, systemAgentCancelledExit, exitCode)
+
+	integrationInfra.DisableScriptedToolTurn()
+
+	exitCode, output := runSystemCommand(t, systemAgentPlain)
+
+	require.Zero(t, exitCode, output)
+}
+
+// system.md sends the agent to sqlite3 for anything readMetrics does not cover,
+// so the binary has to be in the image and reach the database read-only.
+func TestSystemAgentReadsTheDatabaseWithSqlite(t *testing.T) {
+	t.Cleanup(integrationInfra.DisableScriptedToolTurn)
+	integrationInfra.EnableScriptedToolTurn(testinfra.ScriptedToolTurn{
+		UserMessage: systemAgentSQLMessage,
+		Calls: []testinfra.ScriptedToolCall{{
+			Name: systemAgentRunCommand,
+			Arguments: map[string]any{
+				"command": systemAgentSQLCommand,
+				"purpose": systemAgentSQLPurpose,
+			},
+		}},
+		FinalAnswer: systemAgentAnswer,
+	})
+
+	exitCode, output := runSystemCommand(t, systemAgentSQLMessage)
+
+	require.Zero(t, exitCode, output)
+
+	// The command line prints one line of a tool result, so the output of
+	// sqlite3 is read from the transcript.
+	messages := collectAllMessages(t, openSystemSession(t).Session.Id)
+	hasResult := slices.ContainsFunc(messages, func(message api.Message) bool {
+		return message.Role == api.MessageRoleTool &&
+			strings.Contains(message.Content, systemAgentSQLResult)
+	})
+	assert.True(t, hasResult, "no tool result holds the answer to the query")
 }
 
 func TestSystemCommandRefusesAnEmptyPrompt(t *testing.T) {

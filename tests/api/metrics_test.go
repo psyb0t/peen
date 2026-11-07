@@ -167,3 +167,31 @@ func TestAPIWorkerMetricsReachTheControllerAndMetricsDB(t *testing.T) {
 		assert.NotEmpty(t, row.Name)
 	}
 }
+
+func TestMetricsAreOnlyAvailableOnThePrivateListener(t *testing.T) {
+	publicResponse := apiRequest(
+		t,
+		http.MethodGet,
+		"/metrics",
+		nil,
+		authenticatedHeaders(),
+	)
+	requireAPIStatus(t, publicResponse, http.StatusNotFound)
+
+	metricsRequest, err := http.NewRequestWithContext(
+		t.Context(),
+		http.MethodGet,
+		integrationInfra.MetricsURL("/metrics"),
+		nil,
+	)
+	require.NoError(t, err)
+
+	privateResponse, err := integrationInfra.HTTPClient().Do(metricsRequest)
+	require.NoError(t, err)
+
+	defer func() { require.NoError(t, privateResponse.Body.Close()) }()
+
+	metrics := readAPIResponse(t, privateResponse)
+	require.Equal(t, http.StatusOK, metrics.StatusCode)
+	assert.Contains(t, string(metrics.Body), "peen_http_requests_total")
+}

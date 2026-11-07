@@ -69,12 +69,19 @@ type TurnConnection struct {
 	sessionID  uuid.UUID
 	connection *websocket.Conn
 	writeMutex sync.Mutex
+
+	// system is the turn's own system field. The controller refuses a frame
+	// whose field does not match the session, so a Reply repeats it.
+	system *bool
 }
 
 // Reply sends message to the session. While the turn runs, the controller
 // queues it into the turn, which is how the model receives an answer.
 func (t *TurnConnection) Reply(message string) error {
-	return t.send(uuid.New(), wsapi.MessageSendData{Message: message})
+	return t.send(
+		uuid.New(),
+		wsapi.MessageSendData{Message: message, System: t.system},
+	)
 }
 
 func (t *TurnConnection) send(id uuid.UUID, data wsapi.MessageSendData) error {
@@ -146,7 +153,11 @@ func (c *Client) RunTurn(
 		closeConnection()
 	}()
 
-	turn := &TurnConnection{sessionID: sessionID, connection: connection}
+	turn := &TurnConnection{
+		sessionID:  sessionID,
+		connection: connection,
+		system:     data.System,
+	}
 	messageID := uuid.New()
 
 	if err := turn.send(messageID, data); err != nil {

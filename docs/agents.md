@@ -245,7 +245,7 @@ The system agent is a hardcoded agent for operating the deployment itself. It re
 peen system "which session used the most tokens today?"
 ```
 
-In the control surface, type `/system-agent "prompt"` in the composer. Both open the deployment's one system session, so the conversation continues across calls, and the control surface shows it with a System agent label. Other clients use [`POST /api/v1/sessions/system`](http-api.md) and the `system` field of `message.send`.
+In the control surface, type `/system-agent "prompt"` in the composer. Both open the deployment's one system session, so the conversation continues across calls, and the control surface shows it with a System agent label. When the agent asks you something, `peen system` reads your answer from the terminal. Without a terminal the question cancels the turn, and the next `peen system` continues the conversation. Other clients use [`POST /api/v1/sessions/system`](http-api.md) and the `system` field of `message.send`.
 
 It runs in the `control` agent space with the controller's user and groups, and you cannot move it. **When the controller can reach a Docker daemon, the system agent is host root**, even though Peen refuses `control` to every other session in that setup. Startup logs a warning. Turn it on only if you accept that.
 

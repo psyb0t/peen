@@ -233,6 +233,78 @@ func TestRunTurnReplySendsAnotherMessage(t *testing.T) {
 	assert.Contains(t, string(raw), `"type":"message.send"`)
 }
 
+// The controller refuses a frame whose system field does not match the session,
+// so an answer on a system turn has to carry the field its turn started with.
+func TestRunTurnReplyKeepsTheTurnsSystemField(t *testing.T) {
+	t.Parallel()
+
+	isSystem := true
+
+	testCases := []struct {
+		name   string
+		system *bool
+	}{
+		{name: "system turn", system: &isSystem},
+		{name: "ordinary turn"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			reply := make(chan wsapi.MessageSend, 1)
+			stub := newAttachServer(t)
+			stub.dials = []func(*websocket.Conn){
+				func(connection *websocket.Conn) {
+					initial := wsapi.MessageSend{}
+					require.NoError(t, connection.ReadJSON(&initial))
+					require.NoError(t, connection.WriteMessage(
+						websocket.TextMessage,
+						(turnTestFrame{typ: "question", data: `{}`}).raw(
+							t, initial.ID,
+						),
+					))
+
+					answer := wsapi.MessageSend{}
+					require.NoError(t, connection.ReadJSON(&answer))
+
+					reply <- answer
+
+					require.NoError(t, connection.WriteMessage(
+						websocket.TextMessage,
+						(turnTestFrame{
+							typ: "message.failed", ack: true,
+							data: `{"code":"TURN_CANCELLED","message":"done"}`,
+						}).raw(t, initial.ID),
+					))
+				},
+			}
+			client := newAttachClient(t, stub.server(), "")
+
+			ctx, cancel := context.WithTimeout(t.Context(), attachTestTimeout)
+			defer cancel()
+
+			_, err := client.RunTurn(
+				ctx,
+				uuid.New(),
+				wsapi.MessageSendData{Message: "prompt", System: tc.system},
+				func(
+					turn *controlclient.TurnConnection,
+					frame controlclient.TurnFrame,
+				) error {
+					if frame.Type == "question" {
+						return turn.Reply("answer")
+					}
+
+					return nil
+				},
+			)
+			require.NoError(t, err)
+			assert.Equal(t, tc.system, (<-reply).Data.System)
+		})
+	}
+}
+
 func TestRunTurnRejectsANilSession(t *testing.T) {
 	t.Parallel()
 	client, err := controlclient.New(controlclient.Options{

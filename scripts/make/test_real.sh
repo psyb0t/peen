@@ -88,7 +88,8 @@ if ! docker run --rm --init \
 	-v "${repo_root}:${repo_root}" \
 	-w "${repo_root}" \
 	peen-dev \
-	go test -race -tags real -count=1 -timeout="${test_timeout}" ./tests/real/...; then
+	go test -race -tags real -count=1 -timeout="${test_timeout}" \
+	-run "${PEEN_TEST_RUN:-.}" ./tests/real/...; then
 	log ERROR "run real provider tests"
 	exit 1
 fi

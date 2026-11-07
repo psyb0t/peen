@@ -2,6 +2,12 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.45.2 (2026-11-07)
+
+Fixes answering the system agent at a terminal. No configuration or API migration is needed.
+
+- Fixes `peen system` dropping your answer to a question from the agent. The controller refused the answer, and the turn waited until `PEEN_ASK_TIMEOUT`, which defaults to the 30-day limit. The answer now reaches the running turn.
+
 ## v0.45.1 (2026-11-06)
 
 Fixes a panic in a compression dependency and publishes the v0.45.0 changes, because v0.45.0 never reached Docker Hub, GitHub releases, or ClawHub. If you are upgrading from v0.44.0, rename any agent called `system`. No other migration is needed.

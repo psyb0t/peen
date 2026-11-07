@@ -15,10 +15,14 @@ const (
 	SystemAgentName = CorePrefix + systemAgentBareName
 
 	systemAgentBareName = "system"
-	systemAgentSource   = embeddedSourcePrefix + "system/system.md"
+	systemAgentSource   = embeddedAgentsSourcePrefix + systemAgentBareName +
+		agentsFileExtension
 )
 
-//go:embed builtin/system/system.md
+// embeddedAgentAssets leaves this document out, so no normal snapshot holds
+// the system agent.
+//
+//go:embed builtin/agents/system.md
 var systemAgentDocument string
 
 // SystemAgentPaths are the directories the system agent's instructions name.
