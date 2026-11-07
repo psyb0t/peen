@@ -8,7 +8,7 @@ repository: psyb0t/peen
 author: Ciprian Mandache
 
 remote_theme: just-the-docs/just-the-docs@v0.12.0
-color_scheme: dark
+color_scheme: peen
 
 plugins:
   - jekyll-remote-theme
