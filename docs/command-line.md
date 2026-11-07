@@ -1,3 +1,9 @@
+---
+title: "Command line"
+description: "Run one agent turn from a shell, open and watch sessions, and check the controller with the peen command."
+nav_order: 4
+---
+
 # Command line
 
 The `peen` command the installer puts on your `PATH` runs one turn from a shell, opens and watches sessions, and checks the controller. The server binary you build yourself takes the same turn and client commands. [Deployment](deployment.md#the-peen-command) lists the commands that install, start, stop, and upgrade Peen.

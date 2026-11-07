@@ -1,3 +1,9 @@
+---
+title: "Getting started"
+description: "Install Peen, connect a model provider, open your first workspace, add project instructions, and inspect or stop a run."
+nav_order: 2
+---
+
 # Getting started
 
 Peen is a coding-agent backend that works in a real directory. It keeps the conversation, tool calls, protocol events, child-agent work, and provider exchanges after a client disconnects. You bring the workspace and the client. Peen runs the agent.
@@ -93,4 +99,4 @@ Stop pauses the session and interrupts its current activities. Without a Stop, s
 
 Set `PEEN_API_TOKEN` before putting Peen on a network you do not fully trust. Use `wss://` outside local development. Mount only the directories the agent needs, run as a non-root user, and treat the transcript as sensitive, because tool output and files an agent reads can end up in it.
 
-[Deployment](deployment.md) covers the installer, source builds, mounts, networking, and the container boundary. [Configuration](configuration.md) lists every setting. The [README](../README.md) is the short version.
+[Deployment](deployment.md) covers the installer, source builds, mounts, networking, and the container boundary. [Configuration](configuration.md) lists every setting. The [README](https://github.com/psyb0t/peen/blob/main/README.md) is the short version.

@@ -1,48 +1,54 @@
+---
+title: "Developing Peen"
+description: "Change Peen itself: repository layout, Make targets, test tiers, generated code, keeping the docs in sync, and releases."
+nav_order: 14
+---
+
 # Developing Peen
 
 Peen is a durable coding-agent service written in Go. One controller owns SQLite, the REST and WebSocket API, and the embedded browser control surface, and it starts one worker process or container per session to run that session's turns. Every message, tool call, event, and provider exchange is stored, so a session survives restarts.
 
-This page is for changing Peen itself. To run an agent against a project, start with [Getting started](getting-started.md) instead. The [topic rules](../.agents/rules/) hold the details. When this page and a rule disagree, the rule is more specific and wins.
+This page is for changing Peen itself. To run an agent against a project, start with [Getting started](getting-started.md) instead. The [topic rules](https://github.com/psyb0t/peen/tree/main/.agents/rules/) hold the details. When this page and a rule disagree, the rule is more specific and wins.
 
 ## Repository layout
 
 | Path | What it holds |
 | --- | --- |
-| `api/api.yml` | The OpenAPI contract. Source for the Go server, the Go client, and the web client types. `api/spec.go` embeds it for request validation. It is hand-written today and moves to a spec generated from Go in `cmd/apigen`; see `.agents/rules/http-api.md`. |
-| `api/asyncapi.yaml` | The WebSocket contract. Source for the Go frame types in `internal/pkg/http/wsapi` and the web client's frame types. |
-| `cmd/` | Entry point. `main.go` is Servicepack's, `init.go` and `commands.go` are Peen's, `repogen/` is the gorm/gen generator, `envexample/` writes `.env.example` from the env file template, `benchrelay/` is the model relay the benchmark task containers run. |
+| [`api/api.yml`](https://github.com/psyb0t/peen/blob/main/api/api.yml) | The OpenAPI contract. Source for the Go server, the Go client, and the web client types. [`api/spec.go`](https://github.com/psyb0t/peen/blob/main/api/spec.go) embeds it for request validation. It is hand-written today and moves to a spec generated from Go in `cmd/apigen`; see `.agents/rules/http-api.md`. |
+| [`api/asyncapi.yaml`](https://github.com/psyb0t/peen/blob/main/api/asyncapi.yaml) | The WebSocket contract. Source for the Go frame types in [`internal/pkg/http/wsapi`](https://github.com/psyb0t/peen/tree/main/internal/pkg/http/wsapi) and the web client's frame types. |
+| [`cmd/`](https://github.com/psyb0t/peen/tree/main/cmd) | Entry point. `main.go` is Servicepack's, `init.go` and `commands.go` are Peen's, `repogen/` is the gorm/gen generator, `envexample/` writes [`.env.example`](https://github.com/psyb0t/peen/blob/main/.env.example) from the env file template, `benchrelay/` is the model relay the benchmark task containers run. |
 | `bench/` | The benchmark runner: the Harbor driver image, the Peen agent adapter, the provider proxy, the job writer, the task sandbox, and Peen's behavior eval tasks in `eval/tasks/`. See [Benchmarks](benchmarks.md#running-them). |
-| `examples/rules/` | The starter rule pack users copy into their harness. A test parses every file. See [AGENTS.md and rules](rules.md#a-starter-rule-pack). |
-| `examples/embedding/` | A runnable program that embeds `pkg/peen` and runs one turn. `make lint` compiles it, and coverage leaves it out. |
-| `internal/app/` | Servicepack's application lifecycle. Not edited here. |
-| `internal/pkg/agent/` | Agent runtime: turns, provider calls, tools wiring, skills, child agents, compaction. |
-| `internal/pkg/harness/` | Harness discovery and layering: `AGENTS.md`, rules, skills, agents, event handlers, hooks. `builtin/` is the embedded baseline shipped to every user. |
-| `internal/pkg/hooks/` | Hook validation and execution. |
-| `internal/pkg/tools/` | File, patch, and command tools, and background jobs. |
-| `internal/pkg/session/` | Durable, transport-neutral session transcript. |
-| `internal/pkg/db/` | SQLite open, embedded migrations, gorm models, generated repositories. |
-| `internal/pkg/http/` | `api/` is generated server code. `server/` holds handlers, middleware, WebSocket, and the embedded web build in `server/web/dist`. |
-| `internal/pkg/control/` | Workspace policy and the session registry. |
-| `internal/pkg/worker/` | Controller to worker boundary: protocol, supervisor, control and Docker launchers, agent spaces, the `docker: readonly` proxy in `dockerproxy/`, the worker command, worker logs. |
-| `internal/pkg/events/`, `metrics/`, `metricsstore/`, `auditlog/`, `config/` | Session events, Prometheus metrics and worker reports, the `metrics.db` writer, the JSON audit sink, and `PEEN_` configuration. The `.env.example` template is in `internal/pkg/config/envtemplate/`. |
-| `internal/pkg/services/` | Servicepack services `control-core` and `control-api`. `services.gen.go` is generated. |
-| `internal/pkg/service-manager/`, `pkg/runner/` | Servicepack-owned. |
-| `pkg/peen/` | The stable public Go API for running Peen in-process. |
-| `pkg/http/api/client/` | Generated public Go HTTP client. |
-| `web/` | SvelteKit control surface source. |
-| `tests/` | Black-box suites: `api`, `browser`, `executionforms`, `installer`, `dockerworker`, `real`, and the shared `testinfra` harness. |
-| `docker/entrypoint.sh`, `Dockerfile`, `Dockerfile.dev` | The production and worker image, its entrypoint, and the dev toolchain image. |
-| `install.sh`, `scripts/peen.sh` | The installer users pipe from curl, and the `peen` command it installs. |
-| `scripts/` | Make helpers. `scripts/make/servicepack/` is Servicepack-owned. |
+| [`examples/rules/`](https://github.com/psyb0t/peen/tree/main/examples/rules) | The starter rule pack users copy into their harness. A test parses every file. See [AGENTS.md and rules](rules.md#a-starter-rule-pack). |
+| [`examples/embedding/`](https://github.com/psyb0t/peen/tree/main/examples/embedding) | A runnable program that embeds [`pkg/peen`](https://github.com/psyb0t/peen/tree/main/pkg/peen) and runs one turn. `make lint` compiles it, and coverage leaves it out. |
+| [`internal/app/`](https://github.com/psyb0t/peen/tree/main/internal/app) | Servicepack's application lifecycle. Not edited here. |
+| [`internal/pkg/agent/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/agent) | Agent runtime: turns, provider calls, tools wiring, skills, child agents, compaction. |
+| [`internal/pkg/harness/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/harness) | Harness discovery and layering: `AGENTS.md`, rules, skills, agents, event handlers, hooks. `builtin/` is the embedded baseline shipped to every user. |
+| [`internal/pkg/hooks/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/hooks) | Hook validation and execution. |
+| [`internal/pkg/tools/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/tools) | File, patch, and command tools, and background jobs. |
+| [`internal/pkg/session/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/session) | Durable, transport-neutral session transcript. |
+| [`internal/pkg/db/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/db) | SQLite open, embedded migrations, gorm models, generated repositories. |
+| [`internal/pkg/http/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/http) | [`api/`](https://github.com/psyb0t/peen/tree/main/api) is generated server code. `server/` holds handlers, middleware, WebSocket, and the embedded web build in `server/web/dist`. |
+| [`internal/pkg/control/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/control) | Workspace policy and the session registry. |
+| [`internal/pkg/worker/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/worker) | Controller to worker boundary: protocol, supervisor, control and Docker launchers, agent spaces, the `docker: readonly` proxy in `dockerproxy/`, the worker command, worker logs. |
+| [`internal/pkg/events/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/events), `metrics/`, `metricsstore/`, `auditlog/`, `config/` | Session events, Prometheus metrics and worker reports, the `metrics.db` writer, the JSON audit sink, and `PEEN_` configuration. The `.env.example` template is in [`internal/pkg/config/envtemplate/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/config/envtemplate). |
+| [`internal/pkg/services/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/services) | Servicepack services `control-core` and `control-api`. `services.gen.go` is generated. |
+| [`internal/pkg/service-manager/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/service-manager), [`pkg/runner/`](https://github.com/psyb0t/peen/tree/main/pkg/runner) | Servicepack-owned. |
+| [`pkg/peen/`](https://github.com/psyb0t/peen/tree/main/pkg/peen) | The stable public Go API for running Peen in-process. |
+| [`pkg/http/api/client/`](https://github.com/psyb0t/peen/tree/main/pkg/http/api/client) | Generated public Go HTTP client. |
+| [`web/`](https://github.com/psyb0t/peen/tree/main/web) | SvelteKit control surface source. |
+| [`tests/`](https://github.com/psyb0t/peen/tree/main/tests) | Black-box suites: `api`, `browser`, `executionforms`, `installer`, `dockerworker`, `real`, and the shared `testinfra` harness. |
+| [`docker/entrypoint.sh`](https://github.com/psyb0t/peen/blob/main/docker/entrypoint.sh), [`Dockerfile`](https://github.com/psyb0t/peen/blob/main/Dockerfile), `Dockerfile.dev` | The production and worker image, its entrypoint, and the dev toolchain image. |
+| [`install.sh`](https://github.com/psyb0t/peen/blob/main/install.sh), [`scripts/peen.sh`](https://github.com/psyb0t/peen/blob/main/scripts/peen.sh) | The installer users pipe from curl, and the `peen` command it installs. |
+| [`scripts/`](https://github.com/psyb0t/peen/tree/main/scripts) | Make helpers. [`scripts/make/servicepack/`](https://github.com/psyb0t/peen/tree/main/scripts/make/servicepack) is Servicepack-owned. |
 | `docs/` | User and operator documentation. |
 
-`internal/pkg/harness/builtin/AGENTS.md` is product text: Peen's embedded operating rules for every user. When Peen works on this repository it also loads that file as a nested `AGENTS.md`. Treat it as content you edit, not as instructions for that directory.
+[`internal/pkg/harness/builtin/AGENTS.md`](https://github.com/psyb0t/peen/blob/main/internal/pkg/harness/builtin/AGENTS.md) is product text: Peen's embedded operating rules for every user. When Peen works on this repository it also loads that file as a nested `AGENTS.md`. Treat it as content you edit, not as instructions for that directory.
 
 ## Change with the boundary in mind
 
 The WebSocket owns live messages. REST owns stored reads and control. The agent runtime owns turn behavior. The harness owns what enters model context. Tools own filesystem and process behavior. Keep a change in the smallest area that owns it, then test through the public boundary that can see it.
 
-The supported Go API is documented in [the embedding guide](../pkg/peen/README.md). Its lifecycle, sessions, extension points and virtual filesystems use the same agent engine and SQLite schema as the controller. Change the owned public types and their boundary conversions together; keep generated HTTP types behind that boundary. Filesystem tools and harness discovery share `internal/pkg/workspacefs`, while runtime storage and hook state remain host files.
+The supported Go API is documented in [the embedding guide](embedding.md). Its lifecycle, sessions, extension points and virtual filesystems use the same agent engine and SQLite schema as the controller. Change the owned public types and their boundary conversions together; keep generated HTTP types behind that boundary. Filesystem tools and harness discovery share [`internal/pkg/workspacefs`](https://github.com/psyb0t/peen/tree/main/internal/pkg/workspacefs), while runtime storage and hook state remain host files.
 
 ## Build, lint, and test
 
@@ -78,7 +84,7 @@ Make runs these targets in dev containers. To cap them with `--cpus`, copy `.env
 
 `make test-installer` builds this checkout's image, pushes it to a local registry under three release tags, one of them as a multi-platform index, and runs `install.sh` and the `peen` command against it with a mock model provider. It covers the four control space and agent space combinations, upgrade, uninstall, the system install, and the refusals. Every home and workspace it creates lives under the gitignored `.testing/`, and it removes only the containers and images it created.
 
-`make test-stress` runs the fast command and job tests in `internal/pkg/tools` 200 times with `go test -cpu 1,4`, which sets `GOMAXPROCS` to 1 and then 4. It does not give the tests more CPUs than the `DEV_CPUS` cap allows. It skips the tests that depend on timing, and CI does not run it. Run it after changing job or command code in `internal/pkg/tools` or updating commander.
+`make test-stress` runs the fast command and job tests in [`internal/pkg/tools`](https://github.com/psyb0t/peen/tree/main/internal/pkg/tools) 200 times with `go test -cpu 1,4`, which sets `GOMAXPROCS` to 1 and then 4. It does not give the tests more CPUs than the `DEV_CPUS` cap allows. It skips the tests that depend on timing, and CI does not run it. Run it after changing job or command code in `internal/pkg/tools` or updating commander.
 
 `make run-dev` needs a `.env` in the checkout. Copy `.env.example` to `.env` and fill in a provider first. The target rebuilds the development image, runs Peen as your host UID and GID, loads `.env` through Docker, and uses the directory you ran it from as the workspace root, so a client may open it or any directory inside it. It uses Docker host networking, so host and Tailnet services stay reachable, and Peen binds its API and browser control surface to `http://localhost:8080`. The metrics listener is on the host's loopback at `http://127.0.0.1:9090/metrics`. The target creates `data/peen/config` and `data/peen/state` in the checkout on first use and keeps the state between runs. The config directory is read-only to the agent. Set `PEEN_DEV_HTTP_PORT` to use another loopback port.
 
@@ -92,15 +98,15 @@ The target gives Peen no Docker socket, so the default agent space is `control`.
 
 Never hand-edit generated output. Change the source, regenerate, and commit both together.
 
-- `make generate` runs `go generate ./...`, which rebuilds the gorm/gen repositories, the oapi-codegen server and client, the WebSocket frame types, `web/src/lib/api/generated.ts`, `web/src/lib/ws/generated.ts`, and `.env.example`.
-- `make web-build` rebuilds `internal/pkg/http/server/web/dist`, the committed and embedded control surface.
-- `make service-registration` rebuilds `internal/pkg/services/services.gen.go`.
+- `make generate` runs `go generate ./...`, which rebuilds the gorm/gen repositories, the oapi-codegen server and client, the WebSocket frame types, [`web/src/lib/api/generated.ts`](https://github.com/psyb0t/peen/blob/main/web/src/lib/api/generated.ts), [`web/src/lib/ws/generated.ts`](https://github.com/psyb0t/peen/blob/main/web/src/lib/ws/generated.ts), and `.env.example`.
+- `make web-build` rebuilds [`internal/pkg/http/server/web/dist`](https://github.com/psyb0t/peen/tree/main/internal/pkg/http/server/web/dist), the committed and embedded control surface.
+- `make service-registration` rebuilds [`internal/pkg/services/services.gen.go`](https://github.com/psyb0t/peen/blob/main/internal/pkg/services/services.gen.go).
 
 See `.agents/rules/generated-code.md`.
 
 ## Servicepack-owned files
 
-Peen is built on [Servicepack](https://github.com/psyb0t/servicepack), pinned in `servicepack.version`. A framework update overwrites these, so do not edit them by hand: `Makefile.servicepack`, `scripts/make/servicepack/`, `Dockerfile.servicepack`, `Dockerfile.servicepack.dev`, `servicepack.version`, `cmd/main.go`, `internal/app/`, `internal/pkg/service-manager/`, and `pkg/runner/`. Override a framework target in `Makefile` instead. Peen owns `Makefile`, `Dockerfile`, `Dockerfile.dev`, `.golangci.yml`, `cmd/init.go`, `cmd/commands.go`, `.github/workflows/pipeline.yml`, `.dockerignore`, `.gitleaks.toml`, `docs/`, `tests/`, and everything listed in `.servicepackupdateignore`. Framework updates arrive through `make servicepack-update` and are reviewed before merge.
+Peen is built on [Servicepack](https://github.com/psyb0t/servicepack), pinned in `servicepack.version`. A framework update overwrites these, so do not edit them by hand: `Makefile.servicepack`, `scripts/make/servicepack/`, `Dockerfile.servicepack`, `Dockerfile.servicepack.dev`, `servicepack.version`, [`cmd/main.go`](https://github.com/psyb0t/peen/blob/main/cmd/main.go), `internal/app/`, `internal/pkg/service-manager/`, and `pkg/runner/`. Override a framework target in [`Makefile`](https://github.com/psyb0t/peen/blob/main/Makefile) instead. Peen owns `Makefile`, `Dockerfile`, `Dockerfile.dev`, `.golangci.yml`, [`cmd/init.go`](https://github.com/psyb0t/peen/blob/main/cmd/init.go), [`cmd/commands.go`](https://github.com/psyb0t/peen/blob/main/cmd/commands.go), `.github/workflows/pipeline.yml`, `.dockerignore`, [`.gitleaks.toml`](https://github.com/psyb0t/peen/blob/main/.gitleaks.toml), `docs/`, `tests/`, and everything listed in `.servicepackupdateignore`. Framework updates arrive through `make servicepack-update` and are reviewed before merge.
 
 ## Keep docs in sync
 
@@ -108,10 +114,18 @@ A change that alters behavior, configuration, the API, events, the harness, or d
 
 - `docs/*.md` for the area, and `README.md` when the quick start or an overview claim changes;
 - `.env.example` and `docs/configuration.md` for every `PEEN_` variable;
-- `api/api.yml`, `api/asyncapi.yaml`, and `docs/http-api.md` for the REST and WebSocket contract, and `docs/events.md` for event types;
-- `pkg/peen/README.md` for the public Go API;
+- `api/api.yml`, `api/asyncapi.yaml`, `docs/http-api.md`, and `docs/websocket-api.md` for the REST and WebSocket contract, and `docs/events.md` for event types;
+- `docs/tools.md` for a tool the agent can call;
+- `docs/troubleshooting.md` for a new startup refusal or API error code;
+- `docs/embedding.md` for the public Go API;
 - `.agents/skills/peen/` when the published agent skill's setup or workflow changes;
-- `CHANGELOG.md` under the release entry the change ships in.
+- [`CHANGELOG.md`](https://github.com/psyb0t/peen/blob/main/CHANGELOG.md) under the release entry the change ships in.
+
+## The documentation site
+
+GitHub Pages publishes `docs/` from `main` at <https://psyb0t.github.io/peen/>, built with Jekyll and the Just the Docs theme. Every page needs `title`, `description`, and `nav_order` front matter, and a child page needs `parent` set to its parent's exact title. `make docs-build` builds the site with the same image GitHub uses and writes it to `.testing/docs-site`.
+
+Link another page with its relative `.md` path, so the link works on GitHub and on the site. Link a file outside `docs/` with its full GitHub URL, because the site does not contain it. Wrap a code block that holds `${{ }}` in `<!-- {% raw %} -->` and `<!-- {% endraw %} -->`, or Jekyll treats it as a template.
 
 ## CHANGELOG, commits, and releases
 

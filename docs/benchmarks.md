@@ -1,6 +1,12 @@
+---
+title: "Benchmarks"
+description: "How Peen does on coding agent benchmarks, the method behind each run, and the Peen defects the runs found."
+nav_order: 13
+---
+
 # Benchmarks
 
-These runs test Peen as a harness: whether a turn survives hundreds of tool calls, provider errors, long contexts, and compaction, and whether the records it keeps explain what happened. Scores depend on the model as much as on Peen, so the useful output is the list of Peen defects each run found, which the [CHANGELOG](../CHANGELOG.md) records as fixed.
+These runs test Peen as a harness: whether a turn survives hundreds of tool calls, provider errors, long contexts, and compaction, and whether the records it keeps explain what happened. Scores depend on the model as much as on Peen, so the useful output is the list of Peen defects each run found, which the [CHANGELOG](https://github.com/psyb0t/peen/blob/main/CHANGELOG.md) records as fixed.
 
 ## How the runs work
 

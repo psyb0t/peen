@@ -172,6 +172,12 @@ web-generate: dev-image ## Regenerate TypeScript API types from api/api.yml
 web-build: dev-image ## Build the embedded static control-surface client
 	@$(DEV_RUN) bash scripts/web/run.sh build
 
+# The site builds in GitHub's own Pages image, not the dev image, so a local
+# build proves the same thing the published one does.
+.PHONY: docs-build
+docs-build: ## Build the documentation site with GitHub's Pages image
+	@bash scripts/make/docs_build.sh
+
 web-check: dev-image ## Type-check the static control-surface client
 	@$(DEV_RUN) bash scripts/web/run.sh check
 

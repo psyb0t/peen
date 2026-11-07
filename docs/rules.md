@@ -1,3 +1,10 @@
+---
+title: "AGENTS.md and rules"
+description: "Give the agent project instructions with AGENTS.md and rules that load by path, and control how nested directories add to them."
+nav_order: 1
+parent: "The harness"
+---
+
 # AGENTS.md and rules
 
 Peen gives the model two kinds of plain Markdown:
@@ -152,7 +159,7 @@ Peen reads every `AGENTS.md` and rule file at the start of every turn. Edit one,
 
 ## A starter rule pack
 
-[`examples/rules/`](../examples/rules/) holds short rules for Go, Bash, Python, TypeScript and JavaScript, Dockerfiles, SQL, Markdown, tests, and security. Each one is scoped with `paths`, except the security rule, which applies on every turn. They follow each language's published style guide and standard linters, and each tells the agent to follow the project's own configuration first. Peen does not load them by default. Copy the ones you want into `PEEN_CONFIG_DIR/.agents/rules/` to cover every workspace, or into one project's `.agents/rules/`:
+[`examples/rules/`](https://github.com/psyb0t/peen/tree/main/examples/rules/) holds short rules for Go, Bash, Python, TypeScript and JavaScript, Dockerfiles, SQL, Markdown, tests, and security. Each one is scoped with `paths`, except the security rule, which applies on every turn. They follow each language's published style guide and standard linters, and each tells the agent to follow the project's own configuration first. Peen does not load them by default. Copy the ones you want into `PEEN_CONFIG_DIR/.agents/rules/` to cover every workspace, or into one project's `.agents/rules/`:
 
 ```bash
 cp examples/rules/go.md examples/rules/security.md "$PEEN_CONFIG_DIR/.agents/rules/"

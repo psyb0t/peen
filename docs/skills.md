@@ -1,3 +1,10 @@
+---
+title: "Skills"
+description: "Write named procedures the agent loads on demand with useSkill, with the SKILL.md format, the catalogue, and how to send a skill yourself."
+nav_order: 2
+parent: "The harness"
+---
+
 # Skills
 
 A skill is a named procedure the agent loads only when it needs it. Every turn the model sees a short catalogue with each skill's name and description. When a task matches, it calls `useSkill` to load the full instructions. You can also hand a skill to the model with `:skill-name` in your message. Use a skill for a procedure that is too long or too specific to sit in the [rules](rules.md) on every turn, such as cutting a release, writing a migration, or triaging a bug report.

@@ -1,8 +1,15 @@
+---
+title: "Configuration"
+description: "Every PEEN_ environment variable: providers, models, directories, Docker workers, logging, metrics, context, tool limits, and child agent limits."
+nav_order: 2
+parent: "Deployment"
+---
+
 # Configuration
 
-The installer writes `~/.config/peen/.env` for you, and `peen config edit` opens it. Without the installer, start from [`.env.example`](../.env.example) at the top of the repository, or let the Peen image write the same commented file for your directories with `config init`, as [deployment](deployment.md#durable-state-and-mounts) shows. `config init` never overwrites an existing file. Then set the provider values that fit your machine. Peen checks every `PEEN_` value before opening its listener, so a bad setting fails at startup instead of halfway through a task. Peen starts with no sessions. A client opens a workspace through `POST /api/v1/sessions/open`, and `PEEN_WORKSPACE_ROOT` bounds which directories it may name.
+The installer writes `~/.config/peen/.env` for you, and `peen config edit` opens it. Without the installer, start from [`.env.example`](https://github.com/psyb0t/peen/blob/main/.env.example) at the top of the repository, or let the Peen image write the same commented file for your directories with `config init`, as [deployment](deployment.md#durable-state-and-mounts) shows. `config init` never overwrites an existing file. Then set the provider values that fit your machine. Peen checks every `PEEN_` value before opening its listener, so a bad setting fails at startup instead of halfway through a task. Peen starts with no sessions. A client opens a workspace through `POST /api/v1/sessions/open`, and `PEEN_WORKSPACE_ROOT` bounds which directories it may name.
 
-For Docker, `.env` is input for `docker run --env-file`. Do not source it from Bash, because `PEEN_UPSTREAMS` is raw JSON. For a bare binary, set the same values through your shell, service manager, or secret manager. This page is the full reference, and `.env.example` is the commented starting point.
+For Docker, `.env` is input for `docker run --env-file`. Do not source it from Bash, because `PEEN_UPSTREAMS` is raw JSON. For a bare binary, set the same values through your shell, service manager, or secret manager. This page is the full reference, and [`.env.example`](https://github.com/psyb0t/peen/blob/main/.env.example) is the commented starting point.
 
 `LOG_LEVEL`, `LOG_FORMAT`, and `LOG_ADD_SOURCE` control application logging. Peen adds a JSON audit log configured by `PEEN_LOG_DIRECTORY` and `PEEN_LOG_RETENTION`.
 
@@ -245,7 +252,7 @@ Every time setting is a Go duration such as `90s`, `10m`, or `1h30m`. A bare num
 | `PEEN_MODEL_REQUEST_TIMEOUT` | `10m` | Limit on each model request: every round of a turn and every compaction summary. A turn has no overall time limit; `PEEN_MAX_TOOL_ROUNDS` bounds how many model requests it makes. |
 | `PEEN_CRASH_RECOVERY` | `pause` | What happens to work a crashed controller or worker left unfinished, for every workspace this controller serves. `pause` keeps it paused until a turn asks the agent to continue it. `resume` lets the next worker continue it by itself, for deployments that run unattended. |
 | `PEEN_MAX_CONCURRENT_TURNS` | `16` | Turns that may run at once, across every session in the process. |
-| `PEEN_MAX_QUEUED_USER_MESSAGES` | `16` | Messages sent while a turn is running wait until the model's current round ends. At most this many can wait at once, counting each skill message or already-loaded note that follows a queued message. A long turn can accept more in total, because delivery frees slots. Each one is reported with `userMessage.queued` and then `userMessage.delivered`. See [queued messages](http-api.md#send-and-watch-turns-over-websocket). |
+| `PEEN_MAX_QUEUED_USER_MESSAGES` | `16` | Messages sent while a turn is running wait until the model's current round ends. At most this many can wait at once, counting each skill message or already-loaded note that follows a queued message. A long turn can accept more in total, because delivery frees slots. Each one is reported with `userMessage.queued` and then `userMessage.delivered`. See [queued messages](websocket-api.md). |
 
 ### Compaction
 
@@ -263,9 +270,9 @@ Under `summarize` a child agent compacts its own transcript into its own stored 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `PEEN_MAX_MESSAGE_BYTES` | `262144` | Limits the `message` field in a `message.send` WebSocket frame. |
-| `PEEN_MAX_SYSTEM_PROMPT_BYTES` | `65536` | Limits the optional [`systemPrompt.content`](http-api.md#send-and-watch-turns-over-websocket) field of a `message.send` frame. |
+| `PEEN_MAX_SYSTEM_PROMPT_BYTES` | `65536` | Limits the optional [`systemPrompt.content`](websocket-api.md) field of a `message.send` frame. |
 | `PEEN_MAX_SYSTEM_PROMPT_PERCENT` | `50` | Refuses a turn, or a child agent launch, whose system prompt is estimated at more than this percent of `PEEN_MAX_CONTEXT_TOKENS`. The system prompt includes the base prompt, every rule and `AGENTS.md` file that loads on every turn, learned rules, and the agent's instructions. Rules scoped with `paths` do not count. Peen estimates with the o200k tokenizer, so the count is close to, not equal to, what a provider bills. The refusal is `message.failed` with `HARNESS_CONFIGURATION_INVALID`, and the controller log names the three largest sections. `0` turns the check off. See [The prompt budget](harness.md#the-prompt-budget). |
-| `PEEN_MAX_IMAGES_PER_MESSAGE` | `4` | Limits the [`images`](http-api.md#send-and-watch-turns-over-websocket) one `message.send` frame carries. |
+| `PEEN_MAX_IMAGES_PER_MESSAGE` | `4` | Limits the [`images`](websocket-api.md) one `message.send` frame carries. |
 | `PEEN_MAX_IMAGE_BYTES` | `5242880` | Limits one image, decoded, in a `message.send` frame or one `readFile` call. Startup refuses a value that, times `PEEN_MAX_IMAGES_PER_MESSAGE`, comes to more than 28 MiB of base64, because the message crosses the worker socket in one frame. Raising both raises the largest frame the WebSocket reads. |
 | `PEEN_MAX_STORED_MESSAGE_BYTES` | `1048576` | Limits any stored message of any role, since an assistant or tool message has no caller-facing limit of its own. It does not limit a turn's whole context, which Peen saves under its own 12 MiB limit, or this value if it is larger. That holds a 1,000,000-token context. |
 

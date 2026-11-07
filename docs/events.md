@@ -1,3 +1,10 @@
+---
+title: "Session events"
+description: "React to background jobs, child agents, and outside systems with session events and event handlers that can wake an idle session."
+nav_order: 5
+parent: "The harness"
+---
+
 # Session events
 
 A session event, also called a notice, is a record of something that happened outside the model's own tool calls: a background command finished, a child agent ended, a hook reported a result, or an outside system posted an update. Peen stores every event in SQLite and hands it to the model at the next safe point, so the agent hears about it without you retyping it. An event can also start a turn on an idle session. A session event is not a [hook event](hooks.md#events) or a protocol event. See [Terms](architecture.md#terms).
@@ -14,7 +21,7 @@ A session event, also called a notice, is a record of something that happened ou
 
 `job.*`, `agent.*`, and `turn.*` are reserved for Peen. `POST /api/v1/session/notices` rejects them, a `hooks.yaml` file whose `emitEvent` action names one is invalid, and a hook command that prints one fails its action. Only Peen's own jobs, child agents, and turns produce them.
 
-An event has a `type`, a `summary`, an optional JSON object `data`, and a `delivery` mode, `queue` or `wake`. Peen adds the `source`, an ID, and a timestamp. Every recorded notice also goes out live over the WebSocket as a `notice.created` frame carrying the stored notice, whatever its `delivery` mode and whether or not it has reached the model yet. See [protocol event types](http-api.md#protocol-event-types). `POST /api/v1/session/notices` requires a non-empty `summary`. A hook may leave it empty. Peen does not check that a summary is one line, but keep it to one, because the model reads it as a headline. The built-in events look like this:
+An event has a `type`, a `summary`, an optional JSON object `data`, and a `delivery` mode, `queue` or `wake`. Peen adds the `source`, an ID, and a timestamp. Every recorded notice also goes out live over the WebSocket as a `notice.created` frame carrying the stored notice, whatever its `delivery` mode and whether or not it has reached the model yet. See [protocol event types](websocket-api.md#protocol-event-types). `POST /api/v1/session/notices` requires a non-empty `summary`. A hook may leave it empty. Peen does not check that a summary is one line, but keep it to one, because the model reads it as a headline. The built-in events look like this:
 
 | Type | Summary | Data |
 | --- | --- | --- |

@@ -1,3 +1,9 @@
+---
+title: "Architecture"
+description: "How Peen's controller, workers, SQLite stores, and durable workflows fit together, what one turn does, and the terms and libraries it uses."
+nav_order: 12
+---
+
 # Architecture
 
 Peen is a durable coding-agent service. A client opens a WebSocket, sends a task for a named session, and watches the model, tools, hooks, and child agents work. The default socket is a global event feed. Clients build session tabs by filtering event metadata, or ask the server to send one session only. Peen saves the work as it happens, so reconnecting after a client or process restart keeps the conversation.
@@ -177,7 +183,7 @@ Servicepack stops the two in reverse order, so the API stops accepting work befo
 
 ## In-process embedding
 
-The [Go embedding guide](../pkg/peen/README.md) describes running the same engine inside another process. That runtime owns its SQLite connections, session workflow workers, jobs and child tasks directly, and its caller closes it with Runtime.Close. Session handles expose stored replay and controls without starting the controller or worker transports. A supplied filesystem affects workspace tools, prompts and harness discovery; configuration, state and audit logs remain in separate host directories. Caller-provided logging and metrics stay local to that runtime.
+The [Go embedding guide](embedding.md) describes running the same engine inside another process. That runtime owns its SQLite connections, session workflow workers, jobs and child tasks directly, and its caller closes it with Runtime.Close. Session handles expose stored replay and controls without starting the controller or worker transports. A supplied filesystem affects workspace tools, prompts and harness discovery; configuration, state and audit logs remain in separate host directories. Caller-provided logging and metrics stay local to that runtime.
 
 ## Terms
 
@@ -187,8 +193,8 @@ Several words in these docs name different things on different pages. This is wh
 | --- | --- | --- |
 | hook point | A fixed point in a turn where hooks run, such as `preWriteFile` or `turnStart`. The top-level keys of `hooks.yaml` name hook points. The hooks page calls them hook events, and the command stdin field `event` holds one. | [Hooks](hooks.md#events) |
 | session event | A record of something that happened outside the model's own tool calls, such as `job.exited`, `agent.finished`, or a type a hook or outside caller chooses. Peen hands it to the model as data. The API calls it a notice (`/api/v1/session/notices`). | [Session events](events.md) |
-| protocol event | A stored record of one step of a turn, such as `turn.started` or `tool.use`. `GET /api/v1/session/events` lists them, and each one also goes out live as a WebSocket frame. | [Protocol event types](http-api.md#protocol-event-types) |
-| WebSocket frame | One JSON message on the WebSocket, in either direction: a client's `message.send`, a protocol event, or a `message.completed` or `message.failed` reply. | [WebSocket](http-api.md#send-and-watch-turns-over-websocket) |
+| protocol event | A stored record of one step of a turn, such as `turn.started` or `tool.use`. `GET /api/v1/session/events` lists them, and each one also goes out live as a WebSocket frame. | [Protocol event types](websocket-api.md#protocol-event-types) |
+| WebSocket frame | One JSON message on the WebSocket, in either direction: a client's `message.send`, a protocol event, or a `message.completed` or `message.failed` reply. | [WebSocket](websocket-api.md) |
 | upstream | One entry in `PEEN_UPSTREAMS`. The docs also call it a provider, and the API calls its name `connectionName`. All three mean the same configured entry. A qualified model name is `<upstream name>/<model ID>`, such as `zai/glm-5.3`. | [Providers](configuration.md#providers) |
 | agent space | The place a workspace's agent runs: `control`, next to Peen, or `docker:<profile>`, in its own container. A Docker profile is one entry in `PEEN_DOCKER_PROFILES`. | [Where it runs](where-it-runs.md) |
 | control space | Where Peen itself runs when you install it with the installer: `host` or `docker`. | [Where it runs](where-it-runs.md#the-four-combinations) |

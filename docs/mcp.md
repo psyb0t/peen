@@ -1,3 +1,10 @@
+---
+title: "MCP servers"
+description: "Give the Peen agent the tools of MCP servers, with the mcp.json format and how those tools work with hooks and allowed-tools."
+nav_order: 6
+parent: "The harness"
+---
+
 # MCP servers
 
 Peen can give the agent the tools of [MCP](https://modelcontextprotocol.io) servers. A server's tools sit next to Peen's own tools: hooks, `allowed-tools`, metrics, the transcript, and durable tool phases treat them the same way. Only tools are supported. Resources, prompts, sampling, elicitation, and roots are not.

@@ -1,6 +1,13 @@
+---
+title: "Embedding options"
+description: "How each Peen deployment setting maps to a pkg/peen option for in-process embedding, with defaults."
+nav_order: 1
+parent: "Embedding Peen"
+---
+
 # Embedding options
 
-These are the in-process equivalents of deployment settings. `pkg/peen` accepts Go values and does not read these environment variables. The [embedding guide](../pkg/peen/README.md) covers lifecycle and construction. Zero-valued tuning fields take the defaults below; directories, models and the root agent require explicit construction choices.
+These are the in-process equivalents of deployment settings. [`pkg/peen`](https://github.com/psyb0t/peen/tree/main/pkg/peen) accepts Go values and does not read these environment variables. The [embedding guide](embedding.md) covers lifecycle and construction. Zero-valued tuning fields take the defaults below; directories, models and the root agent require explicit construction choices.
 
 | Deployment variable | Options field | Embedded default |
 | --- | --- | --- |

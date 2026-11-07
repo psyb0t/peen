@@ -1,3 +1,9 @@
+---
+title: "Control surface"
+description: "Use the browser chat that ships inside Peen to send work, watch tools and child agents, and manage sessions."
+nav_order: 5
+---
+
 # Control surface
 
 Peen serves its own browser control surface at the controller's root URL. It is embedded in the Peen binary, so there is no frontend service to run. It is one client of the public API, and a terminal client, a bot, or your own application can watch the same live work and use the same stored records. Build another client against the [API reference](http-api.md) when you need a different interface or automation.

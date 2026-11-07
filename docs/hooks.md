@@ -1,3 +1,10 @@
+---
+title: "Hooks"
+description: "Run hard checks and add model instructions around tool calls and turns with hooks.yaml, with every hook event and action type."
+nav_order: 4
+parent: "The harness"
+---
+
 # Hooks
 
 A hook runs at a fixed point in a turn and does something mechanical: block a tool call, run a command, add context for the model, or publish a [session event](events.md). Use a hook for anything the model must not be able to skip. A [rule](rules.md) asks the model to do something. A hook makes it happen whether the model cooperates or not.

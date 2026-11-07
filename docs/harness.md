@@ -1,3 +1,10 @@
+---
+title: "The harness"
+description: "How Peen builds what the model sees from AGENTS.md, rules, skills, agents, event handlers, and hooks, and how the layers override each other."
+nav_order: 7
+has_children: true
+---
+
 # The harness
 
 The harness is everything Peen tells the model besides your message: `AGENTS.md` instructions, rules, skills, named agents, event handlers, and hooks. You write it as plain files beside your code. Peen reads those files fresh at the start of every turn and whenever an agent calls `changeDirectory`. An edit takes effect on the next message or directory hop without a restart. The two exceptions are `SYSTEM.md` and `APPEND_SYSTEM.md`, which Peen reads once when it starts.
@@ -74,7 +81,7 @@ Every piece of instruction text Peen ships can be turned off, so you can start f
 
 What stays is what the model needs to use Peen at all: the tool descriptions, the current directory and runtime facts, the skill and agent catalogues (which say that none exist when you have none), harness diagnostics, and the blocks Peen adds to messages, such as the notice at the end of each `<toolOutput>` block and the system message after a turn that did not finish. Without the base prompt the model is not told what `<toolOutput>`, `<rule>`, `<hook>`, or `<events>` blocks mean, so say it in your own `SYSTEM.md` if your model needs it.
 
-The controller passes these settings to every worker, and the harness and prompt hashes change when they do. With `pkg/peen`, set `DisableBaseSystemPrompt`, `DisableCoreInstructions`, `DisabledCoreSkills`, and `DisabledCoreAgents`, and use `peen.NoRootAgent` as `RootAgent`.
+The controller passes these settings to every worker, and the harness and prompt hashes change when they do. With [`pkg/peen`](https://github.com/psyb0t/peen/tree/main/pkg/peen), set `DisableBaseSystemPrompt`, `DisableCoreInstructions`, `DisabledCoreSkills`, and `DisabledCoreAgents`, and use `peen.NoRootAgent` as `RootAgent`.
 
 ## Auto-evolve
 

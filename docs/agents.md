@@ -1,3 +1,10 @@
+---
+title: "Named agents"
+description: "Define child agents for contained jobs, limit their tools, run them in the background, recover them after a crash, and use the system agent."
+nav_order: 3
+parent: "The harness"
+---
+
 # Named agents
 
 A named agent is a child agent you define once and the main agent can hand a job to. The child gets its own conversation, its own instructions, and optionally a smaller tool set. It runs beside the agent that launched it, can exchange messages with it and with you, and reports its final answer when it ends. Use one for a contained job you want done the same way every time, such as a read-only reviewer, a test writer, or a dependency auditor.
@@ -46,7 +53,7 @@ with the file and line. Do not change anything.
 
 The body is the agent's instructions and must not be empty. The YAML is strict. Every value is a string, and unknown keys make the file invalid. There is no `model` field, because a child always runs on the same model as the turn that launched it.
 
-These are the tool names `allowed-tools` accepts:
+These are the tool names `allowed-tools` accepts. [Agent tools](tools.md) says what each one does:
 
 `listFiles`, `searchText`, `readFile`, `webFetch`, `writeFile`, `editFile`, `applyPatch`, `movePath`, `makeDirectory`, `removePath`, `changeDirectory`, `runCommand`, `listJobs`, `readJobOutput`, `waitJob`, `signalJob`, `useSkill`, `launchAgent`, `sendMessage`, `waitMessages`, `stopAgent`, `ask`, `searchExecutions`, `readExecution`
 
@@ -174,7 +181,7 @@ A child's task is the first such message, from the agent that launched it. `from
 
 `sendMessage` sends a message to another agent. `to` is `root` or the `agentRunId` of any running agent in the session, such as a child, or the parent named in the `run` attribute of the task. A message to a child or parent lands after its current tool call. A message to `root` from any child, at any depth, reaches the root as an `agent.message` session event. Sending to a paused child resumes it, as [described below](#messages-to-a-paused-child). Sending to a child that has ended fails and says how it ended. Sending to a run ID the session never had fails as unknown.
 
-You can write to a running child yourself. Name its run ID in the `to` field of a WebSocket `message.send`, or pick it under Send to in the control surface. Session workers retain accepted messages while reconstructing a child's conversation. See [the WebSocket](http-api.md#send-and-watch-turns-over-websocket).
+You can write to a running child yourself. Name its run ID in the `to` field of a WebSocket `message.send`, or pick it under Send to in the control surface. Session workers retain accepted messages while reconstructing a child's conversation. See [the WebSocket](websocket-api.md).
 
 ### Messages to a paused child
 

@@ -1,3 +1,10 @@
+---
+title: "Deployment"
+description: "Install Peen with the installer, use the peen command, build it from source, or run it by hand in Docker, with storage, upgrades, and backups."
+nav_order: 3
+has_children: true
+---
+
 # Deployment
 
 Install Peen with the installer unless you have a reason to own the process yourself. It pins one release, writes the configuration, and gives you the `peen` command that starts, stops, upgrades, and opens workspaces. The manual routes further down run the same server, but you then own the `docker run` flags or the process around it.
@@ -10,7 +17,7 @@ All launch methods use the same `PEEN_` configuration, trusted `PEEN_CONFIG_DIR`
 curl -fsSL https://raw.githubusercontent.com/psyb0t/peen/main/install.sh | bash
 ```
 
-Read [install.sh](../install.sh) before piping it into a shell. With no flags it installs the newest release with `--control-space docker --agent-space docker`. Peen then runs in a container named `peen-<your user name>`, and each workspace's agent runs in its own container. [Where it runs](where-it-runs.md#the-four-combinations) explains the four combinations. Pass flags after `bash -s --`:
+Read [install.sh](https://github.com/psyb0t/peen/blob/main/install.sh) before piping it into a shell. With no flags it installs the newest release with `--control-space docker --agent-space docker`. Peen then runs in a container named `peen-<your user name>`, and each workspace's agent runs in its own container. [Where it runs](where-it-runs.md#the-four-combinations) explains the four combinations. Pass flags after `bash -s --`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/psyb0t/peen/main/install.sh |
@@ -138,7 +145,7 @@ However you build it, the program calls itself `peen` in its own `--help` and in
 go install github.com/psyb0t/peen/cmd@latest
 ```
 
-The module's single main package lives at `cmd/`, so the installed file is named `cmd`, not `peen`. Rename it if you want the conventional name:
+The module's single main package lives at [`cmd/`](https://github.com/psyb0t/peen/tree/main/cmd), so the installed file is named `cmd`, not `peen`. Rename it if you want the conventional name:
 
 ```bash
 mv "$(go env GOPATH)/bin/cmd" "$(go env GOPATH)/bin/peen"

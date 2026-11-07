@@ -1,0 +1,18 @@
+---
+layout: null
+permalink: /llms.txt
+sitemap: false
+search_exclude: true
+---
+# {{ site.title }}
+
+> {{ site.description }}
+
+Source: https://github.com/psyb0t/peen
+
+## Documentation
+
+{% assign pages = site.pages | where_exp: "item", "item.description" | sort: "title" -%}
+{% for item in pages -%}
+- [{{ item.title }}]({{ item.url | absolute_url }}): {{ item.description }}
+{% endfor -%}

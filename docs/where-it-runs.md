@@ -1,3 +1,10 @@
+---
+title: "Where it runs"
+description: "Choose where the Peen controller and agents run, what the agent can touch in each setup, Docker profiles, and why startup refuses unsafe combinations."
+nav_order: 1
+parent: "Deployment"
+---
+
 # Where it runs
 
 Two settings decide what an agent can touch. You choose both when you install, and the `peen` command records them in `~/.config/peen/.env`.

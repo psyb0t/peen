@@ -1,3 +1,10 @@
+---
+title: "Security"
+description: "What the Peen agent can reach, how credentials and transcripts are handled, prompt injection, unattended sessions, and network exposure."
+nav_order: 3
+parent: "Deployment"
+---
+
 # Security
 
 Read this before you deploy Peen anywhere it can reach something you do not want touched.
@@ -22,7 +29,7 @@ A worker container receives the workspace, `PEEN_CONFIG_DIR` read-only, the glob
 
 ## Transcripts
 
-Tool calls and their results are recorded verbatim in the session transcript and sent live over the global WebSocket feed, like any other message. If the agent reads a file containing a secret, or a command prints one to stdout, that secret is now in the SQLite transcript and in every connected client that did not ask for one session only. Peen does not scan for or redact secret-shaped content in tool output. Images a message carries and images `readFile` reads are stored in the session database too, and `GET /api/v1/session/model-runs/{modelRunId}/calls` returns them base64-encoded in each round's request messages. Treat the transcript and the event stream as sensitive as the files and commands the agent can reach. The starter [security rule](../examples/rules/security.md) asks the agent not to print secrets, `.env` contents, or environment dumps, and to show a variable's name instead of its value. It is a request to the model, not redaction, so it lowers the chance of a leak without preventing one.
+Tool calls and their results are recorded verbatim in the session transcript and sent live over the global WebSocket feed, like any other message. If the agent reads a file containing a secret, or a command prints one to stdout, that secret is now in the SQLite transcript and in every connected client that did not ask for one session only. Peen does not scan for or redact secret-shaped content in tool output. Images a message carries and images `readFile` reads are stored in the session database too, and `GET /api/v1/session/model-runs/{modelRunId}/calls` returns them base64-encoded in each round's request messages. Treat the transcript and the event stream as sensitive as the files and commands the agent can reach. The starter [security rule](https://github.com/psyb0t/peen/blob/main/examples/rules/security.md) asks the agent not to print secrets, `.env` contents, or environment dumps, and to show a variable's name instead of its value. It is a request to the model, not redaction, so it lowers the chance of a leak without preventing one.
 
 ## Prompt injection
 
