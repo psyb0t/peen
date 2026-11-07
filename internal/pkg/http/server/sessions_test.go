@@ -550,3 +550,208 @@ func TestServerListSessionsRejectsAnInvalidPage(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, recorder.Code)
 	assertErrorCode(t, recorder, aichteeteapee.ErrorCodeValidationFailed)
 }
+
+func TestServerSessionEndpoints(t *testing.T) {
+	sessionID := uuid.New()
+	testCases := []struct {
+		name       string
+		method     string
+		path       string
+		runtime    *testRuntime
+		wantStatus int
+		wantCode   aichteeteapee.ErrorCode
+	}{
+		{
+			name:       "lists a page",
+			method:     http.MethodGet,
+			path:       apiBaseURL + "/messages?limit=1&offset=0&order=asc",
+			runtime:    &testRuntime{sessionID: sessionID},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:   "lists missing session",
+			method: http.MethodGet,
+			path:   apiBaseURL + "/messages",
+			runtime: &testRuntime{
+				sessionID: sessionID,
+				listErr:   commerr.ErrNotFound,
+			},
+			wantStatus: http.StatusNotFound,
+			wantCode:   ErrorCodeSessionNotFound,
+		},
+		{
+			name:   "rejects an invalid page",
+			method: http.MethodGet,
+			path:   apiBaseURL + "/messages?limit=201",
+			runtime: &testRuntime{
+				sessionID: sessionID,
+				listErr:   commerr.ErrValidationFailed,
+			},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   aichteeteapee.ErrorCodeValidationFailed,
+		},
+		{
+			name:       "gets session details",
+			method:     http.MethodGet,
+			path:       apiBaseURL + "/session",
+			runtime:    &testRuntime{sessionID: sessionID},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:   "gets missing session",
+			method: http.MethodGet,
+			path:   apiBaseURL + "/session",
+			runtime: &testRuntime{
+				sessionID:  sessionID,
+				sessionErr: commerr.ErrNotFound,
+			},
+			wantStatus: http.StatusNotFound,
+			wantCode:   ErrorCodeSessionNotFound,
+		},
+		{
+			name:       "requests cancellation",
+			method:     http.MethodPost,
+			path:       apiBaseURL + "/session/cancel",
+			runtime:    &testRuntime{sessionID: sessionID},
+			wantStatus: http.StatusAccepted,
+		},
+		{
+			name:   "cancels missing session",
+			method: http.MethodPost,
+			path:   apiBaseURL + "/session/cancel",
+			runtime: &testRuntime{
+				sessionID: sessionID,
+				cancelErr: commerr.ErrNotFound,
+			},
+			wantStatus: http.StatusNotFound,
+			wantCode:   ErrorCodeSessionNotFound,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			instance, err := newTestServer(Dependencies{Runtime: tc.runtime})
+			require.NoError(t, err)
+			request := httptest.NewRequestWithContext(t.Context(), tc.method, tc.path, nil)
+			request.Header.Set(headerSessionID, sessionID.String())
+
+			recorder := httptest.NewRecorder()
+
+			instance.inProcessHandler.ServeHTTP(recorder, request)
+
+			assert.Equal(t, tc.wantStatus, recorder.Code)
+
+			if tc.wantCode != "" {
+				assertErrorCode(t, recorder, tc.wantCode)
+			}
+		})
+	}
+}
+
+// TestServerCancelReachesTheSessionWorker proves the cancel endpoint reaches
+// the process that runs the model loop.
+//
+// The controller can mark a turn cancelled in SQLite without stopping
+// anything, because the turn runs in the session's worker. An endpoint that
+// only wrote the durable flag answered cancelRequested while the turn ran to
+// completion, which is the one control an operator has over a runaway turn.
+func TestServerCancelReachesTheSessionWorker(t *testing.T) {
+	t.Parallel()
+
+	sessionID := uuid.New()
+	runtime := newTestRuntime(sessionID)
+	router := &testTurnRouter{runtime: runtime, cancelRouted: true}
+
+	instance, err := newTestServer(Dependencies{
+		Runtime: runtime,
+		Turns:   router,
+	})
+	require.NoError(t, err)
+
+	request := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		apiBaseURL+"/session/cancel",
+		nil,
+	)
+	request.Header.Set(headerSessionID, sessionID.String())
+
+	recorder := httptest.NewRecorder()
+	instance.inProcessHandler.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusAccepted, recorder.Code)
+	assert.Equal(t, []uuid.UUID{sessionID}, router.cancelledSessions)
+
+	response := api.CancelResponse{}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+
+	// The stub runtime reports no durable turn, so a true answer here can only
+	// come from the worker the request was routed to.
+	assert.True(t, response.CancelRequested)
+}
+
+// TestServerCancelReportsAnIdleSessionHonestly keeps the routed call from
+// inventing a cancellation when no worker had a turn to stop.
+func TestServerCancelReportsAnIdleSessionHonestly(t *testing.T) {
+	t.Parallel()
+
+	sessionID := uuid.New()
+	runtime := newTestRuntime(sessionID)
+	router := &testTurnRouter{runtime: runtime, cancelRouted: false}
+
+	instance, err := newTestServer(Dependencies{
+		Runtime: runtime,
+		Turns:   router,
+	})
+	require.NoError(t, err)
+
+	request := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		apiBaseURL+"/session/cancel",
+		nil,
+	)
+	request.Header.Set(headerSessionID, sessionID.String())
+
+	recorder := httptest.NewRecorder()
+	instance.inProcessHandler.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusAccepted, recorder.Code)
+	assert.Equal(t, []uuid.UUID{sessionID}, router.cancelledSessions)
+
+	response := api.CancelResponse{}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.False(t, response.CancelRequested)
+}
+
+// TestServerCancelSurfacesAWorkerFailure keeps a broken worker route from
+// being reported to the operator as an accepted cancellation.
+func TestServerCancelSurfacesAWorkerFailure(t *testing.T) {
+	t.Parallel()
+
+	sessionID := uuid.New()
+	runtime := newTestRuntime(sessionID)
+	router := &testTurnRouter{
+		runtime:   runtime,
+		cancelErr: commerr.ErrFetchFailed,
+	}
+
+	instance, err := newTestServer(Dependencies{
+		Runtime: runtime,
+		Turns:   router,
+	})
+	require.NoError(t, err)
+
+	request := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		apiBaseURL+"/session/cancel",
+		nil,
+	)
+	request.Header.Set(headerSessionID, sessionID.String())
+
+	recorder := httptest.NewRecorder()
+	instance.inProcessHandler.ServeHTTP(recorder, request)
+
+	assert.Equal(t, http.StatusInternalServerError, recorder.Code)
+}

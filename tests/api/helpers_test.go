@@ -3,15 +3,19 @@
 package api_test
 
 import (
+	"context"
 	"encoding/json"
+	"io"
 	"path"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/tests/testinfra"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -224,4 +228,118 @@ func storedMessages(t *testing.T, sessionID uuid.UUID) []api.Message {
 	t.Helper()
 
 	return collectAllMessages(t, sessionID)
+}
+
+// hostToolsContainerPath places a scenario fixture under the app's immutable
+// tool workspace, so a relative tool path would resolve here too.
+func hostToolsContainerPath(name string) string {
+	return path.Join(testinfra.ContainerWorkingDirectory, name)
+}
+
+// seedContainerFile writes content to containerPath through the running
+// app container's own shell, via a quoted heredoc so no shell metacharacter
+// in content is ever interpreted. That makes the file's owner the app's own
+// runtime user, matching a file the app wrote itself.
+func seedContainerFile(t *testing.T, containerPath, content string) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+	defer cancel()
+
+	script := "cat > " + shellSingleQuote(containerPath) + " <<'" +
+		hostToolsFixtureHeredoc + "'\n" + content + hostToolsFixtureHeredoc + "\n"
+
+	exitCode, output, err := integrationInfra.App.Exec(
+		ctx,
+		[]string{"sh", "-c", script},
+	)
+	require.NoError(t, err)
+
+	outputBytes, readErr := io.ReadAll(output)
+	require.NoError(t, readErr)
+	require.Equal(t, 0, exitCode, "seed fixture file: %s", outputBytes)
+}
+
+// shellSingleQuote wraps value for safe use as one POSIX shell word.
+func shellSingleQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
+}
+
+func readContainerFile(t *testing.T, containerPath string) string {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+	defer cancel()
+
+	reader, err := integrationInfra.App.CopyFileFromContainer(ctx, containerPath)
+	require.NoError(t, err)
+	defer func() {
+		assert.NoError(t, reader.Close())
+	}()
+
+	data, err := io.ReadAll(reader)
+	require.NoError(t, err)
+
+	return string(data)
+}
+
+// collectAllMessages walks every page of a session's message list with a
+// page size smaller than the total, rather than trusting page one alone.
+func collectAllMessages(t *testing.T, sessionID uuid.UUID) []api.Message {
+	t.Helper()
+
+	messages := make([]api.Message, 0, hostToolsMessageCount)
+	offset := 0
+
+	for {
+		page := listMessages(t, sessionID, hostToolsPageLimit, offset, "asc")
+		messages = append(messages, page.Items...)
+		offset += len(page.Items)
+
+		if !page.HasMore {
+			break
+		}
+	}
+
+	return messages
+}
+
+func awaitFixtureCommand(t *testing.T, command ...string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), requestTimeout)
+	defer cancel()
+	ticker := time.NewTicker(jobNoticePoll)
+	defer ticker.Stop()
+	for {
+		code, reader, err := integrationInfra.App.Exec(ctx, command)
+		require.NoError(t, err)
+		_, err = io.Copy(io.Discard, reader)
+		require.NoError(t, err)
+		if code == 0 {
+			return
+		}
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			t.Fatalf("fixture command did not succeed: %v", command)
+		}
+	}
+}
+
+func toolMessages(t *testing.T, sessionID uuid.UUID) []api.Message {
+	t.Helper()
+
+	tools := make([]api.Message, 0)
+
+	for _, message := range storedMessages(t, sessionID) {
+		if message.Role == api.MessageRoleTool {
+			tools = append(tools, message)
+		}
+	}
+
+	return tools
+}
+
+func toolFailed(message api.Message) bool {
+	return message.IsError != nil && *message.IsError
 }

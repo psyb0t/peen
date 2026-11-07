@@ -18,6 +18,7 @@ const (
 	sessionPath           = apiBasePath + "/session"
 	sessionCancelPath     = sessionPath + "/cancel"
 	sessionFeedPath       = sessionPath + "/feed"
+	sessionNoticesPath    = sessionPath + "/notices"
 	modelRunsPath         = sessionPath + "/model-runs"
 	headerAuthorization   = "Authorization"
 	headerContentType     = "Content-Type"

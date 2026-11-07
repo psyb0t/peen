@@ -23,7 +23,7 @@ Tests use `testing` with `testify/require` and `testify/assert`, live in `foo_te
 - One file per area, named for what it covers: `skills_test.go`, `sessionfeed_test.go`, `systemagent_test.go`. A real-provider file ends in `_real_test.go`.
 - Shared code has fixed homes: `main_test.go` for `TestMain` and setup, `constants_test.go` for values several areas use, `helpers_test.go` for shared setup, `client_test.go` or `requests_test.go` for reaching the system, and `assertions_test.go` for shared checks.
 - A helper or constant one area uses stays in that area's file. It moves to a shared file when a second area needs it.
-- Keep a file under about 500 lines. A file that grows past that has two areas in it, so split it.
+- Line count never decides a split, the subject does. A long file about one subject stays one file, even when it holds many tests. Split a file when it covers several subjects a reader would look for separately, and move a test that sits in the wrong file to the file that owns its subject. The same goes for unit test files under `internal/`.
 - Tests never depend on the order files run in.
 
 ## Integration harness

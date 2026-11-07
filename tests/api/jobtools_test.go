@@ -3,7 +3,6 @@
 package api_test
 
 import (
-	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -45,17 +44,17 @@ const (
 	jobNoticeWait            = 30 * time.Second
 	jobNoticePoll            = 200 * time.Millisecond
 
-	agentToolsWorkspacePrefix = "launchagent-"
-	agentToolsMessage         = "launch the general purpose agent"
-	agentToolsAgent           = "core:general-purpose"
-	agentToolsTask            = "summarize the plan with :core:planning"
-	agentToolsFinalAnswer     = "the child agent answered"
-	agentToolsTextPrefix      = "integration completion "
-	// agentToolsWaitBound keeps a waiting root from hanging the suite when
-	// the child's answer already arrived before the wait began.
-	agentToolsWaitBound = "20s"
-	// agentToolsTaskSenderPrefix opens a task the root sent a child.
-	agentToolsTaskSenderPrefix = `<message from="agent" name="`
+	backgroundJobUserMessage    = "run the scripted background job sequence"
+	backgroundJobFollowUp       = "what finished while you were away"
+	backgroundJobFixtureFile    = "background-job-fixture.txt"
+	backgroundJobFixtureContent = "background job fixture\n"
+	backgroundJobFixtureEdited  = "background job fixture edited\n"
+	backgroundJobCommand        = "sleep 2 && echo background job done"
+	backgroundJobPurpose        = "outlive the one second wait"
+	backgroundJobWaitTimeout    = "1s"
+	backgroundJobFinalAnswer    = "background job started"
+	backgroundJobEventWait      = 15 * time.Second
+	backgroundJobEventPoll      = 200 * time.Millisecond
 )
 
 type jobToolsResult struct {
@@ -109,28 +108,6 @@ case "$state" in Z|X) exit 0;; *) exit 1;; esac
 		return !getSession(t, workspace.sessionID).ActiveTurn
 	}, requestTimeout, jobNoticePoll)
 	assert.Len(t, integrationInfra.ProviderRequests(), before)
-}
-
-func awaitFixtureCommand(t *testing.T, command ...string) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), requestTimeout)
-	defer cancel()
-	ticker := time.NewTicker(jobNoticePoll)
-	defer ticker.Stop()
-	for {
-		code, reader, err := integrationInfra.App.Exec(ctx, command)
-		require.NoError(t, err)
-		_, err = io.Copy(io.Discard, reader)
-		require.NoError(t, err)
-		if code == 0 {
-			return
-		}
-		select {
-		case <-ticker.C:
-		case <-ctx.Done():
-			t.Fatalf("fixture command did not succeed: %v", command)
-		}
-	}
 }
 
 func fixtureCommandExitCode(t *testing.T, command ...string) int {
@@ -356,85 +333,6 @@ func TestAPIJobExitedNoticeCarriesTheDuration(t *testing.T) {
 	assert.Contains(t, events, `"type":"job.exited"`)
 }
 
-// launchAgent through the worker: the child runs as the core agent the call
-// names, its task's :name skill follows the task as its own message, the call
-// returns at once with the child's run, and the child's answer reaches the
-// waiting parent as an agent.finished event.
-func TestAPILaunchAgentRunsACoreAgentWithATaskSkill(t *testing.T) {
-	workspace := openFreshWorkspace(t, agentToolsWorkspacePrefix, nil)
-	connection := openSessionConnection(t, workspace.sessionID)
-
-	t.Cleanup(integrationInfra.DisableScriptedToolTurn)
-	integrationInfra.EnableScriptedToolTurn(testinfra.ScriptedToolTurn{
-		UserMessage: agentToolsMessage,
-		Calls: []testinfra.ScriptedToolCall{
-			{
-				Name: "launchAgent",
-				Arguments: map[string]any{
-					"agent": agentToolsAgent,
-					"task":  agentToolsTask,
-				},
-			},
-			{
-				Name:      "waitMessages",
-				Arguments: map[string]any{"timeout": agentToolsWaitBound},
-			},
-		},
-		FinalAnswer: agentToolsFinalAnswer,
-	})
-
-	before := len(integrationInfra.ProviderRequests())
-
-	sendSessionMessage(t, connection, workspace.sessionID, agentToolsMessage)
-	readFramesUntilTurnCompleted(t, connection)
-
-	requests := providerRequestsSince(before)
-	require.Len(t, requests, 4)
-
-	child := childAgentRequest(t, requests)
-
-	childMessages := nonSystemMessages(t, child)
-	require.Len(t, childMessages, 2)
-	assert.Equal(t, "user", childMessages[0].Role)
-	assert.True(t, strings.HasPrefix(
-		childMessages[0].Content,
-		agentToolsTaskSenderPrefix,
-	))
-	assert.True(t, strings.HasSuffix(
-		childMessages[0].Content,
-		"\n"+agentToolsTask+"\n</message>",
-	))
-	assert.Equal(t, "user", childMessages[1].Role)
-	assert.Contains(t, childMessages[1].Content, skillsTestPlanningMessagePrefix)
-
-	tools := toolMessages(t, workspace.sessionID)
-	require.Len(t, tools, 2)
-	assert.False(t, toolFailed(tools[0]))
-
-	output := struct {
-		AgentRunID       uuid.UUID `json:"agentRunId"`
-		Name             string    `json:"name"`
-		ParentAgentRunID string    `json:"parentAgentRunId"`
-	}{}
-	require.NoError(t, json.Unmarshal(
-		[]byte(toolOutputText(t, tools[0].Content)), &output))
-	assert.Equal(t, agentToolsAgent, output.Name)
-	assert.Equal(t, "root", output.ParentAgentRunID)
-	assert.NotEqual(t, uuid.Nil, output.AgentRunID)
-
-	// The root waited for the child, so its last request is the one that
-	// read the child's answer.
-	final := requests[len(requests)-1]
-	assert.NotContains(t, final[0].Content, variantTestAgentBody)
-
-	conversation := providerConversationText(final)
-	assert.Contains(t, conversation, `<message from="agent"`)
-	assert.Contains(t, conversation, `name="`+output.Name+`"`)
-	assert.Contains(t, conversation, `run="`+output.AgentRunID.String()+`"`)
-	assert.Contains(t, conversation, `kind="result">`)
-	assert.Contains(t, conversation, agentToolsTextPrefix)
-}
-
 // childAgentRequest returns the one request a child agent made, told apart by
 // the core agent's instructions in its system prompt.
 func childAgentRequest(
@@ -458,34 +356,6 @@ func childAgentRequest(
 	require.NotNil(t, child, "the child never reached the provider")
 
 	return child
-}
-
-// providerConversationText joins every message of one provider request.
-func providerConversationText(messages []testinfra.ProviderMessage) string {
-	parts := make([]string, 0, len(messages))
-	for _, message := range messages {
-		parts = append(parts, message.Content)
-	}
-
-	return strings.Join(parts, "\n")
-}
-
-func toolMessages(t *testing.T, sessionID uuid.UUID) []api.Message {
-	t.Helper()
-
-	tools := make([]api.Message, 0)
-
-	for _, message := range storedMessages(t, sessionID) {
-		if message.Role == api.MessageRoleTool {
-			tools = append(tools, message)
-		}
-	}
-
-	return tools
-}
-
-func toolFailed(message api.Message) bool {
-	return message.IsError != nil && *message.IsError
 }
 
 func decodeJobToolsResult(t *testing.T, message api.Message) jobToolsResult {
@@ -519,6 +389,80 @@ func findNotice(
 		if notice.Type == noticeType {
 			*found = notice
 
+			return true
+		}
+	}
+
+	return false
+}
+
+// A command still running when its runCommand call returns finishes as a
+// background job. Its job.exited event goes through the real job registry and
+// event bus, is stored as a session notice, and opens the next turn as an
+// injected update.
+func TestAPIBackgroundJobPublishesItsCompletion(t *testing.T) {
+	t.Cleanup(integrationInfra.DisableScriptedToolTurn)
+
+	fixturePath := hostToolsContainerPath(backgroundJobFixtureFile)
+	seedContainerFile(t, fixturePath, backgroundJobFixtureContent)
+
+	integrationInfra.EnableScriptedToolTurn(testinfra.ScriptedToolTurn{
+		UserMessage:       backgroundJobUserMessage,
+		ReadFileArguments: map[string]any{"path": fixturePath},
+		EditFileArguments: map[string]any{
+			"path": fixturePath,
+			"edits": []map[string]any{{
+				"old": backgroundJobFixtureContent,
+				"new": backgroundJobFixtureEdited,
+			}},
+		},
+		RunCommandArguments: map[string]any{
+			"command": backgroundJobCommand,
+			"purpose": backgroundJobPurpose,
+			"timeout": backgroundJobWaitTimeout,
+		},
+		FinalAnswer: backgroundJobFinalAnswer,
+	})
+
+	result := sendAPIWebSocketMessage(t, backgroundJobUserMessage)
+	integrationInfra.DisableScriptedToolTurn()
+
+	require.Eventually(t, func() bool {
+		return hasNoticeOfType(t, result.sessionID, hostToolsJobExitedType)
+	}, backgroundJobEventWait, backgroundJobEventPoll,
+		"the background job published job.exited")
+
+	sendAPIWebSocketMessage(t, backgroundJobFollowUp)
+
+	messages := collectAllMessages(t, result.sessionID)
+	delivered := false
+	for _, message := range messages {
+		if message.Injected == nil || !*message.Injected {
+			continue
+		}
+		if strings.Contains(message.Content, hostToolsJobEventMarker) &&
+			strings.Contains(message.Content, hostToolsJobExitedType) {
+			delivered = true
+		}
+	}
+	assert.True(t, delivered, "the next turn opened with the job.exited update")
+}
+
+func hasNoticeOfType(t *testing.T, sessionID uuid.UUID, noticeType string) bool {
+	t.Helper()
+
+	response := apiRequest(
+		t,
+		http.MethodGet,
+		sessionNoticesPath,
+		nil,
+		withHeader(authenticatedHeaders(), headerSessionID, sessionID.String()),
+	)
+	requireAPIStatus(t, response, http.StatusOK)
+
+	page := decodeResponse[api.SessionNoticePage](t, response)
+	for _, notice := range page.Notices {
+		if notice.Type == noticeType {
 			return true
 		}
 	}

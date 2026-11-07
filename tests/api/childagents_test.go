@@ -29,6 +29,18 @@ import (
 const (
 	agentRunsPath = sessionPath + "/agents"
 
+	agentToolsWorkspacePrefix = "launchagent-"
+	agentToolsMessage         = "launch the general purpose agent"
+	agentToolsAgent           = "core:general-purpose"
+	agentToolsTask            = "summarize the plan with :core:planning"
+	agentToolsFinalAnswer     = "the child agent answered"
+	agentToolsTextPrefix      = "integration completion "
+	// agentToolsWaitBound keeps a waiting root from hanging the suite when
+	// the child's answer already arrived before the wait began.
+	agentToolsWaitBound = "20s"
+	// agentToolsTaskSenderPrefix opens a task the root sent a child.
+	agentToolsTaskSenderPrefix = `<message from="agent" name="`
+
 	childAgentsWorkspacePrefix = "childagents-"
 	childAgentsCoreAgent       = "core:general-purpose"
 
@@ -699,4 +711,93 @@ func sendToAgentRun(
 
 	result := awaitAPIWebSocketCompletion(t, connection, true)
 	assert.True(t, result.result.Queued)
+}
+
+// launchAgent through the worker: the child runs as the core agent the call
+// names, its task's :name skill follows the task as its own message, the call
+// returns at once with the child's run, and the child's answer reaches the
+// waiting parent as an agent.finished event.
+func TestAPILaunchAgentRunsACoreAgentWithATaskSkill(t *testing.T) {
+	workspace := openFreshWorkspace(t, agentToolsWorkspacePrefix, nil)
+	connection := openSessionConnection(t, workspace.sessionID)
+
+	t.Cleanup(integrationInfra.DisableScriptedToolTurn)
+	integrationInfra.EnableScriptedToolTurn(testinfra.ScriptedToolTurn{
+		UserMessage: agentToolsMessage,
+		Calls: []testinfra.ScriptedToolCall{
+			{
+				Name: "launchAgent",
+				Arguments: map[string]any{
+					"agent": agentToolsAgent,
+					"task":  agentToolsTask,
+				},
+			},
+			{
+				Name:      "waitMessages",
+				Arguments: map[string]any{"timeout": agentToolsWaitBound},
+			},
+		},
+		FinalAnswer: agentToolsFinalAnswer,
+	})
+
+	before := len(integrationInfra.ProviderRequests())
+
+	sendSessionMessage(t, connection, workspace.sessionID, agentToolsMessage)
+	readFramesUntilTurnCompleted(t, connection)
+
+	requests := providerRequestsSince(before)
+	require.Len(t, requests, 4)
+
+	child := childAgentRequest(t, requests)
+
+	childMessages := nonSystemMessages(t, child)
+	require.Len(t, childMessages, 2)
+	assert.Equal(t, "user", childMessages[0].Role)
+	assert.True(t, strings.HasPrefix(
+		childMessages[0].Content,
+		agentToolsTaskSenderPrefix,
+	))
+	assert.True(t, strings.HasSuffix(
+		childMessages[0].Content,
+		"\n"+agentToolsTask+"\n</message>",
+	))
+	assert.Equal(t, "user", childMessages[1].Role)
+	assert.Contains(t, childMessages[1].Content, skillsTestPlanningMessagePrefix)
+
+	tools := toolMessages(t, workspace.sessionID)
+	require.Len(t, tools, 2)
+	assert.False(t, toolFailed(tools[0]))
+
+	output := struct {
+		AgentRunID       uuid.UUID `json:"agentRunId"`
+		Name             string    `json:"name"`
+		ParentAgentRunID string    `json:"parentAgentRunId"`
+	}{}
+	require.NoError(t, json.Unmarshal(
+		[]byte(toolOutputText(t, tools[0].Content)), &output))
+	assert.Equal(t, agentToolsAgent, output.Name)
+	assert.Equal(t, "root", output.ParentAgentRunID)
+	assert.NotEqual(t, uuid.Nil, output.AgentRunID)
+
+	// The root waited for the child, so its last request is the one that
+	// read the child's answer.
+	final := requests[len(requests)-1]
+	assert.NotContains(t, final[0].Content, variantTestAgentBody)
+
+	conversation := providerConversationText(final)
+	assert.Contains(t, conversation, `<message from="agent"`)
+	assert.Contains(t, conversation, `name="`+output.Name+`"`)
+	assert.Contains(t, conversation, `run="`+output.AgentRunID.String()+`"`)
+	assert.Contains(t, conversation, `kind="result">`)
+	assert.Contains(t, conversation, agentToolsTextPrefix)
+}
+
+// providerConversationText joins every message of one provider request.
+func providerConversationText(messages []testinfra.ProviderMessage) string {
+	parts := make([]string, 0, len(messages))
+	for _, message := range messages {
+		parts = append(parts, message.Content)
+	}
+
+	return strings.Join(parts, "\n")
 }

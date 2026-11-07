@@ -1,6 +1,8 @@
 package server
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/aichteeteapee"
 	"github.com/psyb0t/ctxerrors/commerr"
+	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -296,4 +299,121 @@ func TestServerSessionJobEndpointsRejectAMissingSessionHeader(t *testing.T) {
 	instance.inProcessHandler.ServeHTTP(recorder, request)
 
 	assert.Equal(t, http.StatusBadRequest, recorder.Code)
+}
+
+// TestServerJobSignalReachesTheSessionWorker proves the signal endpoint
+// reaches the process group it is meant to stop.
+//
+// A job runs in the session's worker, so the controller's own job registry is
+// empty. An endpoint that consulted only that registry recorded every signal
+// as unaccepted and reported it was not signalled, while the command kept
+// running with no way to stop it.
+func TestServerJobSignalReachesTheSessionWorker(t *testing.T) {
+	t.Parallel()
+
+	sessionID := uuid.New()
+	jobID := uuid.New()
+	runtime := newTestRuntime(sessionID)
+	router := &testTurnRouter{
+		runtime: runtime,
+		signalResponse: &api.JobSignalResponse{
+			Signalled: true,
+			State:     api.JobSignalResponseStateSignalled,
+		},
+	}
+
+	instance, err := newTestServer(Dependencies{
+		Runtime: runtime,
+		Turns:   router,
+	})
+	require.NoError(t, err)
+
+	recorder := signalTestJob(t, instance, sessionID, jobID)
+	require.Equal(t, http.StatusAccepted, recorder.Code)
+	assert.Equal(t, []uuid.UUID{jobID}, router.signalledJobs)
+	assert.Equal(t, string(api.JobSignalRequestSignalStop), router.signalSignal)
+
+	response := api.JobSignalResponse{}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.True(t, response.Signalled)
+	assert.Equal(t, jobID, response.JobId)
+}
+
+// TestServerJobSignalFallsBackWithoutALiveWorker keeps a session whose worker
+// has gone answering honestly instead of failing. The request is still
+// recorded against the durable row.
+func TestServerJobSignalFallsBackWithoutALiveWorker(t *testing.T) {
+	t.Parallel()
+
+	sessionID := uuid.New()
+	jobID := uuid.New()
+	runtime := newTestRuntime(sessionID)
+	router := &testTurnRouter{runtime: runtime}
+
+	instance, err := newTestServer(Dependencies{
+		Runtime: runtime,
+		Turns:   router,
+	})
+	require.NoError(t, err)
+
+	recorder := signalTestJob(t, instance, sessionID, jobID)
+	require.Equal(t, http.StatusAccepted, recorder.Code)
+	assert.Equal(t, []uuid.UUID{jobID}, router.signalledJobs)
+
+	response := api.JobSignalResponse{}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.Equal(t, jobID, response.JobId)
+
+	// The two paths report different states, so this is what says the durable
+	// fallback answered rather than a worker.
+	assert.Equal(t, api.JobSignalResponseStateRunning, response.State)
+}
+
+// TestServerJobSignalSurfacesAWorkerFailure keeps a broken worker route from
+// being reported to the operator as an accepted signal.
+func TestServerJobSignalSurfacesAWorkerFailure(t *testing.T) {
+	t.Parallel()
+
+	sessionID := uuid.New()
+	runtime := newTestRuntime(sessionID)
+	router := &testTurnRouter{
+		runtime:   runtime,
+		signalErr: commerr.ErrFetchFailed,
+	}
+
+	instance, err := newTestServer(Dependencies{
+		Runtime: runtime,
+		Turns:   router,
+	})
+	require.NoError(t, err)
+
+	recorder := signalTestJob(t, instance, sessionID, uuid.New())
+	assert.Equal(t, http.StatusInternalServerError, recorder.Code)
+}
+
+func signalTestJob(
+	t *testing.T,
+	instance *Server,
+	sessionID, jobID uuid.UUID,
+) *httptest.ResponseRecorder {
+	t.Helper()
+
+	payload, err := json.Marshal(api.JobSignalRequest{
+		Signal: api.JobSignalRequestSignalStop,
+	})
+	require.NoError(t, err)
+
+	request := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPost,
+		apiBaseURL+"/session/jobs/"+jobID.String()+"/signal",
+		bytes.NewReader(payload),
+	)
+	request.Header.Set(headerSessionID, sessionID.String())
+	request.Header.Set(headerContentType, string(mediaTypeJSON))
+
+	recorder := httptest.NewRecorder()
+	instance.inProcessHandler.ServeHTTP(recorder, request)
+
+	return recorder
 }
