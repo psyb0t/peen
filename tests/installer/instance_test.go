@@ -74,6 +74,7 @@ func newInstall(t *testing.T, options installOptions) *install {
 	}
 	require.NotEmpty(t, directory, "no free test directory name")
 
+	listenPort, metricsPort := freePortPair(t)
 	instance := &install{
 		id:            id,
 		dir:           directory,
@@ -82,8 +83,8 @@ func newInstall(t *testing.T, options installOptions) *install {
 		root:          filepath.Join(directory, "w"),
 		project:       filepath.Join(directory, "w", "proj"),
 		outside:       filepath.Join(directory, "o"),
-		listenPort:    freePort(t),
-		metricsPort:   freePort(t),
+		listenPort:    listenPort,
+		metricsPort:   metricsPort,
 		containerName: containerNamePrefix + suite.runID + "-" + id,
 		runner:        options.runner,
 		pathHasBin:    !options.pathWithoutBin,

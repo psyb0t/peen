@@ -99,16 +99,29 @@ func startRunnerContainer(t *testing.T, name string, readOnlyRepository bool, us
 	return runner{container: name}
 }
 
-func freePort(t *testing.T) int {
+// freePortPair returns two different free ports. Both listeners stay open
+// until both ports are known, because the kernel can hand a closed port
+// straight back.
+func freePortPair(t *testing.T) (int, int) {
+	t.Helper()
+
+	first, firstPort := listenOnFreePort(t)
+	second, secondPort := listenOnFreePort(t)
+	require.NoError(t, first.Close())
+	require.NoError(t, second.Close())
+
+	return firstPort, secondPort
+}
+
+func listenOnFreePort(t *testing.T) (net.Listener, int) {
 	t.Helper()
 
 	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	address, ok := listener.Addr().(*net.TCPAddr)
 	require.True(t, ok)
-	require.NoError(t, listener.Close())
 
-	return address.Port
+	return listener, address.Port
 }
 
 func fileMode(t *testing.T, path string) os.FileMode {

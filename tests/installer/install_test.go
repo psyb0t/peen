@@ -153,7 +153,7 @@ func TestSystemInstall(t *testing.T) {
 	})
 	_, err := docker(t.Context(), "exec", name, "useradd", "-m", "-u", systemUserID, "-s", "/bin/bash", systemUser)
 	require.NoError(t, err)
-	listenPort := freePort(t)
+	listenPort, metricsPort := freePortPair(t)
 	target := &install{listenPort: listenPort}
 	installScript := filepath.Join(suite.repoRoot, "install.sh")
 	installEnvironment := []string{
@@ -229,7 +229,7 @@ func TestSystemInstall(t *testing.T) {
 		{"PEEN_DEFAULT_MODEL", providerName + "/" + providerModel},
 		{"PEEN_COMPACTION_MODEL", providerName + "/" + providerModel},
 		{"PEEN_API_TOKEN", apiToken},
-		{"PEEN_METRICS_LISTEN_ADDRESS", "127.0.0.1:" + strconv.Itoa(freePort(t))},
+		{"PEEN_METRICS_LISTEN_ADDRESS", "127.0.0.1:" + strconv.Itoa(metricsPort)},
 	} {
 		output, err := asUser("peen", "config", "set", setting[0], setting[1])
 		require.NoError(t, err, output)
