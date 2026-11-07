@@ -10,8 +10,6 @@
 
 _peen goes in vageen_
 
-**Documentation: [psyb0t.github.io/peen](https://psyb0t.github.io/peen/)**
-
 Peen is a coding agent built as a server. One control server opens a session for each workspace directory and runs Peen's agent for that session in its own worker, either a process beside the controller or a separate Docker container. Clients send work and watch it live over WebSocket, and the agent keeps working when they disconnect. It can read code, edit files, run commands, use skills, launch child agents, and follow the `AGENTS.md` and rules sitting beside the project.
 
 Every conversation, tool call, agent event, context snapshot, compaction, and provider exchange lands in SQLite. Model records keep the request and response, thinking, usage, retries, cost, model identity, and connection name, never the provider credential. Reconnect after a restart and the history is still there. A global WebSocket receives every session's live feed; a session-filtered socket receives only that session.
