@@ -1,0 +1,1 @@
+Launch a child agent to read `/app/data/in.txt` and write its text in capital letters to `/app/out/result.txt`, followed by a newline. If the child does not finish the job, do it yourself. Reply `done` when the file exists.

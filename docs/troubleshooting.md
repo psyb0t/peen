@@ -74,6 +74,8 @@ Error responses carry `{"code", "message"}`. These are the codes Peen adds to th
 | `AGENT_FINISHED` | A message went to a child agent that has already ended. |
 | `AGENT_NOT_FOUND` | A message went to an agent run the session never had. |
 | `HARNESS_CONFIGURATION_INVALID` | A harness safety bound stops the turn from starting. |
+| `TURN_ROUND_LIMIT` | The turn used every round `PEEN_MAX_TOOL_ROUNDS` allows. The message names the limit. |
+| `TURN_TOKEN_LIMIT` | The turn billed the tokens `PEEN_MAX_TURN_TOKENS` allows. The message names the limit. |
 
 ## Still stuck
 

@@ -1,0 +1,1 @@
+Start twenty background commands, one for each number N from 1 to 20. Each one waits 5 seconds, then writes `done N` and a newline to `/app/jobs/N.txt`. When all twenty have finished, write to `/app/count.txt` how many of them listJobs reports as exited.

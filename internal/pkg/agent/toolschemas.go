@@ -108,7 +108,8 @@ const readFileSchema = `{
 }`
 
 const writeFileDescription = `Create a text file, or replace one.
-This writes the file's entire content.
+This writes the file's entire content, byte for byte. A line break in
+content is one newline character, never a backslash followed by n.
 Parent directories are created as needed.
 Creating a NEW file needs no expectedSha256 and no prior read.
 The target is checked for absence and creation never replaces a path that
@@ -296,8 +297,13 @@ stop it with signalJob. Clean up what you no longer need.
 stdout and stderr come back separately with the exit status. A non-zero exit
 is a normal result to read and react to, not a tool failure.
 Output is bounded and drops oldest, reporting how many lines it dropped.
+The result carries the newest lines of each stream. A non-zero skipped count
+says how many earlier lines it left out; readJobOutput from cursor 0 reads
+them.
 Prefer the file tools for reading and editing. They are bounded and
-report content hashes. Do not use shell redirection, cp, mv, sed -i, or
+report content hashes. To list, count, or search files, use listFiles and
+searchText instead of ls, find, grep, or wc, also when checking finished
+work. Do not use shell redirection, cp, mv, sed -i, or
 similar shell operations for manual file changes. Use the file tools so
 existing files are read first and new destinations cannot be overwritten.`
 

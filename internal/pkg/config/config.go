@@ -58,6 +58,21 @@ const (
 // turns the check off.
 const MaxSystemPromptPercent = 100
 
+// The context and output budget when PEEN_MAX_CONTEXT_TOKENS or
+// PEEN_OUTPUT_RESERVE_TOKENS is 0.
+const (
+	// FallbackContextTokens is the context of a model whose provider
+	// publishes no window.
+	FallbackContextTokens = 32768
+	// FallbackOutputTokens is the output limit of a model whose provider
+	// publishes none.
+	FallbackOutputTokens = 16384
+	// outputReserveContextDivisor keeps an automatic output limit at or
+	// under this fraction of the context, so a small context still leaves
+	// the prompt most of the room.
+	outputReserveContextDivisor = 4
+)
+
 // defaultMetricsRetention keeps seven days of observations in metrics.db.
 const defaultMetricsRetention = 7 * 24 * time.Hour
 
@@ -209,8 +224,11 @@ type Config struct {
 	// including a local development image, is valid.
 	WorkerImage string `env:"PEEN_WORKER_IMAGE"`
 
-	MaxContextTokens         int            `default:"32768"       env:"PEEN_MAX_CONTEXT_TOKENS"`           //nolint:lll // Immutable env tag.
-	OutputReserveTokens      int            `default:"4096"        env:"PEEN_OUTPUT_RESERVE_TOKENS"`        //nolint:lll // Immutable env tag.
+	// MaxContextTokens and OutputReserveTokens at 0 take the default model's
+	// window and an output limit from the model's own. ResolveContextBudget
+	// fills them in once the model is known.
+	MaxContextTokens         int            `default:"0"           env:"PEEN_MAX_CONTEXT_TOKENS"`           //nolint:lll // Immutable env tag.
+	OutputReserveTokens      int            `default:"0"           env:"PEEN_OUTPUT_RESERVE_TOKENS"`        //nolint:lll // Immutable env tag.
 	CompactionMode           CompactionMode `default:"drop-oldest" env:"PEEN_COMPACTION_MODE"`              //nolint:lll // Immutable env tag.
 	CompactionOutputTokens   int            `default:"16384"       env:"PEEN_COMPACTION_MAX_OUTPUT_TOKENS"` //nolint:lll // Immutable env tag.
 	CompactionSummaryPercent int            `default:"30"          env:"PEEN_COMPACTION_SUMMARY_PERCENT"`   //nolint:lll // Immutable env tag.
@@ -919,20 +937,81 @@ func (c Config) ResumesAfterCrash() bool {
 	return c.CrashRecovery == CrashRecoveryResume
 }
 
-// hasContextBudget reports whether the context holds the reply's reserve and a
-// summary with prompt room to spare. The prompt gets the context minus the
-// reserve, and a summary has to fit in what is left.
+// hasContextBudget reports whether the budget settings can hold. A 0 context
+// is resolved against the default model at startup, so only an explicit
+// context is checked against its reserve and summary room here.
 func (c Config) hasContextBudget() bool {
-	if c.MaxContextTokens <= 0 || c.OutputReserveTokens < 0 ||
+	if c.MaxContextTokens < 0 || c.OutputReserveTokens < 0 ||
 		c.CompactionOutputTokens <= 0 ||
 		c.CompactionSummaryPercent < 0 ||
 		c.CompactionSummaryPercent > MaxCompactionSummaryPercent {
 		return false
 	}
 
-	summary := c.CompactionSummaryTokens()
+	if c.MaxContextTokens == 0 {
+		return true
+	}
 
-	return summary > 0 && summary+c.OutputReserveTokens < c.MaxContextTokens
+	_, err := c.ResolveContextBudget(0, 0)
+
+	return err == nil
+}
+
+// ResolveContextBudget returns the configuration with its context budget
+// filled in from the default model. A 0 context takes window, or
+// FallbackContextTokens when the model publishes none. A 0 output reserve
+// takes maxOutput, or FallbackOutputTokens when the model publishes none,
+// never more than a quarter of the context. The reserve is the output limit
+// every turn request sends. It refuses a budget whose reserve and summary room
+// leave the prompt nothing.
+func (c Config) ResolveContextBudget(window, maxOutput int) (Config, error) {
+	resolved := c
+	if resolved.MaxContextTokens == 0 {
+		resolved.MaxContextTokens = ContextTokens(window)
+	}
+
+	if resolved.OutputReserveTokens == 0 {
+		resolved.OutputReserveTokens = OutputReserveTokens(
+			resolved.MaxContextTokens,
+			maxOutput,
+		)
+	}
+
+	summary := resolved.CompactionSummaryTokens()
+	if summary <= 0 ||
+		summary+resolved.OutputReserveTokens >= resolved.MaxContextTokens {
+		return c, ctxerrors.Wrapf(
+			ErrInvalidConfig,
+			"a %d token output reserve and a %d token summary do not fit "+
+				"a %d token context",
+			resolved.OutputReserveTokens,
+			summary,
+			resolved.MaxContextTokens,
+		)
+	}
+
+	return resolved, nil
+}
+
+// ContextTokens is the context a 0 PEEN_MAX_CONTEXT_TOKENS takes: the model's
+// window, or FallbackContextTokens when it publishes none.
+func ContextTokens(window int) int {
+	if window <= 0 {
+		return FallbackContextTokens
+	}
+
+	return window
+}
+
+// OutputReserveTokens is the output limit a 0 PEEN_OUTPUT_RESERVE_TOKENS
+// takes: the model's own, or FallbackOutputTokens when it publishes none,
+// capped at a quarter of the context.
+func OutputReserveTokens(contextTokens, maxOutput int) int {
+	if maxOutput <= 0 {
+		maxOutput = FallbackOutputTokens
+	}
+
+	return min(maxOutput, contextTokens/outputReserveContextDivisor)
 }
 
 // CompactionSummaryTokens is the room one summary gets: its share of the

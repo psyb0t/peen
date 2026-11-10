@@ -189,6 +189,14 @@ func realHarnessEnvironment(
 		environment[name] = name + "=" + value
 	}
 
+	// The deployment .env may shrink the context or the output limit for its
+	// own use. This suite tests the harness with each model's full window and
+	// output limit, so those settings are dropped. A test that tests a small
+	// context sets them again through overrides.
+	for _, name := range realHarnessBudgetSettings() {
+		delete(environment, name)
+	}
+
 	for name, value := range overrides {
 		environment[name] = name + "=" + value
 	}

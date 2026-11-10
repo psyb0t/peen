@@ -343,3 +343,55 @@ func modelAuditSettings(t *testing.T, encoded string) map[string]any {
 
 	return settings
 }
+
+// The last failed attempt of a call that gave up was never retried, so it
+// stays in the attempt list but does not count as a retry.
+func TestModelAuditRetryCountExcludesTheTerminalAttempt(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name  string
+		retry elelem.RetryInfo
+		want  int64
+	}{
+		{
+			name: "refused on the first attempt",
+			retry: elelem.RetryInfo{
+				TotalAttempts:  1,
+				FailedAttempts: make([]elelem.RetryAttempt, 1),
+			},
+			want: 0,
+		},
+		{
+			name: "succeeded after two retries",
+			retry: elelem.RetryInfo{
+				TotalAttempts:  3,
+				FailedAttempts: make([]elelem.RetryAttempt, 2),
+			},
+			want: 2,
+		},
+		{
+			name: "gave up after every attempt",
+			retry: elelem.RetryInfo{
+				TotalAttempts:  4,
+				FailedAttempts: make([]elelem.RetryAttempt, 4),
+			},
+			want: 3,
+		},
+		{
+			name: "failures listed without an attempt count",
+			retry: elelem.RetryInfo{
+				FailedAttempts: make([]elelem.RetryAttempt, 2),
+			},
+			want: 2,
+		},
+		{name: "no attempts recorded", want: 0},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.want, modelAuditRetryCount(tc.retry))
+		})
+	}
+}

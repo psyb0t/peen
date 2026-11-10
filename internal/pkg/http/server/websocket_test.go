@@ -19,6 +19,7 @@ import (
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/agent"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/publicerror"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -495,6 +496,30 @@ func TestWebSocketMessageFailureFor(t *testing.T) {
 			),
 		},
 		{
+			name: "message too large",
+			err: errors.Join(
+				commerr.ErrValidationFailed,
+				session.ErrMessageTooLarge,
+			),
+			want: newWebSocketMessageFailure(
+				aichteeteapee.ErrorCodeValidationFailed,
+				session.ErrMessageTooLarge.Error(),
+				"",
+			),
+		},
+		{
+			name: "full durable queue",
+			err: errors.Join(
+				commerr.ErrConflict,
+				elelem.ErrUserMessageQueueFull,
+			),
+			want: newWebSocketMessageFailure(
+				ErrorCodeUserMessageQueueFull,
+				userMessageQueueFullError().Message,
+				"",
+			),
+		},
+		{
 			name: "cancelled turn",
 			err:  commerr.ErrCancelled,
 			want: newWebSocketMessageFailure(
@@ -573,6 +598,36 @@ func TestWebSocketMessageFailureFor(t *testing.T) {
 			want: newWebSocketMessageFailure(
 				aichteeteapee.ErrorCodeValidationFailed,
 				`unknown skill "x" in :x; available skills: a, core:planning`,
+				"",
+			),
+		},
+		{
+			name: "turn round limit",
+			err: ctxerrors.Wrap(
+				publicerror.WithMessage(
+					"The turn stopped at its limit of 2 tool rounds (PEEN_MAX_TOOL_ROUNDS).",
+					errors.Join(
+						session.ErrTurnRoundLimit,
+						commerr.ErrOutOfRange,
+					),
+				),
+				"wait for native root result",
+			),
+			want: newWebSocketMessageFailure(
+				ErrorCodeTurnRoundLimit,
+				"The turn stopped at its limit of 2 tool rounds (PEEN_MAX_TOOL_ROUNDS).",
+				"",
+			),
+		},
+		{
+			name: "turn token limit",
+			err: errors.Join(
+				session.ErrTurnTokenLimit,
+				commerr.ErrOutOfRange,
+			),
+			want: newWebSocketMessageFailure(
+				ErrorCodeTurnTokenLimit,
+				session.ErrTurnTokenLimit.Error(),
 				"",
 			),
 		},

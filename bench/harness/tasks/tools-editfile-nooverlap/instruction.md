@@ -1,0 +1,1 @@
+In `/app/pipeline.txt`, make the line `stages: build-test-deploy` read `stages: compile-verify-deploy`. Use one editFile call with two replacements: `build-test` to `compile-verify`, and `test-deploy` to `verify-deploy`.

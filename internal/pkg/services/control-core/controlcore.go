@@ -190,6 +190,41 @@ func (s *ControlCore) Run(ctx context.Context) (runErr error) {
 	return nil
 }
 
+// discoverModels finds the configured providers' models and resolves the
+// context budget against them, returning the configuration with that budget
+// filled in.
+//
+// Provider discovery stays here because it is the one part that genuinely
+// differs between a deployment and an embedding Go program: a deployment
+// discovers models from its configured providers, an embedder supplies its
+// own.
+func (s *ControlCore) discoverModels(
+	ctx context.Context,
+	config peenconfig.Config,
+	upstreams []peenconfig.Upstream,
+) (*agent.Registry, peenconfig.Config, error) {
+	models, err := agent.NewRegistry(ctx, agent.RegistryOptions{
+		Upstreams:        upstreams,
+		DefaultModel:     config.DefaultModel,
+		CompactionModel:  config.CompactionModel,
+		MaxContextTokens: config.MaxContextTokens,
+		Factory:          s.dependencies.driverFactory,
+	})
+	if err != nil {
+		return nil, config, ctxerrors.Wrap(err,
+			"discover configured provider models")
+	}
+
+	resolved, err := agent.ResolveContextBudget(config, models)
+	if err != nil {
+		return nil, config, ctxerrors.Wrap(err, "resolve the context budget")
+	}
+
+	logContextBudget(ctx, resolved)
+
+	return models, resolved, nil
+}
+
 // openCore builds every durable dependency the controller serves from.
 //
 //nolint:funlen // One construction step per dependency, in dependency order.
@@ -200,19 +235,9 @@ func (s *ControlCore) openCore(
 ) (*control.Core, error) {
 	metricRegistry := metrics.New()
 
-	// Provider discovery stays here because it is the one part that genuinely
-	// differs between a deployment and an embedding Go program: a deployment
-	// discovers models from its configured providers, an embedder supplies
-	// its own.
-	models, err := agent.NewRegistry(ctx, agent.RegistryOptions{
-		Upstreams:        upstreams,
-		DefaultModel:     config.DefaultModel,
-		CompactionModel:  config.CompactionModel,
-		MaxContextTokens: config.MaxContextTokens,
-		Factory:          s.dependencies.driverFactory,
-	})
+	models, config, err := s.discoverModels(ctx, config, upstreams)
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "discover configured provider models")
+		return nil, err
 	}
 
 	//nolint:contextcheck // A startup probe bounded by its own timeout.
@@ -289,6 +314,8 @@ func (s *ControlCore) openCore(
 	if err != nil {
 		return nil, errors.Join(err, closeState(ctx, assembled.Handle))
 	}
+
+	startCrashResume(ctx, config.ResumesAfterCrash(), assembled.Store, workers)
 
 	// The controller runs no model loop of its own, so a turn an event wakes
 	// goes to the session's worker like a turn a client sends.

@@ -560,10 +560,10 @@ export function validateMessageFailedData(
 /**
  * AGENT_PAUSED is deprecated and no longer sent, because a message to a paused child now resumes it.
  */
-export type MessageFailedCode = "VALIDATION_FAILED" | "INTERNAL_SERVER_ERROR" | "SESSION_NOT_FOUND" | "TURN_CANCELLED" | "USER_MESSAGE_QUEUE_FULL" | "SESSION_BUSY" | "AGENT_FINISHED" | "AGENT_NOT_FOUND" | "AGENT_PAUSED" | "HARNESS_CONFIGURATION_INVALID";
+export type MessageFailedCode = "VALIDATION_FAILED" | "INTERNAL_SERVER_ERROR" | "SESSION_NOT_FOUND" | "TURN_CANCELLED" | "USER_MESSAGE_QUEUE_FULL" | "SESSION_BUSY" | "AGENT_FINISHED" | "AGENT_NOT_FOUND" | "AGENT_PAUSED" | "HARNESS_CONFIGURATION_INVALID" | "TURN_ROUND_LIMIT" | "TURN_TOKEN_LIMIT";
 
 /** Values of MessageFailedCode. */
-export const MessageFailedCodeValues = ["VALIDATION_FAILED", "INTERNAL_SERVER_ERROR", "SESSION_NOT_FOUND", "TURN_CANCELLED", "USER_MESSAGE_QUEUE_FULL", "SESSION_BUSY", "AGENT_FINISHED", "AGENT_NOT_FOUND", "AGENT_PAUSED", "HARNESS_CONFIGURATION_INVALID"] as const;
+export const MessageFailedCodeValues = ["VALIDATION_FAILED", "INTERNAL_SERVER_ERROR", "SESSION_NOT_FOUND", "TURN_CANCELLED", "USER_MESSAGE_QUEUE_FULL", "SESSION_BUSY", "AGENT_FINISHED", "AGENT_NOT_FOUND", "AGENT_PAUSED", "HARNESS_CONFIGURATION_INVALID", "TURN_ROUND_LIMIT", "TURN_TOKEN_LIMIT"] as const;
 
 /** validateMessageFailedCode throws a ValidationError when value is not a valid MessageFailedCode. */
 export function validateMessageFailedCode(

@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -66,6 +67,28 @@ func TestAcceptExecutionMessageRetainsDistinctIdenticalText(t *testing.T) {
 		}})
 	require.NoError(t, err)
 	assert.Len(t, events.Items, 4)
+}
+
+func TestAcceptExecutionMessageReportsAFullQueue(t *testing.T) {
+	t.Parallel()
+	fixture := newExecutionFixture(t)
+	lease := inboxTestLease(t, fixture)
+	input := inboxTestInput()
+	input.Parts = nil
+	input.Capacity = 2
+
+	for range input.Capacity {
+		input.RequestID = uuid.New()
+		_, err := fixture.store.AcceptExecutionMessage(t.Context(),
+			fixture.root.ID, lease, input)
+		require.NoError(t, err)
+	}
+
+	input.RequestID = uuid.New()
+	_, err := fixture.store.AcceptExecutionMessage(t.Context(),
+		fixture.root.ID, lease, input)
+	require.ErrorIs(t, err, elelem.ErrUserMessageQueueFull)
+	require.ErrorIs(t, err, commerr.ErrConflict)
 }
 
 func TestAcceptExecutionMessageRefusesChangedRequest(t *testing.T) {

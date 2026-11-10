@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	toolPhaseActivityName = "toolPhaseV1"
+	toolPhaseActivityName = session.ExecutionToolPhaseActivityName
 )
 
 type workflowToolPhase string

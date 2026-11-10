@@ -7,6 +7,7 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/publicerror"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -47,7 +48,18 @@ const (
 	CodeTooManyImages             Code = "tooManyImages"
 	CodeImageTooLarge             Code = "imageTooLarge"
 	CodeImageType                 Code = "imageType"
+	CodeMessageTooLarge           Code = "messageTooLarge"
+	CodeSystemPromptTooLarge      Code = "systemPromptTooLarge"
+	CodeInvalidInstruction        Code = "invalidInstruction"
+	CodeInvalidSkill              Code = "invalidSkill"
+	CodeInvalidAgent              Code = "invalidAgent"
+	CodeInvalidEventHandler       Code = "invalidEventHandler"
+	CodeInvalidHook               Code = "invalidHook"
+	CodeHarnessResourceLimit      Code = "harnessResourceLimit"
+	CodeUnreadableHarnessLayer    Code = "unreadableHarnessLayer"
 	CodeTurnLeaseInactive         Code = "turnLeaseInactive"
+	CodeTurnRoundLimit            Code = "turnRoundLimit"
+	CodeTurnTokenLimit            Code = "turnTokenLimit"
 )
 
 // Error is one failure as it crosses the socket.
@@ -80,6 +92,9 @@ type detailedFailure struct {
 	code   Code
 	detail error
 	class  error
+	// public marks a failure whose error carries its own client-safe text,
+	// which crosses the socket in place of the wrapped chain.
+	public bool
 }
 
 // detailedFailures is checked before sentinels, because an error carrying a
@@ -147,9 +162,71 @@ var detailedFailures = []detailedFailure{
 		detail: session.ErrTurnLeaseInactive,
 		class:  commerr.ErrInvalidState,
 	},
+	// A turn that hit its round or token limit reports the limit's own text,
+	// which names the setting that raised it, without the wrapped chain.
+	{
+		code:   CodeTurnRoundLimit,
+		detail: session.ErrTurnRoundLimit,
+		class:  commerr.ErrOutOfRange,
+		public: true,
+	},
+	{
+		code:   CodeTurnTokenLimit,
+		detail: session.ErrTurnTokenLimit,
+		class:  commerr.ErrOutOfRange,
+		public: true,
+	},
 	{
 		code:   CodeImageType,
 		detail: session.ErrImageType,
+		class:  commerr.ErrValidationFailed,
+	},
+	{
+		code:   CodeMessageTooLarge,
+		detail: session.ErrMessageTooLarge,
+		class:  commerr.ErrValidationFailed,
+	},
+	{
+		code:   CodeSystemPromptTooLarge,
+		detail: session.ErrSystemPromptTooLarge,
+		class:  commerr.ErrValidationFailed,
+	},
+	// A harness the worker resolves can refuse a turn. The controller
+	// reports each refusal as HARNESS_CONFIGURATION_INVALID with its reason,
+	// so the detail has to reach it.
+	{
+		code:   CodeInvalidInstruction,
+		detail: harness.ErrInvalidInstruction,
+		class:  commerr.ErrValidationFailed,
+	},
+	{
+		code:   CodeInvalidSkill,
+		detail: harness.ErrInvalidSkill,
+		class:  commerr.ErrValidationFailed,
+	},
+	{
+		code:   CodeInvalidAgent,
+		detail: harness.ErrInvalidAgent,
+		class:  commerr.ErrValidationFailed,
+	},
+	{
+		code:   CodeInvalidEventHandler,
+		detail: harness.ErrInvalidEventHandler,
+		class:  commerr.ErrValidationFailed,
+	},
+	{
+		code:   CodeInvalidHook,
+		detail: harness.ErrInvalidHook,
+		class:  commerr.ErrValidationFailed,
+	},
+	{
+		code:   CodeHarnessResourceLimit,
+		detail: harness.ErrResourceLimit,
+		class:  commerr.ErrValidationFailed,
+	},
+	{
+		code:   CodeUnreadableHarnessLayer,
+		detail: harness.ErrUnreadableLayer,
 		class:  commerr.ErrValidationFailed,
 	},
 }
@@ -192,7 +269,24 @@ func NewError(err error) *Error {
 		return &Error{Code: CodeUnknownSkill, Message: unknown.Message}
 	}
 
-	return &Error{Code: codeFor(err), Message: err.Error()}
+	code := codeFor(err)
+
+	message := err.Error()
+	if failure, found := detailedFailureFor(code); found && failure.public {
+		message = publicerror.Message(err)
+	}
+
+	return &Error{Code: code, Message: message}
+}
+
+func detailedFailureFor(code Code) (detailedFailure, bool) {
+	for _, failure := range detailedFailures {
+		if failure.code == code {
+			return failure, true
+		}
+	}
+
+	return detailedFailure{}, false
 }
 
 // Unwrap rebuilds a Go error from a wire error, restoring the sentinel so
@@ -213,13 +307,13 @@ func (e *Error) Unwrap() error {
 		)
 	}
 
-	for _, failure := range detailedFailures {
-		if failure.code == e.Code {
-			return ctxerrors.Wrap(
-				errors.Join(failure.class, failure.detail),
-				e.Message,
-			)
+	if failure, found := detailedFailureFor(e.Code); found {
+		restored := errors.Join(failure.class, failure.detail)
+		if failure.public {
+			return publicerror.WithMessage(e.Message, restored)
 		}
+
+		return ctxerrors.Wrap(restored, e.Message)
 	}
 
 	sentinel, found := sentinels[e.Code]

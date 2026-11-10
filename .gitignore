@@ -25,6 +25,7 @@ scripts/.post-update-temp
 git-update.sh
 git-update.sh.debot
 commit.txt
+*.local.json
 
 # .claude links to .agents, so Claude Code's per-machine files land here
 .agents/settings.local.json

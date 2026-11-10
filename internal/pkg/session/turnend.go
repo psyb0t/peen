@@ -172,6 +172,12 @@ func (s *Store) endRunningTurn(
 		return false, nil
 	}
 
+	if closesOpenToolCalls(end) {
+		if err := s.closeOpenToolCalls(ctx, tx, turn); err != nil {
+			return false, ctxerrors.Wrap(err, "close stopped tool calls")
+		}
+	}
+
 	message := tx.Message
 	if _, err := message.WithContext(ctx).
 		Where(message.TurnID.Eq(turn.ID)).
@@ -179,13 +185,27 @@ func (s *Store) endRunningTurn(
 		return false, ctxerrors.Wrap(err, "mark ended turn messages incomplete")
 	}
 
+	if err := s.recordTurnEnd(ctx, tx, turn, end); err != nil {
+		return false, err
+	}
+
+	return true, nil
+}
+
+// recordTurnEnd stores the ended turn's terminal event and its notice.
+func (s *Store) recordTurnEnd(
+	ctx context.Context,
+	tx *repositories.Query,
+	turn *models.Turn,
+	end TurnEnd,
+) error {
 	detail := boundTurnEndDetail(end.Detail)
 
 	payload, err := json.Marshal(turnEndPayload{
 		Reason: end.Classification, Error: detail,
 	})
 	if err != nil {
-		return false, ctxerrors.Wrap(err, "encode turn end frame")
+		return ctxerrors.Wrap(err, "encode turn end frame")
 	}
 
 	if err := s.appendEvents(ctx, tx,
@@ -197,17 +217,17 @@ func (s *Store) endRunningTurn(
 			PayloadJSON:        string(payload),
 		}},
 	); err != nil {
-		return false, ctxerrors.Wrap(err, "store turn end frame")
+		return ctxerrors.Wrap(err, "store turn end frame")
 	}
 
 	if err := s.recordTurnEndNotice(ctx, tx, turn.SessionID, TurnEndNotice{
 		TurnID: turn.ID, State: end.State,
 		Reason: end.Classification, Error: detail,
 	}); err != nil {
-		return false, ctxerrors.Wrap(err, "record turn end notice")
+		return ctxerrors.Wrap(err, "record turn end notice")
 	}
 
-	return true, nil
+	return nil
 }
 
 // recordTurnEndNotice queues the notice that tells the session's clients a
@@ -351,6 +371,21 @@ func readEndedTurnMessages(
 	return nil
 }
 
+// toolResultOutcomes maps each tool call that returned a result to whether
+// that result was an error. A stopped result is Peen's marker for a call that
+// never returned, so that call is left out as having no result.
+func toolResultOutcomes(rows []*models.Message) map[string]bool {
+	failed := map[string]bool{}
+
+	for _, row := range rows {
+		if row.Role == models.MessageRoleTool && !isStoppedToolResult(row) {
+			failed[row.ToolCallID] = row.IsError
+		}
+	}
+
+	return failed
+}
+
 // readEndedTurnToolCalls lists the tool calls the ended turn made, with how
 // each came out, keeping the latest turnEndToolCallLimit.
 func readEndedTurnToolCalls(
@@ -363,6 +398,7 @@ func readEndedTurnToolCalls(
 
 	rows, err := message.WithContext(ctx).Select(message.Role,
 		message.ToolCallsJSON, message.ToolCallID, message.IsError,
+		message.Content,
 	).Where(
 		message.SessionID.Eq(sessionID),
 		message.TurnID.Eq(data.TurnID),
@@ -373,13 +409,7 @@ func readEndedTurnToolCalls(
 		return ctxerrors.Wrap(err, "read ended turn tool messages")
 	}
 
-	failed := map[string]bool{}
-
-	for _, row := range rows {
-		if row.Role == models.MessageRoleTool {
-			failed[row.ToolCallID] = row.IsError
-		}
-	}
+	failed := toolResultOutcomes(rows)
 
 	var calls []TurnEndToolCall
 
@@ -407,6 +437,12 @@ func readEndedTurnToolCalls(
 	data.ToolCalls = calls
 
 	return nil
+}
+
+// isStoppedToolResult reports whether a tool message is the result Peen
+// recorded for a call that was stopped before it returned.
+func isStoppedToolResult(row *models.Message) bool {
+	return row.IsError && row.Content == StoppedToolResultContent
 }
 
 func endedTurnToolCall(

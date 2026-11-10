@@ -64,8 +64,88 @@ func TestAgentInspectionToolRequiresCurrentWorkflowCaller(t *testing.T) {
 	}
 }
 
+const inspectedEffectResult = "the inspected file effect completed"
+
+// acceptedOutput builds what the agent sends to accept the uncertain tool
+// call: an output and a context, from the step input it read.
+type acceptedOutput func(t *testing.T, retained workflowToolPhaseInput) (
+	json.RawMessage, json.RawMessage)
+
 func TestAgentInspectionAcceptsWrittenEffectWithoutRepeatingIt(t *testing.T) {
 	t.Parallel()
+	testCases := []struct {
+		name   string
+		accept acceptedOutput
+	}{
+		{
+			name: "whole phase state",
+			accept: func(t *testing.T, retained workflowToolPhaseInput) (
+				json.RawMessage, json.RawMessage,
+			) {
+				t.Helper()
+				accepted := retained.State
+				accepted.LastPhase = workflowToolPhaseHandler
+				accepted.RootProjection, accepted.ChildProjection = nil, nil
+				accepted.Outcome.Result = elelem.ToolResult{Content: inspectedEffectResult}
+				accepted.Outcome.Context = retained.Tool.Round.Execution.Context
+				output, err := json.Marshal(accepted)
+				require.NoError(t, err)
+
+				return output, accepted.Outcome.Context
+			},
+		},
+		{
+			// The agent cannot know Peen's phase state, so the tool result
+			// alone, with no context, has to be enough.
+			name: "tool result only",
+			accept: func(t *testing.T, _ workflowToolPhaseInput) (
+				json.RawMessage, json.RawMessage,
+			) {
+				t.Helper()
+				output, err := json.Marshal(elelem.ToolResult{Content: inspectedEffectResult})
+				require.NoError(t, err)
+
+				return output, nil
+			},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			acceptInspectedEffect(t, tc.accept)
+		})
+	}
+}
+
+func TestAgentInspectionRefusesAcceptWithoutToolResult(t *testing.T) {
+	t.Parallel()
+	_, err := acceptedToolPhaseOutput(`{"phase":"handler"}`,
+		json.RawMessage(`{"lastPhase":"handler"}`))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "the tool's result")
+}
+
+func TestAgentInspectionRetryDropsAWrittenOutcome(t *testing.T) {
+	t.Parallel()
+	deps := &launchAgentDeps{}
+	input := resolveExecutionActivityInput{
+		ResolveActivityInput: session.ResolveActivityInput{
+			Attempt: 1, Resolution: session.ActivityResolutionRetry,
+			Evidence: "the step left no effect",
+			Output:   json.RawMessage(`{"Content":"not run yet"}`),
+			Context:  json.RawMessage(`{}`),
+		},
+	}
+
+	require.NoError(t, deps.prepareResolution(t.Context(), &input))
+	assert.Nil(t, input.Output)
+	assert.Nil(t, input.Context)
+	assert.Equal(t, session.ActivityResolutionRetry, input.Resolution)
+	assert.Equal(t, "the step left no effect", input.Evidence)
+}
+
+func acceptInspectedEffect(t *testing.T, accept acceptedOutput) {
+	t.Helper()
 	initial := elelemtest.NewScriptedDriver(elelemtest.ToolCall("writeUnknownEffect", nativeRunnerBlockingTool, `{}`))
 	driver := &inspectionControlDriver{ScriptedDriver: initial}
 	base := newNativeRunnerFixture(t, driver)
@@ -124,19 +204,13 @@ func TestAgentInspectionAcceptsWrittenEffectWithoutRepeatingIt(t *testing.T) {
 	content, err := os.ReadFile(effectPath)
 	require.NoError(t, err)
 	require.Equal(t, "written once", string(content))
-	accepted := retained.State
-	accepted.LastPhase = workflowToolPhaseHandler
-	accepted.RootProjection, accepted.ChildProjection = nil, nil
-	accepted.Outcome.Result = elelem.ToolResult{Content: "the inspected file effect completed"}
-	accepted.Outcome.Context = retained.Tool.Round.Execution.Context
-	output, err := json.Marshal(accepted)
-	require.NoError(t, err)
+	output, acceptedContext := accept(t, retained)
 	resolution, err := json.Marshal(resolveExecutionActivityInput{
 		ActivityID: unknown.ID, ControlRevision: original.ControlRevision,
 		ResolveActivityInput: session.ResolveActivityInput{
 			Attempt: unknown.Attempt, Resolution: session.ActivityResolutionAccept,
 			Evidence: "read the effect file and confirmed its complete content",
-			Output:   output, Context: accepted.Outcome.Context,
+			Output:   output, Context: acceptedContext,
 		},
 	})
 	require.NoError(t, err)
@@ -171,7 +245,7 @@ func TestAgentInspectionAcceptsWrittenEffectWithoutRepeatingIt(t *testing.T) {
 	toolResults := 0
 	for _, message := range requests[3].Messages {
 		if message.Role == elelem.RoleTool && message.ToolCallID == "writeUnknownEffect" {
-			assert.Equal(t, accepted.Outcome.Result.Content,
+			assert.Equal(t, inspectedEffectResult,
 				toolOutputText(t, message.Text()))
 			toolResults++
 		}

@@ -72,6 +72,85 @@ func TestAcceptingInspectedResultPreservesPause(t *testing.T) {
 	assert.Equal(t, activityTestOutputJSON, *reused.Activity.OutputJSON)
 }
 
+func TestAcceptRefusalNamesTheMissingField(t *testing.T) {
+	t.Parallel()
+	fixture := newExecutionFixture(t)
+	claim := beginActivityForTest(t, fixture, uuid.New(), models.ActivityKindTool)
+	require.NoError(t, fixture.store.InterruptExecutionActivity(t.Context(),
+		fixture.sessionID, claim.Lease))
+
+	testCases := []struct {
+		name    string
+		output  string
+		context string
+		names   string
+	}{
+		{
+			name:    "no output",
+			context: activityTestContextJSON,
+			names:   "output",
+		},
+		{
+			name:    "output not an object",
+			output:  `[]`,
+			context: activityTestContextJSON,
+			names:   "output",
+		},
+		{
+			name:   "no context",
+			output: activityTestOutputJSON,
+			names:  "context",
+		},
+		{
+			name:    "context not an object",
+			output:  activityTestOutputJSON,
+			context: `"x"`,
+			names:   "context",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			input := ResolveActivityInput{
+				Attempt: claim.Lease.Attempt, Resolution: ActivityResolutionAccept,
+				Evidence: activityTestEvidence,
+			}
+			if tc.output != "" {
+				input.Output = json.RawMessage(tc.output)
+			}
+
+			if tc.context != "" {
+				input.Context = json.RawMessage(tc.context)
+			}
+
+			_, err := fixture.store.ResolveExecutionActivity(t.Context(),
+				fixture.sessionID, claim.Activity.ID, input)
+			require.ErrorIs(t, err, commerr.ErrValidationFailed)
+			assert.Contains(t, err.Error(), "accept needs "+tc.names)
+		})
+	}
+}
+
+func TestAcceptTakesAnEmptyContext(t *testing.T) {
+	t.Parallel()
+	fixture := newExecutionFixture(t)
+	claim := beginActivityForTest(t, fixture, uuid.New(), models.ActivityKindTool)
+	require.NoError(t, fixture.store.InterruptExecutionActivity(t.Context(),
+		fixture.sessionID, claim.Lease))
+
+	accepted, err := fixture.store.ResolveExecutionActivity(t.Context(),
+		fixture.sessionID, claim.Activity.ID, ResolveActivityInput{
+			Attempt: claim.Lease.Attempt, Resolution: ActivityResolutionAccept,
+			Evidence: activityTestEvidence,
+			Output:   json.RawMessage(activityTestOutputJSON),
+			Context:  json.RawMessage(`{}`),
+		})
+	require.NoError(t, err)
+	assert.Equal(t, models.ActivityStateCompleted, accepted.State)
+}
+
 func TestResolutionRequiresEvidence(t *testing.T) {
 	t.Parallel()
 	fixture := newExecutionFixture(t)

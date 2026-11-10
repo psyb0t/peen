@@ -2,13 +2,19 @@ package agent
 
 import (
 	"context"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/elelem/elelemtest"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/events"
+	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/hooks"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -244,4 +250,163 @@ func TestIdleWakeRecheckLeavesTheSessionQueuedOverTheWakeRateLimit(t *testing.T)
 	)
 	require.NoError(t, err)
 	assert.Len(t, page.Items, 1, "the rate-limited notice stays queued")
+}
+
+// nonIdleNotifierStore is a store that does not satisfy
+// session.IdleNotifier, like the protocol store a worker uses. Its
+// SetIdleCallback takes a different parameter, which hides the promoted
+// method from the interface assertion.
+type nonIdleNotifierStore struct {
+	*session.Store
+}
+
+func (nonIdleNotifierStore) SetIdleCallback(struct{}) {}
+
+type blockingTurnDriver struct {
+	*elelemtest.ScriptedDriver
+	started chan struct{}
+	once    sync.Once
+}
+
+func (d *blockingTurnDriver) Stream(
+	ctx context.Context,
+	_ elelem.DriverRequest,
+	_ func(elelem.Delta) error,
+) (elelem.Usage, error) {
+	d.once.Do(func() { close(d.started) })
+	<-ctx.Done()
+
+	return elelem.Usage{}, ctxerrors.Wrap(ctx.Err(), "hold the turn open")
+}
+
+func newWorkerStoreFixture(
+	t *testing.T,
+	driver elelem.Driver,
+) runtimeFixture {
+	t.Helper()
+
+	fixture := newNativeRunnerFixtureWithOptions(t, driver,
+		func(options *RuntimeOptions) {
+			store, ok := options.Store.(*session.Store)
+			require.True(t, ok)
+			options.Store = nonIdleNotifierStore{Store: store}
+		})
+	writeWakeHandler(t, fixture.configDirectory, wakeTestHandlerDocument)
+
+	return fixture
+}
+
+// A worker's store has no idle callback, so the re-check the controller's
+// store drives has to come from the workflow handoff that follows the root's
+// terminal state. A notice a turnStop hook publishes degrades to queued
+// because the turn is still active, and must start one wake turn once a
+// completed turn is retired.
+func TestIdleWakeRecheckFollowsWorkflowRootFinish(t *testing.T) {
+	fixture := newWorkerStoreFixture(t, elelemtest.NewScriptedDriver(
+		elelemtest.Text("terminal answer"),
+	))
+
+	var (
+		calls     atomic.Int64
+		eventType atomic.Value
+	)
+
+	fixture.runtime.SetWakeRunner(func(
+		_ context.Context,
+		_ uuid.UUID,
+		request MessageRequest,
+	) error {
+		eventType.Store(request.Origin.EventType)
+		calls.Add(1)
+
+		return nil
+	})
+
+	var publishErr atomic.Value
+
+	fixture.runtime.hookCallback = func(
+		ctx context.Context,
+		input hooks.Invocation,
+	) (hooks.Outcome, error) {
+		if input.Event != harness.HookEventTurnStop {
+			return hooks.Outcome{}, nil
+		}
+
+		_, err := fixture.runtime.PublishEvent(ctx,
+			wakeTestNotice(input.SessionID))
+		if err != nil {
+			publishErr.Store(err)
+		}
+
+		return hooks.Outcome{}, nil
+	}
+
+	_, err := fixture.runtime.Run(t.Context(), TurnRequest{
+		Message: "finish native work",
+	})
+	require.NoError(t, err)
+	assert.Nil(t, publishErr.Load())
+
+	require.Eventually(t, func() bool {
+		return calls.Load() == 1
+	}, wakeTestTimeout, wakeTestPoll,
+		"the workflow handoff started one wake turn for the hook's event")
+	assert.Equal(t, wakeTestHandlerType, eventType.Load())
+}
+
+// Stop cancels the turn, so the handoff must leave the notice a cancelled
+// turn never saw queued instead of waking the session again.
+func TestIdleWakeRecheckSkipsCancelledWorkflowRootFinish(t *testing.T) {
+	driver := &blockingTurnDriver{
+		ScriptedDriver: elelemtest.NewScriptedDriver(),
+		started:        make(chan struct{}),
+	}
+	fixture := newWorkerStoreFixture(t, driver)
+
+	var calls atomic.Int64
+
+	fixture.runtime.SetWakeRunner(func(
+		context.Context, uuid.UUID, MessageRequest,
+	) error {
+		calls.Add(1)
+
+		return nil
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	finished := runHandoffTurnAsync(ctx, fixture.runtime, "work until stopped")
+
+	select {
+	case <-driver.started:
+	case <-time.After(wakeTestTimeout):
+		t.Fatal("the turn never reached the model")
+	}
+
+	sessionID := fixture.runtime.sessionID
+	_, err := fixture.runtime.PublishEvent(t.Context(),
+		wakeTestNotice(sessionID))
+	require.NoError(t, err)
+	cancel()
+
+	select {
+	case <-finished:
+	case <-time.After(wakeTestTimeout):
+		t.Fatal("the cancelled turn never returned")
+	}
+
+	assert.Never(t, func() bool {
+		return calls.Load() > 0
+	}, idleWakeSettleWindow, wakeTestPoll,
+		"a cancelled turn must not be followed by a wake turn")
+
+	page, err := fixture.store.ListSessionNotices(
+		t.Context(),
+		sessionID,
+		session.ListSessionNoticesOptions{State: models.NoticeStatePending},
+	)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.Equal(t, wakeTestHandlerType, page.Items[0].Type)
 }

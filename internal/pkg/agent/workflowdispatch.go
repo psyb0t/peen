@@ -231,7 +231,8 @@ func (d *workflowDispatch) afterFinish(
 
 	if callbacks == &d.rootOptions {
 		if runner := d.runtime.nativeWorkflowRunner(); runner != nil {
-			return runner.nudgeAdmittedExecutions(ctx)
+			return runner.handoffAdmittedExecutions(ctx,
+				finishedRootTurnState(result.Finish))
 		}
 	}
 
@@ -240,4 +241,14 @@ func (d *workflowDispatch) afterFinish(
 	}
 
 	return d.notifyChildReport(ctx, input.Execution)
+}
+
+func finishedRootTurnState(
+	finish session.FinishExecutionInput,
+) models.TurnState {
+	if finish.Turn == nil {
+		return ""
+	}
+
+	return finish.Turn.State
 }

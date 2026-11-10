@@ -1,0 +1,14 @@
+{
+  "steps": [
+    {
+      "op": "send",
+      "label": "stamp",
+      "message": "Use the `stamper` agent to create `/app/stamp.txt` for the name `alpha`."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 10,
+      "timeoutSeconds": 900
+    }
+  ]
+}

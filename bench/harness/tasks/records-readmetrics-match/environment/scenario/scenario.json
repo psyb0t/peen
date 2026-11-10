@@ -1,0 +1,26 @@
+{
+  "steps": [
+    {
+      "op": "send",
+      "label": "work",
+      "message": "Read each of the three files in `/app/data` with readFile and write a copy of each with the same name to `/app/copy` with writeFile."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 3
+    },
+    {
+      "op": "sleep",
+      "seconds": 12
+    },
+    {
+      "op": "send",
+      "label": "metrics",
+      "message": "Call readMetrics with the tools summary. Write one line `readFile=<count>` and one line `writeFile=<count>` to `/app/metrics.txt`, with the counts it reports for those two tools."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 5
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "steps": [
+    {
+      "op": "send",
+      "label": "part1",
+      "message": "Use the readFile tool to read all of `/app/data/part1.txt`, then write its last line to `/app/out/1.txt`."
+    },
+    {
+      "op": "send",
+      "label": "part2",
+      "message": "Use the readFile tool to read all of `/app/data/part2.txt`, then write its last line to `/app/out/2.txt`."
+    },
+    {
+      "op": "send",
+      "label": "part3",
+      "message": "Use the readFile tool to read all of `/app/data/part3.txt`, then write its last line to `/app/out/3.txt`."
+    },
+    {
+      "op": "send",
+      "label": "part4",
+      "message": "Use the readFile tool to read all of `/app/data/part4.txt`, then write its last line to `/app/out/4.txt`."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 5
+    }
+  ]
+}

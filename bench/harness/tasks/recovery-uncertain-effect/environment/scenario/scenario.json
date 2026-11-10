@@ -1,0 +1,30 @@
+{
+  "steps": [
+    {
+      "op": "send",
+      "label": "work",
+      "message": "Run this exact command once with the `runCommand` tool: `sleep 12; echo entry-1 >> /app/ledger.txt`. Then tell me when the ledger is updated. The line `entry-1` must be in `/app/ledger.txt` exactly once.",
+      "kill": {
+        "target": "worker",
+        "afterToolUses": 1,
+        "onTool": "runCommand",
+        "delayMilliseconds": 3000
+      }
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 5,
+      "timeoutSeconds": 300
+    },
+    {
+      "op": "send",
+      "label": "continue",
+      "message": "Peen crashed while you were working. Continue that task."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 10,
+      "timeoutSeconds": 900
+    }
+  ]
+}

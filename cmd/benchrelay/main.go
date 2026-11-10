@@ -1,31 +1,41 @@
-// Command benchrelay forwards loopback TCP model traffic inside a networkless
+// Command benchrelay forwards loopback HTTP model traffic inside a networkless
 // benchmark task container to the provider proxy's Unix socket.
 //
 // The benchmark adapter copies it into each task container next to the Peen
 // binary. Peen calls the model at the loopback address, and the relay passes
-// the bytes to the socket named by BENCH_SOCKET, which the host proxy serves.
-// See docs/benchmarks.md.
+// each request to the socket named by BENCH_SOCKET, which the host proxy
+// serves. When BENCH_TRIAL is set, every request carries it in the
+// X-Bench-Trial header, so the proxy can tell trials apart and apply the
+// trial's fault schedule. See docs/benchmarks.md.
 package main
 
 import (
 	"context"
-	"io"
 	"net"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
-	"sync"
+	"time"
 
 	"github.com/psyb0t/ctxscope"
 )
 
 const (
-	listenAddress  = "127.0.0.1:8765"
-	socketEnvName  = "BENCH_SOCKET"
-	networkTCP     = "tcp"
-	networkUnix    = "unix"
-	exitCodeFailed = 1
-	copyDirections = 2
-	sideClient     = "client"
-	sideUpstream   = "upstream"
+	listenAddress     = "127.0.0.1:8765"
+	socketEnvName     = "BENCH_SOCKET"
+	trialEnvName      = "BENCH_TRIAL"
+	trialHeader       = "X-Bench-Trial"
+	networkTCP        = "tcp"
+	networkUnix       = "unix"
+	upstreamScheme    = "http"
+	upstreamHost      = "provider"
+	exitCodeFailed    = 1
+	readHeaderTimeout = 30 * time.Second
+
+	// flushImmediately makes the reverse proxy flush every write, so a
+	// streamed model reply reaches Peen chunk by chunk.
+	flushImmediately = -1
 )
 
 func main() {
@@ -38,6 +48,8 @@ func main() {
 		os.Exit(exitCodeFailed)
 	}
 
+	trial := os.Getenv(trialEnvName)
+
 	listener, err := (&net.ListenConfig{}).Listen(ctx, networkTCP,
 		listenAddress)
 	if err != nil {
@@ -49,78 +61,44 @@ func main() {
 		"relay ready",
 		"listen_address", listenAddress,
 		"socket_path", socketPath,
+		"trial", trial,
 	)
 
-	for {
-		client, err := listener.Accept()
-		if err != nil {
-			logger.Warn("relay accept failed", "err", err)
+	server := &http.Server{
+		Handler:           newRelay(socketPath, trial),
+		ReadHeaderTimeout: readHeaderTimeout,
+	}
 
-			continue
-		}
-
-		go forward(ctx, client, socketPath)
+	if err := server.Serve(listener); err != nil {
+		logger.Error("relay serve failed", "err", err)
+		os.Exit(exitCodeFailed)
 	}
 }
 
-func forward(ctx context.Context, client net.Conn, socketPath string) {
-	logger := ctxscope.GetLogger(ctx)
+// newRelay builds the reverse proxy that sends every request to the Unix
+// socket and stamps the trial header when one is configured.
+func newRelay(socketPath, trial string) *httputil.ReverseProxy {
+	target := &url.URL{Scheme: upstreamScheme, Host: upstreamHost}
+	dialer := &net.Dialer{}
 
-	defer closeConn(ctx, client, sideClient)
+	return &httputil.ReverseProxy{
+		Rewrite: func(request *httputil.ProxyRequest) {
+			request.SetURL(target)
+			request.Out.Host = upstreamHost
 
-	upstream, err := (&net.Dialer{}).DialContext(ctx, networkUnix, socketPath)
-	if err != nil {
-		logger.Error("relay upstream dial failed", "err", err)
-
-		return
-	}
-	defer closeConn(ctx, upstream, sideUpstream)
-
-	var wg sync.WaitGroup
-
-	wg.Add(copyDirections)
-
-	go func() {
-		defer wg.Done()
-
-		copyAndCloseWrite(ctx, upstream, client, sideUpstream)
-	}()
-
-	go func() {
-		defer wg.Done()
-
-		copyAndCloseWrite(ctx, client, upstream, sideClient)
-	}()
-
-	wg.Wait()
-}
-
-// copyAndCloseWrite copies until source ends, then half-closes destination so
-// the other side sees the end of the stream while its reply still flows.
-func copyAndCloseWrite(
-	ctx context.Context,
-	destination, source net.Conn,
-	side string,
-) {
-	logger := ctxscope.GetLogger(ctx)
-
-	if _, err := io.Copy(destination, source); err != nil {
-		logger.Debug("relay copy ended", "side", side, "err", err)
-	}
-
-	closer, ok := destination.(interface{ CloseWrite() error })
-	if !ok {
-		return
-	}
-
-	if err := closer.CloseWrite(); err != nil {
-		logger.Debug("relay close write failed", "side", side, "err", err)
-	}
-}
-
-func closeConn(ctx context.Context, conn net.Conn, side string) {
-	if err := conn.Close(); err != nil {
-		ctxscope.GetLogger(ctx).Debug("relay close failed", "side", side,
-			"err", err)
+			if trial != "" {
+				request.Out.Header.Set(trialHeader, trial)
+			}
+		},
+		Transport: &http.Transport{
+			DialContext: func(
+				ctx context.Context,
+				_, _ string,
+			) (net.Conn, error) {
+				return dialer.DialContext(ctx, networkUnix, socketPath)
+			},
+			DisableCompression: true,
+		},
+		FlushInterval: flushImmediately,
 	}
 }

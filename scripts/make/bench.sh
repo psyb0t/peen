@@ -8,11 +8,17 @@
 #
 #   image       build the Harbor driver image from bench/
 #   lock        compile bench/requirements.in into the hashed requirements.txt
-#   build       build static peen and relay binaries from this checkout
+#   build       build static peen, relay and scenario driver binaries from
+#               this checkout, or from BENCH_REF into its own directory
 #   datasets    download Aider Polyglot and the pinned LHTB tasks
 #   proxy       start the provider proxy, which alone reads the key from .env
 #   proxy-stop  stop the provider proxy this script started
-#   run SUITE   write a job for SUITE (aider, lhtb, eval, or evolve) and run it with Harbor
+#   run SUITE   write a job for SUITE (aider, lhtb, eval, evolve, or harness),
+#               run it with Harbor, then audit every harness trial
+#   audit JOB   audit a finished harness job's trials again
+#   report JOB  write a finished harness job's report
+#   compare A B compare two finished harness jobs task by task
+#   selftest    run the harness audit library's own tests
 
 set -euo pipefail
 
@@ -39,6 +45,10 @@ readonly NAME_PATTERN='^[A-Za-z0-9._-]+$'
 readonly TASKS_PATTERN='^[A-Za-z0-9._ -]*$'
 readonly MODEL_PATTERN='^[A-Za-z0-9./_-]*$'
 readonly NUMBER_PATTERN='^[0-9]*$'
+readonly REF_PATTERN='^[A-Za-z0-9._/-]*$'
+readonly TIER_PATTERN='^(smoke|full|chaos)?$'
+readonly HEAD_BUILD="head"
+readonly SUITE_HARNESS="harness"
 
 log() {
 	local level="$1"
@@ -71,10 +81,22 @@ local_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 repo_root="${BENCH_REPO_ROOT:-${local_root}}"
 source_dir="${repo_root}/bench"
 state_dir="${repo_root}/.testing/bench"
-bin_dir="${state_dir}/bin"
 local_state_dir="${local_root}/.testing/bench"
-local_bin_dir="${local_state_dir}/bin"
 local_provider_socket="${local_state_dir}/provider/${PROVIDER_SOCKET_NAME}"
+
+# build_name turns a Git ref into a directory name. The binaries of each ref
+# live in their own directory under bin/, so two harness builds can be
+# compared without rebuilding between jobs.
+build_name() {
+	local ref="$1"
+
+	if [[ -z "${ref}" ]]; then
+		printf '%s' "${HEAD_BUILD}"
+		return
+	fi
+
+	printf '%s' "${ref//\//_}"
+}
 
 require_pattern() {
 	local name="$1"
@@ -133,9 +155,33 @@ lock_requirements() {
 }
 
 build_binaries() {
+	local ref="${BENCH_REF:-}"
+	local name
 	local version
+	local build_root="${repo_root}"
+	local local_build_root
 
-	version="$(git -C "${local_root}" describe --tags --always --dirty)"
+	require_pattern BENCH_REF "${ref}" "${REF_PATTERN}"
+	name="$(build_name "${ref}")"
+	local bin_dir="${state_dir}/bin/${name}"
+	local local_bin_dir="${local_state_dir}/bin/${name}"
+
+	if [[ -n "${ref}" ]]; then
+		# Peen at ref is built from an exported tree, so the checkout's
+		# working state never leaks into it. The relay and the driver come
+		# from this checkout, because an older ref may predate them.
+		version="$(git -C "${local_root}" describe --tags --always "${ref}")"
+		build_root="${state_dir}/src/${name}"
+		local_build_root="${local_state_dir}/src/${name}"
+		if [[ ! -d "${local_build_root}" ]]; then
+			mkdir -p "${local_build_root}"
+			git -C "${local_root}" archive --format=tar "${ref}" |
+				tar -x -C "${local_build_root}"
+		fi
+	else
+		version="$(git -C "${local_root}" describe --tags --always --dirty)"
+	fi
+
 	mkdir -p "${local_bin_dir}"
 	make -C "${local_root}" dev-image CURDIR="${repo_root}"
 	docker run --rm \
@@ -146,18 +192,21 @@ build_binaries() {
 		-e CGO_ENABLED=0 \
 		-e BUILD_VERSION="${version}" \
 		-e BIN_DIR="${bin_dir}" \
+		-e BUILD_ROOT="${build_root}" \
 		-v "${repo_root}:${repo_root}" \
 		-w "${repo_root}" \
 		"${DEV_IMAGE}" \
 		sh -ceu '
-			go build -trimpath \
+			(cd "${BUILD_ROOT}" && go build -trimpath \
 				-ldflags "-s -w -X main.buildVersion=${BUILD_VERSION}" \
-				-o "${BIN_DIR}/peen" ./cmd
+				-o "${BIN_DIR}/peen" ./cmd)
 			go build -trimpath -ldflags "-s -w" \
 				-o "${BIN_DIR}/relay" ./cmd/benchrelay
+			go build -trimpath -ldflags "-s -w" \
+				-o "${BIN_DIR}/driver" ./cmd/benchdriver
 		'
 	printf '%s\n' "${version}" >"${local_bin_dir}/peen.version"
-	log INFO "built peen ${version} and relay into ${bin_dir}"
+	log INFO "built peen ${version}, relay and driver into ${bin_dir}"
 }
 
 download_datasets() {
@@ -248,6 +297,8 @@ stop_proxy() {
 
 	docker stop "${PROXY_CONTAINER}" >/dev/null
 	docker rm "${PROXY_CONTAINER}" >/dev/null
+	# The proxy leaves its socket behind, and start_proxy refuses a leftover.
+	rm -f "${local_provider_socket}"
 	log INFO "stopped ${PROXY_CONTAINER}"
 }
 
@@ -257,6 +308,8 @@ run_suite() {
 	local job="${BENCH_JOB:-${suite}-${agent}-$(date -u '+%Y%m%d-%H%M%S')}"
 	local config
 	local socket_group
+	local harness_ref="${BENCH_HARNESS_REF:-}"
+	local build
 
 	require_pattern BENCH_JOB "${job}" "${NAME_PATTERN}"
 	require_pattern BENCH_AGENT "${agent}" "${NAME_PATTERN}"
@@ -265,7 +318,14 @@ run_suite() {
 	require_pattern BENCH_COMPACTION_MODEL "${BENCH_COMPACTION_MODEL:-}" "${MODEL_PATTERN}"
 	require_pattern BENCH_CONTEXT_TOKENS "${BENCH_CONTEXT_TOKENS:-}" "${NUMBER_PATTERN}"
 	require_pattern BENCH_CONCURRENCY "${BENCH_CONCURRENCY:-}" "${NUMBER_PATTERN}"
+	require_pattern BENCH_ATTEMPTS "${BENCH_ATTEMPTS:-}" "${NUMBER_PATTERN}"
+	require_pattern BENCH_TIER "${BENCH_TIER:-}" "${TIER_PATTERN}"
+	require_pattern BENCH_HARNESS_REF "${harness_ref}" "${REF_PATTERN}"
 	require_image
+
+	build="$(build_name "${harness_ref}")"
+	local bin_dir="${state_dir}/bin/${build}"
+	local local_bin_dir="${local_state_dir}/bin/${build}"
 
 	if [[ "${agent}" == "${AGENT_PEEN}" ]]; then
 		if [[ ! -x "${local_bin_dir}/peen" || ! -x "${local_bin_dir}/relay" ]]; then
@@ -289,18 +349,58 @@ run_suite() {
 		-e BENCH_CONTEXT_TOKENS \
 		-e BENCH_COMPACTION_MODEL \
 		-e BENCH_CONCURRENCY \
+		-e BENCH_ATTEMPTS \
+		-e BENCH_TIER \
+		-e BENCH_PEEN_SETTINGS \
 		"${DRIVER_IMAGE}" python "${source_dir}/job.py")"
 
 	socket_group="$(stat -c '%g' "${DOCKER_SOCKET}")"
-	log INFO "running job ${job} from ${config}"
+	log INFO "running job ${job} from ${config} with build ${build}"
 	driver \
 		--name "${RUN_CONTAINER_PREFIX}${job}" \
 		--group-add "${socket_group}" \
 		-e PYTHONPATH="${source_dir}" \
 		-e BENCH_BIN_DIR="${bin_dir}" \
+		-e BENCH_STATE_DIR="${state_dir}" \
 		-v "${DOCKER_SOCKET}:${DOCKER_SOCKET}" \
 		"${DRIVER_IMAGE}" harbor run --config "${config}"
 	log INFO "job ${job} finished, trials are under ${state_dir}/jobs/${job}"
+
+	if [[ "${suite}" == "${SUITE_HARNESS}" ]]; then
+		harness_tool audit "${job}"
+		harness_tool report "${job}"
+	fi
+}
+
+# harness_tool runs one of the harness audit commands in the driver image.
+# They read the jobs and the proxy log and write only inside the job.
+harness_tool() {
+	local tool="$1"
+	shift
+	local name
+
+	for name in "$@"; do
+		require_pattern JOB "${name}" "${NAME_PATTERN}"
+	done
+
+	require_image
+	driver "${DRIVER_IMAGE}" \
+		python -I "${source_dir}/harness/${tool}.py" \
+		--state-dir "${state_dir}" "$@"
+}
+
+# run_selftest builds its test databases from Peen's own migrations, mounted
+# read-only, so a schema change that breaks an audit query fails here.
+run_selftest() {
+	local migrations="${repo_root}/internal/pkg/db/migrations/sqlite"
+
+	require_image
+	driver \
+		-v "${migrations}:${migrations}:ro" \
+		-e BENCH_MIGRATIONS_DIR="${migrations}" \
+		-e PYTHONDONTWRITEBYTECODE=1 \
+		"${DRIVER_IMAGE}" \
+		python -m pytest -q -p no:cacheprovider "${source_dir}/harness/tests"
 }
 
 command="${1:-}"
@@ -313,13 +413,28 @@ proxy) start_proxy ;;
 proxy-stop) stop_proxy ;;
 run)
 	case "${2:-}" in
-	aider | lhtb | eval | evolve) run_suite "$2" ;;
+	aider | lhtb | eval | evolve | harness) run_suite "$2" ;;
 	*)
-		log ERROR "run needs a suite: aider, lhtb, eval, or evolve"
+		log ERROR "run needs a suite: aider, lhtb, eval, evolve, or harness"
 		exit 1
 		;;
 	esac
 	;;
+audit | report)
+	if [[ -z "${2:-}" ]]; then
+		log ERROR "${command} needs a job name, set BENCH_JOB"
+		exit 1
+	fi
+	harness_tool "${command}" "$2"
+	;;
+compare)
+	if [[ -z "${2:-}" || -z "${3:-}" ]]; then
+		log ERROR "compare needs two job names, set BENCH_JOB_A and BENCH_JOB_B"
+		exit 1
+	fi
+	harness_tool compare "$2" "$3"
+	;;
+selftest) run_selftest ;;
 *)
 	log ERROR "unknown bench command: ${command}"
 	exit 1

@@ -1,0 +1,9 @@
+{
+  "faults": [
+    {
+      "action": "stall",
+      "seconds": 120,
+      "request": 1
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+Use the `launchAgent` tool to start one child agent. The child must, for each file in `/app/items`, write a file with the same name in `/app/out` that holds the file's word in capital letters, followed by a newline, using the file tools one file at a time. Wait for the child to finish, then tell me it is done.

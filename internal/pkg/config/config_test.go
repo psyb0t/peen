@@ -321,6 +321,94 @@ func TestParseDefaultsWorkingDirectoryToProcessDirectory(t *testing.T) {
 	assert.Equal(t, wantChildAgentDepth, config.MaxChildAgentDepth)
 }
 
+func TestResolveContextBudget(t *testing.T) {
+	t.Parallel()
+
+	const (
+		largeWindow    = 1_000_000
+		largeOutput    = 131_072
+		smallWindow    = 20_480
+		explicitWindow = 65_536
+		explicitOutput = 4_096
+	)
+
+	testCases := []struct {
+		name        string
+		context     int
+		reserve     int
+		window      int
+		maxOutput   int
+		wantContext int
+		wantReserve int
+		wantErr     error
+	}{
+		{
+			name: "0 takes the model's window and output limit", window: largeWindow,
+			maxOutput: largeOutput, wantContext: largeWindow,
+			wantReserve: largeOutput,
+		},
+		{
+			name:   "the output limit stays within a quarter of a small window",
+			window: smallWindow, maxOutput: largeOutput, wantContext: smallWindow,
+			wantReserve: smallWindow / outputReserveContextDivisor,
+		},
+		{
+			name:        "a model that publishes nothing takes the fallbacks",
+			wantContext: FallbackContextTokens,
+			wantReserve: FallbackContextTokens / outputReserveContextDivisor,
+		},
+		{
+			name:   "an unpublished output limit takes the output fallback",
+			window: largeWindow, wantContext: largeWindow,
+			wantReserve: FallbackOutputTokens,
+		},
+		{
+			name: "set values are kept", context: explicitWindow,
+			reserve: explicitOutput, window: largeWindow, maxOutput: largeOutput,
+			wantContext: explicitWindow, wantReserve: explicitOutput,
+		},
+		{
+			name:    "a set context still gets an automatic output limit",
+			context: explicitWindow, window: largeWindow, maxOutput: largeOutput,
+			wantContext: explicitWindow,
+			wantReserve: explicitWindow / outputReserveContextDivisor,
+		},
+		{
+			name: "a reserve that leaves the prompt nothing", context: smallWindow,
+			reserve: smallWindow, wantErr: ErrInvalidConfig,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			config := testConfig(t)
+			config.MaxContextTokens = tc.context
+			config.OutputReserveTokens = tc.reserve
+
+			resolved, err := config.ResolveContextBudget(tc.window, tc.maxOutput)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantContext, resolved.MaxContextTokens)
+			assert.Equal(t, tc.wantReserve, resolved.OutputReserveTokens)
+		})
+	}
+}
+
+func TestValidateAcceptsAnUnresolvedContextBudget(t *testing.T) {
+	t.Parallel()
+	config := testConfig(t)
+	config.MaxContextTokens = 0
+	config.OutputReserveTokens = 0
+
+	require.NoError(t, config.Validate())
+}
+
 func testConfig(t *testing.T) Config {
 	t.Helper()
 

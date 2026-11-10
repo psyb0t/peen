@@ -1,0 +1,1 @@
+`/app/data/big.log` has one line containing `ALERT code=`. Write the code after `code=` to `/app/alert.txt`. The last line of `/app/data/manual.txt` is `END <word>`. Write that word to `/app/end.txt`.

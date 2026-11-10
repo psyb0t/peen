@@ -1,0 +1,12 @@
+version: 1
+postWriteFile:
+  - &license-header
+    name: license-header
+    match:
+      extensions: [".go"]
+    actions:
+      - name: add-header
+        type: command
+        command: /usr/bin/env
+        args: ["python3", "/app/tools/stamp.py"]
+postEditFile: [*license-header]

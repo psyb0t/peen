@@ -170,7 +170,7 @@ func (s *Store) insertChildInboxMessage(
 	}
 
 	if used > int64(input.Capacity)-1-int64(len(input.Parts)) {
-		return nil, ctxerrors.Wrap(commerr.ErrConflict,
+		return nil, ctxerrors.Wrap(errQueueFull,
 			"child inbox capacity is exhausted")
 	}
 

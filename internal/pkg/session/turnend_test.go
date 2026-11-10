@@ -480,3 +480,158 @@ func TestTurnEndNoticeBoundsTheMessagesItCarries(t *testing.T) {
 		assert.Len(t, message, turnEndMessageBytes)
 	}
 }
+
+// endTurnForKeptWorkTest ends the running turn the way a Stop or a crash does.
+func endTurnForKeptWorkTest(
+	ctx context.Context,
+	t *testing.T,
+	store *Store,
+	lease Lease,
+	crash bool,
+) {
+	t.Helper()
+
+	if !crash {
+		ended, err := store.EndRunningTurn(ctx, lease.SessionID,
+			lease.TurnID, CancelledTurnEnd())
+		require.NoError(t, err)
+		require.True(t, ended)
+
+		return
+	}
+
+	generationID := uuid.New()
+	require.NoError(t, store.RecordTurnWorkerGeneration(ctx, lease,
+		generationID))
+
+	recovered, err := store.RecoverWorkerTurns(ctx, lease.SessionID,
+		generationID)
+	require.NoError(t, err)
+	require.Equal(t, 1, recovered)
+}
+
+// The next turn learns that Peen kept the ended turn's work, and which
+// execution holds it, so it continues that work instead of redoing it.
+func TestTurnEndMessageNamesTheKeptExecution(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name  string
+		crash bool
+	}{
+		{name: "stopped"},
+		{name: "crashed", crash: true},
+	}
+
+	for _, tc := range testCases {
+		for _, retained := range []bool{true, false} {
+			name := tc.name + " without an execution"
+			if retained {
+				name = tc.name + " with an execution"
+			}
+
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+
+				ctx := t.Context()
+				store, _ := openTestStore(t)
+				session, lease := startRunningTurn(ctx, t, store)
+
+				var executionID uuid.UUID
+
+				if retained {
+					execution, err := store.CreateExecution(ctx, session.ID,
+						executionTestInput(lease.TurnID))
+					require.NoError(t, err)
+
+					executionID = execution.ID
+
+					toolCall := activityTestInput(models.ActivityKindTool)
+					toolCall.Name = ExecutionToolPhaseActivityName
+
+					_, err = store.BeginExecutionActivity(ctx, session.ID,
+						executionID, uuid.New(), toolCall)
+					require.NoError(t, err)
+				}
+
+				endTurnForKeptWorkTest(ctx, t, store, lease, tc.crash)
+
+				messages, err := store.ListMessages(ctx, session.ID,
+					ListMessagesOptions{Limit: 10, Order: PageOrderAscending})
+				require.NoError(t, err)
+				require.Len(t, messages.Items, 2)
+
+				content := messages.Items[1].Content
+				assert.Equal(t, models.MessageRoleSystem,
+					messages.Items[1].Role)
+
+				if !retained {
+					assert.NotContains(t, content, "resumeExecution")
+					assert.NotContains(t, content, "readExecution")
+
+					return
+				}
+
+				assert.Contains(t, content, executionID.String())
+				assert.Contains(t, content, "readExecution")
+				assert.Contains(t, content, "resumeExecution")
+				assert.NotContains(t, content, "resolveExecutionActivity")
+				assert.NotContains(t, content, "Check the workspace")
+				assert.NotContains(t, content, turnEndRanNoToolText)
+			})
+		}
+	}
+}
+
+const turnEndRanNoToolText = "stopped before it ran any tool"
+
+// A turn that crashed during its first model call or a compaction started no
+// tool, so the next turn is told there is nothing in its execution to inspect
+// instead of being sent to read it. Hook steps run as tool activities before
+// a compaction, and they do not count as the model's tool calls.
+func TestTurnEndMessageSaysAKeptExecutionRanNoTool(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+		kind models.ActivityKind
+	}{
+		{name: "no activity at all"},
+		{name: "only a model call", kind: models.ActivityKindModel},
+		{name: "only a compaction", kind: models.ActivityKindCompaction},
+		{name: "only a hook step", kind: models.ActivityKindTool},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			store, _ := openTestStore(t)
+			session, lease := startRunningTurn(ctx, t, store)
+
+			execution, err := store.CreateExecution(ctx, session.ID,
+				executionTestInput(lease.TurnID))
+			require.NoError(t, err)
+
+			if tc.kind != "" {
+				_, err = store.BeginExecutionActivity(ctx, session.ID,
+					execution.ID, uuid.New(), activityTestInput(tc.kind))
+				require.NoError(t, err)
+			}
+
+			endTurnForKeptWorkTest(ctx, t, store, lease, true)
+
+			messages, err := store.ListMessages(ctx, session.ID,
+				ListMessagesOptions{Limit: 10, Order: PageOrderAscending})
+			require.NoError(t, err)
+			require.Len(t, messages.Items, 2)
+
+			content := messages.Items[1].Content
+			assert.Contains(t, content, execution.ID.String())
+			assert.Contains(t, content, turnEndRanNoToolText)
+			assert.Contains(t, content, "resumeExecution")
+			assert.NotContains(t, content, "readExecution")
+		})
+	}
+}

@@ -39,16 +39,8 @@ const (
 	// events, matching tools.jobEventSource for job.* events.
 	agentEventSource = events.AgentSource
 
-	// agentResultTruncatedNote ends a final answer cut to fit the event data
-	// bound. The run record keeps the whole text.
-	//nolint:lll // One message string.
-	agentResultTruncatedNote = "\n\n[cut to fit the event, the whole answer is in the agent run record]"
-	// agentFailureDetailBytes bounds the failure text an agent.failed event
-	// carries.
-	agentFailureDetailBytes = 1024
-	// agentResultCutAttempts bounds how often a final answer is shortened
-	// when JSON escaping keeps it over the event data bound.
-	agentResultCutAttempts = 8
+	agentResultTruncatedNote = events.AgentResultTruncatedNote
+	agentFailureDetailBytes  = events.AgentFailureDetailBytes
 )
 
 // AgentRunDefinition names whether a run's child came from a stored agent
@@ -885,52 +877,15 @@ func (r *AgentRunRegistry) eventDataLimit() int {
 }
 
 // agentEventData is the structured payload carried by every agent.* notice.
-// Duration is DurationMs rendered as a Go duration string. Response is the
-// child's final answer and ResponseTruncated says it was cut to fit.
-type agentEventData struct {
-	RunID             uuid.UUID     `json:"runId"`
-	AgentName         string        `json:"agentName"`
-	State             AgentRunState `json:"state"`
-	DurationMs        int64         `json:"durationMs"`
-	Duration          string        `json:"duration"`
-	Response          string        `json:"response,omitempty"`
-	ResponseTruncated bool          `json:"responseTruncated,omitempty"`
-	FailureDetail     string        `json:"failureDetail,omitempty"`
-}
+type agentEventData = events.AgentResultData
 
-// encodeAgentEventData fits data into maxBytes by cutting the final answer
-// and marking it cut. JSON escaping can make the cut text larger than its
-// byte count, so the cut repeats a bounded number of times before the answer
-// is left out altogether.
+// encodeAgentEventData fits data into maxBytes. See
+// events.EncodeAgentResultData.
 func encodeAgentEventData(
 	data agentEventData,
 	maxBytes int,
 ) (json.RawMessage, error) {
-	whole := data.Response
-	kept := len(whole)
-
-	for range agentResultCutAttempts {
-		encoded, err := json.Marshal(data)
-		if err != nil {
-			return nil, ctxerrors.Wrap(err, "encode agent event data")
-		}
-
-		if len(encoded) <= maxBytes {
-			return encoded, nil
-		}
-
-		// Shrink in proportion to the overshoot, so heavily escaped text
-		// keeps a useful part instead of dropping to nothing.
-		kept = max(kept*maxBytes/len(encoded)-len(agentResultTruncatedNote), 0)
-		data.Response = events.TruncateToRuneBoundary(whole, kept) +
-			agentResultTruncatedNote
-		data.ResponseTruncated = true
-	}
-
-	data.Response = ""
-	data.ResponseTruncated = whole != ""
-
-	encoded, err := json.Marshal(data)
+	encoded, err := events.EncodeAgentResultData(data, maxBytes)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "encode agent event data")
 	}
@@ -949,13 +904,13 @@ func agentCompletionEvent(
 ) (events.Type, string) {
 	if state == AgentRunStateCompleted {
 		return events.TypeAgentFinished, fmt.Sprintf(
-			"agent %q run %s finished",
+			events.AgentFinishedSummaryFormat,
 			run.Name, run.ID,
 		)
 	}
 
 	return events.TypeAgentFailed, fmt.Sprintf(
-		"agent %q run %s did not finish (%s)",
+		events.AgentFailedSummaryFormat,
 		run.Name, run.ID, state,
 	)
 }

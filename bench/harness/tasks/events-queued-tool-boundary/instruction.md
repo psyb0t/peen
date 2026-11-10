@@ -1,0 +1,1 @@
+Run the command `sleep 8` six times, one command per call and one after another. Partway through, a session event will report a file name. Create that file in `/app/out`, containing the word `seen` and a newline, before you finish. When all of that is done, write `done` and a newline to `/app/out/done.txt`.

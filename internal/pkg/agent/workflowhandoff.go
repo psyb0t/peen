@@ -24,9 +24,57 @@ func (n *nativeWorkflowRunner) restoreWorkflowControls(
 func (n *nativeWorkflowRunner) nudgeAdmittedExecutions(
 	ctx context.Context,
 ) error {
+	return n.handoffAdmittedExecutions(ctx, "")
+}
+
+// handoffAdmittedExecutions signals every admitted execution and, when none
+// is a root, hands the idle session to deferred input and retained notices.
+// finishedTurn is the state of the root turn that just ended, or empty when
+// the caller is not a root finishing.
+func (n *nativeWorkflowRunner) handoffAdmittedExecutions(
+	ctx context.Context,
+	finishedTurn models.TurnState,
+) error {
+	hasAdmittedRoot, err := n.nudgeUnpausedExecutions(ctx)
+	if err != nil {
+		return err
+	}
+
+	if hasAdmittedRoot {
+		return nil
+	}
+
+	submitted, err := n.scheduleDeferredRoot(ctx)
+	if err != nil {
+		return ctxerrors.Wrap(err, "handoff retained deferred input")
+	}
+
+	runtime := n.dispatch.runtime
+
+	if err := runtime.wakeRetainedQuestions(ctx); err != nil {
+		return ctxerrors.Wrap(err, "handoff retained agent notices")
+	}
+
+	// A notice published while the turn was ending degraded to queued, and
+	// this worker's store never reports the turn as idle, so the re-check the
+	// controller's store drives has no counterpart here. A cancelled or paused
+	// turn is not re-checked, so stopping a session does not wake it again.
+	if !submitted && isRecheckedTurnState(finishedTurn) &&
+		!runtime.store.IsActive(runtime.sessionID) {
+		runtime.recheckIdleWake(ctx, runtime.sessionID)
+	}
+
+	return nil
+}
+
+// nudgeUnpausedExecutions signals every execution that is not paused and
+// reports whether one of them is a root.
+func (n *nativeWorkflowRunner) nudgeUnpausedExecutions(
+	ctx context.Context,
+) (bool, error) {
 	items, err := n.sessionExecutions(ctx, n.dispatch.runtime.sessionID)
 	if err != nil {
-		return ctxerrors.Wrap(err, "read admitted workflow handoff")
+		return false, ctxerrors.Wrap(err, "read admitted workflow handoff")
 	}
 
 	hasAdmittedRoot := false
@@ -41,19 +89,17 @@ func (n *nativeWorkflowRunner) nudgeAdmittedExecutions(
 		}
 
 		if err := n.nudgeExecution(ctx, execution); err != nil {
-			return ctxerrors.Wrap(err, "signal admitted workflow handoff")
+			return false, ctxerrors.Wrap(err,
+				"signal admitted workflow handoff")
 		}
 	}
 
-	if hasAdmittedRoot {
-		return nil
-	}
+	return hasAdmittedRoot, nil
+}
 
-	if err := n.scheduleDeferredRoot(ctx); err != nil {
-		return ctxerrors.Wrap(err, "handoff retained deferred input")
-	}
-
-	return n.dispatch.runtime.wakeRetainedQuestions(ctx)
+func isRecheckedTurnState(state models.TurnState) bool {
+	return state == models.TurnStateCompleted ||
+		state == models.TurnStateFailed
 }
 
 func (n *nativeWorkflowRunner) nudgeExecution(

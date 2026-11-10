@@ -1,0 +1,30 @@
+{
+  "sampleMemorySeconds": 10,
+  "steps": [
+    {
+      "op": "send",
+      "label": "vault",
+      "message": "The vault word is `marble-482`. Remember it for later. Reply with only `ok`."
+    },
+    {
+      "op": "repeat",
+      "count": 50,
+      "steps": [
+        {
+          "op": "send",
+          "label": "note{i}",
+          "message": "Read `/app/notes/note{i}.txt` and reply with only its first word."
+        }
+      ]
+    },
+    {
+      "op": "send",
+      "label": "recall",
+      "message": "What was the vault word I gave you at the start? Write it to `/app/vault.txt`."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 5
+    }
+  ]
+}

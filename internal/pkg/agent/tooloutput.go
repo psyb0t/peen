@@ -21,7 +21,6 @@ const (
 	toolOutputSourceListing    = "a directory listing"
 	toolOutputSourceSearch     = "file search results"
 	toolOutputSourceCommand    = "command output"
-	toolOutputSourceAgent      = "another agent's output"
 	toolOutputSourceTranscript = "a stored transcript"
 	toolOutputSourceTool       = "tool output"
 	toolOutputSourceWeb        = "a fetched web page"
@@ -52,7 +51,8 @@ func isHookDenialResult(result elelem.ToolResult) bool {
 }
 
 // toolOutputSources names where each tool's result text comes from. A tool
-// missing here is labeled as plain tool output.
+// missing here is labeled as plain tool output. launchAgent is one of those:
+// it returns the child's run ID or Peen's refusal, never the child's text.
 //
 //nolint:gochecknoglobals // Read-only lookup table.
 var toolOutputSources = map[string]string{
@@ -65,7 +65,6 @@ var toolOutputSources = map[string]string{
 	toolNameWaitJob:                  toolOutputSourceCommand,
 	toolNameListJobs:                 toolOutputSourceCommand,
 	toolNameSignalJob:                toolOutputSourceCommand,
-	toolNameLaunchAgent:              toolOutputSourceAgent,
 	toolNameSearchExecutions:         toolOutputSourceTranscript,
 	toolNameReadExecution:            toolOutputSourceTranscript,
 	toolNameReadMetrics:              toolOutputSourceTranscript,

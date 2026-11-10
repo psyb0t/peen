@@ -42,7 +42,39 @@ func (d *workflowDispatch) notifyChildReport(
 			"reporting execution has no parent")
 	}
 
-	return d.notifyParent(ctx, child.SessionID, *child.ParentExecutionID)
+	parent, err := store.GetExecution(ctx, child.SessionID,
+		*child.ParentExecutionID)
+	if err != nil {
+		return ctxerrors.Wrap(err, "read child report destination")
+	}
+
+	if parent.Kind == models.ExecutionKindRoot {
+		if err := d.deliverRootChildOutcome(ctx, parent, child); err != nil {
+			return ctxerrors.Wrap(err, "offer root child outcome")
+		}
+	}
+
+	return d.notifyParent(ctx, parent.SessionID, parent.ID)
+}
+
+// deliverRootChildOutcome offers the session notice the store wrote for a
+// finished child to the bus and the wake decision. The store writes one only
+// when the root can no longer read its inbox, because it ended or its
+// completion is sealed; a running root gets the report in its inbox instead,
+// and nothing is published here.
+func (d *workflowDispatch) deliverRootChildOutcome(
+	ctx context.Context,
+	parent, child *models.Execution,
+) error {
+	if parent.State == models.ExecutionStatePaused {
+		return nil
+	}
+
+	if err := d.runtime.publishRetainedChildOutcome(ctx, child); err != nil {
+		return ctxerrors.Wrap(err, "publish root child outcome")
+	}
+
+	return nil
 }
 
 func (d *workflowDispatch) notifyParent(

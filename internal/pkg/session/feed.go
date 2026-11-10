@@ -288,24 +288,52 @@ func (s *Store) ListFeed(
 		return nil, err
 	}
 
-	session, err := s.findSession(ctx, sessionID)
+	var page *FeedPage
+
+	// The feed merges three tables. Reading them in one transaction keeps a
+	// write that commits between two reads from showing its later sequences
+	// without an earlier one, which a cursor past it would skip for good.
+	err = s.query.Transaction(func(tx *repositories.Query) error {
+		page, err = listFeedPage(ctx, tx, sessionID, cursor, limit)
+
+		return err
+	})
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "list feed page")
+	}
+
+	return page, nil
+}
+
+func listFeedPage(
+	ctx context.Context,
+	query *repositories.Query,
+	sessionID uuid.UUID,
+	cursor int64,
+	limit int,
+) (*FeedPage, error) {
+	repository := query.Session
+
+	session, err := repository.WithContext(ctx).
+		Where(repository.ID.Eq(sessionID)).
+		First()
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "find session for feed listing")
 	}
 
-	events, err := s.listFeedEventItems(ctx, sessionID, cursor, limit)
+	events, err := listFeedEventItems(ctx, query, sessionID, cursor, limit)
 	if err != nil {
 		return nil, err
 	}
 
-	agentRunEvents, err := s.listFeedAgentRunEventItems(
-		ctx, sessionID, cursor, limit,
+	agentRunEvents, err := listFeedAgentRunEventItems(
+		ctx, query, sessionID, cursor, limit,
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	notices, err := s.listFeedNoticeItems(ctx, sessionID, cursor, limit)
+	notices, err := listFeedNoticeItems(ctx, query, sessionID, cursor, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -314,7 +342,8 @@ func (s *Store) ListFeed(
 		events, agentRunEvents, notices, limit,
 	)
 
-	if err := s.attachFeedAgentRunParents(ctx, sessionID, items); err != nil {
+	err = attachFeedAgentRunParents(ctx, query, sessionID, items)
+	if err != nil {
 		return nil, err
 	}
 
@@ -343,13 +372,14 @@ func normalizeFeedPage(cursor int64, limit int) (int64, int, error) {
 	return cursor, limit, nil
 }
 
-func (s *Store) listFeedEventItems(
+func listFeedEventItems(
 	ctx context.Context,
+	query *repositories.Query,
 	sessionID uuid.UUID,
 	cursor int64,
 	limit int,
 ) ([]FeedItem, error) {
-	event := s.query.Event
+	event := query.Event
 
 	rows, err := event.WithContext(ctx).
 		Where(
@@ -381,13 +411,14 @@ func (s *Store) listFeedEventItems(
 	return items, nil
 }
 
-func (s *Store) listFeedAgentRunEventItems(
+func listFeedAgentRunEventItems(
 	ctx context.Context,
+	query *repositories.Query,
 	sessionID uuid.UUID,
 	cursor int64,
 	limit int,
 ) ([]FeedItem, error) {
-	event := s.query.AgentRunEvent
+	event := query.AgentRunEvent
 
 	rows, err := event.WithContext(ctx).
 		Where(
@@ -418,13 +449,14 @@ func (s *Store) listFeedAgentRunEventItems(
 	return items, nil
 }
 
-func (s *Store) listFeedNoticeItems(
+func listFeedNoticeItems(
 	ctx context.Context,
+	query *repositories.Query,
 	sessionID uuid.UUID,
 	cursor int64,
 	limit int,
 ) ([]FeedItem, error) {
-	notice := s.query.SessionNotice
+	notice := query.SessionNotice
 
 	rows, err := notice.WithContext(ctx).
 		Where(
@@ -485,8 +517,9 @@ func mergeFeedCandidates(
 
 // attachFeedAgentRunParents loads ParentTurnID and ParentAgentRunID for
 // every agent run event item in one batched query on agent_runs.
-func (s *Store) attachFeedAgentRunParents(
+func attachFeedAgentRunParents(
 	ctx context.Context,
+	query *repositories.Query,
 	sessionID uuid.UUID,
 	items []FeedItem,
 ) error {
@@ -509,7 +542,7 @@ func (s *Store) attachFeedAgentRunParents(
 		valuers = append(valuers, id)
 	}
 
-	run := s.query.AgentRun
+	run := query.AgentRun
 
 	runs, err := run.WithContext(ctx).
 		Where(run.SessionID.Eq(sessionID), run.ID.In(valuers...)).

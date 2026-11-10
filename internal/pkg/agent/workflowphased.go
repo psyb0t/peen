@@ -60,7 +60,7 @@ func (e *workflowExecution) run(
 	}
 
 	return finishFailedWorkflow(ctx, input, result, ctxerrors.Wrap(
-		elelem.ErrMaxRoundsExceeded, "workflow round budget exhausted"))
+		workflowRoundLimitError(input), "workflow round budget exhausted"))
 }
 
 func (e *workflowExecution) runPhasedRound(
@@ -69,6 +69,11 @@ func (e *workflowExecution) runPhasedRound(
 	round int,
 ) (workflowRoundResult, error) {
 	request := workflowRoundInput{Execution: input, Round: round}
+
+	if err := checkWorkflowTurnTokens(input); err != nil {
+		return workflowRoundResult{Context: input.Context},
+			ctxerrors.Wrap(err, "phased workflow token limit")
+	}
 
 	result, err := compactingWorkflowModelRound(ctx, request)
 	if err != nil {
@@ -80,7 +85,7 @@ func (e *workflowExecution) runPhasedRound(
 	}
 
 	if round == input.MaxRounds-1 {
-		return result, ctxerrors.Wrap(elelem.ErrMaxRoundsExceeded,
+		return result, ctxerrors.Wrap(workflowRoundLimitError(input),
 			"phased workflow has no continuation round")
 	}
 

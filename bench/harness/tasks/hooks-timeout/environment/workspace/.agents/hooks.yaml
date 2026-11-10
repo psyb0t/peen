@@ -1,0 +1,40 @@
+version: 1
+preWriteFile:
+  - name: slow-default
+    match:
+      path: "a/*"
+    actions:
+      - name: wait-default
+        type: command
+        command: /bin/sleep
+        args: ["10"]
+  - name: slow-continue
+    match:
+      path: "b/*"
+    actions:
+      - name: wait-continue
+        type: command
+        command: /bin/sleep
+        args: ["10"]
+        timeout: 1s
+        onFailure: continue
+  - name: slow-deny
+    match:
+      path: "d/*"
+    actions:
+      - name: wait-deny
+        type: command
+        command: /bin/sleep
+        args: ["10"]
+        timeout: 1s
+        onFailure: deny
+postWriteFile:
+  - name: slow-post
+    match:
+      path: "c/*"
+    actions:
+      - name: wait-post
+        type: command
+        command: /bin/sleep
+        args: ["10"]
+        timeout: 1s

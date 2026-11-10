@@ -107,7 +107,9 @@ agent.failed, agent.message, and agent.question from its children.
 timeout is a Go duration string such as "30s" or "10m". Empty waits until a
 message arrives, for at most 30 days. When the timeout passes first, timedOut
 is true and waiting is 0.
-Use it after launching children whose answers you need.`
+Use it after launching children whose answers you need. Root work resumed with
+resumeExecution is not a message and starts only after your turn ends, so
+never wait for it here.`
 
 const waitMessagesSchema = `{
   "type": "object",

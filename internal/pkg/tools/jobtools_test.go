@@ -2,7 +2,9 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -186,6 +188,127 @@ func TestReadJobOutput_IncrementalCursor(t *testing.T) {
 	assert.NotEmpty(t, final.Stdout)
 }
 
+// A result the tool result cap shortens keeps its beginning, so every job
+// result must put its status fields ahead of the output text.
+func TestJobResults_PutStatusAheadOfOutputText(t *testing.T) {
+	t.Parallel()
+
+	executor := newTestJobExecutorWithLimits(t, Limits{
+		MaxJobOutputLines: jobToolsMaxOutputLines,
+	})
+
+	run, err := executor.RunCommand(context.Background(), RunCommandInput{
+		Purpose: jobToolsPurpose,
+		Command: fmt.Sprintf("seq 1 %d", jobToolsLineCount),
+	})
+	require.NoError(t, err)
+	require.Positive(t, run.StdoutDroppedLines)
+
+	wait, err := executor.WaitJob(context.Background(), WaitJobInput{
+		JobID: run.JobID,
+	})
+	require.NoError(t, err)
+	require.Positive(t, wait.StdoutDroppedLines)
+
+	read, err := executor.ReadJobOutput(context.Background(),
+		ReadJobOutputInput{JobID: run.JobID})
+	require.NoError(t, err)
+	require.Positive(t, read.StdoutDroppedLines)
+
+	testCases := []struct {
+		name   string
+		result any
+		status []string
+	}{
+		{
+			name:   "runCommand",
+			result: run,
+			status: []string{
+				"exitCode", "stdoutDroppedLines", "stderrDroppedLines",
+			},
+		},
+		{
+			name:   "waitJob",
+			result: wait,
+			status: []string{
+				"exitCode", "nextStdoutCursor", "stdoutDroppedLines",
+				"stderrDroppedLines",
+			},
+		},
+		{
+			name:   "readJobOutput",
+			result: read,
+			status: []string{
+				"nextStdoutCursor", "stdoutDroppedLines", "stderrDroppedLines",
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			encoded, err := json.Marshal(tc.result)
+			require.NoError(t, err)
+
+			text := string(encoded)
+			firstOutput := min(strings.Index(text, `"stdout":`),
+				strings.Index(text, `"stderr":`))
+			require.Positive(t, firstOutput)
+
+			for _, field := range tc.status {
+				at := strings.Index(text, `"`+field+`":`)
+				require.Positive(t, at, field)
+				assert.Less(t, at, firstOutput, field)
+			}
+		})
+	}
+}
+
+func TestJobResults_CarryTheNewestLinesWithinTheReadWindow(t *testing.T) {
+	t.Parallel()
+
+	executor := newTestJobExecutorWithLimits(t, Limits{
+		MaxJobOutputLines:     jobToolsLineCount,
+		MaxReadJobOutputLines: jobToolsReadWindowLines,
+	})
+
+	run, err := executor.RunCommand(context.Background(), RunCommandInput{
+		Purpose: jobToolsPurpose,
+		Command: fmt.Sprintf("seq 1 %d", jobToolsLineCount),
+	})
+	require.NoError(t, err)
+
+	newest := fmt.Sprintf("%d\n%d", jobToolsLineCount-1, jobToolsLineCount)
+	skipped := jobToolsLineCount - jobToolsReadWindowLines
+
+	assert.Equal(t, newest, run.Stdout)
+	assert.Equal(t, skipped, run.StdoutSkippedLines)
+	assert.Zero(t, run.StdoutDroppedLines)
+
+	wait, err := executor.WaitJob(context.Background(), WaitJobInput{
+		JobID: run.JobID,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, newest, wait.Stdout)
+	assert.Equal(t, skipped, wait.StdoutSkippedLines)
+	assert.Equal(t, jobToolsLineCount, wait.NextStdoutCursor)
+
+	read, err := executor.ReadJobOutput(context.Background(),
+		ReadJobOutputInput{JobID: run.JobID, Stream: JobStreamStdout})
+	require.NoError(t, err)
+	assert.Equal(t, "1\n2", read.Stdout,
+		"the skipped lines are still readable from the start")
+
+	caughtUp, err := executor.WaitJob(context.Background(), WaitJobInput{
+		JobID: run.JobID, StdoutCursor: wait.NextStdoutCursor,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, caughtUp.Stdout)
+	assert.Zero(t, caughtUp.StdoutSkippedLines)
+}
+
 func TestWaitJob_UnknownJobNotFound(t *testing.T) {
 	t.Parallel()
 
@@ -260,7 +383,7 @@ func TestJobWaitOutput_DurationIsAGoDuration(t *testing.T) {
 		endedAt:   started.Add(90 * time.Second),
 	}
 
-	out := jobWaitOutput(job, WaitJobInput{})
+	out := jobWaitOutput(job, WaitJobInput{}, jobToolsReadWindowLines)
 
 	assert.Equal(t, int64(90000), out.DurationMs)
 	assert.Equal(t, "1m30s", out.Duration)

@@ -200,7 +200,7 @@ func TestWorkflowCompactionHooksReuseAcrossModelRetryAndSQLiteReopen(t *testing.
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			fixture, driver := compactionHookFixture(t, tc.child, elelemtest.Turn{Err: commerr.ErrFetchFailed}, elelemtest.Text("retry summary"))
+			fixture, driver := compactionHookFixture(t, tc.child, elelemtest.Turn{Err: commerr.ErrFetchFailed})
 			var events []harness.HookEvent
 			fixture.base.runtime.hookCallback = func(_ context.Context, input hooks.Invocation) (hooks.Outcome, error) {
 				if input.Event == harness.HookEventPreCompact || input.Event == harness.HookEventPostCompact {
@@ -210,13 +210,20 @@ func TestWorkflowCompactionHooksReuseAcrossModelRetryAndSQLiteReopen(t *testing.
 				return hooks.Outcome{}, nil
 			}
 			input := workflowRoundInput{Execution: fixture.input}
-			_, err := fixture.engine.compactRound(t.Context(), input)
-			require.ErrorIs(t, err, commerr.ErrFetchFailed)
-			assert.Equal(t, []harness.HookEvent{harness.HookEventPreCompact}, events)
 			result, err := fixture.engine.compactRound(t.Context(), input)
 			require.NoError(t, err)
-			assert.Equal(t, []harness.HookEvent{harness.HookEventPreCompact, harness.HookEventPostCompact}, events)
-			assert.Equal(t, 5, driver.Calls())
+			// A failed summary no longer fails the turn: the round keeps the
+			// saved context and the request drops the oldest history.
+			assert.Nil(t, result.Output.Compaction)
+			assert.JSONEq(t, string(fixture.input.Context), string(result.Output.Context))
+			assert.Equal(t, []harness.HookEvent{harness.HookEventPreCompact}, events)
+			assert.Equal(t, 4, driver.Calls())
+			repeated, err := fixture.engine.compactRound(t.Context(), input)
+			require.NoError(t, err)
+			assert.Equal(t, session.ActivityDecisionReuse, repeated.Decision)
+			assert.Equal(t, result.Output, repeated.Output)
+			assert.Equal(t, []harness.HookEvent{harness.HookEventPreCompact}, events)
+			assert.Equal(t, 4, driver.Calls())
 			require.NoError(t, fixture.base.handle.Close())
 			handle, err := db.Open(t.Context(), db.Config{Directory: fixture.base.stateDirectory})
 			require.NoError(t, err)
@@ -227,9 +234,10 @@ func TestWorkflowCompactionHooksReuseAcrossModelRetryAndSQLiteReopen(t *testing.
 			fixture.engine.options.GenerationID = uuid.New()
 			reused, err := fixture.engine.compactRound(t.Context(), input)
 			require.NoError(t, err)
+			assert.Equal(t, session.ActivityDecisionReuse, reused.Decision)
 			assert.Equal(t, result.Output, reused.Output)
-			assert.Len(t, events, 2)
-			assert.Equal(t, 5, driver.Calls())
+			assert.Equal(t, []harness.HookEvent{harness.HookEventPreCompact}, events)
+			assert.Equal(t, 4, driver.Calls())
 		})
 	}
 }

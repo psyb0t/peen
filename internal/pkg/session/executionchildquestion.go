@@ -87,7 +87,7 @@ func (s *Store) saveChildQuestion(
 		return s.saveRootChildQuestion(ctx, query, parent, run, event, question)
 	}
 
-	return s.recordExecutionChildReport(ctx, query, child, event,
+	return s.recordExecutionChildReport(ctx, query, child, run, event,
 		question.ParentMessage)
 }
 

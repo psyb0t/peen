@@ -32,7 +32,7 @@ func childRequestPrompt(
 	remaining := maximumRounds - launch.completedRounds
 	if remaining <= 0 {
 		return elelem.Prompt{}, 0, ctxerrors.Wrap(
-			elelem.ErrMaxRoundsExceeded,
+			newRoundLimitError(maximumRounds, true),
 			"child recovery budget",
 		)
 	}

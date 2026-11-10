@@ -27,6 +27,7 @@ func (s *Store) recordExecutionChildReport(
 	ctx context.Context,
 	tx *repositories.Query,
 	child *models.Execution,
+	run *models.AgentRun,
 	event *models.AgentRunEvent,
 	text string,
 ) error {
@@ -43,6 +44,15 @@ func (s *Store) recordExecutionChildReport(
 		*child.ParentExecutionID)
 	if err != nil {
 		return ctxerrors.Wrap(err, "read child report parent")
+	}
+
+	isNotice, err := s.reportsAsRootNotice(ctx, tx, parent, run)
+	if err != nil {
+		return err
+	}
+
+	if isNotice {
+		return s.saveRootChildOutcome(ctx, tx, parent, run, event)
 	}
 
 	if parent.EventCount == math.MaxInt64 {
@@ -71,6 +81,27 @@ func (s *Store) recordExecutionChildReport(
 	}
 
 	return s.recordChildReportEvent(ctx, tx, parent, child, message)
+}
+
+// reportsAsRootNotice reports whether a finished child's report goes to its
+// root as a session notice: the root can no longer read its inbox.
+func (s *Store) reportsAsRootNotice(
+	ctx context.Context,
+	tx *repositories.Query,
+	parent *models.Execution,
+	run *models.AgentRun,
+) (bool, error) {
+	if parent.Kind != models.ExecutionKindRoot ||
+		run.State == models.AgentRunStateRunning {
+		return false, nil
+	}
+
+	closed, err := rootReportsClosed(ctx, tx, parent)
+	if err != nil {
+		return false, ctxerrors.Wrap(err, "check root report destination")
+	}
+
+	return closed, nil
 }
 
 func (s *Store) recordChildReportEvent(

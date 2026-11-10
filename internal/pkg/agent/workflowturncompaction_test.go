@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
+	"github.com/psyb0t/elelem/elelemtest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -96,6 +98,52 @@ func TestNativeRootCompactionSummarizesRoundsOfTheCurrentTurn(t *testing.T) {
 		fixture.input.SessionID)
 	require.NoError(t, err)
 	assert.Nil(t, head)
+}
+
+// A turn summary that fails or comes back empty leaves the turn's rounds in
+// the saved context, so the model request drops the oldest history instead of
+// the turn failing.
+func TestNativeRootCompactionTurnSummaryFailureKeepsTheRounds(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+		turn elelemtest.Turn
+	}{
+		{name: "empty summary", turn: elelemtest.Text(" ")},
+		{
+			name: "provider error",
+			turn: elelemtest.Turn{Err: commerr.ErrFetchFailed},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fixture, _, driver := nativeRootCompactionFixture(t, tc.turn)
+
+			var conversation workflowConversation
+			require.NoError(t, json.Unmarshal(fixture.input.Context,
+				&conversation))
+
+			for round := 1; round <= turnCompactionTestRounds; round++ {
+				conversation.Messages = append(conversation.Messages,
+					turnCompactionRound(round)...)
+			}
+
+			conversation.MaxContextTokens = turnCompactionTestContextTokens
+			encoded, err := json.Marshal(conversation)
+			require.NoError(t, err)
+			fixture.input.Context = encoded
+
+			result, err := fixture.engine.compactRound(t.Context(),
+				workflowRoundInput{Execution: fixture.input})
+			require.NoError(t, err)
+			assert.Nil(t, result.Output.Compaction)
+			assert.JSONEq(t, string(encoded), string(result.Output.Context))
+			assert.Equal(t, 4, driver.Calls())
+		})
+	}
 }
 
 func TestTurnRoundsStartKeepsTheRequestAndRollsASummary(t *testing.T) {

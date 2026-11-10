@@ -152,6 +152,7 @@ func assembleOver(
 
 	runtimeOptions := options.Runtime
 	runtimeOptions.Store = store
+	runtimeOptions.ResumeAfterCrash = options.ResumeAfterCrash
 
 	runtimeOptions.Resolver = resolver
 	if runtimeOptions.VirtualFilesystem {

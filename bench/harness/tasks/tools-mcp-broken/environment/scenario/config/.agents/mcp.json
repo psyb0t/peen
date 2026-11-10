@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "flaky": {
+      "command": "python3",
+      "args": [
+        "-c",
+        "import sys; sys.exit(3)"
+      ]
+    }
+  }
+}

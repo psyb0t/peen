@@ -93,14 +93,15 @@ func (r *Runtime) summarizeWorkflowTurnCut(
 	summary, err := built.summarize(ctx,
 		renderCompactionMessages(messages[cut.start:cut.end]))
 	if err != nil {
-		return workflowCompactionResult{}, ctxerrors.Wrap(err,
-			"summarize earlier rounds of the turn")
+		return leaveHistoryAfterSummaryFailure(ctx, input.Execution.Context,
+			ctxerrors.Wrap(err, "summarize earlier rounds of the turn"))
 	}
 
 	text := strings.TrimSpace(summary.Text)
 	if text == "" {
-		return workflowCompactionResult{}, ctxerrors.Wrap(
-			ErrCompactionEmptySummary, "summarizer returned no turn summary")
+		return leaveHistoryAfterSummaryFailure(ctx, input.Execution.Context,
+			ctxerrors.Wrap(ErrCompactionEmptySummary,
+				"summarizer returned no turn summary"))
 	}
 
 	conversation.Messages = savedHistory(spliceTurnSummary(messages, cut,

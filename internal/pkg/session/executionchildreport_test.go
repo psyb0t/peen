@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"math"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -175,4 +177,136 @@ func TestChildReportRequiresOutcome(t *testing.T) {
 	require.NoError(t, validateChildReportWithoutOutcome(""))
 	require.ErrorIs(t, validateChildReportWithoutOutcome("orphan report"),
 		commerr.ErrValidationFailed)
+}
+
+func finishRootForTest(t *testing.T, fixture executionFixture) {
+	t.Helper()
+	repository := fixture.store.query.Execution
+	_, err := repository.WithContext(t.Context()).Where(
+		repository.ID.Eq(fixture.root.ID),
+	).UpdateSimple(
+		repository.State.Value(string(models.ExecutionStateCompleted)),
+	)
+	require.NoError(t, err)
+}
+
+func pendingRootNotices(
+	t *testing.T,
+	fixture executionFixture,
+) []*models.SessionNotice {
+	t.Helper()
+	page, err := fixture.store.ListSessionNotices(t.Context(),
+		fixture.sessionID, ListSessionNoticesOptions{
+			State: models.NoticeStatePending,
+		})
+	require.NoError(t, err)
+
+	return page.Items
+}
+
+func completeChildForTest(
+	t *testing.T,
+	fixture executionFixture,
+	child *models.Execution,
+) {
+	t.Helper()
+	claim, err := fixture.store.BeginExecutionActivity(t.Context(),
+		fixture.sessionID, child.ID, uuid.New(), finishActivityTestInput())
+	require.NoError(t, err)
+	input := finishActivityTestResult()
+	input.Finish.Child = &ExecutionFinishChild{
+		State: models.AgentRunStateCompleted, ResponseText: "child result text",
+	}
+	input.Finish.ChildReport = "framed child completion"
+	_, err = fixture.store.CompleteExecutionActivity(t.Context(),
+		fixture.sessionID, claim.Lease, input)
+	require.NoError(t, err)
+}
+
+func TestChildReportToFinishedRootIsAWakeNotice(t *testing.T) {
+	t.Parallel()
+	fixture := newExecutionFixture(t)
+	child := executionChildForTest(t, fixture, fixture.root)
+	finishRootForTest(t, fixture)
+	completeChildForTest(t, fixture, child)
+	page, err := fixture.store.ListExecutionMessages(t.Context(),
+		fixture.sessionID, fixture.root.ID, ListExecutionInboxOptions{})
+	require.NoError(t, err)
+	assert.Empty(t, page.Items)
+	notices := pendingRootNotices(t, fixture)
+	require.Len(t, notices, 1)
+	assert.Equal(t, events.TypeAgentFinished, notices[0].Type)
+	assert.Equal(t, models.NoticeDeliveryWake, notices[0].Delivery)
+
+	var data events.AgentResultData
+	require.NoError(t, json.Unmarshal([]byte(notices[0].DataJSON), &data))
+	assert.Equal(t, *child.AgentRunID, data.RunID)
+	assert.Equal(t, "child result text", data.Response)
+}
+
+func TestCancelledChildReportToFinishedRootQueuesFailedNotice(t *testing.T) {
+	t.Parallel()
+	fixture := newExecutionFixture(t)
+	child := executionChildForTest(t, fixture, fixture.root)
+	finishRootForTest(t, fixture)
+	_, requested, err := fixture.store.RequestAgentRunCancellation(
+		t.Context(), fixture.sessionID, *child.AgentRunID)
+	require.NoError(t, err)
+	require.True(t, requested)
+	page, err := fixture.store.ListExecutionMessages(t.Context(),
+		fixture.sessionID, fixture.root.ID, ListExecutionInboxOptions{})
+	require.NoError(t, err)
+	assert.Empty(t, page.Items)
+	notices := pendingRootNotices(t, fixture)
+	require.Len(t, notices, 1)
+	assert.Equal(t, events.TypeAgentFailed, notices[0].Type)
+	assert.Equal(t, models.NoticeDeliveryQueue, notices[0].Delivery)
+}
+
+func TestChildReportToRunningRootStaysInInbox(t *testing.T) {
+	t.Parallel()
+	fixture := newExecutionFixture(t)
+	child := executionChildForTest(t, fixture, fixture.root)
+	completeChildForTest(t, fixture, child)
+	page, err := fixture.store.ListExecutionMessages(t.Context(),
+		fixture.sessionID, fixture.root.ID, ListExecutionInboxOptions{})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.Empty(t, pendingRootNotices(t, fixture))
+}
+
+func TestRootFinishConvertsUnconsumedChildReportsToNotices(t *testing.T) {
+	t.Parallel()
+	fixture := newExecutionFixture(t)
+	inboxTestLease(t, fixture)
+	// A failed root ends without settling its inbox, so it can end with a
+	// child's report unread. A completed root has to read it first.
+	child := executionChildForTest(t, fixture, fixture.root)
+	completeChildForTest(t, fixture, child)
+	page, err := fixture.store.ListExecutionMessages(t.Context(),
+		fixture.sessionID, fixture.root.ID, ListExecutionInboxOptions{})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.Empty(t, pendingRootNotices(t, fixture))
+	claim, err := fixture.store.BeginExecutionActivity(t.Context(),
+		fixture.sessionID, fixture.root.ID, uuid.New(),
+		finishActivityTestInput())
+	require.NoError(t, err)
+	failed := finishActivityTestResult()
+	failed.Finish.State = models.ExecutionStateFailed
+	failed.Finish.FailureDetail = "root failed"
+	_, err = fixture.store.CompleteExecutionActivity(t.Context(),
+		fixture.sessionID, claim.Lease, failed)
+	require.NoError(t, err)
+	queued, err := fixture.store.ListExecutionMessages(t.Context(),
+		fixture.sessionID, fixture.root.ID, ListExecutionInboxOptions{
+			State: models.InboxMessageStateQueued,
+		})
+	require.NoError(t, err)
+	assert.Empty(t, queued.Items)
+	notices := pendingRootNotices(t, fixture)
+	require.Len(t, notices, 1)
+	assert.Equal(t, page.Items[0].SourceEventID, &notices[0].ID)
+	assert.Equal(t, events.TypeAgentFinished, notices[0].Type)
+	assert.Equal(t, models.NoticeDeliveryWake, notices[0].Delivery)
 }

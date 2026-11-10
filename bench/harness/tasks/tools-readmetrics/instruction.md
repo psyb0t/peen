@@ -1,0 +1,1 @@
+Read the three files in `/app/notes` one at a time. Then call readMetrics with the `tools` summary, on its own in a tool round, and write the total number of tool calls it reports to `/app/out/count.txt`.

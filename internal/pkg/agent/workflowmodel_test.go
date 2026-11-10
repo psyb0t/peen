@@ -206,6 +206,129 @@ func TestWorkflowModelRoundRecordsFinishReason(t *testing.T) {
 	}
 }
 
+func TestWorkflowModelRequestSendsTheOutputReserveAsTheOutputLimit(
+	t *testing.T,
+) {
+	t.Parallel()
+	testCases := []struct {
+		name    string
+		reserve int
+		want    *int64
+	}{
+		{
+			name: "a reserve is the output limit", reserve: 2048,
+			want: new(int64(2048)),
+		},
+		{name: "no reserve sends no limit", reserve: 0},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			driver := elelemtest.NewScriptedDriver(elelemtest.Text("done"))
+			fixture := newExecutionLoopFixture(t, driver, true)
+			input := withWorkflowConversation(t, fixture.input,
+				func(conversation *workflowConversation) {
+					conversation.OutputReserveTokens = tc.reserve
+				})
+			request, saved, err := workflowModelRequest(
+				fixture.base.runtime.models, workflowRoundInput{Execution: input})
+			require.NoError(t, err)
+			_, err = workflowRunModelRequest(t.Context(), request, saved)
+			require.NoError(t, err)
+
+			sent, ok := driver.LastRequest()
+			require.True(t, ok)
+			assert.Equal(t, tc.want, sent.Params.MaxOutputTokens)
+		})
+	}
+}
+
+func TestWorkflowModelRoundContinuesAReplyCutAtTheOutputLimit(
+	t *testing.T,
+) {
+	t.Parallel()
+	cutOff := elelemtest.Turn{Deltas: []elelem.Delta{{
+		Reasoning: "still thinking", FinishReason: elelem.FinishReasonLength,
+	}}}
+	testCases := []struct {
+		name          string
+		turn          elelemtest.Turn
+		continuations int
+		wantContinue  bool
+	}{
+		{
+			name: "a reply cut off at the limit", turn: cutOff,
+			wantContinue: true,
+		},
+		{
+			name: "a reply cut off once less than the cap", turn: cutOff,
+			continuations: maxOutputLimitContinuations - 1, wantContinue: true,
+		},
+		{
+			name: "a reply cut off after the cap ends the turn", turn: cutOff,
+			continuations: maxOutputLimitContinuations,
+		},
+		{name: "a finished reply", turn: elelemtest.Text("done")},
+		{name: "a tool call", turn: elelemtest.ToolCall(
+			"call-1", toolNameReadFile, `{"path":"notes.txt"}`,
+		)},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			driver := elelemtest.NewScriptedDriver(tc.turn)
+			fixture := newExecutionLoopFixture(t, driver, true)
+			input := withWorkflowConversation(t, fixture.input,
+				func(conversation *workflowConversation) {
+					conversation.CutOffRounds = tc.continuations
+				})
+			request, saved, err := workflowModelRequest(
+				fixture.base.runtime.models, workflowRoundInput{Execution: input})
+			require.NoError(t, err)
+			result, err := workflowRunModelRequest(t.Context(), request, saved)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantContinue, result.Continue)
+
+			var conversation workflowConversation
+			require.NoError(t, json.Unmarshal(result.Context, &conversation))
+			last := conversation.Messages[len(conversation.Messages)-1]
+
+			if !tc.wantContinue {
+				assert.Equal(t, tc.continuations, conversation.CutOffRounds)
+				assert.NotEqual(t, elelem.RoleSystem, last.Role)
+
+				return
+			}
+
+			assert.Equal(t, tc.continuations+1, conversation.CutOffRounds)
+			assert.Equal(t, elelem.RoleSystem, last.Role)
+			assert.Contains(t, last.Text(), "output limit")
+		})
+	}
+}
+
+// withWorkflowConversation returns input with its saved conversation changed
+// by change.
+func withWorkflowConversation(
+	t *testing.T,
+	input workflowExecutionInput,
+	change func(*workflowConversation),
+) workflowExecutionInput {
+	t.Helper()
+
+	var conversation workflowConversation
+	require.NoError(t, json.Unmarshal(input.Context, &conversation))
+	change(&conversation)
+
+	encoded, err := json.Marshal(conversation)
+	require.NoError(t, err)
+	input.Context = encoded
+
+	return input
+}
+
 func TestWorkflowMergeRoundRejectsMismatchedResults(t *testing.T) {
 	t.Parallel()
 	_, err := workflowMergeRound(json.RawMessage(`{}`),

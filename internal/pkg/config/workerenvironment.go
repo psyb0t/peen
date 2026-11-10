@@ -205,6 +205,7 @@ func workerRuntimeEnvironmentKey(key string) bool {
 		"PEEN_TOOL_TIMEOUT",
 		"PEEN_MAX_TOOL_RESULT_TOKENS",
 		"PEEN_MAX_TURN_TOKENS",
+		"PEEN_CRASH_RECOVERY",
 		envDefaultHookCommandTimeout,
 		"PEEN_MAX_HOOK_COMMAND_OUTPUT",
 		"PEEN_TOOL_MAX_LIST_ENTRIES",

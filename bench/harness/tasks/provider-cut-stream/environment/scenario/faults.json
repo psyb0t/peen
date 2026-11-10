@@ -1,0 +1,9 @@
+{
+  "faults": [
+    {
+      "action": "cutStream",
+      "afterBytes": 800,
+      "request": 1
+    }
+  ]
+}

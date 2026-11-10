@@ -1,0 +1,8 @@
+{
+  "faults": [
+    {
+      "action": "drop",
+      "request": 1
+    }
+  ]
+}

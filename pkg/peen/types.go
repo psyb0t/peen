@@ -112,11 +112,14 @@ type Options struct {
 	CompactionModel string
 
 	// MaxContextTokens bounds one request's whole context, prompt and reply
-	// together. Zero takes the package default.
+	// together. Zero takes the smaller window of DefaultModel and
+	// CompactionModel, or 32768 when neither publishes one.
 	MaxContextTokens int
 	// OutputReserveTokens is the room kept for the reply inside
-	// MaxContextTokens; the prompt gets the rest. Zero takes the package
-	// default of 4096.
+	// MaxContextTokens; the prompt gets the rest. Every turn request sends it
+	// as the output limit, reasoning included. Zero takes DefaultModel's
+	// output limit, or 16384 when it publishes none, capped at a quarter of
+	// the context.
 	OutputReserveTokens int
 	// ResumeAfterCrash lets work a previous process left unfinished continue
 	// by itself when the runtime starts. False, the default, pauses it until

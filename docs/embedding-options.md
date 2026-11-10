@@ -22,8 +22,8 @@ These are the in-process equivalents of deployment settings. [`pkg/peen`](https:
 | `PEEN_UPSTREAMS` | `Models or ModelResolver` | `caller-supplied` |
 | `PEEN_DEFAULT_MODEL` | `DefaultModel` | `caller-supplied` |
 | `PEEN_COMPACTION_MODEL` | `CompactionModel` | `DefaultModel` |
-| `PEEN_MAX_CONTEXT_TOKENS` | `MaxContextTokens` | `32768` |
-| `PEEN_OUTPUT_RESERVE_TOKENS` | `OutputReserveTokens` | `4096` |
+| `PEEN_MAX_CONTEXT_TOKENS` | `MaxContextTokens` | the smaller window of `DefaultModel` and `CompactionModel`, else `32768` |
+| `PEEN_OUTPUT_RESERVE_TOKENS` | `OutputReserveTokens` | `DefaultModel`'s output limit, else `16384`, at most a quarter of the context |
 | `PEEN_COMPACTION_MODE` | `CompactionMode` | `drop-oldest` |
 | `PEEN_COMPACTION_SUMMARY_PERCENT` | `CompactionSummaryPercent` | `30` |
 | `PEEN_COMPACTION_MAX_OUTPUT_TOKENS` | `CompactionOutputTokens` | `16384` |

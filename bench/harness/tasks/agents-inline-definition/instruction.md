@@ -1,0 +1,1 @@
+Launch one child agent defined inline with `agentDefinition`, not a stored agent, to count the lines in `/app/data/log.txt` and write the number, followed by a newline, to `/app/out/count.txt`. Reply `done` when the file exists.

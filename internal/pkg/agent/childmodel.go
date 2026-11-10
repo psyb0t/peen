@@ -85,7 +85,8 @@ func (r *Runtime) childWorkflowInboxContinuation(
 		return result, ctxerrors.Wrap(err, "read child continuation inbox")
 	}
 
-	result.Continue = len(page.Items) != 0
+	// A reply cut off at the output limit already asked for another round.
+	result.Continue = result.Continue || len(page.Items) != 0
 
 	return result, nil
 }
@@ -146,7 +147,8 @@ func (r *Runtime) childWorkflowModelAudit(
 
 	settings, err := newModelAuditSettings(model.Model,
 		false, workflowManualRequestRoundLimit, conversation.MaxContextTokens,
-		0, r.maxConcurrentTools, r.toolTimeout, r.maxToolResultTokens, 0)
+		conversation.OutputReserveTokens, r.maxConcurrentTools, r.toolTimeout,
+		r.maxToolResultTokens, 0)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "encode child workflow audit settings")
 	}

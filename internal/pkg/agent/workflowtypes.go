@@ -81,6 +81,11 @@ type workflowExecutionOptions struct {
 		workflowCompactionHookResult, error)
 	Store        session.ExecutionStorage
 	GenerationID uuid.UUID
+	// SettlesCrashedTools reports a tool call a crash left with an unknown
+	// effect to the model as an error result when its execution continues,
+	// instead of waiting for an inspection. It is set when the controller
+	// resumes work after a crash.
+	SettlesCrashedTools bool
 	//nolint:containedctx // SDK activity contexts need worker cancellation.
 	Lifecycle  context.Context
 	AfterPause func(context.Context, uuid.UUID, []uuid.UUID) error

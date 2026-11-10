@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "ledger": {
+      "command": "python3",
+      "args": [
+        "/opt/mcp/ledger_server.py"
+      ]
+    }
+  }
+}

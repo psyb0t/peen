@@ -1,0 +1,8 @@
+{
+  "faults": [
+    {
+      "action": "corruptToolArguments",
+      "request": 1
+    }
+  ]
+}

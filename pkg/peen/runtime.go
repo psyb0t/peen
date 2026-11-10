@@ -19,13 +19,6 @@ import (
 )
 
 const (
-	// defaultMaxContextTokens mirrors PEEN_MAX_CONTEXT_TOKENS's deployment
-	// default, so an embedding caller that leaves it unset behaves like the
-	// HTTP service's own default deployment.
-	defaultMaxContextTokens = 32768
-	// defaultOutputReserveTokens mirrors PEEN_OUTPUT_RESERVE_TOKENS's
-	// deployment default.
-	defaultOutputReserveTokens  = 4096
 	defaultMaxEventWakesPerHour = 60
 	// defaultModelRequestTimeout mirrors PEEN_MODEL_REQUEST_TIMEOUT's
 	// deployment default.
@@ -75,6 +68,11 @@ func New(options Options) (*Runtime, error) {
 	}
 
 	models, err := resolveEmbeddingModels(options)
+	if err != nil {
+		return nil, err
+	}
+
+	options, err = options.withContextBudget(models)
 	if err != nil {
 		return nil, err
 	}

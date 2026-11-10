@@ -39,7 +39,8 @@ func NewWorkflowWorker(
 
 	options := workflowExecutionOptions{
 		Store: store, GenerationID: generationID, Lifecycle: ctx,
-		MergeRound: workflowMergeRound,
+		MergeRound:          workflowMergeRound,
+		SettlesCrashedTools: runtime.resumeAfterCrash,
 	}
 	dispatch := newWorkflowDispatch(ctx, runtime, generationID, sink)
 	dispatch.bind(&options)

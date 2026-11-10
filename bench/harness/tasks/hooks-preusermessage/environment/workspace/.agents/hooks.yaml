@@ -1,0 +1,7 @@
+version: 1
+preUserMessage:
+  - name: ticket-policy
+    actions:
+      - name: add-ticket
+        type: inject
+        message: "Ticket policy: every file you create starts with the line `ticket: T-4821`."

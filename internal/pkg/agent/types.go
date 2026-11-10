@@ -437,7 +437,9 @@ type RuntimeOptions struct {
 	// and reply together.
 	MaxContextTokens int
 	// OutputReserveTokens is the room kept for the reply inside
-	// MaxContextTokens, so the prompt gets the difference. Zero keeps none.
+	// MaxContextTokens, so the prompt gets the difference. Every turn and
+	// child request sends it as the output limit, reasoning included. Zero
+	// keeps no room and sends no limit.
 	OutputReserveTokens int
 	// ModelRequestTimeout bounds each model request: a turn's rounds and a
 	// compaction summary. A turn has no overall time limit.
@@ -558,6 +560,12 @@ type RuntimeOptions struct {
 	// ConfigDirectory is PEEN_CONFIG_DIR. The runtime uses it to resolve
 	// harness configuration; durable agent state always lives in SQLite.
 	ConfigDirectory string
+
+	// ResumeAfterCrash is PEEN_CRASH_RECOVERY=resume. Work a crash left
+	// unfinished continues without an inspection, so a tool call the crash
+	// cut off reaches the model as an error result instead of waiting for
+	// someone to resolve it.
+	ResumeAfterCrash bool
 }
 
 // validate rejects an options set that cannot run a turn. Bounds a caller may
@@ -697,6 +705,9 @@ type runtimeTurn struct {
 	isChildSinkClosed bool
 	messages          []session.MessageInput
 	toolStart         map[string]time.Time
+	// toolNames names the calls in toolStart, so a stopped turn can close
+	// each one with a result.
+	toolNames map[string]string
 
 	// checkpointedEvents and checkpointedMessages record how much of each
 	// slice is already durable, so finalization writes only the tail instead

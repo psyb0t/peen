@@ -84,6 +84,8 @@ type imageBlobReader interface {
 func savedHistory(messages []elelem.Message) []elelem.Message {
 	history := directoryHistory(messages)
 	for index, message := range history {
+		history[index].ToolCalls = validToolCalls(message.ToolCalls)
+
 		if !hasImageBytes(message) {
 			continue
 		}

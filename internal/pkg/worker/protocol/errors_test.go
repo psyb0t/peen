@@ -9,6 +9,7 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/publicerror"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -186,10 +187,34 @@ func TestErrorKeepsAgentRunRefusalsAcrossTheWire(t *testing.T) {
 			wantCode: CodeImageType,
 		},
 		{
+			name:     "message too large",
+			detail:   session.ErrMessageTooLarge,
+			class:    commerr.ErrValidationFailed,
+			wantCode: CodeMessageTooLarge,
+		},
+		{
+			name:     "system prompt too large",
+			detail:   session.ErrSystemPromptTooLarge,
+			class:    commerr.ErrValidationFailed,
+			wantCode: CodeSystemPromptTooLarge,
+		},
+		{
 			name:     "turn already ended",
 			detail:   session.ErrTurnLeaseInactive,
 			class:    commerr.ErrInvalidState,
 			wantCode: CodeTurnLeaseInactive,
+		},
+		{
+			name:     "turn round limit",
+			detail:   session.ErrTurnRoundLimit,
+			class:    commerr.ErrOutOfRange,
+			wantCode: CodeTurnRoundLimit,
+		},
+		{
+			name:     "turn token limit",
+			detail:   session.ErrTurnTokenLimit,
+			class:    commerr.ErrOutOfRange,
+			wantCode: CodeTurnTokenLimit,
 		},
 	}
 
@@ -208,6 +233,38 @@ func TestErrorKeepsAgentRunRefusalsAcrossTheWire(t *testing.T) {
 			received := wire.Unwrap()
 			require.ErrorIs(t, received, tc.detail)
 			require.ErrorIs(t, received, tc.class)
+		})
+	}
+}
+
+// The worker raises a harness refusal bare, without a class. It still has to
+// reach the controller as that refusal, which reports it as
+// HARNESS_CONFIGURATION_INVALID instead of an internal failure.
+func TestErrorCarriesAHarnessRefusalAcrossTheWire(t *testing.T) {
+	t.Parallel()
+
+	refusals := []error{
+		harness.ErrInvalidInstruction,
+		harness.ErrInvalidSkill,
+		harness.ErrInvalidAgent,
+		harness.ErrInvalidEventHandler,
+		harness.ErrInvalidHook,
+		harness.ErrResourceLimit,
+		harness.ErrUnreadableLayer,
+	}
+
+	for _, refusal := range refusals {
+		t.Run(refusal.Error(), func(t *testing.T) {
+			t.Parallel()
+
+			sent := ctxerrors.Wrap(
+				ctxerrors.Wrap(refusal, "instruction limit exceeded"),
+				"resolve harness context",
+			)
+
+			wire := NewError(sent)
+			assert.NotEqual(t, CodeUnknown, wire.Code)
+			require.ErrorIs(t, wire.Unwrap(), refusal)
 		})
 	}
 }
@@ -240,4 +297,31 @@ func TestErrorKeepsPendingInboxIdentityAcrossJSON(t *testing.T) {
 	plain := NewError(ctxerrors.Wrap(commerr.ErrConflict, "stale claim"))
 	assert.Equal(t, CodeConflict, plain.Code)
 	assert.NotErrorIs(t, plain.Unwrap(), session.ErrExecutionInboxPending)
+}
+
+// A turn limit reaches the controller with its own text, which names the
+// setting that raised it, and not with the chain of wraps around it.
+func TestErrorCarriesATurnLimitTextAcrossTheWire(t *testing.T) {
+	t.Parallel()
+
+	const limitText = "The turn stopped at its limit of 2 tool rounds (PEEN_MAX_TOOL_ROUNDS)."
+
+	sent := ctxerrors.Wrap(
+		publicerror.WithMessage(limitText, errors.Join(
+			session.ErrTurnRoundLimit, commerr.ErrOutOfRange)),
+		"wait for native root result",
+	)
+
+	encoded, err := json.Marshal(NewError(sent))
+	require.NoError(t, err)
+
+	var decoded Error
+	require.NoError(t, json.Unmarshal(encoded, &decoded))
+	assert.Equal(t, CodeTurnRoundLimit, decoded.Code)
+	assert.Equal(t, limitText, decoded.Message)
+
+	received := decoded.Unwrap()
+	require.ErrorIs(t, received, session.ErrTurnRoundLimit)
+	require.ErrorIs(t, received, commerr.ErrOutOfRange)
+	assert.Equal(t, limitText, publicerror.Message(received))
 }

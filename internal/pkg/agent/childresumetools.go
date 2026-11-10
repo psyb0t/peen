@@ -37,16 +37,42 @@ const (
 	//
 	//nolint:lll // One sentence stored as the resolution evidence.
 	failedToolEvidence = "the tool call failed inside Peen, so it is reported to the model as an error instead of waiting for an inspection"
+
+	// crashedToolResult is the tool result the model reads for a call a
+	// crash cut off, when Peen resumes work after a crash.
+	//
+	//nolint:lll // The sentence is one line in the tool result.
+	crashedToolResult = "Peen crashed while this tool call was running, so its outcome is unknown. Check the workspace before you repeat it."
+
+	// crashedToolEvidence records why the crashed call was settled without an
+	// inspection by the agent.
+	//
+	//nolint:lll // One sentence stored as the resolution evidence.
+	crashedToolEvidence = "Peen resumes work after a crash, so the tool call the crash cut off is reported to the model as an error instead of waiting for an inspection"
+
+	// resumedToolEvidence records why a tool call in work the agent resumed
+	// was settled without an inspection of that call.
+	//
+	//nolint:lll // One sentence stored as the resolution evidence.
+	resumedToolEvidence = "the agent resumed the paused execution, so the interrupted tool call is reported to the model as an error instead of being repeated"
+
+	// Log reasons naming what resumed the work whose interrupted tool calls
+	// were settled.
+	settledByMessageResumedChild   = "message_resumed_child"
+	settledByAgentResumedExecution = "agent_resumed_execution"
 )
 
 // settleInterruptedTools reports every tool call a pause interrupted in the
-// executions a message resumed as an error result the model reads, so the
-// resumed work continues instead of waiting on an inspection nobody makes.
-// The call is not repeated, because its effect may already have happened.
+// executions a message or the agent resumed as an error result the model
+// reads, so the resumed work continues instead of waiting on an inspection
+// nobody makes. The call is not repeated, because its effect may already
+// have happened. evidence is stored with each settled call, and reason
+// names the resume in the log.
 func (n *nativeWorkflowRunner) settleInterruptedTools(
 	ctx context.Context,
 	sessionID uuid.UUID,
 	executionIDs []uuid.UUID,
+	evidence, reason string,
 ) error {
 	store := n.engine.options.Store
 	settled := 0
@@ -57,7 +83,8 @@ func (n *nativeWorkflowRunner) settleInterruptedTools(
 			return ctxerrors.Wrap(err, "read resumed execution")
 		}
 
-		count, err := settleExecutionInterruptedTools(ctx, store, execution)
+		count, err := settleExecutionInterruptedTools(ctx, store, execution,
+			evidence)
 		if err != nil {
 			return ctxerrors.Wrap(err, "settle interrupted tool calls")
 		}
@@ -68,7 +95,7 @@ func (n *nativeWorkflowRunner) settleInterruptedTools(
 	if settled > 0 {
 		ctxscope.GetLogger(ctx).Info("interrupted tool calls settled",
 			"session_id", sessionID, "settled_count", settled,
-			"reason", "message_resumed_child")
+			"reason", reason)
 	}
 
 	return nil
@@ -78,6 +105,7 @@ func settleExecutionInterruptedTools(
 	ctx context.Context,
 	store session.ExecutionStorage,
 	execution *models.Execution,
+	evidence string,
 ) (int, error) {
 	settled := 0
 	options := session.ListEventsOptions{Limit: executionReadPageLimit}
@@ -97,7 +125,7 @@ func settleExecutionInterruptedTools(
 
 			if err := settleInterruptedTool(ctx, store, activity,
 				fmt.Sprintf(interruptedToolResultFormat, execution.PauseReason),
-				interruptedToolEvidence); err != nil {
+				evidence); err != nil {
 				return settled, err
 			}
 

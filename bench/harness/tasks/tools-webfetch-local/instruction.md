@@ -1,0 +1,1 @@
+Start `python3 -m http.server 8766 --directory /app/site` as a background job. Use webFetch to read `http://127.0.0.1:8766/notes.txt` and write its first line to `/app/out/first.txt`. Then use webFetch on `http://127.0.0.1:8766/missing.txt` and write the HTTP status code you get to `/app/out/missing.txt`. Stop the server when you are done.

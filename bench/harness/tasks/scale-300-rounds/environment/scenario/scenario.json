@@ -1,0 +1,16 @@
+{
+  "sampleMemorySeconds": 10,
+  "steps": [
+    {
+      "op": "send",
+      "label": "convert",
+      "message": "For each file in `/app/in`, write a file with the same name in `/app/out` that holds the file's text in capital letters, followed by a newline.",
+      "timeoutSeconds": 3400
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 5,
+      "timeoutSeconds": 120
+    }
+  ]
+}

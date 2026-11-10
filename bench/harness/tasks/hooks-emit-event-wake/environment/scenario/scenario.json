@@ -1,0 +1,14 @@
+{
+  "steps": [
+    {
+      "op": "send",
+      "label": "report",
+      "message": "Create `/app/report.txt` containing the word `report`."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 15,
+      "timeoutSeconds": 900
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+Start `python3 -m http.server 8931 --directory /app/site` as a background job. Fetch `http://127.0.0.1:8931/status.txt` and save the body to `/app/out/status.txt`. Then start `/app/bin/noisy.sh` as a background job, and when it has finished write the last line it printed to `/app/out/noise.txt`. Finally, stop the server job.

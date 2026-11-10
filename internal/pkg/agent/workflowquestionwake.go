@@ -94,8 +94,17 @@ func (r *Runtime) wakeRetainedQuestion(
 }
 
 func isRetainedQuestionNotice(notice *models.SessionNotice) bool {
-	return notice.Type == events.TypeAgentQuestion &&
-		notice.Source == events.AgentSource
+	if notice.Source != events.AgentSource {
+		return false
+	}
+
+	switch notice.Type {
+	case events.TypeAgentQuestion, events.TypeAgentFinished,
+		events.TypeAgentFailed, events.TypeAgentMessage:
+		return true
+	default:
+		return false
+	}
 }
 
 func (r *Runtime) considerPublishedQuestion(

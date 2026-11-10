@@ -1,0 +1,30 @@
+{
+  "steps": [
+    {
+      "op": "send",
+      "label": "work",
+      "message": "Use the `launchAgent` tool to start one child agent. The child must, for each file in `/app/items`, write a file with the same name in `/app/out` that holds the file's word in capital letters, followed by a newline, using the file tools one file at a time. Wait for the child to finish, then tell me it is done.",
+      "kill": {
+        "target": "worker",
+        "afterToolUses": 1,
+        "onTool": "launchAgent",
+        "delayMilliseconds": 12000
+      }
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 5,
+      "timeoutSeconds": 300
+    },
+    {
+      "op": "send",
+      "label": "continue",
+      "message": "Peen crashed while the child agent was working. Continue that task."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 10,
+      "timeoutSeconds": 1500
+    }
+  ]
+}

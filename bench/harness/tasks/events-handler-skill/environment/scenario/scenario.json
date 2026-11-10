@@ -1,0 +1,19 @@
+{
+  "steps": [
+    {
+      "op": "postEvent",
+      "type": "report.ready",
+      "summary": "the report is ready",
+      "delivery": "wake"
+    },
+    {
+      "op": "sleep",
+      "seconds": 5
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 8,
+      "timeoutSeconds": 600
+    }
+  ]
+}

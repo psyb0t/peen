@@ -6,11 +6,13 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
 )
@@ -88,6 +90,20 @@ func (s *Store) saveActivityCompaction(
 
 	ids, err := validateCompactionHistory(ctx, query, execution.SessionID,
 		normalized)
+	if errors.Is(err, errCompactionPredecessorChanged) {
+		// Work resumed after a crash can finish a compaction it began on a
+		// chain head that a later turn has replaced. The summary still serves
+		// this execution's own context, and the session history it would
+		// have covered stays whole for the next compaction to summarize, so
+		// the execution goes on without writing it into the session chain.
+		ctxscope.GetLogger(ctx).Warn("compaction not added to the session",
+			"execution_id", execution.ID,
+			"activity_id", activity.ID,
+			"reason", reasonStaleCompactionHead)
+
+		return saveCompactionIdentity(ctx, query, activity, input.Compaction)
+	}
+
 	if err != nil {
 		return ctxerrors.Wrap(err, "validate compacted history")
 	}

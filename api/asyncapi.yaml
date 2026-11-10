@@ -418,6 +418,8 @@ components:
             - AGENT_NOT_FOUND
             - AGENT_PAUSED
             - HARNESS_CONFIGURATION_INVALID
+            - TURN_ROUND_LIMIT
+            - TURN_TOKEN_LIMIT
         message:
           type: string
         reason:

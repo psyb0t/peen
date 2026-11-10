@@ -234,11 +234,18 @@ func assertEightAgentExecutionTree(t *testing.T, base runtimeFixture) {
 	require.Eventually(t, func() bool {
 		page, err := base.store.SearchExecutions(t.Context(),
 			base.runtime.sessionID, session.SearchExecutionsOptions{})
-		if err != nil || len(page.Items) != 8 {
+		if err != nil {
 			return false
 		}
 
-		items = page.Items
+		// The branches finish after the root's turn ended, so their reports
+		// wake the root into later turns with roots of their own. Only the
+		// tree the first turn launched is under test.
+		items = launchedExecutionTree(page.Items)
+		if len(items) != 8 {
+			return false
+		}
+
 		for _, item := range items {
 			if item.State != models.ExecutionStateCompleted {
 				return false
@@ -265,6 +272,35 @@ func assertEightAgentExecutionTree(t *testing.T, base runtimeFixture) {
 		assert.Equal(t, parent.AgentRunID, run.ParentAgentRunID)
 		assert.Equal(t, models.AgentRunStateCompleted, run.State)
 	}
+}
+
+// launchedExecutionTree returns the root that launched children and every
+// execution under it, leaving out roots without children.
+func launchedExecutionTree(items []*models.Execution) []*models.Execution {
+	var rootID *uuid.UUID
+
+	for _, item := range items {
+		if item.Kind != models.ExecutionKindRoot {
+			rootID = &item.RootExecutionID
+
+			break
+		}
+	}
+
+	if rootID == nil {
+		return nil
+	}
+
+	var tree []*models.Execution
+
+	for _, item := range items {
+		if item.ID == *rootID || item.RootExecutionID == *rootID &&
+			item.Kind != models.ExecutionKindRoot {
+			tree = append(tree, item)
+		}
+	}
+
+	return tree
 }
 
 func assertNativeTreeLineage(t *testing.T, base runtimeFixture) {

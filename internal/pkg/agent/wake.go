@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -510,6 +511,18 @@ func runWakeHandler(
 			EventType: notice.Type,
 		},
 	}); err != nil {
+		if errors.Is(err, session.ErrSessionBusy) ||
+			errors.Is(err, commerr.ErrConflict) {
+			logger.Debug(
+				"event wake turn refused, the session is busy",
+				"event_type", notice.Type,
+				"session_id", sessionID.String(),
+				"reason", reasonSessionBusy,
+			)
+
+			return
+		}
+
 		logger.Error(
 			"event wake turn failed",
 			"event_type", notice.Type,

@@ -56,6 +56,11 @@ func (s *Store) PauseUnfinishedExecutions(
 				return ctxerrors.Wrap(err, "pause unfinished execution")
 			}
 
+			if err := s.markCrashedActivitiesUncertain(ctx, tx,
+				execution.SessionID, changed); err != nil {
+				return err
+			}
+
 			paused += len(changed)
 		}
 
@@ -66,4 +71,44 @@ func (s *Store) PauseUnfinishedExecutions(
 	}
 
 	return paused, nil
+}
+
+// markCrashedActivitiesUncertain marks the steps the dead process left
+// running whose effect cannot be repeated safely. Marking them now, rather
+// than when a resumed worker claims them again, lets an agent or user inspect
+// and resolve them while the work is still paused.
+func (s *Store) markCrashedActivitiesUncertain(
+	ctx context.Context,
+	query *repositories.Query,
+	sessionID uuid.UUID,
+	executionIDs []uuid.UUID,
+) error {
+	repository := query.ExecutionActivity
+
+	for _, executionID := range executionIDs {
+		execution, err := s.findExecution(ctx, query, sessionID, executionID)
+		if err != nil {
+			return ctxerrors.Wrap(err, "read crashed execution")
+		}
+
+		running, err := repository.WithContext(ctx).Where(
+			repository.SessionID.Eq(sessionID),
+			repository.ExecutionID.Eq(executionID),
+			repository.State.Eq(string(models.ActivityStateRunning)),
+			repository.ReplayPolicy.Eq(
+				string(models.ActivityReplayPolicyReconcile)),
+		).Find()
+		if err != nil {
+			return ctxerrors.Wrap(err, "list crashed activities")
+		}
+
+		for _, activity := range running {
+			if err := s.markActivityUncertain(ctx, query, execution,
+				activity); err != nil {
+				return ctxerrors.Wrap(err, "mark crashed activity uncertain")
+			}
+		}
+	}
+
+	return nil
 }

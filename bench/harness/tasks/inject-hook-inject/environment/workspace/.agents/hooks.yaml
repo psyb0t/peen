@@ -1,0 +1,9 @@
+version: 1
+postReadFile:
+  - name: ticket-quote
+    match:
+      path: "tickets/*.txt"
+    actions:
+      - name: quote-ticket
+        type: inject
+        messageFile: messages/ticket.md

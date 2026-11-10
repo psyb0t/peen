@@ -1,0 +1,1 @@
+Each file in `/app/records` is a log with one line that starts with `SERIAL:`. Read each file in full with `readFile`, one file at a time, without searching, and note its serial. Then write `/app/serials.txt` with one line per file, `<file name>=<serial>`, in file name order.

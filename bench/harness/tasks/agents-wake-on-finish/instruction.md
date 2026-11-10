@@ -1,0 +1,1 @@
+Launch a child agent that runs `sleep 25` and then reports the word `lantern` as its final answer. Do not wait for the child. After launching it, end your turn with the single word `launched`. When the child reports back, write its word, followed by a newline, to `/app/out/result.txt`.

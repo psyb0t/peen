@@ -5,6 +5,7 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
@@ -35,6 +36,22 @@ A message the user sent during this turn that never reached you:
 {{.}}
 </message>
 {{- end}}
+{{- if .ExecutionID}}
+
+{{if .RanNoTool}}Peen kept this turn as execution {{.ExecutionID}}, but ` +
+		`it stopped before it ran any tool, so it changed nothing and there ` +
+		`is nothing in it to inspect. If a later message asks you to ` +
+		`continue it, do its work directly or continue it with ` +
+		`resumeExecution.
+{{- else}}Peen kept this turn's work as execution {{.ExecutionID}}. If a ` +
+		`later message asks you to continue it, inspect it with ` +
+		`readExecution and continue it with resumeExecution instead of ` +
+		`redoing it.
+{{- if .Unanswered}} Resolve each tool call above whose effect is unknown ` +
+		`with resolveExecutionActivity first.
+{{- end}}
+{{- end}}
+{{- end}}
 
 {{.Guidance}}`
 
@@ -55,6 +72,14 @@ A message the user sent during this turn that never reached you:
 		"workspace before you repeat any of it. Do not continue this turn's " +
 		"work unless a later message asks for it."
 
+	// The kept guidance replaces the two above when Peen retained the turn's
+	// work, so the agent continues that work rather than redoing it by hand.
+	turnEndKeptUnfinishedGuidance = "The user still wants what this " +
+		"turn's message asked for, together with any later message, unless a " +
+		"later message says otherwise."
+	turnEndKeptCancelledGuidance = "Do not continue this turn's work " +
+		"unless a later message asks for it."
+
 	// turnEndResumedLead goes in front of an end message when Peen resumes
 	// the turn it ended, so later history does not claim the turn stopped
 	// for good.
@@ -68,28 +93,68 @@ type turnEndMessageData struct {
 	Error       string
 	Unanswered  []TurnEndToolCall
 	Undelivered []string
-	Guidance    string
+	// ExecutionID names the execution that kept the turn's work. It is empty
+	// when Peen kept none.
+	ExecutionID string
+	// RanNoTool reports that the kept execution started no tool, so there is
+	// no work in it to inspect.
+	RanNoTool bool
+	Guidance  string
 }
 
-// renderTurnEndMessage writes the system message for a turn that ended as
-// ended describes.
-func renderTurnEndMessage(ended TurnEndNotice) (string, error) {
-	data := turnEndMessageData{
-		Outcome:     turnEndFailedOutcome,
-		Error:       ended.Error,
-		Undelivered: ended.UndeliveredMessages,
-		Guidance:    turnEndUnfinishedGuidance,
-	}
-
-	switch ended.State {
+// turnEndOutcome picks how the message describes an ended turn and what it
+// tells the agent to do next. isKept reports whether Peen kept the turn's
+// work in an execution the agent can resume.
+func turnEndOutcome(
+	state models.TurnState,
+	isKept bool,
+) (string, string) {
+	switch state {
 	case models.TurnStateCancelled:
-		data.Outcome = turnEndCancelledOutcome
-		data.Guidance = turnEndCancelledGuidance
+		if isKept {
+			return turnEndCancelledOutcome, turnEndKeptCancelledGuidance
+		}
+
+		return turnEndCancelledOutcome, turnEndCancelledGuidance
 	case models.TurnStateInterrupted:
-		data.Outcome = turnEndInterruptedOutcome
+		if isKept {
+			return turnEndInterruptedOutcome, turnEndKeptUnfinishedGuidance
+		}
+
+		return turnEndInterruptedOutcome, turnEndUnfinishedGuidance
 	case models.TurnStateFailed,
 		models.TurnStateRunning,
 		models.TurnStateCompleted:
+	}
+
+	if isKept {
+		return turnEndFailedOutcome, turnEndKeptUnfinishedGuidance
+	}
+
+	return turnEndFailedOutcome, turnEndUnfinishedGuidance
+}
+
+// renderTurnEndMessage writes the system message for a turn that ended as
+// ended describes. kept is the execution that kept the turn's work, with an
+// ID of uuid.Nil when Peen kept none.
+func renderTurnEndMessage(
+	ended TurnEndNotice,
+	kept keptExecution,
+) (string, error) {
+	executionID := kept.ID
+	isKept := executionID != uuid.Nil
+	outcome, guidance := turnEndOutcome(ended.State, isKept)
+
+	data := turnEndMessageData{
+		Outcome:     outcome,
+		Error:       ended.Error,
+		Undelivered: ended.UndeliveredMessages,
+		RanNoTool:   isKept && !kept.HasToolActivity,
+		Guidance:    guidance,
+	}
+
+	if isKept {
+		data.ExecutionID = executionID.String()
 	}
 
 	for _, call := range ended.ToolCalls {
@@ -147,6 +212,61 @@ func markTurnEndMessagesResumed(
 	return nil
 }
 
+// keptExecution is the root execution that holds an ended turn's work.
+type keptExecution struct {
+	// ID is uuid.Nil when the turn has no execution or its execution is
+	// over.
+	ID uuid.UUID
+	// HasToolActivity reports whether the execution started any of the
+	// model's tool calls. An execution stopped during its first model call or
+	// compaction has none, even when hooks already ran.
+	HasToolActivity bool
+}
+
+// findKeptExecution returns the root execution that holds an ended turn's
+// work. The execution exists whether Peen pauses it before or after the turn
+// ends.
+func findKeptExecution(
+	ctx context.Context,
+	tx *repositories.Query,
+	turn *models.Turn,
+) (keptExecution, error) {
+	repository := tx.Execution
+
+	roots, err := repository.WithContext(ctx).Where(
+		repository.SessionID.Eq(turn.SessionID),
+		repository.RootTurnID.Eq(turn.ID),
+		repository.Kind.Eq(string(models.ExecutionKindRoot)),
+	).Order(repository.CreatedAt).Find()
+	if err != nil {
+		return keptExecution{}, ctxerrors.Wrap(err,
+			"read ended turn execution")
+	}
+
+	for _, root := range roots {
+		if isExecutionTerminal(root.State) {
+			continue
+		}
+
+		activities := tx.ExecutionActivity
+
+		tools, err := activities.WithContext(ctx).Where(
+			activities.SessionID.Eq(turn.SessionID),
+			activities.ExecutionID.Eq(root.ID),
+			activities.Kind.Eq(string(models.ActivityKindTool)),
+			activities.Name.Eq(ExecutionToolPhaseActivityName),
+		).Count()
+		if err != nil {
+			return keptExecution{}, ctxerrors.Wrap(err,
+				"count kept execution tool activities")
+		}
+
+		return keptExecution{ID: root.ID, HasToolActivity: tools > 0}, nil
+	}
+
+	return keptExecution{}, nil
+}
+
 // appendTurnEndMessage adds the system message to the ended turn, after its
 // other messages, in the transaction that ends it.
 func (s *Store) appendTurnEndMessage(
@@ -154,11 +274,6 @@ func (s *Store) appendTurnEndMessage(
 	tx *repositories.Query,
 	ended TurnEndNotice,
 ) error {
-	text, err := renderTurnEndMessage(ended)
-	if err != nil {
-		return err
-	}
-
 	turnRepository := tx.Turn
 
 	turn, err := turnRepository.WithContext(ctx).Where(
@@ -171,6 +286,16 @@ func (s *Store) appendTurnEndMessage(
 	session, err := s.findSessionWithQuery(ctx, tx, turn.SessionID)
 	if err != nil {
 		return ctxerrors.Wrap(err, "read ended turn session")
+	}
+
+	kept, err := findKeptExecution(ctx, tx, turn)
+	if err != nil {
+		return err
+	}
+
+	text, err := renderTurnEndMessage(ended, kept)
+	if err != nil {
+		return err
 	}
 
 	result, err := s.appendMessages(ctx, tx,

@@ -16,6 +16,8 @@ const (
 	jobBufferConcurrentGoros = 8
 	jobBufferWritesPerGoro   = 64
 	jobBufferConcurrentLines = 16
+	jobBufferTailMaxLines    = 4
+	jobBufferTailLines       = 6
 )
 
 func TestJobBuffer_AppendAndAll(t *testing.T) {
@@ -133,6 +135,68 @@ func TestJobBuffer_ReadZeroMaxLinesReturnsEverythingAvailable(t *testing.T) {
 	assert.Equal(t, []string{"x", "y"}, lines)
 	assert.Equal(t, 2, next)
 	assert.Zero(t, dropped)
+}
+
+func TestJobBuffer_TailReturnsNewestLines(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		cursor      int
+		maxLines    int
+		wantLines   []string
+		wantNext    int
+		wantDropped int
+		wantSkipped int
+	}{
+		{
+			name: "under the cap", cursor: 4, maxLines: 5,
+			wantLines: []string{"4", "5"}, wantNext: 6,
+		},
+		{
+			name: "over the cap", cursor: 2, maxLines: 2,
+			wantLines: []string{"4", "5"}, wantNext: 6, wantSkipped: 2,
+		},
+		{
+			name: "cursor before evicted lines", cursor: 0, maxLines: 3,
+			wantLines: []string{"3", "4", "5"}, wantNext: 6,
+			wantDropped: 2, wantSkipped: 1,
+		},
+		{
+			name: "no cap", cursor: 2, maxLines: 0,
+			wantLines: []string{"2", "3", "4", "5"}, wantNext: 6,
+		},
+		{
+			name: "cursor at the end", cursor: 6, maxLines: 2,
+			wantNext: 6,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			buf := newJobBuffer(jobBufferTailMaxLines, jobBufferTestMaxBytes)
+			for i := range jobBufferTailLines {
+				buf.Append(strconv.Itoa(i))
+			}
+
+			lines, next, dropped, skipped := buf.Tail(tc.cursor, tc.maxLines)
+
+			assert.Equal(t, tc.wantLines, lines)
+			assert.Equal(t, tc.wantNext, next)
+			assert.Equal(t, tc.wantDropped, dropped)
+			assert.Equal(t, tc.wantSkipped, skipped)
+
+			if tc.wantSkipped == 0 {
+				return
+			}
+
+			// The skipped lines are still there for a plain read.
+			skippedLines, _, _ := buf.Read(tc.cursor, tc.wantSkipped)
+			assert.Len(t, skippedLines, tc.wantSkipped)
+		})
+	}
 }
 
 // TestJobBuffer_ConcurrentAppendAndRead mirrors production usage: one

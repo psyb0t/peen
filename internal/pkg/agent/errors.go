@@ -1,6 +1,10 @@
 package agent
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/psyb0t/peen/internal/pkg/session"
+)
 
 var (
 	errDirectoryChanged  = errors.New("agent directory changed")
@@ -8,7 +12,7 @@ var (
 	// ErrTurnTokenLimit reports a turn, or a child agent's run, whose rounds
 	// have billed PEEN_MAX_TURN_TOKENS. It is always joined with
 	// commerr.ErrOutOfRange.
-	ErrTurnTokenLimit = errors.New("the turn reached its token limit")
+	ErrTurnTokenLimit = session.ErrTurnTokenLimit
 	// ErrInvalidModelReference reports a malformed provider/model value.
 	ErrInvalidModelReference = errors.New("invalid qualified model reference")
 	// ErrModelUnavailable reports a model discovery did not find.
@@ -54,11 +58,12 @@ var (
 	// deployment supplied but that cannot be used as a system prompt.
 	ErrSystemPromptInvalid = errors.New("invalid system prompt file")
 	// ErrSystemPromptTooLarge reports request-supplied prompt text over the
-	// configured byte bound.
-	ErrSystemPromptTooLarge = errors.New("system prompt exceeds its limit")
+	// configured byte bound. It is always joined with
+	// commerr.ErrValidationFailed.
+	ErrSystemPromptTooLarge = session.ErrSystemPromptTooLarge
 	// ErrMessageTooLarge reports a caller message over the configured byte
-	// bound.
-	ErrMessageTooLarge = errors.New("message exceeds its limit")
+	// bound. It is always joined with commerr.ErrValidationFailed.
+	ErrMessageTooLarge = session.ErrMessageTooLarge
 	// ErrCompactionPlanMismatch reports an assembled transcript that no
 	// longer matches the reconstruction plan, so no durable range can be
 	// named for it.

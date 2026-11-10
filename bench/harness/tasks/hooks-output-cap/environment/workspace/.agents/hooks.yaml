@@ -1,0 +1,24 @@
+version: 1
+preWriteFile:
+  - name: small-ok
+    match:
+      path: "ok/*"
+    actions:
+      - name: print-small
+        type: command
+        command: /app/hooks/small.sh
+  - name: big-pre
+    match:
+      path: "big/*"
+    actions:
+      - name: print-big
+        type: command
+        command: /app/hooks/big.sh
+postWriteFile:
+  - name: big-post
+    match:
+      path: "post/*"
+    actions:
+      - name: print-big
+        type: command
+        command: /app/hooks/big.sh

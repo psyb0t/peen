@@ -1,0 +1,28 @@
+{
+  "steps": [
+    {
+      "op": "send",
+      "label": "work",
+      "message": "Write the word `ready` followed by a newline to `/app/status.txt` with the `writeFile` tool."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 3,
+      "timeoutSeconds": 600
+    },
+    {
+      "op": "sleep",
+      "seconds": 30
+    },
+    {
+      "op": "send",
+      "label": "continue",
+      "message": "The provider was down while you worked. Continue the task you were doing."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 5,
+      "timeoutSeconds": 600
+    }
+  ]
+}

@@ -134,7 +134,8 @@ func (s *directoryScope) advance(
 	remaining := maximumRounds - s.completedRounds
 	if remaining <= 0 {
 		return nil, 0, ctxerrors.Wrap(
-			elelem.ErrMaxRoundsExceeded, "directory continuation budget",
+			newRoundLimitError(maximumRounds, s.options.agentRunID != nil),
+			"directory continuation budget",
 		)
 	}
 

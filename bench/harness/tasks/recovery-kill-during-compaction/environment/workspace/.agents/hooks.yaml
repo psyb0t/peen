@@ -1,0 +1,9 @@
+version: 1
+preCompact:
+  - name: mark-compaction
+    actions:
+      - name: mark
+        type: command
+        command: /usr/bin/touch
+        args:
+          - /tmp/bench-compacting

@@ -1,0 +1,152 @@
+{
+  "sessions": {
+    "main": "/app/w0",
+    "s1": "/app/w1",
+    "s2": "/app/w2",
+    "s3": "/app/w3",
+    "s4": "/app/w4",
+    "s5": "/app/w5",
+    "s6": "/app/w6",
+    "s7": "/app/w7",
+    "s8": "/app/w8",
+    "s9": "/app/w9"
+  },
+  "sampleMemorySeconds": 5,
+  "steps": [
+    {
+      "op": "parallel",
+      "steps": [
+        {
+          "op": "send",
+          "session": "main",
+          "label": "write0",
+          "message": "In `/app/w0`, write the text in `input.txt` in capital letters, followed by a newline, to `out.txt`.",
+          "timeoutSeconds": 1500
+        },
+        {
+          "op": "send",
+          "session": "s1",
+          "label": "write1",
+          "message": "In `/app/w1`, write the text in `input.txt` in capital letters, followed by a newline, to `out.txt`.",
+          "timeoutSeconds": 1500
+        },
+        {
+          "op": "send",
+          "session": "s2",
+          "label": "write2",
+          "message": "In `/app/w2`, write the text in `input.txt` in capital letters, followed by a newline, to `out.txt`.",
+          "timeoutSeconds": 1500
+        },
+        {
+          "op": "send",
+          "session": "s3",
+          "label": "write3",
+          "message": "In `/app/w3`, write the text in `input.txt` in capital letters, followed by a newline, to `out.txt`.",
+          "timeoutSeconds": 1500
+        },
+        {
+          "op": "send",
+          "session": "s4",
+          "label": "write4",
+          "message": "In `/app/w4`, write the text in `input.txt` in capital letters, followed by a newline, to `out.txt`.",
+          "timeoutSeconds": 1500
+        },
+        {
+          "op": "send",
+          "session": "s5",
+          "label": "write5",
+          "message": "In `/app/w5`, write the text in `input.txt` in capital letters, followed by a newline, to `out.txt`.",
+          "timeoutSeconds": 1500
+        },
+        {
+          "op": "send",
+          "session": "s6",
+          "label": "write6",
+          "message": "In `/app/w6`, write the text in `input.txt` in capital letters, followed by a newline, to `out.txt`.",
+          "timeoutSeconds": 1500
+        },
+        {
+          "op": "send",
+          "session": "s7",
+          "label": "write7",
+          "message": "In `/app/w7`, write the text in `input.txt` in capital letters, followed by a newline, to `out.txt`.",
+          "timeoutSeconds": 1500
+        },
+        {
+          "op": "send",
+          "session": "s8",
+          "label": "write8",
+          "message": "In `/app/w8`, write the text in `input.txt` in capital letters, followed by a newline, to `out.txt`.",
+          "timeoutSeconds": 1500
+        },
+        {
+          "op": "send",
+          "session": "s9",
+          "label": "write9",
+          "message": "In `/app/w9`, write the text in `input.txt` in capital letters, followed by a newline, to `out.txt`.",
+          "timeoutSeconds": 1500
+        }
+      ]
+    },
+    {
+      "op": "awaitIdle",
+      "session": "main",
+      "settleSeconds": 5,
+      "timeoutSeconds": 1500
+    },
+    {
+      "op": "awaitIdle",
+      "session": "s1",
+      "settleSeconds": 5,
+      "timeoutSeconds": 1500
+    },
+    {
+      "op": "awaitIdle",
+      "session": "s2",
+      "settleSeconds": 5,
+      "timeoutSeconds": 1500
+    },
+    {
+      "op": "awaitIdle",
+      "session": "s3",
+      "settleSeconds": 5,
+      "timeoutSeconds": 1500
+    },
+    {
+      "op": "awaitIdle",
+      "session": "s4",
+      "settleSeconds": 5,
+      "timeoutSeconds": 1500
+    },
+    {
+      "op": "awaitIdle",
+      "session": "s5",
+      "settleSeconds": 5,
+      "timeoutSeconds": 1500
+    },
+    {
+      "op": "awaitIdle",
+      "session": "s6",
+      "settleSeconds": 5,
+      "timeoutSeconds": 1500
+    },
+    {
+      "op": "awaitIdle",
+      "session": "s7",
+      "settleSeconds": 5,
+      "timeoutSeconds": 1500
+    },
+    {
+      "op": "awaitIdle",
+      "session": "s8",
+      "settleSeconds": 5,
+      "timeoutSeconds": 1500
+    },
+    {
+      "op": "awaitIdle",
+      "session": "s9",
+      "settleSeconds": 5,
+      "timeoutSeconds": 1500
+    }
+  ]
+}

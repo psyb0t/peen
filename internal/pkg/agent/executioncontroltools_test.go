@@ -1,12 +1,17 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/elelem/elelemtest"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
@@ -93,4 +98,101 @@ func TestResumeExecutionToolContinuesSelectedStoppedDeferredInput(t *testing.T) 
 	source, err := fixture.base.store.GetExecution(t.Context(), message.SessionID, message.ExecutionID)
 	require.NoError(t, err)
 	assert.Equal(t, models.ExecutionStateCompleted, source.State)
+}
+
+// Work stopped mid-call keeps that call with an unknown effect. Resuming it
+// without resolving the call first used to leave the work in reconciliation
+// for good while the agent believed it was running. The resumed work now
+// reads the call as an error result saying its outcome is unknown, and the
+// call is not repeated.
+func TestResumeExecutionToolSettlesTheCallAStopInterrupted(t *testing.T) {
+	t.Parallel()
+	initial := elelemtest.NewScriptedDriver(elelemtest.ToolCall("writeUnknownEffect", nativeRunnerBlockingTool, `{}`))
+	driver := &inspectionControlDriver{ScriptedDriver: initial}
+	base := newNativeRunnerFixture(t, driver)
+	effectPath := filepath.Join(base.workspace, "resumed-effect.txt")
+	effectStarted := make(chan struct{})
+	var effects atomic.Int64
+	base.runtime.extraTools = []elelem.Tool{{
+		Name: nativeRunnerBlockingTool, ArgumentsSchema: json.RawMessage(`{"type":"object"}`),
+		Handler: func(ctx context.Context, _ elelem.ToolInput) (elelem.ToolResult, error) {
+			effects.Add(1)
+			if err := os.WriteFile(effectPath, []byte("written once"), runtimeTestFileMode); err != nil {
+				return elelem.ToolResult{}, ctxerrors.Wrap(err, "write resume fixture effect")
+			}
+			close(effectStarted)
+			<-ctx.Done()
+
+			return elelem.ToolResult{}, ctxerrors.Wrap(ctx.Err(), "interrupt unacknowledged effect")
+		},
+	}}
+	first := runHandoffTurnAsync(t.Context(), base.runtime, "perform the original file effect")
+	select {
+	case <-effectStarted:
+	case <-time.After(workflowTestResultTimeout):
+		t.Fatal("original effect did not start")
+	}
+	_, err := base.runtime.CancelSession(t.Context(), base.runtime.sessionID)
+	require.NoError(t, err)
+	select {
+	case err := <-first:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(workflowTestResultTimeout):
+		t.Fatal("original effect did not stop")
+	}
+	page, err := base.store.SearchExecutions(t.Context(), base.runtime.sessionID, session.SearchExecutionsOptions{State: models.ExecutionStatePaused})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	original := page.Items[0]
+	require.Eventually(t, func() bool {
+		activities, err := base.store.ListExecutionActivities(t.Context(), original.SessionID, original.ID, session.ListEventsOptions{})
+		if err != nil {
+			return false
+		}
+		for _, activity := range activities.Items {
+			if activity.State == models.ActivityStateUncertain {
+				return true
+			}
+		}
+
+		return false
+	}, workflowTestResultTimeout, 10*time.Millisecond)
+	resume, err := json.Marshal(resumeExecutionInput{ExecutionID: original.ID, ControlRevision: original.ControlRevision})
+	require.NoError(t, err)
+	driver.ScriptedDriver = elelemtest.NewScriptedDriver(
+		elelemtest.ToolCall("resumeStopped", toolNameResumeExecution, string(resume)),
+		elelemtest.Text("resume request completed"), elelemtest.Text("original work finished"))
+	_, err = base.runtime.Run(t.Context(), TurnRequest{Message: "continue the stopped work"})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		stored, err := base.store.GetExecution(t.Context(), original.SessionID, original.ID)
+
+		return err == nil && stored.State == models.ExecutionStateCompleted
+	}, workflowTestResultTimeout, 10*time.Millisecond)
+	assert.EqualValues(t, 1, effects.Load(), "the interrupted call is not repeated")
+	content, err := os.ReadFile(effectPath)
+	require.NoError(t, err)
+	assert.Equal(t, "written once", string(content))
+	requests := driver.Requests()
+	require.Len(t, requests, 3)
+	toolResults := 0
+	for _, message := range requests[2].Messages {
+		if message.Role != elelem.RoleTool || message.ToolCallID != "writeUnknownEffect" {
+			continue
+		}
+		toolResults++
+		assert.Equal(t, fmt.Sprintf(interruptedToolResultFormat, original.PauseReason),
+			message.Text())
+	}
+	assert.Equal(t, 1, toolResults)
+	resumeResults := 0
+	for _, message := range requests[1].Messages {
+		if message.Role != elelem.RoleTool || message.ToolCallID != "resumeStopped" {
+			continue
+		}
+		resumeResults++
+		assert.Contains(t, message.Text(), resumedRootNote,
+			"resumed root work tells the agent not to wait for it")
+	}
+	assert.Equal(t, 1, resumeResults)
 }

@@ -123,29 +123,35 @@ func TestNativeRootCompactionCallsProviderAndCommitsOnce(t *testing.T) {
 	assert.EqualValues(t, 1, settings.Attempt)
 }
 
+// A summary call that fails, or returns nothing, no longer fails the turn.
+// The round keeps the saved context and the model request leaves the oldest
+// history out, as the compaction setting documents.
 func TestNativeRootCompactionFailureLeavesHistoryRaw(t *testing.T) {
 	t.Parallel()
 	testCases := []struct {
-		name    string
-		turn    elelemtest.Turn
-		wantErr error
+		name         string
+		turn         elelemtest.Turn
+		wantRunState models.ModelRunState
 	}{
 		{
 			name: "empty summary", turn: elelemtest.Text(" \n "),
-			wantErr: ErrCompactionEmptySummary,
+			wantRunState: models.ModelRunStateCompleted,
 		},
 		{
 			name: "provider error", turn: elelemtest.Turn{Err: commerr.ErrFetchFailed},
-			wantErr: commerr.ErrFetchFailed,
+			wantRunState: models.ModelRunStateFailed,
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			fixture, _, driver := nativeRootCompactionFixture(t, tc.turn)
-			_, err := fixture.engine.compactRound(t.Context(),
+			result, err := fixture.engine.compactRound(t.Context(),
 				workflowRoundInput{Execution: fixture.input})
-			require.ErrorIs(t, err, tc.wantErr)
+			require.NoError(t, err)
+			assert.Nil(t, result.Output.Compaction)
+			assert.JSONEq(t, string(fixture.input.Context),
+				string(result.Output.Context))
 			assert.Equal(t, 4, driver.Calls())
 			head, err := fixture.base.store.LatestCompaction(t.Context(),
 				fixture.input.SessionID)
@@ -155,15 +161,36 @@ func TestNativeRootCompactionFailureLeavesHistoryRaw(t *testing.T) {
 				fixture.input.SessionID)
 			require.NoError(t, err)
 			assert.Len(t, history.Messages, 6)
+			assert.Equal(t, tc.wantRunState,
+				compactionModelRunState(t, fixture))
 			page, err := fixture.base.store.ListExecutionActivities(t.Context(),
 				fixture.input.SessionID, fixture.input.ExecutionID,
 				session.ListEventsOptions{})
 			require.NoError(t, err)
 			require.Len(t, page.Items, 1)
-			assert.Equal(t, models.ActivityStateFailed, page.Items[0].State)
-			assert.Nil(t, page.Items[0].OutputJSON)
+			assert.Equal(t, models.ActivityStateCompleted, page.Items[0].State)
 		})
 	}
+}
+
+// compactionModelRunState returns the state of the compaction model run the
+// fixture recorded.
+func compactionModelRunState(
+	t *testing.T,
+	fixture executionLoopFixture,
+) models.ModelRunState {
+	t.Helper()
+	runs, err := fixture.base.store.ListModelRuns(t.Context(),
+		fixture.input.SessionID, session.ListModelRunsOptions{})
+	require.NoError(t, err)
+	for _, run := range runs.Items {
+		if run.Stage == models.ModelRunStageCompaction {
+			return run.State
+		}
+	}
+	require.Fail(t, "no compaction model run was recorded")
+
+	return ""
 }
 
 func TestNativeRootCompactionSkipsUnderBudget(t *testing.T) {

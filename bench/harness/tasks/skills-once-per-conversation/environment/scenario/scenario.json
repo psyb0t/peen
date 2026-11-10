@@ -1,0 +1,22 @@
+{
+  "steps": [
+    {
+      "op": "send",
+      "label": "first",
+      "message": ":file-header Create `/app/one.txt` whose content is the word `one`."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 3
+    },
+    {
+      "op": "send",
+      "label": "second",
+      "message": ":file-header Create `/app/two.txt` whose content is the word `two`."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 3
+    }
+  ]
+}

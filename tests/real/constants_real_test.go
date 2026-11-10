@@ -107,3 +107,15 @@ const (
 	realHarnessArchitectureLead     = "Architecture: "
 	realHarnessTimezoneLead         = "Local timezone: "
 )
+
+// realHarnessBudgetSettings are the context and output settings the spawned
+// controller never inherits from the deployment .env, so it runs each model
+// with its full window and output limit.
+func realHarnessBudgetSettings() []string {
+	return []string{
+		"PEEN_MAX_CONTEXT_TOKENS",
+		"PEEN_OUTPUT_RESERVE_TOKENS",
+		"PEEN_COMPACTION_MAX_OUTPUT_TOKENS",
+		"PEEN_COMPACTION_SUMMARY_PERCENT",
+	}
+}

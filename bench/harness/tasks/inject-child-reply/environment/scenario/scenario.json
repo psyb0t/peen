@@ -1,0 +1,14 @@
+{
+  "steps": [
+    {
+      "op": "send",
+      "label": "lookup",
+      "message": "Launch the `lookup` agent to find out the project version, wait for its answer, and write only the version number to `/app/version.txt`."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 20,
+      "timeoutSeconds": 900
+    }
+  ]
+}

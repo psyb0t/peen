@@ -1,0 +1,1 @@
+Launch a child agent that runs the command `sleep 613` in the foreground and waits for it to finish. Wait 20 seconds yourself by running `sleep 20`, then stop the child with `stopAgent`, and write `stopped`, followed by a newline, to `/app/out/status.txt`.

@@ -1,0 +1,10 @@
+{
+  "faults": [
+    {
+      "action": "status",
+      "status": 429,
+      "retryAfter": 2,
+      "request": 1
+    }
+  ]
+}

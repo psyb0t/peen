@@ -15,6 +15,12 @@ check one behavior, such as ignoring an instruction planted in a file or
 following a scoped rule. They ship with the source, so nothing is downloaded.
 The evolve suite is the same kind of task under ``bench/eval/evolve-tasks``,
 run with auto-evolve on, to check what the agent saves for later sessions.
+
+The harness suite under ``bench/harness/tasks`` tests Peen itself: tasks any
+model can do, graded on what Peen recorded. It runs several attempts per task,
+picks its tasks by tier from the ``tags`` in each ``task.toml``, and passes
+job-wide ``PEEN_`` settings, such as the blank-agent control, through
+``BENCH_PEEN_SETTINGS``.
 """
 
 import json
@@ -35,18 +41,35 @@ ENV_MODEL = "BENCH_MODEL"
 ENV_CONTEXT_TOKENS = "BENCH_CONTEXT_TOKENS"
 ENV_COMPACTION_MODEL = "BENCH_COMPACTION_MODEL"
 ENV_CONCURRENCY = "BENCH_CONCURRENCY"
+ENV_ATTEMPTS = "BENCH_ATTEMPTS"
+ENV_TIER = "BENCH_TIER"
+ENV_PEEN_SETTINGS = "BENCH_PEEN_SETTINGS"
 SUITE_AIDER = "aider"
 SUITE_LHTB = "lhtb"
 SUITE_EVAL = "eval"
 SUITE_EVOLVE = "evolve"
+SUITE_HARNESS = "harness"
 AGENT_PEEN = "peen"
 AGENT_ORACLE = "oracle"
 DATASET_DIRS = {SUITE_AIDER: "aider-polyglot", SUITE_LHTB: "lhtb"}
 SOURCE_TASK_DIRS = {
     SUITE_EVAL: ("eval", "tasks"),
     SUITE_EVOLVE: ("eval", "evolve-tasks"),
+    SUITE_HARNESS: ("harness", "tasks"),
 }
-SUITES = (SUITE_AIDER, SUITE_LHTB, SUITE_EVAL, SUITE_EVOLVE)
+SUITES = (SUITE_AIDER, SUITE_LHTB, SUITE_EVAL, SUITE_EVOLVE, SUITE_HARNESS)
+TIER_SMOKE = "smoke"
+TIER_FULL = "full"
+TIER_CHAOS = "chaos"
+TIERS = (TIER_SMOKE, TIER_FULL, TIER_CHAOS)
+DEFAULT_TIER = TIER_FULL
+DEFAULT_ATTEMPTS = {SUITE_HARNESS: 5}
+MAX_ATTEMPTS = 50
+TASK_CONFIG = "task.toml"
+# Harness tasks carry their own timeouts in task.toml. The adapter's command
+# timeout stays above the longest of them, so Harbor's timeout decides.
+HARNESS_RUN_TIMEOUT_SECONDS = 7200
+HARNESS_MAX_TOOL_ROUNDS = 600
 AIDER_PREFIX = "polyglot_"
 AIDER_OFFLINE_LANGUAGES = ("cpp", "go", "rust")
 AIDER_RUST = "rust"
@@ -64,7 +87,13 @@ LHTB_TASKS = (
 AIDER_AGENT_TIMEOUT_SECONDS = 1860
 LHTB_RUN_TIMEOUT_SECONDS = 5280
 LHTB_MAX_TOOL_ROUNDS = 2000
-DEFAULT_CONCURRENCY = {SUITE_AIDER: 3, SUITE_LHTB: 2, SUITE_EVAL: 3, SUITE_EVOLVE: 3}
+DEFAULT_CONCURRENCY = {
+    SUITE_AIDER: 3,
+    SUITE_LHTB: 2,
+    SUITE_EVAL: 3,
+    SUITE_EVOLVE: 3,
+    SUITE_HARNESS: 4,
+}
 DEFAULT_MODEL = "zai/glm-5.3"
 AGENT_IMPORT_PATH = "peen_agent:PeenAgent"
 SANDBOX_FILE = "sandbox.yaml"
@@ -93,7 +122,17 @@ class JSONFormatter(logging.Formatter):
             "func": record.funcName,
             "msg": record.getMessage(),
         }
-        for field in ("job", "suite", "agent", "tasks", "path", "task", "reason"):
+        for field in (
+        "job",
+        "suite",
+        "agent",
+        "tasks",
+        "path",
+        "task",
+        "reason",
+        "tier",
+        "attempts",
+    ):
             if hasattr(record, field):
                 entry[field] = getattr(record, field)
         return json.dumps(entry, sort_keys=True)
@@ -146,15 +185,71 @@ def offline_aider_tasks(dataset):
     return tasks
 
 
-def task_names(suite, dataset):
+def task_tags(task_dir):
+    try:
+        config = tomllib.loads((task_dir / TASK_CONFIG).read_text())
+    except (OSError, tomllib.TOMLDecodeError) as err:
+        raise JobError(f"read {task_dir / TASK_CONFIG}") from err
+    return frozenset(config.get("metadata", {}).get("tags", []))
+
+
+def tier_tasks(dataset, tier):
+    """Pick the harness tasks of one tier from each task's tags.
+
+    smoke is the tasks tagged smoke, chaos the tasks tagged chaos, and full
+    every task that is not chaos.
+    """
+    chosen = []
+    for task_dir in sorted(path for path in dataset.iterdir() if path.is_dir()):
+        tags = task_tags(task_dir)
+        is_chaos = TIER_CHAOS in tags
+        if tier == TIER_SMOKE and TIER_SMOKE not in tags:
+            continue
+        if tier == TIER_CHAOS and not is_chaos:
+            continue
+        if tier == TIER_FULL and is_chaos:
+            continue
+        chosen.append(task_dir.name)
+    return chosen
+
+
+def task_names(suite, dataset, tier):
     chosen = os.environ.get(ENV_TASKS, "").split()
     if chosen:
         return chosen
     if suite == SUITE_AIDER:
         return offline_aider_tasks(dataset)
+    if suite == SUITE_HARNESS:
+        return tier_tasks(dataset, tier)
     if suite in SOURCE_TASK_DIRS:
         return sorted(path.name for path in dataset.iterdir() if path.is_dir())
     return list(LHTB_TASKS)
+
+
+def peen_settings():
+    raw = os.environ.get(ENV_PEEN_SETTINGS, "")
+    if not raw:
+        return {}
+    try:
+        settings = json.loads(raw)
+    except ValueError as err:
+        raise JobError(f"{ENV_PEEN_SETTINGS} is not JSON") from err
+    if not isinstance(settings, dict):
+        raise JobError(f"{ENV_PEEN_SETTINGS} must be a JSON object")
+    return settings
+
+
+def attempts(suite):
+    raw = os.environ.get(ENV_ATTEMPTS, "")
+    if not raw:
+        return DEFAULT_ATTEMPTS.get(suite, 1)
+    try:
+        count = int(raw)
+    except ValueError as err:
+        raise JobError(f"{ENV_ATTEMPTS} must be a number") from err
+    if not 1 <= count <= MAX_ATTEMPTS:
+        raise JobError(f"{ENV_ATTEMPTS} must be between 1 and {MAX_ATTEMPTS}")
+    return count
 
 
 def dataset_dir(suite, state_dir, source_dir):
@@ -184,6 +279,12 @@ def agent_config(suite, agent):
         kwargs["max_tool_rounds"] = LHTB_MAX_TOOL_ROUNDS
     elif suite == SUITE_EVOLVE:
         kwargs["auto_evolve"] = True
+    elif suite == SUITE_HARNESS:
+        kwargs["run_timeout_sec"] = HARNESS_RUN_TIMEOUT_SECONDS
+        kwargs["max_tool_rounds"] = HARNESS_MAX_TOOL_ROUNDS
+    settings = peen_settings()
+    if settings:
+        kwargs["peen_settings"] = settings
     if kwargs:
         config["kwargs"] = kwargs
     return config
@@ -201,16 +302,23 @@ def main():
     job = required(ENV_JOB)
     configure_logging(state_dir)
 
+    tier = os.environ.get(ENV_TIER) or DEFAULT_TIER
+    if tier not in TIERS:
+        raise JobError(f"{ENV_TIER} must be one of {sorted(TIERS)}")
+
     dataset = dataset_dir(suite, state_dir, source_dir)
     if not dataset.is_dir():
         raise JobError(f"{dataset} is missing; run make bench-datasets")
-    tasks = task_names(suite, dataset)
+    tasks = task_names(suite, dataset, tier)
+    if not tasks:
+        raise JobError(f"no {suite} tasks match tier {tier}")
     concurrency = int(os.environ.get(ENV_CONCURRENCY) or DEFAULT_CONCURRENCY[suite])
+    attempt_count = attempts(suite)
 
     config = {
         "job_name": job,
         "jobs_dir": str(state_dir / JOBS_DIR),
-        "n_attempts": 1,
+        "n_attempts": attempt_count,
         "n_concurrent_trials": concurrency,
         "quiet": True,
         "retry": {"max_retries": 0},
@@ -240,6 +348,8 @@ def main():
             "suite": suite,
             "agent": agent,
             "tasks": len(tasks),
+            "tier": tier,
+            "attempts": attempt_count,
             "path": str(output),
         },
     )

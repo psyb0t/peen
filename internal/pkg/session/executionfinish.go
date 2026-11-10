@@ -122,6 +122,32 @@ func validateFinishedRepeat(
 	return nil
 }
 
+// settleExecutionBeforeFinish refuses a finish while activities or inbox
+// input are unsettled, and turns a root's unconsumed child reports into
+// session notices so none is left behind.
+func (s *Store) settleExecutionBeforeFinish(
+	ctx context.Context,
+	query *repositories.Query,
+	execution *models.Execution,
+	state models.ExecutionState,
+) error {
+	if err := requireSettledExecutionActivities(ctx, query,
+		execution, state); err != nil {
+		return ctxerrors.Wrap(err, "settle activities before finalization")
+	}
+
+	if err := requireSettledExecutionInbox(ctx, query,
+		execution, state); err != nil {
+		return ctxerrors.Wrap(err, "settle inbox before finalization")
+	}
+
+	if err := s.convertRootChildReports(ctx, query, execution); err != nil {
+		return ctxerrors.Wrap(err, "retain unconsumed child reports")
+	}
+
+	return nil
+}
+
 // The activity output and terminal execution state share one transaction.
 // A crash before its workflow acknowledgement therefore reuses both.
 func (s *Store) finishExecution(
@@ -135,14 +161,9 @@ func (s *Store) finishExecution(
 		return nil
 	}
 
-	if err := requireSettledExecutionActivities(ctx, query,
-		execution, input.Finish.State); err != nil {
-		return ctxerrors.Wrap(err, "settle activities before finalization")
-	}
-
-	if err := requireSettledExecutionInbox(ctx, query,
-		execution, input.Finish.State); err != nil {
-		return ctxerrors.Wrap(err, "settle inbox before finalization")
+	if err := s.settleExecutionBeforeFinish(ctx, query, execution,
+		input.Finish.State); err != nil {
+		return err
 	}
 
 	finish := input.Finish

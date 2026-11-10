@@ -1,0 +1,9 @@
+{
+  "faults": [
+    {
+      "action": "outage",
+      "seconds": 45,
+      "request": 1
+    }
+  ]
+}

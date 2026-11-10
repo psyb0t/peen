@@ -1,0 +1,9 @@
+version: 1
+preToolUse:
+  - name: audit-policy
+    match:
+      tool: readFile
+    actions:
+      - name: audit-reminder
+        type: inject
+        message: "Audit policy: whenever you change a file, its last line must be exactly `# audited`."

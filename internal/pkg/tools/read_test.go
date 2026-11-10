@@ -2,9 +2,11 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/psyb0t/ctxerrors/commerr"
@@ -433,6 +435,112 @@ func TestReadFile_ExceedsMaxReadBytes(t *testing.T) {
 		Path: "a.txt",
 	})
 	require.ErrorIs(t, err, ErrLimitExceeded)
+}
+
+// A file larger than MaxReadBytes is read a window at a time. Each window
+// stops before the line that would pass the bound, and the windows together
+// rebuild the whole file.
+func TestReadFile_LargerThanMaxReadBytesReadsInWindows(t *testing.T) {
+	t.Parallel()
+
+	const (
+		lineCount    = 23
+		maxReadBytes = 40
+		linesPerPage = 4
+	)
+
+	lines := make([]string, 0, lineCount)
+	for line := 1; line <= lineCount; line++ {
+		lines = append(lines, fmt.Sprintf("line-%03d", line))
+	}
+
+	content := strings.Join(lines, "\n") + "\n"
+	workspace := t.TempDir()
+	require.NoError(t, os.WriteFile(
+		filepath.Join(workspace, "big.txt"), []byte(content), 0o600,
+	))
+
+	exec, err := NewExecutor(Options{
+		Workspace: workspace,
+		Limits:    Limits{MaxReadBytes: maxReadBytes},
+	})
+	require.NoError(t, err)
+
+	var (
+		pages  []string
+		firsts []int
+	)
+
+	offset := 1
+	for offset != 0 {
+		output, err := exec.ReadFile(t.Context(), ReadFileInput{
+			Path: "big.txt", Offset: offset,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, lineCount, output.TotalLines)
+		assert.Equal(t, hashBytes([]byte(content)), output.SHA256)
+		assert.LessOrEqual(t, len(output.Content), maxReadBytes)
+		assert.Equal(t, output.NextOffset != 0, output.Truncated)
+
+		pages = append(pages, output.Content)
+		firsts = append(firsts, output.FirstLine)
+		offset = output.NextOffset
+	}
+
+	assert.Equal(t, []int{1, 5, 9, 13, 17, 21}, firsts)
+	assert.Equal(t, content, strings.Join(pages, "\n"))
+
+	for index, first := range firsts[:len(firsts)-1] {
+		assert.Equal(t,
+			strings.Join(lines[first-1:first-1+linesPerPage], "\n"),
+			pages[index])
+	}
+
+	past, err := exec.ReadFile(t.Context(), ReadFileInput{
+		Path: "big.txt", Offset: lineCount + 1,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, past.Content)
+	assert.False(t, past.Truncated)
+	assert.Equal(t, lineCount, past.TotalLines)
+}
+
+// A line longer than MaxReadBytes ends the window before it, and a window
+// that would start with it is refused.
+func TestReadFile_LineLongerThanMaxReadBytes(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	long := strings.Repeat("x", 50)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(workspace, "a.txt"), []byte("a\n"+long+"\nb\n"), 0o600,
+	))
+
+	exec, err := NewExecutor(Options{
+		Workspace: workspace,
+		Limits:    Limits{MaxReadBytes: 10},
+	})
+	require.NoError(t, err)
+
+	first, err := exec.ReadFile(t.Context(), ReadFileInput{Path: "a.txt"})
+	require.NoError(t, err)
+	assert.Equal(t, "a", first.Content)
+	assert.Equal(t, 1, first.LastLine)
+	assert.Equal(t, 2, first.NextOffset)
+	assert.Equal(t, 3, first.TotalLines)
+	assert.True(t, first.Truncated)
+
+	_, err = exec.ReadFile(t.Context(), ReadFileInput{
+		Path: "a.txt", Offset: 2,
+	})
+	require.ErrorIs(t, err, ErrLimitExceeded)
+
+	last, err := exec.ReadFile(t.Context(), ReadFileInput{
+		Path: "a.txt", Offset: 3,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "b\n", last.Content)
+	assert.False(t, last.Truncated)
 }
 
 func TestReadFile_CancelledContext(t *testing.T) {

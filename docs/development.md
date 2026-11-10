@@ -16,8 +16,8 @@ This page is for changing Peen itself. To run an agent against a project, start 
 | --- | --- |
 | [`api/api.yml`](https://github.com/psyb0t/peen/blob/main/api/api.yml) | The OpenAPI contract. Source for the Go server, the Go client, and the web client types. [`api/spec.go`](https://github.com/psyb0t/peen/blob/main/api/spec.go) embeds it for request validation. It is hand-written today and moves to a spec generated from Go in `cmd/apigen`; see `.agents/rules/http-api.md`. |
 | [`api/asyncapi.yaml`](https://github.com/psyb0t/peen/blob/main/api/asyncapi.yaml) | The WebSocket contract. Source for the Go frame types in [`internal/pkg/http/wsapi`](https://github.com/psyb0t/peen/tree/main/internal/pkg/http/wsapi) and the web client's frame types. |
-| [`cmd/`](https://github.com/psyb0t/peen/tree/main/cmd) | Entry point. `main.go` is Servicepack's, `init.go` and `commands.go` are Peen's, `repogen/` is the gorm/gen generator, `envexample/` writes [`.env.example`](https://github.com/psyb0t/peen/blob/main/.env.example) from the env file template, `benchrelay/` is the model relay the benchmark task containers run. |
-| `bench/` | The benchmark runner: the Harbor driver image, the Peen agent adapter, the provider proxy, the job writer, the task sandbox, and Peen's behavior eval tasks in `eval/tasks/`. See [Benchmarks](benchmarks.md#running-them). |
+| [`cmd/`](https://github.com/psyb0t/peen/tree/main/cmd) | Entry point. `main.go` is Servicepack's, `init.go` and `commands.go` are Peen's, `repogen/` is the gorm/gen generator, `envexample/` writes [`.env.example`](https://github.com/psyb0t/peen/blob/main/.env.example) from the env file template, `benchrelay/` is the model relay the benchmark task containers run, and `benchdriver/` runs the harness suite's scenario tasks inside them. |
+| `bench/` | The benchmark runner: the Harbor driver image, the Peen agent adapter, the provider proxy, the job writer, the task sandbox, Peen's behavior eval tasks in `eval/tasks/`, and the harness suite in `harness/`, with its tasks, the grader library, and the audit, report, and compare tools. See [Benchmarks](benchmarks.md#running-them). |
 | [`examples/rules/`](https://github.com/psyb0t/peen/tree/main/examples/rules) | The starter rule pack users copy into their harness. A test parses every file. See [AGENTS.md and rules](rules.md#a-starter-rule-pack). |
 | [`examples/embedding/`](https://github.com/psyb0t/peen/tree/main/examples/embedding) | A runnable program that embeds [`pkg/peen`](https://github.com/psyb0t/peen/tree/main/pkg/peen) and runs one turn. `make lint` compiles it, and coverage leaves it out. |
 | [`internal/app/`](https://github.com/psyb0t/peen/tree/main/internal/app) | Servicepack's application lifecycle. Not edited here. |
@@ -77,6 +77,8 @@ Every operation is a Make target. Targets run Go, Node, and the linters inside t
 | Run the opt-in live provider tests, which cost money | `make test-real` |
 | Run Aider Polyglot or LHTB against a live provider in a networkless sandbox, which costs money | `make bench-aider`, `make bench-lhtb`, after the setup in [Benchmarks](benchmarks.md#running-them) |
 | Score a change to the system prompt, the built-in `AGENTS.md`, or a tool description, which costs money | `make bench-eval` before and after the change, see [the behavior eval](benchmarks.md#the-behavior-eval) |
+| Test Peen's harness, recovery, and provider handling with a live model, which costs money | `make bench-harness`, and `make bench-compare` to compare two builds, see [the harness suite](benchmarks.md#the-harness-suite) |
+| Test the benchmark proxy and the harness audit tools | `make bench-selftest` |
 
 Pick the tier that can see your change. A change inside one package needs `make test-unit` while you work. A change to HTTP, WebSocket, or wiring needs `make test-api`. A control surface change needs the web targets, `make web-build`, and `make test-browser`. A Dockerfile or entrypoint change needs `make test-docker-worker-source`. Before you call any change done, run `make lint` and `make test-coverage`, which is what `pre-commit.sh` and CI run. Every Go test target runs with `-race`. Fix reported races instead of disabling the detector.
 
@@ -125,7 +127,7 @@ A change that alters behavior, configuration, the API, events, the harness, or d
 
 GitHub Pages publishes `docs/` from `main` at <https://psyb0t.github.io/peen/>, built with Jekyll and the Just the Docs theme. Every page needs `title`, `description`, and `nav_order` front matter, and a child page needs `parent` set to its parent's exact title. `make docs-build` builds the site with the same image GitHub uses and writes it to `.testing/docs-site`.
 
-Link another page with its relative `.md` path, so the link works on GitHub and on the site. Link a file outside `docs/` with its full GitHub URL, because the site does not contain it. Wrap a code block that holds `${{ }}` in `<!-- {% raw %} -->` and `<!-- {% endraw %} -->`, or Jekyll treats it as a template.
+Link another page with its relative `.md` path, so the link works on GitHub and on the site. Link a file outside `docs/` with its full GitHub URL, because the site does not contain it. Wrap a code block that holds a GitHub Actions expression, a dollar sign followed by double braces, in Liquid `raw` and `endraw` tags, each inside an HTML comment so GitHub hides it, or Jekyll treats the block as a template.
 
 ## CHANGELOG, commits, and releases
 

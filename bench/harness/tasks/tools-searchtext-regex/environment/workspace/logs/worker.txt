@@ -1,0 +1,43 @@
+worker request 000 handled status=ok
+worker request 001 handled status=ok
+worker request 002 handled status=ok
+worker request 003 handled status=ok
+worker request 003 failed with E3315 while saving
+worker request 004 handled status=ok
+worker request 005 handled status=ok
+worker note E123 seen in a trace
+worker request 006 handled status=ok
+worker request 007 handled status=ok
+worker request 008 handled status=ok
+worker request 009 handled status=ok
+worker request 010 handled status=ok
+worker request 011 handled status=ok
+worker request 012 handled status=ok
+worker request 012 failed with E2207 while saving
+worker request 013 handled status=ok
+worker request 014 handled status=ok
+worker request 015 handled status=ok
+worker request 016 handled status=ok
+worker note E12345 seen in a trace
+worker request 017 handled status=ok
+worker request 018 handled status=ok
+worker request 019 handled status=ok
+worker request 020 handled status=ok
+worker request 021 handled status=ok
+worker request 021 failed with E3315 while saving
+worker request 022 handled status=ok
+worker request 023 handled status=ok
+worker request 024 handled status=ok
+worker request 025 handled status=ok
+worker request 026 handled status=ok
+worker request 027 handled status=ok
+worker note e5678 seen in a trace
+worker request 028 handled status=ok
+worker request 029 handled status=ok
+worker request 030 handled status=ok
+worker request 030 failed with E2207 while saving
+worker request 031 handled status=ok
+worker request 032 handled status=ok
+worker request 033 handled status=ok
+worker request 034 handled status=ok
+worker request 035 handled status=ok

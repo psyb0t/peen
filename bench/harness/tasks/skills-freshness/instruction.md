@@ -1,0 +1,1 @@
+The project in `/app` depends on `fmtkit`, and its `go.mod` may be out of date. Find the newest `fmtkit` version in the registry snapshot at `/app/registry/fmtkit.json` and write it, without the leading `v`, to `/app/latest.txt`.

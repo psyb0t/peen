@@ -1,0 +1,1 @@
+Use the file tools to create `/app/a/one.txt`, `/app/b/two.txt`, `/app/c/three.txt` and `/app/d/four.txt`, each containing its own file name without the extension. If a write is refused, leave that file out and carry on with the others. Do not use the shell to write files.

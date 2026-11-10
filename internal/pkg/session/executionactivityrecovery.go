@@ -3,12 +3,21 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
+)
+
+const (
+	// uncertainStepFormat names one uncertain step and its activity ID.
+	uncertainStepFormat    = "%s (activity %s)"
+	uncertainStepSeparator = ", "
 )
 
 func (s *Store) markActivityUncertain(
@@ -105,7 +114,7 @@ func (s *Store) resolveActivityWithQuery(
 	isDuplicate, err := activityResolutionStatus(activity, input,
 		payload)
 	if err != nil {
-		return nil, err
+		return nil, s.pointToUncertainActivities(ctx, query, activity, err)
 	}
 
 	if isDuplicate {
@@ -151,12 +160,47 @@ func activityResolutionStatus(
 	}
 
 	if activity.State != models.ActivityStateUncertain {
-		return false, ctxerrors.Wrap(
-			commerr.ErrConflict, "activity is not uncertain",
-		)
+		return false, ctxerrors.Wrapf(commerr.ErrConflict,
+			"activity %s is %s, not uncertain", activity.StepID,
+			activity.State)
 	}
 
 	return false, nil
+}
+
+// pointToUncertainActivities adds the steps of the same execution that are
+// uncertain to a refused resolution, so a caller that picked the wrong step
+// sees which one to resolve.
+func (s *Store) pointToUncertainActivities(
+	ctx context.Context,
+	query *repositories.Query,
+	activity *models.ExecutionActivity,
+	refusal error,
+) error {
+	repository := query.ExecutionActivity
+
+	uncertain, err := repository.WithContext(ctx).Where(
+		repository.SessionID.Eq(activity.SessionID),
+		repository.ExecutionID.Eq(activity.ExecutionID),
+		repository.State.Eq(string(models.ActivityStateUncertain)),
+	).Order(repository.CreatedAt).Find()
+	if err != nil {
+		return errors.Join(refusal,
+			ctxerrors.Wrap(err, "list uncertain activities"))
+	}
+
+	if len(uncertain) == 0 {
+		return ctxerrors.Wrap(refusal, "this execution has no uncertain step")
+	}
+
+	steps := make([]string, 0, len(uncertain))
+	for _, candidate := range uncertain {
+		steps = append(steps, fmt.Sprintf(uncertainStepFormat,
+			candidate.StepID, candidate.ID))
+	}
+
+	return ctxerrors.Wrapf(refusal, "the uncertain steps are %s",
+		strings.Join(steps, uncertainStepSeparator))
 }
 
 func (s *Store) validateActivityResolution(input ResolveActivityInput) error {
@@ -170,11 +214,22 @@ func (s *Store) validateActivityResolution(input ResolveActivityInput) error {
 	case ActivityResolutionRetry:
 		if len(input.Output) != 0 || len(input.Context) != 0 {
 			return ctxerrors.Wrap(commerr.ErrValidationFailed,
-				"retry resolution cannot supply a result")
+				"retry takes no output or context, leave both out to run "+
+					"the step again")
 		}
 
 		return nil
 	case ActivityResolutionAccept:
+		if !isExecutionContext(input.Output) {
+			return ctxerrors.Wrap(commerr.ErrValidationFailed,
+				"accept needs output, the step's output as a JSON object")
+		}
+
+		if !isExecutionContext(input.Context) {
+			return ctxerrors.Wrap(commerr.ErrValidationFailed,
+				"accept needs context, the step's saved context as a JSON object, {} when it is empty") //nolint:lll // One model-facing refusal.
+		}
+
 		return s.validateActivityResult(CompleteActivityInput{
 			Output: input.Output, Context: input.Context,
 		})

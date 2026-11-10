@@ -1,0 +1,1 @@
+Start at `/app/chain/start.txt`. Read each file with readFile and follow its `next:` line to the next file, one at a time, until a file says `end`. Then write the names of the files you read, one per line in the order you read them, to `/app/visited.txt`.

@@ -1,0 +1,22 @@
+{
+  "steps": [
+    {
+      "op": "send",
+      "label": "valid",
+      "message": ":stamp-file write the stamp to /app/out/one.txt"
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 3
+    },
+    {
+      "op": "send",
+      "label": "unknown",
+      "message": ":no-such-skill write the stamp to /app/out/two.txt"
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 3
+    }
+  ]
+}

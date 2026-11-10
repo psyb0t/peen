@@ -33,7 +33,8 @@ func (e *workflowExecution) modelRound(
 			return result.Context
 		})
 	if err != nil {
-		return result, ctxerrors.Wrap(err, "run model checkpoint")
+		return result, ctxerrors.Wrap(permanentModelFailure(err),
+			"run model checkpoint")
 	}
 
 	return e.deliverModelRound(ctx, input, result)
@@ -91,12 +92,11 @@ func runWorkflowCheckpoint[T any](
 
 	result := workflowActivityResult[T]{Decision: claim.Decision}
 	if claim.Decision == session.ActivityDecisionReuse {
-		if err := json.Unmarshal([]byte(*claim.Activity.OutputJSON),
-			&result.Output); err != nil {
-			return result, ctxerrors.Wrap(err, "decode saved activity output")
-		}
+		return reusedWorkflowCheckpoint(result, claim)
+	}
 
-		return result, nil
+	if err := e.settleCrashedTool(ctx, execution, claim); err != nil {
+		return result, err
 	}
 
 	if claim.Decision != session.ActivityDecisionExecute {
@@ -119,6 +119,19 @@ func runWorkflowCheckpoint[T any](
 		result.Output, contextAfter(result.Output))
 	if err != nil {
 		return interruptedWorkflowCheckpoint[T](ctx, e, execution, claim, err)
+	}
+
+	return result, nil
+}
+
+// reusedWorkflowCheckpoint returns the saved output of a completed activity.
+func reusedWorkflowCheckpoint[T any](
+	result workflowActivityResult[T],
+	claim *session.ActivityClaim,
+) (workflowActivityResult[T], error) {
+	if err := json.Unmarshal([]byte(*claim.Activity.OutputJSON),
+		&result.Output); err != nil {
+		return result, ctxerrors.Wrap(err, "decode saved activity output")
 	}
 
 	return result, nil
@@ -314,6 +327,46 @@ func (e *workflowExecution) settleFailedPhase(
 	}
 
 	return settleFailedHook(ctx, e.options.Store, activity)
+}
+
+// settleCrashedTool reports a tool call a crash cut off to the model as an
+// error result when Peen resumes work after a crash, because nobody is asked
+// to inspect it. The call is not repeated, because its effect may already
+// have happened. The workflow rechecks a reconcile decision before it waits,
+// so the settled call is reused instead of waiting.
+func (e *workflowExecution) settleCrashedTool(
+	ctx context.Context,
+	execution workflowExecutionInput,
+	claim *session.ActivityClaim,
+) error {
+	if claim.Decision != session.ActivityDecisionReconcile ||
+		!e.options.SettlesCrashedTools ||
+		claim.Activity.Name != toolPhaseActivityName {
+		return nil
+	}
+
+	ctx = context.WithoutCancel(ctx)
+
+	activity, err := e.options.Store.GetExecutionActivity(ctx,
+		execution.SessionID, claim.Activity.ID)
+	if err != nil {
+		return ctxerrors.Wrap(err, "read crashed tool call")
+	}
+
+	if activity.State != models.ActivityStateUncertain {
+		return nil
+	}
+
+	if err := settleInterruptedTool(ctx, e.options.Store, activity,
+		crashedToolResult, crashedToolEvidence); err != nil {
+		return ctxerrors.Wrap(err, "settle crashed tool call")
+	}
+
+	ctxscope.GetLogger(ctx).Info("crashed tool call settled",
+		"execution_id", execution.ExecutionID, "step_id", activity.StepID,
+		"reason", "resume_after_crash")
+
+	return nil
 }
 
 // retainRefusedActivity lets an activity that admission refused before any

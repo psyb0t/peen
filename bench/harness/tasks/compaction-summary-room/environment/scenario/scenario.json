@@ -1,0 +1,53 @@
+{
+  "sampleMemorySeconds": 5,
+  "steps": [
+    {
+      "op": "send",
+      "label": "notes1",
+      "message": "Read `/app/notes/part1.txt`. Every line in it that starts with `FACT` is a station code that will be asked for later. Reply with only `ok`."
+    },
+    {
+      "op": "send",
+      "label": "notes2",
+      "message": "Read `/app/notes/part2.txt`. Every line in it that starts with `FACT` is a station code that will be asked for later. Reply with only `ok`."
+    },
+    {
+      "op": "send",
+      "label": "notes3",
+      "message": "Read `/app/notes/part3.txt`. Every line in it that starts with `FACT` is a station code that will be asked for later. Reply with only `ok`."
+    },
+    {
+      "op": "send",
+      "label": "notes4",
+      "message": "Read `/app/notes/part4.txt`. Every line in it that starts with `FACT` is a station code that will be asked for later. Reply with only `ok`."
+    },
+    {
+      "op": "send",
+      "label": "notes5",
+      "message": "Read `/app/notes/part5.txt`. Every line in it that starts with `FACT` is a station code that will be asked for later. Reply with only `ok`."
+    },
+    {
+      "op": "send",
+      "label": "notes6",
+      "message": "Read `/app/notes/part6.txt`. Every line in it that starts with `FACT` is a station code that will be asked for later. Reply with only `ok`."
+    },
+    {
+      "op": "exec",
+      "label": "delete-notes",
+      "command": [
+        "rm",
+        "-rf",
+        "/app/notes"
+      ]
+    },
+    {
+      "op": "send",
+      "label": "recall",
+      "message": "The notes files are deleted. Write `/app/answers.txt` with one line per station code, `K01=<code>` through `K12=<code>`, in order, using the codes from the notes you read earlier. Write `unknown` for a code you no longer have."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 5
+    }
+  ]
+}

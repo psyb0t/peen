@@ -1,13 +1,17 @@
 package agent
 
 import (
+	"context"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem/elelemtest"
 	"github.com/psyb0t/go-workflows/client"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -222,4 +226,48 @@ func TestWorkflowNotificationRequiresExecutionStorage(t *testing.T) {
 	dispatcher := newWorkflowDispatch(t.Context(), &Runtime{}, uuid.New(), nil)
 	require.ErrorIs(t, dispatcher.notifyParent(t.Context(), uuid.New(), uuid.New()),
 		commerr.ErrRequiredFieldNotSet)
+}
+
+func TestWorkflowNotificationChildCompletionWakesCompletedRoot(t *testing.T) {
+	t.Parallel()
+	fixture, round, _ := childModelFixture(t, elelemtest.Text("child report"))
+	runtime := fixture.base.runtime
+	dispatcher := newWorkflowDispatch(t.Context(), runtime,
+		fixture.engine.options.GenerationID, nil)
+	dispatcher.bind(&fixture.engine.options)
+	model, err := fixture.engine.modelRound(t.Context(), round)
+	require.NoError(t, err)
+	round.Execution.Context = model.Output.Context
+	endQuestionParent(t, fixture)
+
+	var (
+		calls     atomic.Int64
+		eventType atomic.Value
+	)
+
+	runtime.SetWakeRunner(func(
+		_ context.Context,
+		_ uuid.UUID,
+		request MessageRequest,
+	) error {
+		eventType.Store(request.Origin.EventType)
+		calls.Add(1)
+
+		return nil
+	})
+	startQuestionWakeWorker(t, fixture, runtime)
+	_, err = fixture.engine.finishExecution(t.Context(), workflowFinishInput{
+		Execution: round.Execution,
+		Result: workflowFinishResult{
+			Result: model.Output,
+			Finish: session.FinishExecutionInput{
+				State: models.ExecutionStateCompleted,
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		return calls.Load() == 1
+	}, workflowTestResultTimeout, 10*time.Millisecond)
+	assert.Equal(t, events.TypeAgentFinished, eventType.Load())
 }

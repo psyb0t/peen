@@ -119,11 +119,8 @@ func logValidatedConfig(
 		"compaction_model", config.CompactionModel,
 		"compaction_mode", config.CompactionMode,
 		"crash_recovery", config.CrashRecovery,
-		"max_context_tokens", config.MaxContextTokens,
-		"output_reserve_tokens", config.OutputReserveTokens,
 		"compaction_output_tokens", config.CompactionOutputTokens,
 		"compaction_summary_percent", config.CompactionSummaryPercent,
-		"compaction_summary_tokens", config.CompactionSummaryTokens(),
 		"model_request_timeout", config.ModelRequestTimeout,
 		"max_concurrent_turns", config.MaxConcurrentTurns,
 		"max_queued_user_messages", config.MaxQueuedUserMessages,
@@ -171,5 +168,18 @@ func logValidatedConfig(
 		"api_token_configured", config.APIToken != "",
 		"provider_count", len(upstreams),
 		"provider_names", upstreamNames,
+	)
+}
+
+// logContextBudget records the context budget resolved against the default
+// model: the context, the output limit every turn request sends, and the room
+// one summary gets.
+func logContextBudget(ctx context.Context, config peenconfig.Config) {
+	ctxscope.GetLogger(ctx).Info(
+		"resolved context budget",
+		"default_model", config.DefaultModel,
+		"max_context_tokens", config.MaxContextTokens,
+		"output_reserve_tokens", config.OutputReserveTokens,
+		"compaction_summary_tokens", config.CompactionSummaryTokens(),
 	)
 }

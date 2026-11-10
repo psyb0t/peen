@@ -1,0 +1,26 @@
+{
+  "steps": [
+    {
+      "op": "postEvent",
+      "type": "deploy.note",
+      "summary": "a release code was reported",
+      "data": {
+        "code": "quill-5521"
+      },
+      "delivery": "wake"
+    },
+    {
+      "op": "sleep",
+      "seconds": 15
+    },
+    {
+      "op": "send",
+      "label": "ask",
+      "message": "A session event has reported a release code. Write that code, followed by a newline, to `/app/out/code.txt`."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 5
+    }
+  ]
+}

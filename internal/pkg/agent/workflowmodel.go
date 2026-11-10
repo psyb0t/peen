@@ -3,13 +3,24 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
+)
+
+const (
+	// maxOutputLimitContinuations bounds the extra rounds one execution gets
+	// for replies cut off at the output limit.
+	maxOutputLimitContinuations = 3
+
+	outputLimitNoteFormat = "Your last reply stopped at the output limit " +
+		"of %d tokens, reasoning included, before you finished. Continue " +
+		"from where it stopped. Reason more briefly, and split long output, " +
+		"such as a large file, across several smaller tool calls."
 )
 
 type workflowToolDefinition struct {
@@ -46,6 +57,10 @@ type workflowConversation struct {
 	InboxIDs       []uuid.UUID              `json:"inboxIds,omitempty"`
 	Compaction     *workflowCompactionState `json:"compaction,omitempty"`
 	Limits         *workflowExecutionLimits `json:"limits,omitempty"`
+
+	// CutOffRounds counts the rounds this execution added because a reply
+	// stopped at the output limit. See continueCutOffReply.
+	CutOffRounds int `json:"cutOffRounds,omitempty"`
 
 	// historyDropped is set when one model request left out old history to
 	// fit the budget. It lives for that request only and is never saved.
@@ -99,19 +114,8 @@ func workflowSendRequest(
 // have billed the run's token limit. The check runs before each round, so
 // the round that crosses the limit still finishes.
 func checkTurnTokenLimit(conversation workflowConversation) error {
-	if conversation.Limits == nil || conversation.Limits.MaxTurnTokens <= 0 {
-		return nil
-	}
-
-	used := conversation.Usage.BilledTotalTokens()
-	if used < conversation.Limits.MaxTurnTokens {
-		return nil
-	}
-
-	return ctxerrors.Wrapf(
-		errors.Join(commerr.ErrOutOfRange, ErrTurnTokenLimit),
-		"%d tokens used of %d", used, conversation.Limits.MaxTurnTokens,
-	)
+	return turnTokenLimitFor(conversation.Usage, conversation.Limits,
+		conversation.Child != nil)
 }
 
 // decodeWorkflowConversation reads and checks a round's saved context.
@@ -181,7 +185,10 @@ func workflowModelRequestWith(
 			WithHistory(history)).
 		WithTools(tools).WithMaxContextTokens(conversation.MaxContextTokens).
 		WithOutputReserveTokens(conversation.OutputReserveTokens).
-		WithMaxRounds(workflowManualRequestRoundLimit)
+		WithMaxRounds(workflowManualRequestRoundLimit).
+		PostMaxTokensReached(fitInFlightToolResults)
+	withOutputLimit(request, conversation.OutputReserveTokens)
+
 	if conversation.Streaming != nil {
 		request.WithStreaming(*conversation.Streaming)
 	}
@@ -306,6 +313,7 @@ func workflowModelResult(
 	conversation.FinishReason = response.FinishReason
 	conversation.HasToolCalls = len(response.ToolCalls) > 0
 	conversation.InboxIDs = nil
+	continued := continueCutOffReply(&conversation, response)
 
 	encoded, err := json.Marshal(conversation)
 	if err != nil {
@@ -314,9 +322,37 @@ func workflowModelResult(
 	}
 
 	return workflowRoundResult{
-		Context: encoded, Calls: response.ToolCalls, Text: response.Text,
-		FinishReason: response.FinishReason,
+		Context: encoded, Calls: validToolCalls(response.ToolCalls),
+		Text:         response.Text,
+		FinishReason: response.FinishReason, Continue: continued,
 	}, nil
+}
+
+// continueCutOffReply gives the model another round when its reply stopped
+// at the output limit without a tool call. Ended there, the turn would finish
+// on a half-written answer, often one cut off while still reasoning. A system
+// note says the reply was cut and asks for a shorter continuation. After
+// maxOutputLimitContinuations such rounds the turn ends as it is, so a model
+// that keeps hitting the limit cannot loop.
+func continueCutOffReply(
+	conversation *workflowConversation,
+	response *elelem.Response,
+) bool {
+	if response.FinishReason != elelem.FinishReasonLength ||
+		len(response.ToolCalls) > 0 ||
+		conversation.CutOffRounds >= maxOutputLimitContinuations {
+		return false
+	}
+
+	conversation.CutOffRounds++
+	conversation.Messages = append(conversation.Messages, elelem.Message{
+		Role: elelem.RoleSystem,
+		Content: elelem.Text(fmt.Sprintf(outputLimitNoteFormat,
+			conversation.OutputReserveTokens)),
+		Origin: elelem.MessageOriginTurn,
+	})
+
+	return true
 }
 
 // workflowSavedUsage returns usage without the error of each failed provider

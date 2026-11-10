@@ -126,31 +126,36 @@ func TestNativeChildCompactionCommitsAndReusesSavedSummary(t *testing.T) {
 func TestNativeChildCompactionFailurePreservesRawHistory(t *testing.T) {
 	t.Parallel()
 	testCases := []struct {
-		name    string
-		turn    elelemtest.Turn
-		wantErr error
+		name         string
+		turn         elelemtest.Turn
+		wantRunState models.ModelRunState
 	}{
 		{
 			name: "empty", turn: elelemtest.Text(" "),
-			wantErr: ErrCompactionEmptySummary,
+			wantRunState: models.ModelRunStateCompleted,
 		},
 		{
 			name: "provider", turn: elelemtest.Turn{Err: commerr.ErrFetchFailed},
-			wantErr: commerr.ErrFetchFailed,
+			wantRunState: models.ModelRunStateFailed,
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			fixture, child, _ := nativeChildCompactionFixture(t, tc.turn)
-			_, err := fixture.engine.compactRound(t.Context(),
+			result, err := fixture.engine.compactRound(t.Context(),
 				workflowRoundInput{Execution: fixture.input})
-			require.ErrorIs(t, err, tc.wantErr)
+			require.NoError(t, err)
+			assert.Nil(t, result.Output.Compaction)
+			assert.JSONEq(t, string(fixture.input.Context),
+				string(result.Output.Context))
 			history, err := fixture.base.store.AgentRunHistory(t.Context(),
 				fixture.input.SessionID, child.ID)
 			require.NoError(t, err)
 			assert.Nil(t, history.Compaction)
 			assert.Len(t, history.Messages, 6)
+			assert.Equal(t, tc.wantRunState,
+				compactionModelRunState(t, fixture))
 		})
 	}
 }

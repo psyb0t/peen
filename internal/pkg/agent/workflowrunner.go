@@ -109,6 +109,8 @@ func (n *nativeWorkflowRunner) run(
 	result, err := client.GetWorkflowResult[workflowRoundResult](ctx, n.api,
 		submission.Instance, workflowResultWaitTimeout)
 	if err != nil {
+		err = restoreWorkflowSentinels(err)
+
 		if ctx.Err() != nil {
 			err = errors.Join(err,
 				n.interrupted(ctx, prepared, submission.Input))

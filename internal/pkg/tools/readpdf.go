@@ -1,7 +1,9 @@
 package tools
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -37,6 +39,7 @@ func isPDFPath(path string) bool {
 // hash, and observation work as for a text file, over the extracted text, and
 // SHA256 is the hash of the file's bytes.
 func (e *Executor) readPDFFile(
+	ctx context.Context,
 	resolved string,
 	input ReadFileInput,
 ) (ReadFileOutput, error) {
@@ -57,7 +60,14 @@ func (e *Executor) readPDFFile(
 	}
 
 	sha := hashBytes(content)
-	output := e.buildReadWindow(resolved, text, sha, input)
+
+	window := e.newLineWindow(input)
+	if err := window.scan(ctx, bufio.NewReader(
+		strings.NewReader(text))); err != nil {
+		return ReadFileOutput{}, ctxerrors.Wrapf(err, "read PDF %s", resolved)
+	}
+
+	output := window.output(resolved, sha)
 	output.MediaType = pdfMediaType
 	output.SizeBytes = len(content)
 	output.Pages = pages

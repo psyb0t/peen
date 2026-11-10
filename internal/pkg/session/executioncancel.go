@@ -181,6 +181,10 @@ func (s *Store) cancelExecutionAgentRun(
 	run.State = models.AgentRunStateCancelled
 	run.CancelRequested, run.EndedAt = true, &now
 
+	if err := s.closeChildToolCalls(ctx, tx, run); err != nil {
+		return ctxerrors.Wrap(err, "close stopped child tool calls")
+	}
+
 	event, err := s.recordExecutionChildTerminal(ctx, tx, run)
 	if err != nil {
 		return ctxerrors.Wrap(err, "retain cancelled child event")
@@ -191,7 +195,8 @@ func (s *Store) cancelExecutionAgentRun(
 		return ctxerrors.Wrap(err, "frame child cancellation report")
 	}
 
-	return s.recordExecutionChildReport(ctx, tx, execution, event, report)
+	return s.recordExecutionChildReport(ctx, tx, execution, run, event,
+		report)
 }
 
 func cancelledChildReport(run *models.AgentRun) (string, error) {

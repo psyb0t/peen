@@ -1,0 +1,1 @@
+Launch a child agent that waits for three messages, each holding one number, adds the numbers, and sends the sum back to you with `sendMessage`. Send it the numbers 17, 25 and 40 in three separate `sendMessage` calls, one number per call, and do not put the numbers in its task. Write the sum the child reports to `/app/out/sum.txt`, followed by a newline.

@@ -1,0 +1,9 @@
+{
+  "faults": [
+    {
+      "action": "truncate",
+      "afterEvents": 3,
+      "request": 2
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+version: 1
+preWriteFile:
+  - &protect-generated
+    name: protect-generated
+    match:
+      path: "generated/**"
+    actions:
+      - name: deny-generated-edits
+        type: deny
+        reason: Files under generated/ are produced by ./gen.sh from routes.txt. Change routes.txt, then run ./gen.sh.
+preEditFile: [*protect-generated]
+preApplyPatch: [*protect-generated]
+preMovePath: [*protect-generated]
+preRemovePath: [*protect-generated]

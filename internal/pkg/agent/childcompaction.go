@@ -60,8 +60,8 @@ func (r *Runtime) workflowChildCompactRound(
 	summary, err := built.summarize(ctx, built.renderTranscript(
 		workflowCompactionMessages(conversation), units))
 	if err != nil {
-		return workflowCompactionResult{}, ctxerrors.Wrap(err,
-			"summarize child workflow history")
+		return leaveHistoryAfterSummaryFailure(ctx, input.Execution.Context,
+			ctxerrors.Wrap(err, "summarize child workflow history"))
 	}
 
 	return r.workflowCompactedResult(ctx, built, conversation, input,

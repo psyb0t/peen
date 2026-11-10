@@ -317,6 +317,11 @@ func buildRuntime(
 		return nil, ctxerrors.Wrap(err, "discover the worker provider models")
 	}
 
+	deployment, err = agent.ResolveContextBudget(deployment, models)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "resolve the worker context budget")
+	}
+
 	resolver, err := workerResolver(deployment, document)
 	if err != nil {
 		return nil, err

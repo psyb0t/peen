@@ -287,6 +287,119 @@ func TestExecutionToolsContextPagesReconstructRetainedConversation(t *testing.T)
 	assert.Equal(t, before, after)
 }
 
+// Every activity keeps the whole turn context, so a page of them used to
+// exceed the tool result budget at any limit. The listing leaves the context
+// out and shows the start of the input and output, and part output reads the
+// rest.
+func TestExecutionToolsListLargeActivitiesWithinTheResultBudget(t *testing.T) {
+	t.Parallel()
+	fixture := newExecutionLoopFixture(t, elelemtest.NewScriptedDriver(), false)
+	read := retainedExecutionTool(t, fixture, "readExecution")
+	large := strings.Repeat("retained turn context ", 4096)
+	contextJSON, err := json.Marshal(map[string]string{"messages": large})
+	require.NoError(t, err)
+	outputJSON, err := json.Marshal(map[string]string{"answer": large})
+	require.NoError(t, err)
+	activityIDs := make([]uuid.UUID, 0, 5)
+	for index := range 5 {
+		claim, err := fixture.base.store.BeginExecutionActivity(t.Context(), fixture.input.SessionID,
+			fixture.input.ExecutionID, fixture.engine.options.GenerationID, session.ScheduleActivityInput{
+				StepID: fmt.Sprintf("largeModel%d", index), Name: "retainedModel", Kind: models.ActivityKindModel,
+				ReplayPolicy: models.ActivityReplayPolicyRetry, Input: json.RawMessage(`{"prompt":"retained input"}`),
+			})
+		require.NoError(t, err)
+		_, err = fixture.base.store.CompleteExecutionActivity(t.Context(), fixture.input.SessionID, claim.Lease,
+			session.CompleteActivityInput{Output: outputJSON, Context: contextJSON})
+		require.NoError(t, err)
+		activityIDs = append(activityIDs, claim.Activity.ID)
+	}
+	result := callRetainedExecutionTool(t, read, map[string]any{"executionId": fixture.input.ExecutionID, "part": "activities", "limit": 5})
+	require.False(t, result.IsError, "%s", result.Content)
+	var page struct {
+		Activities *session.ExecutionActivityPage `json:"activities"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(result.Content), &page))
+	require.Len(t, page.Activities.Items, 5)
+	for _, item := range page.Activities.Items {
+		assert.Empty(t, item.ContextJSON)
+		require.NotNil(t, item.OutputJSON)
+		assert.Contains(t, *item.OutputJSON, "truncated")
+		assert.Less(t, len(*item.OutputJSON), len(outputJSON))
+		assert.Contains(t, item.InputJSON, "retained input")
+	}
+	var chunks []string
+	for offset := 0; ; {
+		result := callRetainedExecutionTool(t, read, map[string]any{"executionId": fixture.input.ExecutionID, "activityId": activityIDs[0], "part": "output", "offset": offset})
+		require.False(t, result.IsError, "%s", result.Content)
+		var output struct {
+			Context struct {
+				Content    string `json:"content"`
+				NextOffset int    `json:"nextOffset"`
+				HasMore    bool   `json:"hasMore"`
+			} `json:"context"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(result.Content), &output))
+		chunks = append(chunks, output.Context.Content)
+		if !output.Context.HasMore {
+			break
+		}
+		offset = output.Context.NextOffset
+	}
+	assert.Equal(t, string(outputJSON), strings.Join(chunks, ""))
+	result = callRetainedExecutionTool(t, read, map[string]any{"executionId": fixture.input.ExecutionID, "part": "input"})
+	assert.True(t, result.IsError, "part input needs an activityId")
+}
+
+// A page of many activities used to fail as too large at any limit the model
+// picked above a handful. The page now holds what fits, says how many through
+// limit, and the model walks the rest with hasMore and offset.
+func TestExecutionToolsPageActivitiesThatDoNotFitInOneResult(t *testing.T) {
+	t.Parallel()
+	const activityCount = 41
+	fixture := newExecutionLoopFixture(t, elelemtest.NewScriptedDriver(), false)
+	read := retainedExecutionTool(t, fixture, "readExecution")
+	outputJSON, err := json.Marshal(map[string]string{"answer": strings.Repeat("retained step output ", 512)})
+	require.NoError(t, err)
+	want := make([]uuid.UUID, 0, activityCount)
+	for index := range activityCount {
+		claim, err := fixture.base.store.BeginExecutionActivity(t.Context(), fixture.input.SessionID,
+			fixture.input.ExecutionID, fixture.engine.options.GenerationID, session.ScheduleActivityInput{
+				StepID: fmt.Sprintf("pagedModel%02d", index), Name: "retainedModel", Kind: models.ActivityKindModel,
+				ReplayPolicy: models.ActivityReplayPolicyRetry, Input: json.RawMessage(`{"prompt":"retained input"}`),
+			})
+		require.NoError(t, err)
+		_, err = fixture.base.store.CompleteExecutionActivity(t.Context(), fixture.input.SessionID, claim.Lease,
+			session.CompleteActivityInput{Output: outputJSON, Context: json.RawMessage(`{}`)})
+		require.NoError(t, err)
+		want = append(want, claim.Activity.ID)
+	}
+	var got []uuid.UUID
+	pages := 0
+	for offset := 0; ; {
+		result := callRetainedExecutionTool(t, read, map[string]any{"executionId": fixture.input.ExecutionID, "part": "activities", "limit": activityCount, "offset": offset})
+		require.False(t, result.IsError, "%s", result.Content)
+		var page struct {
+			Activities *session.ExecutionActivityPage `json:"activities"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(result.Content), &page))
+		require.NotEmpty(t, page.Activities.Items)
+		if page.Activities.HasMore {
+			assert.Equal(t, len(page.Activities.Items), page.Activities.Limit,
+				"a trimmed page says how many activities it holds")
+		}
+		for _, item := range page.Activities.Items {
+			got = append(got, item.ID)
+		}
+		pages++
+		if !page.Activities.HasMore {
+			break
+		}
+		offset += len(page.Activities.Items)
+	}
+	assert.Greater(t, pages, 1, "the full page does not fit in one result")
+	assert.Equal(t, want, got)
+}
+
 func TestExecutionToolsSurfaceStorageFailures(t *testing.T) {
 	t.Parallel()
 	for _, unavailable := range []bool{false, true} {

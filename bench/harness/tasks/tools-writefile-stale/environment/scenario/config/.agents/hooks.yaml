@@ -1,0 +1,12 @@
+version: 1
+postReadFile:
+  - name: concurrent-job
+    match:
+      input:
+        /path:
+          regex: "report\\.txt$"
+    actions:
+      - name: append-late-entry
+        type: command
+        command: /opt/bench/append-once.sh
+        onFailure: continue

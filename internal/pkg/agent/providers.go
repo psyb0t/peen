@@ -75,7 +75,9 @@ type RegistryOptions struct {
 
 	// MaxContextTokens is the deployment's request budget. It supplies the
 	// context size for a model whose driver publishes none, and it may not
-	// exceed the window of a model that publishes one.
+	// exceed the window of a model that publishes one. 0 means the budget
+	// follows the models' windows: a model that publishes none gets
+	// config.FallbackContextTokens and nothing is checked.
 	MaxContextTokens int
 
 	// Factory builds one provider's driver. Nil uses NewDriver.
@@ -89,7 +91,7 @@ func NewRegistry(
 	ctx context.Context,
 	options RegistryOptions,
 ) (*Registry, error) {
-	if options.MaxContextTokens <= 0 {
+	if options.MaxContextTokens < 0 {
 		return nil, ctxerrors.Wrap(
 			commerr.ErrValidationFailed,
 			"registry max context tokens",
@@ -160,7 +162,7 @@ func (r *Registry) validateSelection(
 		return ctxerrors.Wrap(err, "resolve selected model")
 	}
 
-	if selected.Model.ContextSize > 0 &&
+	if maxContextTokens > 0 && selected.Model.ContextSize > 0 &&
 		maxContextTokens > selected.Model.ContextSize {
 		return ctxerrors.Wrapf(
 			ErrContextBudgetTooLarge,
@@ -302,7 +304,7 @@ func newZAICodingDriver(upstream config.Upstream) elelem.Driver {
 
 //nolint:ireturn // Elelem's retry decorator returns the Driver contract.
 func withProviderRetry(driver elelem.Driver) elelem.Driver {
-	return withRetryConfig(driver, providerRetryConfig())
+	return withRetryConfig(requireFinishReason(driver), providerRetryConfig())
 }
 
 func providerRetryConfig() elelem.RetryConfig {
@@ -418,6 +420,10 @@ func modelMetadata(
 	model.ID = modelID
 	if model.ContextSize <= 0 {
 		model.ContextSize = maxContextTokens
+	}
+
+	if model.ContextSize <= 0 {
+		model.ContextSize = config.FallbackContextTokens
 	}
 
 	return model

@@ -12,14 +12,16 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
+// scheduleDeferredRoot submits the first deferred root input that may run and
+// reports whether it did.
 func (n *nativeWorkflowRunner) scheduleDeferredRoot(
 	ctx context.Context,
-) error {
+) (bool, error) {
 	runtime := n.dispatch.runtime
 
 	stored, err := runtime.store.Get(ctx, runtime.sessionID)
 	if err != nil {
-		return ctxerrors.Wrap(err, "read deferred scheduling revision")
+		return false, ctxerrors.Wrap(err, "read deferred scheduling revision")
 	}
 
 	options := session.ListEventsOptions{}
@@ -27,7 +29,7 @@ func (n *nativeWorkflowRunner) scheduleDeferredRoot(
 		page, err := n.engine.options.Store.ListDeferredExecutionMessages(ctx,
 			runtime.sessionID, options)
 		if err != nil {
-			return ctxerrors.Wrap(err, "read deferred scheduling input")
+			return false, ctxerrors.Wrap(err, "read deferred scheduling input")
 		}
 
 		for _, message := range page.Items {
@@ -40,7 +42,7 @@ func (n *nativeWorkflowRunner) scheduleDeferredRoot(
 
 			err := n.submitDeferredRoot(ctx, message)
 			if errors.Is(err, session.ErrSessionBusy) {
-				return nil
+				return false, nil
 			}
 
 			if errors.Is(err, commerr.ErrInvalidState) {
@@ -52,14 +54,14 @@ func (n *nativeWorkflowRunner) scheduleDeferredRoot(
 			}
 
 			if err != nil {
-				return ctxerrors.Wrap(err, "submit deferred input")
+				return false, ctxerrors.Wrap(err, "submit deferred input")
 			}
 
-			return nil
+			return true, nil
 		}
 
 		if !page.HasMore {
-			return nil
+			return false, nil
 		}
 
 		options.Offset += len(page.Items)

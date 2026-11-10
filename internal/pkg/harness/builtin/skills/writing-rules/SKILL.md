@@ -27,7 +27,7 @@ paths:
 - Wrap every returned error with context: `fmt.Errorf("open config: %w", err)`.
 ```
 
-Patterns are relative to the directory that holds the `.agents` directory the rule is in, or to the current directory for a rule in the configuration directory or the global learned directory. `*` stays inside one directory, `**/` spans directories, and `{a,b}` lists alternatives. Leave `paths` out only for a rule that applies to every task. A rule without `paths` is part of every system prompt, and the deployment refuses turns once those rules fill too much of the context, so keep unscoped rules few and short.
+Patterns are relative to the directory that holds the `.agents` directory the rule is in, or to the current directory for a rule in the configuration directory or the global learned directory. `*` stays inside one directory, `**/` spans directories, and `{a,b}` lists alternatives. Match every file the convention covers, including the same kind of file in subdirectories and nested projects: a convention for every file in any `docs` directory is `**/docs/**`, not `docs/**`, which matches only the `docs` directory next to `.agents`. Leave `paths` out only for a rule that applies to every task. A rule without `paths` is part of every system prompt, and the deployment refuses turns once those rules fill too much of the context, so keep unscoped rules few and short.
 
 ## What goes in
 

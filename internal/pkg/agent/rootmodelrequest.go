@@ -155,7 +155,7 @@ func (r *Runtime) rootWorkflowModelAudit(
 ) (*modelAuditRecorder, error) {
 	settings, err := newModelAuditSettings(prepared.model.Model,
 		false, workflowManualRequestRoundLimit, conversation.MaxContextTokens,
-		0, r.maxConcurrentTools,
+		conversation.OutputReserveTokens, r.maxConcurrentTools,
 		r.toolTimeout, r.maxToolResultTokens, r.modelRequestTimeout)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "encode workflow model audit settings")

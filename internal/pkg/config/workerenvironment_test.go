@@ -48,6 +48,18 @@ func TestWorkerEnvironmentCarriesTheAskTimeout(t *testing.T) {
 	assert.Equal(t, "20m", environment["PEEN_ASK_TIMEOUT"])
 }
 
+// The worker settles a tool call a crash cut off only when the controller
+// resumes work after a crash, so the worker has to see the mode.
+func TestWorkerEnvironmentCarriesTheCrashRecoveryMode(t *testing.T) {
+	t.Setenv("PEEN_CRASH_RECOVERY", string(CrashRecoveryResume))
+
+	environment, err := testConfig(t).WorkerEnvironment()
+	require.NoError(t, err)
+
+	assert.Equal(t, string(CrashRecoveryResume),
+		environment["PEEN_CRASH_RECOVERY"])
+}
+
 func TestWorkerEnvironmentCarriesDisabledCoreSettings(t *testing.T) {
 	t.Setenv("PEEN_AGENT", "reviewer")
 	t.Setenv("PEEN_DISABLED_CORE_SKILLS", "planning")

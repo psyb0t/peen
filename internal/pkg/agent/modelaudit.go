@@ -525,6 +525,21 @@ func (r *modelAuditRecorder) activeCall() (*modelAuditCall, error) {
 	return call, nil
 }
 
+// modelAuditRetries returns the attempts a model round records and how many
+// of them were retries. Without retry callbacks it falls back to elelem's
+// failed attempts.
+func modelAuditRetries(
+	retries []modelAuditRetryAttempt,
+	info elelem.RetryInfo,
+) ([]modelAuditRetryAttempt, int64) {
+	if len(retries) > 0 {
+		return retries, int64(len(retries))
+	}
+
+	return modelAuditRetryAttemptsFromElelem(info.FailedAttempts),
+		modelAuditRetryCount(info)
+}
+
 func (r *modelAuditRecorder) modelCallFinalizeInput(
 	state models.ModelCallState,
 	responseMessageJSON string,
@@ -545,9 +560,7 @@ func (r *modelAuditRecorder) modelCallFinalizeInput(
 		return session.FinalizeModelCallInput{}, err
 	}
 
-	if len(retries) == 0 {
-		retries = modelAuditRetryAttemptsFromElelem(usage.Retry.FailedAttempts)
-	}
+	retries, retryCount := modelAuditRetries(retries, usage.Retry)
 
 	retriesJSON, err := modelAuditJSONArray(retries, "model round retries")
 	if err != nil {
@@ -564,7 +577,7 @@ func (r *modelAuditRecorder) modelCallFinalizeInput(
 		ResponseMessageJSON:     responseMessageJSON,
 		ResponseUsageJSON:       usageJSON,
 		RetryAttemptsJSON:       retriesJSON,
-		RetryAttemptCount:       int64(len(retries)),
+		RetryAttemptCount:       retryCount,
 		PromptTokens:            usage.Prompt,
 		CompletionTokens:        usage.Completion,
 		TotalTokens:             usage.Total,
@@ -1041,6 +1054,19 @@ func modelAuditUsageFromElelem(usage elelem.Usage) modelAuditUsage {
 			WastedTotalTokens:      usage.Retry.WastedTotalTokens,
 		},
 	}
+}
+
+// modelAuditRetryCount is how many times a call was tried again. Elelem lists
+// every failed attempt, including the last one when the call gave up, and a
+// last attempt that failed was never retried, so the count is one less than
+// the attempts made. A usage that lists failures without counting attempts
+// has only the list to go by.
+func modelAuditRetryCount(retry elelem.RetryInfo) int64 {
+	if retry.TotalAttempts <= 0 {
+		return int64(len(retry.FailedAttempts))
+	}
+
+	return int64(retry.TotalAttempts - 1)
 }
 
 func modelAuditRetryAttemptsFromElelem(

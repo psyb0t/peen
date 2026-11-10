@@ -62,8 +62,8 @@ func (r *Runtime) workflowRootCompactRound(
 	summary, err := built.summarize(ctx, built.renderTranscript(
 		workflowCompactionMessages(conversation), units))
 	if err != nil {
-		return workflowCompactionResult{}, ctxerrors.Wrap(err,
-			"summarize root workflow history")
+		return leaveHistoryAfterSummaryFailure(ctx, input.Execution.Context,
+			ctxerrors.Wrap(err, "summarize root workflow history"))
 	}
 
 	return r.workflowCompactedResult(ctx, built, conversation, input,
@@ -106,8 +106,9 @@ func (r *Runtime) workflowCompactedResult(
 ) (workflowCompactionResult, error) {
 	text := strings.TrimSpace(summary.Text)
 	if text == "" {
-		return workflowCompactionResult{}, ctxerrors.Wrap(
-			ErrCompactionEmptySummary, "summarizer returned no summary")
+		return leaveHistoryAfterSummaryFailure(ctx, input.Execution.Context,
+			ctxerrors.Wrap(ErrCompactionEmptySummary,
+				"summarizer returned no summary"))
 	}
 
 	outcome := built.summaryOutcome(units, summary)

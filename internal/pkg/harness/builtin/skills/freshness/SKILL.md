@@ -1,6 +1,6 @@
 ---
 name: freshness
-description: Verify time-sensitive facts with current authoritative evidence before using them.
+description: Load before you state, compare or write down a fact that changes over time, such as the latest or newest version of a dependency, a release, an API contract, a price, a schedule, a policy or a person's role, to check it against a current authoritative source.
 ---
 # Freshness
 

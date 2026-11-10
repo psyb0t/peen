@@ -1,0 +1,10 @@
+{
+  "faults": [
+    {
+      "action": "stall",
+      "stage": "compaction",
+      "requests": [1, 2, 3, 4],
+      "seconds": 25
+    }
+  ]
+}

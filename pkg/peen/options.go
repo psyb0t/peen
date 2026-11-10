@@ -211,17 +211,36 @@ func (o Options) withDefaults() Options {
 		o.MaxEventWakesPerHour = defaultMaxEventWakesPerHour
 	}
 
-	if o.MaxContextTokens <= 0 {
-		o.MaxContextTokens = defaultMaxContextTokens
-	}
-
-	if o.OutputReserveTokens <= 0 {
-		o.OutputReserveTokens = defaultOutputReserveTokens
-	}
-
 	if o.ModelRequestTimeout <= 0 {
 		o.ModelRequestTimeout = defaultModelRequestTimeout
 	}
 
 	return o
+}
+
+// withContextBudget fills a 0 MaxContextTokens and OutputReserveTokens the
+// way a deployment does: the context from the default and compaction models'
+// windows, and the output limit from the default model's own, capped at a
+// quarter of the context.
+func (o Options) withContextBudget(
+	models agent.ModelResolver,
+) (Options, error) {
+	window, maxOutput, err := agent.ModelLimits(models, o.DefaultModel,
+		o.CompactionModel)
+	if err != nil {
+		return o, ctxerrors.Wrap(err, "read the model limits")
+	}
+
+	if o.MaxContextTokens == 0 {
+		o.MaxContextTokens = internalconfig.ContextTokens(window)
+	}
+
+	if o.OutputReserveTokens == 0 {
+		o.OutputReserveTokens = internalconfig.OutputReserveTokens(
+			o.MaxContextTokens,
+			maxOutput,
+		)
+	}
+
+	return o, nil
 }

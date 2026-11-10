@@ -270,6 +270,10 @@ type RunCommandInput struct {
 // wait bound elapsed first; a running job is never killed by returning it,
 // only recorded. Stdout and Stderr carry every line captured so far. ExitCode
 // is unknownExitCode until State leaves JobStateRunning with a normal exit.
+//
+// The job result types keep their output text as the last fields, so a
+// result cut down to the tool result cap loses output lines, never the state,
+// cursors, or dropped line counts that come before them.
 type RunCommandOutput struct {
 	JobID              uuid.UUID `json:"jobId"`
 	PID                int       `json:"pid"`
@@ -279,13 +283,18 @@ type RunCommandOutput struct {
 	Running            bool      `json:"running"`
 	State              JobState  `json:"state"`
 	ExitCode           int       `json:"exitCode"`
-	Stdout             string    `json:"stdout"`
-	Stderr             string    `json:"stderr"`
 	StdoutDroppedLines int       `json:"stdoutDroppedLines"`
 	StderrDroppedLines int       `json:"stderrDroppedLines"`
+	// StdoutSkippedLines and StderrSkippedLines count the buffered lines
+	// left out ahead of the newest MaxReadJobOutputLines this result
+	// carries. readJobOutput from cursor 0 still reads them.
+	StdoutSkippedLines int `json:"stdoutSkippedLines"`
+	StderrSkippedLines int `json:"stderrSkippedLines"`
 	// Note tells the model how to keep waiting when the wait ended with the
 	// command still running. Empty otherwise.
-	Note string `json:"note,omitempty"`
+	Note   string `json:"note,omitempty"`
+	Stderr string `json:"stderr"`
+	Stdout string `json:"stdout"`
 }
 
 // JobState names the lifecycle stage of one supervised process job. It is an
@@ -382,12 +391,12 @@ type ReadJobOutputOutput struct {
 	JobID              uuid.UUID `json:"jobId"`
 	Found              bool      `json:"found"`
 	State              JobState  `json:"state"`
-	Stdout             string    `json:"stdout"`
-	Stderr             string    `json:"stderr"`
 	NextStdoutCursor   int       `json:"nextStdoutCursor"`
 	NextStderrCursor   int       `json:"nextStderrCursor"`
 	StdoutDroppedLines int       `json:"stdoutDroppedLines"`
 	StderrDroppedLines int       `json:"stderrDroppedLines"`
+	Stderr             string    `json:"stderr"`
+	Stdout             string    `json:"stdout"`
 }
 
 // WaitJobInput blocks for one job to leave the running state, up to a bound.
@@ -413,15 +422,21 @@ type WaitJobOutput struct {
 	ExitCode           int       `json:"exitCode"`
 	DurationMs         int64     `json:"durationMs"`
 	Duration           string    `json:"duration"`
-	Stdout             string    `json:"stdout"`
-	Stderr             string    `json:"stderr"`
 	NextStdoutCursor   int       `json:"nextStdoutCursor"`
 	NextStderrCursor   int       `json:"nextStderrCursor"`
 	StdoutDroppedLines int       `json:"stdoutDroppedLines"`
 	StderrDroppedLines int       `json:"stderrDroppedLines"`
+	// StdoutSkippedLines and StderrSkippedLines count the buffered lines
+	// after the requested cursors left out ahead of the newest
+	// MaxReadJobOutputLines this result carries. readJobOutput from the same
+	// cursors still reads them.
+	StdoutSkippedLines int `json:"stdoutSkippedLines"`
+	StderrSkippedLines int `json:"stderrSkippedLines"`
 	// Note tells the model how to keep waiting when the wait ended with the
 	// job still running. Empty otherwise.
-	Note string `json:"note,omitempty"`
+	Note   string `json:"note,omitempty"`
+	Stderr string `json:"stderr"`
+	Stdout string `json:"stdout"`
 }
 
 // SignalJobInput asks one job's process group to stop or die. Signalling an

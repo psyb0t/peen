@@ -1,0 +1,1 @@
+In `/app/site`, change `draft` to `final` in `index.txt`, delete `old.txt`, move `notes.txt` to `archive/notes.txt` while changing `todo` to `done` in it, and create `done.txt` holding the line `ok`. Apply all of it with a single applyPatch call.

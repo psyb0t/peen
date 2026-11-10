@@ -42,7 +42,7 @@ The change tools check that the agent knows what it is changing. Replacing or re
 | `runCommand` | Runs a shell command in the current workspace, or in `directory`. |
 | `listJobs` | Lists the session's running and finished commands with their purpose, state, timings, and buffered output. |
 | `readJobOutput` | Reads a bounded window of a job's output without waiting. A non-zero dropped count means the buffer lost its oldest lines. |
-| `waitJob` | Blocks until a job exits or the wait ends, and returns its state, exit code, and new output. |
+| `waitJob` | Blocks until a job exits or the wait ends, and returns its state, exit code, and the newest lines of its new output. A non-zero skipped count means earlier lines were left out, and `readJobOutput` from the same cursor reads them. |
 | `signalJob` | Stops a job. `stop` sends SIGTERM to the whole process group and escalates to SIGKILL. `kill` goes straight to SIGKILL. |
 
 ## Skills and child agents
@@ -65,7 +65,7 @@ These tools work on what Peen kept after a stop or a crash. [Recovery after a cr
 | Tool | What it does |
 | --- | --- |
 | `searchExecutions` | Finds retained work in this session by text, identity, state, or time. Reading does not resume anything. |
-| `readExecution` | Reads an execution's metadata, saved context, activities, events, or inbox without resuming it. |
+| `readExecution` | Reads an execution's metadata, saved context, activities, events, or inbox without resuming it, and one activity's full input or output in chunks. |
 | `resumeExecution` | Continues paused work. The agent uses it only when the user asks, after inspecting the saved history and the workspace. |
 | `resolveExecutionActivity` | Records a decision on an uncertain step, retry or accept, with evidence of what the agent checked. |
 

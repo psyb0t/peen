@@ -159,7 +159,7 @@ func TestNewRegistry(t *testing.T) {
 			wantErr: ErrContextBudgetTooLarge,
 		},
 		{
-			name: "a non-positive budget is rejected",
+			name: "a negative budget is rejected",
 			upstreams: []config.Upstream{
 				{Name: "aigate", Type: config.UpstreamTypeOpenAI},
 			},

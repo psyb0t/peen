@@ -944,7 +944,7 @@ func (r *Runtime) runChildAgent(
 		true,
 		maximumRounds,
 		r.maxContextTokens,
-		0,
+		r.outputReserveTokens,
 		r.maxConcurrentTools,
 		r.toolTimeout,
 		r.maxToolResultTokens,
@@ -1030,6 +1030,11 @@ func (r *Runtime) runChildAgent(
 	if prepared.compactor != nil {
 		request = request.PreMaxTokensReached(prepared.compactor.handle)
 	}
+
+	request = withOutputLimit(
+		request.PostMaxTokensReached(fitInFlightToolResults),
+		r.outputReserveTokens,
+	)
 
 	response, err := scope.run(
 		depthCtx, request, maximumRounds, 0,
@@ -1186,10 +1191,9 @@ func (r *Runtime) finishAgentRun(
 
 	state, classification, eventType := agentRunOutcome(runErr)
 
-	result := AgentRunResult{State: state, FailureDetail: errorText(runErr)}
-	if runErr == nil {
-		result.Response = response.Text
-	}
+	closeStoppedChildToolCalls(ctx, sink, run, runErr)
+
+	result := agentRunResultOf(state, response, runErr)
 
 	if err := r.finalizeAgentRun(
 		ctx,
@@ -1232,6 +1236,44 @@ func (r *Runtime) finishAgentRun(
 	logChildAgentOutcome(ctx, run, result, runErr)
 
 	return result
+}
+
+// agentRunResultOf is the outcome a run's parent hears about: the reply of a
+// run that succeeded, or the failure text of one that did not.
+func agentRunResultOf(
+	state AgentRunState,
+	response *elelem.Response,
+	runErr error,
+) AgentRunResult {
+	result := AgentRunResult{State: state, FailureDetail: errorText(runErr)}
+	if runErr == nil {
+		result.Response = response.Text
+	}
+
+	return result
+}
+
+// closeStoppedChildToolCalls gives the unfinished tool calls of a run that
+// ended with runErr their stopped results. It runs before the run is
+// finalized, because the run's events refuse anything but the terminal one
+// once it ends. A failure is logged, because the run still has to end.
+func closeStoppedChildToolCalls(
+	ctx context.Context,
+	sink *agentRunSink,
+	run *AgentRun,
+	runErr error,
+) {
+	if runErr == nil {
+		return
+	}
+
+	if err := sink.recordStoppedToolCalls(ctx); err != nil {
+		runtimecontext.Logger(ctx).Warn(
+			"persist stopped child tool results",
+			"agent_run_id", run.ID.String(),
+			"err", err,
+		)
+	}
 }
 
 func logChildAgentOutcome(
@@ -1366,6 +1408,10 @@ type agentRunSink struct {
 	modelReference string
 	phaseBuffer    *childPhaseBuffer
 	mu             sync.Mutex
+
+	// toolMu guards openTools, the calls that started and have no result.
+	toolMu    sync.Mutex
+	openTools []openToolCall
 }
 
 func newAgentRunSink(
@@ -1525,6 +1571,8 @@ func (s *agentRunSink) onToolCallStart(
 	ctx context.Context,
 	call elelem.ToolCallEvent,
 ) error {
+	s.markToolStarted(call)
+
 	return s.emit(ctx, EventTypeAgentRunToolUse, toolUsePayload{
 		CallID:    call.CallID,
 		Name:      call.Name,
@@ -1544,6 +1592,8 @@ func (s *agentRunSink) persistToolResult(
 	call elelem.ToolCallEvent,
 	directory, systemPrompt string,
 ) error {
+	s.markToolFinished(call.CallID)
+
 	content, isError := "", false
 	if call.Result != nil {
 		content = call.Result.Content
@@ -1573,7 +1623,7 @@ func (s *agentRunSink) onAssistantMessage(
 	ctx context.Context,
 	message elelem.Message,
 ) error {
-	toolCalls, err := json.Marshal(message.ToolCalls)
+	toolCalls, err := json.Marshal(validToolCalls(message.ToolCalls))
 	if err != nil {
 		return ctxerrors.Wrap(err, "marshal child assistant tool calls")
 	}

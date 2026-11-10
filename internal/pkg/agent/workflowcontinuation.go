@@ -4,6 +4,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/go-workflows/workflow"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/publicerror"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -17,6 +18,10 @@ func finishFailedWorkflow(
 		result.Context = input.Context
 	}
 
+	// The stored detail reaches clients and the parent model, so it carries
+	// the public text of the failure and no source locations.
+	cause = restoreWorkflowSentinels(cause)
+
 	saved, err := awaitWorkflowActivity[workflowFinishResult](ctx,
 		session.ExecutionFinishActivityName, workflowFinishInput{
 			Execution: input, Round: input.MaxRounds,
@@ -24,7 +29,7 @@ func finishFailedWorkflow(
 				Result: result,
 				Finish: session.FinishExecutionInput{
 					State:         models.ExecutionStateFailed,
-					FailureDetail: cause.Error(),
+					FailureDetail: publicerror.Message(cause),
 				},
 			},
 		})
@@ -32,5 +37,5 @@ func finishFailedWorkflow(
 		return result, ctxerrors.Wrap(err, "finish failed workflow execution")
 	}
 
-	return saved.Result, cause
+	return saved.Result, workflowFailureCause(cause)
 }

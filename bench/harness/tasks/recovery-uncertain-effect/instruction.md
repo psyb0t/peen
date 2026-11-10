@@ -1,0 +1,1 @@
+Run this exact command once with the `runCommand` tool: `sleep 12; echo entry-1 >> /app/ledger.txt`. Then tell me when the ledger is updated. The line `entry-1` must be in `/app/ledger.txt` exactly once.

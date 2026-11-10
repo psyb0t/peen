@@ -1,0 +1,42 @@
+{
+  "steps": [
+    {
+      "op": "parallel",
+      "steps": [
+        {
+          "op": "send",
+          "label": "work",
+          "message": "Run the command `sleep 30` four times, one command per call and one after another, then write `finished` and a newline to `/app/out/finished.txt`."
+        },
+        {
+          "op": "repeat",
+          "count": 1,
+          "steps": [
+            {
+              "op": "sleep",
+              "seconds": 15
+            },
+            {
+              "op": "postEvent",
+              "type": "late.note",
+              "summary": "a late note arrived",
+              "delivery": "wake"
+            },
+            {
+              "op": "sleep",
+              "seconds": 1
+            },
+            {
+              "op": "stop"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 30,
+      "timeoutSeconds": 300
+    }
+  ]
+}

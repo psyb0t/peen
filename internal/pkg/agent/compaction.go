@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -44,6 +45,11 @@ const (
 	compactionReasonSummaryTruncated = "summary_truncated"
 	compactionOutcomeSucceeded       = "succeeded"
 	compactionOutcomeFailed          = "failed"
+
+	// compactionReasonSummaryFailed is logged when a summarization call failed
+	// or produced no summary, so the request goes out with the oldest history
+	// left out instead.
+	compactionReasonSummaryFailed = "summary_failed"
 
 	// compactionReasonSummaryRetried is logged when the summarizer stopped at
 	// its output limit and is asked once more for a shorter summary.
@@ -576,6 +582,28 @@ func logNothingToSummarize(ctx context.Context, err error) {
 		"reason", compactionReasonNothingToSummarize,
 		"err", err,
 	)
+}
+
+// leaveHistoryAfterSummaryFailure keeps the saved context when a summary call
+// failed or came back empty, so the model request that follows drops the
+// oldest history to fit, as the compaction setting documents. A turn that is
+// being cancelled still fails, because it has no next request.
+func leaveHistoryAfterSummaryFailure(
+	ctx context.Context,
+	saved json.RawMessage,
+	cause error,
+) (workflowCompactionResult, error) {
+	if ctx.Err() != nil {
+		return workflowCompactionResult{}, cause
+	}
+
+	runtimecontext.Logger(ctx).Warn(
+		"compaction summary failed, dropping the oldest history instead",
+		"reason", compactionReasonSummaryFailed,
+		"err", cause,
+	)
+
+	return workflowCompactionResult{Context: saved}, nil
 }
 
 // selectPrefix picks the smallest completed prefix whose removal leaves room

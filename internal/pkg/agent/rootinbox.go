@@ -132,8 +132,9 @@ func (p *preparedTurn) withWorkflowInboxContinuation(
 		return result
 	}
 
+	// A reply cut off at the output limit already asked for another round.
 	pending, _ := p.userMessages.arrival()
-	result.Continue = pending != 0
+	result.Continue = result.Continue || pending != 0
 
 	return result
 }

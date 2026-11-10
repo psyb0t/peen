@@ -1,0 +1,37 @@
+{
+  "steps": [
+    {
+      "op": "parallel",
+      "steps": [
+        {
+          "op": "send",
+          "label": "work",
+          "message": "Run the command `sleep 8` six times, one command per call and one after another. Partway through, a session event will report a file name. Create that file in `/app/out`, containing the word `seen` and a newline, before you finish. When all of that is done, write `done` and a newline to `/app/out/done.txt`."
+        },
+        {
+          "op": "repeat",
+          "count": 1,
+          "steps": [
+            {
+              "op": "sleep",
+              "seconds": 20
+            },
+            {
+              "op": "postEvent",
+              "type": "note.ready",
+              "summary": "the note file to create is tern.txt",
+              "data": {
+                "filename": "tern.txt"
+              },
+              "delivery": "queue"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 5
+    }
+  ]
+}

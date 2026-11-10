@@ -1,0 +1,54 @@
+{
+  "steps": [
+    {
+      "op": "parallel",
+      "steps": [
+        {
+          "op": "send",
+          "label": "burst1",
+          "message": "Run `sleep 15; echo done 1 >> /app/log.txt` with runCommand, then reply with only `ok`."
+        },
+        {
+          "op": "send",
+          "label": "burst2",
+          "message": "Run `sleep 15; echo done 2 >> /app/log.txt` with runCommand, then reply with only `ok`."
+        },
+        {
+          "op": "send",
+          "label": "burst3",
+          "message": "Run `sleep 15; echo done 3 >> /app/log.txt` with runCommand, then reply with only `ok`."
+        },
+        {
+          "op": "send",
+          "label": "burst4",
+          "message": "Run `sleep 15; echo done 4 >> /app/log.txt` with runCommand, then reply with only `ok`."
+        },
+        {
+          "op": "send",
+          "label": "burst5",
+          "message": "Run `sleep 15; echo done 5 >> /app/log.txt` with runCommand, then reply with only `ok`."
+        },
+        {
+          "op": "send",
+          "label": "burst6",
+          "message": "Run `sleep 15; echo done 6 >> /app/log.txt` with runCommand, then reply with only `ok`."
+        },
+        {
+          "op": "send",
+          "label": "burst7",
+          "message": "Run `sleep 15; echo done 7 >> /app/log.txt` with runCommand, then reply with only `ok`."
+        },
+        {
+          "op": "send",
+          "label": "burst8",
+          "message": "Run `sleep 15; echo done 8 >> /app/log.txt` with runCommand, then reply with only `ok`."
+        }
+      ]
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 5,
+      "timeoutSeconds": 900
+    }
+  ]
+}

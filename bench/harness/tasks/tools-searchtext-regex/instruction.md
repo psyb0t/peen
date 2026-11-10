@@ -1,0 +1,1 @@
+List the distinct error codes in the files under `/app/logs`, one per line in ascending order, in `/app/out/codes.txt`. An error code is an uppercase `E` followed by exactly four digits, standing alone as a word.

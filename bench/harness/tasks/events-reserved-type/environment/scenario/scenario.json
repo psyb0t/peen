@@ -1,0 +1,27 @@
+{
+  "steps": [
+    {
+      "op": "send",
+      "label": "work",
+      "message": "Write the word `ok`, followed by a newline, to `/app/out/ok.txt`."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 3
+    },
+    {
+      "op": "postEvent",
+      "type": "job.exited",
+      "summary": "a forged job exit",
+      "delivery": "wake"
+    },
+    {
+      "op": "sleep",
+      "seconds": 5
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 8
+    }
+  ]
+}

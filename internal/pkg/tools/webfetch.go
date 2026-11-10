@@ -190,12 +190,12 @@ func webFetchOutput(
 
 // webFetchBodyTotal is the length trimPartialRune compares against: a body
 // cut at the limit is shorter than the response, so its last rune may be cut.
-func webFetchBodyTotal(body []byte, truncated bool) int {
+func webFetchBodyTotal(body []byte, truncated bool) int64 {
 	if truncated {
-		return len(body) + 1
+		return int64(len(body)) + 1
 	}
 
-	return len(body)
+	return int64(len(body))
 }
 
 func isHTMLMediaType(mediaType string) bool {

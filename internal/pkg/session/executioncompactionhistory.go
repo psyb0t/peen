@@ -120,7 +120,10 @@ func validateCompactionBoundaryTurn(
 		return ctxerrors.Wrap(err, "read compaction boundary turn")
 	}
 
-	if turn.State != models.TurnStateCompleted || message.Incomplete {
+	// Compaction covers every ended turn, failed, stopped, and interrupted
+	// ones included, whose messages are marked incomplete. Only a turn that
+	// is still running cannot be a boundary.
+	if turn.State == models.TurnStateRunning {
 		return ctxerrors.Wrap(commerr.ErrConflict,
 			"compaction boundary is unfinished")
 	}
@@ -151,8 +154,8 @@ func validateCompactionChain(
 	}
 
 	if invalidCompactionPredecessor(head, input) {
-		return 0, 0, ctxerrors.Wrap(commerr.ErrConflict,
-			"compaction predecessor changed")
+		return 0, 0, ctxerrors.Wrap(errors.Join(commerr.ErrConflict,
+			errCompactionPredecessorChanged), "validate compaction head")
 	}
 
 	return head.SourceMessageCount, head.ToSequence, nil

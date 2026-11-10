@@ -1,0 +1,28 @@
+{
+  "sessions": {
+    "main": "/app",
+    "second": "/app/second"
+  },
+  "steps": [
+    {
+      "op": "send",
+      "label": "correction",
+      "message": "A correction for this project: every report file must begin with the line `STATUS: DRAFT`. Fix `/app/reports/a.txt` so it follows that."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 5
+    },
+    {
+      "op": "send",
+      "session": "second",
+      "label": "apply",
+      "message": "Write a report file `/app/second/reports/b.txt` that says `all systems nominal`."
+    },
+    {
+      "op": "awaitIdle",
+      "session": "second",
+      "settleSeconds": 5
+    }
+  ]
+}

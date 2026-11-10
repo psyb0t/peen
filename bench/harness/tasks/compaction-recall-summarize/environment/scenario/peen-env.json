@@ -1,0 +1,4 @@
+{
+  "PEEN_MAX_CONTEXT_TOKENS": "24576",
+  "PEEN_COMPACTION_MODE": "summarize"
+}

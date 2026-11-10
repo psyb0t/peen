@@ -72,6 +72,7 @@ func RuntimeOptionsFromConfig(
 		HookCommandTimeout:   deployment.DefaultHookCommandTimeout,
 		MaxHookCommandOutput: deployment.MaxHookCommandOutput,
 		HookStateRoot:        hooks.DefaultStateRoot(deployment.StateDirectory),
+		ResumeAfterCrash:     deployment.ResumesAfterCrash(),
 	}
 }
 

@@ -18,7 +18,7 @@ require (
 	github.com/psyb0t/common-go v0.10.0
 	github.com/psyb0t/ctxerrors v0.9.0
 	github.com/psyb0t/ctxscope v1.0.3
-	github.com/psyb0t/elelem v0.14.0
+	github.com/psyb0t/elelem v0.15.0
 	github.com/psyb0t/essessey v0.7.5
 	github.com/psyb0t/gen-asyncapi v0.2.0
 	github.com/psyb0t/go-workflows v1.3.1

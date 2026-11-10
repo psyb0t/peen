@@ -1,1 +1,4 @@
 vendor/** -whitespace
+*.pdf binary
+# The task asks the agent to strip this file's trailing whitespace.
+bench/harness/tasks/tools-mcp-broken/environment/workspace/VERSION.txt -whitespace

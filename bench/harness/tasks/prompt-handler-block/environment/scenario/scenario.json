@@ -1,0 +1,31 @@
+{
+  "steps": [
+    {
+      "op": "send",
+      "label": "start",
+      "message": "Create `/app/start.txt` containing the word `ready`."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 5
+    },
+    {
+      "op": "postEvent",
+      "type": "ci.build.failed",
+      "summary": "Build 42 failed on the main branch.",
+      "data": {
+        "run": 42
+      },
+      "delivery": "queue"
+    },
+    {
+      "op": "sleep",
+      "seconds": 3
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 10,
+      "timeoutSeconds": 600
+    }
+  ]
+}

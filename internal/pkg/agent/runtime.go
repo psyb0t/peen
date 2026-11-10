@@ -116,6 +116,7 @@ type Runtime struct {
 	hookCommandTimeout   time.Duration
 	maxHookCommandOutput int
 	hookStateRoot        string
+	resumeAfterCrash     bool
 	eventBus             *events.Bus
 	// Serialize notice publication with consumption of its durable row.
 	noticeGate               rootCallbackGate
@@ -307,6 +308,7 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 		hookCommandTimeout:   options.HookCommandTimeout,
 		maxHookCommandOutput: options.MaxHookCommandOutput,
 		hookStateRoot:        options.HookStateRoot,
+		resumeAfterCrash:     options.ResumeAfterCrash,
 		eventBus:             options.Events,
 		metrics:              options.Metrics,
 		wakes:                newWakeLimiter(options.MaxEventWakesPerHour),
@@ -1642,7 +1644,7 @@ func (r *Runtime) validateTurnInput(input TurnRequest) error {
 
 	if len(input.Message) > r.maxMessageBytes {
 		return ctxerrors.Wrapf(
-			ErrMessageTooLarge,
+			errors.Join(commerr.ErrValidationFailed, ErrMessageTooLarge),
 			"%d bytes exceeds the %d byte limit",
 			len(input.Message),
 			r.maxMessageBytes,
@@ -1651,7 +1653,7 @@ func (r *Runtime) validateTurnInput(input TurnRequest) error {
 
 	if len(input.SystemPrompt) > r.maxSystemPromptBytes {
 		return ctxerrors.Wrapf(
-			ErrSystemPromptTooLarge,
+			errors.Join(commerr.ErrValidationFailed, ErrSystemPromptTooLarge),
 			"%d bytes exceeds the %d byte limit",
 			len(input.SystemPrompt),
 			r.maxSystemPromptBytes,
@@ -1950,7 +1952,7 @@ func (r *Runtime) runProvider(
 		true,
 		r.maxToolRounds,
 		r.maxContextTokens,
-		0,
+		r.outputReserveTokens,
 		r.maxConcurrentTools,
 		r.toolTimeout,
 		r.maxToolResultTokens,
@@ -2012,6 +2014,7 @@ func (r *Runtime) runProvider(
 
 			return nil
 		})
+	withOutputLimit(request, r.outputReserveTokens)
 
 	// Bind appends its callbacks rather than replacing, so the adapter's block
 	// production and Peen's own durability hooks both run. Peen no longer
@@ -2028,6 +2031,8 @@ func (r *Runtime) runProvider(
 	if prepared.compactor != nil {
 		request = request.PreMaxTokensReached(prepared.compactor.handle)
 	}
+
+	request = request.PostMaxTokensReached(fitInFlightToolResults)
 
 	response, err := scope.run(
 		ctx, request, r.maxToolRounds, r.modelRequestTimeout,
@@ -2476,6 +2481,12 @@ func (r *Runtime) finalizeFailedTurn(
 		runErr = r.cancelledTurn(ctx, prepared, classification, runErr)
 	}
 
+	// Close every tool.use before the terminal frame, so a client and the
+	// transcript never see a call that started and has no result.
+	if stopErr := prepared.recordStoppedToolCalls(ctx); stopErr != nil {
+		runErr = errors.Join(runErr, stopErr)
+	}
+
 	eventErr := prepared.turn.emit(
 		context.WithoutCancel(ctx),
 		eventType,
@@ -2632,7 +2643,7 @@ func (p *preparedTurn) onToolCallStart(
 	ctx context.Context,
 	call elelem.ToolCallEvent,
 ) error {
-	p.turn.markToolStarted(call.CallID)
+	p.turn.markToolStarted(call.CallID, call.Name)
 
 	runtimecontext.Logger(ctx).Debug(
 		"host tool call started",
@@ -2662,6 +2673,13 @@ func (p *preparedTurn) recordToolResult(
 	if call.Result != nil {
 		content = call.Result.Content
 		isError = call.Result.IsError
+	}
+
+	// A handler the stop cancelled gets Elelem's own error result, which
+	// carries a source location. Store the stopped result instead, which the
+	// turn end notice reads as a call with no real result.
+	if isError && ctx.Err() != nil {
+		content = session.StoppedToolResultContent
 	}
 
 	p.turn.appendMessage(session.MessageInput{
@@ -2884,7 +2902,7 @@ func messageInput(
 	message elelem.Message,
 	modelReference string,
 ) (session.MessageInput, error) {
-	toolCalls, err := json.Marshal(message.ToolCalls)
+	toolCalls, err := json.Marshal(validToolCalls(message.ToolCalls))
 	if err != nil {
 		return session.MessageInput{}, ctxerrors.Wrap(
 			err,
@@ -3040,7 +3058,7 @@ func (t *runtimeTurn) messageSnapshot() []session.MessageInput {
 
 // markToolStarted records the call's start so the result hook can report a
 // duration. Returns the elapsed time and clears the entry.
-func (t *runtimeTurn) markToolStarted(callID string) {
+func (t *runtimeTurn) markToolStarted(callID, name string) {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
 
@@ -3048,7 +3066,12 @@ func (t *runtimeTurn) markToolStarted(callID string) {
 		t.toolStart = map[string]time.Time{}
 	}
 
+	if t.toolNames == nil {
+		t.toolNames = map[string]string{}
+	}
+
 	t.toolStart[callID] = time.Now()
+	t.toolNames[callID] = name
 }
 
 func (t *runtimeTurn) toolDuration(callID string) time.Duration {
@@ -3061,6 +3084,7 @@ func (t *runtimeTurn) toolDuration(callID string) time.Duration {
 	}
 
 	delete(t.toolStart, callID)
+	delete(t.toolNames, callID)
 
 	return time.Since(started)
 }

@@ -45,7 +45,13 @@ func entryTypeOf(mode fs.FileMode) EntryType {
 // isBinary reports content that text tools refuse. A NUL byte or invalid
 // UTF-8 in the leading sniff window is treated as binary.
 func isBinary(content []byte) bool {
-	window := content
+	return isBinaryPrefix(content, int64(len(content)))
+}
+
+// isBinaryPrefix applies isBinary to the start of a file of total bytes, for
+// a caller that streams the file instead of holding all of it.
+func isBinaryPrefix(prefix []byte, total int64) bool {
+	window := prefix
 	if len(window) > binarySniffBytes {
 		window = window[:binarySniffBytes]
 	}
@@ -54,13 +60,13 @@ func isBinary(content []byte) bool {
 		return true
 	}
 
-	return !utf8.Valid(trimPartialRune(window, len(content)))
+	return !utf8.Valid(trimPartialRune(window, total))
 }
 
 // trimPartialRune drops a multi-byte rune cut by the sniff window so a valid
 // file is not misread as binary at the boundary.
-func trimPartialRune(window []byte, total int) []byte {
-	if len(window) == total {
+func trimPartialRune(window []byte, total int64) []byte {
+	if int64(len(window)) == total {
 		return window
 	}
 

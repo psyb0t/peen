@@ -76,13 +76,13 @@ func (e *JobExecutor) RunCommand(
 
 	if !input.Background {
 		if err := e.waitForForegroundCommand(ctx, job, waitBound); err != nil {
-			return jobRunOutput(job, false), err
+			return e.jobRunOutput(job, false), err
 		}
 	}
 
 	e.logJobStarted(ctx, job, input.Background)
 
-	return jobRunOutput(job, input.Background), nil
+	return e.jobRunOutput(job, input.Background), nil
 }
 
 func (e *JobExecutor) waitForForegroundCommand(
@@ -143,12 +143,16 @@ func waitForJob(ctx context.Context, job *Job, bound time.Duration) {
 	}
 }
 
-// jobRunOutput renders a job's current snapshot and captured output as a
-// RunCommandOutput.
-func jobRunOutput(job *Job, background bool) RunCommandOutput {
+// jobRunOutput renders a job's current snapshot and the newest lines of each
+// stream, within the readJobOutput window, as a RunCommandOutput.
+func (e *JobExecutor) jobRunOutput(
+	job *Job,
+	background bool,
+) RunCommandOutput {
+	maxLines := e.Limits().MaxReadJobOutputLines
 	snapshot := job.Snapshot()
-	stdout, stdoutDropped := job.stdout.All()
-	stderr, stderrDropped := job.stderr.All()
+	stdout, _, stdoutDropped, stdoutSkipped := job.stdout.Tail(0, maxLines)
+	stderr, _, stderrDropped, stderrSkipped := job.stderr.Tail(0, maxLines)
 	running := snapshot.State == JobStateRunning
 
 	output := RunCommandOutput{
@@ -164,6 +168,8 @@ func jobRunOutput(job *Job, background bool) RunCommandOutput {
 		Stderr:             strings.Join(stderr, "\n"),
 		StdoutDroppedLines: stdoutDropped,
 		StderrDroppedLines: stderrDropped,
+		StdoutSkippedLines: stdoutSkipped,
+		StderrSkippedLines: stderrSkipped,
 	}
 	if running && !background {
 		output.Note = runCommandStillRunningNote

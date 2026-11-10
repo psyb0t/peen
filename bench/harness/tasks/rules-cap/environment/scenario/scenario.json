@@ -1,0 +1,27 @@
+{
+  "steps": [
+    {
+      "op": "send",
+      "label": "overLimit",
+      "message": "Create `/app/ready.txt` containing the word `ready`."
+    },
+    {
+      "op": "exec",
+      "label": "trim",
+      "command": [
+        "sh",
+        "-c",
+        "rm -rf /app/.agents/rules/extra"
+      ]
+    },
+    {
+      "op": "send",
+      "label": "withinLimit",
+      "message": "Create `/app/ready.txt` containing the word `ready`."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 3
+    }
+  ]
+}

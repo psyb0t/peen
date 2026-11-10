@@ -6,6 +6,9 @@ const (
 	AgentMessageSenderAgent   = "agent"
 
 	ExecutionTerminalHooksActivityName = "terminalHooksV1"
+	// ExecutionToolPhaseActivityName names the activities of a model's tool
+	// call. Hook steps are tool activities too, under other names.
+	ExecutionToolPhaseActivityName = "toolPhaseV1"
 
 	EventTypeUserMessageCreated   = "userMessage.created"
 	EventTypeUserMessageQueued    = "userMessage.queued"
@@ -16,6 +19,22 @@ const (
 	EventTypeAgentRunCancelled    = "agent.run.cancelled"
 	EventTypeTurnFailed           = "turn.failed"
 	EventTypeTurnCancelled        = "turn.cancelled"
+
+	eventTypeToolUse    = "tool.use"
+	eventTypeToolResult = "tool.result"
+
+	// reasonStaleCompactionHead is the log reason for a compaction left out
+	// of the session chain because a later compaction replaced its head.
+	reasonStaleCompactionHead = "stale_compaction_head"
+
+	eventTypeAgentRunToolUse    = "agent.run.tool.use"
+	eventTypeAgentRunToolResult = "agent.run.tool.result"
+
+	// StoppedToolResultContent is the result Peen records for a tool call
+	// that was still running when its turn or child run was stopped. The
+	// turn end notice reads it as a call with no real result.
+	StoppedToolResultContent = "The tool call was stopped before it " +
+		"returned a result. Its effect is unknown."
 
 	// TurnFailureAgentRun and TurnFailureCancelled are the reasons a turn's
 	// terminal frame carries, the only values the WebSocket contract allows.

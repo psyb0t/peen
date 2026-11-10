@@ -1,0 +1,25 @@
+{
+  "steps": [
+    {
+      "op": "repeat",
+      "count": 10,
+      "steps": [
+        {
+          "op": "postEvent",
+          "label": "entry{i}",
+          "type": "bench.entry",
+          "summary": "entry-{i}"
+        }
+      ]
+    },
+    {
+      "op": "send",
+      "label": "report",
+      "message": "Some events were reported to you before this message. Write the summary of each one, one per line in the order they were reported, to `/app/events.txt`."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 5
+    }
+  ]
+}

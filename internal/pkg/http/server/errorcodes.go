@@ -56,4 +56,10 @@ const (
 	ErrorCodeHarnessConfigurationInvalid = aichteeteapee.ErrorCode(
 		"HARNESS_CONFIGURATION_INVALID",
 	)
+	// ErrorCodeTurnRoundLimit reports a turn that stopped at its limit of
+	// tool rounds, PEEN_MAX_TOOL_ROUNDS.
+	ErrorCodeTurnRoundLimit = aichteeteapee.ErrorCode("TURN_ROUND_LIMIT")
+	// ErrorCodeTurnTokenLimit reports a turn that stopped after billing its
+	// token limit, PEEN_MAX_TURN_TOKENS.
+	ErrorCodeTurnTokenLimit = aichteeteapee.ErrorCode("TURN_TOKEN_LIMIT")
 )

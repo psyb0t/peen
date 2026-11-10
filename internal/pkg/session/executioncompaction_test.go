@@ -2,6 +2,7 @@ package session
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/google/uuid"
@@ -120,6 +121,49 @@ func TestCompactionActivityCoversUnfinishedTurns(t *testing.T) {
 			require.NotNil(t, history.Compaction)
 			assert.EqualValues(t, 2+unfinishedTurnRows,
 				history.Compaction.SourceMessageCount)
+		})
+	}
+}
+
+// A worker killed mid-turn leaves an interrupted turn as the newest ended
+// one, so the next summary ends inside it. That boundary is history too.
+func TestCompactionActivityEndsAtUnfinishedTurn(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name  string
+		state models.TurnState
+	}{
+		{name: "failed", state: models.TurnStateFailed},
+		{name: "cancelled", state: models.TurnStateCancelled},
+		{name: "interrupted", state: models.TurnStateInterrupted},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fixture, claim, input := executionCompactionFixture(t, tc.state)
+			repository := fixture.store.query.Message
+			messages, err := repository.WithContext(t.Context()).Where(
+				repository.SessionID.Eq(fixture.sessionID),
+			).Order(repository.Sequence).Find()
+			require.NoError(t, err)
+			// The unfinished turn ends with the system message Peen added.
+			index := slices.IndexFunc(messages, func(m *models.Message) bool {
+				return m.Role == models.MessageRoleSystem
+			})
+			require.GreaterOrEqual(t, index, 0)
+			boundary := messages[index]
+			input.Compaction.ToMessageID = boundary.ID
+			input.Compaction.ToSequence = boundary.Sequence
+			input.Compaction.SourceMessageCount = boundary.Sequence
+
+			_, err = fixture.store.CompleteExecutionActivity(t.Context(),
+				fixture.sessionID, claim.Lease, input)
+			require.NoError(t, err)
+			head, err := fixture.store.LatestCompaction(t.Context(),
+				fixture.sessionID)
+			require.NoError(t, err)
+			require.NotNil(t, head)
+			assert.Equal(t, boundary.Sequence, head.ToSequence)
 		})
 	}
 }
@@ -343,4 +387,52 @@ func TestCompactionActivitySupersedesCurrentHead(t *testing.T) {
 	assert.Equal(t, &first.Activity.ID, messages[0].CompactionID)
 	assert.Equal(t, &second.Activity.ID, messages[1].CompactionID)
 	assert.Nil(t, messages[2].CompactionID)
+}
+
+// Work resumed after a crash can finish a compaction it began before a later
+// turn replaced the session's compaction head. That used to fail the resumed
+// work for good. The work now completes, keeps the summary in its own
+// checkpoint, and leaves the session chain and its messages as they are.
+func TestCompactionActivityOnAReplacedHeadLeavesTheChain(t *testing.T) {
+	t.Parallel()
+	fixture, stale, input := executionCompactionFixture(t)
+	newer, err := fixture.store.BeginExecutionActivity(t.Context(),
+		fixture.sessionID, fixture.root.ID, stale.Lease.GenerationID,
+		ScheduleActivityInput{
+			StepID: "compact:1", Name: compactionActivityTestName,
+			Kind:         models.ActivityKindCompaction,
+			ReplayPolicy: models.ActivityReplayPolicyRetry,
+			Input:        json.RawMessage(`{}`),
+		})
+	require.NoError(t, err)
+	newerInput := input
+	newerCompaction := *input.Compaction
+	newerCompaction.ToMessageID = newerCompaction.FromMessageID
+	newerCompaction.ToSequence = 1
+	newerCompaction.SourceMessageCount = 1
+	newerInput.Compaction = &newerCompaction
+	_, err = fixture.store.CompleteExecutionActivity(t.Context(),
+		fixture.sessionID, newer.Lease, newerInput)
+	require.NoError(t, err)
+
+	completed, err := fixture.store.CompleteExecutionActivity(t.Context(),
+		fixture.sessionID, stale.Lease, input)
+	require.NoError(t, err)
+	assert.Equal(t, models.ActivityStateCompleted, completed.State)
+	_, err = fixture.store.CompleteExecutionActivity(t.Context(),
+		fixture.sessionID, stale.Lease, input)
+	require.NoError(t, err, "a repeated completion is still recognized")
+
+	head, err := fixture.store.LatestCompaction(t.Context(), fixture.sessionID)
+	require.NoError(t, err)
+	require.NotNil(t, head)
+	assert.Equal(t, newer.Activity.ID, head.ID)
+	repository := fixture.store.query.Message
+	messages, err := repository.WithContext(t.Context()).Where(
+		repository.SessionID.Eq(fixture.sessionID),
+	).Order(repository.Sequence).Find()
+	require.NoError(t, err)
+	require.Len(t, messages, 3)
+	assert.Equal(t, &newer.Activity.ID, messages[0].CompactionID)
+	assert.Nil(t, messages[1].CompactionID)
 }

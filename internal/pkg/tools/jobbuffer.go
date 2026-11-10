@@ -79,6 +79,38 @@ func (b *jobBuffer) Read(cursor, maxLines int) ([]string, int, int) {
 	return result, cursor + len(result), dropped
 }
 
+// Tail is Read for a caller that wants the newest lines. When more than
+// maxLines are held from cursor on, it returns the last maxLines of them and
+// reports how many held lines it skipped to do so. Those lines stay readable
+// with Read from cursor until the buffer evicts them. The returned cursor is
+// past the last line returned. maxLines <= 0 means no cap.
+func (b *jobBuffer) Tail(cursor, maxLines int) ([]string, int, int, int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	first := b.firstIndexLocked()
+
+	dropped := 0
+	if cursor < first {
+		dropped = first - cursor
+		cursor = first
+	}
+
+	offset := min(cursor-first, len(b.lines))
+
+	available := b.lines[offset:]
+
+	skipped := 0
+	if maxLines > 0 && len(available) > maxLines {
+		skipped = len(available) - maxLines
+		available = available[skipped:]
+	}
+
+	result := append([]string(nil), available...)
+
+	return result, cursor + skipped + len(result), dropped, skipped
+}
+
 // All returns every currently buffered line and the total dropped count.
 func (b *jobBuffer) All() ([]string, int) {
 	lines, _, dropped := b.Read(0, 0)

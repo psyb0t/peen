@@ -1,0 +1,13 @@
+version: 1
+preCompact:
+  - name: log-pre
+    actions:
+      - name: log
+        type: command
+        command: /app/hooks/log-compact.sh
+postCompact:
+  - name: log-post
+    actions:
+      - name: log
+        type: command
+        command: /app/hooks/log-compact.sh

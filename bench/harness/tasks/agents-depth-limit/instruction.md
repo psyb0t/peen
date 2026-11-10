@@ -1,0 +1,1 @@
+Launch a child agent and tell it to launch its own child agent that writes `grand` to `/app/out/result.txt`. If the child cannot launch another agent, the child writes `child` to `/app/out/result.txt` itself instead. Reply `done` when the file exists.

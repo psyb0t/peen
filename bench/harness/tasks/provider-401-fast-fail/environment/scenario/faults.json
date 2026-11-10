@@ -1,0 +1,9 @@
+{
+  "faults": [
+    {
+      "action": "status",
+      "status": 401,
+      "every": 1
+    }
+  ]
+}

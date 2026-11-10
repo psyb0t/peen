@@ -40,8 +40,8 @@ func TestMarkToolOutputLabelsTheSourceAndEndsWithTheNotice(t *testing.T) {
 		{name: "file", tool: toolNameReadFile, source: "file contents"},
 		{name: "command", tool: toolNameRunCommand, source: "command output"},
 		{
-			name: "agent", tool: toolNameLaunchAgent,
-			source: "another agent's output",
+			name: "agent launch", tool: toolNameLaunchAgent,
+			source: "tool output",
 		},
 		{name: "other", tool: toolNameWriteFile, source: "tool output"},
 	}

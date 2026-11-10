@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "inventory": {
+      "command": "python3",
+      "args": [
+        "/opt/mcp/server.py"
+      ]
+    }
+  }
+}

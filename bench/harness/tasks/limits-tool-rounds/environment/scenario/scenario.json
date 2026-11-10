@@ -1,0 +1,22 @@
+{
+  "steps": [
+    {
+      "op": "send",
+      "label": "chain",
+      "message": "Start at `/app/chain/start.txt`. Read each file with the file tools and follow its `next:` line to the next file, one at a time, until a file says `end`. Then write the names of the files you read, one per line in the order you read them, to `/app/visited.txt`."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 5
+    },
+    {
+      "op": "send",
+      "label": "finish",
+      "message": "Your last turn stopped before the task was finished. Finish it."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 5
+    }
+  ]
+}

@@ -127,14 +127,15 @@ test-real: ## Run opt-in real provider tests with the deployment .env
 	@bash scripts/make/test_real.sh
 
 # The bench-* targets run Peen against Aider Polyglot, LHTB, and Peen's own
-# eval tasks through Harbor, one networkless task container per task. They cost
-# provider money, need the Docker socket to start the task containers, and read
-# the provider key from .env only inside the proxy container, so they stay out
-# of every default suite. docs/benchmarks.md walks through a run. The BENCH_*
-# settings pass through the environment to scripts/make/bench.sh, which
-# validates them.
+# eval and harness tasks through Harbor, one networkless task container per
+# task. They cost provider money, need the Docker socket to start the task
+# containers, and read the provider key from .env only inside the proxy
+# container, so they stay out of every default suite. docs/benchmarks.md walks
+# through a run. The BENCH_* settings pass through the environment to
+# scripts/make/bench.sh, which validates them.
 .PHONY: bench-image bench-lock bench-build bench-datasets bench-proxy \
-	bench-proxy-stop bench-aider bench-lhtb bench-eval bench-evolve
+	bench-proxy-stop bench-aider bench-lhtb bench-eval bench-evolve \
+	bench-harness bench-audit bench-report bench-compare bench-selftest
 
 bench-image: ## Build the Harbor benchmark driver image
 	@BENCH_REPO_ROOT="$(CURDIR)" bash scripts/make/bench.sh image
@@ -142,7 +143,7 @@ bench-image: ## Build the Harbor benchmark driver image
 bench-lock: ## Re-lock bench/requirements.txt from bench/requirements.in, hashed and age-gated
 	@BENCH_REPO_ROOT="$(CURDIR)" bash scripts/make/bench.sh lock
 
-bench-build: ## Build static peen and relay binaries for the benchmark task containers
+bench-build: ## Build static peen, relay and scenario driver binaries for the task containers, set BENCH_REF to build another ref
 	@BENCH_REPO_ROOT="$(CURDIR)" bash scripts/make/bench.sh build
 
 bench-datasets: ## Download Aider Polyglot and the pinned LHTB tasks
@@ -165,6 +166,21 @@ bench-eval: ## Run Peen's behavior eval tasks from bench/eval, set BENCH_TASKS, 
 
 bench-evolve: ## Run the auto-evolve eval tasks from bench/eval/evolve-tasks with PEEN_AUTO_EVOLVE on
 	@BENCH_REPO_ROOT="$(CURDIR)" bash scripts/make/bench.sh run evolve
+
+bench-harness: ## Run the harness suite from bench/harness/tasks, set BENCH_TIER, BENCH_ATTEMPTS, BENCH_HARNESS_REF, ...
+	@BENCH_REPO_ROOT="$(CURDIR)" bash scripts/make/bench.sh run harness
+
+bench-audit: ## Audit a finished harness job again, set BENCH_JOB
+	@BENCH_REPO_ROOT="$(CURDIR)" bash scripts/make/bench.sh audit "$${BENCH_JOB:-}"
+
+bench-report: ## Write the report of a finished harness job, set BENCH_JOB
+	@BENCH_REPO_ROOT="$(CURDIR)" bash scripts/make/bench.sh report "$${BENCH_JOB:-}"
+
+bench-compare: ## Compare two finished harness jobs task by task, set BENCH_JOB_A and BENCH_JOB_B
+	@BENCH_REPO_ROOT="$(CURDIR)" bash scripts/make/bench.sh compare "$${BENCH_JOB_A:-}" "$${BENCH_JOB_B:-}"
+
+bench-selftest: ## Run the tests of the harness audit and report tools
+	@BENCH_REPO_ROOT="$(CURDIR)" bash scripts/make/bench.sh selftest
 
 web-generate: dev-image ## Regenerate TypeScript API types from api/api.yml
 	@$(DEV_RUN) bash scripts/web/run.sh generate

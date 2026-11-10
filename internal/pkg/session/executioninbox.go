@@ -269,7 +269,7 @@ func (s *Store) insertInboxMessage(
 	}
 
 	if used > int64(input.Capacity)-1-int64(len(input.Parts)) {
-		return nil, ctxerrors.Wrap(commerr.ErrConflict,
+		return nil, ctxerrors.Wrap(errQueueFull,
 			"execution inbox capacity is exhausted")
 	}
 

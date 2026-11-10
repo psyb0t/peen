@@ -1,0 +1,34 @@
+{
+  "steps": [
+    {
+      "op": "repeat",
+      "count": 5,
+      "steps": [
+        {
+          "op": "postEvent",
+          "type": "tick.fired",
+          "summary": "tick number {i}",
+          "delivery": "wake"
+        },
+        {
+          "op": "sleep",
+          "seconds": 4
+        },
+        {
+          "op": "awaitIdle",
+          "settleSeconds": 6,
+          "timeoutSeconds": 600
+        }
+      ]
+    },
+    {
+      "op": "send",
+      "label": "collect",
+      "message": "Some tick events were reported to you in this conversation. For every tick number named in a session event summary, make sure `/app/out/tick-<number>.txt` exists and holds that number followed by a newline."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 5
+    }
+  ]
+}

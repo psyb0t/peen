@@ -1,0 +1,56 @@
+{
+  "seed": 20261107,
+  "steps": [
+    {
+      "op": "repeat",
+      "count": 10,
+      "steps": [
+        {
+          "op": "send",
+          "label": "edit-a{i}",
+          "message": "In `/app/chaos/a{i}.txt`, change the word `pending` to `done`.",
+          "kill": {
+            "target": "worker",
+            "afterToolUses": 1,
+            "afterToolUsesMax": 2,
+            "delayMilliseconds": 100,
+            "everyNth": 2
+          }
+        },
+        {
+          "op": "awaitIdle",
+          "settleSeconds": 3,
+          "timeoutSeconds": 300
+        },
+        {
+          "op": "send",
+          "label": "edit-b{i}",
+          "message": "In `/app/chaos/b{i}.txt`, change the word `pending` to `done`.",
+          "kill": {
+            "target": "controller",
+            "afterToolUses": 1,
+            "afterToolUsesMax": 2,
+            "delayMilliseconds": 100,
+            "restartAfterSeconds": 2,
+            "everyNth": 2
+          }
+        },
+        {
+          "op": "awaitIdle",
+          "settleSeconds": 3,
+          "timeoutSeconds": 300
+        }
+      ]
+    },
+    {
+      "op": "send",
+      "label": "final",
+      "message": "Peen crashed several times during this work. Check every file in `/app/chaos` and make sure each one says `status: done`. Continue any unfinished work."
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 10,
+      "timeoutSeconds": 1200
+    }
+  ]
+}

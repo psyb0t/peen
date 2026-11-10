@@ -1,0 +1,16 @@
+{
+  "steps": [
+    {
+      "op": "send",
+      "label": "ask",
+      "message": "Ask me which codename the release gets, then write that codename to `/app/out/codename.txt`.",
+      "answers": [
+        "blue-heron"
+      ]
+    },
+    {
+      "op": "awaitIdle",
+      "settleSeconds": 3
+    }
+  ]
+}

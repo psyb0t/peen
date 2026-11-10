@@ -1,0 +1,1 @@
+Use the file tools to create `/app/ok/a.txt`, `/app/big/b.txt` and `/app/post/c.txt`, each containing its own file name without the extension. If a write is refused, leave that file out and carry on with the others. Do not use the shell to write files.

@@ -149,7 +149,7 @@ func (e *JobExecutor) WaitJob(
 
 	waitForJob(ctx, job, bound)
 
-	return jobWaitOutput(job, input), nil
+	return jobWaitOutput(job, input, e.Limits().MaxReadJobOutputLines), nil
 }
 
 // resolveWaitJobTimeout returns the wait a waitJob call asked for, or the
@@ -160,14 +160,20 @@ func (e *JobExecutor) resolveWaitJobTimeout(
 	return resolveWaitTimeout(raw, e.Limits().WaitJobTimeout)
 }
 
-func jobWaitOutput(job *Job, input WaitJobInput) WaitJobOutput {
+// jobWaitOutput reports the newest maxLines lines of each stream after the
+// requested cursors, because a waiter most often needs how the output ended.
+func jobWaitOutput(
+	job *Job,
+	input WaitJobInput,
+	maxLines int,
+) WaitJobOutput {
 	snapshot := job.Snapshot()
 
-	stdoutLines, nextStdout, stdoutDropped := job.stdout.Read(
-		input.StdoutCursor, 0,
+	stdoutLines, nextStdout, stdoutDropped, stdoutSkipped := job.stdout.Tail(
+		input.StdoutCursor, maxLines,
 	)
-	stderrLines, nextStderr, stderrDropped := job.stderr.Read(
-		input.StderrCursor, 0,
+	stderrLines, nextStderr, stderrDropped, stderrSkipped := job.stderr.Tail(
+		input.StderrCursor, maxLines,
 	)
 
 	var durationMs int64
@@ -189,6 +195,8 @@ func jobWaitOutput(job *Job, input WaitJobInput) WaitJobOutput {
 		NextStderrCursor:   nextStderr,
 		StdoutDroppedLines: stdoutDropped,
 		StderrDroppedLines: stderrDropped,
+		StdoutSkippedLines: stdoutSkipped,
+		StderrSkippedLines: stderrSkipped,
 	}
 	if output.Running {
 		output.Note = waitJobStillRunningNote

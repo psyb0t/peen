@@ -60,7 +60,14 @@ func (s *Store) broadcastNoticeToChildren(
 		Notices: []events.Notice{noticeFromRecord(notice)},
 	})
 
+	source := noticeSourceRunID(notice)
+
 	for _, child := range children {
+		if source != nil && child.AgentRunID != nil &&
+			*child.AgentRunID == *source {
+			continue
+		}
+
 		if err := s.queueChildNotice(ctx, tx, child, notice,
 			text); err != nil {
 			return ctxerrors.Wrap(err, "queue notice for child")
@@ -72,6 +79,22 @@ func (s *Store) broadcastNoticeToChildren(
 		"notice_type", notice.Type, "child_count", len(children))
 
 	return nil
+}
+
+// noticeSourceRunID names the agent run an agent notice reports on, so the
+// run that is finishing is not sent its own failure.
+func noticeSourceRunID(notice *models.SessionNotice) *uuid.UUID {
+	if notice.Source != events.AgentSource {
+		return nil
+	}
+
+	var data events.AgentNoticeData
+	if err := json.Unmarshal([]byte(notice.DataJSON), &data); err != nil ||
+		data.RunID == uuid.Nil {
+		return nil
+	}
+
+	return &data.RunID
 }
 
 func (s *Store) queueChildNotice(

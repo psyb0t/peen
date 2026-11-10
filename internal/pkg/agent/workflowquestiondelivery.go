@@ -58,9 +58,34 @@ func (r *Runtime) publishRetainedQuestion(
 	child *models.Execution,
 	question *session.ExecutionChildQuestion,
 ) error {
+	return r.publishRetainedAgentNotice(ctx,
+		func() (*models.SessionNotice, error) {
+			return r.retainedQuestionNotice(ctx, child, question)
+		})
+}
+
+// publishRetainedChildOutcome offers the stored finished or failed notice of
+// a root child to the bus and the wake decision. Nothing is published when
+// the notice was already delivered.
+func (r *Runtime) publishRetainedChildOutcome(
+	ctx context.Context,
+	child *models.Execution,
+) error {
+	return r.publishRetainedAgentNotice(ctx,
+		func() (*models.SessionNotice, error) {
+			return r.retainedChildOutcomeNotice(ctx, child)
+		})
+}
+
+// publishRetainedAgentNotice publishes the notice find returns, once, and
+// runs the wake decision for it. A nil notice means there is nothing to offer.
+func (r *Runtime) publishRetainedAgentNotice(
+	ctx context.Context,
+	find func() (*models.SessionNotice, error),
+) error {
 	release, err := r.noticeGate.acquire(ctx, true)
 	if err != nil {
-		return ctxerrors.Wrap(err, "admit retained question publication")
+		return ctxerrors.Wrap(err, "admit retained agent notice publication")
 	}
 
 	var wakeNotice *events.Notice
@@ -75,9 +100,13 @@ func (r *Runtime) publishRetainedQuestion(
 		return nil
 	}
 
-	notice, err := r.retainedQuestionNotice(ctx, child, question)
+	notice, err := find()
 	if err != nil {
-		return ctxerrors.Wrap(err, "read retained question notice")
+		return ctxerrors.Wrap(err, "read retained agent notice")
+	}
+
+	if notice == nil {
+		return nil
 	}
 
 	if notice.State == models.NoticeStateDelivered {
@@ -92,7 +121,7 @@ func (r *Runtime) publishRetainedQuestion(
 
 	data := json.RawMessage(notice.DataJSON)
 	if err := r.eventLimits().Validate(notice.Summary, data); err != nil {
-		return ctxerrors.Wrap(err, "bound retained question publication")
+		return ctxerrors.Wrap(err, "bound retained agent notice publication")
 	}
 
 	published, err := r.eventBus.PublishContext(ctx, events.Notice{
@@ -101,7 +130,7 @@ func (r *Runtime) publishRetainedQuestion(
 		Delivery: string(notice.Delivery), CreatedAt: notice.CreatedAt,
 	})
 	if err != nil {
-		return ctxerrors.Wrap(err, "publish retained question notice")
+		return ctxerrors.Wrap(err, "publish retained agent notice")
 	}
 
 	if r.publishedQuestionNotices == nil {
@@ -172,4 +201,56 @@ func validateRetainedQuestionNotice(
 	}
 
 	return nil
+}
+
+func (r *Runtime) retainedChildOutcomeNotice(
+	ctx context.Context,
+	child *models.Execution,
+) (*models.SessionNotice, error) {
+	if child == nil || child.AgentRunID == nil {
+		return nil, ctxerrors.Wrap(commerr.ErrRequiredFieldNotSet,
+			"retained child outcome identity")
+	}
+
+	options := session.ListSessionNoticesOptions{
+		State: models.NoticeStatePending,
+	}
+
+	for {
+		page, err := r.store.ListSessionNotices(ctx, child.SessionID, options)
+		if err != nil {
+			return nil, ctxerrors.Wrap(err, "find owned child outcome notice")
+		}
+
+		for _, notice := range page.Items {
+			if isChildOutcomeNotice(notice, *child.AgentRunID) {
+				return notice, nil
+			}
+		}
+
+		if !page.HasMore {
+			//nolint:nilnil // Already delivered is not a failure.
+			return nil, nil
+		}
+
+		options.Offset += len(page.Items)
+	}
+}
+
+func isChildOutcomeNotice(
+	notice *models.SessionNotice,
+	agentRunID uuid.UUID,
+) bool {
+	if notice.Source != events.AgentSource ||
+		(notice.Type != events.TypeAgentFinished &&
+			notice.Type != events.TypeAgentFailed) {
+		return false
+	}
+
+	var data events.AgentNoticeData
+	if err := json.Unmarshal([]byte(notice.DataJSON), &data); err != nil {
+		return false
+	}
+
+	return data.RunID == agentRunID
 }

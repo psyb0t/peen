@@ -231,6 +231,77 @@ func TestFeedSequenceContiguousUnderConcurrentWriters(t *testing.T) {
 	assertFeedContiguous(t, sequences, 1)
 }
 
+// A reader that follows the feed while the root and a child write at once
+// must never see a later sequence before an earlier one, because a cursor
+// past the gap would skip the earlier row for good.
+func TestListFeedPagesStayContiguousUnderConcurrentWriters(t *testing.T) {
+	t.Parallel()
+
+	fixture := newExecutionFixture(t)
+	store := fixture.store
+	lease := inboxTestLease(t, fixture)
+	run, _ := feedChildFixture(t, fixture, uuid.New())
+
+	const writesPerWriter = 150
+
+	var writers sync.WaitGroup
+
+	writers.Go(func() {
+		for range writesPerWriter {
+			assert.NoError(t, store.AppendCheckpoint(t.Context(), lease, nil,
+				[]EventInput{{EventType: "turn.checkpoint", PayloadJSON: `{}`}}))
+		}
+	})
+	writers.Go(func() {
+		for range writesPerWriter {
+			_, err := store.AppendAgentRunEvent(t.Context(), fixture.sessionID,
+				run.ID, AgentRunEventInput{
+					EventType:   "agent.run.text.delta",
+					PayloadJSON: `{"text":"a"}`,
+				})
+			assert.NoError(t, err)
+		}
+	})
+
+	done := make(chan struct{})
+	go func() {
+		writers.Wait()
+		close(done)
+	}()
+
+	cursor := int64(0)
+	isWriting := true
+
+	for {
+		select {
+		case <-done:
+			isWriting = false
+		default:
+		}
+
+		page, err := store.ListFeed(t.Context(), fixture.sessionID, cursor,
+			MaximumFeedLimit)
+		require.NoError(t, err)
+
+		sequences := make([]int64, 0, len(page.Items))
+		for _, item := range page.Items {
+			sequences = append(sequences, item.Sequence)
+		}
+
+		assertFeedContiguous(t, sequences, cursor+1)
+
+		cursor = page.NextCursor
+
+		if !isWriting && len(page.Items) == 0 {
+			break
+		}
+	}
+
+	head, err := store.FeedHead(t.Context(), fixture.sessionID)
+	require.NoError(t, err)
+	assert.Equal(t, head, cursor, "the reader reached the head")
+}
+
 // feedSignalCall is one recorded SetFeedSignal invocation.
 type feedSignalCall struct {
 	sessionID uuid.UUID

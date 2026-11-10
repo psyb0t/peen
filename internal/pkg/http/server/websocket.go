@@ -19,6 +19,7 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/agent"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/http/wsapi"
+	"github.com/psyb0t/peen/internal/pkg/publicerror"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -658,9 +659,10 @@ func webSocketMessageFailureFor(err error) webSocketMessageFailure {
 	specificFailures := []func(error) (webSocketMessageFailure, bool){
 		harnessConfigurationFailureFor,
 		runningTurnFailureFor,
-		imageFailureFor,
+		inputRefusalFailureFor,
 		unknownSkillFailureFor,
 		agentRunFailureFor,
+		turnLimitFailureFor,
 	}
 
 	for _, specificFailureFor := range specificFailures {
@@ -732,6 +734,39 @@ func agentRunFailureFor(err error) (webSocketMessageFailure, bool) {
 	}
 }
 
+// turnLimitFailureFor reports a turn that stopped at its round or token
+// limit. The limit's own text names the setting that raised it, holds no
+// source location, and is shown as it is.
+func turnLimitFailureFor(err error) (webSocketMessageFailure, bool) {
+	switch {
+	case errors.Is(err, session.ErrTurnRoundLimit):
+		return newWebSocketMessageFailure(
+			ErrorCodeTurnRoundLimit,
+			turnLimitMessage(err, session.ErrTurnRoundLimit),
+			"",
+		), true
+	case errors.Is(err, session.ErrTurnTokenLimit):
+		return newWebSocketMessageFailure(
+			ErrorCodeTurnTokenLimit,
+			turnLimitMessage(err, session.ErrTurnTokenLimit),
+			"",
+		), true
+	default:
+		return webSocketMessageFailure{}, false
+	}
+}
+
+// turnLimitMessage is the limit's own public text when the error carries one,
+// and the sentinel's single line otherwise, never a joined or wrapped chain.
+func turnLimitMessage(err, sentinel error) string {
+	var public publicerror.Public
+	if errors.As(err, &public) {
+		return public.PublicMessage()
+	}
+
+	return sentinel.Error()
+}
+
 // runningTurnFailureFor reports a message refused because it tried to change
 // the turn it would have joined. It is invalid input, not a busy session, and
 // its sentinel text is written for the sender, so the client shows it as is.
@@ -747,9 +782,10 @@ func runningTurnFailureFor(err error) (webSocketMessageFailure, bool) {
 	), true
 }
 
-// imageFailureFor reports a message whose images Peen refused. Each image
-// sentinel's text is written for the sender, so the client shows it as is.
-func imageFailureFor(err error) (webSocketMessageFailure, bool) {
+// inputRefusalFailureFor reports a message whose images, text, or system
+// prompt Peen refused. Each sentinel's text is written for the sender, so
+// the client shows it as is.
+func inputRefusalFailureFor(err error) (webSocketMessageFailure, bool) {
 	refusals := []error{
 		session.ErrImagesNotAccepted,
 		session.ErrHistoryImagesNotAccepted,
@@ -757,6 +793,8 @@ func imageFailureFor(err error) (webSocketMessageFailure, bool) {
 		session.ErrTooManyImages,
 		session.ErrImageTooLarge,
 		session.ErrImageType,
+		session.ErrMessageTooLarge,
+		session.ErrSystemPromptTooLarge,
 	}
 
 	for _, refusal := range refusals {

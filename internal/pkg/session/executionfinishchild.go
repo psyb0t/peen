@@ -102,6 +102,6 @@ func (s *Store) finishExecutionChild(
 		return ctxerrors.Wrap(err, "record child terminal event")
 	}
 
-	return s.recordExecutionChildReport(ctx, tx, execution, event,
+	return s.recordExecutionChildReport(ctx, tx, execution, run, event,
 		input.ChildReport)
 }

@@ -1,0 +1,1 @@
+Launch a child agent to write the access code to `/app/out/code.txt`, followed by a newline. The child does not know the code and must ask you for it with the `ask` tool. The code is in `/app/answers/code.txt`. Wait for the child's question, answer it with `sendMessage`, and wait until the child is done.

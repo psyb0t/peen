@@ -481,6 +481,107 @@ func TestExecutionWorkflowInterruptedToolKeepsItsDecision(t *testing.T) {
 	}
 }
 
+// A crash leaves the tool call it cut off running under a dead worker. When
+// Peen resumes work after a crash, the next claim reports that call to the
+// model as an error result and never runs it again, instead of holding the
+// execution in reconciliation until someone inspects it. Without resume the
+// call waits for an inspection as before.
+func TestExecutionWorkflowCrashedToolCallSettlesOnlyWhenResumingAfterACrash(
+	t *testing.T,
+) {
+	t.Parallel()
+	testCases := []struct {
+		name          string
+		settles       bool
+		wantActivity  models.ActivityState
+		wantExecution models.ExecutionState
+		wantRecheck   session.ActivityDecision
+	}{
+		{
+			name: "resume after a crash", settles: true,
+			wantActivity:  models.ActivityStateCompleted,
+			wantExecution: models.ExecutionStateRunning,
+			wantRecheck:   session.ActivityDecisionReuse,
+		},
+		{
+			name:          "pause after a crash",
+			wantActivity:  models.ActivityStateUncertain,
+			wantExecution: models.ExecutionStateReconciling,
+			wantRecheck:   session.ActivityDecisionReconcile,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fixture := newExecutionLoopFixture(t, elelemtest.NewScriptedDriver(), false)
+			store := fixture.base.store
+			phase := workflowToolPhaseInput{
+				Tool: workflowToolInput{
+					Round: workflowRoundInput{Execution: fixture.input},
+					Call: elelem.ToolCall{
+						ID: runtimeToolCallID, Name: toolNameReadFile,
+						Arguments: json.RawMessage(workflowEmptyArguments),
+					},
+				},
+				Phase: workflowToolPhaseHandler,
+				State: workflowToolPhaseState{LastPhase: workflowToolPhasePre},
+			}
+			descriptor := session.ScheduleActivityInput{
+				StepID: "tool:0:0:handler", Kind: models.ActivityKindTool,
+				Name:         toolPhaseActivityName,
+				ReplayPolicy: models.ActivityReplayPolicyReconcile,
+			}
+			encoded, err := json.Marshal(phase)
+			require.NoError(t, err)
+			crashed := descriptor
+			crashed.Input = encoded
+			claim, err := store.BeginExecutionActivity(t.Context(), fixture.input.SessionID,
+				fixture.input.ExecutionID, uuid.New(), crashed)
+			require.NoError(t, err)
+			require.Equal(t, session.ActivityDecisionExecute, claim.Decision)
+
+			restarted := &workflowExecution{options: fixture.engine.options}
+			restarted.options.SettlesCrashedTools = tc.settles
+			runs := 0
+			run := func(context.Context) (workflowToolPhaseState, error) {
+				runs++
+
+				return workflowToolPhaseState{}, nil
+			}
+			contextAfter := func(workflowToolPhaseState) json.RawMessage {
+				return fixture.input.Context
+			}
+			result, err := runWorkflowCheckpoint(t.Context(), restarted, fixture.input,
+				descriptor, phase, run, contextAfter)
+			require.NoError(t, err)
+			assert.Equal(t, session.ActivityDecisionReconcile, result.Decision)
+
+			activity, err := store.GetExecutionActivity(t.Context(), fixture.input.SessionID,
+				claim.Activity.ID)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantActivity, activity.State)
+			assert.Equal(t, claim.Activity.Attempt, activity.Attempt)
+			execution, err := store.GetExecution(t.Context(), fixture.input.SessionID,
+				fixture.input.ExecutionID)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantExecution, execution.State)
+
+			recheck, err := runWorkflowCheckpoint(t.Context(), restarted, fixture.input,
+				descriptor, phase, run, contextAfter)
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantRecheck, recheck.Decision)
+			assert.Zero(t, runs, "the crashed call is never run again")
+			if !tc.settles {
+				return
+			}
+			assert.True(t, recheck.Output.Finished)
+			assert.Empty(t, recheck.Output.Outcome.Failure)
+			assert.Equal(t, elelem.NewToolErrorResult(crashedToolResult),
+				recheck.Output.Outcome.Result)
+		})
+	}
+}
+
 func TestExecutionWorkflowUnencodableToolOutputRequiresReconciliation(
 	t *testing.T,
 ) {

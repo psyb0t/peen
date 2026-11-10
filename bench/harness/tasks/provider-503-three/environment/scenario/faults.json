@@ -1,0 +1,13 @@
+{
+  "faults": [
+    {
+      "action": "status",
+      "status": 503,
+      "requests": [
+        1,
+        2,
+        3
+      ]
+    }
+  ]
+}

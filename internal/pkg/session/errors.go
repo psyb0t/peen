@@ -4,7 +4,22 @@ import (
 	"errors"
 
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/elelem"
 )
+
+// errQueueFull refuses a message once an inbox holds its limit of queued
+// messages. It is a conflict that the transport and the WebSocket report as
+// USER_MESSAGE_QUEUE_FULL, the same refusal the in-process queue gives.
+var errQueueFull = errors.Join(
+	commerr.ErrConflict,
+	elelem.ErrUserMessageQueueFull,
+)
+
+// errCompactionPredecessorChanged reports a compaction built on a chain head
+// that another compaction has replaced since. It is always joined with
+// commerr.ErrConflict.
+var errCompactionPredecessorChanged = errors.New(
+	"compaction predecessor changed")
 
 var (
 	// ErrExecutionInboxPending requires continuation before successful finish.
@@ -50,6 +65,13 @@ var (
 	ErrImageType = errors.New(
 		"an image is not PNG, JPEG, GIF, or WebP data matching its media type",
 	)
+	// ErrMessageTooLarge reports a message over PEEN_MAX_MESSAGE_BYTES.
+	ErrMessageTooLarge = errors.New("the message is larger than the limit")
+	// ErrSystemPromptTooLarge reports request-supplied system prompt text
+	// over PEEN_MAX_SYSTEM_PROMPT_BYTES.
+	ErrSystemPromptTooLarge = errors.New(
+		"the system prompt is larger than the limit",
+	)
 
 	// ErrAgentRunFinished reports a message sent to a child agent that is no
 	// longer running, so nothing would ever read it, or a non-terminal event
@@ -63,4 +85,12 @@ var (
 	// released because the turn ended. It is always joined with
 	// commerr.ErrInvalidState.
 	ErrTurnLeaseInactive = errors.New("inactive turn lease")
+	// ErrTurnRoundLimit reports a turn, or a child agent's run, that used
+	// every tool round PEEN_MAX_TOOL_ROUNDS or PEEN_MAX_CHILD_AGENT_TURNS
+	// allows. It is always joined with commerr.ErrOutOfRange.
+	ErrTurnRoundLimit = errors.New("the turn reached its tool round limit")
+	// ErrTurnTokenLimit reports a turn, or a child agent's run, whose rounds
+	// have billed PEEN_MAX_TURN_TOKENS. It is always joined with
+	// commerr.ErrOutOfRange.
+	ErrTurnTokenLimit = errors.New("the turn reached its token limit")
 )

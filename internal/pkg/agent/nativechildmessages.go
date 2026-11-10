@@ -37,8 +37,8 @@ func (r *Runtime) deliverNativeChildMessage(
 		return handled, err
 	}
 
-	if err := native.settleInterruptedTools(ctx, sessionID,
-		resumed); err != nil {
+	if err := native.settleInterruptedTools(ctx, sessionID, resumed,
+		interruptedToolEvidence, settledByMessageResumedChild); err != nil {
 		return true, ctxerrors.Wrap(err, "settle resumed child tools")
 	}
 

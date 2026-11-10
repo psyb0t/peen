@@ -65,7 +65,10 @@ const readJobOutputSchema = `{
 
 const waitJobDescription = `Block until one job exits or the wait ends.
 Returns the job's final state and exit code plus whatever output arrived while
-waiting, continuing from the cursors you pass.
+waiting, continuing from the cursors you pass. It carries the newest lines of
+each stream. A non-zero skipped count says how many earlier lines after your
+cursor it left out; readJobOutput from that same cursor reads them. The last
+line the job printed is the last line of stdout or stderr here.
 timeout is a Go duration string such as "30s", "5m", or "2h"; empty waits %s.
 It limits how long YOU wait, never how long the job may run, and it has no
 upper limit: pass a longer timeout, such as "2h", for work you expect to take

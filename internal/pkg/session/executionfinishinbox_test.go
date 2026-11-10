@@ -7,6 +7,7 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -43,6 +44,22 @@ func terminalChildReport(
 	state models.AgentRunState,
 ) *models.ExecutionInboxMessage {
 	t.Helper()
+	terminalChildOutcome(t, fixture, parent, state)
+	page, err := fixture.store.ListExecutionMessages(t.Context(),
+		fixture.sessionID, parent.ID, ListExecutionInboxOptions{})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+
+	return page.Items[0]
+}
+
+func terminalChildOutcome(
+	t *testing.T,
+	fixture executionFixture,
+	parent *models.Execution,
+	state models.AgentRunState,
+) {
+	t.Helper()
 	child := executionChildForTest(t, fixture, parent)
 	claim, err := fixture.store.BeginExecutionActivity(t.Context(),
 		fixture.sessionID, child.ID, uuid.New(), finishActivityTestInput())
@@ -61,15 +78,9 @@ func terminalChildReport(
 	_, err = fixture.store.CompleteExecutionActivity(t.Context(),
 		fixture.sessionID, claim.Lease, input)
 	require.NoError(t, err)
-	page, err := fixture.store.ListExecutionMessages(t.Context(),
-		fixture.sessionID, parent.ID, ListExecutionInboxOptions{})
-	require.NoError(t, err)
-	require.Len(t, page.Items, 1)
-
-	return page.Items[0]
 }
 
-func TestSealedCompletionRetainsLateChildReportAfterReopen(t *testing.T) {
+func TestSealedCompletionKeepsLateChildReportAsNoticeAfterReopen(t *testing.T) {
 	t.Parallel()
 	testCases := []models.AgentRunState{
 		models.AgentRunStateCompleted, models.AgentRunStateFailed,
@@ -78,7 +89,7 @@ func TestSealedCompletionRetainsLateChildReportAfterReopen(t *testing.T) {
 		t.Run(string(tc), func(t *testing.T) {
 			t.Parallel()
 			fixture, hook := sealedCompletionFixture(t)
-			report := terminalChildReport(t, fixture, fixture.root, tc)
+			terminalChildOutcome(t, fixture, fixture.root, tc)
 			claim, err := fixture.store.BeginExecutionActivity(t.Context(),
 				fixture.sessionID, fixture.root.ID, hook.Lease.GenerationID,
 				finishActivityTestInput())
@@ -98,9 +109,17 @@ func TestSealedCompletionRetainsLateChildReportAfterReopen(t *testing.T) {
 			page, err := store.ListExecutionMessages(t.Context(), fixture.sessionID,
 				fixture.root.ID, ListExecutionInboxOptions{})
 			require.NoError(t, err)
-			require.Len(t, page.Items, 1)
-			assert.Equal(t, report, page.Items[0])
-			assert.Equal(t, models.InboxMessageStateQueued, page.Items[0].State)
+			assert.Empty(t, page.Items)
+			notices, err := store.ListSessionNotices(t.Context(), fixture.sessionID,
+				ListSessionNoticesOptions{State: models.NoticeStatePending})
+			require.NoError(t, err)
+			require.Len(t, notices.Items, 1)
+			wantType := events.TypeAgentFinished
+			if tc == models.AgentRunStateFailed {
+				wantType = events.TypeAgentFailed
+			}
+
+			assert.Equal(t, wantType, notices.Items[0].Type)
 			execution, err := store.GetExecution(t.Context(), fixture.sessionID,
 				fixture.root.ID)
 			require.NoError(t, err)
@@ -123,7 +142,7 @@ func TestCompletionReservationRefusesEarlierChildReport(t *testing.T) {
 func TestSealedCompletionRejectsChangedHookInput(t *testing.T) {
 	t.Parallel()
 	fixture, hook := sealedCompletionFixture(t)
-	completedChildReport(t, fixture, fixture.root)
+	terminalChildOutcome(t, fixture, fixture.root, models.AgentRunStateCompleted)
 	repository := fixture.store.query.ExecutionActivity
 	_, err := repository.WithContext(t.Context()).Where(
 		repository.ID.Eq(hook.Activity.ID),

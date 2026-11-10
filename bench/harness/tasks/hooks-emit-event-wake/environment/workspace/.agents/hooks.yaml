@@ -1,0 +1,7 @@
+version: 1
+turnStop:
+  - name: wrapup
+    actions:
+      - name: emit-once
+        type: command
+        command: /app/hooks/emit-once.sh

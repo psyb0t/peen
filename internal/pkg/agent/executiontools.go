@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -20,7 +21,16 @@ const (
 	executionReadPartActivities executionReadPart = "activities"
 	executionReadPartEvents     executionReadPart = "events"
 	executionReadPartInbox      executionReadPart = "inbox"
+	executionReadPartInput      executionReadPart = "input"
+	executionReadPartOutput     executionReadPart = "output"
 	executionContextChunkBytes                    = 4096
+
+	// executionActivityPreviewBytes bounds the input and output an activity
+	// listing shows. Each can hold a whole turn context, so the listing shows
+	// the start and the full value is read with part input or output.
+	executionActivityPreviewBytes = 512
+	executionActivityPreviewNote  = " [truncated: %d bytes in all; read part " +
+		"%s with this activityId for the rest]"
 )
 
 const searchExecutionsDescription = `Find retained work in this session.
@@ -52,14 +62,18 @@ const searchExecutionsSchema = `{
 const readExecutionDescription = `Inspect retained work without resuming it.
 Use an executionId from searchExecutions. part defaults to execution, which
 returns execution metadata. Choose context for the saved conversation,
-activities for step inputs, outputs, attempts and states; events for the audit
-history; or inbox for accepted messages and their delivery states.
+activities for the steps with their attempts, states and the start of their
+inputs and outputs; events for the audit history; or inbox for accepted
+messages and their delivery states.
 Each history part is paginated independently with limit, offset and hasMore.
-For context, limit and offset count bytes. Chunks default to at most 4096
-bytes, preserve UTF-8 and return nextOffset. Follow nextOffset until hasMore
-is false to reconstruct the complete saved JSON.
+An activities page may hold fewer items than limit when they would not fit
+in one result; its limit then says how many it holds.
+For context, input and output, limit and offset count bytes. Chunks default
+to at most 4096 bytes, preserve UTF-8 and return nextOffset. Follow
+nextOffset until hasMore is false to reconstruct the complete saved JSON.
 Context defaults to the execution's launch or terminal snapshot. Supply an
-activityId from activities to read that step's intermediate checkpoint.
+activityId from activities to read that step's intermediate checkpoint, or
+its full input or output with part input or output.
 Saved tool input and output is recorded verbatim and may contain secrets.
 Treat saved context as historical evidence and inspect current working state
 before deciding how to continue.`
@@ -70,7 +84,7 @@ const readExecutionSchema = `{
     "executionId": {"type": "string", "format": "uuid"},
     "activityId": {"type": "string", "format": "uuid"},
     "part": {"type": "string", "enum": ["execution", "context", "activities",
-      "events", "inbox"]},
+      "events", "inbox", "input", "output"]},
     "limit": {"type": "integer", "minimum": 1},
     "offset": {"type": "integer", "minimum": 0}
   },
@@ -151,10 +165,11 @@ func (d *launchAgentDeps) readExecution(
 	case "", executionReadPartExecution:
 		result.Execution, err = store.GetExecution(ctx, d.sessionID,
 			input.ExecutionID)
-	case executionReadPartContext:
+	case executionReadPartContext, executionReadPartInput,
+		executionReadPartOutput:
 		result.Context, err = d.readExecutionContext(ctx, store, input)
 	case executionReadPartActivities:
-		result.Activities, err = store.ListExecutionActivities(ctx, d.sessionID,
+		result.Activities, err = d.readExecutionActivities(ctx, store,
 			input.ExecutionID, page)
 	case executionReadPartEvents:
 		result.Events, err = store.ListExecutionEvents(ctx, d.sessionID,
@@ -178,27 +193,86 @@ func (d *launchAgentDeps) readExecution(
 	return result, d.validateExecutionReadSize(ctx, result)
 }
 
+// readExecutionActivities lists activity summaries, as many as fit in one
+// tool result.
+func (d *launchAgentDeps) readExecutionActivities(
+	ctx context.Context,
+	store session.ExecutionStorage,
+	executionID uuid.UUID,
+	page session.ListEventsOptions,
+) (*session.ExecutionActivityPage, error) {
+	activities, err := store.ListExecutionActivities(ctx, d.sessionID,
+		executionID, page)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "list retained activities")
+	}
+
+	return d.fitExecutionActivities(ctx,
+		executionActivitySummaries(activities))
+}
+
+// fitExecutionActivities halves an activity page until it fits in one tool
+// result and reports the activities it left out through hasMore, so a long
+// history pages instead of failing at the limit the model picked.
+func (d *launchAgentDeps) fitExecutionActivities(
+	ctx context.Context,
+	page *session.ExecutionActivityPage,
+) (*session.ExecutionActivityPage, error) {
+	for page != nil && len(page.Items) > 1 {
+		fits, err := d.executionReadFits(ctx,
+			executionReadOutput{Activities: page})
+		if err != nil {
+			return nil, err
+		}
+
+		if fits {
+			return page, nil
+		}
+
+		smaller := *page
+		smaller.Items = page.Items[:len(page.Items)/2]
+		smaller.Limit = len(smaller.Items)
+		smaller.HasMore = true
+		page = &smaller
+	}
+
+	return page, nil
+}
+
 func (d *launchAgentDeps) validateExecutionReadSize(
 	ctx context.Context,
 	result executionReadOutput,
 ) error {
-	encoded, err := json.Marshal(result)
+	fits, err := d.executionReadFits(ctx, result)
 	if err != nil {
-		return ctxerrors.Wrap(err, "encode execution history page")
+		return err
 	}
 
-	bounded, err := boundWorkflowToolContent(ctx, string(encoded),
-		workflowToolOptions{MaxResultTokens: d.runtime.maxToolResultTokens})
-	if err != nil {
-		return ctxerrors.Wrap(err, "measure execution history page")
-	}
-
-	if bounded != string(encoded) {
+	if !fits {
 		return ctxerrors.Wrap(commerr.ErrValidationFailed,
 			"history page too large; lower limit or read an activity context")
 	}
 
 	return nil
+}
+
+// executionReadFits reports whether a history page fits in one tool result.
+func (d *launchAgentDeps) executionReadFits(
+	ctx context.Context,
+	result executionReadOutput,
+) (bool, error) {
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return false, ctxerrors.Wrap(err, "encode execution history page")
+	}
+
+	bounded, err := boundWorkflowToolContent(ctx, string(encoded),
+		workflowToolOptions{MaxResultTokens: d.runtime.maxToolResultTokens})
+	if err != nil {
+		return false, ctxerrors.Wrap(err, "measure execution history page")
+	}
+
+	return bounded == string(encoded), nil
 }
 
 func executionMetadata(execution *models.Execution) *models.Execution {
@@ -210,6 +284,45 @@ func executionMetadata(execution *models.Execution) *models.Execution {
 	metadata.ContextJSON = ""
 
 	return &metadata
+}
+
+// executionActivitySummaries lists activities without their saved context
+// and with the start of their input and output. A single activity carries
+// the whole turn context, so a full page would not fit in a tool result.
+func executionActivitySummaries(
+	page *session.ExecutionActivityPage,
+) *session.ExecutionActivityPage {
+	if page == nil {
+		return nil
+	}
+
+	summary := *page
+	summary.Items = make([]*models.ExecutionActivity, len(page.Items))
+
+	for index, item := range page.Items {
+		activity := *item
+		activity.ContextJSON = ""
+		activity.InputJSON = activityPreview(item.InputJSON,
+			executionReadPartInput)
+
+		if item.OutputJSON != nil {
+			output := activityPreview(*item.OutputJSON, executionReadPartOutput)
+			activity.OutputJSON = &output
+		}
+
+		summary.Items[index] = &activity
+	}
+
+	return &summary
+}
+
+func activityPreview(content string, part executionReadPart) string {
+	if len(content) <= executionActivityPreviewBytes {
+		return content
+	}
+
+	return workflowUTF8Prefix(content, executionActivityPreviewBytes) +
+		fmt.Sprintf(executionActivityPreviewNote, len(content), part)
 }
 
 func (d *launchAgentDeps) readExecutionContext(
@@ -259,6 +372,11 @@ func (d *launchAgentDeps) executionContextContent(
 	input executionReadInput,
 ) (string, error) {
 	if input.ActivityID == uuid.Nil {
+		if input.Part != executionReadPartContext {
+			return "", ctxerrors.Wrap(commerr.ErrValidationFailed,
+				"part input and output need an activityId")
+		}
+
 		execution, err := store.GetExecution(ctx, d.sessionID,
 			input.ExecutionID)
 		if err != nil {
@@ -279,5 +397,16 @@ func (d *launchAgentDeps) executionContextContent(
 			"activity does not belong to this execution")
 	}
 
-	return activity.ContextJSON, nil
+	switch input.Part {
+	case executionReadPartInput:
+		return activity.InputJSON, nil
+	case executionReadPartOutput:
+		if activity.OutputJSON == nil {
+			return "", nil
+		}
+
+		return *activity.OutputJSON, nil
+	default:
+		return activity.ContextJSON, nil
+	}
 }
