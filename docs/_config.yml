@@ -1,4 +1,4 @@
-title: Peen
+title: peen
 tagline: Coding agent server documentation
 description: Peen is a self-hosted coding agent built as a server. It runs each project in its own process or container, and every tool call and model exchange lands in SQLite.
 lang: en

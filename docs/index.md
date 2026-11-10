@@ -1,5 +1,5 @@
 ---
-title: Peen
+title: peen
 description: Documentation for Peen, a self-hosted coding agent server. Install it, connect a model provider, and run agents on your projects from a browser, a shell, or an API.
 nav_order: 1
 permalink: /
@@ -7,7 +7,7 @@ seo:
   type: WebSite
 ---
 
-# Peen documentation
+# peen documentation
 
 Peen is a coding agent built as a server. One controller opens a session for each workspace directory and runs the agent for that session in its own process or Docker container. Clients send work and watch it live over WebSocket, and the agent keeps working when they disconnect.
 
