@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 
@@ -24,7 +25,8 @@ const (
 	readBufferBytes = 64 * 1024
 	// readCancelCheckLines is how many lines a streamed read scans between
 	// checks of its context.
-	readCancelCheckLines = 4096
+	readCancelCheckLines   = 4096
+	readNumberedLineFormat = "%6d\t%s"
 )
 
 // ReadFile reads a bounded line window from one regular file. SHA256 is
@@ -240,8 +242,9 @@ func (w *lineWindow) output(resolved, sha string) ReadFileOutput {
 	}
 
 	return ReadFileOutput{
-		Path:       resolved,
-		Content:    content,
+		Path: resolved,
+		Content: numberedReadContent(content, w.offset, w.lastLine,
+			w.totalLines, nextOffset),
 		FirstLine:  w.offset,
 		LastLine:   w.lastLine,
 		TotalLines: w.totalLines,
@@ -249,6 +252,28 @@ func (w *lineWindow) output(resolved, sha string) ReadFileOutput {
 		Truncated:  truncated,
 		SHA256:     sha,
 	}
+}
+
+func numberedReadContent(
+	content string,
+	first, last, total, next int,
+) string {
+	var lines []string
+	if last >= first {
+		lines = strings.Split(strings.TrimSuffix(content, "\n"), "\n")
+		for index, line := range lines {
+			lines[index] = fmt.Sprintf(readNumberedLineFormat,
+				first+index, line)
+		}
+	}
+
+	note := fmt.Sprintf("[lines %d-%d of %d]", first, last, total)
+	if next != 0 {
+		note = fmt.Sprintf("[lines %d-%d of %d; next offset %d]",
+			first, last, total, next)
+	}
+
+	return strings.Join(append(lines, note), "\n")
 }
 
 // readLine reads one line and writes up to keep bytes of it, without its

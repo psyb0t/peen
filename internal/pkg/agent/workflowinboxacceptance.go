@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -63,7 +64,7 @@ func (q *activeUserMessageQueue) acceptWorkflowMessage(
 		return nil, ctxerrors.Wrap(err, "persist native queue acceptance")
 	}
 
-	if len(receipt.Events) != 0 {
+	if len(receipt.Events) != 0 && !accepted.AfterTurn {
 		q.workflowPending[input.RequestID] = 1 + len(accepted.Parts)
 		for _, part := range accepted.Parts {
 			if !part.SkillIsNote {
@@ -84,6 +85,7 @@ func (q *activeUserMessageQueue) workflowAcceptanceInput(
 	input TurnRequest,
 ) (session.AcceptExecutionMessageInput, error) {
 	accepted := session.AcceptExecutionMessageInput{
+		AfterTurn: q.deferUntilCompletion,
 		RequestID: input.RequestID, SourceEventID: input.SourceEventID,
 		WorkingDirectory: q.workspace, Message: input.Message,
 		Images:   input.Images,
@@ -97,6 +99,9 @@ func (q *activeUserMessageQueue) workflowAcceptanceInput(
 	}
 
 	if row != nil {
+		accepted.AfterTurn = row.State == models.InboxMessageStateDeferred ||
+			row.State == models.InboxMessageStateForwarded
+
 		accepted.WorkingDirectory = row.WorkingDirectory
 		if err := json.Unmarshal([]byte(row.PartsJSON),
 			&accepted.Parts); err != nil {

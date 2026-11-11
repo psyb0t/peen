@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"math/rand/v2"
+	"math/rand/v2" // nosemgrep // Seeded so scenarios replay, never secrets.
 	"net/http"
 	"os"
 	"os/exec"

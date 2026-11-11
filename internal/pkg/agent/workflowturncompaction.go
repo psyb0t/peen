@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/elelem"
@@ -235,16 +237,52 @@ func spliceTurnSummary(
 
 // renderCompactionMessages builds a summarizer input from raw messages, in
 // the same transcript format a summary of ended turns uses.
-func renderCompactionMessages(messages []elelem.Message) string {
-	builder := &strings.Builder{}
-	builder.WriteString(compactionTranscriptOpenTag)
-	builder.WriteString(compactionLineBreak)
+func renderCompactionMessages(messages []elelem.Message) transcriptRenderer {
+	return func(toolResultBytes int) string {
+		builder := &strings.Builder{}
+		builder.WriteString(compactionTranscriptOpenTag)
+		builder.WriteString(compactionLineBreak)
 
-	for _, message := range messages {
-		writeCompactionMessage(builder, message)
+		for _, message := range messages {
+			writeCompactionMessage(builder, message, toolResultBytes)
+		}
+
+		builder.WriteString(compactionTranscriptCloseTag)
+
+		return builder.String()
+	}
+}
+
+// clipCompactionToolResult keeps the start and end of a tool result within
+// limit bytes, so the summarizer reads what a call returned without its
+// bulk. A limit of 0 leaves the result out.
+func clipCompactionToolResult(text string, limit int) string {
+	if len(text) <= limit {
+		return text
 	}
 
-	builder.WriteString(compactionTranscriptCloseTag)
+	if limit <= 0 {
+		return compactionToolResultOmitted
+	}
 
-	return builder.String()
+	if clipped, ok := clipNumberedResult(text, limit); ok {
+		return clipped
+	}
+
+	head := workflowUTF8Prefix(text, limit/compactionToolResultEnds)
+	tail := utf8Suffix(text, limit/compactionToolResultEnds)
+
+	return head + fmt.Sprintf(compactionToolResultCutFormat,
+		len(text)-len(head)-len(tail)) + tail
+}
+
+// utf8Suffix returns the longest end of text within limit bytes that starts
+// on a character boundary.
+func utf8Suffix(text string, limit int) string {
+	start := max(len(text)-limit, 0)
+	for start < len(text) && !utf8.RuneStart(text[start]) {
+		start++
+	}
+
+	return text[start:]
 }

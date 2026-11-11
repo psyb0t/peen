@@ -363,7 +363,9 @@ func TestHostToolHandlerReturnsEncodedResult(t *testing.T) {
 
 	output := tools.ReadFileOutput{}
 	require.NoError(t, json.Unmarshal([]byte(result.Content), &output))
-	assert.Equal(t, toolTestContent, output.Content)
+	assert.Equal(t,
+		"     1\tfirst line\n     2\tsecond line\n[lines 1-2 of 2]",
+		output.Content)
 	assert.Equal(t, 2, output.TotalLines)
 	assert.NotEmpty(t, output.SHA256)
 }

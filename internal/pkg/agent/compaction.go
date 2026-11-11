@@ -30,12 +30,28 @@ const (
 	// transcript cannot carry, so the summary still records that it was there.
 	compactionImageNoteFormat = "[image %s]\n"
 
+	// compactionToolResultBytes bounds each tool result in the summarizer's
+	// transcript, keeping its start and end. compactionToolResultTightBytes
+	// is the bound when the summarizer refused the first transcript as too
+	// large, and after that each result is left out.
+	compactionToolResultBytes      = 4000
+	compactionToolResultTightBytes = 1000
+	compactionToolResultCutFormat  = "\n[... %d bytes left out ...]\n"
+	compactionToolResultOmitted    = "[result left out to fit the summarizer]"
+
+	// compactionToolResultEnds splits a clipped result's room between its
+	// start and its end.
+	compactionToolResultEnds = 2
+
+	// compactionReasonInputShrunk is logged when the summarizer refused its
+	// transcript as too large and is asked again with shorter tool results.
+	compactionReasonInputShrunk = "summary_input_shrunk"
+
 	// compactionReasonBudgetExceeded is the stable reason logged when a
 	// request's transcript no longer fits the configured budget.
 	compactionReasonBudgetExceeded = "context_budget_exceeded"
-	// compactionReasonNothingToSummarize is logged when no completed history
-	// can bring a request under budget, so it goes out with the oldest units
-	// dropped instead of a summary.
+	// compactionReasonNothingToSummarize is logged when no history can bring
+	// a request under budget, so room is made without a summary.
 	compactionReasonNothingToSummarize = "nothing_to_summarize"
 	// compactionReasonPlanReleased is logged when a model round dropped
 	// history the summarize plan names, so the turn continues without it.
@@ -99,6 +115,16 @@ type compactionSummary struct {
 // text. Production calls the configured compaction model; a test substitutes a
 // deterministic seam so prefix selection can be proven without a provider.
 type summarizeFunc func(context.Context, string) (compactionSummary, error)
+
+// transcriptRenderer renders the summarizer's input with each tool result
+// bounded to toolResultBytes, or left out when that is 0.
+type transcriptRenderer func(toolResultBytes int) string
+
+// compactionToolResultLimits lists the tool result bounds the summarizer is
+// tried with, in order, while it refuses the transcript as too large.
+func compactionToolResultLimits() []int {
+	return []int{compactionToolResultBytes, compactionToolResultTightBytes, 0}
+}
 
 // compactionHookPayload gives hooks the stable facts of one real summary
 // replacement. It deliberately excludes transcript content and summary text.
@@ -553,8 +579,8 @@ func compactionOutcome(err error) string {
 	return compactionOutcomeFailed
 }
 
-// handleUnselectablePrefix falls back to leaving out the oldest units when no
-// completed history can be summarized, and returns any other error as is.
+// handleUnselectablePrefix makes room without a summary when no completed
+// history can be summarized, and returns any other error as is.
 func handleUnselectablePrefix(
 	ctx context.Context,
 	event *elelem.TokenLimitEvent,
@@ -566,19 +592,19 @@ func handleUnselectablePrefix(
 
 	logNothingToSummarize(ctx, err)
 
-	if err := elelem.DropOldestUnits(nil)(ctx, event); err != nil {
-		return ctxerrors.Wrap(err, "drop oldest units without a summary")
+	if err := fitRequestContext(ctx, event); err != nil {
+		return ctxerrors.Wrap(err, "fit request without a summary")
 	}
 
 	return nil
 }
 
-// logNothingToSummarize records that summarize mode fell back to leaving out
-// the oldest units, because no completed history could free the room.
+// logNothingToSummarize records that summarize mode fell back to making room
+// without a summary, because no history could free the room.
 func logNothingToSummarize(ctx context.Context, err error) {
 	runtimecontext.Logger(ctx).Warn(
-		"no completed history can bring the request under budget, "+
-			"dropping the oldest units instead",
+		"no history can be summarized to bring the request under budget, "+
+			"making room without a summary",
 		"reason", compactionReasonNothingToSummarize,
 		"err", err,
 	)
@@ -620,8 +646,8 @@ func leaveHistoryAfterSummaryFailure(
 func (c *compactor) selectPrefix(
 	event *elelem.TokenLimitEvent,
 ) (int, int, error) {
-	coverable := c.plan.coverableUnits()
-	if coverable == 0 {
+	ranges := c.plan.coverableRanges()
+	if len(ranges) == 0 {
 		return 0, 0, ctxerrors.Wrap(
 			ErrCompactionUnavailable,
 			"no completed history is eligible for compaction",
@@ -631,26 +657,31 @@ func (c *compactor) selectPrefix(
 	original := event.Messages
 	defer func() { event.Messages = original }()
 
+	eligible := ranges[len(ranges)-1].last
+
 	// estimates[units-1] is the request's size with that many units replaced,
-	// counted the first time a room needs it.
-	estimates := make([]int, 0, coverable)
+	// counted the first time a room needs it. Every range starts where the
+	// previous one ended, so the units are counted in order.
+	estimates := make([]int, 0, eligible)
 
-	for _, room := range compactionSummaryRooms(c.options.MaxOutputTokens) {
-		for units := 1; units <= coverable; units++ {
-			if units > len(estimates) {
-				event.Messages = c.replacePrefix(original, units,
-					compactionSummaryLead)
+	for _, candidates := range ranges {
+		for _, room := range compactionSummaryRooms(c.options.MaxOutputTokens) {
+			for units := candidates.first; units <= candidates.last; units++ {
+				if units > len(estimates) {
+					event.Messages = c.replacePrefix(original, units,
+						compactionSummaryLead)
 
-				if _, err := event.IsOverBudget(); err != nil {
-					return 0, 0, ctxerrors.Wrap(err,
-						"count compaction candidate")
+					if _, err := event.IsOverBudget(); err != nil {
+						return 0, 0, ctxerrors.Wrap(err,
+							"count compaction candidate")
+					}
+
+					estimates = append(estimates, event.EstimatedTokens)
 				}
 
-				estimates = append(estimates, event.EstimatedTokens)
-			}
-
-			if estimates[units-1]+room <= event.BudgetTokens {
-				return units, room, nil
+				if estimates[units-1]+room <= event.BudgetTokens {
+					return units, room, nil
+				}
 			}
 		}
 	}
@@ -658,7 +689,7 @@ func (c *compactor) selectPrefix(
 	return 0, 0, ctxerrors.Wrapf(
 		ErrCompactionUnavailable,
 		"%d eligible units do not free the %d token minimum summary room",
-		coverable,
+		eligible,
 		min(c.options.MaxOutputTokens, compactionMinimumSummaryTokens),
 	)
 }
@@ -809,42 +840,34 @@ func (c *compactor) replacePrefix(
 func (c *compactor) renderTranscript(
 	messages []elelem.Message,
 	units int,
-) string {
+) transcriptRenderer {
 	start := c.plan.summaryStart()
 	end := c.plan.LeadCount + c.plan.messageCount(units)
 
-	builder := &strings.Builder{}
-	builder.WriteString(compactionTranscriptOpenTag)
-	builder.WriteString(compactionLineBreak)
-
-	for _, message := range messages[start:end] {
-		writeCompactionMessage(builder, message)
-	}
-
-	builder.WriteString(compactionTranscriptCloseTag)
-
-	return builder.String()
+	return renderCompactionMessages(messages[start:end])
 }
 
 func (c *compactor) summarize(
 	ctx context.Context,
-	transcript string,
+	render transcriptRenderer,
 ) (compactionSummary, error) {
 	if c.options.Summarize != nil {
-		return c.options.Summarize(ctx, transcript)
+		return c.options.Summarize(ctx, render(compactionToolResultBytes))
 	}
 
-	return c.callModel(ctx, transcript)
+	return c.callModel(ctx, render)
 }
 
 // callModel runs the separate bounded summarization request.
 //
 // It carries no tools, no context budget, and no current user message. The
 // missing budget is deliberate: a limit hook here is what would let a
-// compaction trigger a compaction.
+// compaction trigger a compaction. When the summarizer refuses a transcript
+// as larger than its window, callModel renders it again with shorter tool
+// results and asks once more, down to a transcript with none.
 func (c *compactor) callModel(
 	ctx context.Context,
-	transcript string,
+	render transcriptRenderer,
 ) (compactionSummary, error) {
 	model, err := c.options.Models.ResolveModel(c.options.ModelReference)
 	if err != nil {
@@ -854,6 +877,68 @@ func (c *compactor) callModel(
 		)
 	}
 
+	return summarizeShrinkingTranscript(render,
+		func(transcript string) (compactionSummary, error) {
+			return c.summarizeTranscript(ctx, model, transcript)
+		},
+		func(err error, limit int) {
+			c.logSummaryInputShrunk(ctx, err, limit)
+		})
+}
+
+// summarizeShrinkingTranscript calls summarize with the transcript render
+// gives for each of compactionToolResultLimits in turn, moving on only while
+// summarize refuses the transcript as too large and the next one is
+// shorter. shrunk hears each move with the refusal and the new limit.
+func summarizeShrinkingTranscript(
+	render transcriptRenderer,
+	summarize func(string) (compactionSummary, error),
+	shrunk func(error, int),
+) (compactionSummary, error) {
+	limits := compactionToolResultLimits()
+	transcript := render(limits[0])
+
+	for _, limit := range limits[1:] {
+		summary, err := summarize(transcript)
+		if !errors.Is(err, ErrCompactionUnavailable) {
+			return summary, err
+		}
+
+		shorter := render(limit)
+		if len(shorter) >= len(transcript) {
+			return summary, err
+		}
+
+		shrunk(err, limit)
+
+		transcript = shorter
+	}
+
+	return summarize(transcript)
+}
+
+func (c *compactor) logSummaryInputShrunk(
+	ctx context.Context,
+	err error,
+	limit int,
+) {
+	runtimecontext.Logger(ctx).Warn(
+		"summarizer refused its transcript as too large, retrying with "+
+			"shorter tool results",
+		"reason", compactionReasonInputShrunk,
+		"session_id", c.sessionID,
+		"tool_result_bytes", limit,
+		"err", err,
+	)
+}
+
+// summarizeTranscript asks for one summary of transcript, and once more for
+// a shorter one when the first stopped at its output limit.
+func (c *compactor) summarizeTranscript(
+	ctx context.Context,
+	model ModelClient,
+	transcript string,
+) (compactionSummary, error) {
 	response, err := c.requestSummary(ctx, model,
 		transcript+c.lengthInstruction())
 	if err != nil {
@@ -1089,10 +1174,16 @@ func compactionSummaryMessage(content string) elelem.Message {
 func writeCompactionMessage(
 	builder *strings.Builder,
 	message elelem.Message,
+	toolResultBytes int,
 ) {
+	text := message.Text()
+	if message.Role == elelem.RoleTool {
+		text = clipCompactionToolResult(text, toolResultBytes)
+	}
+
 	builder.WriteString(message.Role)
 	builder.WriteString(compactionRoleSeparator)
-	builder.WriteString(message.Text())
+	builder.WriteString(text)
 	builder.WriteString(compactionLineBreak)
 
 	for _, part := range message.Content {

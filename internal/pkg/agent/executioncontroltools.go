@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
@@ -24,6 +25,11 @@ A newer Stop or changed target refuses stale requests. A tool call left with
 an unknown effect is not repeated: the resumed work reads it as an error
 result saying its outcome is unknown. To record what the call did instead,
 resolve it with resolveExecutionActivity before resuming.`
+
+// resumeExecutionNotFoundFormat is the refusal for an executionId the session
+// does not have, which a model that lost track of the real ID can send. It
+// replaces the store's internal error with what the agent can do about it.
+const resumeExecutionNotFoundFormat = "this session has no execution %s. Find retained work and its executionId with searchExecutions, or do the work directly" //nolint:lll // One model-facing sentence.
 
 // resumedRootNote tells the agent that resumed root work cannot run while its
 // own turn holds the session, so waiting for it in this turn never ends.
@@ -87,6 +93,11 @@ func (d *launchAgentDeps) resumeExecution(
 			DeferredRequestID:    input.DeferredRequestID,
 			DeferredStopRevision: input.DeferredStopRevision,
 		})
+	if errors.Is(err, commerr.ErrNotFound) {
+		return result, ctxerrors.Wrapf(commerr.ErrNotFound,
+			resumeExecutionNotFoundFormat, input.ExecutionID)
+	}
+
 	if err != nil {
 		return result, ctxerrors.Wrap(err, "resume inspected execution")
 	}

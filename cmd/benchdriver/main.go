@@ -18,7 +18,7 @@ package main
 import (
 	"context"
 	"flag"
-	"math/rand/v2"
+	"math/rand/v2" // nosemgrep // Seeded so scenarios replay, never secrets.
 	"net/http"
 	"os"
 	"path/filepath"

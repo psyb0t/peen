@@ -45,12 +45,7 @@ func runWorkflowToolPhase(
 	}
 
 	if input.Phase == workflowToolPhaseProject {
-		state := input.State
-		outcome, err := boundedWorkflowToolResult(ctx, state.Outcome,
-			options.Tool)
-		state.Outcome, state.LastPhase = outcome, input.Phase
-
-		return state, err
+		return projectWorkflowToolResult(ctx, set, input, options)
 	}
 
 	if set == nil {
@@ -68,7 +63,60 @@ func runWorkflowToolPhase(
 		return state, nil
 	}
 
-	return executeWorkflowToolPhase(ctx, tool, input, options)
+	return runKnownWorkflowToolPhase(ctx, set, tool, input, options)
+}
+
+func runKnownWorkflowToolPhase(
+	ctx context.Context,
+	set *elelem.ToolSet,
+	tool elelem.Tool,
+	input workflowToolPhaseInput,
+	options workflowPhaseExecutionOptions,
+) (workflowToolPhaseState, error) {
+	if input.Tool.Compact && input.Phase == workflowToolPhaseHandler {
+		return runCompactToolHandler(ctx, set, input, options.Tool)
+	}
+
+	if input.Phase == workflowToolPhaseHandler {
+		return runRepeatCheckedPhase(ctx, tool, input, options)
+	}
+
+	state, err := executeWorkflowToolPhase(ctx, tool, input, options)
+	if err != nil || input.Phase != workflowToolPhasePost {
+		return state, err
+	}
+
+	state.Outcome, err = finishWorkflowRepeat(ctx, input.Tool, state.Outcome,
+		options.Tool)
+
+	return state, err
+}
+
+func runCompactToolHandler(
+	ctx context.Context,
+	set *elelem.ToolSet,
+	input workflowToolPhaseInput,
+	options workflowToolOptions,
+) (workflowToolPhaseState, error) {
+	state := input.State
+	outcome, err := runWorkflowTool(ctx, set, input.Tool, options)
+	state.Outcome, state.LastPhase = outcome, input.Phase
+	state.CompactFinished = err == nil
+
+	return state, err
+}
+
+func runRepeatCheckedPhase(
+	ctx context.Context,
+	tool elelem.Tool,
+	input workflowToolPhaseInput,
+	options workflowPhaseExecutionOptions,
+) (workflowToolPhaseState, error) {
+	tool, repetition := repeatCheckedWorkflowTool(tool, input.Tool)
+	state, err := executeWorkflowToolPhase(ctx, tool, input, options)
+	state.Outcome.Repeat = repetition
+
+	return state, err
 }
 
 func executeWorkflowToolPhase(

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
@@ -31,11 +32,14 @@ type workflowToolDefinition struct {
 }
 
 type workflowConversation struct {
-	ModelReference   string                   `json:"modelReference"`
-	SystemPrompt     string                   `json:"systemPrompt"`
-	Messages         []elelem.Message         `json:"messages"`
-	Tools            []workflowToolDefinition `json:"tools"`
-	MaxContextTokens int                      `json:"maxContextTokens"`
+	ToolStarts map[string]time.Time `json:"toolStarts,omitempty"`
+
+	Repeats          map[string]workflowRepeatCount `json:"repeats,omitempty"`
+	ModelReference   string                         `json:"modelReference"`
+	SystemPrompt     string                         `json:"systemPrompt"`
+	Messages         []elelem.Message               `json:"messages"`
+	Tools            []workflowToolDefinition       `json:"tools"`
+	MaxContextTokens int                            `json:"maxContextTokens"`
 	// OutputReserveTokens is saved with the execution, so a resumed one keeps
 	// the budget it started with. Executions saved before it existed read 0,
 	// which keeps no reserve, as they did.
@@ -185,8 +189,7 @@ func workflowModelRequestWith(
 			WithHistory(history)).
 		WithTools(tools).WithMaxContextTokens(conversation.MaxContextTokens).
 		WithOutputReserveTokens(conversation.OutputReserveTokens).
-		WithMaxRounds(workflowManualRequestRoundLimit).
-		PostMaxTokensReached(fitInFlightToolResults)
+		WithMaxRounds(workflowManualRequestRoundLimit)
 	withOutputLimit(request, conversation.OutputReserveTokens)
 
 	if conversation.Streaming != nil {
@@ -206,38 +209,17 @@ func workflowModelRequestWith(
 	return request, conversation, nil
 }
 
-// watchDroppedHistory lets a request with a summarize plan report a drop, so
-// the round can release the plan its positions no longer match.
+// watchDroppedHistory records message removal in either context-fit hook,
+// so the round releases a summarize plan whose positions no longer match.
 func watchDroppedHistory(
 	request *elelem.Request,
 	conversation *workflowConversation,
 ) {
-	if conversation.Compaction == nil {
-		return
-	}
-
 	conversation.historyDropped = new(bool)
 	request.PreMaxTokensReached(
-		recordDroppedHistory(conversation.historyDropped))
-}
-
-// recordDroppedHistory is Elelem's default drop-oldest handler that also
-// reports whether it left anything out, which the saved plan must learn.
-func recordDroppedHistory(dropped *bool) elelem.TokenLimitHandler {
-	drop := elelem.DropOldestUnits(nil)
-
-	return func(ctx context.Context, event *elelem.TokenLimitEvent) error {
-		before := len(event.Messages)
-		if err := drop(ctx, event); err != nil {
-			return ctxerrors.Wrap(err, "drop oldest workflow history")
-		}
-
-		if len(event.Messages) < before {
-			*dropped = true
-		}
-
-		return nil
-	}
+		fitWorkflowContext(conversation.historyDropped)).
+		PostMaxTokensReached(
+			fitWorkflowInFlightResults(conversation.historyDropped))
 }
 
 // seededWorkflowHistory copies saved messages for a new request. They belong
@@ -420,6 +402,8 @@ func workflowMergeRound(
 	}
 
 	for index, result := range results {
+		retainWorkflowRepeat(&conversation, result.Repeat)
+
 		if len(result.Context) != 0 {
 			var snapshot workflowConversation
 			if err := json.Unmarshal(result.Context, &snapshot); err != nil {

@@ -111,19 +111,20 @@ func runPhasedWorkflowTool(
 	ctx workflow.Context,
 	tool workflowToolInput,
 ) (workflowToolResult, error) {
-	state := workflowToolPhaseState{}
+	tool.Compact = compactWorkflowTool(tool)
+
+	state, err := initialWorkflowToolState(tool)
+	if err != nil {
+		return workflowToolResult{}, ctxerrors.Wrap(err, "restore tool start")
+	}
+
 	for _, phase := range []workflowToolPhase{
 		workflowToolPhasePre, workflowToolPhaseQuestion,
 		workflowToolPhaseHandler,
 		workflowToolPhaseOutcome,
 		workflowToolPhasePost, workflowToolPhaseProject,
 	} {
-		if phase == workflowToolPhaseQuestion &&
-			(state.Wait == nil || !state.Wait.Parent) {
-			continue
-		}
-
-		if state.Finished && phase != workflowToolPhaseProject {
+		if skipWorkflowToolPhase(tool, state, phase) {
 			continue
 		}
 
@@ -144,6 +145,24 @@ func runPhasedWorkflowTool(
 	state.Outcome.Context = tool.Round.Execution.Context
 
 	return state.Outcome, nil
+}
+
+func skipWorkflowToolPhase(
+	tool workflowToolInput,
+	state workflowToolPhaseState,
+	phase workflowToolPhase,
+) bool {
+	if tool.Compact && phase != workflowToolPhaseHandler &&
+		phase != workflowToolPhaseProject {
+		return true
+	}
+
+	if phase == workflowToolPhaseQuestion &&
+		(state.Wait == nil || !state.Wait.Parent) {
+		return true
+	}
+
+	return state.Finished && phase != workflowToolPhaseProject
 }
 
 // advanceWorkflowToolPhase moves a context a phase changed into the tool
@@ -170,7 +189,7 @@ func runPhasedWorkflowTools(
 
 	results := make([]workflowToolResult, len(calls))
 	for start := 0; start < len(calls); {
-		end := min(start+round.Execution.MaxConcurrentTools, len(calls))
+		end := workflowRepeatBatchEnd(round, calls, start)
 
 		channels := make(
 			[]workflow.Channel[workflowToolPhaseCompletion], end-start,
@@ -206,6 +225,12 @@ func runPhasedWorkflowTools(
 				"settle phased workflow tool batch")
 		}
 
+		updated, err := advanceWorkflowRepeatRound(round, results[start:end])
+		if err != nil {
+			return nil, nil, ctxerrors.Wrap(err, "retain batch repeat counts")
+		}
+
+		round = updated
 		start = end
 	}
 

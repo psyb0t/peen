@@ -18,9 +18,12 @@ import (
 )
 
 const (
-	runtimeToolCallID    = "call_read"
-	runtimeToolFileName  = "note.txt"
-	runtimeToolFileBody  = "alpha\nbeta\n"
+	runtimeToolCallID       = "call_read"
+	runtimeToolFileName     = "note.txt"
+	runtimeToolFileBody     = "alpha\nbeta\n"
+	runtimeToolNumberedBody = `     1	alpha
+     2	beta
+[lines 1-2 of 2]`
 	runtimeToolFinalText = "read it"
 
 	runtimeToolSecretFileName = "secret.txt"
@@ -124,7 +127,7 @@ func TestRuntimeRunExecutesHostToolAndPairsCallID(t *testing.T) {
 	output := tools.ReadFileOutput{}
 	require.NoError(t, json.Unmarshal(
 		[]byte(toolOutputText(t, toolResult.Content)), &output))
-	assert.Equal(t, runtimeToolFileBody, output.Content)
+	assert.Equal(t, runtimeToolNumberedBody, output.Content)
 
 	messages, err := fixture.store.ListMessages(
 		context.Background(),

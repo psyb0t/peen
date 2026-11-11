@@ -21,7 +21,12 @@ const (
 	// the budget divided by this.
 	inFlightMarginDivisor = 20
 
-	reasonInFlightResultsCut = "in_flight_results_over_budget"
+	reasonInFlightResultsCut     = "in_flight_results_over_budget"
+	reasonInFlightResultsLeftOut = "in_flight_results_left_out"
+	reasonReasoningLeftOut       = "reasoning_left_out"
+
+	// inFlightResultLeftOut replaces a result that did not fit even cut short.
+	inFlightResultLeftOut = "[Peen left this result out: this round's tool results did not fit the context together. Call the tool again, with fewer calls at once, to read it.]" //nolint:lll // One model-facing line.
 
 	// toolOutputOpenPrefix and toolOutputLineEnd find the opening tag
 	// toolOutputOpenFormat writes.
@@ -34,8 +39,103 @@ const (
 // about to read, so a round whose parallel calls together return more than
 // the context holds would still be sent over the limit. This cuts the largest
 // of those results, each to a fair share of the room left, until the request
-// fits.
+// fits, retries history removal even for a partial reduction, then stubs
+// whole results and clears old reasoning as last fallbacks.
 func fitInFlightToolResults(
+	ctx context.Context,
+	event *elelem.TokenLimitEvent,
+) error {
+	_, err := fitInFlightToolResultsReporting(ctx, event)
+
+	return err
+}
+
+// fitInFlightToolResultsReporting reports history removal so a workflow can
+// release a compaction plan whose message positions no longer match.
+func fitInFlightToolResultsReporting(
+	ctx context.Context,
+	event *elelem.TokenLimitEvent,
+) (bool, error) {
+	if err := cutInFlightToolResults(ctx, event); err != nil {
+		return false, err
+	}
+
+	changed, err := leaveOutPartialHistory(ctx, event)
+	if err != nil {
+		return false, err
+	}
+
+	if err := leaveOutInFlightResults(ctx, event,
+		trailingToolResults(event.Messages)); err != nil {
+		return changed, err
+	}
+
+	return changed, leaveOutReasoning(ctx, event)
+}
+
+// leaveOutReasoning changes only the outgoing request's message copies.
+// Transcript rows are recorded separately, before these limit hooks run.
+// Providers may need the live tool round's reasoning to accept its results.
+func leaveOutReasoning(
+	ctx context.Context,
+	event *elelem.TokenLimitEvent,
+) error {
+	protected := liveReasoningIndex(event.Messages)
+	cleared := 0
+	before := event.EstimatedTokens
+
+	for index, message := range event.Messages {
+		if index == protected || message.Role != elelem.RoleAssistant ||
+			(message.Reasoning == "" &&
+				!elelem.HasProviderReasoning(message.ProviderReasoning)) {
+			continue
+		}
+
+		over, err := event.IsOverBudget()
+		if err != nil {
+			return ctxerrors.Wrap(err, "count request before reasoning removal")
+		}
+
+		if !over {
+			break
+		}
+
+		event.Messages[index].Reasoning = ""
+		event.Messages[index].ProviderReasoning = nil
+		cleared++
+	}
+
+	if cleared == 0 {
+		return nil
+	}
+
+	if _, err := event.IsOverBudget(); err != nil {
+		return ctxerrors.Wrap(err, "count request after leaving reasoning out")
+	}
+
+	ctxscope.GetLogger(ctx).Warn("left reasoning out to fit the context",
+		"reason", reasonReasoningLeftOut, "messages_cleared", cleared,
+		"estimated_tokens_before", before,
+		"estimated_tokens", event.EstimatedTokens,
+		"budget_tokens", event.BudgetTokens)
+
+	return nil
+}
+
+func liveReasoningIndex(messages []elelem.Message) int {
+	index := lastAnsweringAssistantIndex(messages)
+	if index < 0 || len(messages[index].ToolCalls) == 0 ||
+		toolRoundEnd(messages, index) != len(messages) ||
+		index+1 == len(messages) {
+		return -1
+	}
+
+	return index
+}
+
+// cutInFlightToolResults keeps every result present so older messages can
+// leave before the post hook replaces whole in-flight results with stubs.
+func cutInFlightToolResults(
 	ctx context.Context,
 	event *elelem.TokenLimitEvent,
 ) error {
@@ -81,6 +181,53 @@ func fitInFlightToolResults(
 			"estimated_tokens", event.EstimatedTokens,
 			"budget_tokens", event.BudgetTokens, "attempt", attempt)
 	}
+
+	return nil
+}
+
+// leaveOutInFlightResults replaces whole results with a stub, newest first,
+// when cutting each one to its floor still leaves the request over budget.
+// That happens when the model asks for more calls at once than the context
+// holds even in short. It stubs in batches that double each time, so many
+// results cost a few recounts, and the model calls the tool again for any
+// result it still needs.
+func leaveOutInFlightResults(
+	ctx context.Context,
+	event *elelem.TokenLimitEvent,
+	indexes []int,
+) error {
+	stubbed := 0
+
+	for batch := 1; stubbed < len(indexes); batch *= 2 {
+		over, err := event.IsOverBudget()
+		if err != nil {
+			return ctxerrors.Wrap(err, "count request with cut tool results")
+		}
+
+		if !over {
+			break
+		}
+
+		for range min(batch, len(indexes)-stubbed) {
+			stubbed++
+			index := indexes[len(indexes)-stubbed]
+			event.Messages[index].Content = elelem.Text(inFlightResultLeftOut)
+		}
+	}
+
+	if stubbed == 0 {
+		return nil
+	}
+
+	if _, err := event.IsOverBudget(); err != nil {
+		return ctxerrors.Wrap(err, "count request with left out tool results")
+	}
+
+	ctxscope.GetLogger(ctx).Warn("left tool results out to fit the context",
+		"reason", reasonInFlightResultsLeftOut,
+		"results_left_out", stubbed, "results", len(indexes),
+		"estimated_tokens", event.EstimatedTokens,
+		"budget_tokens", event.BudgetTokens)
 
 	return nil
 }

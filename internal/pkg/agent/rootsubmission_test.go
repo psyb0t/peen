@@ -135,8 +135,7 @@ func TestRootSubmissionUsesPhasedWorkflow(t *testing.T) {
 		steps = append(steps, activity.StepID)
 	}
 	assert.ElementsMatch(t, []string{
-		"tool:0:0:preHook", "tool:0:0:handler", "tool:0:0:outcomeHook",
-		"tool:0:0:postHook", "tool:0:0:project",
+		"tool:0:0:handler", "tool:0:0:project",
 	}, steps)
 }
 
@@ -161,7 +160,9 @@ func TestRootSubmissionSchedulesToolPhases(t *testing.T) {
 			names = append(names, activity.Name)
 		}
 	}
-	assert.ElementsMatch(t, []string{toolPhaseActivityName, toolPhaseActivityName, toolPhaseActivityName, toolPhaseActivityName, toolPhaseActivityName}, names)
+	assert.ElementsMatch(t, []string{
+		toolPhaseActivityName, toolPhaseActivityName,
+	}, names)
 }
 
 func TestRootSubmissionRefusesForeignSession(t *testing.T) {

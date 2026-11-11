@@ -66,8 +66,8 @@ activities for the steps with their attempts, states and the start of their
 inputs and outputs; events for the audit history; or inbox for accepted
 messages and their delivery states.
 Each history part is paginated independently with limit, offset and hasMore.
-An activities page may hold fewer items than limit when they would not fit
-in one result; its limit then says how many it holds.
+An activities or events page may hold fewer items than limit when they
+would not fit in one result; its limit then says how many it holds.
 For context, input and output, limit and offset count bytes. Chunks default
 to at most 4096 bytes, preserve UTF-8 and return nextOffset. Follow
 nextOffset until hasMore is false to reconstruct the complete saved JSON.
@@ -172,7 +172,7 @@ func (d *launchAgentDeps) readExecution(
 		result.Activities, err = d.readExecutionActivities(ctx, store,
 			input.ExecutionID, page)
 	case executionReadPartEvents:
-		result.Events, err = store.ListExecutionEvents(ctx, d.sessionID,
+		result.Events, err = d.readExecutionEvents(ctx, store,
 			input.ExecutionID, page)
 	case executionReadPartInbox:
 		result.Inbox, err = store.ListExecutionMessages(ctx, d.sessionID,
@@ -221,6 +221,46 @@ func (d *launchAgentDeps) fitExecutionActivities(
 	for page != nil && len(page.Items) > 1 {
 		fits, err := d.executionReadFits(ctx,
 			executionReadOutput{Activities: page})
+		if err != nil {
+			return nil, err
+		}
+
+		if fits {
+			return page, nil
+		}
+
+		smaller := *page
+		smaller.Items = page.Items[:len(page.Items)/2]
+		smaller.Limit = len(smaller.Items)
+		smaller.HasMore = true
+		page = &smaller
+	}
+
+	return page, nil
+}
+
+func (d *launchAgentDeps) readExecutionEvents(
+	ctx context.Context,
+	store session.ExecutionStorage,
+	executionID uuid.UUID,
+	page session.ListEventsOptions,
+) (*session.ExecutionEventPage, error) {
+	events, err := store.ListExecutionEvents(ctx, d.sessionID,
+		executionID, page)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "list retained events")
+	}
+
+	return d.fitExecutionEvents(ctx, events)
+}
+
+func (d *launchAgentDeps) fitExecutionEvents(
+	ctx context.Context,
+	page *session.ExecutionEventPage,
+) (*session.ExecutionEventPage, error) {
+	for page != nil && len(page.Items) > 1 {
+		fits, err := d.executionReadFits(ctx,
+			executionReadOutput{Events: page})
 		if err != nil {
 			return nil, err
 		}

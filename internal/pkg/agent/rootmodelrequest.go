@@ -113,6 +113,11 @@ func (r *Runtime) workflowRootModelRoundWithAssistant(
 			"save root model context")
 	}
 
+	if err := assistant.recordCompactRootStarts(ctx, input,
+		&result); err != nil {
+		return result, ctxerrors.Wrap(err, "record compact root tool starts")
+	}
+
 	return prepared.withWorkflowInboxContinuation(result), nil
 }
 

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -92,6 +93,55 @@ func TestWorkflowCompactionPrefixFallsBackToASmallerSummaryRoom(
 	assert.Positive(t, units)
 	assert.Less(t, room, savedRoom)
 	assert.Contains(t, compactionSummaryRooms(savedRoom), room)
+}
+
+// A newest completed turn that alone outgrows the context is summarized up
+// to its final reply. Keeping it raw left nothing to summarize, so the model
+// round dropped the whole turn instead.
+func TestWorkflowCompactionPrefixSummarizesAnOversizedNewestTurn(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	const (
+		longMessageBytes = 4000
+		overBudgetTokens = 1000
+	)
+
+	scenario, input := workflowCompactionPrefixFixture(t, 1)
+	counter := compactionTokenCounter{perByte: 1}
+	model, err := scenario.fixture.runtime.models.ResolveModel(
+		runtimeTestModelReference)
+	require.NoError(t, err)
+	model.Client = elelem.New(scenario.driver,
+		elelem.WithClientTokenCounter(counter))
+	registry, err := NewStaticRegistry(map[string]ModelClient{
+		runtimeTestModelReference: model,
+	})
+	require.NoError(t, err)
+
+	var conversation workflowConversation
+	require.NoError(t, json.Unmarshal(input.Execution.Context, &conversation))
+	require.Len(t, conversation.Compaction.Plan.Units, 2,
+		"one completed turn is its request and its reply")
+	require.Zero(t, conversation.Compaction.Plan.coverableUnits())
+
+	conversation.Messages[0].Content = elelem.Text(
+		strings.Repeat("a", longMessageBytes))
+	total, err := counter.Count(workflowCompactionMessages(conversation), nil)
+	require.NoError(t, err)
+	conversation.MaxContextTokens = total - overBudgetTokens
+	conversation.OutputReserveTokens = 0
+	encoded, err := json.Marshal(conversation)
+	require.NoError(t, err)
+	input.Execution.Context = encoded
+
+	before := scenario.driver.Calls()
+	units, room, err := selectWorkflowCompactionPrefix(registry, input)
+	require.NoError(t, err)
+	assert.Equal(t, 1, units, "the turn's final reply stays raw")
+	assert.Equal(t, conversation.Compaction.MaxOutputTokens, room)
+	assert.Equal(t, before, scenario.driver.Calls())
 }
 
 func TestCompactionSummaryRoomsHalveDownToTheMinimum(t *testing.T) {

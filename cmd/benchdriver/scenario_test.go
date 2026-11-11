@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"math/rand/v2"
+	"math/rand/v2" // nosemgrep // Seeded so scenarios replay, never secrets.
 	"os"
 	"path/filepath"
 	"testing"

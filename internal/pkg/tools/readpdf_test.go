@@ -97,15 +97,17 @@ func TestReadFileExtractsPDFTextPageByPage(t *testing.T) {
 	assert.Equal(t, hashBytes(content), output.SHA256)
 	assert.Empty(t, output.Note)
 	assert.Nil(t, output.Image)
-	assert.Equal(t, "--- page 1 of 2 ---\nFirst page words\n"+
-		"--- page 2 of 2 ---\nSecond page words", output.Content)
+	assert.Equal(t, "     1\t--- page 1 of 2 ---\n     2\tFirst page words\n"+
+		"     3\t--- page 2 of 2 ---\n     4\tSecond page words\n"+
+		"[lines 1-4 of 4]", output.Content)
 	assert.Equal(t, 4, output.TotalLines)
 
 	window, err := executor.ReadFile(t.Context(), ReadFileInput{
 		Path: path, Offset: 3, Limit: 2,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "--- page 2 of 2 ---\nSecond page words", window.Content)
+	assert.Equal(t, "     3\t--- page 2 of 2 ---\n     4\tSecond page words\n"+
+		"[lines 3-4 of 4]", window.Content)
 	assert.Equal(t, 3, window.FirstLine)
 }
 

@@ -28,7 +28,8 @@ func (r *Runtime) workflowRootCompactRound(
 			"validate root compaction activity lease")
 	}
 
-	units, room, err := selectWorkflowCompactionPrefix(r.models, input)
+	input, units, room, err := maskAndSelectCompactionPrefix(ctx, r.models,
+		input)
 	if errors.Is(err, ErrCompactionUnavailable) {
 		return r.workflowRootTurnCompaction(ctx, prepared, input)
 	}

@@ -37,6 +37,8 @@ type workflowToolPhaseInput struct {
 }
 
 type workflowToolPhaseState struct {
+	CompactFinished bool `json:"compactFinished,omitempty"`
+
 	LastPhase     workflowToolPhase         `json:"lastPhase,omitempty"`
 	Outcome       workflowToolResult        `json:"outcome"`
 	Finished      bool                      `json:"finished,omitempty"`
@@ -122,9 +124,7 @@ func (input workflowToolPhaseInput) validate() error {
 			"tool phase identity")
 	}
 
-	previous := input.State.LastPhase
-	if !validWorkflowToolPhaseTransition(previous, input.Phase,
-		input.State.Finished) {
+	if !input.validTransition() {
 		return ctxerrors.Wrap(commerr.ErrValidationFailed,
 			"tool phase predecessor")
 	}
@@ -135,6 +135,18 @@ func (input workflowToolPhaseInput) validate() error {
 	}
 
 	return nil
+}
+
+func (input workflowToolPhaseInput) validTransition() bool {
+	previous := input.State.LastPhase
+	if input.Tool.Compact {
+		return (previous == "" && input.Phase == workflowToolPhaseHandler) ||
+			(previous == workflowToolPhaseHandler &&
+				input.Phase == workflowToolPhaseProject)
+	}
+
+	return validWorkflowToolPhaseTransition(previous, input.Phase,
+		input.State.Finished)
 }
 
 func validWorkflowToolPhaseTransition(

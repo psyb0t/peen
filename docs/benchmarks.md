@@ -18,6 +18,34 @@ Each task runs in its own benchmark container through [Harbor](https://github.co
 - Each trial keeps Peen's WebSocket frames, its debug log, and its SQLite state, so every model call, tool call, compaction, and turn end can be checked afterwards.
 - Every benchmark first runs its reference solutions under the same sandbox, so a grader that cannot work offline is not counted against Peen.
 
+## November 2026, Peen v0.47.0 compaction recovery
+
+The `recovery-kill-during-compaction` task runs six turns, each reading a 200-line note through paged `readFile` calls, and kills the worker during a compaction. It checks the first word written for each note and audits provider-reported prompt tokens against the context. These runs use `PEEN_TOOL_MAX_READ_BYTES=600`, `PEEN_MAX_CONTEXT_TOKENS=20480`, and `PEEN_COMPACTION_MODE=summarize`, with GLM-5.3-Flash writing summaries for both models.
+
+| Build | GLM-5.3 | GLM-5.3-Flash | Total |
+| --- | --- | --- | --- |
+| Before the context-fit fixes | 0 of 5 | 0 of 5 | 0 of 10 |
+| After covering the newest ended turn | 3 of 5 | 2 of 5 | 5 of 10 |
+| With whole-result fallback | 2 of 5 | 2 of 5 | 4 of 10 |
+| With partial history removal and reasoning fallback | 3 of 5 | 5 of 5 | 8 of 10 |
+| With numbered pages, repeat checks and fewer tool activities | 4 of 5 | 2 of 5 | 6 of 10 |
+
+The first fix covers a previous turn that alone outgrew the context. `summarize` mode had kept that turn outside the summary, then dropped it when nothing else could make room. It now summarizes that turn too when older turns cannot free enough room.
+
+The second run still found three trials with oversized prompts. One round asked for 87 parallel `readFile` calls. Cutting each result to its minimum share could not fit them together, and Peen sent the request over the context. Peen now tries older messages after cutting, then replaces whole in-flight results newest first with a note asking the model to call the tool again with fewer calls at once. Tool call IDs and the full stored transcript stay intact.
+
+The other two misses in that run were model decisions. GLM lost a note's first-line result when earlier rounds left the request, kept the user's request and a notice telling it to read again, and guessed a word from another note instead. Flash still had the exact first words and the request to finish every output, but stopped with four output files missing. Neither trial showed corrupted tool results or a lost recovery request.
+
+The whole-result fallback run passed every hard audit check on GLM. Its three task misses were wrong words after earlier results left context, despite retained requests and reread notices. One model repeatedly reread notes while trying to repair its answers and reached the existing 10,000-event workflow history limit. Flash still sent two prompts over the 20,480-token context, at 20,819 and 21,040 tokens. The larger request already had every in-flight result replaced with a stub; restored earlier history and the live model's reasoning still filled the context. These overflows count as failures. Two Flash trials also failed word checks, one overlapping a context failure.
+
+Those two overflows exposed the next defects: the final hook never retried history that the initial steps restored, and no step could shorten a reasoning-only assistant reply. The final hook now retries droppable history, older messages included, after cutting results and keeps a partial removal when it lowers the estimate. It then stubs whole results newest first and, only while still over budget, clears assistant reasoning oldest first. Both reasoning fields leave together, and the live tool round keeps its reasoning because a provider may require it to accept the results. The initial steps still restore history when removal alone cannot fit, and the stored transcript keeps all reasoning.
+
+The rerun with those fixes passed 3 of 5 trials on GLM and all 5 on Flash. All ten trials passed every hard audit, including the context-window check, with no oversized tool-enabled turn request. One GLM miss mistook late pages for first lines after earlier results left context. The other repeatedly reread notes and attempted repairs until it reached the existing 10,000-event workflow history limit, leaving three outputs unfinished. The benchmark task, prompts, and summary call's native window are unchanged.
+
+The next fixes make page positions explicit in [readFile results](tools.md#reading-files), including extracted PDF text: every line carries its absolute number, and each page ends with its range and total, plus the next offset when truncated. Masked old results keep their tool and page arguments. Repeated unchanged calls warn on the third result and are refused from the fifth call. Ordinary tools with no matching hooks record two activities instead of five, reducing history growth while keeping older executions replayable.
+
+That run passed 4 of 5 on GLM and 2 of 5 on Flash. All ten trials passed every hard audit, including `promptsWithinContext`; none reached the workflow history cap. The largest turns held 453 tool calls and 3,684 history events on GLM, and 243 calls and 2,697 events on Flash. GLM recorded 167 repeat warnings and 11 refusals; Flash recorded 12 warnings and one refusal. The four remaining failures wrote wrong words after results were masked or cut, despite numbered pages and reread notices. Restored requests show the models inventing or misremembering first words, and one Flash trial rewrote its outputs with further unsupported guesses. One failure on each model also missed the intended compaction kill: the kills interrupted ordinary turn requests, and the compaction stalls happened later during recovery. The task and the context-fit loss order remain unchanged. This small run does not establish an improvement in model accuracy.
+
 ## November 2026, Peen v0.45.2 harness suite
 
 The first run of the [harness suite](#the-harness-suite): all 114 full-tier tasks, five attempts each, on GLM-5.3 and on GLM-5.3-Flash, and a control run on GLM-5.3 with `PEEN_BLANK_AGENT=true`, which turns off every instruction text Peen ships. A trial passes only when its grader passed and the audit found no broken invariant. A task that fails because of a Peen defect stays in the suite, and the defect is listed below.

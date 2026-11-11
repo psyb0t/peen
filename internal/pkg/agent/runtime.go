@@ -2026,11 +2026,8 @@ func (r *Runtime) runProvider(
 		request = request.WithReasoningEffort(effort)
 	}
 
-	// Under drop-oldest Elelem evicts whole units without a Peen hook.
-	// Installing both policies would compact the same request twice.
-	if prepared.compactor != nil {
-		request = request.PreMaxTokensReached(prepared.compactor.handle)
-	}
+	request = request.PreMaxTokensReached(
+		contextLimitHandler(prepared.compactor))
 
 	request = request.PostMaxTokensReached(fitInFlightToolResults)
 

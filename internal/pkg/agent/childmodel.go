@@ -61,6 +61,11 @@ func (r *Runtime) workflowChildModelRoundWithAssistant(
 		return result, ctxerrors.Wrap(err, "save child model context")
 	}
 
+	if err := assistant.recordCompactChildStarts(ctx, input,
+		&result); err != nil {
+		return result, ctxerrors.Wrap(err, "record compact child tool starts")
+	}
+
 	result.ChildProjection = assistant.phaseBuffer
 
 	return r.childWorkflowInboxContinuation(ctx, input, result)

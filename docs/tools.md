@@ -19,6 +19,12 @@ To limit what an agent may use, list tools in its [`allowed-tools`](agents.md#fo
 | `readFile` | Reads a line window from a text file and reports the sha256 of the whole file. Reads a `.png`, `.jpg`, `.jpeg`, `.gif`, or `.webp` file as an image, and extracts the text of a PDF. |
 | `webFetch` | Fetches an `http` or `https` URL from the worker's network and returns the body as text. HTML comes back as its readable text. Images, PDFs, and other binary content are refused. A 4xx or 5xx status is not an error. |
 
+`readFile` prefixes every text line with its absolute 1-based line number, right-aligned to at least six columns, followed by a tab. This applies to extracted PDF text too. Its last content line states the returned range and total line count, with the next offset when the page is truncated. The existing JSON fields and whole-file `sha256` remain. These prefixes and the range note are display text, so leave them out of `editFile` replacements and `applyPatch` context and additions. Matching stays exact and never strips prefixes silently. `searchText` also uses absolute 1-based line numbers, in its `line` field.
+
+An unchanged reread still returns content. Peen cannot guarantee that an earlier result will remain complete after fitting the next model request. When context fitting masks an old result, the replacement note keeps a bounded description of its tool call, including the path, offset and limit for `readFile`. Cutting a numbered result for the next request or for a summary keeps whole numbered lines.
+
+Within a workflow turn, Peen tracks the tool name, canonical JSON arguments and final result hash in saved execution state, after hooks and output limits. A third call with the same arguments and unchanged result gets a warning to use the earlier result or change approach. After four unchanged results, the fifth and later calls are refused before their handlers run. The refusal says: "This exact call already returned the same result several times. Peen did not run it again. Use that earlier result or change the arguments or approach." Counts are kept separately for each result hash. The counts survive worker restarts and context compaction. Identical calls in one parallel round run in order so they see earlier counts. Polling and questions are exempt: `waitJob`, `readJobOutput`, `listJobs`, `readExecution`, `searchExecutions`, `readMetrics`, `waitMessages` and `ask`.
+
 ## Changing files
 
 The change tools check that the agent knows what it is changing. Replacing or removing a file needs a read in the same turn, and `writeFile` and `removePath` also need that read's hash in `expectedSha256`. A mismatch means the file changed underneath the agent, and the call is refused.
@@ -68,6 +74,8 @@ These tools work on what Peen kept after a stop or a crash. [Recovery after a cr
 | `readExecution` | Reads an execution's metadata, saved context, activities, events, or inbox without resuming it, and one activity's full input or output in chunks. |
 | `resumeExecution` | Continues paused work. The agent uses it only when the user asks, after inspecting the saved history and the workspace. |
 | `resolveExecutionActivity` | Records a decision on an uncertain step, retry or accept, with evidence of what the agent checked. |
+
+`readExecution` activity and event pages may return fewer items than requested to fit the tool result budget. When `hasMore` is true, continue with `offset` equal to the returned `offset + limit`. A single event that cannot fit is refused.
 
 ## Metrics
 

@@ -76,7 +76,7 @@ func (actor *childWorkflowActor) recordToolPhaseStart(
 	ctx context.Context,
 	input workflowToolPhaseInput,
 ) error {
-	if input.Phase != workflowToolPhasePre {
+	if !startsToolInPhase(input) {
 		return nil
 	}
 

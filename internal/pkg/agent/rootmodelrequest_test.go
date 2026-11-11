@@ -53,6 +53,8 @@ func newRootModelWorkflowFixtureWithOptions(
 	require.NoError(t, err)
 	conversation, err := base.runtime.rootWorkflowConversation(prepared, scope)
 	require.NoError(t, err)
+	// These checkpoint fixtures retain the legacy schedule.
+	conversation.Limits.CompactTools = false
 	encoded, err := json.Marshal(conversation)
 	require.NoError(t, err)
 	execution, err := base.store.CreateExecution(t.Context(),

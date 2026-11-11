@@ -53,12 +53,14 @@ type workflowRoundResult struct {
 }
 
 type workflowToolInput struct {
-	Round workflowRoundInput `json:"round"`
-	Call  elelem.ToolCall    `json:"call"`
-	Index int                `json:"index"`
+	Round   workflowRoundInput `json:"round"`
+	Call    elelem.ToolCall    `json:"call"`
+	Index   int                `json:"index"`
+	Compact bool               `json:"compact,omitempty"`
 }
 
 type workflowToolResult struct {
+	Repeat     *workflowRepeatResult     `json:"repeat,omitempty"`
 	Result     elelem.ToolResult         `json:"result"`
 	Injections []elelem.MessageInjection `json:"injections"`
 	Failure    string                    `json:"failure,omitempty"`

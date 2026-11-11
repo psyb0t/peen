@@ -39,7 +39,8 @@ func TestReadFile_Success(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(workspace, "a.txt"), output.Path)
-	assert.Equal(t, content, output.Content)
+	assert.Equal(t, "     1\tline1\n     2\tline2\n     3\tline3\n"+
+		"[lines 1-3 of 3]", output.Content)
 	assert.Equal(t, 1, output.FirstLine)
 	assert.Equal(t, 3, output.LastLine)
 	assert.Equal(t, 3, output.TotalLines)
@@ -80,7 +81,7 @@ func TestReadFile_RelativeAbsoluteAndParentPaths(t *testing.T) {
 				ReadFileInput{Path: tc.path},
 			)
 			require.NoError(t, err)
-			assert.Equal(t, "x", output.Content)
+			assert.Equal(t, "     1\tx\n[lines 1-1 of 1]", output.Content)
 		})
 	}
 }
@@ -100,7 +101,7 @@ func TestReadFile_HomeRelativePath(t *testing.T) {
 		Path: "~/f.txt",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "hi", output.Content)
+	assert.Equal(t, "     1\thi\n[lines 1-1 of 1]", output.Content)
 }
 
 func TestReadFile_SymlinkedPath(t *testing.T) {
@@ -120,7 +121,7 @@ func TestReadFile_SymlinkedPath(t *testing.T) {
 		ReadFileInput{Path: link},
 	)
 	require.NoError(t, err)
-	assert.Equal(t, "hi", output.Content)
+	assert.Equal(t, "     1\thi\n[lines 1-1 of 1]", output.Content)
 }
 
 func TestReadFile_MissingPath(t *testing.T) {
@@ -205,7 +206,7 @@ func TestReadFile_EmptyFile(t *testing.T) {
 		Path: "empty.txt",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "", output.Content)
+	assert.Equal(t, "[lines 1-0 of 0]", output.Content)
 	assert.Equal(t, 1, output.FirstLine)
 	assert.Equal(t, 0, output.LastLine)
 	assert.Equal(t, 0, output.TotalLines)
@@ -229,7 +230,8 @@ func TestReadFile_NoTrailingNewline(t *testing.T) {
 		Path: "a.txt",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, content, output.Content)
+	assert.Equal(t, "     1\tline1\n     2\tline2\n[lines 1-2 of 2]",
+		output.Content)
 	assert.Equal(t, 2, output.TotalLines)
 	assert.False(t, output.Truncated)
 }
@@ -249,7 +251,8 @@ func TestReadFile_CRLFLineEndings(t *testing.T) {
 		Path: "a.txt",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, content, output.Content)
+	assert.Equal(t, "     1\tline1\r\n     2\tline2\r\n[lines 1-2 of 2]",
+		output.Content)
 	assert.Equal(t, 2, output.TotalLines)
 }
 
@@ -268,7 +271,8 @@ func TestReadFile_MultiByteUnicode(t *testing.T) {
 		Path: "a.txt",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, content, output.Content)
+	assert.Contains(t, output.Content, "     2\t日本語\n") //nolint:gosmopolitan // Unicode fixture.
+	assert.Contains(t, output.Content, "[lines 1-3 of 3]")
 	assert.Equal(t, 3, output.TotalLines)
 }
 
@@ -287,7 +291,7 @@ func TestReadFile_OffsetPastEnd(t *testing.T) {
 		Offset: 10,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "", output.Content)
+	assert.Equal(t, "[lines 10-9 of 2]", output.Content)
 	assert.Equal(t, 10, output.FirstLine)
 	assert.Equal(t, 9, output.LastLine)
 	assert.Equal(t, 2, output.TotalLines)
@@ -344,7 +348,8 @@ func TestReadFile_LimitTruncatesWithNextOffset(t *testing.T) {
 		Limit: 2,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "l1\nl2", output.Content)
+	assert.Equal(t, "     1\tl1\n     2\tl2\n"+
+		"[lines 1-2 of 5; next offset 3]", output.Content)
 	assert.Equal(t, 1, output.FirstLine)
 	assert.Equal(t, 2, output.LastLine)
 	assert.Equal(t, 5, output.TotalLines)
@@ -357,7 +362,8 @@ func TestReadFile_LimitTruncatesWithNextOffset(t *testing.T) {
 		Limit:  2,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "l3\nl4", next.Content)
+	assert.Equal(t, "     3\tl3\n     4\tl4\n"+
+		"[lines 3-4 of 5; next offset 5]", next.Content)
 	assert.True(t, next.Truncated)
 	assert.Equal(t, 5, next.NextOffset)
 
@@ -367,7 +373,7 @@ func TestReadFile_LimitTruncatesWithNextOffset(t *testing.T) {
 		Limit:  2,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "l5\n", last.Content)
+	assert.Equal(t, "     5\tl5\n[lines 5-5 of 5]", last.Content)
 	assert.False(t, last.Truncated)
 	assert.Equal(t, 0, last.NextOffset)
 }
@@ -479,16 +485,16 @@ func TestReadFile_LargerThanMaxReadBytesReadsInWindows(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, lineCount, output.TotalLines)
 		assert.Equal(t, hashBytes([]byte(content)), output.SHA256)
-		assert.LessOrEqual(t, len(output.Content), maxReadBytes)
+		assert.LessOrEqual(t, len(readWindowText(t, output)), maxReadBytes)
 		assert.Equal(t, output.NextOffset != 0, output.Truncated)
 
-		pages = append(pages, output.Content)
+		pages = append(pages, readWindowText(t, output))
 		firsts = append(firsts, output.FirstLine)
 		offset = output.NextOffset
 	}
 
 	assert.Equal(t, []int{1, 5, 9, 13, 17, 21}, firsts)
-	assert.Equal(t, content, strings.Join(pages, "\n"))
+	assert.Equal(t, content, strings.Join(pages, "\n")+"\n")
 
 	for index, first := range firsts[:len(firsts)-1] {
 		assert.Equal(t,
@@ -500,7 +506,7 @@ func TestReadFile_LargerThanMaxReadBytesReadsInWindows(t *testing.T) {
 		Path: "big.txt", Offset: lineCount + 1,
 	})
 	require.NoError(t, err)
-	assert.Empty(t, past.Content)
+	assert.Equal(t, "[lines 24-23 of 23]", past.Content)
 	assert.False(t, past.Truncated)
 	assert.Equal(t, lineCount, past.TotalLines)
 }
@@ -524,7 +530,7 @@ func TestReadFile_LineLongerThanMaxReadBytes(t *testing.T) {
 
 	first, err := exec.ReadFile(t.Context(), ReadFileInput{Path: "a.txt"})
 	require.NoError(t, err)
-	assert.Equal(t, "a", first.Content)
+	assert.Equal(t, "     1\ta\n[lines 1-1 of 3; next offset 2]", first.Content)
 	assert.Equal(t, 1, first.LastLine)
 	assert.Equal(t, 2, first.NextOffset)
 	assert.Equal(t, 3, first.TotalLines)
@@ -539,8 +545,22 @@ func TestReadFile_LineLongerThanMaxReadBytes(t *testing.T) {
 		Path: "a.txt", Offset: 3,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "b\n", last.Content)
+	assert.Equal(t, "     3\tb\n[lines 3-3 of 3]", last.Content)
 	assert.False(t, last.Truncated)
+}
+
+func readWindowText(t *testing.T, output ReadFileOutput) string {
+	t.Helper()
+	lines := strings.Split(output.Content, "\n")
+	lines = lines[:len(lines)-1]
+	for index, line := range lines {
+		prefix, text, found := strings.Cut(line, "\t")
+		require.True(t, found)
+		assert.Equal(t, fmt.Sprintf("%6d", output.FirstLine+index), prefix)
+		lines[index] = text
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func TestReadFile_CancelledContext(t *testing.T) {

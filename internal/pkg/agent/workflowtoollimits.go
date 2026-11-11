@@ -37,6 +37,11 @@ func boundWorkflowToolContent(
 	content string,
 	options workflowToolOptions,
 ) (string, error) {
+	output, handled, err := boundNumberedResult(ctx, content, options)
+	if handled {
+		return output, err
+	}
+
 	byteLimit := workflowToolByteLimit(options)
 
 	wasClipped := byteLimit > 0 && len(content) > byteLimit

@@ -31,7 +31,7 @@ func (c *rootWorkflowCallbacks) toolPhase(
 
 	input.State.RootProjection = nil
 
-	if input.Phase == workflowToolPhasePre {
+	if startsToolInPhase(input) {
 		input.State.StreamAttempt = lease.Attempt
 		if err := prepared.startWorkflowToolPhase(ctx, input); err != nil {
 			return input.State, ctxerrors.Wrap(err, "start root tool phase")

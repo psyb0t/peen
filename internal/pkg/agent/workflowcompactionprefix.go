@@ -11,7 +11,8 @@ import (
 // selectWorkflowCompactionPrefix returns how many completed units to
 // summarize and the summary room that leaves, or zero units when the request
 // fits. It tries the saved room first and then smaller ones, so a context too
-// full for the saved room still gets a tighter summary.
+// full for the saved room still gets a tighter summary. It covers the newest
+// completed turn only when older history cannot free even the smallest room.
 func selectWorkflowCompactionPrefix(
 	models ModelResolver,
 	input workflowRoundInput,
@@ -41,11 +42,34 @@ func selectWorkflowCompactionPrefix(
 		return 0, 0, nil
 	}
 
-	state := conversation.Compaction
-	compactor := &compactor{plan: state.Plan}
+	compactor := &compactor{plan: conversation.Compaction.Plan}
 	messages := workflowCompactionMessages(conversation)
 
-	for _, room := range compactionSummaryRooms(state.MaxOutputTokens) {
+	for _, candidates := range compactor.plan.coverableRanges() {
+		units, room, err := selectWorkflowPrefixRoom(request, conversation,
+			compactor, messages, candidates)
+		if errors.Is(err, ErrCompactionUnavailable) {
+			continue
+		}
+
+		return units, room, err
+	}
+
+	return 0, 0, ctxerrors.Wrap(ErrCompactionUnavailable,
+		"completed history cannot free the minimum summary room")
+}
+
+// selectWorkflowPrefixRoom tries each summary room, largest first, for the
+// fewest units in candidates whose summary brings the request under budget.
+func selectWorkflowPrefixRoom(
+	request *elelem.Request,
+	conversation workflowConversation,
+	compactor *compactor,
+	messages []elelem.Message,
+	candidates unitRange,
+) (int, int, error) {
+	rooms := compactionSummaryRooms(conversation.Compaction.MaxOutputTokens)
+	for _, room := range rooms {
 		// The candidate request keeps the reply's reserve, so the summary
 		// room has to fit beside it or the probe resolves to no budget.
 		if conversation.MaxContextTokens <=
@@ -54,7 +78,8 @@ func selectWorkflowCompactionPrefix(
 		}
 
 		units, err := selectWorkflowPrefixCandidate(request, conversation,
-			compactor, messages, conversation.MaxContextTokens-room)
+			compactor, messages, candidates,
+			conversation.MaxContextTokens-room)
 		if errors.Is(err, ErrCompactionUnavailable) {
 			continue
 		}
@@ -67,7 +92,7 @@ func selectWorkflowCompactionPrefix(
 	}
 
 	return 0, 0, ctxerrors.Wrap(ErrCompactionUnavailable,
-		"completed history cannot free the minimum summary room")
+		"no summary room fits these units")
 }
 
 func selectWorkflowPrefixCandidate(
@@ -75,9 +100,10 @@ func selectWorkflowPrefixCandidate(
 	conversation workflowConversation,
 	compactor *compactor,
 	messages []elelem.Message,
+	candidates unitRange,
 	budget int,
 ) (int, error) {
-	for units := 1; units <= compactor.plan.coverableUnits(); units++ {
+	for units := candidates.first; units <= candidates.last; units++ {
 		candidate := compactor.replacePrefix(messages, units,
 			compactionSummaryLead)
 

@@ -10,14 +10,17 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
+	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/go-workflows/client"
 	"github.com/psyb0t/go-workflows/workflow"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 )
 
 type workflowExecutionLimits struct {
-	MaxRounds          int `json:"maxRounds"`
-	MaxConcurrentTools int `json:"maxConcurrentTools"`
+	CompactTools       bool     `json:"compactTools,omitempty"`
+	HookedTools        []string `json:"hookedTools,omitempty"`
+	MaxRounds          int      `json:"maxRounds"`
+	MaxConcurrentTools int      `json:"maxConcurrentTools"`
 	// MaxTurnTokens is saved with the execution, so a resumed run keeps the
 	// limit it started with. Zero, and executions saved before it existed,
 	// set no limit.
@@ -26,11 +29,28 @@ type workflowExecutionLimits struct {
 
 // workflowLimits is what a new root turn or child run saves as its limits.
 func (r *Runtime) workflowLimits(maxRounds int) *workflowExecutionLimits {
+	var hookedTools []string
+
+	for _, tool := range r.extraTools {
+		if hasToolLifecycle(tool) {
+			hookedTools = append(hookedTools, tool.Name)
+		}
+	}
+
 	return &workflowExecutionLimits{
+		CompactTools:       true,
+		HookedTools:        hookedTools,
 		MaxRounds:          maxRounds,
 		MaxConcurrentTools: r.maxConcurrentTools,
 		MaxTurnTokens:      r.maxTurnTokens,
 	}
+}
+
+func hasToolLifecycle(tool elelem.Tool) bool {
+	return tool.PreRun != nil || tool.OnSuccess != nil ||
+		tool.OnError != nil || tool.PostRun != nil ||
+		tool.OnSuccessMessageInjector != nil ||
+		tool.OnErrorMessageInjector != nil || tool.PostRunMessageInjector != nil
 }
 
 func nativeWorkflowInstance(

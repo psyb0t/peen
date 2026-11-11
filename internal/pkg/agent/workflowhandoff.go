@@ -14,11 +14,54 @@ import (
 func (n *nativeWorkflowRunner) restoreWorkflowControls(
 	ctx context.Context,
 ) error {
+	if err := n.restoreRecoveryAdmission(ctx); err != nil {
+		return ctxerrors.Wrap(err, "restore recovery admission")
+	}
+
 	if err := n.reconcileCancelledChildren(ctx); err != nil {
 		return ctxerrors.Wrap(err, "restore native child cancellations")
 	}
 
 	return n.nudgeAdmittedExecutions(ctx)
+}
+
+// Restore the root queue before worker startup admits commands. SDK tasks
+// may not run until later; their scheduling cannot reserve message order.
+func (n *nativeWorkflowRunner) restoreRecoveryAdmission(
+	ctx context.Context,
+) error {
+	runtime := n.dispatch.runtime
+	if !runtime.resumeAfterCrash || runtime.store.IsActive(runtime.sessionID) {
+		return nil
+	}
+
+	items, err := n.sessionExecutions(ctx, runtime.sessionID)
+	if err != nil {
+		return ctxerrors.Wrap(err, "read recovery admission roots")
+	}
+
+	for _, execution := range items {
+		if execution.Kind != models.ExecutionKindRoot ||
+			execution.State == models.ExecutionStatePaused {
+			continue
+		}
+
+		input, err := retainedWorkflowSubmission(execution)
+		if err != nil {
+			return ctxerrors.Wrap(err, "read recovery admission context")
+		}
+
+		shared, err := n.dispatch.root.resolve(ctx, input)
+		if err != nil {
+			return ctxerrors.Wrap(err, "reserve recovery root turn")
+		}
+
+		shared.prepared.userMessages.deferUntilCompletion = true
+
+		return nil
+	}
+
+	return nil
 }
 
 func (n *nativeWorkflowRunner) nudgeAdmittedExecutions(

@@ -345,7 +345,7 @@ func TestCompactionTranscriptNotesEachImage(t *testing.T) {
 		Content: contentWithImages("look at this", []session.MessageImage{
 			{MediaType: elelem.MediaTypePNG, Data: []byte(testPNGBytes)},
 		}),
-	}}))
+	}}))(compactionToolResultBytes)
 
 	assert.Contains(t, rendered, "look at this")
 	assert.Contains(t, rendered, "[image image/png]")

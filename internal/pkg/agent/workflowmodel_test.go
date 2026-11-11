@@ -78,19 +78,31 @@ func TestWorkflowModelRequestPreservesActiveInjections(t *testing.T) {
 
 func TestWorkflowModelRoundReleasesPlanAfterDroppingHistory(t *testing.T) {
 	t.Parallel()
+
+	const currentRequest = "current request"
+
 	testCases := []struct {
 		name             string
+		currentText      string
 		maxContextTokens int
 		wantPlan         bool
 		wantSent         int
+		wantNotice       bool
 	}{
 		{
 			name: "history that fits keeps the plan", maxContextTokens: 1_000_000,
-			wantPlan: true, wantSent: 4,
+			currentText: currentRequest,
+			wantPlan:    true, wantSent: 4,
 		},
 		{
 			name: "dropped history releases the plan", maxContextTokens: 2_000,
-			wantPlan: false, wantSent: 2,
+			currentText: currentRequest,
+			wantPlan:    false, wantSent: 3, wantNotice: true,
+		},
+		{
+			name: "post hook removal releases the plan", maxContextTokens: 100,
+			currentText: strings.Repeat(currentRequest, 1_000),
+			wantPlan:    false, wantSent: 3, wantNotice: true,
 		},
 	}
 
@@ -107,7 +119,7 @@ func TestWorkflowModelRoundReleasesPlanAfterDroppingHistory(t *testing.T) {
 				&conversation))
 			conversation.SystemPrompt = messages[0].Text()
 			conversation.Messages = slices.Concat(messages[1:], []elelem.Message{{
-				Role: elelem.RoleUser, Content: elelem.Text("current request"),
+				Role: elelem.RoleUser, Content: elelem.Text(tc.currentText),
 			}})
 			conversation.Compaction = snapshotWorkflowCompaction(source)
 			conversation.Tools = nil
@@ -125,6 +137,10 @@ func TestWorkflowModelRoundReleasesPlanAfterDroppingHistory(t *testing.T) {
 			requests := driver.Requests()
 			require.Len(t, requests, 1)
 			assert.Len(t, requests[0].Messages, tc.wantSent)
+			_, hasNotice := fitTestNotice(requests[0].Messages)
+			assert.Equal(t, tc.wantNotice, hasNotice)
+			assert.Equal(t, tc.currentText,
+				requests[0].Messages[len(requests[0].Messages)-1].Text())
 			var next workflowConversation
 			require.NoError(t, json.Unmarshal(result.Context, &next))
 			assert.Equal(t, tc.wantPlan, next.Compaction != nil)

@@ -20,18 +20,19 @@ import (
 // active turn's durable transcript. Its mutex serializes acceptance against
 // turn completion and preserves user-message order among concurrent callers.
 type activeUserMessageQueue struct {
-	mutex           sync.Mutex
-	queue           *elelem.UserMessageQueue
-	turn            *runtimeTurn
-	workspace       string
-	capacity        int
-	closed          bool
-	pending         []queuedUserMessage
-	executionID     uuid.UUID
-	workflowPending map[uuid.UUID]int
-	stopRevision    int64
-	retired         chan struct{}
-	retireOnce      sync.Once
+	mutex                sync.Mutex
+	queue                *elelem.UserMessageQueue
+	turn                 *runtimeTurn
+	workspace            string
+	capacity             int
+	closed               bool
+	deferUntilCompletion bool
+	pending              []queuedUserMessage
+	executionID          uuid.UUID
+	workflowPending      map[uuid.UUID]int
+	stopRevision         int64
+	retired              chan struct{}
+	retireOnce           sync.Once
 
 	// arrived is closed and replaced each time a message is queued, so the
 	// root's waitMessages and ask can block on whatever the current channel

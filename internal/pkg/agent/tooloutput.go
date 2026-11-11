@@ -51,8 +51,9 @@ func isHookDenialResult(result elelem.ToolResult) bool {
 }
 
 // toolOutputSources names where each tool's result text comes from. A tool
-// missing here is labeled as plain tool output. launchAgent is one of those:
-// it returns the child's run ID or Peen's refusal, never the child's text.
+// missing here is labeled as plain tool output. launchAgent and
+// resumeExecution are two of those: they return IDs, a note, or Peen's
+// refusal, never a child's text or a stored transcript.
 //
 //nolint:gochecknoglobals // Read-only lookup table.
 var toolOutputSources = map[string]string{
@@ -68,7 +69,6 @@ var toolOutputSources = map[string]string{
 	toolNameSearchExecutions:         toolOutputSourceTranscript,
 	toolNameReadExecution:            toolOutputSourceTranscript,
 	toolNameReadMetrics:              toolOutputSourceTranscript,
-	toolNameResumeExecution:          toolOutputSourceTranscript,
 	toolNameResolveExecutionActivity: toolOutputSourceTranscript,
 }
 

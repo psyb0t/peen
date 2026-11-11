@@ -1027,9 +1027,8 @@ func (r *Runtime) runChildAgent(
 			return nil
 		})
 
-	if prepared.compactor != nil {
-		request = request.PreMaxTokensReached(prepared.compactor.handle)
-	}
+	request = request.PreMaxTokensReached(
+		contextLimitHandler(prepared.compactor))
 
 	request = withOutputLimit(
 		request.PostMaxTokensReached(fitInFlightToolResults),

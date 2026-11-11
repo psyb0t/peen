@@ -12,6 +12,10 @@ type ExecutionInboxPart struct {
 }
 
 type AcceptExecutionMessageInput struct {
+	// AfterTurn retains input behind a recovered root without delivering it
+	// into that root's model loop. The current turn lease is still required.
+	AfterTurn bool `json:"afterTurn,omitempty"`
+
 	ExpectedStopRevision *int64 `json:"expectedStopRevision,omitempty"`
 
 	RequestID        uuid.UUID            `json:"requestId"`

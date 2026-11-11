@@ -168,7 +168,8 @@ func locatePatchHunk(
 	}
 
 	if match < 0 {
-		return 0, 0, ctxerrors.Wrap(ErrPatchMatchNotFound, "hunk context")
+		return 0, 0, ctxerrors.Wrap(ErrPatchMatchNotFound,
+			"hunk context: use file text without readFile line numbers")
 	}
 
 	return match, len(oldLines), nil

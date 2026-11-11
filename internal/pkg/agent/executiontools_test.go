@@ -400,6 +400,56 @@ func TestExecutionToolsPageActivitiesThatDoNotFitInOneResult(t *testing.T) {
 	assert.Equal(t, want, got)
 }
 
+func TestExecutionToolsPageEventsThatDoNotFitInOneResult(t *testing.T) {
+	t.Parallel()
+	const activityCount = 41
+	fixture := newExecutionLoopFixture(t, elelemtest.NewScriptedDriver(), false)
+	fixture.base.runtime.maxToolResultTokens = 1024
+	read := retainedExecutionTool(t, fixture, "readExecution")
+	for index := range activityCount {
+		_, err := fixture.base.store.BeginExecutionActivity(t.Context(), fixture.input.SessionID,
+			fixture.input.ExecutionID, fixture.engine.options.GenerationID, session.ScheduleActivityInput{
+				StepID: fmt.Sprintf("pagedEvent%02d", index), Name: "retainedModel", Kind: models.ActivityKindModel,
+				ReplayPolicy: models.ActivityReplayPolicyRetry, Input: json.RawMessage(`{}`),
+			})
+		require.NoError(t, err)
+	}
+	want, err := fixture.base.store.ListExecutionEvents(t.Context(), fixture.input.SessionID,
+		fixture.input.ExecutionID, session.ListEventsOptions{Limit: session.MaximumPageLimit})
+	require.NoError(t, err)
+	require.False(t, want.HasMore)
+	var got []*models.ExecutionEvent
+	pages := 0
+	for offset := 0; ; {
+		result := callRetainedExecutionTool(t, read, map[string]any{
+			"executionId": fixture.input.ExecutionID, "part": "events", "limit": session.MaximumPageLimit, "offset": offset,
+		})
+		require.False(t, result.IsError, "%s", result.Content)
+		var output executionReadOutput
+		require.NoError(t, json.Unmarshal([]byte(result.Content), &output))
+		page := output.Events
+		require.NotNil(t, page)
+		require.NotEmpty(t, page.Items)
+		require.Equal(t, offset, page.Offset)
+		got = append(got, page.Items...)
+		pages++
+		if !page.HasMore {
+			break
+		}
+		require.Equal(t, len(page.Items), page.Limit)
+		require.Less(t, len(got), len(want.Items))
+		offset = page.Offset + page.Limit
+	}
+	assert.Greater(t, pages, 1)
+	assert.Equal(t, want.Items, got)
+	fixture.base.runtime.maxToolResultTokens = 1
+	result := callRetainedExecutionTool(t, read, map[string]any{
+		"executionId": fixture.input.ExecutionID, "part": "events", "limit": 1,
+	})
+	require.True(t, result.IsError)
+	assert.Contains(t, result.Content, "history page too large")
+}
+
 func TestExecutionToolsSurfaceStorageFailures(t *testing.T) {
 	t.Parallel()
 	for _, unavailable := range []bool{false, true} {

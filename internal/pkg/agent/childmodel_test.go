@@ -26,6 +26,8 @@ func childModelFixture(
 	conversation, err := fixture.base.runtime.childWorkflowConversation(
 		t.Context(), deps, launch, run, prepared)
 	require.NoError(t, err)
+	// These checkpoint fixtures retain the legacy schedule.
+	conversation.Limits.CompactTools = false
 	encoded, err := json.Marshal(conversation)
 	require.NoError(t, err)
 	execution, err := fixture.base.store.CreateExecution(t.Context(),

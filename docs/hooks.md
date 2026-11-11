@@ -114,6 +114,8 @@ For one tool call the order is:
 
 When a workflow tool handler is cancelled or its deadline expires, Peen runs resource cleanup and leaves the activity interrupted. It does not start success, failure or post hooks, or their message injectors, after that interruption. Ordinary handler errors still run the failure hooks above.
 
+New executions omit separate hook activities when the saved harness has no hook for that tool's events. The handler still performs Peen's output labeling, scoped-rule delivery and message injections before result projection. A tool with a matching hook retains the separate phases and their order. Questions, message waits, directory changes and executions recorded before this optimization retain their existing phase schedule.
+
 The input of a tool event is the tool's own arguments, for example `{"path": "main.go", "content": "..."}` for `writeFile` or `{"command": "make test", "purpose": "run tests"}` for `runCommand`.
 
 ## Matching

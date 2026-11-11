@@ -273,7 +273,7 @@ func TestReconstructionPlanCoverableUnits(t *testing.T) {
 		want  int
 	}{
 		{
-			name: "the newest turn's units are never coverable",
+			name: "the newest turn's units are not coverable first",
 			units: []reconstructionUnit{
 				{TurnID: turnOne},
 				{TurnID: turnOne},
@@ -303,6 +303,67 @@ func TestReconstructionPlanCoverableUnits(t *testing.T) {
 
 			plan := reconstructionPlan{Units: tc.units}
 			assert.Equal(t, tc.want, plan.coverableUnits())
+		})
+	}
+}
+
+func TestReconstructionPlanCoverableRanges(t *testing.T) {
+	t.Parallel()
+
+	turnOne := uuid.New()
+	turnTwo := uuid.New()
+
+	testCases := []struct {
+		name  string
+		units []reconstructionUnit
+		want  []unitRange
+	}{
+		{
+			name: "older turns first, then the newest turn up to its reply",
+			units: []reconstructionUnit{
+				{TurnID: turnOne},
+				{TurnID: turnOne},
+				{TurnID: turnTwo},
+				{TurnID: turnTwo},
+				{TurnID: turnTwo},
+			},
+			want: []unitRange{{first: 1, last: 2}, {first: 3, last: 4}},
+		},
+		{
+			name: "a single turn covers all but its reply",
+			units: []reconstructionUnit{
+				{TurnID: turnOne},
+				{TurnID: turnOne},
+				{TurnID: turnOne},
+			},
+			want: []unitRange{{first: 1, last: 2}},
+		},
+		{
+			name: "a newest turn of one unit adds nothing",
+			units: []reconstructionUnit{
+				{TurnID: turnOne},
+				{TurnID: turnOne},
+				{TurnID: turnTwo},
+			},
+			want: []unitRange{{first: 1, last: 2}},
+		},
+		{
+			name:  "a single unit covers nothing",
+			units: []reconstructionUnit{{TurnID: turnOne}},
+			want:  []unitRange{},
+		},
+		{
+			name: "no units cover nothing",
+			want: []unitRange{},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			plan := reconstructionPlan{Units: tc.units}
+			assert.Equal(t, tc.want, plan.coverableRanges())
 		})
 	}
 }

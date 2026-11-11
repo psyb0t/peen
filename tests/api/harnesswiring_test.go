@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/psyb0t/aichteeteapee"
+	"github.com/psyb0t/peen/internal/pkg/harness"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/tests/testinfra"
 	"github.com/stretchr/testify/assert"
@@ -71,9 +72,8 @@ postToolUse:
 	variantTestAgentBody    = "Carry out the user's request within the " +
 		"resolved instructions and tool\ncontracts."
 
-	variantTestFreshnessEntry = "- core:freshness: Verify time-sensitive " +
-		"facts with current authoritative evidence before using them."
-	variantTestPlanningEntry = "- core:planning: Create evidence-based " +
+	variantTestFreshnessEntry = "- core:freshness: "
+	variantTestPlanningEntry  = "- core:planning: Create evidence-based " +
 		"plans and test plans before a request that changes something in " +
 		"several steps or files."
 	variantTestGeneralPurposeEntry = "- core:general-purpose: " +
@@ -212,7 +212,18 @@ func TestAPIDisabledCoreSkillsAndAgentsApplyInsideTheWorker(t *testing.T) {
 	readFramesUntilTurnCompleted(t, connection)
 
 	prompt := variant.LastSystemPrompt()
-	assert.Contains(t, prompt, variantTestFreshnessEntry)
+	resolver, err := harness.NewResolver(t.TempDir(), harness.DefaultLimits())
+	require.NoError(t, err)
+	snapshot, err := resolver.Resolve(t.TempDir())
+	require.NoError(t, err)
+	found := false
+	for _, skill := range snapshot.Skills() {
+		if skill.Name == "core:freshness" {
+			found = true
+			assert.Contains(t, prompt, "- "+skill.Name+": "+skill.Description)
+		}
+	}
+	require.True(t, found, "shipped freshness skill is present")
 	assert.NotContains(t, prompt, variantTestPlanningEntry)
 	assert.NotContains(t, prompt, variantTestGeneralPurposeEntry)
 

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"path"
-	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +18,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// Workflow task leases survive a crash and must expire before reclamation.
+const executionCrashRecoveryWait = 3 * time.Minute
 
 func TestAPIExecutionHistoryToolsInspectPausedWorkWithoutResuming(t *testing.T) {
 	const oldTask = "retain this abandoned execution for inspection"
@@ -201,7 +203,7 @@ func TestAPIExecutionResumeHandsOffAfterCurrentTurn(t *testing.T) {
 	assert.Len(t, providerRequestsSince(before), 5, "the original model retries once after the current request's four rounds")
 }
 
-func TestAPIExecutionEffectCrashRequiresInspectionAndExplicitRetry(t *testing.T) {
+func TestAPIExecutionEffectCrashResumesBeforeQueuedMessage(t *testing.T) {
 	t.Cleanup(func() {
 		if !t.Failed() {
 			return
@@ -215,10 +217,12 @@ func TestAPIExecutionEffectCrashRequiresInspectionAndExplicitRetry(t *testing.T)
 	})
 	const task = "retain this unacknowledged command effect across a crash"
 	const inspectTask = "inspect the crashed command and its files"
-	const command = `printf 'attempt\n' >> "$ATTEMPTS_PATH"; if test -f "$EFFECT_PATH"; then cat "$EFFECT_PATH"; else printf 'effect\n' > "$EFFECT_PATH"; sleep 3600; fi`
+	const command = `printf 'attempt\n' >> "$ATTEMPTS_PATH"; ` +
+		`if test -f "$EFFECT_PATH"; then cat "$EFFECT_PATH"; ` +
+		`else printf 'effect\n' > "$EFFECT_PATH"; sleep 3600; fi`
 	workspace := openFreshWorkspace(t, "effect-crash-", nil)
-	// CopyToContainer creates root-owned fixture directories. The command
-	// writes its own files in the runtime account's writable temporary area.
+	// Fixture directories are root-owned; the command writes in the runtime
+	// account's writable temporary area.
 	effectPath := path.Join(testinfra.ContainerWorkingDirectory,
 		"crash-effect-"+uuid.NewString())
 	attemptsPath := effectPath + ".attempts"
@@ -238,132 +242,65 @@ func TestAPIExecutionEffectCrashRequiresInspectionAndExplicitRetry(t *testing.T)
 	sendSessionMessage(t, connection, workspace.sessionID, task)
 	awaitFixtureCommand(t, "test", "-s", effectPath)
 	require.Equal(t, "attempt\n", readContainerFile(t, attemptsPath))
-	require.NoError(t, integrationInfra.CrashAndRestart(t.Context()))
-	connection = openSessionConnection(t, workspace.sessionID)
-	var page session.ExecutionPage
-	var uncertain *models.ExecutionActivity
-	leaseWait := time.NewTimer(2 * time.Minute)
-	defer leaseWait.Stop()
-	for uncertain == nil {
-		search := map[string]any{"text": task, "limit": 5}
-		if len(page.Items) == 1 {
-			// Later inspection turns also contain the original task in their
-			// saved tool results, so retain its exact identity after discovery.
-			search = map[string]any{"id": page.Items[0].ID}
-		}
-		integrationInfra.EnableScriptedToolTurn(testinfra.ScriptedToolTurn{
-			UserMessage: inspectTask, FinalAnswer: "inspected without retrying",
-			Calls: []testinfra.ScriptedToolCall{
-				{Name: "searchExecutions", Arguments: search},
-				{Name: "readFile", Arguments: map[string]any{"path": effectPath}},
-				{Name: "readExecution", ArgumentsFrom: crashedExecutionArguments},
-			},
-		})
-		sendSessionMessage(t, connection, workspace.sessionID, inspectTask)
-		readFramesUntilTurnCompleted(t, connection)
-		messages := toolMessages(t, workspace.sessionID)
-		require.GreaterOrEqual(t, len(messages), 3)
-		messages = messages[len(messages)-3:]
-		for _, message := range messages {
-			require.False(t, toolFailed(message), "%s", message.Content)
-		}
-		require.NoError(t, json.Unmarshal(
-			[]byte(toolOutputText(t, messages[0].Content)), &page))
-		require.Len(t, page.Items, 1)
-		var saved struct {
-			Events session.ExecutionEventPage `json:"events"`
-		}
-		require.NoError(t, json.Unmarshal(
-			[]byte(toolOutputText(t, messages[2].Content)), &saved))
-		require.False(t, saved.Events.HasMore)
-		for _, event := range saved.Events.Items {
-			if event.EventType != string(session.ExecutionEventTypeStepUncertain) {
-				continue
-			}
-			require.Nil(t, uncertain, "only the unfinished handler is uncertain")
-			var payload struct {
-				ActivityID uuid.UUID `json:"activityId"`
-				StepID     string    `json:"stepId"`
-				Attempt    int64     `json:"attempt"`
-			}
-			require.NoError(t, json.Unmarshal([]byte(event.PayloadJSON), &payload))
-			assert.True(t, strings.HasSuffix(payload.StepID, ":handler"))
-			uncertain = &models.ExecutionActivity{
-				ID: payload.ActivityID, Attempt: payload.Attempt,
-			}
-		}
-		assert.Contains(t, messages[1].Content, "effect")
-		require.Equal(t, "attempt\n", readContainerFile(t, attemptsPath))
-		select {
-		case <-leaseWait.C:
-			t.Fatal("crashed handler did not become uncertain before the recovery bound")
-		default:
-		}
-	}
-	assert.Equal(t, "attempt\n", readContainerFile(t, attemptsPath))
-	assert.Equal(t, "effect\n", readContainerFile(t, effectPath))
-	retryInspectedCommand(t, workspace.sessionID, page.Items[0], uncertain)
-	assert.Equal(t, "attempt\nattempt\n", readContainerFile(t, attemptsPath))
-	assert.Equal(t, "effect\n", readContainerFile(t, effectPath))
-}
-
-func crashedExecutionArguments(results []string) map[string]any {
-	var page session.ExecutionPage
-	if len(results) == 0 || json.Unmarshal([]byte(results[0]), &page) != nil ||
-		len(page.Items) != 1 {
-		return map[string]any{"executionId": uuid.Nil}
-	}
-
-	return map[string]any{
-		"executionId": page.Items[0].ID, "part": "events", "limit": 50,
-	}
-}
-
-func retryInspectedCommand(
-	t *testing.T,
-	sessionID uuid.UUID,
-	execution *models.Execution,
-	activity *models.ExecutionActivity,
-) {
-	t.Helper()
-	const task = "retry the inspected idempotent command and resume its task"
-	connection := openSessionConnection(t, sessionID)
+	hold, err := integrationInfra.HoldNextCompletion()
+	require.NoError(t, err)
+	t.Cleanup(hold.Release)
 	integrationInfra.EnableScriptedToolTurn(testinfra.ScriptedToolTurn{
-		UserMessage: task, FinalAnswer: "explicit continuation accepted",
+		UserMessage: inspectTask, FinalAnswer: "inspected without retrying",
 		Calls: []testinfra.ScriptedToolCall{
-			{Name: "resolveExecutionActivity", Arguments: map[string]any{
-				"activityId": activity.ID, "attempt": activity.Attempt,
-				"controlRevision": execution.ControlRevision,
-				"resolution":      "retry",
-				"evidence":        "read the completed effect; the command checks it before writing",
-			}},
-			{Name: "resumeExecution", Arguments: map[string]any{
-				"executionId":     execution.ID,
-				"controlRevision": execution.ControlRevision,
-			}},
+			{Name: "readFile", Arguments: map[string]any{"path": effectPath}},
+			{Name: "readFile", Arguments: map[string]any{"path": attemptsPath}},
 		},
 	})
-	sendSessionMessage(t, connection, sessionID, task)
-	readFramesUntilTurnCompleted(t, connection)
-	messages := toolMessages(t, sessionID)
-	for _, message := range messages {
+	require.NoError(t, integrationInfra.CrashAndRestart(t.Context()))
+	connection = openSessionConnection(t, workspace.sessionID)
+	sendSessionMessage(t, connection, workspace.sessionID, inspectTask)
+	queued := awaitAPIWebSocketCompletion(t, connection, true)
+	require.True(t, queued.result.Queued)
+	hold.Release()
+	require.Eventually(t, func() bool {
+		messages := toolMessages(t, workspace.sessionID)
+
+		return len(messages) == 3
+	}, executionCrashRecoveryWait, backgroundJobEventPoll)
+	messages := toolMessages(t, workspace.sessionID)
+	require.Len(t, messages, 3)
+	require.True(t, toolFailed(messages[0]), "%s", messages[0].Content)
+	require.NotNil(t, messages[0].TurnId)
+	assert.Contains(t, messages[0].Content, "outcome is unknown")
+	for _, message := range messages[1:] {
 		require.False(t, toolFailed(message), "%s", message.Content)
+		assert.Greater(t, message.Sequence, messages[0].Sequence)
+		assert.NotEqual(t, messages[0].TurnId, message.TurnId)
 	}
+	assert.Contains(t, messages[1].Content, "effect")
+	assert.Contains(t, messages[2].Content, "attempt")
 	require.Eventually(t, func() bool {
 		response := apiRequest(t, http.MethodGet,
 			sessionPath+"/events?limit=100&order=desc", nil,
-			withHeader(authenticatedHeaders(), headerSessionID, sessionID.String()))
+			withHeader(authenticatedHeaders(), headerSessionID,
+				workspace.sessionID.String()))
 		requireAPIStatus(t, response, http.StatusOK)
 		events := decodeResponse[api.TranscriptEventPage](t, response)
-		completed := 0
+		var original, later, laterStarted int64
 		for _, event := range events.Events {
-			if event.TurnId == execution.RootTurnID &&
-				event.Type == apiTestWebSocketTurnCompleted {
-				completed++
+			if event.Type == apiTestWebSocketTurnStarted &&
+				event.TurnId != *messages[0].TurnId {
+				laterStarted = event.Sequence
+			}
+
+			if event.Type != apiTestWebSocketTurnCompleted {
+				continue
+			}
+			if event.TurnId == *messages[0].TurnId {
+				original = event.Sequence
+			} else {
+				later = event.Sequence
 			}
 		}
 
-		return completed == 1
-	}, requestTimeout, backgroundJobEventPoll,
-		"the original turn must finish exactly once")
+		return original > 0 && laterStarted > original && later > laterStarted
+	}, requestTimeout, backgroundJobEventPoll)
+	assert.Equal(t, "attempt\n", readContainerFile(t, attemptsPath))
+	assert.Equal(t, "effect\n", readContainerFile(t, effectPath))
 }

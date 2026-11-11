@@ -196,3 +196,32 @@ func TestResumeExecutionToolSettlesTheCallAStopInterrupted(t *testing.T) {
 	}
 	assert.Equal(t, 1, resumeResults)
 }
+
+// A model that lost track of the real executionId can send one the session
+// does not have. It used to read the store's internal RPC error. It now
+// reads that the session has no such execution and how to find the real one.
+func TestResumeExecutionToolNamesAnUnknownExecution(t *testing.T) {
+	t.Parallel()
+	unknown := uuid.New()
+	arguments, err := json.Marshal(resumeExecutionInput{ExecutionID: unknown, ControlRevision: 0})
+	require.NoError(t, err)
+	driver := elelemtest.NewScriptedDriver(
+		elelemtest.ToolCall("resumeUnknown", toolNameResumeExecution, string(arguments)),
+		elelemtest.Text("nothing to resume"))
+	base := newNativeRunnerFixture(t, driver)
+	_, err = base.runtime.Run(t.Context(), TurnRequest{Message: "continue the crashed work"})
+	require.NoError(t, err)
+	requests := driver.Requests()
+	require.Len(t, requests, 2)
+	results := 0
+	for _, message := range requests[1].Messages {
+		if message.Role != elelem.RoleTool || message.ToolCallID != "resumeUnknown" {
+			continue
+		}
+		results++
+		assert.True(t, message.ToolResultIsError)
+		assert.Contains(t, message.Text(), fmt.Sprintf(resumeExecutionNotFoundFormat, unknown))
+		assert.NotContains(t, message.Text(), "execution.store")
+	}
+	assert.Equal(t, 1, results)
+}

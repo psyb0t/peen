@@ -42,12 +42,8 @@ func (c *rootWorkflowCallbacks) openingHook(ctx context.Context,
 	current.promptHash = prepared.promptHash
 	current.contextHash = prepared.contextHash
 
-	conversation, err := c.runtime.rootWorkflowConversation(prepared, scope)
-	if err != nil {
-		return result, ctxerrors.Wrap(err, "snapshot opening hook context")
-	}
-
-	result.Context, err = json.Marshal(conversation)
+	result.Context, err = c.runtime.openingWorkflowContext(prepared, scope,
+		input.Execution.Context)
 	if err != nil {
 		return result, ctxerrors.Wrap(err, "encode opening hook context")
 	}
@@ -65,6 +61,28 @@ func (c *rootWorkflowCallbacks) openingHook(ctx context.Context,
 	result.RootProjection = prepared.rootToolProjection(shared, lease.ID)
 
 	return result, nil
+}
+
+func (r *Runtime) openingWorkflowContext(
+	prepared *preparedTurn,
+	scope *directoryScope,
+	saved json.RawMessage,
+) (json.RawMessage, error) {
+	conversation, err := r.rootWorkflowConversation(prepared, scope)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "snapshot opening hook context")
+	}
+
+	if err := inheritWorkflowToolPolicy(saved, &conversation); err != nil {
+		return nil, ctxerrors.Wrap(err, "retain opening tool schedule")
+	}
+
+	encoded, err := json.Marshal(conversation)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "encode opening conversation")
+	}
+
+	return encoded, nil
 }
 
 func (c *rootWorkflowCallbacks) openingScope(ctx context.Context,

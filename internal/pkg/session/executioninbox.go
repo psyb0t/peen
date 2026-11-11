@@ -23,6 +23,11 @@ func (s *Store) AcceptExecutionMessage(
 	lease Lease,
 	input AcceptExecutionMessageInput,
 ) (*ExecutionInboxAcceptance, error) {
+	if input.AfterTurn {
+		return s.acceptExecutionInbox(ctx, executionID, lease, input,
+			models.InboxMessageStateDeferred)
+	}
+
 	return s.acceptExecutionInbox(ctx, executionID, lease, input,
 		models.InboxMessageStateQueued)
 }
@@ -159,7 +164,8 @@ func (s *Store) acceptExecutionMessage(
 		return &ExecutionInboxAcceptance{Message: existing}, nil
 	}
 
-	if err := validateInboxAdmission(ctx, tx, execution, state); err != nil {
+	if err := validateInboxAdmission(ctx, tx, execution, state,
+		input.AfterTurn); err != nil {
 		return nil, ctxerrors.Wrap(err, "validate inbox admission")
 	}
 
@@ -190,6 +196,7 @@ func validateInboxAdmission(
 	query *repositories.Query,
 	execution *models.Execution,
 	state models.InboxMessageState,
+	afterTurn bool,
 ) error {
 	if execution.State == models.ExecutionStatePaused ||
 		isExecutionTerminal(execution.State) {
@@ -197,7 +204,7 @@ func validateInboxAdmission(
 			"execution cannot accept another inbox message")
 	}
 
-	if state == models.InboxMessageStateDeferred {
+	if state == models.InboxMessageStateDeferred && !afterTurn {
 		return validateDeferredBoundary(ctx, query, execution)
 	}
 

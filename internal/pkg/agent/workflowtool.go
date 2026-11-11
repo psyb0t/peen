@@ -52,6 +52,8 @@ func runWorkflowTool(
 		}, options)
 	}
 
+	tool, repetition := repeatCheckedWorkflowTool(tool, input)
+
 	timeout := tool.Timeout
 	if timeout == 0 {
 		timeout = options.Timeout
@@ -76,7 +78,9 @@ func runWorkflowTool(
 		return outcome, err
 	}
 
-	return boundedWorkflowToolResult(ctx, outcome, options)
+	outcome.Repeat = repetition
+
+	return finishWorkflowRepeat(ctx, input, outcome, options)
 }
 
 func workflowToolEvent(

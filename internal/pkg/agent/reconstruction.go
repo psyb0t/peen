@@ -192,12 +192,11 @@ func (p reconstructionPlan) messageCount(units int) int {
 	return total
 }
 
-// coverableUnits reports how many leading units compaction may take.
+// coverableUnits reports how many leading units compaction takes first.
 //
-// The newest completed turn stays raw no matter how far over budget the
-// request is. Summarizing everything leaves the model with no verbatim record
-// of what it just did, which is where a compacting agent starts repeating
-// finished work.
+// The newest completed turn stays raw while older history can free the room.
+// Summarizing everything leaves the model with no verbatim record of what it
+// just did, which is where a compacting agent starts repeating finished work.
 func (p reconstructionPlan) coverableUnits() int {
 	if len(p.Units) == 0 {
 		return 0
@@ -211,6 +210,43 @@ func (p reconstructionPlan) coverableUnits() int {
 	}
 
 	return count
+}
+
+// lastResortUnits reports how many leading units compaction may take when
+// the units coverableUnits allows cannot free the room: every unit but the
+// last, which holds the newest turn's final reply. A newest turn that alone
+// outgrows the context is then summarized instead of left out whole.
+func (p reconstructionPlan) lastResortUnits() int {
+	return max(len(p.Units)-1, 0)
+}
+
+// unitRange is a run of prefix sizes, in units, from first to last.
+type unitRange struct {
+	first int
+	last  int
+}
+
+// coverableRanges lists the prefix sizes compaction tries, in order: the ones
+// coverableUnits allows, then the ones lastResortUnits adds. Empty runs are
+// left out, so a plan with nothing to cover returns none.
+func (p reconstructionPlan) coverableRanges() []unitRange {
+	coverable := p.coverableUnits()
+	candidates := []unitRange{
+		{first: 1, last: coverable},
+		{first: coverable + 1, last: p.lastResortUnits()},
+	}
+
+	ranges := make([]unitRange, 0, len(candidates))
+
+	for _, candidate := range candidates {
+		if candidate.first > candidate.last {
+			continue
+		}
+
+		ranges = append(ranges, candidate)
+	}
+
+	return ranges
 }
 
 // advance records that the first units are now covered by a stored summary, so

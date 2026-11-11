@@ -67,7 +67,7 @@ func TestChildWorkflowToolPersistsReadAndReusesSavedResult(t *testing.T) {
 	var read tools.ReadFileOutput
 	require.NoError(t, json.Unmarshal(
 		[]byte(toolOutputText(t, reused.Output.Result.Content)), &read))
-	assert.Equal(t, runtimeToolFileBody, read.Content)
+	assert.Equal(t, runtimeToolNumberedBody, read.Content)
 	require.NoError(t, json.Unmarshal(reused.Output.Context, &conversation))
 	require.Len(t, conversation.Runtime.Observations, 1)
 	assert.Equal(t, path, conversation.Runtime.Observations[0].Path)

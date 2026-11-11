@@ -72,6 +72,9 @@ const searchTextSchema = `{
 
 const readFileDescription = `Read a line window from one UTF-8 text file.
 offset is the 1-based first line and limit is the line count.
+Each content line starts with its absolute line number, right-aligned in
+six columns, then a tab. These prefixes are not file content.
+The last content line states the range, total, and next offset if truncated.
 The result reports firstLine, lastLine, totalLines, and the sha256 of the
 WHOLE file, not of the window.
 When truncated is true, call again with offset set to the nextOffset.
@@ -141,6 +144,7 @@ const writeFileSchema = `{
 }`
 
 const editFileDescription = `Apply exact text replacements to a file.
+Do not copy readFile's line-number prefixes into old or new text.
 The file must have been read earlier in this turn.
 Every old string must appear EXACTLY ONCE in the current file. Include
 surrounding lines to make it unique. Edits must not overlap.
@@ -182,6 +186,7 @@ const editFileSchema = `{
 }`
 
 const applyPatchDescription = `Apply one exact-match multi-file patch.
+Do not copy readFile's line-number prefixes into patch context or text.
 Use the Codex patch envelope with *** Begin Patch and *** End Patch.
 Supported actions are *** Add File, *** Update File, *** Delete File, and
 *** Move to on an update. Update hunks use @@ plus exact context, removal,
