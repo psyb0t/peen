@@ -5,8 +5,15 @@ import (
 )
 
 const (
-	appDockerfile     = "Dockerfile"
-	appBootTimeout    = 25 * time.Minute
+	appDockerfile  = "Dockerfile"
+	appBootTimeout = 25 * time.Minute
+
+	// The image build pulls base images and packages, so it retries a
+	// network blip: up to five attempts, waiting this long before the
+	// second and doubling after each failure, well inside appBootTimeout.
+	appImageBuildAttempts = 5
+	appImageBuildBackoff  = 15 * time.Second
+
 	appCleanupTimeout = 30 * time.Second
 	// The configuration and state directories live outside the workspace
 	// root, /tmp: Peen refuses a workspace that contains either of them, and

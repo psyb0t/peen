@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/moby/moby/api/types/build"
 	"github.com/moby/moby/api/types/container"
@@ -49,10 +50,12 @@ func startApp(
 		return setupFailure(provider, err)
 	}
 
-	image, err := buildAppImage(
-		startupCtx,
-		appImageBuildRequest(root, coverage),
-	)
+	request := appImageBuildRequest(root, coverage)
+
+	image, err := retryAppImageBuild(startupCtx, appImageBuildAttempts,
+		appImageBuildBackoff, func(ctx context.Context) (string, error) {
+			return buildAppImage(ctx, request)
+		})
 	if err != nil {
 		return failedContainerSetup(startupCtx, nil, image, provider, err)
 	}
@@ -160,6 +163,48 @@ func appImageBuildOptions(
 		Remove:      true,
 		Tags:        []string{image},
 		Version:     build.BuilderV1,
+	}
+}
+
+// retryAppImageBuild runs build up to attempts times, waiting backoff before
+// the second attempt and doubling it after each failure. The build reaches
+// the network for base images and packages, and one blip on a CI runner used
+// to fail the whole suite. It stops early when ctx ends.
+func retryAppImageBuild(
+	ctx context.Context,
+	attempts int,
+	backoff time.Duration,
+	build func(context.Context) (string, error),
+) (string, error) {
+	logger := ctxscope.GetLogger(ctx)
+	delay := backoff
+
+	for attempt := 1; ; attempt++ {
+		image, err := build(ctx)
+		if err == nil {
+			return image, nil
+		}
+
+		if attempt >= attempts {
+			return "", ctxerrors.Wrapf(err,
+				"build app image after %d attempts", attempt)
+		}
+
+		logger.Warn("integration image build failed, retrying",
+			"err", err, "attempt", attempt, "delay", delay,
+			"reason", "image_build_retry")
+
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+
+			return "", ctxerrors.Wrap(errors.Join(err, ctx.Err()),
+				"wait to retry app image build")
+		case <-timer.C:
+		}
+
+		delay *= 2
 	}
 }
 

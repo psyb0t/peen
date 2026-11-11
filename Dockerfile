@@ -10,8 +10,12 @@ FROM --platform=$BUILDPLATFORM node:22.22.0-alpine@sha256:e4bf2a82ad0a4037d28035
 
 WORKDIR /web
 
+# Every stage that fetches packages runs the fetch through build-retry, so a
+# DNS or mirror blip on the build host is retried with backoff instead of
+# failing the build.
+COPY docker/build-retry.sh /usr/local/bin/build-retry
 COPY web/package.json web/pnpm-lock.yaml ./
-RUN corepack pnpm install --frozen-lockfile --ignore-scripts && \
+RUN sh /usr/local/bin/build-retry corepack pnpm install --frozen-lockfile --ignore-scripts && \
 	corepack pnpm rebuild esbuild
 
 COPY api/api.yml /api/api.yml
@@ -26,7 +30,8 @@ ARG BUILD_VERSION="dev"
 ARG PEEN_ENABLE_COVERAGE="false"
 
 # Install build dependencies
-RUN apk add --no-cache \
+COPY docker/build-retry.sh /usr/local/bin/build-retry
+RUN sh /usr/local/bin/build-retry apk add --no-cache \
     gcc \
     musl-dev
 
@@ -37,7 +42,7 @@ WORKDIR /app
 COPY go.mod go.sum ./
 
 # Download dependencies
-RUN go mod download
+RUN sh /usr/local/bin/build-retry go mod download
 
 # Copy source code
 COPY . .
@@ -82,8 +87,15 @@ FROM ubuntu:24.04@sha256:33ceb71981b602c1a7443a53469e4dba065f7503eab3078a2d7a57a
 # it stays inert until a worker container that the controller started under a
 # Docker profile marked sudo: true writes one for that worker's own account. util-linux supplies setpriv, which is how that bootstrap drops
 # back to a non-root account before the agent runs.
-RUN apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+#
+# apt-get update only warns when an index fails to download, so --error-on=any
+# makes it fail and build-retry runs it again, instead of the install failing
+# later with "Unable to locate package". The helper leaves the image in the
+# same step.
+COPY docker/build-retry.sh /usr/local/bin/build-retry
+RUN sh /usr/local/bin/build-retry apt-get -o Acquire::Retries=5 update --error-on=any && \
+    DEBIAN_FRONTEND=noninteractive sh /usr/local/bin/build-retry \
+        apt-get -o Acquire::Retries=5 install -y --no-install-recommends \
         ca-certificates \
         curl \
         git \
@@ -97,7 +109,7 @@ RUN apt-get update && \
         unzip \
         util-linux && \
     apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* /usr/local/bin/build-retry
 
 # Create a fixed non-root UID/GID so bind-mounted host state has predictable
 # ownership across rebuilds.

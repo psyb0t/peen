@@ -2,6 +2,13 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.47.1 (2026-11-11)
+
+Retries the network steps of every Peen build, so one DNS or mirror blip no longer fails an image build, the CI run, or the release waiting on it. No configuration or API migration is needed.
+
+- Fixes an image build failing outright when the build host briefly could not reach a package mirror. `apt-get update` only warned about the failed downloads, and the install then stopped with "Unable to locate package". The `psyb0t/peen` image, the development image, and the benchmark driver image now retry each package download up to five times, waiting 15 seconds before the second attempt and doubling the wait after each failure, and a failed `apt-get update` now counts as a failure.
+- Fixes the integration test suites failing when building their test image hit the same kind of blip. The suites now retry the image build up to five times with the same backoff.
+
 ## v0.47.0 (2026-11-11)
 
 Fixes compaction losing the user's requests when a turn outgrew the context and makes room in an order that loses less, numbers every line `readFile` returns, stops repeated identical tool calls, keeps work resumed after a crash ahead of new messages, and builds with Go 1.26.11 for a reachable standard library vulnerability. No configuration or API migration is needed.
