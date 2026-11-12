@@ -70,11 +70,18 @@ func (r *runner) send(ctx context.Context, current step) error {
 			"afterToolUses": state.killAt,
 			"onTool":        current.Kill.OnTool,
 			"onFile":        current.Kill.OnFile,
+			"onCompaction":  current.Kill.OnCompaction,
 		})
 	}
 
 	watchCtx, stopWatch := context.WithCancel(ctx)
 	defer stopWatch()
+
+	if current.Kill != nil && current.Kill.OnCompaction {
+		state.killDone.Add(1)
+
+		go state.watchCompaction(ctx, watchCtx)
+	}
 
 	if current.Kill != nil && current.Kill.OnFile != "" {
 		if err := removeKillFile(current.Kill.OnFile); err != nil {

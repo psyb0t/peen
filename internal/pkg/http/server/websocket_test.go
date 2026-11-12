@@ -167,6 +167,23 @@ func TestWebSocketLastClientDisconnectDoesNotStopTheSession(t *testing.T) {
 	connection := dialWebSocket(t, httpServer.URL, &sessionID)
 	waitForWebSocketClients(t, instance, sessionID, 1)
 
+	require.Eventually(t, func() bool {
+		for _, client := range instance.webSocketHub.GetAllClients() {
+			if client.ConnectionCount() == 1 {
+				return true
+			}
+		}
+
+		return false
+	}, testWebSocketEventuallyTimeout, webSocketClientPollInterval)
+
+	// Registration precedes the client's distribution loop. Receiving a feed
+	// frame proves it has started before disconnect exercises its shutdown.
+	item := testFeedEventItem(sessionID, webSocketMessageCompletedEventType,
+		`{"queued":false}`)
+	instance.BroadcastFeedItems(t.Context(), sessionID, []session.FeedItem{item})
+	assertFeedWebSocketFrame(t, connection, item)
+
 	require.NoError(t, connection.Close())
 
 	require.Eventually(t, func() bool {

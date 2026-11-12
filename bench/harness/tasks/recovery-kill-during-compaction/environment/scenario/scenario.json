@@ -3,7 +3,12 @@
     {
       "op": "send",
       "label": "note1",
-      "message": "Read `/app/notes/note1.txt` in full, every line of it, then write its first word, in lowercase, followed by a newline, to `/app/out/1.txt`."
+      "message": "Read `/app/notes/note1.txt` in full, every line of it, then write its first word, in lowercase, followed by a newline, to `/app/out/1.txt`.",
+      "kill": {
+        "target": "worker",
+        "onCompaction": true,
+        "delayMilliseconds": 3000
+      }
     },
     {
       "op": "awaitIdle",
@@ -16,7 +21,7 @@
       "message": "Read `/app/notes/note2.txt` in full, every line of it, then write its first word, in lowercase, followed by a newline, to `/app/out/2.txt`.",
       "kill": {
         "target": "worker",
-        "onFile": "/tmp/bench-compacting",
+        "onCompaction": true,
         "delayMilliseconds": 3000
       }
     },
@@ -31,7 +36,7 @@
       "message": "Read `/app/notes/note3.txt` in full, every line of it, then write its first word, in lowercase, followed by a newline, to `/app/out/3.txt`.",
       "kill": {
         "target": "worker",
-        "onFile": "/tmp/bench-compacting",
+        "onCompaction": true,
         "delayMilliseconds": 3000
       }
     },
@@ -46,7 +51,7 @@
       "message": "Read `/app/notes/note4.txt` in full, every line of it, then write its first word, in lowercase, followed by a newline, to `/app/out/4.txt`.",
       "kill": {
         "target": "worker",
-        "onFile": "/tmp/bench-compacting",
+        "onCompaction": true,
         "delayMilliseconds": 3000
       }
     },
@@ -61,7 +66,7 @@
       "message": "Read `/app/notes/note5.txt` in full, every line of it, then write its first word, in lowercase, followed by a newline, to `/app/out/5.txt`.",
       "kill": {
         "target": "worker",
-        "onFile": "/tmp/bench-compacting",
+        "onCompaction": true,
         "delayMilliseconds": 3000
       }
     },
@@ -76,7 +81,7 @@
       "message": "Read `/app/notes/note6.txt` in full, every line of it, then write its first word, in lowercase, followed by a newline, to `/app/out/6.txt`.",
       "kill": {
         "target": "worker",
-        "onFile": "/tmp/bench-compacting",
+        "onCompaction": true,
         "delayMilliseconds": 3000
       }
     },

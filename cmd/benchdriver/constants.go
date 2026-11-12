@@ -36,8 +36,12 @@ const (
 
 	noticesPath       = "/api/v1/session/notices"
 	runningAgentsPath = "/api/v1/session/agents?state=running&limit=1"
-	headerSessionID   = "X-Session-ID"
-	bearerScheme      = "Bearer "
+	//nolint:lll // Keep the fixed request target together.
+	compactionRunsPath = "/api/v1/session/model-runs?stage=compaction&state=running&limit=100&offset=%d"
+
+	modelCallsPath  = "/api/v1/session/model-runs/%s/calls?limit=100&offset=%d"
+	headerSessionID = "X-Session-ID"
+	bearerScheme    = "Bearer "
 
 	readyTimeout       = 2 * time.Minute
 	readyPollInterval  = 250 * time.Millisecond

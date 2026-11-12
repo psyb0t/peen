@@ -2,6 +2,13 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.47.2 (2026-11-12)
+
+Makes the compaction recovery benchmark kill a worker during an observed summary request and stabilizes the WebSocket disconnect regression check. No configuration or API migration is needed.
+
+- Fixes the compaction recovery benchmark killing ordinary turn requests after a `preCompact` hook. It now waits for a running compaction model call, checks that the same call still runs after the delay, records its ID, and arms the first send so early summaries cannot consume the stall faults before a kill is possible. The recovery graders are unchanged.
+- Fixes the WebSocket disconnect regression check closing a newly registered client before its event loop has started. It now receives a feed frame before disconnecting, so the check exercises an established client's shutdown.
+
 ## v0.47.1 (2026-11-11)
 
 Retries the network steps of every Peen build, so one DNS or mirror blip no longer fails an image build, the CI run, or the release waiting on it. No configuration or API migration is needed.

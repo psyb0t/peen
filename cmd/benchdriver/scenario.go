@@ -103,6 +103,9 @@ type kill struct {
 	// removes the file when the send starts.
 	OnFile string `json:"onFile"`
 
+	// OnCompaction waits for a running compaction model call in this session.
+	OnCompaction bool `json:"onCompaction"`
+
 	DelayMilliseconds   int `json:"delayMilliseconds"`
 	RestartAfterSeconds int `json:"restartAfterSeconds"`
 
@@ -198,6 +201,16 @@ func validateSend(current *step) error {
 	if current.Kill != nil {
 		if err := validateTarget(current.Kill.Target); err != nil {
 			return err
+		}
+
+		if current.Kill.OnCompaction &&
+			(current.Kill.Target != killTargetWorker ||
+				current.Kill.OnFile != "" || current.Kill.AfterToolUses != 0 ||
+				current.Kill.AfterToolUsesMax != 0 ||
+				current.Kill.OnTool != "" ||
+				current.Kill.DelayMilliseconds < 0) {
+			return ctxerrors.Wrap(commerr.ErrValidationFailed,
+				"onCompaction requires a worker kill without another trigger")
 		}
 	}
 

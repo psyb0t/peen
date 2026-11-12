@@ -18,6 +18,12 @@ Each task runs in its own benchmark container through [Harbor](https://github.co
 - Each trial keeps Peen's WebSocket frames, its debug log, and its SQLite state, so every model call, tool call, compaction, and turn end can be checked afterwards.
 - Every benchmark first runs its reference solutions under the same sandbox, so a grader that cannot work offline is not counted against Peen.
 
+## Compaction recovery kill timing
+
+After replacing the `preCompact` file marker with the [scenario's `onCompaction` trigger](#the-harness-suite), `recovery-kill-during-compaction` ran three times with GLM-5.3 for turns, GLM-5.3-Flash for summaries, and a 20,480-token context. All three trials passed their graders and every hard invariant. All 16 worker kills, five, five, and six across the trials, landed inside compaction model calls. Every recorded call ID matched the interrupted call, and the proxy request intervals covered every kill. This included the first four stalled summary requests in each trial and four summaries without a stall fault.
+
+The longest trial's final send reached the driver's deadline of 30 minutes. The session kept working, and the following `awaitIdle` step finished 75 seconds later. That trial still passed its grader and audit.
+
 ## November 2026, Peen v0.47.0 compaction recovery
 
 The `recovery-kill-during-compaction` task runs six turns, each reading a 200-line note through paged `readFile` calls, and kills the worker during a compaction. It checks the first word written for each note and audits provider-reported prompt tokens against the context. These runs use `PEEN_TOOL_MAX_READ_BYTES=600`, `PEEN_MAX_CONTEXT_TOKENS=20480`, and `PEEN_COMPACTION_MODE=summarize`, with GLM-5.3-Flash writing summaries for both models.
@@ -300,7 +306,7 @@ A task is either an exec task, one `peen exec` turn like the other suites, or a 
 
 | Step | Does |
 | --- | --- |
-| `send` | Sends a message and follows the turn. `answers` replies to the turn's questions in order. `kill` kills the worker or the controller, or stops the turn as Stop does, at a chosen tool call, optionally only of one tool, or once the file named by `onFile` appears, after a delay, and can restart a killed controller. A task hook writes that file to mark a moment no frame shows, such as a `preCompact` hook for a kill during compaction. `disconnectAfterToolUses` drops the socket and reattaches from the last sequence it saw. |
+| `send` | Sends a message and follows the turn. `answers` replies to the turn's questions in order. `kill` kills the worker or the controller, or stops the turn as Stop does, at a chosen tool call, optionally only of one tool, or once the file named by `onFile` appears, after a delay, and can restart a killed controller. `onCompaction: true` instead waits for a running root compaction model call through the session's model audit API, checks that the same call still runs after `delayMilliseconds`, and kills the worker. A call that ends during the delay resets the wait. The driver records the call ID in `kill.compactionObserved`. A `preCompact` hook alone does not prove a summary request is in flight. `disconnectAfterToolUses` drops the socket and reattaches from the last sequence it saw. |
 | `awaitIdle` | Waits until the session has had no running turn for `settleSeconds`. |
 | `postEvent` | Posts a session event through `POST /api/v1/session/notices`. |
 | `stop`, `kill`, `restart` | Stops the session's turn, kills the worker or the controller, or restarts the controller. |
