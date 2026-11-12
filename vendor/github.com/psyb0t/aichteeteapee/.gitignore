@@ -6,7 +6,6 @@
 .python-version
 .nvmrc
 pyrightconfig.json
-AGENTS.md
 CODEX.local.md
 .agent_notes/
 .agent_knowledge/
@@ -39,5 +38,6 @@ ANUSTIMES.md
 coverage-percent.txt
 sec.sarif
 git-update.sh
+git-update.sh.debot
 
 .testing/
