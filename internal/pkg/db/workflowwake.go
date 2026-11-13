@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"slices"
 	"sync"
 	"time"
 
@@ -18,28 +19,53 @@ import (
 // empty claim, and each step of a turn pays that sleep several times.
 type workflowWake struct {
 	mutex   sync.Mutex
-	pending chan struct{}
+	pending map[chan struct{}][]workflow.Queue
 }
 
 func newWorkflowWake() *workflowWake {
-	return &workflowWake{pending: make(chan struct{})}
+	return &workflowWake{pending: make(map[chan struct{}][]workflow.Queue)}
 }
 
-// signal returns the channel the next write closes. Take it before a claim,
-// so a write that lands between the claim and the wait still wakes it.
-func (w *workflowWake) signal() <-chan struct{} {
+// Subscribe before claiming so a commit between the claim and wait is kept.
+// Each subscription is retired when its bounded claim call returns.
+func (w *workflowWake) subscribe(
+	queues []workflow.Queue,
+) (chan struct{}, func()) {
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
 
-	return w.pending
+	signal := make(chan struct{}, 1)
+	w.pending[signal] = slices.Clone(queues)
+
+	return signal, func() {
+		w.mutex.Lock()
+		defer w.mutex.Unlock()
+
+		delete(w.pending, signal)
+	}
 }
 
-func (w *workflowWake) notify() {
+// An unknown target queue broadcasts, preserving signal and cancellation
+// behavior. Ordinary task completions wake only their queue's claim loops.
+func (w *workflowWake) notify(queues ...workflow.Queue) {
 	w.mutex.Lock()
 	defer w.mutex.Unlock()
 
-	close(w.pending)
-	w.pending = make(chan struct{})
+	for signal, subscribed := range w.pending {
+		matches := len(queues) == 0
+		for _, queue := range queues {
+			matches = matches || slices.Contains(subscribed, queue)
+		}
+
+		if !matches {
+			continue
+		}
+
+		select {
+		case signal <- struct{}{}:
+		default: // A pending notification already guarantees another claim.
+		}
+	}
 }
 
 // wakingBackend wakes task claims after each write and lets an empty claim
@@ -56,12 +82,21 @@ func (b *wakingBackend) CreateWorkflowInstance(
 	instance *workflow.Instance,
 	event *history.Event,
 ) error {
-	defer b.wake.notify()
-
 	err := b.Backend.CreateWorkflowInstance(ctx, instance, event)
 	if err != nil {
 		return ctxerrors.Wrap(err, "create workflow instance")
 	}
+
+	value := event.Attributes
+
+	attributes, ok := value.(*history.ExecutionStartedAttributes)
+	if !ok || attributes.Queue == "" {
+		b.wake.notify()
+
+		return nil
+	}
+
+	b.wake.notify(attributes.Queue)
 
 	return nil
 }
@@ -103,13 +138,13 @@ func (b *wakingBackend) CompleteWorkflowTask(
 	executed, activities, timers []*history.Event,
 	targets []*history.WorkflowEvent,
 ) error {
-	defer b.wake.notify()
-
 	err := b.Backend.CompleteWorkflowTask(ctx, task, state,
 		executed, activities, timers, targets)
 	if err != nil {
 		return ctxerrors.Wrap(err, "complete workflow task")
 	}
+
+	b.notifyWorkflowCompletion(task, activities, targets)
 
 	return nil
 }
@@ -119,21 +154,49 @@ func (b *wakingBackend) CompleteActivityTask(
 	task *backend.ActivityTask,
 	result *history.Event,
 ) error {
-	defer b.wake.notify()
-
 	err := b.Backend.CompleteActivityTask(ctx, task, result)
 	if err != nil {
 		return ctxerrors.Wrap(err, "complete workflow activity")
 	}
 
+	// The activity queue can differ from its workflow's queue, which the
+	// activity task does not carry.
+	b.wake.notify()
+
 	return nil
+}
+
+func (b *wakingBackend) notifyWorkflowCompletion(
+	task *backend.WorkflowTask,
+	activities []*history.Event,
+	targets []*history.WorkflowEvent,
+) {
+	if len(targets) > 0 {
+		// An existing target's queue is not carried in a workflow event.
+		b.wake.notify()
+
+		return
+	}
+
+	queues := []workflow.Queue{task.Queue}
+
+	for _, event := range activities {
+		value := event.Attributes
+
+		attributes, ok := value.(*history.ActivityScheduledAttributes)
+		if ok && attributes.Queue != "" {
+			queues = append(queues, attributes.Queue)
+		}
+	}
+
+	b.wake.notify(queues...)
 }
 
 func (b *wakingBackend) GetWorkflowTask(
 	ctx context.Context,
 	queues []workflow.Queue,
 ) (*backend.WorkflowTask, error) {
-	return claimWhenReady(ctx, b.wake,
+	return claimWhenReady(ctx, b.wake, queues,
 		func() (*backend.WorkflowTask, error) {
 			task, err := b.Backend.GetWorkflowTask(ctx, queues)
 			if err != nil {
@@ -148,7 +211,7 @@ func (b *wakingBackend) GetActivityTask(
 	ctx context.Context,
 	queues []workflow.Queue,
 ) (*backend.ActivityTask, error) {
-	return claimWhenReady(ctx, b.wake,
+	return claimWhenReady(ctx, b.wake, queues,
 		func() (*backend.ActivityTask, error) {
 			task, err := b.Backend.GetActivityTask(ctx, queues)
 			if err != nil {
@@ -165,14 +228,16 @@ func (b *wakingBackend) GetActivityTask(
 func claimWhenReady[T any](
 	ctx context.Context,
 	wake *workflowWake,
+	queues []workflow.Queue,
 	claim func() (*T, error),
 ) (*T, error) {
 	timer := time.NewTimer(workflowTaskWait)
 	defer timer.Stop()
 
-	for {
-		signal := wake.signal()
+	signal, unsubscribe := wake.subscribe(queues)
+	defer unsubscribe()
 
+	for {
 		task, err := claimUnlessDone(ctx, claim)
 		if err != nil || task != nil || ctx.Err() != nil {
 			return task, err

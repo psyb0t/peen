@@ -18,6 +18,22 @@ Each task runs in its own benchmark container through [Harbor](https://github.co
 - Each trial keeps Peen's WebSocket frames, its debug log, and its SQLite state, so every model call, tool call, compaction, and turn end can be checked afterwards.
 - Every benchmark first runs its reference solutions under the same sandbox, so a grader that cannot work offline is not counted against Peen.
 
+## Concurrent session storage
+
+The `scale-10-sessions` task ran three attempts before and after the v0.49.1 storage fix, using GLM-5.3-Flash and ten workspaces per controller. A diagnostic baseline added debug attribution for session and metrics operations without changing storage behavior. That baseline logged 74 SQLite operations over 200 ms: 71 generation reads in `peen.db` and three instance lookups in `workflows.db`. Its slow-operation median was 317 ms, p95 was 600 ms and maximum was 747 ms. The original build, which did not log slow session reads, had recorded 87 slow workflow instance lookups.
+
+| Measurement across three attempts | Diagnostic baseline | After the fix |
+| --- | --- | --- |
+| Logged SQLite operations over 200 ms | 74 | 0 |
+| Logged SQLite lock errors | 0 | 0 |
+| Workflow SQL operations | 99,580 | 76,972 |
+| Workflow SQL operations per recorded history row | 43.0 | 34.3 |
+| Peak sampled controller RSS | 238.5 MiB | 235.5 MiB |
+| Task graders passed | 3 of 3 | 1 of 3 |
+| Hard audits passed | 3 of 3 | 3 of 3 |
+
+The controller now keeps ordinary session and workflow reads off their single writer connection and limits workflow completion wakes to known affected queues. Indexed query plans and unchanged WAL/FULL durability did not require new indexes or checkpoint tuning. The two failed after trials each exhausted provider rate-limit retries, leaving one turn failed and its expected output missing. These are live model runs with different retry counts, so the comparison does not isolate elapsed-time improvement or establish a task-success improvement. The zero slow-record count covers logged operations; transaction admission and commit waits are not independently timed.
+
 ## Compaction recovery kill timing
 
 After replacing the `preCompact` file marker with the [scenario's `onCompaction` trigger](#the-harness-suite), `recovery-kill-during-compaction` ran three times with GLM-5.3 for turns, GLM-5.3-Flash for summaries, and a 20,480-token context. All three trials passed their graders and every hard invariant. All 16 worker kills, five, five, and six across the trials, landed inside compaction model calls. Every recorded call ID matched the interrupted call, and the proxy request intervals covered every kill. This included the first four stalled summary requests in each trial and four summaries without a stall fault.
@@ -202,7 +218,7 @@ Four offline tasks from [LHTB](https://github.com/zli12321/lhtb), each run once 
 | `PEEN_TURN_TIMEOUT` limited each model request, not the turn, so a long task ran past it to the grader's time limit. | LHTB | Renamed `PEEN_MODEL_REQUEST_TIMEOUT` in v0.33.0 |
 | A reply cut off at the output limit completed with empty text and no sign it was cut off. | LHTB `rush_hour_campaign` | `turn.completed` carries `finishReason` in v0.33.0 |
 | `summarize` compaction summarizes only turns that have ended, so inside one long turn it leaves out the oldest rounds without a summary. In the 128K `langchain-version-migration` run it did so 34 times. | LHTB at 128K | Fixed in v0.34.0 |
-| go-workflows instance lookups took 220 to 525 ms under SQLite contention. | 3 of 29 Aider trials | Open |
+| go-workflows instance lookups took 220 to 525 ms under SQLite contention. | 3 of 29 Aider trials | Fixed in v0.49.1; [concurrent session reruns](#concurrent-session-storage) logged no operations over 200 ms. |
 
 ## Earlier runs
 

@@ -28,6 +28,7 @@ type Config struct {
 type Handle struct {
 	GormDB *gorm.DB
 	sqlDB  *sql.DB
+	readDB *sql.DB
 	// Workflows shares the handle's lifetime when runtime assembly opens it.
 	Workflows *WorkflowStorage
 }
@@ -43,7 +44,12 @@ func (h *Handle) Close() error {
 		return workflowErr
 	}
 
-	return errors.Join(workflowErr, closeSQLDB(h.sqlDB))
+	var readErr error
+	if h.readDB != nil {
+		readErr = closeSQLDB(h.readDB)
+	}
+
+	return errors.Join(workflowErr, readErr, closeSQLDB(h.sqlDB))
 }
 
 // SQLDB exposes the infrastructure connection for migration and integrity

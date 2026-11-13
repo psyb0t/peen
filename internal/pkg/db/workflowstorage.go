@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,6 +26,8 @@ const (
 type WorkflowStorage struct {
 	backend.Backend
 	sqlDB     *sql.DB
+	readDB    *sql.DB
+	reader    diag.Backend
 	converter *contentblob.Converter
 	// wake is shared by every backend this storage hands out, so a write
 	// through any of them wakes a claim waiting in another.
@@ -73,14 +76,42 @@ func OpenWorkflowStorage(
 		return nil, closeAfterOpenFailure(ctx, connection, err)
 	}
 
+	owned := &WorkflowStorage{
+		sqlDB: connection, converter: converter,
+		wake: newWorkflowWake(), reader: storage,
+	}
+
+	var routed diag.Backend = storage
+
+	if !cfg.InMemory {
+		if err := owned.openReaders(ctx, path, busyTimeout); err != nil {
+			return nil, closeAfterOpenFailure(ctx, connection, err)
+		}
+
+		routed = &workflowReadBackend{Backend: storage, reads: owned.reader}
+	}
+
+	owned.Backend = &wakingBackend{Backend: routed, wake: owned.wake}
+
 	runtimecontext.Logger(ctx).Info("workflow sqlite ready")
 
-	wake := newWorkflowWake()
+	return owned, nil
+}
 
-	return &WorkflowStorage{
-		Backend: &wakingBackend{Backend: storage, wake: wake},
-		sqlDB:   connection, converter: converter, wake: wake,
-	}, nil
+func (s *WorkflowStorage) openReaders(
+	ctx context.Context, path string, busyTimeout int64,
+) error {
+	reads, err := openSQLiteReads(ctx, path, busyTimeout)
+	if err != nil {
+		return err
+	}
+
+	s.readDB = reads
+	s.reader = workflowsqlite.NewSqliteBackendWithDB(reads,
+		workflowsqlite.WithBackendOptions(
+			workflowBackendOptions(ctx, s.converter)...))
+
+	return nil
 }
 
 // Close releases the caller-owned SQL connection. Repeated calls are safe.
@@ -89,7 +120,12 @@ func (s *WorkflowStorage) Close() error {
 		return nil
 	}
 
-	return closeSQLDB(s.sqlDB)
+	var readErr error
+	if s.readDB != nil {
+		readErr = closeSQLDB(s.readDB)
+	}
+
+	return errors.Join(readErr, closeSQLDB(s.sqlDB))
 }
 
 // WorkerBackend binds native task leases to one worker generation. The
@@ -115,12 +151,17 @@ func (s *WorkflowStorage) WorkerBackend(
 	options := append(workflowBackendOptions(ctx, s.converter),
 		backend.WithWorkerName(generationID.String()))
 
+	var routed diag.Backend = workflowsqlite.NewSqliteBackendWithDB(
+		s.sqlDB,
+		workflowsqlite.WithBackendOptions(options...),
+	)
+	if s.readDB != nil {
+		routed = &workflowReadBackend{Backend: routed, reads: s.reader}
+	}
+
 	return &wakingBackend{
-		Backend: workflowsqlite.NewSqliteBackendWithDB(
-			s.sqlDB,
-			workflowsqlite.WithBackendOptions(options...),
-		),
-		wake: s.wake,
+		Backend: routed,
+		wake:    s.wake,
 	}, nil
 }
 

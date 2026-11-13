@@ -72,12 +72,18 @@ func Open(ctx context.Context, cfg Config) (*Handle, error) {
 		return nil, closeAfterOpenFailure(ctx, sqlDB, err)
 	}
 
+	handle := &Handle{GormDB: database, sqlDB: sqlDB}
+	if !cfg.InMemory {
+		if err := handle.openReaders(
+			ctx, databasePath, busyTimeout,
+		); err != nil {
+			return nil, closeAfterOpenFailure(ctx, sqlDB, err)
+		}
+	}
+
 	runtimecontext.Logger(ctx).Info("sqlite ready", "driver", sqliteDriverName)
 
-	return &Handle{
-		GormDB: database,
-		sqlDB:  sqlDB,
-	}, nil
+	return handle, nil
 }
 
 // prepareGormDatabase applies the connection pragmas and installs the query
@@ -92,7 +98,9 @@ func prepareGormDatabase(
 		return err
 	}
 
-	if err := installDatabaseMetrics(database, sqlDB, cfg.Metrics); err != nil {
+	if err := installDatabaseMetrics(
+		database, sqlDB, cfg.Metrics, sqliteFileName,
+	); err != nil {
 		return ctxerrors.Wrap(err, "install database metrics")
 	}
 

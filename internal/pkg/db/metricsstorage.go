@@ -182,6 +182,12 @@ func openMetricsFile(
 		return nil, closeAfterOpenFailure(ctx, sqlDB, err)
 	}
 
+	if err := installDatabaseMetrics(
+		database, sqlDB, nil, MetricsFileName,
+	); err != nil {
+		return nil, closeAfterOpenFailure(ctx, sqlDB, err)
+	}
+
 	if err := commonsqlite.MigrateUp(
 		sqlDB,
 		metricsMigrationsPath,

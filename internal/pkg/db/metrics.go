@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
 	"gorm.io/gorm"
 )
@@ -52,12 +53,11 @@ func installDatabaseMetrics(
 	database *gorm.DB,
 	sqlDB *sql.DB,
 	collector *metrics.Metrics,
+	fileName string,
 ) error {
-	if collector == nil {
-		return nil
+	if collector != nil {
+		collector.DatabasePool(sqlDB.Stats())
 	}
-
-	collector.DatabasePool(sqlDB.Stats())
 
 	registrations := []struct {
 		operation string
@@ -144,7 +144,7 @@ func installDatabaseMetrics(
 
 		if err := registration.callbacks.finish(
 			databaseMetricFinishID+registration.operation,
-			finishDatabaseMetric(collector, sqlDB),
+			finishDatabaseMetric(collector, sqlDB, fileName),
 		); err != nil {
 			return ctxerrors.Wrap(
 				err,
@@ -168,6 +168,7 @@ func startDatabaseMetric(operation string) func(*gorm.DB) {
 func finishDatabaseMetric(
 	collector *metrics.Metrics,
 	sqlDB *sql.DB,
+	fileName string,
 ) func(*gorm.DB) {
 	return func(database *gorm.DB) {
 		value, ok := database.InstanceGet(databaseMetricStartKey)
@@ -185,11 +186,28 @@ func finishDatabaseMetric(
 			outcome = metrics.OutcomeError
 		}
 
+		elapsed := time.Since(started.startedAt)
+		if elapsed > sqliteSlowOperationThreshold {
+			ctxscope.GetLogger(database.Statement.Context).Debug(
+				"sqlite operation slow",
+				"database", fileName,
+				"operation", started.operation,
+				"table", database.Statement.Table,
+				"duration", elapsed,
+				"pool_wait_count", sqlDB.Stats().WaitCount,
+				"pool_wait_duration", sqlDB.Stats().WaitDuration,
+			)
+		}
+
+		if collector == nil {
+			return
+		}
+
 		collector.DatabaseCompleted(
 			started.operation,
 			database.Statement.Table,
 			outcome,
-			time.Since(started.startedAt),
+			elapsed,
 		)
 		collector.DatabasePool(sqlDB.Stats())
 	}

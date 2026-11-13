@@ -2,6 +2,13 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.49.1 (2026-11-13)
+
+Reduces SQLite contention when several sessions run at once. No configuration or API migration is needed.
+
+- Fixes session and workflow reads waiting behind writes by using bounded query-only connection pools for file-backed storage, while keeping writes serialized and retaining FULL durability.
+- Reduces database load across concurrent sessions by waking only the queues affected by workflow task completions, while retaining broadcasts when the target queue is unknown.
+
 ## v0.49.0 (2026-11-13)
 
 Keeps long root and child turns running across workflow history rollovers. No configuration or API migration is needed.
