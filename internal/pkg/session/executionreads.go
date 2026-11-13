@@ -45,6 +45,12 @@ func (s *Store) SearchExecutions(
 		return nil, err
 	}
 
+	for _, item := range items {
+		if err := s.resolveWorkflowExecution(ctx, item); err != nil {
+			return nil, err
+		}
+	}
+
 	return &ExecutionPage{
 		Items: items, Limit: page.limit, Offset: page.offset, HasMore: hasMore,
 	}, nil

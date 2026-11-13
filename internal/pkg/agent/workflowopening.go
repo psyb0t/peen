@@ -80,6 +80,10 @@ func validOpeningHook(event harness.HookEvent) bool {
 func openWorkflow(ctx workflow.Context, input workflowExecutionInput) (
 	workflowExecutionInput, error,
 ) {
+	if input.NextRound > 0 {
+		return input, nil
+	}
+
 	var conversation workflowConversation
 	if err := json.Unmarshal(input.Context, &conversation); err != nil {
 		return input, ctxerrors.Wrap(err, "decode workflow opening context")

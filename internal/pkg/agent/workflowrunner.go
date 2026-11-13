@@ -34,6 +34,7 @@ const (
 )
 
 type nativeWorkflowRunner struct {
+	storage  backend.Backend
 	api      *client.Client
 	dispatch *workflowDispatch
 	engine   *workflowExecution
@@ -59,7 +60,8 @@ func (r *Runtime) bindWorkflowRunner(
 	}
 
 	r.workflowRunner = &nativeWorkflowRunner{
-		api: newWorkflowClient(storage), dispatch: dispatch, engine: engine,
+		api:     newWorkflowClient(storage, engine.options.Store),
+		storage: storage, dispatch: dispatch, engine: engine,
 	}
 
 	return nil

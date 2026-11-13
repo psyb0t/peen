@@ -58,8 +58,15 @@ func workflowToolRoundFailure(results []workflowToolResult) error {
 
 func validWorkflowExecutionInput(input workflowExecutionInput) bool {
 	return input.MaxRounds > 0 && input.MaxConcurrentTools > 0 &&
+		validWorkflowContinuation(input) &&
 		input.SessionID != uuid.Nil && input.ExecutionID != uuid.Nil &&
 		json.Valid(input.Context)
+}
+
+func validWorkflowContinuation(input workflowExecutionInput) bool {
+	return input.NextRound >= 0 && input.NextRound < input.MaxRounds &&
+		input.HistoryThreshold >= 0 &&
+		(input.NextRound == 0 || input.HistoryThreshold > 0)
 }
 
 //nolint:ireturn // T is the concrete registered activity result.

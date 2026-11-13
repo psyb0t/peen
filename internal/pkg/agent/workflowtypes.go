@@ -27,6 +27,8 @@ const (
 type workflowActivityLeaseContextKey struct{}
 
 type workflowExecutionInput struct {
+	NextRound          int             `json:"nextRound,omitempty"`
+	HistoryThreshold   int64           `json:"historyThreshold,omitempty"`
 	SessionID          uuid.UUID       `json:"sessionId"`
 	ExecutionID        uuid.UUID       `json:"executionId"`
 	MaxRounds          int             `json:"maxRounds"`

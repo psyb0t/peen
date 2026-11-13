@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 
 	"github.com/google/uuid"
@@ -203,10 +204,24 @@ func sameExecutionIdentity(
 
 	return existing.RootTurnID == input.RootTurnID &&
 		existing.WorkflowVersion == input.WorkflowVersion &&
-		existing.WorkflowExecutionID == input.WorkflowExecutionID &&
+		sameWorkflowSubmissionIdentity(existing, input.WorkflowExecutionID) &&
 		existing.Task == input.Task &&
 		hasSameParent &&
 		sameOptionalExecutionID(existing.AgentRunID, input.AgentRunID)
+}
+
+func sameWorkflowSubmissionIdentity(
+	execution *models.Execution,
+	submitted string,
+) bool {
+	if execution.WorkflowExecutionID == submitted {
+		return true
+	}
+
+	instanceID := fmt.Sprintf("%s/%s", execution.SessionID, execution.ID)
+	initial := uuid.NewSHA1(uuid.NameSpaceOID, []byte(instanceID)).String()
+
+	return execution.WorkflowExecutionID != "" && submitted == initial
 }
 
 func sameOptionalExecutionID(left, right *uuid.UUID) bool {
@@ -221,7 +236,16 @@ func (s *Store) GetExecution(
 	ctx context.Context,
 	sessionID, executionID uuid.UUID,
 ) (*models.Execution, error) {
-	return s.findExecution(ctx, s.query, sessionID, executionID)
+	execution, err := s.findExecution(ctx, s.query, sessionID, executionID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.resolveWorkflowExecution(ctx, execution); err != nil {
+		return nil, err
+	}
+
+	return execution, nil
 }
 
 func (s *Store) findExecution(

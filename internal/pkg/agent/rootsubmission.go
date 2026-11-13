@@ -143,6 +143,7 @@ func (d *workflowDispatch) prepareRootSubmission(
 	input := workflowExecutionInput{
 		SessionID: execution.SessionID, ExecutionID: execution.ID,
 		MaxRounds:          d.runtime.maxToolRounds,
+		HistoryThreshold:   conversation.Limits.HistoryThreshold,
 		MaxConcurrentTools: d.runtime.maxConcurrentTools, Context: encoded,
 	}
 	if err := d.bindSubmittedRoot(ctx, store, prepared, scope,

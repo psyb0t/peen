@@ -21,6 +21,7 @@ import (
 
 // Store persists sessions and protects each active session turn in-process.
 type Store struct {
+	workflowHandle        *db.Handle
 	query                 *repositories.Query
 	blobs                 *db.ContentBlobStore
 	clock                 func() time.Time
@@ -129,6 +130,7 @@ func NewStore(handle *db.Handle, options Options) (*Store, error) {
 	}
 
 	return &Store{
+		workflowHandle:        handle,
 		query:                 repositories.Use(handle.GormDB),
 		blobs:                 handle.ContentBlobs(),
 		clock:                 clock,

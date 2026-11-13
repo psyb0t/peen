@@ -2,6 +2,13 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.49.0 (2026-11-13)
+
+Keeps long root and child turns running across workflow history rollovers. No configuration or API migration is needed.
+
+- Fixes long turns failing at the workflow history limit by continuing from a settled round in a fresh workflow execution, preserving the original turn, transcript and remaining round budget.
+- Keeps workflow controls and recovery attached to the current execution after a rollover, including a restart before the cached execution pointer is updated.
+
 ## v0.48.0 (2026-11-13)
 
 Keeps file read identities visible when compaction or context fitting removes their contents, and restores recent unchanged ranges when space allows. No configuration or API migration is needed.

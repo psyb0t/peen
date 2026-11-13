@@ -34,7 +34,7 @@ func (e *workflowExecution) run(
 	input = opened
 
 	result := workflowRoundResult{Context: input.Context}
-	for round := range input.MaxRounds {
+	for round := input.NextRound; round < input.MaxRounds; round++ {
 		var err error
 
 		result, err = e.runPhasedRound(ctx, input, round)
@@ -57,10 +57,24 @@ func (e *workflowExecution) run(
 		}
 
 		input.Context = result.Context
+		if workflowHistoryRolloverDue(input, round+1,
+			workflow.InstanceExecutionDetails(ctx).HistoryLength) {
+			input.NextRound = round + 1
+
+			//nolint:wrapcheck // The SDK consumes this control error.
+			return workflowRoundResult{}, workflow.ContinueAsNew(ctx, input)
+		}
 	}
 
 	return finishFailedWorkflow(ctx, input, result, ctxerrors.Wrap(
 		workflowRoundLimitError(input), "workflow round budget exhausted"))
+}
+
+func workflowHistoryRolloverDue(input workflowExecutionInput,
+	nextRound int, historyLength int64,
+) bool {
+	return nextRound < input.MaxRounds && input.HistoryThreshold > 0 &&
+		historyLength >= input.HistoryThreshold
 }
 
 func (e *workflowExecution) runPhasedRound(

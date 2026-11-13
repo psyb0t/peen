@@ -11,12 +11,14 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/elelem"
+	"github.com/psyb0t/go-workflows/backend"
 	"github.com/psyb0t/go-workflows/client"
 	"github.com/psyb0t/go-workflows/workflow"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 )
 
 type workflowExecutionLimits struct {
+	HistoryThreshold   int64    `json:"historyThreshold,omitempty"`
 	CompactTools       bool     `json:"compactTools,omitempty"`
 	HookedTools        []string `json:"hookedTools,omitempty"`
 	MaxRounds          int      `json:"maxRounds"`
@@ -29,6 +31,12 @@ type workflowExecutionLimits struct {
 
 // workflowLimits is what a new root turn or child run saves as its limits.
 func (r *Runtime) workflowLimits(maxRounds int) *workflowExecutionLimits {
+	historyCap := backend.DefaultOptions.MaxHistorySize
+	if native := r.nativeWorkflowRunner(); native != nil &&
+		native.storage != nil {
+		historyCap = native.storage.Options().MaxHistorySize
+	}
+
 	var hookedTools []string
 
 	for _, tool := range r.extraTools {
@@ -38,6 +46,8 @@ func (r *Runtime) workflowLimits(maxRounds int) *workflowExecutionLimits {
 	}
 
 	return &workflowExecutionLimits{
+		HistoryThreshold: historyCap / workflowHistoryThresholdDivisor *
+			workflowHistoryThresholdNumerator,
 		CompactTools:       true,
 		HookedTools:        hookedTools,
 		MaxRounds:          maxRounds,
@@ -68,15 +78,15 @@ func nativeWorkflowInstance(
 func retainedWorkflowSubmission(
 	execution *models.Execution,
 ) (workflowExecutionInput, error) {
-	instance := nativeWorkflowInstance(execution.SessionID, execution.ID)
-	if execution.WorkflowExecutionID != instance.ExecutionID {
+	identity, err := uuid.Parse(execution.WorkflowExecutionID)
+	if err != nil || identity == uuid.Nil {
 		return workflowExecutionInput{}, ctxerrors.Wrap(commerr.ErrConflict,
 			"saved workflow submission identity differs")
 	}
 
 	var conversation workflowConversation
 
-	err := json.Unmarshal([]byte(execution.ContextJSON), &conversation)
+	err = json.Unmarshal([]byte(execution.ContextJSON), &conversation)
 	if err != nil {
 		return workflowExecutionInput{}, ctxerrors.Wrap(err,
 			"decode retained workflow submission")
@@ -92,6 +102,7 @@ func retainedWorkflowSubmission(
 	return workflowExecutionInput{
 		SessionID: execution.SessionID, ExecutionID: execution.ID,
 		MaxRounds:          limits.MaxRounds,
+		HistoryThreshold:   limits.HistoryThreshold,
 		MaxConcurrentTools: limits.MaxConcurrentTools,
 		Context:            json.RawMessage(execution.ContextJSON),
 	}, nil

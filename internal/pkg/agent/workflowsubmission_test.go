@@ -32,7 +32,7 @@ func TestRetainedWorkflowSubmissionValidatesSavedArguments(t *testing.T) {
 			saved := &models.Execution{ID: uuid.New(), SessionID: uuid.New(), ContextJSON: tc.context}
 			saved.WorkflowExecutionID = nativeWorkflowInstance(saved.SessionID, saved.ID).ExecutionID
 			if tc.changeIdentity {
-				saved.WorkflowExecutionID = uuid.NewString()
+				saved.WorkflowExecutionID = "invalid execution identity"
 			}
 			input, err := retainedWorkflowSubmission(saved)
 			if !json.Valid([]byte(tc.context)) {

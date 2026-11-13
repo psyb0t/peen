@@ -1,6 +1,9 @@
 package agent
 
 const (
+	workflowHistoryThresholdNumerator = 7
+	workflowHistoryThresholdDivisor   = 10
+
 	fileRecoveryMaxFiles       = 32
 	fileRecoveryNoteDivisor    = 8
 	fileRecoveryMaxActors      = 64
