@@ -471,7 +471,8 @@ func isKeptOlderMessage(
 	isUnanswered := isInjected(message) && index > lastAnswer
 
 	return isModelMessage || isSystemPrompt || isUnanswered ||
-		isSummaryMessage(message) || isDroppedNotice(message)
+		isSummaryMessage(message) || isDroppedNotice(message) ||
+		isFileRecoveryMessage(message)
 }
 
 // lastAnsweringAssistantIndex finds the newest assistant message the model

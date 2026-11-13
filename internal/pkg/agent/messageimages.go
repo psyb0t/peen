@@ -83,6 +83,8 @@ type imageBlobReader interface {
 // resolveImageReferences reads them back right before a model call.
 func savedHistory(messages []elelem.Message) []elelem.Message {
 	history := directoryHistory(messages)
+	history = slices.DeleteFunc(history, isFileRecoveryMessage)
+
 	for index, message := range history {
 		history[index].ToolCalls = validToolCalls(message.ToolCalls)
 

@@ -35,6 +35,7 @@ The `recovery-kill-during-compaction` task runs six turns, each reading a 200-li
 | With whole-result fallback | 2 of 5 | 2 of 5 | 4 of 10 |
 | With partial history removal and reasoning fallback | 3 of 5 | 5 of 5 | 8 of 10 |
 | With numbered pages, repeat checks and fewer tool activities | 4 of 5 | 2 of 5 | 6 of 10 |
+| With file inventories and bounded reattachment | 5 of 5 | 5 of 5 | 10 of 10 |
 
 The first fix covers a previous turn that alone outgrew the context. `summarize` mode had kept that turn outside the summary, then dropped it when nothing else could make room. It now summarizes that turn too when older turns cannot free enough room.
 
@@ -51,6 +52,8 @@ The rerun with those fixes passed 3 of 5 trials on GLM and all 5 on Flash. All t
 The next fixes make page positions explicit in [readFile results](tools.md#reading-files), including extracted PDF text: every line carries its absolute number, and each page ends with its range and total, plus the next offset when truncated. Masked old results keep their tool and page arguments. Repeated unchanged calls warn on the third result and are refused from the fifth call. Ordinary tools with no matching hooks record two activities instead of five, reducing history growth while keeping older executions replayable.
 
 That run passed 4 of 5 on GLM and 2 of 5 on Flash. All ten trials passed every hard audit, including `promptsWithinContext`; none reached the workflow history cap. The largest turns held 453 tool calls and 3,684 history events on GLM, and 243 calls and 2,697 events on Flash. GLM recorded 167 repeat warnings and 11 refusals; Flash recorded 12 warnings and one refusal. The four remaining failures wrote wrong words after results were masked or cut, despite numbered pages and reread notices. Restored requests show the models inventing or misremembering first words, and one Flash trial rewrote its outputs with further unsupported guesses. One failure on each model also missed the intended compaction kill: the kills interrupted ordinary turn requests, and the compaction stalls happened later during recovery. The task and the context-fit loss order remain unchanged. This small run does not establish an improvement in model accuracy.
+
+With [file context recovery](configuration.md#compaction), the task passed 5 of 5 on each model, compared with the previous 4 of 5 on GLM and 2 of 5 on Flash. All ten trials passed every hard audit, including `promptsWithinContext`. GLM carried inventories in 472 root and child request attempts and reattached 217 ranges across 136 requests. Flash carried inventories in 190 requests and reattached 105 ranges across 78 requests. These counts exclude summary calls and include interrupted request attempts. This small sample, and the intervening compaction-kill timing correction, mean the comparison does not isolate the recovery feature's effect on accuracy.
 
 ## November 2026, Peen v0.45.2 harness suite
 

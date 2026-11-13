@@ -114,9 +114,7 @@ func (r *Runtime) childWorkflowModelRequest(
 			"validate child model actor")
 	}
 
-	if sink == nil || sink.run == nil ||
-		sink.sessionID != conversation.Child.SessionID ||
-		sink.run.ID != conversation.Child.AgentRunID {
+	if !matchesChildModelSink(sink, conversation.Child) {
 		return nil, conversation, ctxerrors.Wrap(commerr.ErrConflict,
 			"child model sink belongs to another actor")
 	}
@@ -135,7 +133,19 @@ func (r *Runtime) childWorkflowModelRequest(
 		sink.run.inbox.markWorkflowDelivered(saved.InboxIDs)
 	}
 
+	if err := r.recoverWorkflowFiles(ctx, request, saved, input); err != nil {
+		return nil, saved, ctxerrors.Wrap(err, "recover child file context")
+	}
+
 	return request, saved, nil
+}
+
+func matchesChildModelSink(
+	sink *agentRunSink,
+	child *workflowChildBootstrap,
+) bool {
+	return sink != nil && sink.run != nil &&
+		sink.sessionID == child.SessionID && sink.run.ID == child.AgentRunID
 }
 
 func (r *Runtime) childWorkflowModelAudit(

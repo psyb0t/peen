@@ -2,6 +2,13 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.48.0 (2026-11-13)
+
+Keeps file read identities visible when compaction or context fitting removes their contents, and restores recent unchanged ranges when space allows. No configuration or API migration is needed.
+
+- Adds a trusted file context inventory after file results are masked, omitted, summarized or cut. It keeps the 32 most recently read path/hash groups within one eighth of the request budget, lists their complete line ranges, whole-file hashes and presence in the outgoing request, and tells root and child agents to reread missing exact text, including any older files counted as omitted. Requests reuse an incremental transcript inventory.
+- Restores recently read unchanged file ranges within a quarter of the request's remaining room, capped at 2,000 tokens per file. Changed or unreadable files are identified in the inventory, and the stored transcript stays unchanged.
+
 ## v0.47.2 (2026-11-12)
 
 Makes the compaction recovery benchmark kill a worker during an observed summary request and stabilizes the WebSocket disconnect regression check. No configuration or API migration is needed.

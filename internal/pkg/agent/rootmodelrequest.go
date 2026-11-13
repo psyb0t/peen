@@ -149,6 +149,12 @@ func (r *Runtime) rootWorkflowModelRequest(
 			"deliver root workflow inbox")
 	}
 
+	if err := r.recoverWorkflowFiles(ctx, request, conversation,
+		input); err != nil {
+		return nil, conversation, ctxerrors.Wrap(err,
+			"recover root file context")
+	}
+
 	return request, conversation, nil
 }
 

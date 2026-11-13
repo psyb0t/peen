@@ -37,6 +37,9 @@ import (
 
 // Runtime executes durable transport-neutral Peen turns.
 type Runtime struct {
+	fileRecoveryMutex   sync.Mutex
+	fileRecoveryActors  map[fileRecoveryActor]*fileRecoveryCache
+	fileRecoveryClock   uint64
 	workflowManaged     bool
 	workflowMutex       sync.RWMutex
 	workflowRunner      *nativeWorkflowRunner
@@ -255,6 +258,7 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 	}
 
 	runtime := &Runtime{
+		fileRecoveryActors:  make(map[fileRecoveryActor]*fileRecoveryCache),
 		workflowManaged:     options.WorkflowManaged,
 		recoveredSessions:   map[uuid.UUID]bool{},
 		filesystem:          options.Filesystem,
@@ -322,6 +326,9 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 		writableLearnedDirectory: options.writableLearnedDirectory(),
 		writableConfigDirectory:  options.WritableConfigDirectory,
 	}
+	runtime.observeEvent = runtime.fileRecoveryObserver(ctx,
+		options.ObserveEvent)
+
 	if startup.id != uuid.Nil {
 		if err := runtime.recoverSessionChildren(ctx, startup.id); err != nil {
 			return nil, ctxerrors.Wrap(err, "recover startup children")

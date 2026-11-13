@@ -23,6 +23,8 @@ To limit what an agent may use, list tools in its [`allowed-tools`](agents.md#fo
 
 An unchanged reread still returns content. Peen cannot guarantee that an earlier result will remain complete after fitting the next model request. When context fitting masks an old result, the replacement note keeps a bounded description of its tool call, including the path, offset and limit for `readFile`. Cutting a numbered result for the next request or for a summary keeps whole numbered lines.
 
+When file results leave the context, Peen adds a file inventory telling the model which paths and line ranges it read and which complete ranges are still present. It can re-attach recent unchanged ranges when room allows. See [file context recovery](configuration.md#compaction) for the limits. Missing exact text requires a fresh `readFile` call.
+
 Within a workflow turn, Peen tracks the tool name, canonical JSON arguments and final result hash in saved execution state, after hooks and output limits. A third call with the same arguments and unchanged result gets a warning to use the earlier result or change approach. After four unchanged results, the fifth and later calls are refused before their handlers run. The refusal says: "This exact call already returned the same result several times. Peen did not run it again. Use that earlier result or change the arguments or approach." Counts are kept separately for each result hash. The counts survive worker restarts and context compaction. Identical calls in one parallel round run in order so they see earlier counts. Polling and questions are exempt: `waitJob`, `readJobOutput`, `listJobs`, `readExecution`, `searchExecutions`, `readMetrics`, `waitMessages` and `ask`.
 
 ## Changing files
