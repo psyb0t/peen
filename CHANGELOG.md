@@ -2,6 +2,13 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.49.4 (2026-11-14)
+
+Publishes the v0.49.3 changes, whose release build failed its security scan, and removes a false error log line. No configuration or API migration is needed.
+
+- Fixes an `ERROR` log line, "Trying to wrap a nil error", that the worker wrote after every successful model request since v0.49.3.
+- Includes the v0.49.3 changes, which were tagged but never published as an image or GitHub release: a provider stream cut off without a finish reason after some output is retried inside the same model call while output keeps streaming live, and the agent loads a matching skill before it starts the work.
+
 ## v0.49.3 (2026-11-14)
 
 Retries incomplete provider streams and clarifies when the agent loads matching skills. No configuration or API migration is needed.

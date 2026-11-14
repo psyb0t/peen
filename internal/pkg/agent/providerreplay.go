@@ -3,7 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
-	"math/rand/v2"
+	"math/rand/v2" // nosemgrep // Backoff jitter, never a secret.
 	"time"
 
 	"github.com/psyb0t/ctxerrors"
@@ -160,32 +160,52 @@ func runProviderReplay(
 		}
 
 		attempt, retry := replay.nextAttempt(ctx, response, err)
-		if !retry {
+		if retry {
+			if retryErr := replay.prepareRetry(ctx, response, err, attempt,
+				closeStream, onRetry); retryErr != nil {
+				return response, retryErr
+			}
+
+			continue
+		}
+
+		if err != nil {
 			return response, ctxerrors.Wrap(err, "run provider attempt")
 		}
 
-		if closeErr := closeStream(ctx); closeErr != nil {
-			return response, ctxerrors.Wrap(errors.Join(err, closeErr),
-				"close cut stream before retry")
-		}
-
-		usage := response.Usage.Retry
-		usage.FailedAttempts[len(usage.FailedAttempts)-1] = attempt
-		// The callback receives an absolute attempt, outside Elelem's local
-		// retry sequence, so it must not apply the prior offset again.
-		replay.usage = elelem.RetryInfo{}
-
-		if retryErr := onRetry(ctx, attempt); retryErr != nil {
-			return response, ctxerrors.Wrap(retryErr, "record cut stream retry")
-		}
-
-		replay.usage = usage
-		replay.cost = response.Cost
-
-		if waitErr := waitProviderReplay(ctx, attempt.Delay); waitErr != nil {
-			return response, waitErr
-		}
+		return response, nil
 	}
+}
+
+// prepareRetry closes the cut stream, reports the retry with its absolute
+// attempt number, carries the spent attempts forward and waits the backoff.
+func (r *providerReplay) prepareRetry(
+	ctx context.Context,
+	response *elelem.Response,
+	cause error,
+	attempt elelem.RetryAttempt,
+	closeStream func(context.Context) error,
+	onRetry func(context.Context, elelem.RetryAttempt) error,
+) error {
+	if err := closeStream(ctx); err != nil {
+		return ctxerrors.Wrap(errors.Join(cause, err),
+			"close cut stream before retry")
+	}
+
+	usage := response.Usage.Retry
+	usage.FailedAttempts[len(usage.FailedAttempts)-1] = attempt
+	// The callback receives an absolute attempt, outside Elelem's local
+	// retry sequence, so it must not apply the prior offset again.
+	r.usage = elelem.RetryInfo{}
+
+	if err := onRetry(ctx, attempt); err != nil {
+		return ctxerrors.Wrap(err, "record cut stream retry")
+	}
+
+	r.usage = usage
+	r.cost = response.Cost
+
+	return waitProviderReplay(ctx, attempt.Delay)
 }
 
 func (r *providerReplay) nextAttempt(

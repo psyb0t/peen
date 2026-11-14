@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"io"
+	"log/slog"
 	"testing"
 
 	"github.com/psyb0t/elelem"
@@ -55,6 +57,39 @@ func TestProviderReplayCancellationAndCleanupFailure(t *testing.T) {
 				assert.EqualValues(t, 1, requests.Load())
 			})
 	}
+}
+
+// Replaces the default logger, so it does not run in parallel.
+func TestProviderReplayCompleteStreamLogsNoError(t *testing.T) {
+	var captured bytes.Buffer
+
+	originalLogger := slog.Default()
+
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&captured,
+		&slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(originalLogger) })
+
+	baseURL, requests := cutStreamServer(t,
+		cutStreamChunk("whole answer", "stop")+"data: [DONE]\n\n")
+	request := elelem.NewRequest(elelem.New(cutStreamDriver(t, baseURL))).
+		WithModel(elelem.Model{ID: cutStreamModelID}).
+		WithPrompt(elelem.NewPrompt().UserText("hello")).
+		WithStreaming(true)
+
+	var retries int
+
+	response, err := runProviderReplay(t.Context(), request, 0,
+		func(context.Context, elelem.RetryAttempt) error {
+			retries++
+
+			return nil
+		}, nil)
+	require.NoError(t, err)
+	require.NotNil(t, response)
+	assert.Equal(t, "whole answer", response.Text)
+	assert.Zero(t, retries)
+	assert.EqualValues(t, 1, requests.Load())
+	assert.NotContains(t, captured.String(), `"level":"ERROR"`)
 }
 
 func TestProviderReplayChildKeepsOnlySuccessfulAssistant(t *testing.T) {
