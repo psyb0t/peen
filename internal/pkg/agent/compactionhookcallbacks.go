@@ -59,7 +59,8 @@ func (r *Runtime) runWorkflowCompactionHook(ctx context.Context,
 ) (workflowCompactionHookResult, error) {
 	result := workflowCompactionHookResult{Payload: input.Payload}
 	if result.Payload == nil {
-		payload, err := r.workflowCompactionHookPayload(workspace, input.Round)
+		payload, err := r.workflowCompactionHookPayload(ctx, workspace,
+			input.Round)
 		if err != nil {
 			return result, ctxerrors.Wrap(err,
 				"prepare compaction hook payload")
@@ -83,12 +84,14 @@ func (r *Runtime) runWorkflowCompactionHook(ctx context.Context,
 	return result, nil
 }
 
-func (r *Runtime) workflowCompactionHookPayload(workspace string,
+func (r *Runtime) workflowCompactionHookPayload(ctx context.Context,
+	workspace string,
 	input workflowRoundInput,
 ) (*compactionHookPayload, error) {
 	// Nothing summarizable means no compaction runs this round, so there is
 	// nothing for a preCompact hook to see. The compaction round logs it.
-	units, _, err := selectWorkflowCompactionPrefix(r.models, input)
+	input, units, _, err := maskAndSelectCompactionPrefix(
+		ctx, r.models, input)
 	if errors.Is(err, ErrCompactionUnavailable) {
 		//nolint:nilnil // No summary this round means no compaction hook.
 		return nil, nil

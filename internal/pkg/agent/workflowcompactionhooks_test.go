@@ -134,7 +134,7 @@ func TestNativeWorkflowCompactionHooksRunAroundSavedSummary(t *testing.T) {
 				}
 				if input.Event == harness.HookEventPreCompact {
 					assert.Nil(t, head)
-					assert.Equal(t, 3, driver.Calls())
+					assert.Equal(t, 4, driver.Calls())
 				} else {
 					assert.NotNil(t, head)
 					assert.Equal(t, 4, driver.Calls())
@@ -216,13 +216,13 @@ func TestWorkflowCompactionHooksReuseAcrossModelRetryAndSQLiteReopen(t *testing.
 			// saved context and the request drops the oldest history.
 			assert.Nil(t, result.Output.Compaction)
 			assert.JSONEq(t, string(fixture.input.Context), string(result.Output.Context))
-			assert.Equal(t, []harness.HookEvent{harness.HookEventPreCompact}, events)
+			assert.Empty(t, events)
 			assert.Equal(t, 4, driver.Calls())
 			repeated, err := fixture.engine.compactRound(t.Context(), input)
 			require.NoError(t, err)
 			assert.Equal(t, session.ActivityDecisionReuse, repeated.Decision)
 			assert.Equal(t, result.Output, repeated.Output)
-			assert.Equal(t, []harness.HookEvent{harness.HookEventPreCompact}, events)
+			assert.Empty(t, events)
 			assert.Equal(t, 4, driver.Calls())
 			require.NoError(t, fixture.base.handle.Close())
 			handle, err := db.Open(t.Context(), db.Config{Directory: fixture.base.stateDirectory})
@@ -236,7 +236,7 @@ func TestWorkflowCompactionHooksReuseAcrossModelRetryAndSQLiteReopen(t *testing.
 			require.NoError(t, err)
 			assert.Equal(t, session.ActivityDecisionReuse, reused.Decision)
 			assert.Equal(t, result.Output, reused.Output)
-			assert.Equal(t, []harness.HookEvent{harness.HookEventPreCompact}, events)
+			assert.Empty(t, events)
 			assert.Equal(t, 4, driver.Calls())
 		})
 	}
@@ -269,7 +269,7 @@ func TestWorkflowCompactionPreDenialPreventsSummary(t *testing.T) {
 				require.ErrorIs(t, err, hooks.ErrDenied)
 			}
 			assert.Equal(t, 1, calls)
-			assert.Equal(t, 3, driver.Calls())
+			assert.Equal(t, 4, driver.Calls())
 		})
 	}
 }
@@ -316,9 +316,9 @@ func TestWorkflowCompactionInterruptedHooksRequireResolution(t *testing.T) {
 		event      harness.HookEvent
 		modelCalls int
 	}{
-		{name: "root pre", event: harness.HookEventPreCompact, modelCalls: 3},
+		{name: "root pre", event: harness.HookEventPreCompact, modelCalls: 4},
 		{name: "root post", event: harness.HookEventPostCompact, modelCalls: 4},
-		{name: "child pre", child: true, event: harness.HookEventPreCompact, modelCalls: 3},
+		{name: "child pre", child: true, event: harness.HookEventPreCompact, modelCalls: 4},
 		{name: "child post", child: true, event: harness.HookEventPostCompact, modelCalls: 4},
 	}
 	for _, tc := range testCases {
@@ -446,4 +446,30 @@ func TestWorkflowCompactionUnderBudgetInvokesNoHooks(t *testing.T) {
 			assert.Equal(t, 3, driver.Calls())
 		})
 	}
+}
+
+func TestWorkflowCompactionWithoutStoredSummaryInvokesNoHooks(t *testing.T) {
+	t.Parallel()
+	fixture, _ := compactionHookFixture(t, false)
+	fixture.engine.options.CompactRound = func(_ context.Context,
+		input workflowRoundInput,
+	) (workflowCompactionResult, error) {
+		return workflowCompactionResult{Context: input.Execution.Context}, nil
+	}
+	calls := 0
+	fixture.base.runtime.hookCallback = func(_ context.Context,
+		input hooks.Invocation,
+	) (hooks.Outcome, error) {
+		if input.Event == harness.HookEventPreCompact ||
+			input.Event == harness.HookEventPostCompact {
+			calls++
+		}
+
+		return hooks.Outcome{}, nil
+	}
+	result, err := fixture.engine.compactRound(t.Context(),
+		workflowRoundInput{Execution: fixture.input})
+	require.NoError(t, err)
+	assert.Nil(t, result.Output.Compaction)
+	assert.Zero(t, calls)
 }

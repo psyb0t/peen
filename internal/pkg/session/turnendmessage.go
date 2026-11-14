@@ -44,11 +44,15 @@ A message the user sent during this turn that never reached you:
 		`continue it, do its work directly or continue it with ` +
 		`resumeExecution.
 {{- else}}Peen kept this turn's work as execution {{.ExecutionID}}. If a ` +
-		`later message asks you to continue it, inspect it with ` +
-		`readExecution and continue it with resumeExecution instead of ` +
-		`redoing it.
-{{- if .Unanswered}} Resolve each tool call above whose effect is unknown ` +
-		`with resolveExecutionActivity first.
+		`later message asks you to continue, use the conversation and ` +
+		`current workspace to finish the remaining work directly. Use ` +
+		`readExecution only for facts missing from that context. Use ` +
+		`resumeExecution only for a paused execution that can still resume; ` +
+		`a failed or completed execution cannot resume. Do not repeat ` +
+		`completed effects.
+{{- if .Unanswered}} Check current state before repeating a call whose ` +
+		`effect is unknown. resolveExecutionActivity is needed only when ` +
+		`resuming retained work requires resolving that activity.
 {{- end}}
 {{- end}}
 {{- end}}

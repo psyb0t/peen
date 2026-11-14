@@ -2,6 +2,17 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.49.2 (2026-11-14)
+
+Restores compaction's preservation of user requests and working context, and keeps follow-up turns focused on unfinished work. No configuration or API migration is needed.
+
+- Fixes `summarize` losing earlier facts by giving the summarizer original results from ended turns, while limiting tool-result masking to the turn in progress.
+- Fixes summaries losing facts from the middle of tool results by sending full original content on the first summary attempt and retaining bounded retries only when the summarizer refuses an oversized input.
+- Fixes file context recovery instructions causing the model to discard facts preserved in a summary when the original file is unavailable. Exact quotations and edits still require verbatim file content.
+- Fixes `drop-oldest` discarding recent results by dropping whole oldest ended turns and keeping newer units intact, with the existing fallbacks for oversized running turns.
+- Fixes unpaired compaction hooks after masking or a failed summary by preparing the summary before `preCompact`, storing it after permission, and then running `postCompact`. Masking alone runs neither hook.
+- Fixes follow-up turns spending their tool budget inspecting retained execution history by directing them to continue from available conversation and current workspace state, inspecting only missing facts.
+
 ## v0.49.1 (2026-11-13)
 
 Reduces SQLite contention when several sessions run at once. No configuration or API migration is needed.

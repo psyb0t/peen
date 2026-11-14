@@ -1020,15 +1020,8 @@ func TestChildCompactionFailureLeavesNoRowAndNoPostHook(t *testing.T) {
 		assert.Nil(t, message.CompactionID)
 	}
 
-	invocation := readCapturedInvocation(t, preInvocation)
-	assert.Equal(t, result.SessionID, invocation.SessionID)
-	assert.NotEqual(t, uuid.Nil, invocation.RequestID)
-	assert.NotEqual(t, uuid.Nil, invocation.TurnID)
-	assert.Positive(
-		t,
-		invocation.ContextTokens,
-		"a compaction hook reports the context it was called about",
-	)
+	assert.NoFileExists(t, preInvocation,
+		"a failed summary must not run a pre-compaction hook")
 
 	assert.NoFileExists(
 		t,

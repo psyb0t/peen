@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -556,7 +558,7 @@ func TestCompactionPreHookFailureLeavesNoRow(t *testing.T) {
 		Workspace: fixture.workspace,
 	})
 	require.ErrorIs(t, err, errCompactionHookFailed)
-	assert.Zero(t, stub.calls)
+	assert.Equal(t, 1, stub.calls)
 
 	compaction, err := fixture.store.LatestCompaction(
 		context.Background(),
@@ -782,6 +784,32 @@ func TestCompactionRespectsToolCallUnitBoundary(t *testing.T) {
 	respectsUnit := compaction.ToSequence < assistantToolMessage.Sequence ||
 		compaction.ToSequence >= toolResultMessage.Sequence
 	assert.True(t, respectsUnit, "compaction must not split a tool call unit")
+}
+
+func TestCompactionSummaryReadsOriginalEndedToolResults(t *testing.T) {
+	t.Parallel()
+	const fact = "synthetic fact to retain"
+	driver := elelemtest.NewScriptedDriver(
+		elelemtest.ToolCall("read", toolNameReadFile,
+			runtimeToolArguments(t, "context.txt")),
+		elelemtest.Text("read finished"),
+		elelemtest.Text("second answer"),
+		elelemtest.Text("third answer"),
+	).WithTokenCounter(compactionTokenCounter{perMessage: 100})
+	fixture := newStandardCompactionFixture(t, driver)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(fixture.workspace, "context.txt"),
+		[]byte(fact+"\n"+strings.Repeat("synthetic detail ", 400)), 0o600))
+	stub := newCompactionSummarizeStub(fact)
+	fixture.runtime.compactionOptions.Summarize = stub.summarize
+	sessionID, _ := runCompactionTurns(t, fixture, nil, 1, 3)
+	require.NotEmpty(t, stub.transcripts)
+	assert.Contains(t, stub.transcripts[0], fact)
+	assert.NotContains(t, stub.transcripts[0], maskedToolResultLead)
+	head, err := fixture.store.LatestCompaction(t.Context(), sessionID)
+	require.NoError(t, err)
+	require.NotNil(t, head)
+	assert.Equal(t, fact, head.Summary)
 }
 
 // A failed turn stays in history as it happened, ending with the system

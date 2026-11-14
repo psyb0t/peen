@@ -30,10 +30,9 @@ const (
 	// transcript cannot carry, so the summary still records that it was there.
 	compactionImageNoteFormat = "[image %s]\n"
 
-	// compactionToolResultBytes bounds each tool result in the summarizer's
-	// transcript, keeping its start and end. compactionToolResultTightBytes
-	// is the bound when the summarizer refused the first transcript as too
-	// large, and after that each result is left out.
+	// Try original results first. Bounded retries keep their start and end
+	// only after the summarizer refuses the transcript as too large.
+	compactionToolResultUnlimited  = -1
 	compactionToolResultBytes      = 4000
 	compactionToolResultTightBytes = 1000
 	compactionToolResultCutFormat  = "\n[... %d bytes left out ...]\n"
@@ -116,14 +115,17 @@ type compactionSummary struct {
 // deterministic seam so prefix selection can be proven without a provider.
 type summarizeFunc func(context.Context, string) (compactionSummary, error)
 
-// transcriptRenderer renders the summarizer's input with each tool result
-// bounded to toolResultBytes, or left out when that is 0.
+// transcriptRenderer bounds results to positive byte limits, leaves them out
+// at zero, and retains original content for a negative limit.
 type transcriptRenderer func(toolResultBytes int) string
 
 // compactionToolResultLimits lists the tool result bounds the summarizer is
 // tried with, in order, while it refuses the transcript as too large.
 func compactionToolResultLimits() []int {
-	return []int{compactionToolResultBytes, compactionToolResultTightBytes, 0}
+	return []int{
+		compactionToolResultUnlimited, compactionToolResultBytes,
+		compactionToolResultTightBytes, 0,
+	}
 }
 
 // compactionHookPayload gives hooks the stable facts of one real summary
@@ -408,11 +410,6 @@ func (c *compactor) handle(
 	c.room = room
 	messagesCovered := c.plan.messageCount(units)
 
-	payload := c.hookPayload(event, units, messagesCovered, 0)
-	if err := c.runHook(ctx, harness.HookEventPreCompact, payload); err != nil {
-		return ctxerrors.Wrap(err, "run pre-compaction hooks")
-	}
-
 	summary, err := c.summarize(ctx, c.renderTranscript(event.Messages, units))
 	if err != nil {
 		return ctxerrors.Wrap(err, "summarize completed prefix")
@@ -424,6 +421,11 @@ func (c *compactor) handle(
 			ErrCompactionEmptySummary,
 			"the compaction model returned no summary",
 		)
+	}
+
+	payload := c.hookPayload(event, units, messagesCovered, 0)
+	if err := c.runHook(ctx, harness.HookEventPreCompact, payload); err != nil {
+		return ctxerrors.Wrap(err, "run pre-compaction hooks")
 	}
 
 	outcome := c.summaryOutcome(units, summary)
@@ -897,24 +899,25 @@ func summarizeShrinkingTranscript(
 ) (compactionSummary, error) {
 	limits := compactionToolResultLimits()
 	transcript := render(limits[0])
+	summary, err := summarize(transcript)
 
 	for _, limit := range limits[1:] {
-		summary, err := summarize(transcript)
 		if !errors.Is(err, ErrCompactionUnavailable) {
 			return summary, err
 		}
 
 		shorter := render(limit)
 		if len(shorter) >= len(transcript) {
-			return summary, err
+			continue
 		}
 
 		shrunk(err, limit)
 
 		transcript = shorter
+		summary, err = summarize(transcript)
 	}
 
-	return summarize(transcript)
+	return summary, err
 }
 
 func (c *compactor) logSummaryInputShrunk(

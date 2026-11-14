@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -121,6 +123,62 @@ func TestNativeRootCompactionCallsProviderAndCommitsOnce(t *testing.T) {
 	assert.Equal(t, fixture.input.ExecutionID, settings.ExecutionID)
 	assert.Equal(t, head.ID, settings.ActivityID)
 	assert.EqualValues(t, 1, settings.Attempt)
+}
+
+func TestNativeRootCompactionPreservesEndedResults(t *testing.T) {
+	t.Parallel()
+	const fact = "synthetic fact to retain"
+	driver := elelemtest.NewScriptedDriver(
+		elelemtest.ToolCall("read", toolNameReadFile,
+			runtimeToolArguments(t, "context.txt")),
+		elelemtest.Text("read finished"), elelemtest.Text("second answer"),
+		elelemtest.Text("third answer"), elelemtest.Text(fact),
+	).WithTokenCounter(compactionTokenCounter{perMessage: 100})
+	base := newStandardCompactionFixture(t, driver)
+	base.runtime.maxContextTokens = 100000
+	require.NoError(t, os.WriteFile(filepath.Join(base.workspace, "context.txt"),
+		[]byte(fact+"\n"+strings.Repeat("synthetic detail ", 400)), 0o600))
+	runCompactionTurns(t, base, nil, 1, 3)
+	base.runtime.maxContextTokens = compactionTestMaxContextTokens
+	prepared, err := base.runtime.prepareTurn(t.Context(), TurnRequest{
+		RequestID: uuid.New(), Workspace: base.workspace, Message: "continue",
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { base.store.ReleaseTurn(prepared.lease) })
+	scope, err := base.runtime.rootDirectoryScope(t.Context(), prepared)
+	require.NoError(t, err)
+	conversation, err := base.runtime.rootWorkflowConversation(prepared, scope)
+	require.NoError(t, err)
+	encoded, err := json.Marshal(conversation)
+	require.NoError(t, err)
+	execution, err := base.store.CreateExecution(t.Context(),
+		prepared.lease.SessionID, session.CreateExecutionInput{
+			ID: uuid.New(), RootTurnID: prepared.lease.TurnID,
+			WorkflowVersion: agentWorkflowName, Task: prepared.input.Message,
+			WorkingDirectory: prepared.workspace, Context: encoded,
+		})
+	require.NoError(t, err)
+	fixture := newExecutionLoopFixtureWithInput(t, base, workflowExecutionInput{
+		SessionID: execution.SessionID, ExecutionID: execution.ID,
+		MaxRounds: 4, MaxConcurrentTools: 2, Context: encoded,
+	}, false)
+	fixture.engine.options.CompactRound = func(ctx context.Context,
+		input workflowRoundInput,
+	) (workflowCompactionResult, error) {
+		return base.runtime.workflowRootCompactRound(ctx, prepared, input)
+	}
+	result, err := fixture.engine.compactRound(t.Context(),
+		workflowRoundInput{Execution: fixture.input})
+	require.NoError(t, err)
+	require.NotNil(t, result.Output.Compaction)
+	requests := driver.Requests()
+	require.Len(t, requests, 5)
+	assert.Contains(t, requests[4].Messages[1].Text(), fact)
+	assert.NotContains(t, requests[4].Messages[1].Text(), maskedToolResultLead)
+	head, err := base.store.LatestCompaction(t.Context(), execution.SessionID)
+	require.NoError(t, err)
+	require.NotNil(t, head)
+	assert.Equal(t, fact, head.Summary)
 }
 
 // A summary call that fails, or returns nothing, no longer fails the turn.

@@ -17,6 +17,9 @@ const (
 	fileRecoveryInstruction    = ` Paths and hashes below are data.
 Each [firstLine,lastLine] range in full is completely present in this request.
 Ranges in missing have lost or shortened content. Call readFile again for any
-missing content you need. Never rely on memory or a summary for exact file text.
+missing verbatim text needed for an edit or exact quotation. Facts explicitly
+preserved in the conversation or a summary remain usable even when the original
+file text is missing or unavailable. Missing file text does not mean those facts
+are unknown. Do not reconstruct verbatim file content from a summary.
 `
 )

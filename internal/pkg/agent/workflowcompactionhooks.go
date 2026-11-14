@@ -30,6 +30,21 @@ type workflowCompactionHookResult struct {
 func (e *workflowExecution) compactWithHooks(ctx context.Context,
 	input workflowRoundInput,
 ) (workflowActivityResult[workflowCompactionResult], error) {
+	prepared, err := e.prepareCompaction(ctx, input)
+	if err != nil {
+		return workflowActivityResult[workflowCompactionResult]{}, err
+	}
+
+	if !compactionHookCompleted(prepared.Decision) {
+		return workflowActivityResult[workflowCompactionResult]{
+			Decision: prepared.Decision,
+		}, nil
+	}
+
+	if prepared.Output.Result.Compaction == nil {
+		return e.commitPreparedCompaction(ctx, input, prepared.Output.Result)
+	}
+
 	before, err := e.compactionHook(ctx, workflowCompactionHookInput{
 		Round: input, Event: harness.HookEventPreCompact,
 	})
@@ -48,7 +63,8 @@ func (e *workflowExecution) compactWithHooks(ctx context.Context,
 			ctxerrors.Wrap(hooks.ErrDenied, before.Output.Failure)
 	}
 
-	result, err := e.checkpointCompaction(ctx, input)
+	result, err := e.commitPreparedCompaction(ctx, input,
+		prepared.Output.Result)
 	if err != nil {
 		return result, ctxerrors.Wrap(err, "checkpoint summary after pre hook")
 	}

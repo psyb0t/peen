@@ -18,6 +18,58 @@ Each task runs in its own benchmark container through [Harbor](https://github.co
 - Each trial keeps Peen's WebSocket frames, its debug log, and its SQLite state, so every model call, tool call, compaction, and turn end can be checked afterwards.
 - Every benchmark first runs its reference solutions under the same sandbox, so a grader that cannot work offline is not counted against Peen.
 
+## November 2026, Peen v0.49.1 harness suite
+
+The second full run of the [harness suite](#the-harness-suite), on the same 114 full-tier tasks with five attempts each, compared with the [v0.45.2 run](#november-2026-peen-v0452-harness-suite).
+
+| Group | GLM-5.3, v0.45.2 | GLM-5.3, v0.49.1 | GLM-5.3-Flash, v0.45.2 | GLM-5.3-Flash, v0.49.1 |
+| --- | --- | --- | --- | --- |
+| All | 429 of 570 (75%) | 516 of 570 (91%) | 433 of 570 (76%) | 507 of 570 (89%) |
+| agents | 34 of 50 | 48 of 50 | 30 of 50 | 50 of 50 |
+| compaction | 25 of 25 | 5 of 25 | 20 of 25 | 5 of 25 |
+| events | 34 of 35 | 34 of 35 | 35 of 35 | 34 of 35 |
+| evolve | 7 of 10 | 10 of 10 | 7 of 10 | 9 of 10 |
+| hooks | 33 of 40 | 35 of 40 | 34 of 40 | 35 of 40 |
+| inject | 31 of 35 | 35 of 35 | 35 of 35 | 34 of 35 |
+| limits | 15 of 30 | 30 of 30 | 15 of 30 | 27 of 30 |
+| prompt | 33 of 50 | 45 of 50 | 31 of 50 | 39 of 50 |
+| provider | 36 of 50 | 44 of 50 | 40 of 50 | 45 of 50 |
+| records | 5 of 5 | 5 of 5 | 5 of 5 | 5 of 5 |
+| recovery | 5 of 40 | 40 of 40 | 5 of 40 | 39 of 40 |
+| rules | 25 of 30 | 29 of 30 | 24 of 30 | 30 of 30 |
+| scale | 24 of 30 | 23 of 30 | 28 of 30 | 24 of 30 |
+| skills | 20 of 25 | 20 of 25 | 20 of 25 | 19 of 25 |
+| tools | 102 of 115 | 113 of 115 | 104 of 115 | 112 of 115 |
+
+The fixes since v0.45.2 moved `recovery`, `limits` and `agents` outside noise on both models, and `prompt` on GLM-5.3. The run also found a regression and two defects that the v0.45.2 run had already shown:
+
+| Defect | Found in | Status |
+| --- | --- | --- |
+| Since v0.47.0, compaction replaced old tool results with a short note before it tried a summary or a drop. A request that fit after that never summarized or dropped anything, so `summarize` lost facts from earlier turns and `drop-oldest` lost recent results. `preCompact` also ran without a matching `postCompact`. Six tasks went to 0 of 5 on both models. | `compaction-recall-summarize`, `compaction-recall-drop-oldest`, `compaction-model-error`, `compaction-summary-room`, `hooks-compact-events`, `scale-50-turns` | Fixed in v0.49.2 |
+| The first summary attempt kept only the start and end of each tool result, so facts in the middle of a result never reached the summary. | `compaction-recall-summarize` | Fixed in v0.49.2 |
+| The file inventory told the model never to rely on a summary for exact file text, and the model then discarded facts the summary held for files that no longer existed. | `compaction-summary-room`, `compaction-model-error` | Fixed in v0.49.2 |
+| The unfinished-turn notice told the model to inspect and resume the kept execution, so on a follow-up turn GLM-5.3-Flash spent its tool rounds paging a failed execution. | `limits-tool-rounds` | Fixed in v0.49.2 |
+| A stream the provider cut off without a finish reason is still not retried. | `provider-cut-stream` | Open |
+| The agent never loads the `core:freshness` skill. | `skills-freshness` | Open |
+
+### After the compaction fixes
+
+The six compaction tasks, `compaction-single-long-turn`, `limits-tool-rounds` and `recovery-kill-during-compaction` ran again on the v0.49.2 build, five attempts each.
+
+| Task | GLM-5.3 | GLM-5.3-Flash |
+| --- | --- | --- |
+| `compaction-recall-summarize` | 5 of 5 | 5 of 5 |
+| `compaction-recall-drop-oldest` | 4 of 5 | 3 of 5 |
+| `compaction-model-error` | 5 of 5 | 5 of 5 |
+| `compaction-summary-room` | 5 of 5 | 5 of 5 |
+| `compaction-single-long-turn` | 0 of 5 | 0 of 5 |
+| `hooks-compact-events` | 5 of 5 | 5 of 5 |
+| `scale-50-turns` | 4 of 5 | 5 of 5 |
+| `limits-tool-rounds` | 5 of 5 | 5 of 5 |
+| `recovery-kill-during-compaction` | 5 of 5 | 4 of 5 |
+
+`compaction-single-long-turn` wrote the correct output in all ten trials, but its grader also requires a summary inside the turn. With the inventory change, both models reread fewer files, and masking earlier rounds kept the turn under the context, so no summary was needed. The task needs a heavier scenario to test a summary inside one turn again. In the `compaction-recall-drop-oldest` misses, the newest turns reached the model intact and it listed their facts correctly in its first answer. It then searched older executions and wrote some recent facts as unknown or wrong, and one Flash trial ran out of time doing so. The `scale-50-turns` miss recalled the right value and refused to write it because it took the label for a secret. The `recovery-kill-during-compaction` miss passed its grader but sent one request 440 tokens over the context after a round of 140 parallel tool calls, which the existing last-resort fallback cannot always fit.
+
 ## Concurrent session storage
 
 The `scale-10-sessions` task ran three attempts before and after the v0.49.1 storage fix, using GLM-5.3-Flash and ten workspaces per controller. A diagnostic baseline added debug attribution for session and metrics operations without changing storage behavior. That baseline logged 74 SQLite operations over 200 ms: 71 generation reads in `peen.db` and three instance lookups in `workflows.db`. Its slow-operation median was 317 ms, p95 was 600 ms and maximum was 747 ms. The original build, which did not log slow session reads, had recorded 87 slow workflow instance lookups.
@@ -105,7 +157,7 @@ The two models differ outside noise on one task, `compaction-model-error`, and t
 | An event a `turnStop` hook published with wake delivery never started a turn. | `hooks-emit-event-wake` | Fixed in v0.46.0 |
 | The live feed skipped events when the root and a child agent wrote at the same time, so `peen exec` and WebSocket clients lost frames, tool results included. | `agents-fanout-8`, `agents-concurrency-cap` | Fixed in v0.46.0 |
 | A tool call running when the user pressed Stop or a parent stopped a child never got a `tool.result`. | `events-stop-no-wake`, `agents-stop-child` | Fixed in v0.46.0 |
-| A stream the provider cut off without a finish reason completed the turn with empty text. | `provider-cut-stream` | Fixed in v0.46.0 |
+| A stream the provider cut off without a finish reason completed the turn with empty text. | `provider-cut-stream` | Partly fixed in v0.46.0. The [v0.49.1 run](#november-2026-peen-v0491-harness-suite) found the cut stream still not retried. |
 | A `401` from the provider made three model calls instead of one and failed the turn with an internal error chain. | `provider-401-fast-fail` | Fixed in v0.46.0 |
 | A turn that hit `PEEN_MAX_TOOL_ROUNDS` or `PEEN_MAX_TURN_TOKENS` failed with internal text, and a WebSocket client got `INTERNAL_SERVER_ERROR`. | `limits-tool-rounds`, `agents-child-turn-limit` | Fixed in v0.46.0 |
 | A failed compaction summary failed the whole turn instead of leaving the oldest history out. | `compaction-*` | Fixed in v0.46.0 |

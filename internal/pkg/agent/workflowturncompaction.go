@@ -254,10 +254,9 @@ func renderCompactionMessages(messages []elelem.Message) transcriptRenderer {
 }
 
 // clipCompactionToolResult keeps the start and end of a tool result within
-// limit bytes, so the summarizer reads what a call returned without its
-// bulk. A limit of 0 leaves the result out.
+// limit bytes. Zero leaves the result out; a negative limit keeps it whole.
 func clipCompactionToolResult(text string, limit int) string {
-	if len(text) <= limit {
+	if limit < 0 || len(text) <= limit {
 		return text
 	}
 

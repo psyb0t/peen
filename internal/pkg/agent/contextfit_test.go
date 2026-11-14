@@ -148,6 +148,50 @@ func fitTestResult(messages []elelem.Message, id string) string {
 	return ""
 }
 
+func TestFitRequestContextDropsEndedTurnsWhole(t *testing.T) {
+	t.Parallel()
+	note := fitTestNote(t)
+	history := slices.Concat(
+		[]elelem.Message{fitTestUser("older request")},
+		fitTestRound("older", toolNameReadFile, `{}`, note),
+		[]elelem.Message{
+			fitTestReplyMessage("older answer"),
+			fitTestUser("newer request"),
+		},
+		fitTestRound("newer", toolNameReadFile, `{}`, note),
+		[]elelem.Message{
+			fitTestReplyMessage("newer answer"),
+			fitTestUser(fitTestCurrent),
+		},
+	)
+	sent := fitTestRun(t, history, 5000, 500)
+	assert.Empty(t, fitTestResult(sent, "older"))
+	assert.Equal(t, note, fitTestResult(sent, "newer"))
+	assert.NotContains(t, fitTestTexts(sent), "older request")
+	assert.Contains(t, fitTestTexts(sent), "newer request")
+}
+
+func TestFitRequestContextDropsEndedHistoryBeforeMaskingActiveRounds(
+	t *testing.T,
+) {
+	t.Parallel()
+	note := fitTestNote(t)
+	history := slices.Concat(
+		[]elelem.Message{fitTestUser("ended request")},
+		fitTestRound("ended", toolNameReadFile, `{}`, note),
+		[]elelem.Message{
+			fitTestReplyMessage("ended answer"),
+			fitTestUser(fitTestCurrent),
+		},
+		fitTestRound("earlier", toolNameReadFile, `{}`, note),
+		fitTestRound("live", toolNameReadFile, `{}`, note),
+	)
+	sent := fitTestRun(t, history, 6000, 500)
+	assert.Empty(t, fitTestResult(sent, "ended"))
+	assert.Equal(t, note, fitTestResult(sent, "earlier"))
+	assert.Equal(t, note, fitTestResult(sent, "live"))
+}
+
 // A turn that a crash ended, followed by a turn that reads two large notes,
 // must keep the summary, every request, and every turn-end note. The old
 // note becomes a stub and the note the model is about to read stays whole.
@@ -209,9 +253,8 @@ func TestFitRequestContextMasksOldResultsAndKeepsTheRequests(
 	assert.False(t, hasNotice)
 }
 
-// When stubs are not enough, the model's own earlier rounds leave before any
-// message the user wrote, and a notice names the calls left out.
-func TestFitRequestContextLeavesOutOldRoundsBeforeUserMessages(
+// Ended exchanges leave whole, and a notice names the calls left out.
+func TestFitRequestContextLeavesOutOldExchangesBeforeNewerOnes(
 	t *testing.T,
 ) {
 	t.Parallel()
@@ -256,11 +299,9 @@ func TestFitRequestContextLeavesOutOldRoundsBeforeUserMessages(
 	assert.Contains(t, texts, compactionSummaryLead+fitTestSummaryText)
 	assert.Contains(t, texts, fitTestCurrent)
 	assert.Contains(t, texts, fmt.Sprintf(fitTestReply, exchanges-1),
-		"replies leave only after every tool round")
-
-	for index := range exchanges {
-		assert.Contains(t, texts, fmt.Sprintf(fitTestQuestion, index))
-	}
+		"the newest ended exchange stays intact")
+	assert.Contains(t, texts, fmt.Sprintf(fitTestQuestion, exchanges-1))
+	assert.NotContains(t, texts, fmt.Sprintf(fitTestQuestion, 0))
 
 	assert.Equal(t, fitTestSmallResult, fitTestResult(sent, "live"))
 	assert.Empty(t, fitTestResult(sent, "0"))
@@ -571,7 +612,13 @@ func TestSummarizeShrinkingTranscriptRetriesWithShorterResults(
 ) {
 	t.Parallel()
 
+	const fullResultBytes = compactionToolResultBytes * 2
+
 	render := func(limit int) string {
+		if limit < 0 {
+			limit = fullResultBytes
+		}
+
 		return strings.Repeat("x", limit+1)
 	}
 
@@ -600,8 +647,32 @@ func TestSummarizeShrinkingTranscriptRetriesWithShorterResults(
 		require.NoError(t, err)
 		assert.Equal(t, fitTestSummaryText, summary.Text)
 		assert.Equal(t, []int{
+			fullResultBytes + 1,
 			compactionToolResultBytes + 1,
 			compactionToolResultTightBytes + 1,
+		}, calls)
+		assert.Equal(t, []int{
+			compactionToolResultBytes, compactionToolResultTightBytes,
+		}, shrunk)
+	})
+
+	t.Run("skips unchanged bounds without repeating input", func(t *testing.T) {
+		t.Parallel()
+		const resultBytes = compactionToolResultTightBytes * 2
+		var calls, shrunk []int
+		bounded := func(limit int) string {
+			if limit < 0 {
+				return strings.Repeat("x", resultBytes)
+			}
+
+			return strings.Repeat("x", min(resultBytes, limit+1))
+		}
+		_, err := summarizeShrinkingTranscript(bounded,
+			refuseOver(compactionToolResultTightBytes+1, &calls),
+			func(_ error, limit int) { shrunk = append(shrunk, limit) })
+		require.NoError(t, err)
+		assert.Equal(t, []int{
+			resultBytes, compactionToolResultTightBytes + 1,
 		}, calls)
 		assert.Equal(t, []int{compactionToolResultTightBytes}, shrunk)
 	})
@@ -644,4 +715,26 @@ func TestSummarizeShrinkingTranscriptRetriesWithShorterResults(
 			require.ErrorIs(t, err, ErrCompactionUnavailable)
 			assert.Len(t, calls, 1)
 		})
+}
+
+func TestSummarizeFirstAttemptRetainsMiddleResults(t *testing.T) {
+	t.Parallel()
+	const fact = "retained middle fact"
+	content := strings.Repeat("synthetic context ", 400) + fact +
+		strings.Repeat("synthetic context ", 400)
+	render := renderCompactionMessages([]elelem.Message{{
+		Role: elelem.RoleTool, Content: elelem.Text(content),
+	}})
+	calls := 0
+	_, err := summarizeShrinkingTranscript(render,
+		func(transcript string) (compactionSummary, error) {
+			calls++
+			assert.Contains(t, transcript, fact)
+
+			return compactionSummary{Text: fact}, nil
+		}, func(error, int) {
+			t.Error("the complete transcript was accepted")
+		})
+	require.NoError(t, err)
+	assert.Equal(t, 1, calls)
 }

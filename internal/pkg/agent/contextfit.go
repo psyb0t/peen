@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -39,13 +40,10 @@ const (
 	reasonHistoryLeftOut       = "history_left_out"
 )
 
-// fitRequestContext is the token limit handler of every model request. It
-// frees room in the order that loses the least: old tool results become
-// stubs, then the model's own earlier rounds and replies leave when that
-// alone makes the request fit, then the results the model is about to read
-// are cut, and older messages leave only when nothing else is left. The
-// summaries, the requests of the work still in progress, and the turn-end
-// notes stay.
+// fitRequestContext first tries whole ended exchanges, then masks earlier
+// rounds of the current turn. Its remaining ladder removes model history,
+// cuts live results and finally permits older messages to leave. Summaries,
+// pending requests and turn-end notes stay.
 func fitRequestContext(
 	ctx context.Context,
 	event *elelem.TokenLimitEvent,
@@ -72,6 +70,41 @@ func fitRequestContextReporting(
 	ctx context.Context,
 	event *elelem.TokenLimitEvent,
 ) (bool, error) {
+	changed, err := leaveOutEndedTurns(ctx, event)
+	if err != nil {
+		return false, err
+	}
+
+	if err := maskRequestToolResults(ctx, event); err != nil {
+		return false, ctxerrors.Wrap(err, "mask running-turn results")
+	}
+
+	changedAfterMask, err := leaveOutEndedTurns(ctx, event)
+	if err != nil {
+		return false, err
+	}
+
+	changedRounds, err := leaveOutOldHistory(ctx, event, false)
+	if err != nil {
+		return false, err
+	}
+
+	if err := cutInFlightToolResults(ctx, event); err != nil {
+		return false, ctxerrors.Wrap(err, "fit in-flight tool results")
+	}
+
+	changedAgain, err := leaveOutOldHistory(ctx, event, true)
+	if err != nil {
+		return false, err
+	}
+
+	return changed || changedAfterMask || changedRounds || changedAgain, nil
+}
+
+func maskRequestToolResults(
+	ctx context.Context,
+	event *elelem.TokenLimitEvent,
+) error {
 	isOver := func(messages []elelem.Message) (bool, error) {
 		event.Messages = messages
 
@@ -86,26 +119,12 @@ func fitRequestContextReporting(
 	masked, err := maskOldToolResults(event.Messages,
 		liveExchangeStart(event.Messages), isOver)
 	if err != nil {
-		return false, err
+		return ctxerrors.Wrap(err, "mask current tool results")
 	}
 
 	logMaskedToolResults(ctx, masked)
 
-	changed, err := leaveOutOldHistory(ctx, event, false)
-	if err != nil {
-		return false, err
-	}
-
-	if err := cutInFlightToolResults(ctx, event); err != nil {
-		return false, ctxerrors.Wrap(err, "fit in-flight tool results")
-	}
-
-	changedAgain, err := leaveOutOldHistory(ctx, event, true)
-	if err != nil {
-		return false, err
-	}
-
-	return changed || changedAgain, nil
+	return nil
 }
 
 // fitWorkflowContext is fitRequestContext for a workflow round. It records
@@ -141,8 +160,8 @@ func fitWorkflowInFlightResults(moved *bool) elelem.TokenLimitHandler {
 	}
 }
 
-// maskOldToolResults replaces old tool results with a stub, oldest first,
-// until isOver reports that messages fit. Results from live onward, error
+// maskOldToolResults stubs earlier results of the current turn, oldest first,
+// until isOver reports that messages fit. Ended turns, live onward, error
 // results, small results, and results already masked stay. It masks in
 // batches that double each time, so a long history costs a few recounts.
 // It returns how many results it masked.
@@ -153,9 +172,15 @@ func maskOldToolResults(
 ) (int, error) {
 	counter := elelem.DefaultTokenCounter()
 
-	candidates, err := maskableToolResults(counter, messages[:live])
+	start := min(lastRealUserIndex(messages)+1, live)
+
+	candidates, err := maskableToolResults(counter, messages[start:live])
 	if err != nil {
 		return 0, err
+	}
+
+	for index := range candidates {
+		candidates[index].index += start
 	}
 
 	masked := 0
@@ -187,11 +212,8 @@ func maskOldToolResults(
 	return masked, nil
 }
 
-// maskWorkflowToolResults replaces old tool results in a round's saved
-// context with stubs, oldest first, while the round's request is over
-// budget. A compaction activity runs it before any summary, so a request
-// that masking alone brings under budget needs none. It returns input with
-// the masked context, or input as it was when nothing needed masking.
+// maskWorkflowToolResults masks only the running turn's earlier rounds in
+// saved context. Ended history remains available to the summarizer intact.
 func maskWorkflowToolResults(
 	ctx context.Context,
 	models ModelResolver,
@@ -237,23 +259,112 @@ func maskWorkflowToolResults(
 	return input, nil
 }
 
-// maskAndSelectCompactionPrefix masks old tool results in a round's saved
-// context, then selects the ended turns a summary would replace, as
-// selectWorkflowCompactionPrefix does, from the masked context. It returns
-// the input carrying that context.
+// maskAndSelectCompactionPrefix selects ended history first. If that cannot
+// fit, it masks running-turn results and retries selection.
 func maskAndSelectCompactionPrefix(
 	ctx context.Context,
 	models ModelResolver,
 	input workflowRoundInput,
 ) (workflowRoundInput, int, int, error) {
+	// Completed history is selected before the running turn loses results.
+	units, room, err := selectWorkflowCompactionPrefix(models, input)
+	if err == nil && units > 0 {
+		return input, units, room, nil
+	}
+
+	if err != nil && !errors.Is(err, ErrCompactionUnavailable) {
+		return input, 0, 0, err
+	}
+
 	masked, err := maskWorkflowToolResults(ctx, models, input)
 	if err != nil {
 		return input, 0, 0, ctxerrors.Wrap(err, "mask old tool results")
 	}
 
-	units, room, err := selectWorkflowCompactionPrefix(models, masked)
+	units, room, err = selectWorkflowCompactionPrefix(models, masked)
 
 	return masked, units, room, err
+}
+
+// leaveOutEndedTurns drops whole oldest turns, keeping newer units intact.
+func leaveOutEndedTurns(
+	ctx context.Context,
+	event *elelem.TokenLimitEvent,
+) (bool, error) {
+	candidates := endedTurnRanges(event.Messages)
+	original := event.Messages
+
+	for count := range candidates {
+		over, err := event.IsOverBudget()
+		if err != nil {
+			return false, ctxerrors.Wrap(err, "count ended turn context")
+		}
+
+		if !over {
+			if count > 0 {
+				logDroppedTurns(ctx, event, original, candidates[:count])
+			}
+
+			return count > 0, nil
+		}
+
+		event.Messages = withoutHistory(original, candidates[:count+1])
+	}
+
+	over, err := event.IsOverBudget()
+	if err != nil {
+		return false, ctxerrors.Wrap(err, "count dropped turns")
+	}
+
+	if over {
+		event.Messages = original
+		if _, err := event.IsOverBudget(); err != nil {
+			return false, ctxerrors.Wrap(err, "restore ended turns")
+		}
+
+		return false, nil
+	}
+
+	if len(candidates) > 0 {
+		logDroppedTurns(ctx, event, original, candidates)
+	}
+
+	return len(candidates) > 0, nil
+}
+
+func endedTurnRanges(messages []elelem.Message) []historyRange {
+	var candidates []historyRange
+
+	start := -1
+	protected := pendingWorkStart(messages)
+
+	for index, message := range messages {
+		if !isRealUserMessage(message) {
+			continue
+		}
+
+		if start >= 0 && index <= protected {
+			candidates = append(candidates,
+				historyRange{start: start, end: index})
+		}
+
+		start = index
+	}
+
+	return candidates
+}
+
+func logDroppedTurns(ctx context.Context, event *elelem.TokenLimitEvent,
+	original []elelem.Message, removed []historyRange,
+) {
+	for _, piece := range removed {
+		runtimecontext.Logger(ctx).Debug("dropping oldest transcript unit",
+			"reason", elelem.LogReasonTokenBudgetExceeded,
+			"unit_start", piece.start, "unit_end", piece.end,
+			"unit_messages", piece.end-piece.start)
+	}
+
+	logHistoryLeftOut(ctx, event, len(original))
 }
 
 type maskableToolResult struct {
