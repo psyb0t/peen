@@ -264,6 +264,11 @@ func (r *modelAuditRecorder) onRoundStart(
 	defer r.mu.Unlock()
 
 	if _, exists := r.calls[int64(event.Round)]; exists {
+		if replay := providerReplayFrom(ctx); replay != nil &&
+			replay.usage.TotalAttempts > 0 {
+			return nil
+		}
+
 		return ctxerrors.Wrap(commerr.ErrAlreadyExists, "model audit round")
 	}
 
@@ -385,7 +390,7 @@ func (r *modelAuditRecorder) onRoundEnd(
 	input, err := r.modelCallFinalizeInput(
 		models.ModelCallStateCompleted,
 		call.responseMessageJSON,
-		event.Usage,
+		providerReplayUsage(ctx, event.Usage),
 		call.retries,
 		"",
 		"",

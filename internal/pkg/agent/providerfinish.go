@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	"github.com/psyb0t/ctxerrors"
@@ -16,10 +17,6 @@ const reasonProviderStreamCut = "provider_stream_without_finish_reason"
 // reads as the end of the stream to the driver, which reports success with an
 // unset finish reason and whatever text arrived, so the engine would take a
 // cut answer, or an empty one, for the final one.
-//
-// The error wraps io.ErrUnexpectedEOF, which the retry decorator around this
-// driver treats as a transport failure: a cut before the first delta is
-// retried, and a cut after output has reached the caller fails the call.
 //
 // Only Stream is checked. Complete reads a whole response body, so a missing
 // reason there is an unmapped provider value, not a cut connection.
@@ -56,7 +53,7 @@ func (d finishReasonDriver) Stream(
 	)
 
 	return usage, ctxerrors.Wrap(
-		io.ErrUnexpectedEOF,
+		errors.Join(errProviderStreamCut, io.ErrUnexpectedEOF),
 		"provider stream ended without a finish reason",
 	)
 }

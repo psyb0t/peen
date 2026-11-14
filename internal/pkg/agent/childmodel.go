@@ -41,7 +41,8 @@ func (r *Runtime) workflowChildModelRoundWithAssistant(
 	monitor := rootWorkflowModelMonitor{startedAt: time.Now()}
 	bindChildWorkflowModel(request, sink, assistant, audit, &monitor)
 
-	response, err := runWorkflowModelResponse(ctx, request)
+	response, err := runProviderReplay(ctx, request, 0,
+		childWorkflowRetryCallback(sink, audit), nil)
 	if auditErr := audit.finish(context.WithoutCancel(ctx), response,
 		err); auditErr != nil {
 		err = errors.Join(err, auditErr)
@@ -194,15 +195,26 @@ func bindChildWorkflowModel(
 		OnRoundEnd(audit.onRoundEnd).
 		OnAssistantMessage(childAssistantCallback(assistant, audit)).
 		OnText(sink.onText).OnReasoning(sink.onReasoning).
-		OnRetry(func(ctx context.Context, attempt elelem.RetryAttempt) error {
-			if err := sink.onRetry(ctx, attempt); err != nil {
-				return ctxerrors.Wrap(err, "record child workflow retry")
-			}
+		OnRetry(childWorkflowRetryCallback(sink, audit)).
+		OnDelta(func(context.Context, elelem.Delta) error {
+			monitor.firstDeltaOnce.Do(func() {
+				monitor.firstDeltaAt = time.Now()
+			})
 
-			return audit.onRetry(ctx, attempt)
-		}).OnDelta(func(context.Context, elelem.Delta) error {
-		monitor.firstDeltaOnce.Do(func() { monitor.firstDeltaAt = time.Now() })
+			return nil
+		})
+}
 
-		return nil
-	})
+func childWorkflowRetryCallback(
+	sink *agentRunSink,
+	audit *modelAuditRecorder,
+) func(context.Context, elelem.RetryAttempt) error {
+	return func(ctx context.Context, attempt elelem.RetryAttempt) error {
+		attempt = providerReplayAttempt(ctx, attempt)
+		if err := sink.onRetry(ctx, attempt); err != nil {
+			return ctxerrors.Wrap(err, "record child workflow retry")
+		}
+
+		return audit.onRetry(ctx, attempt)
+	}
 }

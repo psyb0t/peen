@@ -24,6 +24,7 @@ const (
 	providerRefusalRateLimit = "the provider is rate limiting requests"
 	providerRefusalMissing   = "the model or endpoint was not found"
 	providerRefusalDefault   = "the request was not accepted"
+	providerRefusalStreamCut = "the stream ended without a finish reason"
 )
 
 // providerRefusalSentinels are the failures elelem has already decided not to
@@ -32,6 +33,7 @@ const (
 //
 //nolint:gochecknoglobals // A fixed list the classifier reads.
 var providerRefusalSentinels = []error{
+	errProviderStreamCut,
 	commerr.ErrNotAuthenticated,
 	commerr.ErrNotFound,
 	commerr.ErrRateLimited,
@@ -101,6 +103,8 @@ func isProviderRefusal(err error) bool {
 
 func providerRefusalReason(err error) string {
 	switch {
+	case errors.Is(err, errProviderStreamCut):
+		return providerRefusalStreamCut
 	case errors.Is(err, elelem.ErrQuotaExhausted):
 		return providerRefusalQuota
 	case errors.Is(err, elelem.ErrContextExceeded):

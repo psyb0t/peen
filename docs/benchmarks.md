@@ -49,8 +49,8 @@ The fixes since v0.45.2 moved `recovery`, `limits` and `agents` outside noise on
 | The first summary attempt kept only the start and end of each tool result, so facts in the middle of a result never reached the summary. | `compaction-recall-summarize` | Fixed in v0.49.2 |
 | The file inventory told the model never to rely on a summary for exact file text, and the model then discarded facts the summary held for files that no longer existed. | `compaction-summary-room`, `compaction-model-error` | Fixed in v0.49.2 |
 | The unfinished-turn notice told the model to inspect and resume the kept execution, so on a follow-up turn GLM-5.3-Flash spent its tool rounds paging a failed execution. | `limits-tool-rounds` | Fixed in v0.49.2 |
-| A stream the provider cut off without a finish reason is still not retried. | `provider-cut-stream` | Open |
-| The agent never loads the `core:freshness` skill. | `skills-freshness` | Open |
+| A stream the provider cut off without a finish reason after some output was not retried under the provider retry policy. The retry layer refused to repeat a stream that had already sent output, and workflow recovery started another attempt without a `provider.retry` event. | `provider-cut-stream` | Fixed in v0.49.3 |
+| The agent never loaded the `core:freshness` skill. The catalogue listed it, but the operating rules said to load a skill only before relying on its procedure, and the model read the supplied snapshot directly. | `skills-freshness` | Partly fixed in v0.49.3 |
 
 ### After the compaction fixes
 
@@ -69,6 +69,30 @@ The six compaction tasks, `compaction-single-long-turn`, `limits-tool-rounds` an
 | `recovery-kill-during-compaction` | 5 of 5 | 4 of 5 |
 
 `compaction-single-long-turn` wrote the correct output in all ten trials, but its grader also requires a summary inside the turn. With the inventory change, both models reread fewer files, and masking earlier rounds kept the turn under the context, so no summary was needed. The task needs a heavier scenario to test a summary inside one turn again. In the `compaction-recall-drop-oldest` misses, the newest turns reached the model intact and it listed their facts correctly in its first answer. It then searched older executions and wrote some recent facts as unknown or wrong, and one Flash trial ran out of time doing so. The `scale-50-turns` miss recalled the right value and refused to write it because it took the label for a secret. The `recovery-kill-during-compaction` miss passed its grader but sent one request 440 tokens over the context after a round of 140 parallel tool calls, which the existing last-resort fallback cannot always fit.
+
+### After the stream and skill fixes
+
+The provider tasks ran on the v0.49.3 build, five attempts each. Every trial passed every hard audit.
+
+| Task | GLM-5.3 | GLM-5.3-Flash |
+| --- | --- | --- |
+| `provider-cut-stream` | 5 of 5 | 5 of 5 |
+| `provider-500-once` | 5 of 5 | 5 of 5 |
+| `provider-429-retry-after` | 5 of 5 | 5 of 5 |
+| `provider-drop-connection` | 5 of 5 | 5 of 5 |
+| `provider-stall-timeout` | 5 of 5 | 5 of 5 |
+| `provider-truncate-length` | 5 of 5 | 5 of 5 |
+| `compaction-recall-summarize` | 5 of 5 | 5 of 5 |
+
+The skill and long-turn tasks ran on an earlier v0.49.3 build with the same skill wording and compaction code, and `compaction-single-long-turn` ran with its context lowered from 24,576 to 16,384 tokens.
+
+| Task | GLM-5.3 | GLM-5.3-Flash |
+| --- | --- | --- |
+| `skills-freshness` | 2 of 5 | 3 of 5 |
+| `skills-child-allowed` | 5 of 5 | 3 of 5 |
+| `compaction-single-long-turn` | 4 of 5 | 4 of 5 |
+
+`skills-freshness` went from 0 of 5 to 2 and 3 of 5. The rules now tell the agent to check the catalogue before the first task action and load a matching skill even for a short task, but the remaining misses still wrote the right answer without loading the skill. The smaller context makes summaries run inside the long turn again: every GLM-5.3 trial summarized. The GLM-5.3 miss carried one wrong identifier through its summaries after a truncated read. The Flash miss never summarized, wrote 17 of 24 records, and recorded one more model attempt than the proxy saw. The `skills-child-allowed` misses wrote the right output, but the child used the skill its parent passed in its task instead of loading it with `useSkill`, which the grader requires.
 
 ## Concurrent session storage
 

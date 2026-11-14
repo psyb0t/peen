@@ -83,10 +83,10 @@ func (r *Runtime) workflowRootModelRoundWithAssistant(
 	}
 
 	monitor := rootWorkflowModelMonitor{startedAt: time.Now()}
-	request = monitor.bind(request, prepared, assistant, audit, input.Round).
-		WithTimeout(r.modelRequestTimeout)
+	request = monitor.bind(request, prepared, assistant, audit, input.Round)
 
-	response, err := runWorkflowModelResponse(ctx, request)
+	response, err := monitor.runRequest(ctx, request, prepared, audit,
+		r.modelRequestTimeout)
 
 	err = monitor.closeInterruptedStream(ctx, prepared, err)
 	if auditErr := audit.finish(context.WithoutCancel(ctx), response,

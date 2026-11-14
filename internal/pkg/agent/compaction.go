@@ -1052,6 +1052,9 @@ func (c *compactor) runCompactionRequest(
 	audit *modelAuditRecorder,
 ) (*elelem.Response, error) {
 	startedAt := time.Now()
+	onRetry := func(ctx context.Context, attempt elelem.RetryAttempt) error {
+		return audit.onRetry(ctx, providerReplayAttempt(ctx, attempt))
+	}
 	request := elelem.NewRequest(model.Client).
 		WithModel(model.Model).
 		WithPrompt(prompt).
@@ -1060,7 +1063,7 @@ func (c *compactor) runCompactionRequest(
 		OnRoundStart(audit.onRoundStart).
 		OnRoundEnd(audit.onRoundEnd).
 		OnAssistantMessage(audit.onAssistantMessage).
-		OnRetry(audit.onRetry).
+		OnRetry(onRetry).
 		PreMaxTokensReached(rejectCompactionBudget)
 
 	// Reasoning tokens count against the same output limit as the summary,
@@ -1071,7 +1074,8 @@ func (c *compactor) runCompactionRequest(
 		request.WithReasoningEffort(effort)
 	}
 
-	response, err := request.Run(ctx)
+	response, err := runProviderReplay(ctx, request, c.options.Timeout,
+		onRetry, nil)
 
 	persistCtx := context.WithoutCancel(ctx)
 	if auditErr := audit.finish(persistCtx, response, err); auditErr != nil {

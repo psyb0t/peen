@@ -7,6 +7,9 @@ import (
 )
 
 var (
+	errProviderStreamCut = errors.New(
+		"provider stream ended without a finish reason",
+	)
 	errDirectoryChanged  = errors.New("agent directory changed")
 	errRootAdmissionBusy = errors.New("root turn admission is busy")
 	// ErrTurnTokenLimit reports a turn, or a child agent's run, whose rounds

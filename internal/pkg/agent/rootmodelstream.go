@@ -49,22 +49,51 @@ func (m *rootWorkflowModelMonitor) bind(
 	return request
 }
 
+func (m *rootWorkflowModelMonitor) runRequest(
+	ctx context.Context,
+	request *elelem.Request,
+	prepared *preparedTurn,
+	audit *modelAuditRecorder,
+	timeout time.Duration,
+) (*elelem.Response, error) {
+	return runProviderReplay(ctx, request, timeout,
+		prepared.rootRetryCallback(audit), func(ctx context.Context) error {
+			return m.closePartialStream(ctx, prepared)
+		})
+}
+
 func (m *rootWorkflowModelMonitor) closeInterruptedStream(
 	ctx context.Context,
 	prepared *preparedTurn,
 	cause error,
 ) error {
-	if cause == nil || !m.streamStarted || m.assistantClosed {
-		return cause
+	if cause == nil {
+		return nil
 	}
 
-	// Closing the partial block advances the adapter before a retry starts.
-	// The partial output stays in events, not as a completed assistant message.
-	if err := prepared.adapter.OnAssistantMessage(context.WithoutCancel(ctx),
-		elelem.Message{Role: elelem.RoleAssistant}); err != nil {
+	if err := m.closePartialStream(ctx, prepared); err != nil {
 		return ctxerrors.Wrap(errors.Join(cause, err),
 			"close interrupted workflow stream")
 	}
 
 	return cause
+}
+
+func (m *rootWorkflowModelMonitor) closePartialStream(
+	ctx context.Context,
+	prepared *preparedTurn,
+) error {
+	if !m.streamStarted || m.assistantClosed {
+		return nil
+	}
+
+	// Advance the adapter without promoting partial output to a message.
+	if err := prepared.adapter.OnAssistantMessage(context.WithoutCancel(ctx),
+		elelem.Message{Role: elelem.RoleAssistant}); err != nil {
+		return ctxerrors.Wrap(err, "close partial workflow stream")
+	}
+
+	m.streamStarted = false
+
+	return nil
 }

@@ -33,6 +33,10 @@ func TestProviderRefusalIsPermanentAndOtherFailuresRetry(t *testing.T) {
 		reason string
 	}{
 		{
+			name: "stream cut after provider retries", err: errProviderStreamCut,
+			reason: providerRefusalStreamCut,
+		},
+		{
 			name: "not authenticated", err: commerr.ErrNotAuthenticated,
 			reason: providerRefusalAuth,
 		},

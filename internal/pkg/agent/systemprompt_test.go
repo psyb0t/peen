@@ -426,7 +426,7 @@ func TestDefaultSystemPromptHasOneRuleForSkillMessages(t *testing.T) {
 	assert.Contains(
 		t,
 		defaultSystemPrompt,
-		"load that skill with useSkill before relying on its procedure.",
+		"with useSkill before doing the matching work.",
 	)
 	assert.Contains(
 		t,

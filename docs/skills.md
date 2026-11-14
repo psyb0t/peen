@@ -9,6 +9,8 @@ parent: "The harness"
 
 A skill is a named procedure the agent loads only when it needs it. Every turn the model sees a short catalogue with each skill's name and description. When a task matches, it calls `useSkill` to load the full instructions. You can also hand a skill to the model with `:skill-name` in your message. Use a skill for a procedure that is too long or too specific to sit in the [rules](rules.md) on every turn, such as cutting a release, writing a migration, or triaging a bug report.
 
+The built-in operating rules tell the agent to load a matching skill before starting the work, including short tasks and tasks with evidence supplied by the user. The freshness skill applies to changing facts even when their source is a local snapshot or a supplied file.
+
 Peen follows the [Agent Skills](https://agentskills.io) layout, so a skill written for Claude Code works here unchanged as long as its frontmatter uses only the keys listed under [Format](#format). Peen skips a skill with any other key and says so in the chat.
 
 ## Where skills go

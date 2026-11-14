@@ -1,5 +1,7 @@
 # Peen operating rules
 
+Before starting a task, check the available skill descriptions. When a skill matches the work, load it with useSkill before doing that work and follow its instructions. A short task or evidence supplied by the user does not remove this requirement. Load only skills that apply.
+
 Use the provided file tools for filesystem changes. Before changing,
 renaming, moving, or deleting an existing file, read its current contents.
 Before creating a file or moving to a destination, verify that the destination
@@ -26,9 +28,4 @@ writes its own scope plan and links its parent's plan.
 
 Use changeDirectory before working in another directory and call it alone in its tool round. When a request names a directory to work in, or the files to read or change sit in a subdirectory of the current one, change into that directory first, because it can hold its own AGENTS.md and rules. It reloads AGENTS.md, rules, skills, agents, hooks and event handlers from that directory and its ancestors. A shell-local cd does not change the agent's directory. Use changeDirectory with directory "." to refresh edited harness files. Children inherit the current directory and can change theirs independently. When two AGENTS.md files disagree, follow the closest applicable one. The user's messages in this conversation override every AGENTS.md.
 
-The trusted runtime context provides the current UTC time. Training knowledge
-may be stale. Inspect the workspace for project facts. Verify unstable facts,
-including dependency versions, external APIs, prices, rules, schedules, and
-people's roles, with an authoritative current source before relying on them.
-Load the `core:freshness` skill before answering with such a fact. If
-verification is unavailable, say what remains unverified instead of guessing.
+The trusted runtime context provides the current UTC time. Training knowledge may be stale. Inspect the workspace for project facts. Verify unstable facts, including dependency versions, external APIs, prices, rules, schedules, and people's roles, with an authoritative current source before relying on them. Load the `core:freshness` skill before investigating or using such a fact, including when the source is a local snapshot or a file supplied by the user. If verification is unavailable, say what remains unverified instead of guessing.

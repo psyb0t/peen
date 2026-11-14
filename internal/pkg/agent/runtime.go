@@ -2082,6 +2082,8 @@ func (p *preparedTurn) rootRetryCallback(
 	audit *modelAuditRecorder,
 ) func(context.Context, elelem.RetryAttempt) error {
 	return func(ctx context.Context, attempt elelem.RetryAttempt) error {
+		attempt = providerReplayAttempt(ctx, attempt)
+
 		if err := p.onRetry(ctx, attempt); err != nil {
 			return ctxerrors.Wrap(err, "emit root provider retry")
 		}

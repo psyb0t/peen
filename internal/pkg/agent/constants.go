@@ -1,6 +1,8 @@
 package agent
 
 const (
+	providerRetryDelayDivisor = 2
+
 	workflowHistoryThresholdNumerator = 7
 	workflowHistoryThresholdDivisor   = 10
 

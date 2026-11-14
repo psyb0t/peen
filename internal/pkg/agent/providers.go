@@ -320,7 +320,7 @@ func withRetryConfig(
 	driver elelem.Driver,
 	config elelem.RetryConfig,
 ) elelem.Driver {
-	return elelem.WithRetry(driver, config)
+	return providerRetryDriver{Driver: driver, config: config}
 }
 
 func (r *Registry) discover(

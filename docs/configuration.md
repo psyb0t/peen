@@ -258,6 +258,8 @@ Every time setting is a Go duration such as `90s`, `10m`, or `1h30m`. A bare num
 
 Peen retries a model request that failed for a reason that can pass: a `429` rate limit, a `5xx` status, a provider error code that means overload, and a dropped or timed-out connection. It retries up to 10 times, 11 attempts in all, and waits 250 ms before the first retry, then doubles the wait up to 5 s, with jitter. A `Retry-After` header from the provider replaces that wait, capped at 5 s. Peen never retries a request the provider refused for good: a `401` or `403`, another `4xx`, a spent quota reported as `429`, or a request the turn cancelled. Every attempt, failed or not, is stored with the model call and counted in `/metrics`. None of this is configurable.
 
+Streamed output reaches clients as the provider writes it. If the stream ends without a finish reason after output has appeared, Peen closes its unfinished content blocks and retries inside the same model activity under the policy above. A `provider.retry` event reports the retry, and the model call records the failed attempt. Partial text, reasoning and tool arguments remain in the live event history but never become a completed or incomplete assistant message. Only the successful attempt enters the conversation. Cuts before any output use the normal transport retry. Both paths share the same 11-attempt limit and backoff. When every attempt is cut, the turn fails with a reason instead of accepting an empty or partial answer, and workflow recovery does not start another set of retries.
+
 ### Compaction
 
 A conversation grows until its prompt no longer fits in `PEEN_MAX_CONTEXT_TOKENS` minus `PEEN_OUTPUT_RESERVE_TOKENS`. Compaction is what Peen does then.

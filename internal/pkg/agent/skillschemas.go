@@ -6,6 +6,9 @@ package agent
 // the model pays for a skill's full body, and only for skills it activates.
 
 const useSkillDescription = `Load one skill's complete instructions by name.
+Before starting work that matches an available skill's description, load it
+with this tool and follow its instructions, even for a short task or when
+the user has supplied the evidence. Load only skills that apply.
 The system prompt lists every effective skill for this workspace with its
 name and a short description. Call this with one of those exact names to
 load its full SKILL.md content, its source directory, and a content hash.

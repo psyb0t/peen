@@ -2,6 +2,14 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.49.3 (2026-11-14)
+
+Retries incomplete provider streams and clarifies when the agent loads matching skills. No configuration or API migration is needed.
+
+- Fixes streams ending without a finish reason bypassing provider retries after partial output. Peen keeps output streaming live, closes partial content blocks before retrying within the same model call, retains only the successful assistant reply, and fails the turn when the shared retry limit is exhausted.
+- Clarifies that matching skills load before work begins, including short tasks and tasks using local snapshots or user-supplied evidence.
+- Reduces the single-turn compaction benchmark's context budget to exercise summarization after earlier-round masking. Its instruction, workspace files, grader and reference solution are unchanged.
+
 ## v0.49.2 (2026-11-14)
 
 Restores compaction's preservation of user requests and working context, and keeps follow-up turns focused on unfinished work. No configuration or API migration is needed.

@@ -1,6 +1,6 @@
 ---
 name: freshness
-description: Load before you state, compare or write down a fact that changes over time, such as the latest or newest version of a dependency, a release, an API contract, a price, a schedule, a policy or a person's role, to check it against a current authoritative source.
+description: Load before investigating, comparing or using facts that change over time, including versions, releases, API contracts, prices, schedules, policies and people's roles. Applies when the evidence is a local snapshot or a user-supplied file as well as when checking an external source.
 ---
 # Freshness
 
