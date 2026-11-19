@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -27,6 +28,11 @@ const (
 	// token counter applies. Message count times this constant is the
 	// transcript's estimated cost throughout the "standard" scenario tests.
 	compactionTestTokensPerMessage = 100
+
+	// compactionTargetTestContextTokens holds several ended turns before the
+	// first compaction, so a target can cover more of them than a plain fit.
+	compactionTargetTestContextTokens = 1600
+	compactionTargetTestRuns          = 14
 
 	// compactionTestMaxContextTokens and compactionTestOutputTokens are the
 	// budget shared by every test built on the "three ordinary turns then a
@@ -1331,4 +1337,53 @@ func TestCompactionFollowsStartupWorkspaceSession(t *testing.T) {
 		len(history.Messages),
 		len(orderedMessages(t, fixture, sessionID)),
 	)
+}
+
+// runTargetScenario runs ordinary turns under a context large enough that
+// several ended turns are eligible when compaction first fires, and returns
+// the stored compactions in the order they were made.
+func runTargetScenario(
+	t *testing.T,
+	targetPercent, runs int,
+) []*models.Compaction {
+	t.Helper()
+
+	driver := elelemtest.NewScriptedDriver(compactionScriptedTurns(runs)...).
+		WithTokenCounter(compactionTokenCounter{
+			perMessage: compactionTestTokensPerMessage,
+		})
+	fixture := newRuntimeFixtureWithOptions(t, driver,
+		func(o *RuntimeOptions) {
+			o.CompactionMode = config.CompactionModeSummarize
+			o.MaxContextTokens = compactionTargetTestContextTokens
+			o.CompactionOutputTokens = compactionTestOutputTokens
+			o.CompactionTargetPercent = targetPercent
+		})
+	stub := newCompactionSummarizeStub(compactionScenarioSummaryText)
+	fixture.runtime.compactionOptions.Summarize = stub.summarize
+
+	sessionID, _ := runCompactionTurns(t, fixture, nil, 1, runs)
+
+	rows := allCompactionRows(t, fixture, sessionID)
+	slices.SortFunc(rows, func(left, right *models.Compaction) int {
+		return int(left.ToSequence - right.ToSequence)
+	})
+
+	return rows
+}
+
+// A compaction target makes one summary cover enough old turns that the next
+// turns fit without compacting again, so the same conversation compacts less
+// often, while the newest ended turn always stays as it was.
+func TestCompactionTargetCoversMoreAndCompactsLessOften(t *testing.T) {
+	fitOnly := runTargetScenario(t, 0, compactionTargetTestRuns)
+	targeted := runTargetScenario(t, config.DefaultCompactionTargetPercent,
+		compactionTargetTestRuns)
+
+	require.NotEmpty(t, fitOnly)
+	require.NotEmpty(t, targeted)
+
+	assert.Greater(t, targeted[0].SourceMessageCount,
+		fitOnly[0].SourceMessageCount)
+	assert.Less(t, len(targeted), len(fitOnly))
 }

@@ -46,7 +46,7 @@ A typical layout:
 
 When you open `/home/me/work/my-api`, the model gets `work/AGENTS.md`, then `my-api/AGENTS.md`. Calling `changeDirectory` with `{"directory":"web"}` adds `web/AGENTS.md` and every other harness piece in that directory. Returning to the parent removes the web layer.
 
-When two `AGENTS.md` files disagree, the one closest to the file being changed wins, as the agents.md format specifies. Peen's own operating instructions tell the model this, and they tell it that your messages in the chat override every `AGENTS.md`.
+When two `AGENTS.md` files disagree, the one closest to the file being changed wins, as the agents.md format specifies. Peen's base prompt tells the model to follow every `AGENTS.md` and rule that applies alongside your request, and to follow your message over one only when your message directly contradicts it.
 
 Peen does not search descendant directories. Enter one with `changeDirectory` to load its instructions.
 

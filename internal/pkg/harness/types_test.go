@@ -132,7 +132,7 @@ func TestRenderSkillCatalogueSortsWithoutMutatingInput(t *testing.T) {
 		{Name: "alpha", Description: "a description", Source: "/a"},
 	}
 
-	catalogue := renderSkillCatalogue(skills)
+	catalogue := testSkillCatalogue(t, skills)
 
 	assert.Equal(t, "zulu", skills[0].Name)
 	assert.Equal(t, "alpha", skills[1].Name)
@@ -140,7 +140,7 @@ func TestRenderSkillCatalogueSortsWithoutMutatingInput(t *testing.T) {
 	alphaIndex := strings.Index(catalogue, "alpha")
 	zuluIndex := strings.Index(catalogue, "zulu")
 	assert.Less(t, alphaIndex, zuluIndex)
-	assert.Equal(t, skillCatalogueEmpty, renderSkillCatalogue(nil))
+	assert.Contains(t, testSkillCatalogue(t, nil), skillCatalogueEmpty)
 }
 
 func TestRenderAgentCatalogueSortsWithoutMutatingInput(t *testing.T) {
@@ -163,14 +163,14 @@ func TestRenderAgentCatalogueSortsWithoutMutatingInput(t *testing.T) {
 		},
 	}
 
-	catalogue := renderAgentCatalogue(agents)
+	catalogue := testAgentCatalogue(t, agents)
 
 	assert.Equal(t, "zulu", agents[0].Name)
 	assert.Equal(t, "alpha", agents[1].Name)
 	assert.Less(t, strings.Index(catalogue, "alpha"), strings.Index(catalogue, "zulu"))
 	assert.Contains(t, catalogue, "allowed tools: listFiles")
 	assert.NotContains(t, catalogue, "a instructions")
-	assert.Equal(t, agentCatalogueEmpty, renderAgentCatalogue(nil))
+	assert.Contains(t, testAgentCatalogue(t, nil), agentCatalogueEmpty)
 }
 
 func testSnapshot() Snapshot {

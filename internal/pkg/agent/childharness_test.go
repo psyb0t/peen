@@ -227,9 +227,9 @@ func TestLaunchAgentChildPromptCarriesBaseSystemInstructions(t *testing.T) {
 		childHarnessChildInstructions,
 		"the child receives its own agent instructions",
 	)
-	assert.Contains(t, childPrompt, workspaceMetadataLead)
+	assert.Contains(t, childPrompt, "<environment>")
 	assert.Contains(t, childPrompt, fixture.workspace)
-	assert.Contains(t, childPrompt, runtimeContextHeader)
+	assert.Contains(t, childPrompt, childContextText)
 
 	// The child replaces the root agent block rather than adding to it. A
 	// child carrying the parent's agent definition would answer as the root

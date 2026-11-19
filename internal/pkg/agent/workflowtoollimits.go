@@ -42,6 +42,28 @@ func boundWorkflowToolContent(
 		return output, err
 	}
 
+	fits := workflowToolFits(options)
+
+	fitsWhole, err := fits(content)
+	if err != nil || fitsWhole {
+		return content, err
+	}
+
+	output, handled, err = boundObjectResult(ctx, content, fits)
+	if handled {
+		return output, err
+	}
+
+	return boundRawToolContent(ctx, content, options)
+}
+
+// boundRawToolContent cuts a result that is neither a numbered readFile
+// window nor a JSON object to a prefix that fits, ending in a marker.
+func boundRawToolContent(
+	ctx context.Context,
+	content string,
+	options workflowToolOptions,
+) (string, error) {
 	byteLimit := workflowToolByteLimit(options)
 
 	wasClipped := byteLimit > 0 && len(content) > byteLimit
@@ -72,6 +94,32 @@ func boundWorkflowToolContent(
 	}
 
 	return fitWorkflowToolTokens(ctx, counter, content, options, byteLimit)
+}
+
+// workflowToolFits reports whether a result is within both the byte and the
+// token bound of options.
+func workflowToolFits(
+	options workflowToolOptions,
+) func(string) (bool, error) {
+	counter := options.Counter
+	if counter == nil {
+		counter = elelem.DefaultTokenCounter()
+	}
+
+	return func(text string) (bool, error) {
+		if limit := workflowToolByteLimit(options); limit > 0 &&
+			len(text) > limit {
+			return false, nil
+		}
+
+		if options.MaxResultTokens <= 0 {
+			return true, nil
+		}
+
+		count, err := workflowContentTokens(counter, text)
+
+		return count <= options.MaxResultTokens, err
+	}
 }
 
 func workflowToolByteLimit(options workflowToolOptions) int {

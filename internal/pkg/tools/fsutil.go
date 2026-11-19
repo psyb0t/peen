@@ -206,15 +206,20 @@ func removeQuietly(path string) {
 }
 
 // wrapPathError maps filesystem errors onto the shared sentinels so callers
-// can branch with errors.Is instead of matching operating-system strings.
+// can branch with errors.Is instead of matching operating-system strings. The
+// original error stays in the chain and in the text, because the model reads
+// it: "open /app/a.txt: no such file or directory" says what went wrong where
+// the bare sentinel would not.
 func wrapPathError(err error, message string) error {
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return ctxerrors.Wrap(commerr.ErrNotFound, message)
+		return ctxerrors.Wrap(errors.Join(err, commerr.ErrNotFound), message)
 	case errors.Is(err, fs.ErrExist):
-		return ctxerrors.Wrap(commerr.ErrAlreadyExists, message)
+		return ctxerrors.Wrap(errors.Join(err, commerr.ErrAlreadyExists),
+			message)
 	case errors.Is(err, fs.ErrPermission):
-		return ctxerrors.Wrap(commerr.ErrPermissionDenied, message)
+		return ctxerrors.Wrap(errors.Join(err, commerr.ErrPermissionDenied),
+			message)
 	default:
 		return ctxerrors.Wrap(err, message)
 	}

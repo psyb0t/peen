@@ -55,6 +55,8 @@ CANCELLED = "cancelled"
 INTERRUPTED = "interrupted"
 FULL_REWARD = 1.0
 ORACLE_AGENT = "oracle"
+# RATIO_DIGITS rounds the shares the audit reports, such as cacheHitRatio.
+RATIO_DIGITS = 4
 DATABASE_TIME_SUFFIX = " +0000 UTC"
 UTC_OFFSET = "+00:00"
 MICROSECOND_DIGITS = 6
@@ -349,6 +351,28 @@ def total(rows, field):
     return sum(int(row[field] or 0) for row in rows)
 
 
+def ratio(numerator, denominator):
+    """A share rounded for the report, zero when there is nothing to divide."""
+    if not denominator:
+        return 0.0
+    return round(numerator / denominator, RATIO_DIGITS)
+
+
+def system_prompts_per_session(trial):
+    """The most distinct system prompts any one session used. A prompt that
+    stays the same across turns keeps the provider's cache warm, so 1 is the
+    goal for a session that never changed its harness."""
+    rows = trial.query(
+        """
+        SELECT COUNT(DISTINCT prompt_snapshot_hash) AS prompts
+        FROM turns
+        WHERE prompt_snapshot_hash IS NOT NULL
+        GROUP BY session_id
+        """
+    )
+    return max((int(row["prompts"]) for row in rows), default=0)
+
+
 def measure(trial, requests):
     calls = trial.tool_calls()
     errors = peenaudit.tool_errors(trial)
@@ -361,6 +385,9 @@ def measure(trial, requests):
         seconds_between(row["started_at"], row["completed_at"]) for row in turns
     )
     database_bytes = trial.database.stat().st_size if trial.has_database() else 0
+    prompt_tokens = total(model_calls, "prompt_tokens")
+    cache_read_tokens = total(model_calls, "cache_read_tokens")
+    compactions = len(trial.query("SELECT id FROM compactions"))
     return {
         "modelCalls": len(model_calls),
         "rounds": len(trial.rounds()),
@@ -373,10 +400,14 @@ def measure(trial, requests):
         "skillLoads": len(peenaudit.skills_loaded(trial)),
         "planWrites": len(peenaudit.plan_writes(trial)),
         "harnessWarnings": len(trial.of_type(peenaudit.HARNESS_WARNING)),
-        "compactions": len(trial.query("SELECT id FROM compactions")),
+        "compactions": compactions,
+        "compactionsPerTurn": ratio(compactions, len(turns)),
         "retries": total(model_calls, "retry_attempt_count"),
         "wastedTokens": total(model_calls, "wasted_total_tokens"),
-        "promptTokens": total(model_calls, "prompt_tokens"),
+        "promptTokens": prompt_tokens,
+        "cacheReadTokens": cache_read_tokens,
+        "cacheHitRatio": ratio(cache_read_tokens, prompt_tokens),
+        "systemPromptsPerSession": system_prompts_per_session(trial),
         "completionTokens": total(model_calls, "completion_tokens"),
         "requestBytes": sum(int(record.get("request_bytes") or 0) for record in requests),
         "modelSeconds": round(model_seconds, 2),

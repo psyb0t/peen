@@ -17,7 +17,24 @@ const (
 	mcpReasonTooManyImages  = "it is over PEEN_MAX_IMAGES_PER_MESSAGE"
 	mcpReasonImageTooLarge  = "it is larger than PEEN_MAX_IMAGE_BYTES"
 	mcpReasonImageWrongType = "it is not PNG, JPEG, GIF, or WebP data"
+
+	// mcpDescriptionMaxBytes bounds an MCP tool's description. A server
+	// writes its own descriptions, and every one rides on every request.
+	mcpDescriptionMaxBytes = 2048
+	//nolint:lll // One model-facing note.
+	mcpDescriptionCutNote = "\n<note kind=\"descriptionCut\">The server's description was longer than 2048 bytes; this is its start.</note>"
 )
+
+// capMCPDescription cuts a description longer than mcpDescriptionMaxBytes at
+// a character boundary and says it was cut.
+func capMCPDescription(description string) string {
+	if len(description) <= mcpDescriptionMaxBytes {
+		return description
+	}
+
+	return workflowUTF8Prefix(description, mcpDescriptionMaxBytes) +
+		mcpDescriptionCutNote
+}
 
 // mcpStatusPayload is the mcp.status event: every configured MCP server and
 // what happened when the worker started it.
@@ -36,6 +53,7 @@ func (r *Runtime) mcpTools(onPostRun elelem.MessageInjector) []elelem.Tool {
 	registered := make([]elelem.Tool, 0, len(available))
 
 	for _, tool := range available {
+		tool.Description = capMCPDescription(tool.Description)
 		tool.Handler = r.mcpToolHandler(tool.Name, tool.Handler)
 		tool.PostRunMessageInjector = onPostRun
 		registered = append(registered, tool)

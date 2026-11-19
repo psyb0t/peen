@@ -59,7 +59,7 @@ func (r *Runtime) prepareChildWorkflowFinish(
 	}
 	result.Finish.WorkingDirectory = conversation.Runtime.Directory.Directory
 
-	result.Finish.ChildReport, err = childWorkflowCompletionReport(
+	result.Finish.ChildReport, err = r.childWorkflowCompletionReport(ctx,
 		conversation.Child, result.Finish.Child)
 	if err != nil {
 		return workflowFinishResult{}, ctxerrors.Wrap(err,
@@ -87,7 +87,8 @@ func logChildWorkflowOutcome(
 		}, nil)
 }
 
-func childWorkflowCompletionReport(
+func (r *Runtime) childWorkflowCompletionReport(
+	ctx context.Context,
 	child *workflowChildBootstrap,
 	outcome *session.ExecutionFinishChild,
 ) (string, error) {
@@ -96,10 +97,15 @@ func childWorkflowCompletionReport(
 		FailureDetail: outcome.FailureDetail,
 	}
 
+	body, err := r.agentReportText(ctx, result)
+	if err != nil {
+		return "", ctxerrors.Wrap(err, "bound child outcome")
+	}
+
 	text, err := renderAgentMessage(agentMessage{
 		From: messageSenderAgent, Name: child.Name,
 		Run: child.AgentRunID.String(), Kind: agentResultKind(result.State),
-		Text: agentResultText(result),
+		Text: body,
 	})
 	if err != nil {
 		return "", ctxerrors.Wrap(err, "render child outcome message")

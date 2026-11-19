@@ -37,6 +37,10 @@ const (
 	// nested child's parent receives when the child did not complete.
 	agentCancelledText = "The agent was cancelled before it finished."
 	agentFailedLead    = "The agent failed: "
+	// agentReportCutNote ends a final answer cut to the tool result size
+	// limit before it reaches the parent agent.
+	//nolint:lll // One model-facing note.
+	agentReportCutNote = "\n<note kind=\"resultCut\">The answer was longer than the tool result size limit; this is its start.</note>"
 
 	// agentRunEventReasonRunEnded is logged when a child event, such as a
 	// delta from a stream still running after a Stop, arrives after the run
@@ -574,12 +578,19 @@ func (r *Runtime) reportToParentRun(
 
 	logger := runtimecontext.Logger(ctx)
 
+	body, err := r.agentReportText(ctx, result)
+	if err != nil {
+		logger.Error("bound child agent result", "err", err)
+
+		return
+	}
+
 	text, err := renderAgentMessage(agentMessage{
 		From: messageSenderAgent,
 		Name: run.Name,
 		Run:  run.ID.String(),
 		Kind: agentResultKind(result.State),
-		Text: agentResultText(result),
+		Text: body,
 	})
 	if err != nil {
 		logger.Error("render child agent result", "err", err)
@@ -620,6 +631,32 @@ func agentResultText(result AgentRunResult) string {
 	default:
 		return agentFailedLead + result.FailureDetail
 	}
+}
+
+// agentReportText is the outcome body a parent agent reads. A final answer
+// over PEEN_MAX_TOOL_RESULT_TOKENS is cut to fit, like any tool result, and
+// the run record keeps the whole answer.
+func (r *Runtime) agentReportText(
+	ctx context.Context,
+	result AgentRunResult,
+) (string, error) {
+	text := agentResultText(result)
+	if result.State != AgentRunStateCompleted {
+		return text, nil
+	}
+
+	bounded, err := boundRawToolContent(ctx, text, workflowToolOptions{
+		MaxResultTokens: r.maxToolResultTokens,
+	})
+	if err != nil {
+		return "", ctxerrors.Wrap(err, "fit child agent answer")
+	}
+
+	if bounded != text {
+		bounded += agentReportCutNote
+	}
+
+	return bounded, nil
 }
 
 // startChildAgentRun registers and records the run. Its sink and inbox exist
@@ -882,18 +919,19 @@ func (r *Runtime) childSystemPrompt(
 		return "", err
 	}
 
-	workspaceBlock, err := workspaceMetadataBlock(workspace)
+	environment, err := r.environmentBlock(workspace)
 	if err != nil {
 		return "", err
 	}
 
-	sections = append(
-		sections,
-		learningBlock,
-		childInstructions,
-		workspaceBlock,
-		r.currentTimeBlock(),
-	)
+	agentBlock, err := renderTemplate(childAgentTemplateName,
+		childAgentTemplateText, strings.TrimSpace(childInstructions))
+	if err != nil {
+		return "", err
+	}
+
+	sections = append(sections, learningBlock, childContextText, agentBlock,
+		environment)
 
 	prompt := joinSystemSections(sections...)
 	if err := r.checkSystemPromptBudget(prompt, blocks); err != nil {
@@ -1139,9 +1177,15 @@ func (r *Runtime) agentToolSet(
 		return nil, ctxerrors.Wrap(err, "restrict agent tools")
 	}
 
-	// allowed-tools limits what an agent can do in the workspace. The
-	// session tools read retained history and communicate with other agents.
+	// allowed-tools limits what an agent can do. The messaging tools only
+	// reach other agents in the session, so every agent keeps them; the
+	// retained-work tools, which can resume or settle executions, stay
+	// subject to the list like any other tool.
 	for _, tool := range messaging {
+		if !alwaysAllowedTools[tool.Name] {
+			continue
+		}
+
 		if _, found := restricted.Get(tool.Name); found {
 			continue
 		}

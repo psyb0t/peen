@@ -79,7 +79,7 @@ Every piece of instruction text Peen ships can be turned off, so you can start f
 | `PEEN_DISABLED_CORE_AGENTS=all` | The core agents. Set `PEEN_AGENT` to one of your own agents too. |
 | `PEEN_BLANK_AGENT=true` | All of the above at once. While `PEEN_AGENT` is still the default `core:general-purpose`, the root runs with no agent instructions and every tool. A `PEEN_AGENT` naming one of your own agents still applies. |
 
-What stays is what the model needs to use Peen at all: the tool descriptions, the current directory and runtime facts, the skill and agent catalogues (which say that none exist when you have none), harness diagnostics, and the blocks Peen adds to messages, such as the notice at the end of each `<toolOutput>` block and the system message after a turn that did not finish. Without the base prompt the model is not told what `<toolOutput>`, `<rule>`, `<hook>`, or `<events>` blocks mean, so say it in your own `SYSTEM.md` if your model needs it.
+What stays is what the model needs to use Peen at all: the tool descriptions, the current directory and runtime facts, the skill and agent catalogues (which say that none exist when you have none), harness diagnostics, and the blocks Peen adds to messages, such as the notice at the end of a `<toolOutput>` block that holds outside text and the system message after a turn that did not finish. Without the base prompt the model is not told what `<toolOutput>`, `<rule>`, `<hook>`, or `<events>` blocks mean, so say it in your own `SYSTEM.md` if your model needs it.
 
 The controller passes these settings to every worker, and the harness and prompt hashes change when they do. With [`pkg/peen`](https://github.com/psyb0t/peen/tree/main/pkg/peen), set `DisableBaseSystemPrompt`, `DisableCoreInstructions`, `DisabledCoreSkills`, and `DisabledCoreAgents`, and use `peen.NoRootAgent` as `RootAgent`.
 
@@ -121,20 +121,21 @@ Each resolved scope stores its exact context and prompt snapshots. A successful 
 The system prompt for a root turn is assembled in this order:
 
 1. The base prompt: Peen's embedded prompt, or `PEEN_CONFIG_DIR/SYSTEM.md` when present, followed by `APPEND_SYSTEM.md` when present. Peen reads these two files once at startup. A message can append to or replace this base for one turn with `systemPrompt`. With `PEEN_DISABLE_BASE_SYSTEM_PROMPT` and no `SYSTEM.md`, there is no embedded base.
-2. Every `AGENTS.md` and unscoped rule block, in layer order, without descendant files.
-3. The root agent's instructions, from the agent named by `PEEN_AGENT` (default `core:general-purpose`). A blank agent has none.
-4. The skill catalogue: one line per skill with its name, description, and source path, core skills first under their `core:` names, then custom skills.
-5. The named-agent catalogue: one line per agent with its name, description, allowed tools, and source path, core agents first under their `core:` names, then custom agents.
-6. Harness diagnostics, when a file was invalid.
-7. The current directory.
-8. Runtime facts: local time, timezone, operating system, architecture, CPU count, and Go version.
-9. Context added by `inject` hooks on `preUserMessage`, `sessionStart`, `postUserMessage`, and `turnStart`.
+2. Every `AGENTS.md` in an `<instructions>` block and every unscoped rule in a `<rule>` block, in layer order, without descendant files. The `source` attribute names the file, `built-in` for the one Peen ships, and a nested `AGENTS.md` carries a `scope` attribute with the directory it covers.
+3. The root agent's instructions in an `<agent name="...">` block, from the agent named by `PEEN_AGENT` (default `core:general-purpose`). A blank agent has none.
+4. The skill catalogue in a `<skills>` block: one line per skill with its name and description, core skills first under their `core:` names, then the rest.
+5. The named-agent catalogue in an `<agents>` block: one line per agent with its name and description, and its allowed tools when it has a limit, core agents first under their `core:` names, then the rest.
+6. Harness diagnostics in a `<diagnostics>` block, when a file was invalid.
+7. An `<environment>` block with today's UTC date, the current directory, operating system, architecture, and CPU count.
+8. Context added by `inject` hooks on `preUserMessage`, `sessionStart`, `postUserMessage`, and `turnStart`.
+
+Apart from context your own `inject` hooks and the date add, the system prompt holds nothing that changes from turn to turn, so a provider can reuse the cached prompt. Peen marks cache breakpoints for providers that need them, such as Anthropic. The `<environment>` block gives the date without a time of day, so the prompt changes at most once a day, and the agent runs `date -u` when it needs the time. A child agent's prompt has the same parts, with a `<childContext>` block and the child's own `<agent>` block in place of the root agent's.
 
 A skill you name with `:skill-name` is not part of the system prompt. It reaches the model as its own `<skill>` user message right after your message, see [Forcing a skill](skills.md#forcing-a-skill). A scoped rule is not part of it either. It reaches the model as a `<rule>` block after a tool result, see [how a scoped rule reaches the model](rules.md#how-a-scoped-rule-reaches-the-model). Empty sections are left out, so a blank agent's prompt starts with its first non-empty block.
 
 ## The prompt budget
 
-Every rule and `AGENTS.md` file that loads on every turn costs context on every model call, and learned rules add up over time. Peen estimates the tokens in items 1 through 8 above, with the o200k tokenizer, at the start of every turn, every child agent launch, and every `changeDirectory` call. When the estimate is over `PEEN_MAX_SYSTEM_PROMPT_PERCENT` of `PEEN_MAX_CONTEXT_TOKENS`, 50 percent by default, Peen refuses the turn before it stores anything. The sender gets `message.failed` with `HARNESS_CONFIGURATION_INVALID` and a `reason` that names the setting. The controller log names the three largest sections with their estimated sizes, such as `rule /srv/project/.agents/learned/rules/go-errors.md (6120)`. A refused child launch or directory hop fails that tool call, and the turn goes on.
+Every rule and `AGENTS.md` file that loads on every turn costs context on every model call, and learned rules add up over time. Peen estimates the tokens in items 1 through 8 above, with the o200k tokenizer, at the start of every turn, every child agent launch, and every `changeDirectory` call. When the estimate is over `PEEN_MAX_SYSTEM_PROMPT_PERCENT` of `PEEN_MAX_CONTEXT_TOKENS`, 25 percent by default, Peen refuses the turn before it stores anything. The sender gets `message.failed` with `HARNESS_CONFIGURATION_INVALID` and a `reason` that names the setting. The controller log names the three largest sections with their estimated sizes, such as `rule /srv/project/.agents/learned/rules/go-errors.md (6120)`. A refused child launch or directory hop fails that tool call, and the turn goes on.
 
 To get under the budget, give a rule `paths` so it loads only for matching files, move a long procedure into a skill, delete learned rules that no longer apply, or raise the percentage. Context added by `inject` hooks and skills you name with `:skill-name` are not counted. `PEEN_MAX_SYSTEM_PROMPT_PERCENT=0` turns the check off.
 

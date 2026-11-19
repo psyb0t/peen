@@ -22,6 +22,7 @@ Start with [docs/development.md](docs/development.md) for the repository layout,
 | [web.md](.agents/rules/web.md) | the control surface under `web/` |
 | [ci.md](.agents/rules/ci.md) | GitHub workflows |
 | [docs-and-prose.md](.agents/rules/docs-and-prose.md) | docs, README, and any prose |
+| [model-facing-text.md](.agents/rules/model-facing-text.md) | the system prompt, built-in harness files, tool descriptions, injected blocks, and anything else a model reads |
 | [versioning.md](.agents/rules/versioning.md) | the CHANGELOG, version numbers, commit messages |
 
 The rules most often broken:

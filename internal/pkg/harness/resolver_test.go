@@ -144,7 +144,9 @@ func TestResolverIncludesEmbeddedBaseHarness(t *testing.T) {
 	require.Len(t, instructions, 1)
 	assert.Equal(t, embeddedInstructionSource, instructions[0].Source)
 	assert.Equal(t, embeddedInstructionPriority, instructions[0].Priority)
-	assert.Contains(t, instructions[0].Content, "trusted runtime context")
+	assert.Contains(t, instructions[0].Content, "date -u +%Y%m%dT%H%M%SZ")
+	assert.Contains(t, instructions[0].Content,
+		"load it with useSkill before doing that work")
 	assert.Equal(t, allCoreSkillRefs(), skillNames(snapshot.Skills()))
 	assert.Equal(
 		t,

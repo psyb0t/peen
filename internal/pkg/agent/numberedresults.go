@@ -3,10 +3,27 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"maps"
+	"strconv"
 	"strings"
 
 	"github.com/psyb0t/ctxerrors"
-	"github.com/psyb0t/elelem"
+	"github.com/psyb0t/peen/internal/pkg/modeljson"
+)
+
+const (
+	// numberedCutFooterFormat replaces readFile's own range line when the
+	// result cap keeps only part of a window. It keeps the tool's wording,
+	// so the model pages the same way it does for a window the tool cut.
+	//
+	//nolint:lll // One model-facing line.
+	numberedCutFooterFormat = "[lines %d-%d of %d; next offset %d; the rest of this window did not fit the tool result size limit]"
+
+	numberedFieldLastLine   = "lastLine"
+	numberedFieldNextOffset = "nextOffset"
+	numberedFieldTruncated  = "truncated"
+	numberedLinePrefixEnd   = "\t"
 )
 
 // Decode the content before cutting, so escaped newlines in a file are
@@ -31,19 +48,71 @@ func encodeNumberedResult(
 	fields map[string]json.RawMessage,
 	lines []string,
 ) (string, error) {
-	text, err := json.Marshal(strings.Join(lines, "\n"))
+	text, err := modeljson.Marshal(strings.Join(lines, "\n"))
 	if err != nil {
 		return "", ctxerrors.Wrap(err, "encode numbered lines")
 	}
 
 	fields["content"] = text
 
-	encoded, err := json.Marshal(fields)
+	encoded, err := modeljson.Marshal(fields)
 	if err != nil {
 		return "", ctxerrors.Wrap(err, "encode numbered result")
 	}
 
 	return string(encoded), nil
+}
+
+// numberedLineNumber returns the file line number a numbered content line
+// starts with, or false for a line without one, such as a range note.
+func numberedLineNumber(line string) (int, bool) {
+	prefix, _, found := strings.Cut(line, numberedLinePrefixEnd)
+	if !found {
+		return 0, false
+	}
+
+	number, err := strconv.Atoi(strings.TrimSpace(prefix))
+	if err != nil {
+		return 0, false
+	}
+
+	return number, true
+}
+
+// cutNumberedResult keeps the first lines of a readFile window and rewrites
+// the window's metadata to describe exactly those lines, so lastLine,
+// nextOffset and truncated tell the model where to continue.
+func cutNumberedResult(
+	fields map[string]json.RawMessage,
+	kept []string,
+) (string, error) {
+	var firstLine, totalLines int
+	if err := json.Unmarshal(fields["firstLine"], &firstLine); err != nil {
+		return "", ctxerrors.Wrap(err, "decode numbered first line")
+	}
+
+	if err := json.Unmarshal(fields["totalLines"], &totalLines); err != nil {
+		return "", ctxerrors.Wrap(err, "decode numbered total lines")
+	}
+
+	lastLine := firstLine - 1
+
+	for _, line := range kept {
+		if number, ok := numberedLineNumber(line); ok {
+			lastLine = number
+		}
+	}
+
+	nextOffset := lastLine + 1
+	cut := maps.Clone(fields)
+	cut[numberedFieldLastLine] = json.RawMessage(strconv.Itoa(lastLine))
+	cut[numberedFieldNextOffset] = json.RawMessage(strconv.Itoa(nextOffset))
+	cut[numberedFieldTruncated] = json.RawMessage("true")
+
+	footer := fmt.Sprintf(numberedCutFooterFormat,
+		firstLine, lastLine, totalLines, nextOffset)
+
+	return encodeNumberedResult(cut, append(kept, footer))
 }
 
 func boundNumberedResult(
@@ -56,25 +125,7 @@ func boundNumberedResult(
 		return "", false, nil
 	}
 
-	counter := options.Counter
-	if counter == nil {
-		counter = elelem.DefaultTokenCounter()
-	}
-
-	fits := func(text string) (bool, error) {
-		if limit := workflowToolByteLimit(options); limit > 0 &&
-			len(text) > limit {
-			return false, nil
-		}
-
-		if options.MaxResultTokens <= 0 {
-			return true, nil
-		}
-
-		count, err := workflowContentTokens(counter, text)
-
-		return count <= options.MaxResultTokens, err
-	}
+	fits := workflowToolFits(options)
 	if ok, err := fits(content); ok || err != nil {
 		return content, true, err
 	}
@@ -111,8 +162,7 @@ func fitNumberedLines(
 		middle := low + (high-low)/workflowBinarySplitFactor
 		kept := append([]string(nil), lines[:middle]...)
 
-		candidate, err := encodeNumberedResult(fields,
-			append(kept, workflowToolTruncatedMarker))
+		candidate, err := cutNumberedResult(fields, kept)
 		if err != nil {
 			return "", err
 		}

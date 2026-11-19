@@ -5,6 +5,7 @@ import (
 	"text/template"
 
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
@@ -40,7 +41,7 @@ Handle this as the {{.Agent}} agent would.{{end}}
 	//
 	//nolint:lll // The opening tag is one line in the rendered message.
 	agentMessageTemplateText = `<message from="{{attr .From}}"{{if .Name}} name="{{attr .Name}}"{{end}}{{if .Run}} run="{{attr .Run}}"{{end}}{{if .Kind}} kind="{{attr .Kind}}"{{end}}>
-{{.Text}}
+{{closeMessage .Text}}
 </message>`
 
 	// pausedNoticeTemplateText is what a paused child reads ahead of the
@@ -53,6 +54,25 @@ Handle this as the {{.Agent}} agent would.{{end}}
 
 Your work was paused for the reason above, and the message after this one resumes it. Check the workspace before you continue, because it may have changed while you were paused.
 </paused>`
+
+	// childContextText tells a child agent what it is: who directs it, where
+	// its answer goes, and what the answer should hold. The base prompt says
+	// only the user's messages direct work, and a child never receives one.
+	//
+	//nolint:lll // One model-facing paragraph.
+	childContextText = `<childContext>
+You are a child agent. Another agent in this session launched you, and its task message, the <message> block that names it as the sender, is your user request. Your final reply goes back to that agent as your result, so make it a self-contained report: what you did, the files you changed, the evidence that it works, and anything left open. Keep it short, because the agent can read any file you name.
+</childContext>`
+
+	// childAgentTemplateText wraps a child's own instructions, from a stored
+	// agent file or an ad-hoc definition. A closing tag inside them is
+	// escaped so it cannot end the block early.
+	childAgentTemplateText = `<agent>
+{{closeAgent .}}
+</agent>`
+	childAgentTemplateName   = "childAgent"
+	closeAgentFunctionName   = "closeAgent"
+	closeMessageFunctionName = "closeMessage"
 
 	hookContextTemplateName  = "hook"
 	eventHandlerTemplateName = "handler"
@@ -73,9 +93,9 @@ Your work was paused for the reason above, and the message after this one resume
 	// messageKindResult, messageKindFailed, and messageKindCancelled mark the
 	// message carrying how a child ended.
 	messageKindQuestion  = "question"
-	messageKindResult    = "result"
-	messageKindFailed    = "failed"
-	messageKindCancelled = "cancelled"
+	messageKindResult    = events.AgentMessageKindResult
+	messageKindFailed    = events.AgentMessageKindFailed
+	messageKindCancelled = events.AgentMessageKindCancelled
 
 	hookContextTextSeparator = "\n\n"
 )
@@ -117,6 +137,17 @@ var attributeEscaper = strings.NewReplacer(
 	"<", "&lt;",
 	">", "&gt;",
 	`"`, "&quot;",
+)
+
+// agentCloseEscaper and messageCloseEscaper keep a body from closing its
+// block. A message body is another agent's text, which can repeat a file or
+// a web page, so planted text could otherwise end the block and pose as a
+// message from someone else.
+//
+//nolint:gochecknoglobals // Stateless replacers.
+var (
+	agentCloseEscaper   = strings.NewReplacer("</agent", "&lt;/agent")
+	messageCloseEscaper = strings.NewReplacer("</message", "&lt;/message")
 )
 
 func escapeAttribute(value string) string {
@@ -198,8 +229,11 @@ func renderTemplate(
 ) (string, error) {
 	parsed, err := template.New(name).
 		Funcs(template.FuncMap{
-			escapeFunctionName:    escapeElement,
-			attributeFunctionName: escapeAttribute,
+			escapeFunctionName:       escapeElement,
+			attributeFunctionName:    escapeAttribute,
+			closeAgentFunctionName:   agentCloseEscaper.Replace,
+			closeMessageFunctionName: messageCloseEscaper.Replace,
+			lineRangesFunctionName:   formatLineRanges,
 		}).
 		Parse(text)
 	if err != nil {

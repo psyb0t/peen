@@ -28,11 +28,11 @@ type ModelClient struct {
 type CompactionMode string
 
 const (
-	// CompactionModeDropOldest evicts whole conversation units. It is the
-	// effective mode when Options.CompactionMode is empty.
+	// CompactionModeDropOldest evicts whole conversation units.
 	CompactionModeDropOldest CompactionMode = "drop-oldest"
 	// CompactionModeSummarize replaces an eligible completed prefix with a
-	// durable summary produced by CompactionModel.
+	// durable summary produced by CompactionModel. It is the effective mode
+	// when Options.CompactionMode is empty.
 	CompactionModeSummarize CompactionMode = "summarize"
 )
 
@@ -143,7 +143,7 @@ type Options struct {
 	MaxSystemPromptBytes int
 	// MaxSystemPromptPercent refuses a turn whose assembled system prompt,
 	// estimated in tokens, is over this share of MaxContextTokens. Zero takes
-	// the internal default of 50; negative turns the check off.
+	// the internal default of 25; negative turns the check off.
 	MaxSystemPromptPercent int
 	// MaxStoredMessageBytes bounds one durable transcript row. Zero takes the
 	// internal default.
@@ -157,7 +157,7 @@ type Options struct {
 	MaxImageBytes int
 
 	// CompactionMode selects what happens over budget. Empty takes
-	// CompactionModeDropOldest.
+	// CompactionModeSummarize.
 	CompactionMode CompactionMode
 	// CompactionPrompt overrides the summarizer instructions. Empty reads
 	// COMPACTION.md from ConfigDirectory and otherwise takes the embedded
@@ -170,6 +170,11 @@ type Options struct {
 	// gets, up to CompactionOutputTokens, from 1 to 50. Zero takes the
 	// internal default.
 	CompactionSummaryPercent int
+	// CompactionTargetPercent is the share of the context budget, from 10 to
+	// 90, that a summary brings the rest of the request down to, so one
+	// compaction makes room for several turns. Zero takes the default of 50;
+	// negative summarizes only what the request needs to fit.
+	CompactionTargetPercent int
 
 	// MaxToolRounds bounds how many tool rounds one turn may run. Zero takes
 	// the internal default.

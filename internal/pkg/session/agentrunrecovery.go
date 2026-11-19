@@ -155,10 +155,36 @@ func claimAgentRunWithQuery(
 		return ctxerrors.Wrap(commerr.ErrConflict, "child claim lost")
 	}
 
+	if run.State == models.AgentRunStateInterrupted {
+		if err := reopenInterruptedMessages(ctx, tx, run.ID); err != nil {
+			return ctxerrors.Wrap(err, "resume interrupted child history")
+		}
+	}
+
 	run.State = models.AgentRunStateRunning
 	run.WorkerGenerationID = generationID.String()
 	run.FailureClassification, run.FailureDetail = "", ""
 	run.EndedAt = nil
+
+	return nil
+}
+
+// reopenInterruptedMessages clears the incomplete mark interruptAgentRun put
+// on every message of a child it interrupted. Child messages are stored only
+// once complete, so the mark recorded the interruption, not a partial
+// message. A resumed child continues on that history, and its compactions
+// refuse incomplete rows.
+func reopenInterruptedMessages(
+	ctx context.Context,
+	tx *repositories.Query,
+	runID uuid.UUID,
+) error {
+	message := tx.AgentRunMessage
+	if _, err := message.WithContext(ctx).
+		Where(message.AgentRunID.Eq(runID), message.Incomplete.Is(true)).
+		UpdateSimple(message.Incomplete.Value(false)); err != nil {
+		return ctxerrors.Wrap(err, "reopen resumed child messages")
+	}
 
 	return nil
 }

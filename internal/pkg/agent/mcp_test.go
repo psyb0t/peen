@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/psyb0t/elelem"
 	"github.com/stretchr/testify/assert"
@@ -11,6 +13,45 @@ import (
 )
 
 const mcpTestToolName = "mcp__fixture__shot"
+
+// An MCP description over the budget is cut at a character boundary and says
+// so; one at the budget or under reaches the model unchanged.
+func TestMCPDescriptionsStayWithinTheirBudget(t *testing.T) {
+	t.Parallel()
+
+	atLimit := strings.Repeat("a", mcpDescriptionMaxBytes)
+	// A three-byte character straddles the budget, so a byte cut would
+	// split it.
+	straddling := strings.Repeat("a", mcpDescriptionMaxBytes-1) + "€tail"
+
+	testCases := []struct {
+		name        string
+		description string
+		want        string
+	}{
+		{
+			name: "short", description: "Takes a screenshot.",
+			want: "Takes a screenshot.",
+		},
+		{name: "at the budget", description: atLimit, want: atLimit},
+		{
+			name:        "over the budget",
+			description: straddling,
+			want: strings.Repeat("a", mcpDescriptionMaxBytes-1) +
+				mcpDescriptionCutNote,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := capMCPDescription(tc.description)
+			assert.Equal(t, tc.want, got)
+			assert.True(t, utf8.ValidString(got))
+		})
+	}
+}
 
 func mcpTestHandler(
 	result elelem.ToolResult,

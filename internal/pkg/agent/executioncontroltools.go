@@ -11,20 +11,10 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
-const resumeExecutionDescription = `Continue retained work only when the user
-explicitly asks to resume it. First inspect its saved context and history with
-searchExecutions/readExecution and inspect the current workspace. Supply the
-executionId and controlRevision from the inspected execution metadata.
-Resumes only paused members of that execution's subtree. Completed, failed
-and cancelled members keep their outcomes. For a stopped deferred inbox message,
-select its completed source execution and also supply deferredRequestId and
-deferredStopRevision from readExecution inbox. This admits only that message
-without restarting its completed source. A root waits until the current
-turn releases the session; a child may run alongside the current turn.
-A newer Stop or changed target refuses stale requests. A tool call left with
-an unknown effect is not repeated: the resumed work reads it as an error
-result saying its outcome is unknown. To record what the call did instead,
-resolve it with resolveExecutionActivity before resuming.`
+//nolint:lll // Model-facing paragraphs stay on one line.
+const resumeExecutionDescription = `Continue paused work, only when the user asks for it. First inspect the work's saved context and history with searchExecutions and readExecution, and check the current workspace. Pass the executionId and the controlRevision that readExecution reported; a newer stop or a changed target since then refuses the call. Only the paused parts of that work resume, and finished, failed, and cancelled parts keep their outcomes.
+
+To deliver a message that was held back when its work stopped, pass that work's executionId with the deferredRequestId and deferredStopRevision readExecution listed in its inbox; this delivers only that message. Resumed root work starts after the current turn ends, while a resumed child can run alongside it. A tool call whose effect is unknown is not repeated: the resumed work reads it as an error saying so, unless you record what it did with resolveExecutionActivity first.`
 
 // resumeExecutionNotFoundFormat is the refusal for an executionId the session
 // does not have, which a model that lost track of the real ID can send. It
@@ -35,13 +25,14 @@ const resumeExecutionNotFoundFormat = "this session has no execution %s. Find re
 // own turn holds the session, so waiting for it in this turn never ends.
 const resumedRootNote = "This work starts only after the current turn ends. Do not wait for it with waitMessages or another tool, it cannot run until this turn is over. Finish what this turn still needs, then end the turn." //nolint:lll // One model-facing note.
 
+//nolint:lll // Parameter descriptions stay on one line.
 const resumeExecutionSchema = `{
   "type": "object",
   "properties": {
-    "executionId": {"type": "string", "format": "uuid"},
-    "controlRevision": {"type": "integer", "minimum": 0},
-    "deferredRequestId": {"type": "string", "format": "uuid"},
-    "deferredStopRevision": {"type": "integer", "minimum": 0}
+    "executionId": {"type": "string", "format": "uuid", "description": "The work to resume, from searchExecutions or readExecution."},
+    "controlRevision": {"type": "integer", "minimum": 0, "description": "The controlRevision readExecution reported for that work."},
+    "deferredRequestId": {"type": "string", "format": "uuid", "description": "A held-back message's requestId from readExecution's inbox. Only to deliver that message."},
+    "deferredStopRevision": {"type": "integer", "minimum": 0, "description": "The stopRevision readExecution's inbox listed with that message."}
   },
   "required": ["executionId", "controlRevision"],
   "additionalProperties": false

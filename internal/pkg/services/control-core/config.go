@@ -121,6 +121,7 @@ func logValidatedConfig(
 		"crash_recovery", config.CrashRecovery,
 		"compaction_output_tokens", config.CompactionOutputTokens,
 		"compaction_summary_percent", config.CompactionSummaryPercent,
+		"compaction_target_percent", config.CompactionTargetPercent,
 		"model_request_timeout", config.ModelRequestTimeout,
 		"max_concurrent_turns", config.MaxConcurrentTurns,
 		"max_queued_user_messages", config.MaxQueuedUserMessages,

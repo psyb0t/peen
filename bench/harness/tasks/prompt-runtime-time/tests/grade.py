@@ -33,16 +33,15 @@ else:
 
 if peenaudit and peenaudit.has_frames():
     trial = peenaudit.Trial("/peen")
-    prompts = trial.query("SELECT effective_prompt FROM prompt_snapshots")
-    stamps = [
-        match
-        for row in prompts
-        for match in re.findall(r"Current local time: (\d{4}-\d{2}-\d{2})T", row["effective_prompt"])
-    ]
-    if not stamps:
-        failures.append("no prompt snapshot carries the runtime time")
-    elif not any(near(stamp) for stamp in stamps):
-        failures.append(f"the runtime time in the prompt is not near {today}: {stamps}")
+    prompts = [row["effective_prompt"] for row in trial.query("SELECT effective_prompt FROM prompt_snapshots")]
+    dates = [match for prompt in prompts for match in re.findall(r"Today's date \(UTC\): (\d{4}-\d{2}-\d{2})", prompt)]
+    if not dates:
+        failures.append("no system prompt gives today's date")
+    elif not any(near(date) for date in dates):
+        failures.append(f"the date in the system prompt is not near {today}: {dates}")
+
+    if any(re.search(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}", prompt) for prompt in prompts):
+        failures.append("the system prompt carries a time of day, which breaks prompt caching")
 
 for failure in failures:
     print("FAIL:", failure)

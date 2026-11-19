@@ -4,9 +4,7 @@ description: Load before investigating, comparing or using facts that change ove
 ---
 # Freshness
 
-Use the trusted runtime UTC context for current-time reasoning. Do not infer
-today's date, a dependency version, a public API contract, a price, a policy,
-a schedule, or a person's current role from model memory.
+Take today's date from the `<environment>` block, and run `date -u` when you need the time of day. Do not infer today's date, a dependency version, a public API contract, a price, a policy, a schedule, or a person's current role from model memory.
 
 Treat the checked-out workspace as the authority for project-specific facts.
 For external facts that can change, inspect an authoritative current source.

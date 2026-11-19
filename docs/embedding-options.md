@@ -24,8 +24,9 @@ These are the in-process equivalents of deployment settings. [`pkg/peen`](https:
 | `PEEN_COMPACTION_MODEL` | `CompactionModel` | `DefaultModel` |
 | `PEEN_MAX_CONTEXT_TOKENS` | `MaxContextTokens` | the smaller window of `DefaultModel` and `CompactionModel`, else `32768` |
 | `PEEN_OUTPUT_RESERVE_TOKENS` | `OutputReserveTokens` | `DefaultModel`'s output limit, else `16384`, at most a quarter of the context |
-| `PEEN_COMPACTION_MODE` | `CompactionMode` | `drop-oldest` |
+| `PEEN_COMPACTION_MODE` | `CompactionMode` | `summarize` |
 | `PEEN_COMPACTION_SUMMARY_PERCENT` | `CompactionSummaryPercent` | `30` |
+| `PEEN_COMPACTION_TARGET_PERCENT` | `CompactionTargetPercent` (negative turns it off) | `50` |
 | `PEEN_COMPACTION_MAX_OUTPUT_TOKENS` | `CompactionOutputTokens` | `16384` |
 | `PEEN_CRASH_RECOVERY` | `ResumeAfterCrash` (`true` is `resume`) | `false` |
 | `PEEN_MODEL_REQUEST_TIMEOUT` | `ModelRequestTimeout` | `10m` |
@@ -33,7 +34,7 @@ These are the in-process equivalents of deployment settings. [`pkg/peen`](https:
 | `PEEN_MAX_QUEUED_USER_MESSAGES` | `MaxQueuedUserMessages` | `16` |
 | `PEEN_MAX_MESSAGE_BYTES` | `MaxMessageBytes` | `262144` |
 | `PEEN_MAX_SYSTEM_PROMPT_BYTES` | `MaxSystemPromptBytes` | `65536` |
-| `PEEN_MAX_SYSTEM_PROMPT_PERCENT` | `MaxSystemPromptPercent` (negative turns it off) | `50` |
+| `PEEN_MAX_SYSTEM_PROMPT_PERCENT` | `MaxSystemPromptPercent` (negative turns it off) | `25` |
 | `PEEN_MAX_IMAGES_PER_MESSAGE` | `MaxImagesPerMessage` | `4` |
 | `PEEN_MAX_IMAGE_BYTES` | `MaxImageBytes`, and `ToolLimits.MaxImageBytes` for `readFile` when that is set | `5242880` |
 | `PEEN_MAX_STORED_MESSAGE_BYTES` | `MaxStoredMessageBytes` | `1048576` |

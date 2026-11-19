@@ -89,7 +89,8 @@ func TestNativeRootCompactionSummarizesRoundsOfTheCurrentTurn(t *testing.T) {
 	}
 
 	assert.Contains(t, texts, prepared.input.Message)
-	assert.Contains(t, texts, compactionTurnSummaryLead+"retained summary")
+	assert.Contains(t, texts, summaryMessageText(compactionTurnSummaryLead,
+		"retained summary"))
 	assert.Contains(t, texts,
 		fmt.Sprintf(turnCompactionResultFormat, turnCompactionTestRounds))
 	assert.NotContains(t, texts, fmt.Sprintf(turnCompactionResultFormat, 1))

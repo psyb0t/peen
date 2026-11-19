@@ -3,12 +3,14 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/elelem"
+	"github.com/psyb0t/peen/internal/pkg/modeljson"
 	"github.com/psyb0t/peen/internal/pkg/tools"
 )
 
@@ -175,9 +177,8 @@ func isFileRecoveryMessage(message elelem.Message) bool {
 		return false
 	}
 
-	return (message.Role == elelem.RoleSystem &&
-		strings.HasPrefix(message.Text(), fileRecoveryNoteLead)) ||
-		(message.Role == elelem.RoleUser &&
+	return message.Role == elelem.RoleUser &&
+		(strings.HasPrefix(message.Text(), fileRecoveryNoteLead) ||
 			strings.HasPrefix(message.Text(), fileRecoveryAttachmentLead))
 }
 
@@ -216,23 +217,40 @@ func fileRecoveryNote(
 		file.Unavailable = file.Unavailable || entry.Unavailable
 	}
 
-	encoded, err := json.Marshal(files)
-	if err != nil {
-		return elelem.Message{}, ctxerrors.Wrap(err, "encode file inventory")
-	}
-
-	suffix := ""
+	data := fileRecoveryNoteData{Files: files}
 	if len(omitted) > 0 && omitted[0] > 0 {
-		suffix = fileRecoveryOmittedLead + strconv.Itoa(omitted[0]) +
-			" older files. Reread their exact text before use."
+		data.Omitted = omitted[0]
 	}
 
+	text, err := renderTemplate(fileRecoveryNoteTemplateName,
+		fileRecoveryNoteTemplateText, data)
+	if err != nil {
+		return elelem.Message{}, ctxerrors.Wrap(err, "render file inventory")
+	}
+
+	// A user-role note, not a system message: every provider accepts one
+	// anywhere in the conversation.
 	return elelem.Message{
-		Role:      elelem.RoleSystem,
+		Role:      elelem.RoleUser,
 		Injection: &elelem.MessageInjection{Tool: fileRecoveryInjectionTool},
-		Content: elelem.Text(fileRecoveryNoteLead +
-			fileRecoveryInstruction + string(encoded) + suffix),
+		Content:   elelem.Text(text),
 	}, nil
+}
+
+// fileRecoveryNoteData is what fileRecoveryNoteTemplateText renders.
+type fileRecoveryNoteData struct {
+	Files   []fileInventory
+	Omitted int
+}
+
+// formatLineRanges lists line ranges as "1-40, 80-120".
+func formatLineRanges(ranges [][2]int) string {
+	parts := make([]string, len(ranges))
+	for index, window := range ranges {
+		parts[index] = fmt.Sprintf(lineRangeFormat, window[0], window[1])
+	}
+
+	return strings.Join(parts, lineRangeSeparator)
 }
 
 // recover shapes only request copies. count includes the outgoing tools and
@@ -512,7 +530,7 @@ func (r *fileRecovery) attachment(
 		return elelem.Message{}, false, true, nil
 	}
 
-	encoded, err := json.Marshal(output)
+	encoded, err := modeljson.Marshal(output)
 	if err != nil {
 		return elelem.Message{}, false, false,
 			ctxerrors.Wrap(err, "encode recovered range")
@@ -529,7 +547,8 @@ func (r *fileRecovery) attachment(
 	return elelem.Message{
 			Role:      elelem.RoleUser,
 			Injection: injection,
-			Content:   elelem.Text(fileRecoveryAttachmentLead + wrapped),
+			Content: elelem.Text(fileRecoveryAttachmentLead + wrapped +
+				fileRecoveryAttachmentClose),
 		},
 		false, false, nil
 }

@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/peen/internal/pkg/modeljson"
 )
 
 const (
@@ -52,7 +53,7 @@ func EncodeAgentResultData(
 	kept := len(whole)
 
 	for range agentResultCutAttempts {
-		encoded, err := json.Marshal(data)
+		encoded, err := modeljson.Marshal(data)
 		if err != nil {
 			return nil, ctxerrors.Wrap(err, "encode agent event data")
 		}
@@ -72,7 +73,7 @@ func EncodeAgentResultData(
 	data.Response = ""
 	data.ResponseTruncated = whole != ""
 
-	encoded, err := json.Marshal(data)
+	encoded, err := modeljson.Marshal(data)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "encode agent event data")
 	}

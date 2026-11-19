@@ -93,22 +93,22 @@ func TestSkillCatalogueListsCoreBeforeCustom(t *testing.T) {
 		testCustomPlanningBody,
 	)
 
-	catalogue := renderSkillCatalogue(
+	catalogue := testSkillCatalogue(t,
 		resolveWithOptions(t, fixture).Skills(),
 	)
 
 	positions := []int{
 		strings.Index(catalogue, skillCatalogueCoreHeading),
-		strings.Index(catalogue, skillCatalogueItem+testCoreFreshnessName+": "),
-		strings.Index(catalogue, skillCatalogueItem+testCorePlanningName+": "),
+		strings.Index(catalogue, catalogueItem+testCoreFreshnessName+": "),
+		strings.Index(catalogue, catalogueItem+testCorePlanningName+": "),
 		strings.Index(catalogue, skillCatalogueCustomHeading),
 		strings.Index(
 			catalogue,
-			skillCatalogueItem+testCustomAlphaSkillName+": ",
+			catalogueItem+testCustomAlphaSkillName+": ",
 		),
 		strings.Index(
 			catalogue,
-			skillCatalogueItem+embeddedPlanningSkillName+": custom planning",
+			catalogueItem+embeddedPlanningSkillName+": custom planning",
 		),
 	}
 
@@ -117,19 +117,19 @@ func TestSkillCatalogueListsCoreBeforeCustom(t *testing.T) {
 	}
 
 	assert.True(t, strictlyIncreasing(positions), catalogue)
-	assert.True(t, strings.HasPrefix(catalogue, skillCatalogueTitle))
+	assert.True(t, strings.HasPrefix(catalogue, "<skills>\n"))
 }
 
 func TestSkillCatalogueOmitsEmptyGroups(t *testing.T) {
 	t.Parallel()
 
-	coreOnly := renderSkillCatalogue(
+	coreOnly := testSkillCatalogue(t,
 		resolveWithOptions(t, newResolverFixture(t)).Skills(),
 	)
 	assert.Contains(t, coreOnly, skillCatalogueCoreHeading)
 	assert.NotContains(t, coreOnly, skillCatalogueCustomHeading)
 
-	customOnly := renderSkillCatalogue([]Skill{
+	customOnly := testSkillCatalogue(t, []Skill{
 		{Name: testCustomAlphaSkillName, Description: "a", Source: "/a"},
 	})
 	assert.Contains(t, customOnly, skillCatalogueCustomHeading)
@@ -165,7 +165,7 @@ func TestDisabledCoreSkillIsGoneEverywhere(t *testing.T) {
 		require.ErrorIs(t, err, ErrSkillNotFound, name)
 	}
 
-	catalogue := renderSkillCatalogue(snapshot.Skills())
+	catalogue := testSkillCatalogue(t, snapshot.Skills())
 	assert.NotContains(t, catalogue, embeddedPlanningSkillName)
 	assert.Contains(t, catalogue, testCoreFreshnessName)
 
@@ -213,5 +213,5 @@ func TestAllCoreSkillsDisabledLeavesNoSkills(t *testing.T) {
 	)
 
 	assert.Empty(t, snapshot.Skills())
-	assert.Equal(t, skillCatalogueEmpty, renderSkillCatalogue(snapshot.Skills()))
+	assert.Contains(t, testSkillCatalogue(t, snapshot.Skills()), skillCatalogueEmpty)
 }

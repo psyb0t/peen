@@ -209,9 +209,8 @@ func TestRenderSessionEventsQuotesInjectionAttempts(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(rendered, sessionEventsCloseTag))
 	assert.Equal(t, 1, strings.Count(rendered, eventElementClose))
 
-	escaped, err := json.Marshal(eventTestClosers)
-	require.NoError(t, err)
-	assert.Contains(t, rendered, strings.Trim(string(escaped), `"`))
+	assert.Contains(t, rendered,
+		strings.ReplaceAll(eventTestClosers, "</event", `<\/event`))
 	assert.NotContains(t, rendered, attack)
 	assert.Equal(t, attack, renderedNotice.Summary)
 	assert.JSONEq(

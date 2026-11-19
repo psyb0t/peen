@@ -25,13 +25,14 @@ const (
 
 	// maskedToolResultLead opens the stub that replaces an old tool result.
 	// It also marks a result as already masked.
-	maskedToolResultLead   = "[Peen left this result out to make room."
-	maskedToolResultFormat = maskedToolResultLead + " It held about %d tokens. Call the tool again if you need it.]" //nolint:lll // One model-facing line.
+	maskedToolResultLead   = `<note kind="resultOmitted">`
+	maskedToolResultFormat = maskedToolResultLead + "This result was left out to make room. It held about %d tokens. Call the tool again if you need it." //nolint:lll // One model-facing line.
+	maskedToolResultClose  = "</note>"
 
 	// droppedHistoryLead opens the notice that names what a request left
 	// out. It also marks an earlier notice, which a new one replaces.
-	droppedHistoryLead   = "Peen left earlier messages out to fit the context."
-	droppedHistoryFormat = droppedHistoryLead + " It left out %d of the model's earlier replies and tool results and %d older messages. The stored transcript still holds them.%s Call a tool again if you need one of its results." //nolint:lll // One model-facing line.
+	droppedHistoryLead   = `<note kind="historyOmitted">`
+	droppedHistoryFormat = droppedHistoryLead + "Earlier messages were left out to fit the context: %d of the model's earlier replies and tool results and %d older messages. The stored transcript still holds them.%s Call a tool again if you need one of its results.</note>" //nolint:lll // One model-facing line.
 	droppedCallsFormat   = " The tool calls left out were: %s."
 	droppedCallSeparator = "; "
 	droppedCallsMore     = "and %d more"
@@ -410,6 +411,8 @@ func maskToolResult(content string, tokens int, call ...string) string {
 	if len(call) != 0 && call[0] != "" {
 		stub += " Call: " + call[0]
 	}
+
+	stub += maskedToolResultClose
 
 	opening, _, closing, isWrapped := splitToolOutput(content)
 	if !isWrapped {

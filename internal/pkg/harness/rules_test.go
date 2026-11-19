@@ -108,7 +108,7 @@ func TestResolverLoadsModularRulesInLayerOrder(t *testing.T) {
 	blocks, err := first.PromptBlocks("")
 	require.NoError(t, err)
 	assert.Equal(t, SourceKindRule, blocks[2].Kind)
-	assert.Equal(t, rulesTestConfigClaude, blocks[2].Content)
+	assert.Contains(t, blocks[2].Content, "\n"+rulesTestConfigClaude+"\n</rule>")
 
 	fixture.writeRule(
 		t,
@@ -336,7 +336,11 @@ func TestResolverScopesRulesWithPathsFrontmatter(t *testing.T) {
 		contents = append(contents, block.Content)
 	}
 
-	assert.Contains(t, contents, "Always rule body")
+	joined := strings.Join(contents, "\n")
+	assert.Contains(t, joined, "\nAlways rule body\n</rule>")
+	assert.NotContains(t, joined, "Go rule body")
+	assert.NotContains(t, joined, "Docs rule body")
+	assert.NotContains(t, joined, "React rule body")
 	assert.NotContains(t, contents, "Go rule body")
 	assert.NotContains(t, contents, "Docs rule body")
 	assert.NotContains(t, contents, "React rule body")
@@ -393,7 +397,7 @@ func TestResolverLoadsRuleWithBrokenFrontmatterUnscoped(t *testing.T) {
 
 	found := false
 	for _, block := range blocks {
-		if block.Content == "Broken rule body" {
+		if strings.Contains(block.Content, "\nBroken rule body\n</rule>") {
 			found = true
 		}
 	}

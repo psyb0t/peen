@@ -54,6 +54,7 @@ func RuntimeOptionsFromConfig(
 		CompactionModel:          deployment.CompactionModel,
 		CompactionOutputTokens:   deployment.CompactionOutputTokens,
 		CompactionSummaryPercent: deployment.CompactionSummaryPercent,
+		CompactionTargetPercent:  deployment.CompactionTargetPercent,
 
 		Events: events.NewBus(
 			EventBusOptions(deployment, metricRegistry),

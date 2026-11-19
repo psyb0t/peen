@@ -21,8 +21,8 @@ const unansweredReplyText = "(This reply only made tool calls that never " +
 // lateToolResultFormat replays a tool result stored apart from its call, such
 // as one a turn received after it ended. It takes the tool name, the call ID,
 // and the result.
-const lateToolResultFormat = "A result for the earlier %s tool call %s " +
-	"arrived after its turn stopped:\n%s"
+const lateToolResultFormat = `<note kind="lateToolResult">A result for ` +
+	"the earlier %s tool call %s arrived after its turn stopped:\n%s\n</note>"
 
 // lateToolResultUnknownName names a call whose request is no longer in
 // history, such as one a summary replaced.

@@ -26,7 +26,7 @@ const (
 	reasonReasoningLeftOut       = "reasoning_left_out"
 
 	// inFlightResultLeftOut replaces a result that did not fit even cut short.
-	inFlightResultLeftOut = "[Peen left this result out: this round's tool results did not fit the context together. Call the tool again, with fewer calls at once, to read it.]" //nolint:lll // One model-facing line.
+	inFlightResultLeftOut = `<note kind="resultOmitted">This result was left out because this round's tool results did not fit the context together. Call the tool again, with fewer calls at once, to read it.</note>` //nolint:lll // One model-facing line.
 
 	// toolOutputOpenPrefix and toolOutputLineEnd find the opening tag
 	// toolOutputOpenFormat writes.

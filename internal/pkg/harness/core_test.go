@@ -57,7 +57,7 @@ func TestEmbeddedPlanningRules(t *testing.T) {
 		assert.Contains(t, text, "20261010T120501Z", name)
 		assert.NotContains(t, text, ".plan/", name)
 		assert.Contains(t, text, ".gitignore", name)
-		assert.Contains(t, text, "pure question", name)
+		assert.Contains(t, text, "question that changes nothing", name)
 		assert.Contains(t, text, "parent", name)
 		assert.Contains(t, text, "test plan", name)
 	}

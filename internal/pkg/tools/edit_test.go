@@ -207,13 +207,30 @@ func TestExecutor_EditFile_MatchNotFound(t *testing.T) {
 		},
 	})
 	require.ErrorIs(t, err, ErrMatchNotFound)
+	assert.NotContains(t, err.Error(), "appears at lines")
+}
+
+func TestExecutor_EditFile_MatchNotFoundNamesTheFirstLine(t *testing.T) {
+	t.Parallel()
+
+	exec, dir := newEditTestExecutor(t, Limits{})
+	path := writeEditFixture(t, dir, "drift.txt",
+		"package a\n\nfunc f() {\n\treturn 1\n}\n")
+	observeEditFixture(t, exec, path)
+
+	_, err := exec.EditFile(context.Background(), EditFileInput{
+		Path:  path,
+		Edits: []TextEdit{{Old: "func f() {\n\treturn 2\n}", New: "x"}},
+	})
+	require.ErrorIs(t, err, ErrMatchNotFound)
+	assert.Contains(t, err.Error(), `its first line "func f() {" appears at lines 3`)
 }
 
 func TestExecutor_EditFile_MatchNotUnique(t *testing.T) {
 	t.Parallel()
 
 	exec, dir := newEditTestExecutor(t, Limits{})
-	path := writeEditFixture(t, dir, "notunique.txt", "abc abc\n")
+	path := writeEditFixture(t, dir, "notunique.txt", "abc abc\nx\nabc\n")
 	observeEditFixture(t, exec, path)
 
 	before := readFixtureContent(t, path)
@@ -225,6 +242,7 @@ func TestExecutor_EditFile_MatchNotUnique(t *testing.T) {
 		},
 	})
 	require.ErrorIs(t, err, ErrMatchNotUnique)
+	assert.Contains(t, err.Error(), "3 matches, at lines 1, 1, 3")
 
 	after := readFixtureContent(t, path)
 	assert.Equal(t, before, after)

@@ -65,11 +65,14 @@ func TestResolverLoadsNestedInstructionsWithTheirScope(t *testing.T) {
 
 	nested := blockContaining(t, blocks, nestedTestAPIV2)
 	assert.Contains(t, nested.Content, nestedTestAPIV2Scope+"/"+agentsFileName)
-	assert.Contains(t, nested.Content, "files under "+nestedTestAPIV2Scope+"/")
-	assert.True(t, strings.HasSuffix(nested.Content, nestedTestAPIV2))
+	assert.Contains(t, nested.Content, `scope="`+nestedTestAPIV2Scope+`/"`)
+	assert.True(t, strings.HasSuffix(nested.Content,
+		nestedTestAPIV2+"\n</instructions>"))
 
 	workspaceBlock := blockContaining(t, blocks, nestedTestWorkspace)
-	assert.Equal(t, nestedTestWorkspace, workspaceBlock.Content)
+	assert.True(t, strings.HasPrefix(workspaceBlock.Content,
+		"<instructions source="), workspaceBlock.Content)
+	assert.NotContains(t, workspaceBlock.Content, "scope=")
 }
 
 // Hidden directories, dependency trees, and symlinked directories are never

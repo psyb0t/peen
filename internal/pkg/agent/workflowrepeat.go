@@ -10,12 +10,13 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
+	"github.com/psyb0t/peen/internal/pkg/modeljson"
 )
 
 const (
 	repeatWarningThreshold = 3
 	repeatRefusalThreshold = 5
-	repeatWarning          = "[Repeated call: the same call returned the same result several times. Use what you have or change approach.]" //nolint:lll // One model-facing line.
+	repeatWarning          = "This exact call returned the same result several times. Use what you have or change approach." //nolint:lll // One model-facing line.
 	repeatRefusal          = "This exact call already returned " +
 		"the same result " +
 		"several times. Peen did not run it again. Use that earlier result " +
@@ -211,14 +212,14 @@ func appendRepeatWarning(content string) string {
 
 	var fields map[string]json.RawMessage
 	if json.Unmarshal([]byte(content), &fields) == nil && fields != nil {
-		warning, err := json.Marshal(repeatWarning)
+		warning, err := modeljson.Marshal(repeatWarning)
 		if err != nil {
 			return content + "\n" + repeatWarning
 		}
 
 		fields["repeatWarning"] = warning
 
-		encoded, err := json.Marshal(fields)
+		encoded, err := modeljson.Marshal(fields)
 		if err == nil {
 			return string(encoded)
 		}

@@ -122,14 +122,16 @@ func locatePatchAnchor(
 		}
 
 		if match >= 0 {
-			return 0, ctxerrors.Wrap(ErrPatchMatchNotUnique, "anchor")
+			return 0, ctxerrors.Wrapf(ErrPatchMatchNotUnique,
+				"anchor %q at lines %d and %d", anchor, match+1, index+1)
 		}
 
 		match = index
 	}
 
 	if match < 0 {
-		return 0, ctxerrors.Wrap(ErrPatchMatchNotFound, "anchor")
+		return 0, ctxerrors.Wrapf(ErrPatchMatchNotFound,
+			"anchor %q after line %d", anchor, cursor)
 	}
 
 	return match + 1, nil
@@ -161,18 +163,33 @@ func locatePatchHunk(
 		}
 
 		if match >= 0 {
-			return 0, 0, ctxerrors.Wrap(ErrPatchMatchNotUnique, "hunk context")
+			return 0, 0, ctxerrors.Wrapf(ErrPatchMatchNotUnique,
+				"hunk context at lines %d and %d; add context lines or an "+
+					"@@ anchor so it matches once", match+1, index+1)
 		}
 
 		match = index
 	}
 
 	if match < 0 {
-		return 0, 0, ctxerrors.Wrap(ErrPatchMatchNotFound,
-			"hunk context: use file text without readFile line numbers")
+		return 0, 0, ctxerrors.Wrapf(ErrPatchMatchNotFound,
+			"hunk context: use file text without readFile line numbers%s",
+			patchFirstLineHint(lines, oldLines[0]))
 	}
 
 	return match, len(oldLines), nil
+}
+
+// patchFirstLineHint says where a hunk's first old line appears in the file,
+// so the model can find the context line that differs.
+func patchFirstLineHint(lines []patchSourceLine, first string) string {
+	content := make([]byte, 0, len(lines))
+	for _, line := range lines {
+		content = append(content, line.text...)
+		content = append(content, '\n')
+	}
+
+	return firstLineHint(content, []byte(first))
 }
 
 func patchOldLines(lines []patchLine) []string {

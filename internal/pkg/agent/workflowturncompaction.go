@@ -16,7 +16,8 @@ const (
 	// compactionTurnSummaryLead opens the summary of the earlier rounds of
 	// the turn in progress. It also marks the message, so a later pass rolls
 	// it into the next summary instead of keeping it raw.
-	compactionTurnSummaryLead      = "Summary of the earlier work in this turn, replacing the tool rounds it covers:\n" //nolint:lll // One model-facing line.
+	compactionTurnSummaryLead = "<summary of=\"earlier rounds of this turn\">\n"
+
 	compactionReasonTurnSummarized = "turn_rounds_summarized"
 )
 
@@ -107,7 +108,7 @@ func (r *Runtime) summarizeWorkflowTurnCut(
 	}
 
 	conversation.Messages = savedHistory(spliceTurnSummary(messages, cut,
-		compactionTurnSummaryLead+text))
+		summaryMessageText(compactionTurnSummaryLead, text)))
 	if err := r.checkCompactedWorkflowBudget(conversation, input); err != nil {
 		return workflowCompactionResult{}, ctxerrors.Wrap(err,
 			"recount turn compaction result")

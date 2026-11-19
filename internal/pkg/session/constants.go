@@ -1,9 +1,11 @@
 package session
 
+import "github.com/psyb0t/peen/internal/pkg/events"
+
 const (
 	ExecutionUserStopReason   = "user requested stop"
 	ExecutionUserCancelReason = "user cancelled child agent"
-	AgentMessageSenderAgent   = "agent"
+	AgentMessageSenderAgent   = events.AgentMessageSenderAgent
 
 	ExecutionTerminalHooksActivityName = "terminalHooksV1"
 	// ExecutionToolPhaseActivityName names the activities of a model's tool

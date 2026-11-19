@@ -61,7 +61,7 @@ An empty item or a repeated name makes the file invalid when Peen loads it. A mi
 
 `allowed-tools` limits what an agent can do in the workspace. The messaging tools `sendMessage`, `waitMessages`, `stopAgent`, and `ask` only reach other agents in the session, so every agent has them whether `allowed-tools` lists them or not. A read-only reviewer can still ask a question and still collect the answers of children it launched.
 
-Every agent also has `searchExecutions` and `readExecution` for inspecting retained work in its own session. These reads do not change the workspace or resume paused work.
+The retained-work tools `searchExecutions`, `readExecution`, `readMetrics`, `resumeExecution`, and `resolveExecutionActivity` follow `allowed-tools` like every other tool, because `resumeExecution` and `resolveExecutionActivity` can resume or settle work. An agent without `allowed-tools` has all of them. To give a restricted agent the reads, list `searchExecutions` and `readExecution`. They do not change the workspace or resume paused work.
 
 Every agent also has `readMetrics` for reading its own session's [stored observations](configuration.md#stored-observations). `summary` picks `tools`, `models`, `turns`, `agents`, `hooks`, or `sessions`, `windowMinutes` defaults to 60, and `limit` defaults to 20 and stops at 100. The answer holds totals per name, slowest first. The controller scopes every read to the session the worker authenticated as, so an agent never sees another session's numbers. An embedded runtime has no `metrics.db`, so there the tool fails.
 
@@ -162,8 +162,8 @@ A child's final answer goes to the agent that launched it.
 
 In session workers, a child question can also wake an idle root. Startup and root completion check retained pending questions, including ones published before a crash. Paused sources stay queued, and a configured queue-only event handler keeps holding the question. Reading or checking a question does not consume it; admitting the wake records its delivery with the new turn.
 
-- A child of the root conversation reports through an `agent.finished` [session event](events.md#agent-events), or `agent.failed` when it did not complete. The event data carries the final answer in `response`. The root reads the event at its next tool call, or a new turn starts for it when the root is idle.
-- A child of a child reports into its parent's conversation as a message, after the parent's current tool call. The message is `<message from="agent" name="<name>" run="<agentRunId>" kind="result">` with the final answer, or `kind="failed"` or `kind="cancelled"` with what stopped it.
+- A child of the root conversation reports through an `agent.finished` [session event](events.md#agent-events), or `agent.failed` when it did not complete. The event data carries the final answer in `response`. The root reads it at its next tool call, or a new turn starts for it when the root is idle, as a `<message from="agent" kind="result">` block with the answer as plain text, the same form a nested child's result takes.
+- A child of a child reports into its parent's conversation as a message, after the parent's current tool call. The message is `<message from="agent" name="<name>" run="<agentRunId>" kind="result">` with the final answer, or `kind="failed"` or `kind="cancelled"` with what stopped it. A final answer longer than `PEEN_MAX_TOOL_RESULT_TOKENS` arrives cut to that limit, keeping its start, with a `<note kind="resultCut">` after it. The agent run record keeps the whole answer.
 
 `waitMessages` blocks until a message waits for the caller, then returns how many wait. For the root, pending session notices also count, including saved notices after a restart. Waiting leaves those notices pending until context delivery. The messages reach the conversation right after the tool result. A parent that launched children uses it to collect the answers it needs before giving its final answer. `waitMessages` takes an optional `timeout` as a Go duration, such as `"10m"`. Without one it waits until something arrives, for at most 30 days.
 
@@ -177,7 +177,9 @@ Review the shell scripts in this workspace.
 </message>
 ```
 
-A child's task is the first such message, from the agent that launched it. `from="agent"` carries the sender's agent name and run ID, or `root` for the root conversation. A message you send to a child arrives as `<message from="user">`. A message you send to the root conversation stays untagged, as it always was. The default system prompt tells the model what these blocks are.
+A child's task is the first such message, from the agent that launched it. `from="agent"` carries the sender's agent name and run ID, or `root` for the root conversation. A message you send to a child arrives as `<message from="user">`. A message you send to the root conversation stays untagged, as it always was. The default system prompt tells the model what these blocks are. A message body cannot close its own block: Peen escapes a `</message` inside it.
+
+A child's system prompt also carries a `<childContext>` block. It tells the child that the task message from the agent that launched it is its user request, that its final reply goes back to that agent as its result, and that the reply should be a short, self-contained report of what it did, the files it changed, the evidence, and what is left open. The child's own instructions, from its agent file or an ad-hoc definition, follow in an `<agent>` block.
 
 `sendMessage` sends a message to another agent. `to` is `root` or the `agentRunId` of any running agent in the session, such as a child, or the parent named in the `run` attribute of the task. A message to a child or parent lands after its current tool call. A message to `root` from any child, at any depth, reaches the root as an `agent.message` session event. Sending to a paused child resumes it, as [described below](#messages-to-a-paused-child). Sending to a child that has ended fails and says how it ended. Sending to a run ID the session never had fails as unknown.
 
@@ -256,7 +258,7 @@ In the control surface, type `/system-agent "prompt"` in the composer. Both open
 
 It runs in the `control` agent space with the controller's user and groups, and you cannot move it. **When the controller can reach a Docker daemon, the system agent is host root**, even though Peen refuses `control` to every other session in that setup. Startup logs a warning. Turn it on only if you accept that.
 
-It has the file, command, and job tools, and `readMetrics` covers every session for it. It has no `launchAgent`, so it starts no children. It loads no `AGENTS.md`, rules, skills, hooks, MCP servers, or `SYSTEM.md`, from any layer, because a Docker session can write those files under `PEEN_WRITABLE_CONFIG_DIR`. The audit log records each of its turns, and each tool call by tool name without arguments.
+It has the file, command, job, and retained-work tools, and `readMetrics` covers every session for it. It has no `launchAgent`, so it starts no children. It loads no `AGENTS.md`, rules, skills, hooks, MCP servers, or `SYSTEM.md`, from any layer, because a Docker session can write those files under `PEEN_WRITABLE_CONFIG_DIR`. The audit log records each of its turns, and each tool call by tool name without arguments.
 
 Three limits stay:
 

@@ -54,6 +54,16 @@ const (
 	percentDenominator              = 100
 )
 
+// PEEN_COMPACTION_TARGET_PERCENT bounds. A summary covers enough history to
+// bring the rest of the request down to this share of the budget, so one
+// compaction buys several turns. Too low summarizes recent work, too high
+// compacts again on the next turn.
+const (
+	DefaultCompactionTargetPercent = 50
+	MinCompactionTargetPercent     = 10
+	MaxCompactionTargetPercent     = 90
+)
+
 // MaxSystemPromptPercent is PEEN_MAX_SYSTEM_PROMPT_PERCENT's ceiling. Zero
 // turns the check off.
 const MaxSystemPromptPercent = 100
@@ -229,13 +239,14 @@ type Config struct {
 	// fills them in once the model is known.
 	MaxContextTokens         int            `default:"0"           env:"PEEN_MAX_CONTEXT_TOKENS"`           //nolint:lll // Immutable env tag.
 	OutputReserveTokens      int            `default:"0"           env:"PEEN_OUTPUT_RESERVE_TOKENS"`        //nolint:lll // Immutable env tag.
-	CompactionMode           CompactionMode `default:"drop-oldest" env:"PEEN_COMPACTION_MODE"`              //nolint:lll // Immutable env tag.
+	CompactionMode           CompactionMode `default:"summarize"   env:"PEEN_COMPACTION_MODE"`              //nolint:lll // Immutable env tag.
 	CompactionOutputTokens   int            `default:"16384"       env:"PEEN_COMPACTION_MAX_OUTPUT_TOKENS"` //nolint:lll // Immutable env tag.
 	CompactionSummaryPercent int            `default:"30"          env:"PEEN_COMPACTION_SUMMARY_PERCENT"`   //nolint:lll // Immutable env tag.
+	CompactionTargetPercent  int            `default:"50"          env:"PEEN_COMPACTION_TARGET_PERCENT"`    //nolint:lll // Immutable env tag.
 	// MaxSystemPromptPercent refuses a turn whose assembled system prompt,
 	// estimated in tokens, is over this share of MaxContextTokens. Zero turns
 	// the check off.
-	MaxSystemPromptPercent int `default:"50" env:"PEEN_MAX_SYSTEM_PROMPT_PERCENT"` //nolint:lll // Immutable env tag.
+	MaxSystemPromptPercent int `default:"25" env:"PEEN_MAX_SYSTEM_PROMPT_PERCENT"` //nolint:lll // Immutable env tag.
 	// ModelRequestTimeout bounds each model request, a turn's rounds and a
 	// compaction summary alike. A turn has no overall time limit.
 	ModelRequestTimeout time.Duration `default:"10m" env:"PEEN_MODEL_REQUEST_TIMEOUT"` //nolint:lll // Immutable env tag.
@@ -944,7 +955,8 @@ func (c Config) hasContextBudget() bool {
 	if c.MaxContextTokens < 0 || c.OutputReserveTokens < 0 ||
 		c.CompactionOutputTokens <= 0 ||
 		c.CompactionSummaryPercent < 0 ||
-		c.CompactionSummaryPercent > MaxCompactionSummaryPercent {
+		c.CompactionSummaryPercent > MaxCompactionSummaryPercent ||
+		!validCompactionTargetPercent(c.CompactionTargetPercent) {
 		return false
 	}
 
@@ -955,6 +967,13 @@ func (c Config) hasContextBudget() bool {
 	_, err := c.ResolveContextBudget(0, 0)
 
 	return err == nil
+}
+
+// validCompactionTargetPercent accepts zero, which turns the target off, or a
+// share within the bounds.
+func validCompactionTargetPercent(percent int) bool {
+	return percent == 0 || (percent >= MinCompactionTargetPercent &&
+		percent <= MaxCompactionTargetPercent)
 }
 
 // ResolveContextBudget returns the configuration with its context budget

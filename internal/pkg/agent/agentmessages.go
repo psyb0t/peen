@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/events"
+	"github.com/psyb0t/peen/internal/pkg/modeljson"
 	"github.com/psyb0t/peen/internal/pkg/runtimecontext"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
@@ -90,8 +90,19 @@ type agentAnswerPayload struct {
 // closes when the next one arrives.
 type messageArrival func() (int, <-chan struct{})
 
+// alwaysAllowedTools are the messaging tools every agent keeps whatever its
+// allowed-tools says, because they only reach other agents in the session.
+//
+//nolint:gochecknoglobals // Read-only lookup table.
+var alwaysAllowedTools = map[string]bool{
+	toolNameSendMessage:  true,
+	toolNameWaitMessages: true,
+	toolNameStopAgent:    true,
+	toolNameAsk:          true,
+}
+
 // messageTools supplies session communication and retained execution reads.
-// These tools do not touch the workspace, so allowed-tools preserves them.
+// Only the communication tools in alwaysAllowedTools survive allowed-tools.
 func messageTools(
 	deps *launchAgentDeps,
 	onPostRun elelem.MessageInjector,
@@ -388,7 +399,7 @@ func (d *launchAgentDeps) messageRoot(
 		return ctxerrors.Wrap(ErrEventsUnavailable, "message the root")
 	}
 
-	data, err := json.Marshal(agentNoticeData{
+	data, err := modeljson.Marshal(agentNoticeData{
 		RunID:     parent.id,
 		AgentName: sender.Name,
 		Message:   message,

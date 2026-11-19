@@ -137,13 +137,12 @@ func TestRestrictToolSet(t *testing.T) {
 func TestFileSafetyInstructionsReachTheModel(t *testing.T) {
 	t.Parallel()
 
-	assert.Contains(t, defaultSystemPrompt, "Read every existing regular file")
-	assert.Contains(t, defaultSystemPrompt, "never overwrite a destination")
+	assert.Contains(t, defaultSystemPrompt, "Read an existing file before changing")
+	assert.Contains(t, defaultSystemPrompt, "Never overwrite a destination")
 	assert.Contains(t, readFileDescription, toolNameApplyPatch)
-	assert.Contains(t, writeFileDescription, "creation never replaces")
+	assert.Contains(t, writeFileDescription, "never replaces a path that appears")
 	assert.Contains(t, applyPatchDescription, "destinations must not exist")
-	assert.Contains(t, removePathDescription, "Listing a regular file is not enough")
-	assert.Contains(t, runCommandDescription, "Do not use shell redirection")
+	assert.Contains(t, removePathDescription, "listing it is not enough")
 }
 
 func TestApplyPatchToolHandlerReturnsStructuredFailure(t *testing.T) {
@@ -302,7 +301,8 @@ func TestWaitTimeoutToolSchemasDeclareTimeoutAsAString(t *testing.T) {
 		assert.NotContains(t, schema.Properties, "timeoutSeconds", name)
 	}
 
-	assert.Contains(t, runCommandDescription, "timeout is a Go duration string")
+	assert.Contains(t, runCommandDescription, "timeout is how long this call "+
+		"waits for the command, written as a duration such as 90s")
 	assert.NotContains(t, runCommandDescription, "timeoutSeconds")
 }
 
@@ -319,8 +319,8 @@ func TestWaitingToolsOutliveTheToolTimeout(t *testing.T) {
 		tool, ok := set.Get(name)
 		require.True(t, ok)
 		assert.Equal(t, waitingToolTimeout, tool.Timeout, name)
-		assert.Contains(t, tool.Description, "empty waits "+defaultWait, name)
-		assert.Contains(t, tool.Description, "upper limit", name)
+		assert.Contains(t, tool.Description, "defaults to "+defaultWait, name)
+		assert.Contains(t, tool.Description, "no upper limit", name)
 	}
 
 	for _, name := range []string{toolNameReadFile, toolNameListJobs} {

@@ -24,6 +24,7 @@ const (
 	compactionTranscriptCloseTag = "</prior-conversation>"
 	compactionRoleSeparator      = ": "
 	compactionToolCallLead       = "tool call "
+	compactionReasoningLead      = "assistant reasoning: "
 	compactionArgumentSeparator  = " "
 	compactionLineBreak          = "\n"
 	// compactionImageNoteFormat stands in for an image part, which the text
@@ -158,6 +159,11 @@ type compactionOptions struct {
 	Timeout         time.Duration
 	Workspace       string
 	Hook            compactionHook
+
+	// TargetPercent is how much of the budget the rest of the request may
+	// take after a summary. Zero summarizes only as much as the request
+	// needs to fit.
+	TargetPercent int
 
 	// Summarize replaces the provider call. Nil uses the configured model.
 	Summarize summarizeFunc
@@ -642,9 +648,11 @@ func leaveHistoryAfterSummaryFailure(
 // full for the configured room still gets a tighter summary instead of losing
 // its oldest history outright.
 //
-// Smallest, not largest: the covered prefix is also the summarization call's
-// input, and that call deliberately has no budget hook of its own. Covering
-// more than the budget requires grows that input for no gain.
+// Once a prefix fits, it keeps covering more units while the rest of the
+// request is over TargetPercent of the budget, so one compaction frees a
+// block of room and the next turns fit without compacting again. The newest
+// ended turn is never eligible, so recent work stays as it was. When no
+// eligible prefix reaches the target, the smallest prefix that fits is used.
 func (c *compactor) selectPrefix(
 	event *elelem.TokenLimitEvent,
 ) (int, int, error) {
@@ -682,7 +690,13 @@ func (c *compactor) selectPrefix(
 				}
 
 				if estimates[units-1]+room <= event.BudgetTokens {
-					return units, room, nil
+					target, err := c.extendToTarget(event, original, ranges,
+						&estimates, units)
+					if err != nil {
+						return 0, 0, err
+					}
+
+					return target, room, nil
 				}
 			}
 		}
@@ -694,6 +708,53 @@ func (c *compactor) selectPrefix(
 		eligible,
 		min(c.options.MaxOutputTokens, compactionMinimumSummaryTokens),
 	)
+}
+
+// extendToTarget returns the fewest units, from fitting onward, whose
+// replacement brings the request to TargetPercent of the budget or below, or
+// fitting itself when no prefix in fitting's range gets that far. It stays
+// in that range, so it never reaches into the last-resort units that would
+// summarize the newest ended turn. estimates grows as units are counted, the
+// same way selectPrefix counts them.
+func (c *compactor) extendToTarget(
+	event *elelem.TokenLimitEvent,
+	original []elelem.Message,
+	ranges []unitRange,
+	estimates *[]int,
+	fitting int,
+) (int, error) {
+	target := event.BudgetTokens * c.options.TargetPercent /
+		percentDenominator
+	if c.options.TargetPercent <= 0 || (*estimates)[fitting-1] <= target {
+		return fitting, nil
+	}
+
+	last := fitting
+
+	for _, candidates := range ranges {
+		if candidates.first <= fitting && fitting <= candidates.last {
+			last = candidates.last
+		}
+	}
+
+	for units := fitting + 1; units <= last; units++ {
+		if units > len(*estimates) {
+			event.Messages = c.replacePrefix(original, units,
+				compactionSummaryLead)
+
+			if _, err := event.IsOverBudget(); err != nil {
+				return 0, ctxerrors.Wrap(err, "count compaction target")
+			}
+
+			*estimates = append(*estimates, event.EstimatedTokens)
+		}
+
+		if (*estimates)[units-1] <= target {
+			return units, nil
+		}
+	}
+
+	return fitting, nil
 }
 
 // compactionSummaryRooms lists the summary rooms to try, the configured room
@@ -725,7 +786,7 @@ func (c *compactor) commit(
 	event.Messages = c.replacePrefix(
 		original,
 		units,
-		compactionSummaryLead+text,
+		summaryMessageText(compactionSummaryLead, text),
 	)
 
 	over, err := event.IsOverBudget()
@@ -1178,6 +1239,17 @@ func compactionSummaryMessage(content string) elelem.Message {
 	}
 }
 
+// clipCompactionReasoning bounds the reasoning the summarizer reads the way
+// clipCompactionToolResult bounds a result: a negative limit means no limit,
+// and a longer text keeps its start at a character boundary.
+func clipCompactionReasoning(reasoning string, limit int) string {
+	if limit < 0 || len(reasoning) <= limit {
+		return reasoning
+	}
+
+	return workflowUTF8Prefix(reasoning, limit)
+}
+
 func writeCompactionMessage(
 	builder *strings.Builder,
 	message elelem.Message,
@@ -1185,13 +1257,23 @@ func writeCompactionMessage(
 ) {
 	text := message.Text()
 	if message.Role == elelem.RoleTool {
-		text = clipCompactionToolResult(text, toolResultBytes)
+		text = withoutToolOutputNotice(
+			clipCompactionToolResult(text, toolResultBytes))
 	}
 
 	builder.WriteString(message.Role)
 	builder.WriteString(compactionRoleSeparator)
 	builder.WriteString(text)
 	builder.WriteString(compactionLineBreak)
+
+	// A decision made while thinking is often the only record of why the
+	// visible reply did what it did, so the summarizer reads it too.
+	if reasoning := strings.TrimSpace(message.Reasoning); reasoning != "" &&
+		message.Role == elelem.RoleAssistant {
+		builder.WriteString(compactionReasoningLead)
+		builder.WriteString(clipCompactionReasoning(reasoning, toolResultBytes))
+		builder.WriteString(compactionLineBreak)
+	}
 
 	for _, part := range message.Content {
 		if part.Type != elelem.PartTypeImage || part.Image == nil {

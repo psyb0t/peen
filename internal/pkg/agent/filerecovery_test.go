@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -39,35 +40,20 @@ func recoveryTestEntries(
 	messages []elelem.Message,
 ) []fileReadPresence {
 	t.Helper()
+
 	for _, message := range messages {
-		if message.Role != elelem.RoleSystem ||
+		if message.Role != elelem.RoleUser ||
 			!strings.HasPrefix(message.Text(), fileRecoveryNoteLead) {
 			continue
 		}
 
-		var files []fileInventory
-		encoded, _, _ := strings.Cut(strings.TrimPrefix(message.Text(),
-			fileRecoveryNoteLead+fileRecoveryInstruction), fileRecoveryOmittedLead)
-		require.NoError(t, json.Unmarshal([]byte(encoded), &files))
+		assert.NotContains(t, message.Text(), "sha256")
+
 		var entries []fileReadPresence
-		for _, file := range files {
-			for _, window := range file.Full {
-				entries = append(entries, fileReadPresence{
-					fileReadRecord: fileReadRecord{
-						Path:   file.Path,
-						SHA256: file.SHA256, First: window[0], Last: window[1],
-					},
-					Full: true, Changed: file.Changed, Unavailable: file.Unavailable,
-				})
-			}
-			for _, window := range file.Missing {
-				entries = append(entries, fileReadPresence{
-					fileReadRecord: fileReadRecord{
-						Path:   file.Path,
-						SHA256: file.SHA256, First: window[0], Last: window[1],
-					},
-					Changed: file.Changed, Unavailable: file.Unavailable,
-				})
+
+		for line := range strings.SplitSeq(message.Text(), "\n") {
+			if strings.HasPrefix(line, "- ") {
+				entries = append(entries, recoveryTestLine(t, line)...)
 			}
 		}
 
@@ -75,6 +61,49 @@ func recoveryTestEntries(
 	}
 
 	return nil
+}
+
+// recoveryTestLine reads one inventory line back into presence entries.
+func recoveryTestLine(t *testing.T, line string) []fileReadPresence {
+	t.Helper()
+
+	quoted, rest, found := strings.Cut(strings.TrimPrefix(line, "- "), ":")
+	require.True(t, found, line)
+
+	path, err := strconv.Unquote(quoted)
+	require.NoError(t, err, line)
+
+	changed := strings.Contains(rest, "changed since it was read")
+	unavailable := strings.Contains(rest, "no longer readable")
+
+	var entries []fileReadPresence
+
+	for part := range strings.SplitSeq(rest, ";") {
+		part = strings.TrimSpace(part)
+
+		full := strings.HasPrefix(part, "present lines ")
+		if !full && !strings.HasPrefix(part, "missing lines ") {
+			continue
+		}
+
+		listed := strings.TrimPrefix(strings.TrimPrefix(part,
+			"present lines "), "missing lines ")
+		for window := range strings.SplitSeq(listed, ", ") {
+			var first, last int
+
+			_, err := fmt.Sscanf(window, "%d-%d", &first, &last)
+			require.NoError(t, err, line)
+
+			entries = append(entries, fileReadPresence{
+				fileReadRecord: fileReadRecord{
+					Path: path, First: first, Last: last,
+				},
+				Full: full, Changed: changed, Unavailable: unavailable,
+			})
+		}
+	}
+
+	return entries
 }
 
 func recoveryTestCount(messages []elelem.Message) (int, error) {
@@ -121,7 +150,6 @@ func TestFileRecoveryPresenceAfterLoss(t *testing.T) {
 			assert.False(t, entries[0].Full)
 			assert.True(t, entries[1].Full)
 			assert.Equal(t, recovery.reads[0].Path, entries[0].Path)
-			assert.Equal(t, recovery.reads[0].SHA256, entries[0].SHA256)
 			assert.Equal(t, 1, entries[0].First)
 			assert.Equal(t, 1, entries[0].Last)
 			assert.Equal(t, before, messages)
@@ -384,8 +412,8 @@ func TestFileRecoveryInventoryBounds(t *testing.T) {
 				assert.Equal(t, 2, ranges)
 			}
 			assert.Contains(t, out[0].Text(), fmt.Sprintf(
-				"%s%d older files.", fileRecoveryOmittedLead, 40-len(groups)))
-			assert.Contains(t, out[0].Text(), "Reread their exact text before use.")
+				"%d older files are left out. Read their exact text again "+
+					"before you use it.", 40-len(groups)))
 			if tc.name == "file count" {
 				assert.Len(t, groups, fileRecoveryMaxFiles)
 				assert.NotContains(t, groups, "/file8")

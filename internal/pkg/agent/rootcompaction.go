@@ -124,7 +124,7 @@ func (r *Runtime) workflowCompactedResult(
 	compaction.ID = lease.ID
 	conversation.Messages = savedHistory(built.replacePrefix(
 		workflowCompactionMessages(conversation), units,
-		compactionSummaryLead+text))
+		summaryMessageText(compactionSummaryLead, text)))
 
 	built.plan.advance(units)
 	built.active = &compactionHead{

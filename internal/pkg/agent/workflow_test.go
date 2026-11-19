@@ -313,7 +313,10 @@ func TestExecutionWorkflowParallelToolsRetainHookInjections(t *testing.T) {
 	assert.Equal(t, elelem.RoleTool, messages[3].Role)
 	assert.Equal(t, elelem.RoleTool, messages[4].Role)
 	assert.Equal(t, "active tool hook instructions", messages[5].Text())
-	assert.Equal(t, "active tool hook instructions", messages[6].Text())
+	// Three of the four rounds are left, so the newest message carries the
+	// round budget note.
+	assert.Equal(t, "active tool hook instructions\n"+roundBudgetNote,
+		messages[6].Text())
 	fixture.stop()
 }
 
@@ -534,6 +537,8 @@ func TestExecutionWorkflowOneResumeSignalContinuesParallelPausedTools(
 	assert.Equal(t, "first", messages[3].Text())
 	assert.Equal(t, elelem.RoleTool, messages[4].Role)
 	assert.Equal(t, "second", messages[4].ToolCallID)
-	assert.Equal(t, "second", messages[4].Text())
+	// Three of the four rounds are left, so the newest result carries the
+	// round budget note.
+	assert.Equal(t, "second\n"+roundBudgetNote, messages[4].Text())
 	fixture.stop()
 }

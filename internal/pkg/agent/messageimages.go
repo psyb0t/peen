@@ -86,7 +86,10 @@ func savedHistory(messages []elelem.Message) []elelem.Message {
 	history = slices.DeleteFunc(history, isFileRecoveryMessage)
 
 	for index, message := range history {
+		message = withoutRoundBudgetNote(message)
+		history[index] = message
 		history[index].ToolCalls = validToolCalls(message.ToolCalls)
+		history[index].CacheHint = elelem.CacheHintNone
 
 		if !hasImageBytes(message) {
 			continue

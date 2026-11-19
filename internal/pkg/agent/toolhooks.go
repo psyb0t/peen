@@ -416,8 +416,8 @@ func (h *toolHookRuntime) post(
 		return nil
 	}
 
-	content, err := markToolOutput(ctx, event.Tool.Name,
-		event.Result.Content, h.maxResultTokens)
+	content, err := markToolResult(ctx, event.Tool.Name,
+		*event.Result, h.maxResultTokens)
 	if err != nil {
 		return ctxerrors.Wrap(err, "mark untrusted tool output")
 	}

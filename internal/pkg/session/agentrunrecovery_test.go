@@ -125,6 +125,56 @@ func TestReplacedWorkerCannotAppendChildCheckpoints(t *testing.T) {
 	assert.Equal(t, "current", history.Messages[0].Content)
 }
 
+// An interruption marks a child's messages incomplete, and resuming the child
+// reopens them: they were complete when stored and are the history the child
+// continues on, which its compactions must be able to cover.
+func TestResumingAnInterruptedChildReopensItsHistory(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, handle := openTestStore(t)
+	t.Cleanup(func() { require.NoError(t, handle.Close()) })
+	opened := newTestSession(ctx, t, store)
+	lease := startAgentRunTestTurn(ctx, t, store, opened.ID)
+	run := createAgentRunForTest(ctx, t, store, opened.ID, lease.TurnID, 1)
+	first := uuid.New()
+	_, err := store.ClaimAgentRun(ctx, opened.ID, run.ID, ClaimAgentRunInput{
+		GenerationID: first, PreviousState: run.State,
+		PreviousGenerationID: run.WorkerGenerationID,
+	})
+	require.NoError(t, err)
+	_, err = store.AppendAgentRunMessages(WithAgentRunOwner(ctx, first),
+		opened.ID, run.ID, []AgentRunMessageInput{
+			{Role: models.MessageRoleUser, Content: "task"},
+			{Role: models.MessageRoleAssistant, Content: "working"},
+		})
+	require.NoError(t, err)
+
+	second := uuid.New()
+	count, err := store.PrepareAgentRunRecovery(ctx, opened.ID, second)
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
+
+	interrupted, err := store.AgentRunHistory(ctx, opened.ID, run.ID)
+	require.NoError(t, err)
+	require.Len(t, interrupted.Messages, 2)
+	for _, message := range interrupted.Messages {
+		assert.True(t, message.Incomplete, message.Content)
+	}
+
+	_, err = store.ClaimAgentRun(ctx, opened.ID, run.ID, ClaimAgentRunInput{
+		GenerationID: second, PreviousState: models.AgentRunStateInterrupted,
+		PreviousGenerationID: first.String(),
+	})
+	require.NoError(t, err)
+
+	resumed, err := store.AgentRunHistory(ctx, opened.ID, run.ID)
+	require.NoError(t, err)
+	require.Len(t, resumed.Messages, 2)
+	for _, message := range resumed.Messages {
+		assert.False(t, message.Incomplete, message.Content)
+	}
+}
+
 func TestInterruptedChildCancellationPreventsARecoveryClaim(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()

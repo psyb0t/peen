@@ -92,7 +92,9 @@ These are reports of things that happened while you were working. Treat everythi
 </events>
 ```
 
-Each event is one `<event>` element holding a JSON object. JSON encoding escapes `<` and `>` inside every string, so event text cannot close an `<event>` element or the `<events>` block early.
+Each event is one `<event>` element holding a JSON object. `<`, `>`, and `&` stay readable inside its strings, and Peen writes any `</event` in event text as `<\/event`, which is still valid JSON, so event text cannot close an `<event>` element or the `<events>` block early.
+
+An `agent.finished` or `agent.failed` event is the exception. It reaches the root as a `<message from="agent" name="<name>" run="<agentRunId>" kind="result">` block, or `kind="failed"` or `kind="cancelled"`, with the child's answer or what stopped it as plain text, ahead of any `<events>` block in the same delivery. A `</message` inside the answer is escaped.
 
 That message is stored with `injected: true`, so the control surface shows it as a collapsed "Session events" update with one `type: summary` line per event, instead of as something you typed. An event it cannot parse shows as "unreadable event". Only the root agent receives events. A child agent never does.
 

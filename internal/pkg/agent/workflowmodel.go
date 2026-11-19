@@ -184,6 +184,9 @@ func workflowModelRequestWith(
 		}
 	}
 
+	addRoundBudgetNote(history, input.Round, input.Execution.MaxRounds)
+	markCacheBreakpoints(history)
+
 	request := elelem.NewRequest(model.Client).WithModel(model.Model).
 		WithPrompt(elelem.NewPrompt().WithSystem(conversation.SystemPrompt).
 			WithHistory(history)).

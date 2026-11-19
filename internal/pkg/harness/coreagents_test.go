@@ -106,13 +106,13 @@ func TestAgentCatalogueListsCoreBeforeCustom(t *testing.T) {
 		testCustomAgentBody,
 	)
 
-	catalogue := renderAgentCatalogue(resolveWithOptions(t, fixture).Agents())
+	catalogue := testAgentCatalogue(t, resolveWithOptions(t, fixture).Agents())
 
 	positions := []int{
 		strings.Index(catalogue, agentCatalogueCoreHeading),
-		strings.Index(catalogue, skillCatalogueItem+testCoreGeneralPurpose+": "),
+		strings.Index(catalogue, catalogueItem+testCoreGeneralPurpose+": "),
 		strings.Index(catalogue, agentCatalogueCustomHeading),
-		strings.Index(catalogue, skillCatalogueItem+testCustomReviewerAgent+": "),
+		strings.Index(catalogue, catalogueItem+testCustomReviewerAgent+": "),
 	}
 
 	for _, position := range positions {
@@ -120,7 +120,7 @@ func TestAgentCatalogueListsCoreBeforeCustom(t *testing.T) {
 	}
 
 	assert.True(t, strictlyIncreasing(positions), catalogue)
-	assert.True(t, strings.HasPrefix(catalogue, agentCatalogueTitle))
+	assert.True(t, strings.HasPrefix(catalogue, "<agents>\n"))
 }
 
 func TestDisabledCoreAgentIsGone(t *testing.T) {
@@ -142,7 +142,7 @@ func TestDisabledCoreAgentIsGone(t *testing.T) {
 		require.ErrorIs(t, err, ErrAgentNotFound, name)
 	}
 
-	assert.Equal(t, agentCatalogueEmpty, renderAgentCatalogue(snapshot.Agents()))
+	assert.Contains(t, testAgentCatalogue(t, snapshot.Agents()), agentCatalogueEmpty)
 }
 
 func TestCheckRootAgent(t *testing.T) {

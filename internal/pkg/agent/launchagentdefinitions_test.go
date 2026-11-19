@@ -57,12 +57,20 @@ func TestLaunchAgentAllowedToolsExcludeWritesButKeepMessaging(t *testing.T) {
 		toolNameWaitMessages,
 		toolNameStopAgent,
 		toolNameAsk,
+	} {
+		assert.Contains(t, childTools, messaging)
+	}
+
+	// The retained-work tools can resume or settle executions, so
+	// allowed-tools limits them like any other tool.
+	for _, retained := range []string{
 		toolNameSearchExecutions,
 		toolNameReadExecution,
+		toolNameReadMetrics,
 		toolNameResumeExecution,
 		toolNameResolveExecutionActivity,
 	} {
-		assert.Contains(t, childTools, messaging)
+		assert.NotContains(t, childTools, retained)
 	}
 }
 
@@ -319,7 +327,7 @@ func TestLaunchAgentResolvesCoreAndCustomNames(t *testing.T) {
 func TestLaunchAgentCoreGeneralPurposeChildRunsOnTheEmbeddedInstructions(
 	t *testing.T,
 ) {
-	const embeddedBody = "Carry out the user's request within the resolved"
+	const embeddedBody = "Handle any coding or repository task."
 
 	driver := launchedChildDriver(
 		t,

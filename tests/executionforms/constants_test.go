@@ -123,7 +123,7 @@ const (
 	// executionFormsGeneralPurposeInstructions is the body of the embedded
 	// general-purpose agent. A turn with PEEN_AGENT unset must send it to the
 	// provider.
-	executionFormsGeneralPurposeInstructions = "Carry out the user's request within the resolved instructions and tool"
+	executionFormsGeneralPurposeInstructions = "Handle any coding or repository task. No rules apply beyond your other instructions."
 
 	executionFormsRefusalTimeout  = 20 * time.Second
 	executionFormsRefusalExitCode = 1

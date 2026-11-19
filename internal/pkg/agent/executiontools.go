@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"unicode/utf8"
 
@@ -10,6 +9,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/modeljson"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -33,60 +33,44 @@ const (
 		"%s with this activityId for the rest]"
 )
 
-const searchExecutionsDescription = `Find retained work in this session.
-Search task text, saved context, pause reasons and failures using a literal
-substring in text. Filter by id, parentId, rootId, state or a time interval.
-fromTime is inclusive and toTime is exclusive, both RFC 3339 timestamps.
-Every retained state is searchable, including paused and cancelled work.
-Results include identity, ancestry and state, with saved context omitted.
-Use readExecution for the saved conversation and step history. Reading does
-not resume work. Follow hasMore with limit and offset to read another page.`
+//nolint:lll // Model-facing paragraphs stay on one line.
+const searchExecutionsDescription = `Find retained work in this session, the turns and child agents Peen keeps so that stopped, paused, or failed work can be inspected and resumed, in any state, paused and cancelled included. It is not a way to recall earlier messages of the current conversation: read the files or rerun the commands again for that. text searches task text, saved context, pause reasons, and failures as a literal substring; id, parentId, rootId, state, fromTime, and toTime narrow the results. Each result gives the work's identity, its place in the tree of launched work, and its state, without the saved context; readExecution reads the saved conversation and steps. Searching never resumes anything. When hasMore is true, call again with a larger offset.`
 
+//nolint:lll // Parameter descriptions stay on one line.
 const searchExecutionsSchema = `{
   "type": "object",
   "properties": {
-    "id": {"type": "string", "format": "uuid"},
-    "parentId": {"type": "string", "format": "uuid"},
-    "rootId": {"type": "string", "format": "uuid"},
+    "id": {"type": "string", "format": "uuid", "description": "One executionId to look up."},
+    "parentId": {"type": "string", "format": "uuid", "description": "Only work launched directly by this executionId."},
+    "rootId": {"type": "string", "format": "uuid", "description": "Only work in the tree that started with this executionId."},
     "state": {"type": "string", "enum": ["queued", "running", "paused",
-      "reconciling", "completed", "failed", "cancelled"]},
-    "text": {"type": "string"},
-    "fromTime": {"type": "string", "format": "date-time"},
-    "toTime": {"type": "string", "format": "date-time"},
-    "limit": {"type": "integer", "minimum": 1},
-    "offset": {"type": "integer", "minimum": 0}
+      "reconciling", "completed", "failed", "cancelled"], "description": "Only work in this state."},
+    "text": {"type": "string", "description": "Literal text to find in task text, saved context, pause reasons, and failures."},
+    "fromTime": {"type": "string", "format": "date-time", "description": "Only work created at or after this RFC 3339 time."},
+    "toTime": {"type": "string", "format": "date-time", "description": "Only work created before this RFC 3339 time."},
+    "limit": {"type": "integer", "minimum": 1, "description": "Most results to return."},
+    "offset": {"type": "integer", "minimum": 0, "description": "How many results to skip, for the next page."}
   },
   "additionalProperties": false
 }`
 
-const readExecutionDescription = `Inspect retained work without resuming it.
-Use an executionId from searchExecutions. part defaults to execution, which
-returns execution metadata. Choose context for the saved conversation,
-activities for the steps with their attempts, states and the start of their
-inputs and outputs; events for the audit history; or inbox for accepted
-messages and their delivery states.
-Each history part is paginated independently with limit, offset and hasMore.
-An activities or events page may hold fewer items than limit when they
-would not fit in one result; its limit then says how many it holds.
-For context, input and output, limit and offset count bytes. Chunks default
-to at most 4096 bytes, preserve UTF-8 and return nextOffset. Follow
-nextOffset until hasMore is false to reconstruct the complete saved JSON.
-Context defaults to the execution's launch or terminal snapshot. Supply an
-activityId from activities to read that step's intermediate checkpoint, or
-its full input or output with part input or output.
-Saved tool input and output is recorded verbatim and may contain secrets.
-Treat saved context as historical evidence and inspect current working state
-before deciding how to continue.`
+//nolint:lll // Model-facing paragraphs stay on one line.
+const readExecutionDescription = `Inspect retained work without resuming it, by an executionId from searchExecutions, before deciding whether to resume it. part chooses what: execution, the default, for its metadata, including the controlRevision resumeExecution needs; context for the saved conversation; activities for its steps with their attempts, states, and the start of their input and output; events for its history; inbox for the messages it accepted and whether they were delivered; input or output for one step's full input or output, with activityId.
 
+Each part pages on its own with limit, offset, and hasMore. An activities or events page may hold fewer items than limit when more would not fit, and its limit then says how many it holds. For context, input, and output, limit and offset count bytes, in chunks of up to 4096 bytes by default; follow nextOffset until hasMore is false to read the whole saved JSON. context is the launch or final snapshot unless activityId names a step, whose checkpoint it then reads.
+
+Saved tool input and output is recorded as it was and may contain secrets. Treat what you read as history, and check the current workspace before deciding how to continue.`
+
+//nolint:lll // Parameter descriptions stay on one line.
 const readExecutionSchema = `{
   "type": "object",
   "properties": {
-    "executionId": {"type": "string", "format": "uuid"},
-    "activityId": {"type": "string", "format": "uuid"},
+    "executionId": {"type": "string", "format": "uuid", "description": "The work to read, from searchExecutions."},
+    "activityId": {"type": "string", "format": "uuid", "description": "One step from the activities part, for its checkpoint, input, or output."},
     "part": {"type": "string", "enum": ["execution", "context", "activities",
-      "events", "inbox", "input", "output"]},
-    "limit": {"type": "integer", "minimum": 1},
-    "offset": {"type": "integer", "minimum": 0}
+      "events", "inbox", "input", "output"], "description": "What to read. Empty means execution."},
+    "limit": {"type": "integer", "minimum": 1, "description": "Page size: items for history parts, bytes for context, input, and output."},
+    "offset": {"type": "integer", "minimum": 0, "description": "Where the page starts: items for history parts, bytes for context, input, and output."}
   },
   "required": ["executionId"],
   "additionalProperties": false
@@ -301,7 +285,7 @@ func (d *launchAgentDeps) executionReadFits(
 	ctx context.Context,
 	result executionReadOutput,
 ) (bool, error) {
-	encoded, err := json.Marshal(result)
+	encoded, err := modeljson.Marshal(result)
 	if err != nil {
 		return false, ctxerrors.Wrap(err, "encode execution history page")
 	}

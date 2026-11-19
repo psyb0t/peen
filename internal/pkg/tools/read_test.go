@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -133,6 +134,8 @@ func TestReadFile_MissingPath(t *testing.T) {
 		Path: "does-not-exist.txt",
 	})
 	require.ErrorIs(t, err, commerr.ErrNotFound)
+	require.ErrorIs(t, err, fs.ErrNotExist)
+	assert.Contains(t, err.Error(), "does-not-exist.txt: no such file or directory")
 }
 
 func TestReadFile_NotARegularFile(t *testing.T) {

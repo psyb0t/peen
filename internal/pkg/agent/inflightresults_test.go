@@ -113,8 +113,6 @@ func TestParallelToolResultsAreCutToFitTheContext(t *testing.T) {
 	assert.LessOrEqual(t, requestTokens(t, fitted),
 		inFlightTestContextTokens-inFlightTestReserveTokens)
 
-	notice := fmt.Sprintf(toolOutputNoticeFormat,
-		toolOutputSource(toolNameReadFile), toolNameReadFile)
 	results := 0
 
 	for _, message := range fitted.Messages {
@@ -126,7 +124,7 @@ func TestParallelToolResultsAreCutToFitTheContext(t *testing.T) {
 		text := message.Text()
 		assert.True(t, strings.HasPrefix(text, toolOutputOpenPrefix), text)
 		assert.Contains(t, text, workflowToolTruncatedMarker)
-		assert.True(t, strings.HasSuffix(text, notice), text)
+		assert.True(t, strings.HasSuffix(text, toolOutputCloseTag), text)
 	}
 
 	assert.Equal(t, inFlightTestCalls, results)

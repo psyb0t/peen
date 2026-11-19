@@ -98,7 +98,7 @@ func TestNativeChildCompactionCommitsAndReusesSavedSummary(t *testing.T) {
 	var saved workflowConversation
 	require.NoError(t, json.Unmarshal(result.Output.Context, &saved))
 	require.NoError(t, validateWorkflowCompactionConversation(saved))
-	assert.Equal(t, compactionSummaryLead+"retained summary",
+	assert.Equal(t, summaryMessageText(compactionSummaryLead, "retained summary"),
 		saved.Messages[0].Text())
 	repeated, err := fixture.engine.compactRound(t.Context(), input)
 	require.NoError(t, err)

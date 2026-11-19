@@ -14,7 +14,7 @@ func (e *Executor) readRegularFile(name string, maximum int64) (
 ) {
 	file, err := e.filesystem.Open(name)
 	if err != nil {
-		return nil, 0, wrapPathError(err, "open filesystem file")
+		return nil, 0, wrapPathError(err, "open file")
 	}
 
 	info, err := file.Stat()

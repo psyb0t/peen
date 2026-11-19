@@ -73,7 +73,7 @@ func (e *Executor) ReadFile(
 func (e *Executor) openRegularFile(name string) (*sizedFile, error) {
 	file, err := e.filesystem.Open(name)
 	if err != nil {
-		return nil, wrapPathError(err, "open filesystem file")
+		return nil, wrapPathError(err, "open file")
 	}
 
 	info, err := file.Stat()

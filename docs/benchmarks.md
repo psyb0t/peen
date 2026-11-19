@@ -18,6 +18,38 @@ Each task runs in its own benchmark container through [Harbor](https://github.co
 - Each trial keeps Peen's WebSocket frames, its debug log, and its SQLite state, so every model call, tool call, compaction, and turn end can be checked afterwards.
 - Every benchmark first runs its reference solutions under the same sandbox, so a grader that cannot work offline is not counted against Peen.
 
+## November 2026, Peen v0.50.0 context changes
+
+v0.50.0 changes how Peen builds each model request: the date instead of the time in the system prompt, the skill and agent catalogues, child agent results as messages, the round budget note, and the compaction defaults. 38 [harness suite](#the-harness-suite) tasks that touch prompts, compaction, child agents, tools, and skills ran five times each on the v0.49.4 build and on the first v0.50.0 build. Three of them are new and fail on v0.49.4 by design: `cache-prefix-stable` checks that the system prompt stays the same across turns, `prompt-runtime-time` checks for the date instead of the time, and `tools-angle-bracket-edit` edits a file full of `<` and `>`.
+
+| Build | GLM-5.3 | GLM-5.3-Flash |
+| --- | --- | --- |
+| v0.49.4 | 166 of 190 | 162 of 190 |
+| v0.50.0, first build | 171 of 190 | 169 of 190 |
+
+The 95th percentile of distinct system prompts per session fell from 8.1 to 1, because the prompt no longer carries the time of day. The median cache hit ratio stayed between 0.95 and 0.97 on both builds.
+
+Without the three new tasks, the first build did worse than v0.49.4 on several tasks. Later v0.50.0 changes fixed them:
+
+| Defect in the first build | Task | Fix |
+| --- | --- | --- |
+| The dropped-history note and the execution tool descriptions pointed the model at `readExecution`, so it paged old executions to recall earlier messages. | `compaction-recall-drop-oldest` | The note says to read the file or run the command again, and `searchExecutions` says it is not a way to recall the current conversation. GLM-5.3 went to 5 of 5. |
+| The freshness rule was narrowed, and the agent read a supplied snapshot without loading `core:freshness`. | `skills-freshness` | The rule covers local snapshots and supplied files again. |
+| The skill-loading rule moved from the built-in `AGENTS.md` into the base prompt with softer wording, and the agent planned without loading `core:planning`. | `prompt-plan-multi` | The rule is back at the top of the built-in `AGENTS.md`, and the skill catalogue opens with "Available skills:" again. |
+| The rule about following `<rule>` blocks lost its sentence about when the user wins. | `rules-config-precedence` | The base prompt says to follow every applicable rule, and to follow the user only when a message directly contradicts one. |
+| The file tools paragraph lost the clause that keeps `runCommand` for builds, tests, and programs. | `prompt-no-shell-workaround` | The clause is back. |
+
+On the final build, the two skill tasks ran ten times each:
+
+| Task | GLM-5.3, v0.49.4 | GLM-5.3, v0.50.0 | GLM-5.3-Flash, v0.49.4 | GLM-5.3-Flash, v0.50.0 |
+| --- | --- | --- | --- | --- |
+| `prompt-plan-multi` | 4 of 5 | 6 of 10 | 5 of 5 | 9 of 10 |
+| `skills-freshness` | 2 of 5 | 3 of 10 | 5 of 5 | 9 of 10 |
+
+Both GLM-5.3 results sit inside the v0.49.4 range. Every GLM-5.3 miss wrote its answer without loading the skill, which GLM-5.3 already did on v0.49.4.
+
+The run also found two crashes in the first build, and v0.50.0 fixes both. A child agent's compaction failed after a controller restart, because the restart marked the child's history incomplete and resuming the child never reopened it. A compaction whose reasoning budget came out negative panicked.
+
 ## November 2026, Peen v0.49.1 harness suite
 
 The second full run of the [harness suite](#the-harness-suite), on the same 114 full-tier tasks with five attempts each, compared with the [v0.45.2 run](#november-2026-peen-v0452-harness-suite).

@@ -15,19 +15,16 @@ import (
 
 const (
 	directoryReplayPageSize = 128
+	// toolCountWarning is the tool count above which an agent's tool list
+	// is large enough to cost room and tool choice accuracy, so Peen warns.
+	toolCountWarning = 30
 
-	changeDirectoryDescription = `Change this agent's current directory.
-Load the target's AGENTS.md, rules, skills, agents, hooks and event handlers.
-Later relative file paths and commands resolve from this directory.
-Children inherit it and can change their own directory independently.
-Use this tool for persistent directory hops. A shell-local cd does not persist.
-Call it alone in a tool round, before calls that depend on the target directory.
-The directory must already exist. A failed hop leaves the current scope intact.
-The result lists the instruction sources the hop loaded, unloaded and changed;
-their text is in your instructions from the next step on.`
+	//nolint:lll // Model-facing paragraphs stay on one line.
+	changeDirectoryDescription = `Change this agent's current directory and load that directory's AGENTS.md files, rules, skills, agents, hooks, and event handlers. Later relative paths and commands resolve from it, and child agents start in it and can change their own. A shell cd does not last, so this is the way to move. Call it alone in a tool round, before the calls that depend on the new directory. The directory must exist, and a failed change leaves everything as it was. The result lists the instruction files the change loaded, dropped, and changed; their text is in your instructions from the next step on.`
+	//nolint:lll // Parameter descriptions stay on one line.
 	changeDirectorySchema = `{
   "type": "object",
-  "properties": {"directory": {"type": "string", "minLength": 1}},
+  "properties": {"directory": {"type": "string", "minLength": 1, "description": "The directory to move to, relative to the current one or absolute. Use . to reload edited harness files."}},
   "required": ["directory"],
   "additionalProperties": false
 }`
@@ -207,6 +204,15 @@ func (s *directoryScope) buildContext(
 	registered, err := s.toolSet(snapshot, executor, skills)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "build directory tools")
+	}
+
+	if count := len(registered.Definitions()); count > toolCountWarning {
+		runtimecontext.Logger(ctx).Warn(
+			"agent has many tools",
+			"reason", "tool_count_high",
+			"tool_count", count,
+			"warning_threshold", toolCountWarning,
+		)
 	}
 
 	bindToolHooks(registered, toolHooks)

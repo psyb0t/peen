@@ -244,8 +244,8 @@ func TestLaunchAgentChildOutlivesItsTurnAndWakesTheRoot(t *testing.T) {
 	assert.Contains(
 		t,
 		wokenConversation,
-		`"response":"late hi"`,
-		"the woken turn reads the child's answer from the event",
+		`kind="result">`+"\nlate hi\n</message>",
+		"the woken turn reads the child's answer as a result message",
 	)
 }
 

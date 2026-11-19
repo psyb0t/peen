@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -273,7 +274,8 @@ func TestFileRecoveryRootTranscriptStaysUnchanged(t *testing.T) {
 	assert.True(t, entries[0].Full)
 	attachments := 0
 	for _, message := range sent.Messages {
-		if message.Role == elelem.RoleUser && isFileRecoveryMessage(message) {
+		if isFileRecoveryMessage(message) && strings.HasPrefix(message.Text(),
+			fileRecoveryAttachmentLead) {
 			attachments++
 		}
 	}

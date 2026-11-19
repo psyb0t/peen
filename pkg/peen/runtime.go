@@ -1,6 +1,7 @@
 package peen
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"os"
@@ -238,12 +239,15 @@ func runtimeOptions(
 		MaxQueuedUserMessages:  options.MaxQueuedUserMessages,
 
 		CompactionMode: internalconfig.CompactionMode(
-			options.CompactionMode,
+			cmp.Or(options.CompactionMode, CompactionModeSummarize),
 		),
 		CompactionModel:          options.CompactionModel,
 		CompactionPrompt:         options.CompactionPrompt,
 		CompactionOutputTokens:   options.CompactionOutputTokens,
 		CompactionSummaryPercent: options.CompactionSummaryPercent,
+		CompactionTargetPercent: compactionTargetPercent(
+			options.CompactionTargetPercent,
+		),
 
 		MaxToolRounds:        options.MaxToolRounds,
 		MaxConcurrentTools:   options.MaxConcurrentTools,
@@ -374,6 +378,20 @@ func (r *Runtime) Cancel(ctx context.Context) (CancelResult, error) {
 // failures onto the same commerr sentinels the HTTP surface returns, so an
 // embedding caller sees one consistent error vocabulary regardless of
 // transport.
+// compactionTargetPercent maps Options.CompactionTargetPercent to the
+// runtime's value, where zero turns the target off: zero here takes the
+// default, and a negative value turns it off.
+func compactionTargetPercent(percent int) int {
+	switch {
+	case percent == 0:
+		return internalconfig.DefaultCompactionTargetPercent
+	case percent < 0:
+		return 0
+	default:
+		return percent
+	}
+}
+
 func translateTurnError(err error) error {
 	if errors.Is(err, session.ErrSessionBusy) {
 		return ctxerrors.Wrap(

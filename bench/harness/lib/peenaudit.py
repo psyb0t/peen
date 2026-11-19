@@ -269,7 +269,8 @@ class Trial:
         rows = self.query(
             """
             SELECT mc.id, mc.state, mc.prompt_tokens, mc.completion_tokens,
-                   mc.total_tokens, mc.retry_attempt_count, mc.total_attempts,
+                   mc.total_tokens, mc.cache_read_tokens,
+                   mc.retry_attempt_count, mc.total_attempts,
                    mc.wasted_total_tokens, mc.finish_reason,
                    mc.failure_classification, mc.billed_cost_amount,
                    mc.cost_known, mc.response_message_json,

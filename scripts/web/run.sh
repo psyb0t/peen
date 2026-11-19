@@ -38,7 +38,10 @@ trap cleanup EXIT
 trap 'log ERROR "command failed exit=$?"' ERR
 exec > >(tee -a "$log_file") 2>&1
 
-cp -a "$source_root/." "$temporary_root/"
+# The scratch copy leaves out node_modules: a host install would make pnpm
+# ask to purge it, and the frozen install below rebuilds it from the lockfile.
+tar -C "$source_root" --exclude=./node_modules -cf - . |
+	tar -C "$temporary_root" -xf -
 cd "$temporary_root"
 
 sync_generated_types() {

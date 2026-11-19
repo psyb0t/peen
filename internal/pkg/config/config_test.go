@@ -14,6 +14,8 @@ const (
 	testQualifiedModel  = "aigate/gateway-model"
 	testDirectoryMode   = 0o700
 	wantChildAgentDepth = 5
+	// wantMaxSystemPromptPercent is PEEN_MAX_SYSTEM_PROMPT_PERCENT's default.
+	wantMaxSystemPromptPercent = 25
 )
 
 func TestConfigValidate(t *testing.T) {
@@ -149,6 +151,26 @@ func TestConfigValidate(t *testing.T) {
 				config.CompactionSummaryPercent = -1
 			},
 			wantErr: ErrInvalidConfig,
+		},
+		{
+			name: "compaction target below its floor",
+			mutate: func(config *Config) {
+				config.CompactionTargetPercent = MinCompactionTargetPercent - 1
+			},
+			wantErr: ErrInvalidConfig,
+		},
+		{
+			name: "compaction target above its ceiling",
+			mutate: func(config *Config) {
+				config.CompactionTargetPercent = MaxCompactionTargetPercent + 1
+			},
+			wantErr: ErrInvalidConfig,
+		},
+		{
+			name: "compaction target at its bounds",
+			mutate: func(config *Config) {
+				config.CompactionTargetPercent = MaxCompactionTargetPercent
+			},
 		},
 		{
 			name: "summary share of a context too small to hold one",
@@ -319,6 +341,10 @@ func TestParseDefaultsWorkingDirectoryToProcessDirectory(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, workingDirectory, config.WorkingDirectory)
 	assert.Equal(t, wantChildAgentDepth, config.MaxChildAgentDepth)
+	assert.Equal(t, CompactionModeSummarize, config.CompactionMode)
+	assert.Equal(t, DefaultCompactionTargetPercent,
+		config.CompactionTargetPercent)
+	assert.Equal(t, wantMaxSystemPromptPercent, config.MaxSystemPromptPercent)
 }
 
 func TestResolveContextBudget(t *testing.T) {

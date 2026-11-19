@@ -69,8 +69,8 @@ postToolUse:
 	variantTestSkillsOff    = "planning"
 	variantTestAgentsOff    = "general-purpose"
 	variantTestMessage      = "say hello in this variant"
-	variantTestAgentBody    = "Carry out the user's request within the " +
-		"resolved instructions and tool\ncontracts."
+	variantTestAgentBody    = "Handle any coding or repository task. No " +
+		"rules apply beyond your other instructions."
 
 	variantTestFreshnessEntry = "- core:freshness: "
 	variantTestPlanningEntry  = "- core:planning: Create evidence-based " +

@@ -33,6 +33,34 @@ def test_a_clean_trial_passes(clean_trial):
     assert result["metrics"]["requestBytes"] == 20
 
 
+def test_cache_and_prompt_metrics(build_trial):
+    builder = build_trial()
+    builder.add_turn(turn_id="turn-1", prompt_hash="hash-a")
+    builder.add_turn(turn_id="turn-2", prompt_hash="hash-a")
+    builder.add_turn(turn_id="turn-3", prompt_hash="hash-b")
+    builder.add_model_call(prompt_tokens=1000, cache_read_tokens=0)
+    builder.add_model_call(prompt_tokens=1000, cache_read_tokens=900)
+    builder.add_frames(
+        tb.frame(1, "turn.started", {}),
+        tb.frame(2, "turn.completed", {"text": "done", "finishReason": "stop"}),
+    )
+
+    metrics = run_audit(builder)["metrics"]
+
+    assert metrics["cacheReadTokens"] == 900
+    assert metrics["cacheHitRatio"] == pytest.approx(0.45)
+    assert metrics["systemPromptsPerSession"] == 2
+    assert metrics["compactionsPerTurn"] == 0
+
+
+@pytest.mark.parametrize(
+    ("numerator", "denominator", "expected"),
+    [(5, 0, 0.0), (0, 10, 0.0), (1, 3, 0.3333), (10, 10, 1.0)],
+)
+def test_ratio_rounds_and_never_divides_by_zero(numerator, denominator, expected):
+    assert audit.ratio(numerator, denominator) == expected
+
+
 def test_a_reward_below_one_fails_a_clean_record(build_trial):
     builder = build_trial(reward=0.0).add_turn()
     builder.add_model_call()

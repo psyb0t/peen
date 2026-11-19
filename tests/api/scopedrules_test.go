@@ -26,7 +26,7 @@ const (
 	blankAgentTestMessage     = "say hello as a blank agent"
 	blankAgentTestEnvironment = "PEEN_BLANK_AGENT"
 	blankAgentTestBasePrompt  = "You are a coding agent."
-	blankAgentTestCoreRules   = "# Peen operating rules"
+	blankAgentTestCoreRules   = `<instructions source="built-in">`
 )
 
 // A rule with paths frontmatter stays out of the system prompt and reaches

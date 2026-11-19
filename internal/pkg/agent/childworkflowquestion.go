@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/events"
+	"github.com/psyb0t/peen/internal/pkg/modeljson"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -162,7 +162,7 @@ func (c *childWorkflowCallbacks) validateRootChildQuestion(
 	run *AgentRun,
 	question string,
 ) error {
-	data, err := json.Marshal(events.AgentNoticeData{
+	data, err := modeljson.Marshal(events.AgentNoticeData{
 		RunID: run.ID, AgentName: run.Name, Message: question,
 	})
 	if err != nil {

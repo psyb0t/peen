@@ -9,6 +9,7 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/modeljson"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -64,7 +65,7 @@ func (r *Runtime) recoveredToolContent(
 		return "", false, ctxerrors.Wrap(err, "resume passive child wait")
 	}
 
-	encoded, err := json.Marshal(output)
+	encoded, err := modeljson.Marshal(output)
 	if err != nil {
 		return "", false, ctxerrors.Wrap(err, "encode recovered wait result")
 	}
@@ -320,7 +321,7 @@ func (r *Runtime) recoveredLaunchResult(
 				ParentAgentRunID: child.run.ID.String(),
 			}
 
-			encoded, err := json.Marshal(output)
+			encoded, err := modeljson.Marshal(output)
 			if err != nil {
 				return "", false, ctxerrors.Wrap(
 					err, "encode checkpointed launch",

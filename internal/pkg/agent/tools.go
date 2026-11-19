@@ -15,6 +15,7 @@ import (
 	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
+	"github.com/psyb0t/peen/internal/pkg/modeljson"
 	"github.com/psyb0t/peen/internal/pkg/tools"
 )
 
@@ -321,7 +322,7 @@ func applyPatchToolHandler(
 			output.Error = toolErrorMessage(err)
 		}
 
-		encoded, marshalErr := json.Marshal(output)
+		encoded, marshalErr := modeljson.Marshal(output)
 		if marshalErr != nil {
 			return elelem.ToolResult{}, ctxerrors.Wrap(
 				marshalErr,
@@ -433,7 +434,7 @@ func hostToolHandler[Input any, Output any](
 			return elelem.NewToolErrorResult(toolErrorMessage(err)), nil
 		}
 
-		encoded, err := json.Marshal(output)
+		encoded, err := modeljson.Marshal(output)
 		if err != nil {
 			return elelem.ToolResult{}, ctxerrors.Wrap(
 				err,

@@ -165,9 +165,13 @@ func matchEdits(content []byte, edits []TextEdit) ([]editMatch, error) {
 		switch count := bytes.Count(content, old); {
 		case count == 0:
 			return nil, ctxerrors.Wrapf(ErrMatchNotFound,
-				"edit %d: use exact file text without readFile line numbers", i)
+				"edit %d: use exact file text without readFile line numbers%s",
+				i, firstLineHint(content, old))
 		case count > 1:
-			return nil, ctxerrors.Wrapf(ErrMatchNotUnique, "edit %d", i)
+			return nil, ctxerrors.Wrapf(ErrMatchNotUnique,
+				"edit %d: %d matches, at lines %s; include more surrounding "+
+					"lines so the old text matches once",
+				i, count, joinLineNumbers(matchLineNumbers(content, old)))
 		}
 
 		start := bytes.Index(content, old)

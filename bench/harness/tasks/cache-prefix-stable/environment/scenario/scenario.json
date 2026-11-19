@@ -1,0 +1,19 @@
+{
+  "steps": [
+    {
+      "op": "send",
+      "label": "first",
+      "message": "Write the word `amber` followed by a newline to `/app/out/1.txt`."
+    },
+    {
+      "op": "send",
+      "label": "second",
+      "message": "Write the word `cobalt` followed by a newline to `/app/out/2.txt`."
+    },
+    {
+      "op": "send",
+      "label": "third",
+      "message": "Write the word `saffron` followed by a newline to `/app/out/3.txt`."
+    }
+  ]
+}

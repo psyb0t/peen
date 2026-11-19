@@ -71,7 +71,8 @@ func (r *Runtime) recoverChildPrompt(child recoveredChild) (
 	prompt := elelem.NewPrompt().WithSystem(child.launch.systemPrompt)
 	if history.Compaction != nil {
 		prompt = prompt.Add(compactionSummaryMessage(
-			compactionSummaryLead + history.Compaction.Summary,
+			summaryMessageText(compactionSummaryLead,
+				history.Compaction.Summary),
 		))
 	}
 

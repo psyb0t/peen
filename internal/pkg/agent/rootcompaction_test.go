@@ -100,7 +100,7 @@ func TestNativeRootCompactionCallsProviderAndCommitsOnce(t *testing.T) {
 	var conversation workflowConversation
 	require.NoError(t, json.Unmarshal(result.Output.Context, &conversation))
 	require.NoError(t, validateWorkflowCompactionConversation(conversation))
-	assert.Equal(t, compactionSummaryLead+"retained summary",
+	assert.Equal(t, summaryMessageText(compactionSummaryLead, "retained summary"),
 		conversation.Messages[0].Text())
 	assert.EqualValues(t, 4, conversation.Runtime.Skills.CompactedThrough)
 	reused, err := fixture.engine.compactRound(t.Context(), input)
@@ -304,7 +304,7 @@ func TestNativeRootCompactionSDKReusesSavedSummary(t *testing.T) {
 	assert.Equal(t, 5, driver.Calls())
 	requests := driver.Requests()
 	require.Len(t, requests, 5)
-	assert.Equal(t, compactionSummaryLead+"retained summary",
+	assert.Equal(t, summaryMessageText(compactionSummaryLead, "retained summary"),
 		requests[4].Messages[1].Text())
 	fixture.stop()
 }

@@ -111,11 +111,25 @@ class TrialBuilder:
         self.frames.extend(frames)
         return self
 
-    def add_turn(self, state="completed", turn_id="turn-1", request_id=None):
+    def add_turn(
+        self,
+        state="completed",
+        turn_id="turn-1",
+        request_id=None,
+        prompt_hash=None,
+    ):
         self.connection.execute(
             "INSERT INTO turns (id, session_id, request_id, workspace, state, "
-            "started_at, completed_at) VALUES (?, 'session-1', ?, '/app', ?, ?, ?)",
-            (turn_id, request_id or turn_id + "-request", state, TIME, LATEST),
+            "started_at, completed_at, prompt_snapshot_hash) "
+            "VALUES (?, 'session-1', ?, '/app', ?, ?, ?, ?)",
+            (
+                turn_id,
+                request_id or turn_id + "-request",
+                state,
+                TIME,
+                LATEST,
+                prompt_hash,
+            ),
         )
         return self
 
@@ -128,6 +142,7 @@ class TrialBuilder:
         stage="turn",
         agent_run_id=None,
         state="completed",
+        cache_read_tokens=0,
     ):
         run_id = str(uuid.uuid4())
         settings = json.dumps({"maxContextTokens": context})
@@ -149,15 +164,16 @@ class TrialBuilder:
         self.connection.execute(
             "INSERT INTO model_calls (id, session_id, model_run_id, round, "
             "request_messages_json, request_tools_json, state, "
-            "response_message_json, prompt_tokens, total_attempts, started_at, "
-            "completed_at) VALUES (?, 'session-1', ?, 0, '[]', '[]', ?, "
-            "?, ?, ?, ?, ?)",
+            "response_message_json, prompt_tokens, cache_read_tokens, "
+            "total_attempts, started_at, completed_at) "
+            "VALUES (?, 'session-1', ?, 0, '[]', '[]', ?, ?, ?, ?, ?, ?, ?)",
             (
                 str(uuid.uuid4()),
                 run_id,
                 state,
                 json.dumps(message),
                 prompt_tokens,
+                cache_read_tokens,
                 attempts,
                 TIME,
                 LATER,

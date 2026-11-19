@@ -8,7 +8,6 @@ import (
 	"errors"
 	"log/slog"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1719,17 +1718,12 @@ func (r *Runtime) systemPromptForAgent(
 		return "", err
 	}
 
-	workspaceBlock, err := workspaceMetadataBlock(workspace)
+	environment, err := r.environmentBlock(workspace)
 	if err != nil {
 		return "", err
 	}
 
-	sections = append(
-		sections,
-		learningBlock,
-		workspaceBlock,
-		r.currentTimeBlock(),
-	)
+	sections = append(sections, learningBlock, environment)
 
 	prompt := joinSystemSections(sections...)
 	if err := r.checkSystemPromptBudget(prompt, blocks); err != nil {
@@ -1739,37 +1733,42 @@ func (r *Runtime) systemPromptForAgent(
 	return prompt, nil
 }
 
-func (r *Runtime) currentTimeBlock() string {
+// currentDateText is today's UTC date as the environment block gives it.
+func (r *Runtime) currentDateText() string {
 	now := r.now
 	if now == nil {
 		now = time.Now
 	}
 
-	current := now()
-
-	return strings.Join([]string{
-		runtimeContextHeader,
-		runtimeContextLocalTimeLead + current.Format(time.RFC3339),
-		runtimeContextTimezoneLead + current.Location().String(),
-		runtimeContextOperatingSystemLead + runtime.GOOS,
-		runtimeContextArchitectureLead + runtime.GOARCH,
-		runtimeContextLogicalCPUsLead + strconv.Itoa(runtime.NumCPU()),
-		runtimeContextGoRuntimeLead + runtime.Version(),
-		runtimeContextFreshnessGuidance,
-	}, "\n")
+	return now().UTC().Format(environmentDateLayout)
 }
 
-// workspaceMetadataBlock states the directory relative tool paths resolve
-// from. It is JSON-encoded because a workspace path can contain quotes,
-// newlines, or anything else a filesystem allows, and pasting one raw into the
-// prompt is how a directory name becomes an instruction.
-func workspaceMetadataBlock(workspace string) (string, error) {
+// environmentData is what environmentTemplateText renders.
+type environmentData struct {
+	Date            string
+	Workspace       string
+	OperatingSystem string
+	Architecture    string
+	LogicalCPUs     int
+}
+
+// environmentBlock describes where the agent runs: today's UTC date, the
+// directory relative tool paths resolve from, the operating system, the
+// architecture and the CPU count.
+func (r *Runtime) environmentBlock(workspace string) (string, error) {
 	encoded, err := json.Marshal(workspace)
 	if err != nil {
-		return "", ctxerrors.Wrap(err, "encode workspace metadata")
+		return "", ctxerrors.Wrap(err, "encode workspace path")
 	}
 
-	return workspaceMetadataLead + string(encoded), nil
+	return renderTemplate(environmentTemplateName, environmentTemplateText,
+		environmentData{
+			Date:            r.currentDateText(),
+			Workspace:       string(encoded),
+			OperatingSystem: runtime.GOOS,
+			Architecture:    runtime.GOARCH,
+			LogicalCPUs:     runtime.NumCPU(),
+		})
 }
 
 func (r *Runtime) saveSnapshots(
@@ -2249,6 +2248,11 @@ func compactionSettings(
 		return "", compactionOptions{}, err
 	}
 
+	targetPercent, err := compactionTargetPercent(options)
+	if err != nil {
+		return "", compactionOptions{}, err
+	}
+
 	settings := compactionOptions{
 		Store:           options.Store,
 		Models:          options.Models,
@@ -2256,6 +2260,7 @@ func compactionSettings(
 		ModelReference:  options.CompactionModel,
 		MaxOutputTokens: summaryTokens,
 		Timeout:         options.ModelRequestTimeout,
+		TargetPercent:   targetPercent,
 	}.withDefaults(options.DefaultModel)
 
 	prompt, err := resolveCompactionPrompt(mode, options)
@@ -2274,6 +2279,30 @@ func compactionSettings(
 	}
 
 	return mode, settings, nil
+}
+
+// compactionTargetPercent resolves the share of the budget the rest of the
+// request may take after a summary. Zero keeps it off, so a summary covers
+// only what the request needs to fit; a deployment gets
+// config.DefaultCompactionTargetPercent from its configuration.
+func compactionTargetPercent(options RuntimeOptions) (int, error) {
+	percent := options.CompactionTargetPercent
+	if percent == 0 {
+		return 0, nil
+	}
+
+	if percent < config.MinCompactionTargetPercent ||
+		percent > config.MaxCompactionTargetPercent {
+		return 0, ctxerrors.Wrapf(
+			ErrInvalidCompactionOptions,
+			"a %d percent compaction target is outside %d to %d",
+			percent,
+			config.MinCompactionTargetPercent,
+			config.MaxCompactionTargetPercent,
+		)
+	}
+
+	return percent, nil
 }
 
 // compactionSummaryTokens resolves the room one summary gets, its share of
@@ -2754,7 +2783,8 @@ func promptFromHistory(
 
 	if history.Compaction != nil {
 		prompt = prompt.Add(compactionSummaryMessage(
-			compactionSummaryLead + history.Compaction.Summary,
+			summaryMessageText(compactionSummaryLead,
+				history.Compaction.Summary),
 		))
 	}
 

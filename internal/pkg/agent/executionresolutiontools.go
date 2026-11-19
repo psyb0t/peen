@@ -21,32 +21,22 @@ const (
 	acceptedToolResultRefusal = `accept on a tool call step needs output to be the tool's result, {"Content": "<result text>", "IsError": false}` //nolint:lll // One model-facing refusal.
 )
 
-const resolveExecutionActivityDescription = `Record an inspection decision for
-an uncertain step in retained work. Inspect the current workspace, activity
-input, attempt and saved context with readExecution first. Supply activityId,
-the execution's inspected controlRevision, the activity attempt, and evidence
-describing what you actually checked. Choose retry only when repeating the
-effect is safe. Choose accept only when you know the outcome. For a tool call
-step, output is the result the tool would have returned, as
-{"Content": "<result text>", "IsError": false}, and Peen keeps the rest of
-the step's state. For another step, output is that step's complete output
-checkpoint object. Leave context out to keep the step's saved context. Do not
-invent an outcome.
-This records the decision and the caller in history. A paused execution stays
-paused until resumeExecution. An admitted execution can continue once all
-uncertain steps are resolved. A newer Stop or changed target refuses stale
-requests. Leave the step uncertain when the evidence is insufficient.`
+//nolint:lll // Model-facing paragraphs stay on one line.
+const resolveExecutionActivityDescription = `Record what happened in a step of earlier work whose effect is unknown, such as a command that was running when the worker stopped. First read the step's input, attempt, and saved context with readExecution, and check the current workspace. Choose retry only when doing the step again is safe, and accept only when you know its outcome; when the evidence does not settle it, leave the step unresolved, and never invent an outcome.
 
+For a tool call step accepted as done, output is the result the tool would have returned, as {"Content": "<result text>", "IsError": false}; for any other step, output is that step's complete output checkpoint. Leave context out to keep the step's saved context. The decision is recorded in the work's history. Paused work stays paused until resumeExecution; other work continues once no unknown step is left. A newer stop or a changed target since your readExecution refuses the call.`
+
+//nolint:lll // Parameter descriptions stay on one line.
 const resolveExecutionActivitySchema = `{
   "type": "object",
   "properties": {
-    "activityId": {"type": "string", "format": "uuid"},
-    "controlRevision": {"type": "integer", "minimum": 0},
-    "attempt": {"type": "integer", "minimum": 1},
-    "resolution": {"type": "string", "enum": ["retry", "accept"]},
-    "evidence": {"type": "string", "minLength": 1},
-    "output": {"type": "object"},
-    "context": {"type": "object"}
+    "activityId": {"type": "string", "format": "uuid", "description": "The step to resolve, from readExecution's activities."},
+    "controlRevision": {"type": "integer", "minimum": 0, "description": "The controlRevision readExecution reported for the work."},
+    "attempt": {"type": "integer", "minimum": 1, "description": "The step's attempt number from readExecution's activities."},
+    "resolution": {"type": "string", "enum": ["retry", "accept"], "description": "retry runs the step again; accept records output as its outcome."},
+    "evidence": {"type": "string", "minLength": 1, "description": "What you checked that supports this decision."},
+    "output": {"type": "object", "description": "With accept, the step's outcome: a tool result as {\"Content\": ..., \"IsError\": ...}, or another step's output checkpoint."},
+    "context": {"type": "object", "description": "A replacement saved context for the step. Leave it out to keep the saved one."}
   },
   "required": ["activityId", "controlRevision", "attempt", "resolution",
     "evidence"],
