@@ -9,7 +9,7 @@
 
 Pronounced "HTTP". The name is the whole joke. Moving on.
 
-A Go HTTP library that does everything you need and nothing you don't. Spin up a production-ready server with middleware, WebSocket hubs, file uploads, static serving, request proxying with caching, and OpenAPI validation — all with secure defaults and zero boilerplate.
+A Go HTTP library that does everything you need and nothing you don't. Spin up a server with middleware, WebSocket hubs, file uploads, static serving, and request proxying with caching. Secure defaults, without the boilerplate.
 
 ```go
 srv, _ := serbewr.New()
@@ -90,10 +90,6 @@ Pronounced "proxy", because of course it is. Forward requests upstream with opti
 
 Pronounced "WS" — because why stop at one wordplay. Three-tier architecture (Hub -> Client -> Connection) with typed events, handler registration, broadcast, and a Unix socket bridge for when you need to plug in external tools. [Full docs](docs/websocket.md).
 
-### [`echo/`](docs/echo.md) — Echo framework integration
-
-For when you want [labstack/echo](https://github.com/labstack/echo) instead of `net/http`. Wrapper with auto-served OpenAPI specs, Swagger UI, Bearer auth middleware, and OpenAPI request validation via oapi-codegen. [Full docs](docs/echo.md).
-
 ### [`klhayyent/`](docs/client.md), HTTP client
 
 Pronounced "client". Apparently that one needed saying too. Handles outbound
@@ -120,8 +116,7 @@ No explicit logger passing. Every log line from every middleware and handler aut
 
 ## Development
 
-Every target runs inside a pinned dev image (Go 1.26.6 + the linter and
-scanners), so a local run and CI use the exact same toolchain.
+Every target runs inside a pinned dev image (Go 1.26.9 + the linter and scanners), so a local run and CI use the exact same toolchain.
 
 ```bash
 make dev-image      # build the sandboxed dev image
