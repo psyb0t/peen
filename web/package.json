@@ -19,8 +19,8 @@
 	},
 	"devDependencies": {
 		"@eslint/js": "10.0.1",
-		"@sveltejs/adapter-static": "4.0.0",
-		"@sveltejs/kit": "3.1.0",
+		"@sveltejs/adapter-static": "4.0.1",
+		"@sveltejs/kit": "3.1.1",
 		"@sveltejs/vite-plugin-svelte": "7.3.1",
 		"@testing-library/svelte": "5.4.2",
 		"@types/node": "24.19.2",
@@ -46,7 +46,9 @@
 		],
 		"overrides": {
 			"cookie": "2.0.1",
-			"minimatch": "11.0.2"
+			"minimatch": "11.0.2",
+			"tldts": "7.4.22",
+			"tldts-core": "7.4.22"
 		}
 	}
 }

@@ -2,6 +2,15 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.50.1 (2026-11-22)
+
+Updates the control surface's build packages and the benchmark driver's Python packages to releases without open security advisories. The control surface is a static build, so none of these advisories reached a running Peen. No configuration or API migration is needed.
+
+- Updates `@sveltejs/kit` to 3.1.1, which fixes GHSA-rqp5-r3wg-vg35, GHSA-m9j8-jcmv-hp69, GHSA-6cf5-gc4q-fm3x, and GHSA-3r8g-jcqq-3p5j.
+- Updates `@sveltejs/adapter-static` to 4.0.1, which fixes GHSA-jf9x-2fg2-hx4w.
+- Updates `tldts` and `tldts-core` to 7.4.22, replacing `tldts-core` 7.4.20, which its author deprecated as a partial release.
+- Updates the benchmark driver's `opentelemetry-api` to 1.45.2, which fixes GHSA-mf5v-w3w3-f6cg.
+
 ## v0.50.0 (2026-11-19)
 
 Reworks what the model reads: a system prompt that stays the same all day so providers can cache it, tagged sections that say where each instruction came from, tool results and errors that report what they hold, and compaction that makes room for several turns at once. Before upgrading, add `searchExecutions`, `readExecution`, `readMetrics`, `resumeExecution`, or `resolveExecutionActivity` to the `allowed-tools` of any agent file that needs them, set `PEEN_COMPACTION_MODE=drop-oldest` if you relied on that default, and set `PEEN_MAX_SYSTEM_PROMPT_PERCENT=50` if your always-loaded rules need more than a quarter of the context.

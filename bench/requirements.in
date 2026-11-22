@@ -8,5 +8,8 @@ harbor==0.24.0
 # report says to pin. Do not move it without checking the release against
 # litellm's security advisories.
 litellm==1.106.2
+# fastapi pulls in opentelemetry-api. Releases before 1.45.2 have an open
+# GitHub security advisory.
+opentelemetry-api>=1.45.2
 # Runs the tests of the harness audit and report tools, `make bench-selftest`.
 pytest
