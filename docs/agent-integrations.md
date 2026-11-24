@@ -1,7 +1,7 @@
 ---
 title: Agent integrations
 description: Install the peen agent skill so Claude Code, Codex, or OpenClaw can set up Peen, send it work over WebSocket, and inspect its stored state.
-nav_order: 15
+nav_order: 16
 ---
 
 # Agent integrations
@@ -29,3 +29,7 @@ The skill lives in [`.agents/skills/peen`](https://github.com/psyb0t/peen/tree/m
 ## Skills inside Peen
 
 This page is about an outside agent operating Peen. To give the agent running inside Peen its own procedures, see [Skills](skills.md).
+
+## Connect over MCP
+
+An outside agent can also operate Peen through the optional [MCP control server](mcp-server.md#connect). Enable it on the controller, then add its Streamable HTTP URL and bearer header to the client configuration shown there.

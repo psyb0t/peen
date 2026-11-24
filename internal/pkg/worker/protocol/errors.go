@@ -24,16 +24,18 @@ var ErrWorkerRejected = errors.New("worker registration rejected")
 type Code string
 
 const (
-	CodeUnknown          Code = "unknown"
-	CodeNotFound         Code = "notFound"
-	CodeAlreadyExists    Code = "alreadyExists"
-	CodeConflict         Code = "conflict"
-	CodeInvalidState     Code = "invalidState"
-	CodeValidation       Code = "validationFailed"
-	CodePermissionDenied Code = "permissionDenied"
-	CodeLockHeld         Code = "lockHeld"
-	CodeCancelled        Code = "cancelled"
-	CodeNotImplemented   Code = "notImplemented"
+	CodeTurnTimeout         Code = "turnTimeout"
+	CodeOutputSchemaInvalid Code = "outputSchemaInvalid"
+	CodeUnknown             Code = "unknown"
+	CodeNotFound            Code = "notFound"
+	CodeAlreadyExists       Code = "alreadyExists"
+	CodeConflict            Code = "conflict"
+	CodeInvalidState        Code = "invalidState"
+	CodeValidation          Code = "validationFailed"
+	CodePermissionDenied    Code = "permissionDenied"
+	CodeLockHeld            Code = "lockHeld"
+	CodeCancelled           Code = "cancelled"
+	CodeNotImplemented      Code = "notImplemented"
 
 	CodeRunningTurnSettingsChange Code = "runningTurnSettingsChange"
 	CodeUserMessageQueueFull      Code = "userMessageQueueFull"
@@ -102,6 +104,14 @@ type detailedFailure struct {
 //
 //nolint:gochecknoglobals // A lookup table both directions read.
 var detailedFailures = []detailedFailure{
+	{
+		code: CodeTurnTimeout, detail: session.ErrTurnTimeout,
+		class: commerr.ErrCancelled,
+	},
+	{
+		code: CodeOutputSchemaInvalid, detail: session.ErrOutputSchemaInvalid,
+		class: commerr.ErrValidationFailed,
+	},
 	{
 		code:   CodeExecutionInboxPending,
 		detail: session.ErrExecutionInboxPending,

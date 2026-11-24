@@ -1,13 +1,15 @@
 ---
-title: "MCP servers"
+title: "MCP tool servers"
 description: "Give the Peen agent the tools of MCP servers, with the mcp.json format and how those tools work with hooks and allowed-tools."
 nav_order: 6
 parent: "The harness"
 ---
 
-# MCP servers
+# MCP tool servers
 
-Peen can give the agent the tools of [MCP](https://modelcontextprotocol.io) servers. A server's tools sit next to Peen's own tools: hooks, `allowed-tools`, metrics, the transcript, and durable tool phases treat them the same way. Only tools are supported. Resources, prompts, sampling, elicitation, and roots are not.
+This page is about Peen as an MCP **client**: Peen can give its agent the tools of [MCP](https://modelcontextprotocol.io) servers. To let an outside MCP client operate Peen itself, see the [MCP control server](mcp-server.md), which is a separate feature.
+
+A server's tools sit next to Peen's own tools: hooks, `allowed-tools`, metrics, the transcript, and durable tool phases treat them the same way. Only tools are supported. Resources, prompts, sampling, elicitation, and roots are not.
 
 ## Configuring servers
 

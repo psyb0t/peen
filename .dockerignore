@@ -16,6 +16,7 @@
 # a package may embed it.
 *.md
 docs/
+website/
 
 # Local secrets / env
 .env

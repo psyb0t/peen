@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors/commerr"
@@ -114,6 +115,36 @@ func TestNormalRootStillRejectsRemovedSkill(t *testing.T) {
 		Message: "continue :gone",
 	})
 	require.ErrorIs(t, err, harness.ErrSkillNotFound)
+}
+
+func TestDeferredRootStartsWithFreshTurnSettings(t *testing.T) {
+	t.Parallel()
+	fixture, message, _ := deferredRootFixture(t)
+	source, err := fixture.base.store.GetExecution(t.Context(),
+		message.SessionID, message.ExecutionID)
+	require.NoError(t, err)
+
+	var conversation workflowConversation
+	require.NoError(t, json.Unmarshal([]byte(source.ContextJSON),
+		&conversation))
+	conversation.Root.OutputSchema = json.RawMessage(testOutputSchema)
+	conversation.Root.Deadline = time.Now().UTC().Add(-time.Second)
+	encoded, err := json.Marshal(conversation)
+	require.NoError(t, err)
+	source.ContextJSON = string(encoded)
+	deferred, err := decodeDeferredRoot(source, message, nil)
+	require.NoError(t, err)
+	assert.Empty(t, deferred.request.OutputSchema)
+	assert.True(t, deferred.request.Deadline.IsZero())
+
+	fixture.base.runtime.turnTimeout = time.Minute
+	before := time.Now().UTC()
+	prepared, err := fixture.base.runtime.prepareDeferredRoot(t.Context(),
+		message.ExecutionID, message.RequestID, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { fixture.base.store.ReleaseTurn(prepared.lease) })
+	assert.WithinRange(t, prepared.input.Deadline,
+		before.Add(time.Minute), time.Now().UTC().Add(time.Minute))
 }
 
 func TestDeferredRootRejectsInvalidSavedSkillParts(t *testing.T) {

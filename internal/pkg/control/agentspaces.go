@@ -62,12 +62,14 @@ func agentSpaceToAPI(space worker.AgentSpace) api.AgentSpace {
 	return converted
 }
 
-// ReconfigureSession moves an idle session to a different agent space.
+// ReconfigureSession moves an idle session, and every other session of its
+// workspace, to a different agent space.
 //
-// The agent space must be one the deployment offers, the session must have no
-// turn in flight, and the change is recorded with the caller's reason. The
-// session's current worker is stopped, so the next turn starts a new generation
-// in the new agent space rather than continuing in the old environment.
+// The agent space must be one the deployment offers, no session of the
+// workspace may have a turn in flight, and the change is recorded for each
+// session with the caller's reason. Each session's current worker is stopped,
+// so its next turn starts a new generation in the new agent space rather than
+// continuing in the old environment. The returned decision is sessionID's.
 func (r *Registry) ReconfigureSession(
 	ctx context.Context,
 	sessionID uuid.UUID,
@@ -96,7 +98,7 @@ func (r *Registry) ReconfigureSession(
 		)
 	}
 
-	decision, err := r.store.ReconfigureAgentSpace(
+	decisions, err := r.store.ReconfigureAgentSpace(
 		ctx,
 		sessionID,
 		agentSpace.Name,
@@ -109,14 +111,26 @@ func (r *Registry) ReconfigureSession(
 		)
 	}
 
-	// Stopping the worker is what makes the new agent space take effect.
-	// Without it the session would keep running in the process it already had.
+	for _, decision := range decisions {
+		r.stopReconfiguredWorker(ctx, decision)
+	}
+
+	return agentSpaceDecisionToAPI(decisions[0]), nil
+}
+
+// stopReconfiguredWorker stops one moved session's worker. Stopping it is what
+// makes the new agent space take effect; without it the session would keep
+// running in the process it already had.
+func (r *Registry) stopReconfiguredWorker(
+	ctx context.Context,
+	decision *models.SessionAgentSpaceDecision,
+) {
 	if r.workers != nil {
-		if err := r.workers.Stop(ctx, sessionID); err != nil {
+		if err := r.workers.Stop(ctx, decision.SessionID); err != nil {
 			ctxscope.GetLogger(ctx).Warn(
 				"stopping the worker after reconfiguration failed",
 				"reason", "worker_stop_failed",
-				"session_id", sessionID.String(),
+				"session_id", decision.SessionID.String(),
 				"err", err,
 			)
 		}
@@ -124,12 +138,10 @@ func (r *Registry) ReconfigureSession(
 
 	ctxscope.GetLogger(ctx).Info(
 		"session agent space changed",
-		"session_id", sessionID.String(),
+		"session_id", decision.SessionID.String(),
 		"from_agent_space", decision.FromAgentSpace,
 		"to_agent_space", decision.ToAgentSpace,
 	)
-
-	return agentSpaceDecisionToAPI(decision), nil
 }
 
 // ListAgentSpaceDecisions returns one page of a session's agent space decision

@@ -46,6 +46,8 @@ const DefaultAgent = harness.CorePrefix + "general-purpose"
 // session already reads.
 const defaultLearnedDirectoryPath = ".agents/learned"
 
+const defaultOperatorBinDirectoryPath = ".agents/bin"
+
 // PEEN_COMPACTION_SUMMARY_PERCENT default and ceiling. A summary above half
 // the context leaves too little room for the conversation it makes room for.
 const (
@@ -188,6 +190,9 @@ type Config struct {
 	// client request. Empty uses the process working directory.
 	WorkspaceRoot string `env:"PEEN_WORKSPACE_ROOT"`
 
+	// MaxFileAPIBytes bounds decoded workspace file API reads and writes.
+	MaxFileAPIBytes int64 `default:"16777216" env:"PEEN_MAX_FILE_API_BYTES"` //nolint:lll // Immutable env tag.
+
 	// DockerProfilesJSON defines the named Docker profiles a client may pick,
 	// as a JSON array. Every worker capability lives here: image, mounts,
 	// Docker access, network, and sudo. None of it ever comes from model
@@ -248,8 +253,11 @@ type Config struct {
 	// the check off.
 	MaxSystemPromptPercent int `default:"25" env:"PEEN_MAX_SYSTEM_PROMPT_PERCENT"` //nolint:lll // Immutable env tag.
 	// ModelRequestTimeout bounds each model request, a turn's rounds and a
-	// compaction summary alike. A turn has no overall time limit.
-	ModelRequestTimeout time.Duration `default:"10m" env:"PEEN_MODEL_REQUEST_TIMEOUT"` //nolint:lll // Immutable env tag.
+	// compaction summary alike.
+	ModelRequestTimeout  time.Duration `default:"10m" env:"PEEN_MODEL_REQUEST_TIMEOUT"` //nolint:lll // Immutable env tag.
+	TurnTimeout          time.Duration `default:"0" env:"PEEN_TURN_TIMEOUT"`
+	OutputSchemaAttempts int           `default:"3" env:"PEEN_OUTPUT_SCHEMA_ATTEMPTS"`      //nolint:lll // Immutable env tag.
+	MaxOutputSchemaBytes int           `default:"65536" env:"PEEN_MAX_OUTPUT_SCHEMA_BYTES"` //nolint:lll // Immutable env tag.
 
 	// CrashRecovery applies to every workspace this controller serves. It is
 	// controller-only: recovery runs before any worker starts.
@@ -324,7 +332,6 @@ type Config struct {
 
 	// Retired settings are read only so startup can refuse them by name and
 	// point at what replaced them. See retiredSettings.
-	RetiredTurnTimeout           string `env:"PEEN_TURN_TIMEOUT"`
 	RetiredCompactionTimeout     string `env:"PEEN_COMPACTION_TIMEOUT"`
 	RetiredToolCommandTimeout    string `env:"PEEN_TOOL_COMMAND_TIMEOUT"`
 	RetiredToolMaxCommandTimeout string `env:"PEEN_TOOL_MAX_COMMAND_TIMEOUT"`
@@ -337,6 +344,21 @@ type Config struct {
 	// the default, and a negative value stops startup.
 	MetricsRetention time.Duration `default:"168h" env:"PEEN_METRICS_RETENTION"` //nolint:lll // Immutable env tag.
 	APIToken         string        `env:"PEEN_API_TOKEN"`
+
+	Cron                 bool   `default:"false" env:"PEEN_CRON"`
+	Telegram             bool   `default:"false" env:"PEEN_TELEGRAM"`
+	TelegramToken        string `env:"PEEN_TELEGRAM_TOKEN"`
+	TelegramAllowedChats string `env:"PEEN_TELEGRAM_ALLOWED_CHATS"`
+	TelegramAllowedUsers string `env:"PEEN_TELEGRAM_ALLOWED_USERS"`
+	TelegramWorkspace    string `env:"PEEN_TELEGRAM_WORKSPACE"`
+	TelegramAgentSpace   string `env:"PEEN_TELEGRAM_AGENT_SPACE"`
+
+	OpenAIAPI       bool   `default:"false" env:"PEEN_OPENAI_API"`
+	OpenAIWorkspace string `env:"PEEN_OPENAI_WORKSPACE"`
+
+	MCPServer               bool   `default:"false" env:"PEEN_MCP_SERVER"`
+	MCPServerAllowedHosts   string `default:"localhost,127.0.0.1,[::1]" env:"PEEN_MCP_SERVER_ALLOWED_HOSTS"`                                       //nolint:lll // Immutable env tag.
+	MCPServerAllowedOrigins string `default:"http://localhost:8080,http://127.0.0.1:8080,http://[::1]:8080" env:"PEEN_MCP_SERVER_ALLOWED_ORIGINS"` //nolint:lll // Immutable env tag.
 
 	// SystemAgent offers the operator the hardcoded system agent, which runs
 	// in the control agent space. That is host root when the controller can
@@ -400,6 +422,16 @@ func parse(validate func(Config) error) (Config, error) {
 		return Config{}, ctxerrors.Wrap(err, "parse Peen configuration")
 	}
 
+	if config.OutputSchemaAttempts == 0 || config.MaxOutputSchemaBytes == 0 {
+		return Config{}, ctxerrors.Wrap(ErrInvalidConfig,
+			"output schema attempts and byte bound must be positive")
+	}
+
+	if config.MaxFileAPIBytes == 0 {
+		return Config{}, ctxerrors.Wrap(ErrInvalidConfig,
+			"PEEN_MAX_FILE_API_BYTES must be positive")
+	}
+
 	workingDirectory, err := os.Getwd()
 	if err != nil {
 		return Config{}, ctxerrors.Wrap(
@@ -420,8 +452,25 @@ func parse(validate func(Config) error) (Config, error) {
 // Validate checks values which need cross-field or filesystem-aware rules. It
 // is the controller's contract and requires a state directory.
 func (c Config) Validate() error {
+	if _, err := c.TelegramPolicy(); err != nil {
+		return ctxerrors.Wrap(err, "validate Telegram configuration")
+	}
+
 	if err := c.validate(true); err != nil {
 		return err
+	}
+
+	if err := c.validateFileAPILimit(); err != nil {
+		return err
+	}
+
+	if c.OpenAIWorkspace != "" && !filepath.IsAbs(c.OpenAIWorkspace) {
+		return ctxerrors.Wrap(ErrInvalidConfig,
+			"PEEN_OPENAI_WORKSPACE must be absolute")
+	}
+
+	if _, err := c.MCPServerPolicy(); err != nil {
+		return ctxerrors.Wrap(err, "validate MCP server policy")
 	}
 
 	return c.validateAgentSpaces()
@@ -438,6 +487,7 @@ func (c Config) validate(requireStateDirectory bool) error {
 		func() error { return c.validateDirectories(requireStateDirectory) },
 		c.validateDockerHostIdentity,
 		c.validateRuntime,
+		c.validateTurnSettings,
 		c.validateCrashRecovery,
 		c.validateCoreSelection,
 		c.validateMetricsListener,
@@ -502,6 +552,7 @@ func base64Size(n int) int64 {
 // deployment allows.
 func (c Config) WebSocketReadLimit() int64 {
 	return int64(c.MaxMessageBytes) + int64(c.MaxSystemPromptBytes) +
+		int64(c.MaxOutputSchemaBytes) +
 		int64(c.MaxImagesPerMessage)*base64Size(c.MaxImageBytes) +
 		webSocketFrameOverheadBytes
 }
@@ -1123,10 +1174,6 @@ type retiredSetting struct {
 
 func (c Config) retiredSettings() []retiredSetting {
 	return []retiredSetting{
-		{
-			"PEEN_TURN_TIMEOUT", c.RetiredTurnTimeout,
-			envModelRequestTimeout,
-		},
 		{
 			"PEEN_COMPACTION_TIMEOUT", c.RetiredCompactionTimeout,
 			envModelRequestTimeout,

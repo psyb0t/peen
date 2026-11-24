@@ -6,7 +6,7 @@ import (
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/peen/internal/pkg/pathglob"
-	"go.yaml.in/yaml/v3" //nolint:depguard // Parses rule frontmatter shared with other agents.
+	"go.yaml.in/yaml/v3"
 )
 
 const (

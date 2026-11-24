@@ -1,6 +1,7 @@
 package control_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/google/uuid"
@@ -37,6 +38,7 @@ type reconfigureFixture struct {
 	registry  *control.Registry
 	store     *session.Store
 	sessionID uuid.UUID
+	root      string
 }
 
 func newReconfigureFixture(t *testing.T) reconfigureFixture {
@@ -99,6 +101,7 @@ func newReconfigureFixture(t *testing.T) reconfigureFixture {
 		registry:  registry,
 		store:     store,
 		sessionID: opened.Session.ID,
+		root:      root,
 	}
 }
 
@@ -283,4 +286,118 @@ func TestRegistryReconfigureSessionRefusesABusySession(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
+}
+
+// Every session of a workspace shares its agent space: Open and OpenFresh with
+// no agent space take it, and naming another one is refused with a conflict
+// that names the workspace's agent space.
+func TestRegistryOpenKeepsTheWorkspaceAgentSpace(t *testing.T) {
+	fixture := newReconfigureFixture(t)
+
+	for _, open := range []func(
+		context.Context, string, string,
+	) (control.OpenResult, error){
+		fixture.registry.Open, fixture.registry.OpenFresh,
+	} {
+		_, err := open(t.Context(), fixture.root, testSandboxSpace)
+		require.ErrorIs(t, err, commerr.ErrConflict)
+
+		var conflict *session.AgentSpaceConflictError
+		require.ErrorAs(t, err, &conflict)
+		assert.Equal(t, worker.AgentSpaceControl, conflict.Current)
+		assert.Equal(t, testSandboxSpace, conflict.Requested)
+
+		opened, err := open(t.Context(), fixture.root, "")
+		require.NoError(t, err)
+		assert.Equal(t, worker.AgentSpaceControl, opened.Session.AgentSpace)
+	}
+
+	space, found, err := fixture.registry.WorkspaceAgentSpace(t.Context(),
+		fixture.root)
+	require.NoError(t, err)
+	assert.True(t, found)
+	assert.Equal(t, worker.AgentSpaceControl, space)
+}
+
+// An undefined agent space is still refused as not allowed, before the
+// workspace's own agent space is considered.
+func TestRegistryOpenRefusesAnUndefinedAgentSpaceFirst(t *testing.T) {
+	fixture := newReconfigureFixture(t)
+
+	_, err := fixture.registry.OpenFresh(t.Context(), fixture.root,
+		testUndefinedName)
+	require.ErrorIs(t, err, worker.ErrAgentSpaceNotAllowed)
+	assert.NotErrorIs(t, err, commerr.ErrConflict)
+}
+
+// Reconfiguring one session moves every session of its workspace, so a fresh
+// session opened afterwards, and the canonical one reopened, run in the new
+// agent space.
+func TestRegistryReconfigureMovesTheWholeWorkspace(t *testing.T) {
+	fixture := newReconfigureFixture(t)
+
+	fresh, err := fixture.registry.OpenFresh(t.Context(), fixture.root, "")
+	require.NoError(t, err)
+
+	decision, err := fixture.registry.ReconfigureSession(
+		t.Context(),
+		fresh.Session.ID,
+		api.ReconfigureSessionRequest{
+			AgentSpace: testSandboxSpace,
+			Reason:     "isolating the workspace",
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, fresh.Session.ID, decision.SessionId)
+
+	for _, id := range []uuid.UUID{fixture.sessionID, fresh.Session.ID} {
+		stored, getErr := fixture.store.Get(t.Context(), id)
+		require.NoError(t, getErr)
+		assert.Equal(t, testSandboxSpace, stored.AgentSpace)
+
+		page, listErr := fixture.registry.ListAgentSpaceDecisions(
+			t.Context(), id, api.ListSessionAgentSpaceDecisionsParams{})
+		require.NoError(t, listErr)
+		require.Len(t, page.Items, 1)
+		assert.Equal(t, "isolating the workspace", page.Items[0].Reason)
+	}
+
+	reopened, err := fixture.registry.Open(t.Context(), fixture.root,
+		testSandboxSpace)
+	require.NoError(t, err)
+	assert.Equal(t, fixture.sessionID, reopened.Session.ID)
+
+	_, err = fixture.registry.OpenFresh(t.Context(), fixture.root,
+		worker.AgentSpaceControl)
+	require.ErrorIs(t, err, commerr.ErrConflict)
+}
+
+// A turn in flight in any session of the workspace refuses the move for all of
+// them.
+func TestRegistryReconfigureRefusesWhileASiblingRunsATurn(t *testing.T) {
+	fixture := newReconfigureFixture(t)
+
+	fresh, err := fixture.registry.OpenFresh(t.Context(), fixture.root, "")
+	require.NoError(t, err)
+
+	lease, err := fixture.store.AcquireTurn(t.Context(), fresh.Session.ID,
+		session.StartTurnInput{
+			RequestID: uuid.New(), Workspace: fresh.Session.Workspace,
+		})
+	require.NoError(t, err)
+	t.Cleanup(func() { fixture.store.ReleaseTurn(lease) })
+
+	_, err = fixture.registry.ReconfigureSession(
+		t.Context(),
+		fixture.sessionID,
+		api.ReconfigureSessionRequest{
+			AgentSpace: testSandboxSpace,
+			Reason:     "isolating the workspace",
+		},
+	)
+	require.ErrorIs(t, err, session.ErrSessionBusy)
+
+	stored, err := fixture.store.Get(t.Context(), fixture.sessionID)
+	require.NoError(t, err)
+	assert.Equal(t, worker.AgentSpaceControl, stored.AgentSpace)
 }

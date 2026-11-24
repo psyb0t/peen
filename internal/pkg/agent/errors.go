@@ -7,7 +7,9 @@ import (
 )
 
 var (
-	errProviderStreamCut = errors.New(
+	ErrOutputSchemaInvalid = session.ErrOutputSchemaInvalid
+	ErrTurnTimeout         = session.ErrTurnTimeout
+	errProviderStreamCut   = errors.New(
 		"provider stream ended without a finish reason",
 	)
 	errDirectoryChanged  = errors.New("agent directory changed")

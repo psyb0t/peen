@@ -82,6 +82,13 @@ func CancelledTurnEnd() TurnEnd {
 	}
 }
 
+func TimeoutTurnEnd() TurnEnd {
+	end := CancelledTurnEnd()
+	end.Classification = TurnFailureTimeout
+
+	return end
+}
+
 // FailedTurnEnd is a turn whose workflow failed with detail.
 func FailedTurnEnd(detail string) TurnEnd {
 	return TurnEnd{

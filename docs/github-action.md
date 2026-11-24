@@ -12,7 +12,6 @@ Add your provider key to the repository's Actions secrets as `PROVIDER_KEY`, and
 
 ## Work on a checkout
 
-<!-- {% raw %} -->
 ```yaml
 name: Ask Peen
 on: workflow_dispatch
@@ -41,7 +40,6 @@ jobs:
           PEEN_REPLY: ${{ steps.peen.outputs.result }}
         run: printf '%s\n' "$PEEN_REPLY" > "$RUNNER_TEMP/peen-reply.txt"
 ```
-<!-- {% endraw %} -->
 
 To work outside a checkout, create a directory in an earlier step and pass its absolute path as `working-directory`. Relative paths resolve against `GITHUB_WORKSPACE`. The directory must already exist. No Git repository is required. Files the agent writes remain in that directory for later workflow steps.
 
@@ -49,7 +47,6 @@ To work outside a checkout, create a directory in an earlier step and pass its a
 
 This complete workflow gives Peen an empty directory and asks it to write a file. The next step reads the generated file directly from the runner.
 
-<!-- {% raw %} -->
 ```yaml
 name: Generate a document
 on: workflow_dispatch
@@ -73,7 +70,6 @@ jobs:
       - name: Read the generated guide
         run: cat "$RUNNER_TEMP/peen-work/GUIDE.md"
 ```
-<!-- {% endraw %} -->
 
 ## Inputs
 

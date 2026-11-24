@@ -36,21 +36,24 @@ import (
 
 // Runtime executes durable transport-neutral Peen turns.
 type Runtime struct {
-	fileRecoveryMutex   sync.Mutex
-	fileRecoveryActors  map[fileRecoveryActor]*fileRecoveryCache
-	fileRecoveryClock   uint64
-	workflowManaged     bool
-	workflowMutex       sync.RWMutex
-	workflowRunner      *nativeWorkflowRunner
-	childRecoveryMutex  sync.Mutex
-	childMessageMutex   sync.Mutex
-	recoveredSessions   map[uuid.UUID]bool
-	logger              *slog.Logger
-	commandRunner       commander.Commander
-	filesystem          workspacefs.FS
-	virtualFilesystem   bool
-	disableProcessTools bool
-	hookCallback        func(
+	turnTimeout          time.Duration
+	outputSchemaAttempts int
+	maxOutputSchemaBytes int
+	fileRecoveryMutex    sync.Mutex
+	fileRecoveryActors   map[fileRecoveryActor]*fileRecoveryCache
+	fileRecoveryClock    uint64
+	workflowManaged      bool
+	workflowMutex        sync.RWMutex
+	workflowRunner       *nativeWorkflowRunner
+	childRecoveryMutex   sync.Mutex
+	childMessageMutex    sync.Mutex
+	recoveredSessions    map[uuid.UUID]bool
+	logger               *slog.Logger
+	commandRunner        commander.Commander
+	filesystem           workspacefs.FS
+	virtualFilesystem    bool
+	disableProcessTools  bool
+	hookCallback         func(
 		context.Context,
 		hooks.Invocation,
 	) (hooks.Outcome, error)
@@ -173,9 +176,10 @@ type turnBasis struct {
 // promptAssembly is one turn's assembled prompt beside the map back to the
 // durable rows it was built from.
 type promptAssembly struct {
-	prompt elelem.Prompt
-	plan   reconstructionPlan
-	active *models.Compaction
+	outputSchema string
+	prompt       elelem.Prompt
+	plan         reconstructionPlan
+	active       *models.Compaction
 
 	// skills are the messages that follow the turn's user message, and ledger
 	// records every skill the conversation now holds.
@@ -194,6 +198,7 @@ type turnOpening struct {
 }
 
 type preparedTurn struct {
+	deadline        *turnDeadline
 	releaseTurnSlot func()
 	deferredInboxID *uuid.UUID
 	input           TurnRequest
@@ -276,15 +281,18 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 		models:              options.Models,
 		workerGenerationID:  options.WorkerGenerationID,
 
-		rootAgent:           options.RootAgent,
-		defaultModel:        options.DefaultModel,
-		defaultWorkspace:    startup.workspace,
-		sessionID:           startup.id,
-		maxContextTokens:    options.MaxContextTokens,
-		outputReserveTokens: options.OutputReserveTokens,
-		modelRequestTimeout: options.ModelRequestTimeout,
-		baseSystemPrompt:    options.BaseSystemPrompt,
-		now:                 time.Now,
+		rootAgent:            options.RootAgent,
+		defaultModel:         options.DefaultModel,
+		defaultWorkspace:     startup.workspace,
+		sessionID:            startup.id,
+		maxContextTokens:     options.MaxContextTokens,
+		outputReserveTokens:  options.OutputReserveTokens,
+		modelRequestTimeout:  options.ModelRequestTimeout,
+		turnTimeout:          options.TurnTimeout,
+		outputSchemaAttempts: outputAttempts(options.OutputSchemaAttempts),
+		maxOutputSchemaBytes: outputSchemaBound(options.MaxOutputSchemaBytes),
+		baseSystemPrompt:     options.BaseSystemPrompt,
+		now:                  time.Now,
 
 		maxSystemPromptBytes:  options.MaxSystemPromptBytes,
 		maxMessageBytes:       options.MaxMessageBytes,
@@ -519,6 +527,8 @@ func (r *Runtime) Run(
 		return result, err
 	}
 
+	input = r.withTurnDeadline(input)
+
 	release, err := r.acquireTurnSlot(ctx)
 	if err != nil {
 		return nil, err
@@ -543,6 +553,11 @@ func (r *Runtime) Run(
 		release = nil
 
 		return runner.run(ctx, prepared, releaseAdmission)
+	}
+
+	if requiresNativeWorkflow(input) {
+		return nil, r.finalizeFailedTurn(ctx, prepared, ctxerrors.Wrap(
+			commerr.ErrInvalidState, "turn settings require native workflows"))
 	}
 
 	return r.runLease(ctx, prepared, releaseAdmission)
@@ -864,16 +879,23 @@ func (r *Runtime) openPrompt(
 	ledger.recordMessages(skills)
 
 	prompt = prompt.User(contentWithImages(input.Message, input.Images)...)
+
+	prompt, outputSchema, err := outputSchemaPrompt(prompt, input.OutputSchema)
+	if err != nil {
+		return nil, promptAssembly{}, err
+	}
+
 	for _, skill := range skills {
 		prompt = prompt.UserText(skill.text)
 	}
 
 	return opened, promptAssembly{
-		prompt: prompt,
-		plan:   plan,
-		active: history.Compaction,
-		skills: skills,
-		ledger: ledger,
+		outputSchema: outputSchema,
+		prompt:       prompt,
+		plan:         plan,
+		active:       history.Compaction,
+		skills:       skills,
+		ledger:       ledger,
 	}, nil
 }
 
@@ -1452,6 +1474,7 @@ func newSkillInjectedEvent(
 
 // turnStartContent is what a turn opens with, before any model call.
 type turnStartContent struct {
+	outputSchema     string
 	prompt           string
 	images           []MessageImage
 	isPromptInjected bool
@@ -1482,6 +1505,13 @@ func turnStartMessages(
 		Injected: content.isPromptInjected,
 		Images:   content.images,
 	})
+
+	if content.outputSchema != "" {
+		messages = append(messages, session.MessageInput{
+			Role: models.MessageRoleUser, Content: content.outputSchema,
+			Injected: true,
+		})
+	}
 
 	for _, skill := range content.skills {
 		messages = append(messages, skill.storedInput(""))
@@ -1628,6 +1658,10 @@ func (r *Runtime) isFirstTurn(
 // is also reachable from an embedding Go caller, which never passes through
 // the OpenAPI validator or any middleware.
 func (r *Runtime) validateTurnInput(input TurnRequest) error {
+	if err := r.validateRequestedTurnSettings(input); err != nil {
+		return err
+	}
+
 	if strings.TrimSpace(input.Message) == "" {
 		return ctxerrors.Wrap(commerr.ErrValidationFailed, "message")
 	}

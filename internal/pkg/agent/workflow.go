@@ -28,6 +28,7 @@ func (e *workflowExecution) register(worker *workflowworker.Worker) error {
 	}{
 		{openingHookActivityName, e.openingHook},
 		{modelActivityName, e.modelRound},
+		{structuredOutputActivityName, e.structuredOutput},
 		{prepareActivityName, e.prepareRound},
 		{toolActivityName, e.toolCall},
 		{compactionActivityName, e.compactRound},

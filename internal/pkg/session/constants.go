@@ -38,10 +38,10 @@ const (
 	StoppedToolResultContent = "The tool call was stopped before it " +
 		"returned a result. Its effect is unknown."
 
-	// TurnFailureAgentRun and TurnFailureCancelled are the reasons a turn's
-	// terminal frame carries, the only values the WebSocket contract allows.
+	// TurnFailure values are the reasons a turn's terminal frame carries.
 	TurnFailureAgentRun  = "agentRun"
 	TurnFailureCancelled = "cancelled"
+	TurnFailureTimeout   = "timeout"
 
 	// TurnEndNoticeSource is the source of the turn.failed and turn.cancelled
 	// notices Peen records when a turn ends without completing.

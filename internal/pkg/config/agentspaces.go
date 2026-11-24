@@ -28,7 +28,10 @@ type DockerProfile struct {
 	Revision int64  `json:"revision"`
 	Image    string `json:"image"`
 
-	Mounts []DockerMount `json:"mounts"`
+	Mounts   []DockerMount     `json:"mounts"`
+	Env      map[string]string `json:"env"`
+	GitName  string            `json:"gitName"`
+	GitEmail string            `json:"gitEmail"`
 
 	Docker  worker.DockerAccess `json:"docker"`
 	Network worker.NetworkMode  `json:"network"`
@@ -211,7 +214,45 @@ func (c Config) configuredDockerProfiles() ([]DockerProfile, error) {
 		)
 	}
 
+	if err := c.validateProfileSecrets(profiles); err != nil {
+		return nil, err
+	}
+
 	return profiles, nil
+}
+
+func (c Config) validateProfileSecrets(profiles []DockerProfile) error {
+	var upstreams []Upstream
+	if err := json.Unmarshal([]byte(c.UpstreamsJSON), &upstreams); err != nil {
+		return ctxerrors.Wrap(
+			errors.Join(ErrInvalidConfig, err),
+			"read Docker profile credential variable names",
+		)
+	}
+
+	reserved := make(map[string]struct{})
+	for _, upstream := range upstreams {
+		reserved[upstream.APIKeyEnv] = struct{}{}
+	}
+
+	for _, key := range c.MCPEnvNames() {
+		reserved[key] = struct{}{}
+	}
+
+	for _, profile := range profiles {
+		for key := range profile.Env {
+			if _, found := reserved[key]; found {
+				return ctxerrors.Wrapf(
+					ErrInvalidConfig,
+					"Docker profile %q environment key %q is a credential",
+					profile.Name,
+					key,
+				)
+			}
+		}
+	}
+
+	return nil
 }
 
 // toAgentSpace converts a profile, filling the safe defaults for a grant the
@@ -245,5 +286,8 @@ func (p DockerProfile) toAgentSpace() worker.AgentSpace {
 		Docker:   docker,
 		Network:  network,
 		Sudo:     p.Sudo,
+		Env:      p.Env,
+		GitName:  p.GitName,
+		GitEmail: p.GitEmail,
 	}
 }

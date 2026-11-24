@@ -24,6 +24,8 @@ var (
 	Compaction                *compaction
 	ContentBlob               *contentBlob
 	ContextSnapshot           *contextSnapshot
+	CronJob                   *cronJob
+	CronRun                   *cronRun
 	Event                     *event
 	Execution                 *execution
 	ExecutionActivity         *executionActivity
@@ -41,6 +43,8 @@ var (
 	Session                   *session
 	SessionAgentSpaceDecision *sessionAgentSpaceDecision
 	SessionNotice             *sessionNotice
+	TelegramChat              *telegramChat
+	TelegramMessage           *telegramMessage
 	Turn                      *turn
 	TurnOpeningNotice         *turnOpeningNotice
 	WorkerGeneration          *workerGeneration
@@ -55,6 +59,8 @@ func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 	Compaction = &Q.Compaction
 	ContentBlob = &Q.ContentBlob
 	ContextSnapshot = &Q.ContextSnapshot
+	CronJob = &Q.CronJob
+	CronRun = &Q.CronRun
 	Event = &Q.Event
 	Execution = &Q.Execution
 	ExecutionActivity = &Q.ExecutionActivity
@@ -72,6 +78,8 @@ func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 	Session = &Q.Session
 	SessionAgentSpaceDecision = &Q.SessionAgentSpaceDecision
 	SessionNotice = &Q.SessionNotice
+	TelegramChat = &Q.TelegramChat
+	TelegramMessage = &Q.TelegramMessage
 	Turn = &Q.Turn
 	TurnOpeningNotice = &Q.TurnOpeningNotice
 	WorkerGeneration = &Q.WorkerGeneration
@@ -87,6 +95,8 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		Compaction:                newCompaction(db, opts...),
 		ContentBlob:               newContentBlob(db, opts...),
 		ContextSnapshot:           newContextSnapshot(db, opts...),
+		CronJob:                   newCronJob(db, opts...),
+		CronRun:                   newCronRun(db, opts...),
 		Event:                     newEvent(db, opts...),
 		Execution:                 newExecution(db, opts...),
 		ExecutionActivity:         newExecutionActivity(db, opts...),
@@ -104,6 +114,8 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		Session:                   newSession(db, opts...),
 		SessionAgentSpaceDecision: newSessionAgentSpaceDecision(db, opts...),
 		SessionNotice:             newSessionNotice(db, opts...),
+		TelegramChat:              newTelegramChat(db, opts...),
+		TelegramMessage:           newTelegramMessage(db, opts...),
 		Turn:                      newTurn(db, opts...),
 		TurnOpeningNotice:         newTurnOpeningNotice(db, opts...),
 		WorkerGeneration:          newWorkerGeneration(db, opts...),
@@ -120,6 +132,8 @@ type Query struct {
 	Compaction                compaction
 	ContentBlob               contentBlob
 	ContextSnapshot           contextSnapshot
+	CronJob                   cronJob
+	CronRun                   cronRun
 	Event                     event
 	Execution                 execution
 	ExecutionActivity         executionActivity
@@ -137,6 +151,8 @@ type Query struct {
 	Session                   session
 	SessionAgentSpaceDecision sessionAgentSpaceDecision
 	SessionNotice             sessionNotice
+	TelegramChat              telegramChat
+	TelegramMessage           telegramMessage
 	Turn                      turn
 	TurnOpeningNotice         turnOpeningNotice
 	WorkerGeneration          workerGeneration
@@ -156,6 +172,8 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		Compaction:                q.Compaction.clone(db),
 		ContentBlob:               q.ContentBlob.clone(db),
 		ContextSnapshot:           q.ContextSnapshot.clone(db),
+		CronJob:                   q.CronJob.clone(db),
+		CronRun:                   q.CronRun.clone(db),
 		Event:                     q.Event.clone(db),
 		Execution:                 q.Execution.clone(db),
 		ExecutionActivity:         q.ExecutionActivity.clone(db),
@@ -173,6 +191,8 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		Session:                   q.Session.clone(db),
 		SessionAgentSpaceDecision: q.SessionAgentSpaceDecision.clone(db),
 		SessionNotice:             q.SessionNotice.clone(db),
+		TelegramChat:              q.TelegramChat.clone(db),
+		TelegramMessage:           q.TelegramMessage.clone(db),
 		Turn:                      q.Turn.clone(db),
 		TurnOpeningNotice:         q.TurnOpeningNotice.clone(db),
 		WorkerGeneration:          q.WorkerGeneration.clone(db),
@@ -197,6 +217,8 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		Compaction:                q.Compaction.replaceDB(db),
 		ContentBlob:               q.ContentBlob.replaceDB(db),
 		ContextSnapshot:           q.ContextSnapshot.replaceDB(db),
+		CronJob:                   q.CronJob.replaceDB(db),
+		CronRun:                   q.CronRun.replaceDB(db),
 		Event:                     q.Event.replaceDB(db),
 		Execution:                 q.Execution.replaceDB(db),
 		ExecutionActivity:         q.ExecutionActivity.replaceDB(db),
@@ -214,6 +236,8 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		Session:                   q.Session.replaceDB(db),
 		SessionAgentSpaceDecision: q.SessionAgentSpaceDecision.replaceDB(db),
 		SessionNotice:             q.SessionNotice.replaceDB(db),
+		TelegramChat:              q.TelegramChat.replaceDB(db),
+		TelegramMessage:           q.TelegramMessage.replaceDB(db),
 		Turn:                      q.Turn.replaceDB(db),
 		TurnOpeningNotice:         q.TurnOpeningNotice.replaceDB(db),
 		WorkerGeneration:          q.WorkerGeneration.replaceDB(db),
@@ -228,6 +252,8 @@ type queryCtx struct {
 	Compaction                ICompactionDo
 	ContentBlob               IContentBlobDo
 	ContextSnapshot           IContextSnapshotDo
+	CronJob                   ICronJobDo
+	CronRun                   ICronRunDo
 	Event                     IEventDo
 	Execution                 IExecutionDo
 	ExecutionActivity         IExecutionActivityDo
@@ -245,6 +271,8 @@ type queryCtx struct {
 	Session                   ISessionDo
 	SessionAgentSpaceDecision ISessionAgentSpaceDecisionDo
 	SessionNotice             ISessionNoticeDo
+	TelegramChat              ITelegramChatDo
+	TelegramMessage           ITelegramMessageDo
 	Turn                      ITurnDo
 	TurnOpeningNotice         ITurnOpeningNoticeDo
 	WorkerGeneration          IWorkerGenerationDo
@@ -259,6 +287,8 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		Compaction:                q.Compaction.WithContext(ctx),
 		ContentBlob:               q.ContentBlob.WithContext(ctx),
 		ContextSnapshot:           q.ContextSnapshot.WithContext(ctx),
+		CronJob:                   q.CronJob.WithContext(ctx),
+		CronRun:                   q.CronRun.WithContext(ctx),
 		Event:                     q.Event.WithContext(ctx),
 		Execution:                 q.Execution.WithContext(ctx),
 		ExecutionActivity:         q.ExecutionActivity.WithContext(ctx),
@@ -276,6 +306,8 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		Session:                   q.Session.WithContext(ctx),
 		SessionAgentSpaceDecision: q.SessionAgentSpaceDecision.WithContext(ctx),
 		SessionNotice:             q.SessionNotice.WithContext(ctx),
+		TelegramChat:              q.TelegramChat.WithContext(ctx),
+		TelegramMessage:           q.TelegramMessage.WithContext(ctx),
 		Turn:                      q.Turn.WithContext(ctx),
 		TurnOpeningNotice:         q.TurnOpeningNotice.WithContext(ctx),
 		WorkerGeneration:          q.WorkerGeneration.WithContext(ctx),

@@ -31,7 +31,7 @@ The manual route is the [Docker section of deployment](https://github.com/psyb0t
 
 ## Send a turn
 
-A message for the agent goes over the WebSocket only. REST reads stored state and controls work, and the one REST call that can start a turn is a posted notice that an event handler lets wake an idle session.
+A message for the agent goes over the WebSocket. REST reads stored state and controls work. Other ways to start a turn are a posted notice that an event handler lets wake an idle session, and the optional OpenAI API (`/openai/v1`), MCP control server (`/mcp/v1`) `sendMessage` tool, scheduled turns, and Telegram bot when the operator turns them on. [The skill](../SKILL.md#validated-answers-deadlines-and-other-entry-points) lists them.
 
 ```js
 const opened = await (await fetch("http://127.0.0.1:8080/api/v1/sessions/open", {
@@ -58,7 +58,7 @@ socket.addEventListener("open", () => {
 });
 ```
 
-Keep `sessionId`. Never invent one, because Peen refuses an unknown session ID and starts no turn. Sending another `message.send` with that ID starts or queues new work in the session. It does not resume an earlier paused task. Session work keeps running with no client connected; closing every socket for a session does not pause it. Only `POST /api/v1/session/cancel`, cancelling a child, stopping the controller, an embedded `Close`, a failed turn, or a crash stop it. Each accepted event carries `metadata.sessionId`, so clients sharing a global socket can render only the session tab they need, and a client that reconnects catches up from [`GET /api/v1/session/feed`](https://github.com/psyb0t/peen/blob/main/docs/http-api.md#get-apiv1sessionfeed) instead of missing frames. A `message.completed` event means that submitted message is done. It does not close the socket.
+Keep `sessionId`. Never invent one, because Peen refuses an unknown session ID and starts no turn. Sending another `message.send` with that ID starts or queues new work in the session. It does not resume an earlier paused task. Session work keeps running with no client connected; closing every socket for a session does not pause it. Only `POST /api/v1/session/cancel`, cancelling a child, a turn deadline (`timeoutSeconds` or `PEEN_TURN_TIMEOUT`), stopping the controller, an embedded `Close`, a failed turn, or a crash stop it. Each accepted event carries `metadata.sessionId`, so clients sharing a global socket can render only the session tab they need, and a client that reconnects catches up from [`GET /api/v1/session/feed`](https://github.com/psyb0t/peen/blob/main/docs/http-api.md#get-apiv1sessionfeed) instead of missing frames. A `message.completed` event means that submitted message is done. It does not close the socket.
 
 With `PEEN_API_TOKEN` set, browser clients authenticate through the `peen.v1` and `peen.bearer.<base64url-token>` WebSocket subprotocols. Other clients can send the usual `Authorization: Bearer <token>` header with the upgrade request. Never put a token in the URL.
 

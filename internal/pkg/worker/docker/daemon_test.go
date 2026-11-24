@@ -287,7 +287,8 @@ func TestDaemonClientReturnsTheCreatedContainerID(t *testing.T) {
 //
 //nolint:tagliatelle // The Docker Engine API defines these names.
 type sentCreateBody struct {
-	NetworkDisabled bool `json:"NetworkDisabled"`
+	Env             []string `json:"Env"`
+	NetworkDisabled bool     `json:"NetworkDisabled"`
 	HostConfig      struct {
 		NetworkMode string `json:"NetworkMode"`
 	} `json:"HostConfig"`
@@ -338,6 +339,7 @@ func TestDaemonClientSendsTheNetworkModeInTheCreateBody(t *testing.T) {
 					Name:        "peen-worker-test",
 					Image:       "psyb0t/peen:v1.2.3",
 					NetworkMode: tc.mode,
+					Env:         map[string]string{"Z_SETTING": "last", "A_SETTING": "first"},
 				},
 			)
 			require.NoError(t, err)
@@ -347,6 +349,7 @@ func TestDaemonClientSendsTheNetworkModeInTheCreateBody(t *testing.T) {
 
 			assert.Equal(t, string(tc.mode), sent.HostConfig.NetworkMode)
 			assert.Equal(t, tc.wantDisabled, sent.NetworkDisabled)
+			assert.Equal(t, []string{"A_SETTING=first", "Z_SETTING=last"}, sent.Env)
 		})
 	}
 }

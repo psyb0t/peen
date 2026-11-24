@@ -541,10 +541,10 @@ func (r *Runtime) queueActiveUserMessage(
 		return nil, false, nil
 	}
 
-	if input.Origin != nil {
+	if needsNewRootTurn(input) {
 		return nil, true, ctxerrors.Wrap(
 			session.ErrSessionBusy,
-			"an event cannot start a turn while one runs",
+			"request needs a new turn while one runs",
 		)
 	}
 

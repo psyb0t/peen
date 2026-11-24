@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
@@ -82,6 +83,7 @@ func (r *Runtime) prepareDeferredRoot(
 	}
 
 	ctx = context.WithValue(ctx, deferredRootContextKey{}, saved)
+	saved.request = r.withTurnDeadline(saved.request)
 
 	prepared, err := r.prepareTurn(ctx, saved.request)
 	if err != nil {
@@ -167,6 +169,8 @@ func decodeDeferredRoot(
 	}
 
 	request := conversation.Root.request(sink)
+	request.OutputSchema = nil
+	request.Deadline = time.Time{}
 	request.RequestID = message.RequestID
 	request.Message = message.Message
 	request.Workspace = message.WorkingDirectory

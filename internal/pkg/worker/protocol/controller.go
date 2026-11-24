@@ -755,6 +755,7 @@ func (c *Controller) endRunningTurn(
 	// cannot write an arbitrary frame type through this call. The store bounds
 	// the error it carries.
 	if request.End.Kind() != session.CancelledTurnEnd() &&
+		request.End.Kind() != session.TimeoutTurnEnd() &&
 		request.End.Kind() != session.FailedTurnEnd("") {
 		return nil, ctxerrors.Wrap(commerr.ErrValidationFailed, "turn end")
 	}

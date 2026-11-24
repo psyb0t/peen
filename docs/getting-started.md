@@ -81,7 +81,7 @@ Peen checks every optional rule, skill, named agent, event handler, and hook on 
 
 ## 5. Inspect or stop a run
 
-WebSocket starts work. REST reads stored state and controls an active session. The one REST call that can start a turn is posting a [session notice](events.md) that an event handler lets wake an idle session.
+WebSocket starts work and streams it. REST reads stored state and controls an active session; under `/api/v1` the only call that can start a turn is posting a [session notice](events.md) that an event handler lets wake an idle session. The optional [OpenAI API](openai-api.md), [MCP control server](mcp-server.md), [scheduled turns](cron.md), and [Telegram bot](telegram.md) also start turns when you turn them on.
 
 ```bash
 curl "http://localhost:8080/api/v1/messages?limit=50&order=asc" \
@@ -93,7 +93,7 @@ curl -X POST "http://localhost:8080/api/v1/session/cancel" \
 
 Add `-H "Authorization: Bearer <token>"` to each request when you set `PEEN_API_TOKEN`. The API also exposes stored protocol events, outside notices, process jobs and their output and signal history, child-agent runs, turns, prompt and context snapshots, compaction lineage, provider runs and rounds, and session status. [The API reference](http-api.md) has the frame and response shapes.
 
-Stop pauses the session and interrupts its current activities. Without a Stop, session work keeps running even after you close the page, so it keeps calling the model and spending provider budget until you stop it, cancel a child, or something fails or crashes. Ask the agent to inspect and continue retained work when you want to resume; reconnecting alone does not resume it. After a crash, Peen restores unfinished workflows from saved context and completed results. Interrupted tool effects may need inspection before retry. See [recovery and continuation](agents.md#recovery-after-a-crash).
+Stop pauses the session and interrupts its current activities. Without a Stop, session work keeps running even after you close the page, so it keeps calling the model and spending provider budget until you stop it, cancel a child, a [turn deadline](websocket-api.md#structured-output-and-turn-deadlines) passes, or something fails or crashes. Ask the agent to inspect and continue retained work when you want to resume; reconnecting alone does not resume it. After a crash, Peen restores unfinished workflows from saved context and completed results. Interrupted tool effects may need inspection before retry. See [recovery and continuation](agents.md#recovery-after-a-crash).
 
 ## Before you expose it
 

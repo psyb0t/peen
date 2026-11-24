@@ -111,6 +111,10 @@ type MessageSendData struct {
 	Model           *string                     `json:"model,omitempty"`
 	ReasoningEffort *MessageSendReasoningEffort `json:"reasoningEffort,omitempty"`
 	SystemPrompt    *MessageSystemPrompt        `json:"systemPrompt,omitempty"`
+	// JSON Schema for the final validated output. At most PEEN_MAX_OUTPUT_SCHEMA_BYTES bytes, 65536 by default. Cannot combine with to or join an active turn. External references are refused.
+	OutputSchema map[string]any `json:"outputSchema,omitempty"`
+	// Overall turn timeout in seconds. Cannot combine with to or join an active turn.
+	TimeoutSeconds *int64 `json:"timeoutSeconds,omitempty"`
 	// Not enforced by the generated code: format uuid.
 	To *string `json:"to,omitempty"`
 	// Images the model sees after the message text, at most PEEN_MAX_IMAGES_PER_MESSAGE, 4 by default, only for a model that accepts image input. A message queued into a running turn or sent to a child agent may carry images too.
@@ -130,7 +134,7 @@ func (v *MessageSendData) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	if err := asyncapirt.RejectUnknownKeys("MessageSendData", members, "system", "message", "model", "reasoningEffort", "systemPrompt", "to", "images"); err != nil {
+	if err := asyncapirt.RejectUnknownKeys("MessageSendData", members, "system", "message", "model", "reasoningEffort", "systemPrompt", "outputSchema", "timeoutSeconds", "to", "images"); err != nil {
 		return err
 	}
 
@@ -159,6 +163,14 @@ func (v MessageSendData) Validate() error {
 	if v.SystemPrompt != nil {
 		if err := (*v.SystemPrompt).Validate(); err != nil {
 			return ctxerrors.Wrap(err, "systemPrompt")
+		}
+	}
+	if v.TimeoutSeconds != nil {
+		if err := asyncapirt.CheckMinimum("timeoutSeconds", float64((*v.TimeoutSeconds)), 1); err != nil {
+			return err
+		}
+		if err := asyncapirt.CheckMaximum("timeoutSeconds", float64((*v.TimeoutSeconds)), 86400); err != nil {
+			return err
 		}
 	}
 	for i0, item0 := range v.Images {
@@ -1804,6 +1816,8 @@ const (
 	MessageFailedCodeInternalServerError         MessageFailedCode = "INTERNAL_SERVER_ERROR"
 	MessageFailedCodeSessionNotFound             MessageFailedCode = "SESSION_NOT_FOUND"
 	MessageFailedCodeTurnCancelled               MessageFailedCode = "TURN_CANCELLED"
+	MessageFailedCodeTurnTimeout                 MessageFailedCode = "TURN_TIMEOUT"
+	MessageFailedCodeOutputSchemaInvalid         MessageFailedCode = "OUTPUT_SCHEMA_INVALID"
 	MessageFailedCodeUserMessageQueueFull        MessageFailedCode = "USER_MESSAGE_QUEUE_FULL"
 	MessageFailedCodeSessionBusy                 MessageFailedCode = "SESSION_BUSY"
 	MessageFailedCodeAgentFinished               MessageFailedCode = "AGENT_FINISHED"
@@ -1817,7 +1831,7 @@ const (
 // Validate reports whether v is one of the values the schema lists.
 func (v MessageFailedCode) Validate() error {
 	switch v {
-	case MessageFailedCodeValidationFailed, MessageFailedCodeInternalServerError, MessageFailedCodeSessionNotFound, MessageFailedCodeTurnCancelled, MessageFailedCodeUserMessageQueueFull, MessageFailedCodeSessionBusy, MessageFailedCodeAgentFinished, MessageFailedCodeAgentNotFound, MessageFailedCodeAgentPaused, MessageFailedCodeHarnessConfigurationInvalid, MessageFailedCodeTurnRoundLimit, MessageFailedCodeTurnTokenLimit:
+	case MessageFailedCodeValidationFailed, MessageFailedCodeInternalServerError, MessageFailedCodeSessionNotFound, MessageFailedCodeTurnCancelled, MessageFailedCodeTurnTimeout, MessageFailedCodeOutputSchemaInvalid, MessageFailedCodeUserMessageQueueFull, MessageFailedCodeSessionBusy, MessageFailedCodeAgentFinished, MessageFailedCodeAgentNotFound, MessageFailedCodeAgentPaused, MessageFailedCodeHarnessConfigurationInvalid, MessageFailedCodeTurnRoundLimit, MessageFailedCodeTurnTokenLimit:
 		return nil
 	}
 
@@ -4924,8 +4938,12 @@ func (v TurnCompleted) Validate() error {
 }
 
 type TurnCompletedData struct {
-	Model string `json:"model"`
-	Text  string `json:"text"`
+	// The validated JSON answer when outputSchema was given.
+	Output json.RawMessage `json:"output,omitempty"`
+	// Why every structured output attempt failed.
+	OutputError *string `json:"outputError,omitempty"`
+	Model       string  `json:"model"`
+	Text        string  `json:"text"`
 	// Why the model stopped its final reply, as the provider reported it, such as `stop`, or `length` when the reply reached the output token limit and was cut off. Absent when the provider reported no reason.
 	FinishReason *string `json:"finishReason,omitempty"`
 }
@@ -4943,7 +4961,7 @@ func (v *TurnCompletedData) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	if err := asyncapirt.RejectUnknownKeys("TurnCompletedData", members, "model", "text", "finishReason"); err != nil {
+	if err := asyncapirt.RejectUnknownKeys("TurnCompletedData", members, "output", "outputError", "model", "text", "finishReason"); err != nil {
 		return err
 	}
 
@@ -5181,7 +5199,7 @@ func (v TurnCancelled) Validate() error {
 }
 
 type TurnCancelledData struct {
-	Reason string `json:"reason"`
+	Reason TurnCancelledDataReason `json:"reason"`
 }
 
 // UnmarshalJSON decodes TurnCancelledData strictly. Required properties must be
@@ -5210,34 +5228,34 @@ func (v *TurnCancelledData) UnmarshalJSON(data []byte) error {
 
 	*v = TurnCancelledData(decoded)
 
-	if _, ok := members["reason"]; ok {
-		if err := asyncapirt.CheckConst("TurnCancelledData.reason", v.Reason, "cancelled"); err != nil {
-			return err
-		}
-	}
-
 	return v.Validate()
-}
-
-// MarshalJSON encodes TurnCancelledData with its const properties filled in.
-func (v TurnCancelledData) MarshalJSON() ([]byte, error) {
-	type plain TurnCancelledData
-
-	encoded := plain(v)
-	encoded.Reason = "cancelled"
-
-	data, err := json.Marshal(encoded)
-	if err != nil {
-		return nil, ctxerrors.Wrapf(commerr.ErrInvalidValue, "TurnCancelledData: %v", err)
-	}
-
-	return data, nil
 }
 
 // Validate checks the constraints the schema declares for TurnCancelledData.
 func (v TurnCancelledData) Validate() error {
+	if err := v.Reason.Validate(); err != nil {
+		return ctxerrors.Wrap(err, "reason")
+	}
 
 	return nil
+}
+
+type TurnCancelledDataReason string
+
+// Values of TurnCancelledDataReason.
+const (
+	TurnCancelledDataReasonCancelled TurnCancelledDataReason = "cancelled"
+	TurnCancelledDataReasonTimeout   TurnCancelledDataReason = "timeout"
+)
+
+// Validate reports whether v is one of the values the schema lists.
+func (v TurnCancelledDataReason) Validate() error {
+	switch v {
+	case TurnCancelledDataReasonCancelled, TurnCancelledDataReasonTimeout:
+		return nil
+	}
+
+	return asyncapirt.Invalid("TurnCancelledDataReason", fmt.Sprintf("unknown value %v", v))
 }
 
 type NoticeCreated struct {

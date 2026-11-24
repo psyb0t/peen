@@ -18,6 +18,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
+	"github.com/psyb0t/peen/internal/pkg/openaicompat"
 )
 
 func normalizeRequestID(next http.Handler) http.Handler {
@@ -89,6 +90,16 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				s.deps.APIToken,
 			)
 		if !isBearerTokenValid && !isWebSocketTokenValid {
+			if r.URL.Path == openAIBaseURL ||
+				strings.HasPrefix(r.URL.Path, openAIBaseURL+"/") {
+				if err := openaicompat.WriteUnauthorized(w); err != nil {
+					ctxscope.GetLogger(r.Context()).Debug(
+						"OpenAI authentication response failed", "err", err)
+				}
+
+				return
+			}
+
 			writeAPIError(
 				w,
 				http.StatusUnauthorized,
@@ -143,9 +154,22 @@ func isValidBearerToken(authorization string, expectedToken string) bool {
 	) == 1
 }
 
-func limitBody(next http.Handler) http.Handler {
+func (s *Server) limitBody(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, maximumRequestBodyBytes)
+		limit := maximumRequestBodyBytes
+
+		if r.Method == http.MethodPut &&
+			r.URL.Path == workspaceFileContentPath {
+			maximum := s.deps.MaxFileAPIBytes
+			if maximum <= 0 {
+				maximum = defaultMaxFileAPIBytes
+			}
+
+			limit = int64(base64.StdEncoding.EncodedLen(int(maximum))) +
+				fileRequestBodyOverhead
+		}
+
+		r.Body = http.MaxBytesReader(w, r.Body, limit)
 		next.ServeHTTP(w, r)
 	})
 }
@@ -307,6 +331,8 @@ func staticMetricRoute(path string) string {
 		apiBaseURL + "/session",
 		apiBaseURL + "/session/cancel",
 		apiBaseURL + "/session/events",
+		apiBaseURL + "/session/files",
+		workspaceFileContentPath,
 		apiBaseURL + "/session/jobs",
 		apiBaseURL + "/session/agents":
 		return path

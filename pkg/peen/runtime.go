@@ -374,10 +374,6 @@ func (r *Runtime) Cancel(ctx context.Context) (CancelResult, error) {
 	return CancelResult{CancelRequested: response.CancelRequested}, nil
 }
 
-// translateTurnError maps the internal runtime's transport-neutral turn
-// failures onto the same commerr sentinels the HTTP surface returns, so an
-// embedding caller sees one consistent error vocabulary regardless of
-// transport.
 // compactionTargetPercent maps Options.CompactionTargetPercent to the
 // runtime's value, where zero turns the target off: zero here takes the
 // default, and a negative value turns it off.
@@ -392,7 +388,16 @@ func compactionTargetPercent(percent int) int {
 	}
 }
 
+// translateTurnError maps the internal runtime's transport-neutral turn
+// failures onto the same commerr sentinels the HTTP surface returns, so an
+// embedding caller sees one consistent error vocabulary regardless of
+// transport. A turn timeout is checked before cancellation, because Peen
+// stops a timed-out turn by cancelling it.
 func translateTurnError(err error) error {
+	if errors.Is(err, ErrTurnTimeout) {
+		return ctxerrors.Wrap(ErrTurnTimeout, "turn deadline elapsed")
+	}
+
 	if errors.Is(err, session.ErrSessionBusy) {
 		return ctxerrors.Wrap(
 			commerr.ErrConflict,

@@ -13,7 +13,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/pathglob"
-	"go.yaml.in/yaml/v3" //nolint:depguard // Parses Peen's hook configuration.
+	"go.yaml.in/yaml/v3"
 )
 
 const hookDocumentVersion = 1

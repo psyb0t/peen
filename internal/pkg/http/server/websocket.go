@@ -130,7 +130,8 @@ func (s *Server) handleWebSocketMessage(
 	ctx := webSocketContext(s.deps.ServiceContext(), sessionID, requestID)
 	logger := ctxscope.GetLogger(ctx)
 
-	request, err := decodeWebSocketMessage(event.Data)
+	request, err := decodeWebSocketMessageWithLimit(event.Data,
+		s.deps.MaxOutputSchemaBytes)
 	if err != nil {
 		wrapped := ctxerrors.Wrap(err, "decode websocket message")
 		failedSessionID := sessionID
@@ -142,11 +143,7 @@ func (s *Server) handleWebSocketMessage(
 			&failedSessionID,
 			requestID,
 			event.ID,
-			newWebSocketMessageFailure(
-				aichteeteapee.ErrorCodeValidationFailed,
-				webSocketMessageRejectedMessage,
-				"",
-			),
+			webSocketMessageFailureFor(err),
 		)
 
 		return nil
@@ -532,8 +529,9 @@ func (s *Server) webSocketClientsFor(sessionID uuid.UUID) []uuid.UUID {
 // message, an out-of-range length, and an unknown reasoningEffort the same
 // way the hand-written decoder used to. The result is mapped onto
 // agent.MessageRequest so the rest of the turn path stays transport-neutral.
-func decodeWebSocketMessage(
+func decodeWebSocketMessageWithLimit(
 	data json.RawMessage,
+	maximum int,
 ) (agent.MessageRequest, error) {
 	payload := wsapi.MessageSendData{}
 	if err := payload.UnmarshalJSON(data); err != nil {
@@ -551,6 +549,21 @@ func decodeWebSocketMessage(
 		)
 	}
 
+	var raw struct {
+		OutputSchema json.RawMessage `json:"outputSchema"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return agent.MessageRequest{}, ctxerrors.Wrap(err, "read schema bytes")
+	}
+
+	if len(raw.OutputSchema) != 0 {
+		if err := agent.ValidateOutputSchema(raw.OutputSchema,
+			maximum); err != nil {
+			return agent.MessageRequest{}, ctxerrors.Wrap(err,
+				"validate output schema admission")
+		}
+	}
+
 	return request, nil
 }
 
@@ -561,10 +574,9 @@ func decodeWebSocketMessage(
 func messageSendDataToRequest(
 	data wsapi.MessageSendData,
 ) (agent.MessageRequest, error) {
-	request := agent.MessageRequest{Message: data.Message}
-
-	if data.Model != nil {
-		request.Model = data.Model
+	request, err := messageTurnSettings(data)
+	if err != nil {
+		return agent.MessageRequest{}, err
 	}
 
 	if data.ReasoningEffort != nil {
@@ -657,6 +669,7 @@ func newWebSocketEvent(
 func webSocketMessageFailureFor(err error) webSocketMessageFailure {
 	// A specific failure is checked before the class it also belongs to.
 	specificFailures := []func(error) (webSocketMessageFailure, bool){
+		turnSettingsFailureFor,
 		harnessConfigurationFailureFor,
 		runningTurnFailureFor,
 		inputRefusalFailureFor,

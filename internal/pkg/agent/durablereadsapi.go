@@ -447,7 +447,8 @@ func modelRunListOptionsFromAPI(
 }
 
 func turnToAPI(stored *models.Turn) api.Turn {
-	return api.Turn{
+	result := api.Turn{
+		OutputError:           stored.OutputError,
 		CancelRequested:       stored.CancelRequested,
 		CompletedAt:           stored.CompletedAt,
 		ContextSnapshotHash:   stored.ContextSnapshotHash,
@@ -460,6 +461,11 @@ func turnToAPI(stored *models.Turn) api.Turn {
 		State:                 api.TurnState(stored.State),
 		Workspace:             stored.Workspace,
 	}
+	if stored.Output != nil {
+		result.Output = json.RawMessage(*stored.Output)
+	}
+
+	return result
 }
 
 func compactionToAPI(stored *models.Compaction) api.Compaction {

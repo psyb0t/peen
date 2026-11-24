@@ -12,6 +12,8 @@ CREATE TABLE turns (
     prompt_snapshot_hash TEXT,
     worker_generation_id TEXT NOT NULL DEFAULT '',
     stop_revision INTEGER NOT NULL DEFAULT 0 CHECK (stop_revision >= 0),
+    output TEXT,
+    output_error TEXT,
     FOREIGN KEY (session_id) REFERENCES sessions (id),
     FOREIGN KEY (context_snapshot_hash) REFERENCES context_snapshots (hash),
     FOREIGN KEY (prompt_snapshot_hash) REFERENCES prompt_snapshots (hash),

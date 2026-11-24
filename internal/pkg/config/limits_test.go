@@ -208,11 +208,11 @@ func TestParseRefusesARetiredTimeout(t *testing.T) {
 	t.Setenv("PEEN_AGENT", "coding")
 	t.Setenv("PEEN_UPSTREAMS", `[{"name":"aigate","type":"openai"}]`)
 	t.Setenv("PEEN_DEFAULT_MODEL", testQualifiedModel)
-	t.Setenv("PEEN_TURN_TIMEOUT", "10m")
+	t.Setenv("PEEN_COMPACTION_TIMEOUT", "10m")
 
 	_, err := Parse()
 	require.ErrorIs(t, err, ErrInvalidConfig)
-	assert.ErrorContains(t, err, "PEEN_TURN_TIMEOUT")
+	assert.ErrorContains(t, err, "PEEN_COMPACTION_TIMEOUT")
 	assert.ErrorContains(t, err, "PEEN_MODEL_REQUEST_TIMEOUT")
 }
 
@@ -226,11 +226,6 @@ func TestConfigValidateRefusesRetiredTimeouts(t *testing.T) {
 		set         func(*Config)
 		replacement string
 	}{
-		{
-			name:        "PEEN_TURN_TIMEOUT",
-			set:         func(c *Config) { c.RetiredTurnTimeout = "10m" },
-			replacement: "PEEN_MODEL_REQUEST_TIMEOUT",
-		},
 		{
 			name:        "PEEN_COMPACTION_TIMEOUT",
 			set:         func(c *Config) { c.RetiredCompactionTimeout = "2m" },

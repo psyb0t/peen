@@ -43,6 +43,9 @@ type Core struct {
 	// path, so a record is written before any client can see it.
 	Feed *FeedPump
 
+	Cron     CronScheduler
+	Telegram TelegramController
+
 	Metrics *metrics.Metrics
 
 	// MetricsStore writes observations to metrics.db. It is nil when that file

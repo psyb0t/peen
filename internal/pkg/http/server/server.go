@@ -8,11 +8,14 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/psyb0t/aichteeteapee"
 	"github.com/psyb0t/aichteeteapee/serbewr"
 	"github.com/psyb0t/aichteeteapee/serbewr/dabluvee-es/wshub"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/peen/internal/pkg/agent"
+	"github.com/psyb0t/peen/internal/pkg/config"
+	"github.com/psyb0t/peen/internal/pkg/control"
 	"github.com/psyb0t/peen/internal/pkg/harness"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
@@ -21,7 +24,14 @@ import (
 
 // Dependencies are the transport-neutral operations required by the API.
 type Dependencies struct {
-	Runtime agent.API
+	Cron                 control.CronReader
+	MCPServer            *mcp.Server
+	MCPPolicy            config.MCPServerPolicy
+	OpenAIHandler        http.Handler
+	MaxFileAPIBytes      int64
+	WorkspaceFiles       control.WorkspaceFileService
+	MaxOutputSchemaBytes int
+	Runtime              agent.API
 
 	// Sessions opens and lists workspace sessions. It is the control surface's
 	// registry rather than the runtime, because opening a workspace is a
@@ -154,6 +164,7 @@ type Server struct {
 	deps                    Dependencies
 	router                  *serbewr.Router
 	httpServer              *serbewr.Server
+	mcpHTTPHandler          http.Handler
 	inProcessHandler        http.Handler
 	webSocketHub            wshub.Hub
 	webSocketUpgradeHandler http.Handler
@@ -170,6 +181,10 @@ func New(deps Dependencies) (*Server, error) {
 	}
 
 	instance := &Server{deps: deps}
+	if err := instance.configureMCPHandler(); err != nil {
+		return nil, err
+	}
+
 	instance.configureWebSocketHub()
 
 	if err := deps.Metrics.WatchWebSocketClients(func() int {

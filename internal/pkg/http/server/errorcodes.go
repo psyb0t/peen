@@ -8,6 +8,10 @@ import "github.com/psyb0t/aichteeteapee"
 // so Peen defines its own values on it rather than rolling a separate error
 // envelope.
 const (
+	ErrorCodeTurnTimeout         = aichteeteapee.ErrorCode("TURN_TIMEOUT")
+	ErrorCodeOutputSchemaInvalid = aichteeteapee.ErrorCode(
+		"OUTPUT_SCHEMA_INVALID",
+	)
 	// ErrorCodeInvalidSessionID reports a malformed X-Session-ID header.
 	ErrorCodeInvalidSessionID aichteeteapee.ErrorCode = "INVALID_SESSION_ID"
 	// ErrorCodeSessionNotFound reports a well-formed but unknown session ID.
@@ -28,6 +32,12 @@ const (
 	// which agent spaces exist.
 	ErrorCodeAgentSpaceNotAllowed = aichteeteapee.ErrorCode(
 		"AGENT_SPACE_NOT_ALLOWED",
+	)
+	// ErrorCodeAgentSpaceConflict reports a request naming an agent space
+	// other than the one its workspace's sessions already share. Its message
+	// names the workspace's current agent space.
+	ErrorCodeAgentSpaceConflict = aichteeteapee.ErrorCode(
+		"AGENT_SPACE_CONFLICT",
 	)
 	// ErrorCodeSystemAgentOff reports a system session request while
 	// PEEN_SYSTEM_AGENT is off.

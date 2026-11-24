@@ -48,6 +48,8 @@ const (
 	CommandRunTurn Command = "runTurn"
 	// CommandCancel asks the worker to cancel its session's active turn.
 	CommandCancel Command = "cancel"
+	// CommandCancelTurn stops only a turn whose ID the controller supplies.
+	CommandCancelTurn Command = "cancelTurn"
 	// CommandSignalJob asks the worker to signal one of its running jobs. The
 	// job's process group lives in the worker, so the controller cannot reach
 	// it and can only record what the worker reports back.
@@ -103,7 +105,10 @@ type HelloAck struct {
 // carries the routing identity and the text, never a session the worker may
 // choose.
 type RunTurn struct {
-	ExpectedStopRevision *int64 `json:"expectedStopRevision,omitempty"`
+	RequireNewTurn       bool            `json:"requireNewTurn,omitempty"`
+	OutputSchema         json.RawMessage `json:"outputSchema,omitempty"`
+	TimeoutSeconds       int             `json:"timeoutSeconds,omitempty"`
+	ExpectedStopRevision *int64          `json:"expectedStopRevision,omitempty"`
 
 	RequestID       uuid.UUID `json:"requestId"`
 	Message         string    `json:"message"`
@@ -133,13 +138,20 @@ type TurnOrigin struct {
 
 // TurnResult is the worker's answer to a runTurn command.
 type TurnResult struct {
-	Text   string `json:"text"`
-	Queued bool   `json:"queued"`
+	Output      json.RawMessage `json:"output,omitempty"`
+	OutputError string          `json:"outputError,omitempty"`
+	Text        string          `json:"text"`
+	Queued      bool            `json:"queued"`
 }
 
 // CancelResult is the worker's answer to a cancel command.
 type CancelResult struct {
 	CancelRequested bool `json:"cancelRequested"`
+}
+
+// CancelTurn limits a controller cancellation to one exact turn.
+type CancelTurn struct {
+	TurnID uuid.UUID `json:"turnId"`
 }
 
 // CancelAgentRun names one child agent the controller wants stopped.

@@ -2,12 +2,11 @@
 title: "The harness"
 description: "How Peen builds what the model sees from AGENTS.md, rules, skills, agents, event handlers, and hooks, and how the layers override each other."
 nav_order: 7
-has_children: true
 ---
 
 # The harness
 
-The harness is everything Peen tells the model besides your message: `AGENTS.md` instructions, rules, skills, named agents, event handlers, and hooks. You write it as plain files beside your code. Peen reads those files fresh at the start of every turn and whenever an agent calls `changeDirectory`. An edit takes effect on the next message or directory hop without a restart. The two exceptions are `SYSTEM.md` and `APPEND_SYSTEM.md`, which Peen reads once when it starts.
+The harness is everything Peen tells the model besides your message: `AGENTS.md` instructions, rules, skills, named agents, event handlers, and hooks. You write it as plain files beside your code. Peen reads those files fresh at the start of every turn and whenever an agent calls `changeDirectory`. An edit takes effect on the next message or directory hop without a restart. Peen reads `SYSTEM.md`, `APPEND_SYSTEM.md` and scheduled jobs once at controller startup. MCP server configuration is read when a session's worker starts.
 
 | Piece | File | What it does | Details |
 | --- | --- | --- | --- |
@@ -18,6 +17,8 @@ The harness is everything Peen tells the model besides your message: `AGENTS.md`
 | Event handlers | `.agents/events/<type>.md` | What to do when a session event arrives, and whether it starts a turn | [Session events](events.md) |
 | Hooks | `.agents/hooks.yaml` | Commands, denials, injected context, and events around lifecycle and tool calls | [Hooks](hooks.md) |
 | Learned rules and skills | `.agents/learned/rules/**/*.md`, `.agents/learned/skills/<name>/SKILL.md` | Rules and skills an auto-evolving agent saved for itself | [Auto-evolve](#auto-evolve) |
+| Operator commands | `.agents/bin/` in `PEEN_CONFIG_DIR` | Executables added to `PATH` for agent commands and hooks | [Operator commands](#operator-commands) |
+| Scheduled jobs | `.agents/cron.yaml` in `PEEN_CONFIG_DIR` | Operator-defined scheduled turns, read at startup when enabled | [Scheduled turns](cron.md) |
 | MCP servers | `.agents/mcp.json` in `PEEN_CONFIG_DIR`, and in the workspace with `PEEN_WORKSPACE_MCP=true` | Tool servers whose tools the agent can call. Read once when the session's worker starts, not per directory. | [MCP servers](mcp.md) |
 
 ## Where Peen looks
@@ -46,6 +47,12 @@ Inside one layer Peen reads, in this order:
 10. `.agents/hooks.yaml`
 
 Directory entries are sorted bytewise, so the order is stable. The `.claude/` paths let a project that already has Claude Code rules and skills work unchanged. Peen does not read `CLAUDE.md`.
+
+## Operator commands
+
+Put shared command executables in `PEEN_CONFIG_DIR/.agents/bin/`. When that directory exists, Peen prepends it to `PATH` for `runCommand` and hook commands. The existing system `PATH` follows it. This is an operator directory, so review its contents with the same care as global hooks. A Docker worker sees it through the config directory mount; custom images must provide any interpreters its executables need.
+
+Peen never prepends a workspace's `.agents/bin/` to `PATH`. Workspace files cannot replace system commands through this mechanism. Docker profile `env` is separate and supplies only non-secret variables, as described in [where it runs](where-it-runs.md#profile-environment-and-git-identity).
 
 ## How layers combine
 

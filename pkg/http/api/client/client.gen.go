@@ -198,6 +198,51 @@ func (e AgentSpaceNetwork) Valid() bool {
 	}
 }
 
+// Defines values for CronJobSession.
+const (
+	CronJobSessionContinue CronJobSession = "continue"
+	CronJobSessionNew      CronJobSession = "new"
+)
+
+// Valid indicates whether the value is a known member of the CronJobSession enum.
+func (e CronJobSession) Valid() bool {
+	switch e {
+	case CronJobSessionContinue:
+		return true
+	case CronJobSessionNew:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CronRunState.
+const (
+	CronRunStateCancelled CronRunState = "cancelled"
+	CronRunStateCompleted CronRunState = "completed"
+	CronRunStateFailed    CronRunState = "failed"
+	CronRunStateRunning   CronRunState = "running"
+	CronRunStateSkipped   CronRunState = "skipped"
+)
+
+// Valid indicates whether the value is a known member of the CronRunState enum.
+func (e CronRunState) Valid() bool {
+	switch e {
+	case CronRunStateCancelled:
+		return true
+	case CronRunStateCompleted:
+		return true
+	case CronRunStateFailed:
+		return true
+	case CronRunStateRunning:
+		return true
+	case CronRunStateSkipped:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for JobState.
 const (
 	JobStateExited      JobState = "exited"
@@ -678,6 +723,27 @@ func (e WorkerGenerationState) Valid() bool {
 	}
 }
 
+// Defines values for WorkspaceFileType.
+const (
+	WorkspaceFileTypeDirectory WorkspaceFileType = "directory"
+	WorkspaceFileTypeFile      WorkspaceFileType = "file"
+	WorkspaceFileTypeSymlink   WorkspaceFileType = "symlink"
+)
+
+// Valid indicates whether the value is a known member of the WorkspaceFileType enum.
+func (e WorkspaceFileType) Valid() bool {
+	switch e {
+	case WorkspaceFileTypeDirectory:
+		return true
+	case WorkspaceFileTypeFile:
+		return true
+	case WorkspaceFileTypeSymlink:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Order.
 const (
 	OrderAsc  Order = "asc"
@@ -1111,6 +1177,48 @@ type ContextSnapshot struct {
 	Manifest        []ContextManifestEntry `json:"manifest"`
 	ResolvedContent string                 `json:"resolvedContent"`
 }
+
+// CronJob defines model for CronJob.
+type CronJob struct {
+	LastRun         *CronRun       `json:"lastRun,omitempty"`
+	Name            string         `json:"name"`
+	NextScheduledAt time.Time      `json:"nextScheduledAt"`
+	Schedule        string         `json:"schedule"`
+	Session         CronJobSession `json:"session"`
+	TimeZone        string         `json:"timeZone"`
+}
+
+// CronJobSession defines model for CronJob.Session.
+type CronJobSession string
+
+// CronJobList defines model for CronJobList.
+type CronJobList struct {
+	Items []CronJob `json:"items"`
+}
+
+// CronRun defines model for CronRun.
+type CronRun struct {
+	// Error A safe fixed reason for failure, cancellation or skipping.
+	Error       *string             `json:"error,omitempty"`
+	FinishedAt  *time.Time          `json:"finishedAt,omitempty"`
+	Id          openapi_types.UUID  `json:"id"`
+	JobName     string              `json:"jobName"`
+	ScheduledAt time.Time           `json:"scheduledAt"`
+	SessionId   *openapi_types.UUID `json:"sessionId,omitempty"`
+	StartedAt   *time.Time          `json:"startedAt,omitempty"`
+	State       CronRunState        `json:"state"`
+}
+
+// CronRunPage defines model for CronRunPage.
+type CronRunPage struct {
+	HasMore bool      `json:"hasMore"`
+	Items   []CronRun `json:"items"`
+	Limit   int32     `json:"limit"`
+	Offset  int32     `json:"offset"`
+}
+
+// CronRunState defines model for CronRunState.
+type CronRunState string
 
 // Error defines model for Error.
 type Error struct {
@@ -1671,12 +1779,18 @@ type Turn struct {
 	ContextSnapshotHash   *string            `json:"contextSnapshotHash,omitempty"`
 	FailureClassification string             `json:"failureClassification"`
 	Id                    openapi_types.UUID `json:"id"`
-	PromptSnapshotHash    *string            `json:"promptSnapshotHash,omitempty"`
-	RequestId             openapi_types.UUID `json:"requestId"`
-	SessionId             openapi_types.UUID `json:"sessionId"`
-	StartedAt             time.Time          `json:"startedAt"`
-	State                 TurnState          `json:"state"`
-	Workspace             string             `json:"workspace"`
+
+	// Output The validated JSON answer when outputSchema was given.
+	Output interface{} `json:"output,omitempty"`
+
+	// OutputError Why every structured output attempt failed.
+	OutputError        *string            `json:"outputError,omitempty"`
+	PromptSnapshotHash *string            `json:"promptSnapshotHash,omitempty"`
+	RequestId          openapi_types.UUID `json:"requestId"`
+	SessionId          openapi_types.UUID `json:"sessionId"`
+	StartedAt          time.Time          `json:"startedAt"`
+	State              TurnState          `json:"state"`
+	Workspace          string             `json:"workspace"`
 }
 
 // TurnState defines model for Turn.State.
@@ -1725,6 +1839,42 @@ type WorkerGenerationPage struct {
 	Items   []WorkerGeneration `json:"items"`
 	Limit   int32              `json:"limit"`
 	Offset  int32              `json:"offset"`
+}
+
+// WorkspaceFileContent defines model for WorkspaceFileContent.
+type WorkspaceFileContent struct {
+	// ContentBase64 Base64 bytes bounded by PEEN_MAX_FILE_API_BYTES after decoding.
+	ContentBase64 string `json:"contentBase64"`
+	Path          string `json:"path"`
+	Size          int64  `json:"size"`
+}
+
+// WorkspaceFileEntry defines model for WorkspaceFileEntry.
+type WorkspaceFileEntry struct {
+	ModifiedAt time.Time         `json:"modifiedAt"`
+	Name       string            `json:"name"`
+	Size       int64             `json:"size"`
+	Type       WorkspaceFileType `json:"type"`
+}
+
+// WorkspaceFileListing defines model for WorkspaceFileListing.
+type WorkspaceFileListing struct {
+	Entries    []WorkspaceFileEntry `json:"entries"`
+	ModifiedAt time.Time            `json:"modifiedAt"`
+	Path       string               `json:"path"`
+	Size       int64                `json:"size"`
+	Type       WorkspaceFileType    `json:"type"`
+}
+
+// WorkspaceFileType defines model for WorkspaceFileType.
+type WorkspaceFileType string
+
+// WorkspaceFileWrite defines model for WorkspaceFileWrite.
+type WorkspaceFileWrite struct {
+	// ContentBase64 Base64 bytes bounded by PEEN_MAX_FILE_API_BYTES after decoding.
+	ContentBase64     string `json:"contentBase64"`
+	CreateDirectories *bool  `json:"createDirectories,omitempty"`
+	Path              string `json:"path"`
 }
 
 // WorkspaceRootList defines model for WorkspaceRootList.
@@ -1783,6 +1933,14 @@ type ErrorNotFound = Error
 
 // ErrorUnauthorized defines model for ErrorUnauthorized.
 type ErrorUnauthorized = Error
+
+// ListCronRunsParams defines parameters for ListCronRuns.
+type ListCronRunsParams struct {
+	// Job Restrict the page to this configured or historical job name.
+	Job    *string `form:"job,omitempty" json:"job,omitempty"`
+	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+}
 
 // ListMessagesParams defines parameters for ListMessages.
 type ListMessagesParams struct {
@@ -1897,6 +2055,32 @@ type ListSessionFeedParams struct {
 	// Cursor Return items with a sequence greater than this value.
 	Cursor     *int64            `form:"cursor,omitempty" json:"cursor,omitempty"`
 	Limit      *int32            `form:"limit,omitempty" json:"limit,omitempty"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// DeleteWorkspaceFileParams defines parameters for DeleteWorkspaceFile.
+type DeleteWorkspaceFileParams struct {
+	// Path Clean relative workspace path.
+	Path       string            `form:"path" json:"path"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// ListWorkspaceFilesParams defines parameters for ListWorkspaceFiles.
+type ListWorkspaceFilesParams struct {
+	// Path Clean relative workspace path. Empty lists the workspace root.
+	Path       *string           `form:"path,omitempty" json:"path,omitempty"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// ReadWorkspaceFileParams defines parameters for ReadWorkspaceFile.
+type ReadWorkspaceFileParams struct {
+	// Path Clean relative workspace path.
+	Path       string            `form:"path" json:"path"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// WriteWorkspaceFileParams defines parameters for WriteWorkspaceFile.
+type WriteWorkspaceFileParams struct {
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
@@ -2028,6 +2212,9 @@ type ListSessionsParams struct {
 	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
+// WriteWorkspaceFileJSONRequestBody defines body for WriteWorkspaceFile for application/json ContentType.
+type WriteWorkspaceFileJSONRequestBody = WorkspaceFileWrite
+
 // SignalSessionJobJSONRequestBody defines body for SignalSessionJob for application/json ContentType.
 type SignalSessionJobJSONRequestBody = JobSignalRequest
 
@@ -2120,6 +2307,18 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /agent-spaces (the `ListAgentSpaces` operationId).
 	ListAgentSpaces(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListCronJobs List configured scheduled jobs
+	//
+	// Returns startup-loaded jobs with their next occurrence and last run.
+	//
+	// Corresponds with GET /cron/jobs (the `ListCronJobs` operationId).
+	ListCronJobs(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListCronRuns List durable scheduled run history
+	//
+	// Corresponds with GET /cron/runs (the `ListCronRuns` operationId).
+	ListCronRuns(ctx context.Context, params *ListCronRunsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListMessages List stored conversation messages
 	//
@@ -2214,6 +2413,45 @@ type ClientInterface interface {
 	// Corresponds with GET /session/feed (the `ListSessionFeed` operationId).
 	ListSessionFeed(ctx context.Context, params *ListSessionFeedParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// DeleteWorkspaceFile Delete a file or empty workspace directory
+	//
+	// Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+	//
+	// Corresponds with DELETE /session/files (the `DeleteWorkspaceFile` operationId).
+	DeleteWorkspaceFile(ctx context.Context, params *DeleteWorkspaceFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListWorkspaceFiles List a workspace directory or inspect a file
+	//
+	// Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+	//
+	// Corresponds with GET /session/files (the `ListWorkspaceFiles` operationId).
+	ListWorkspaceFiles(ctx context.Context, params *ListWorkspaceFilesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReadWorkspaceFile Read a bounded workspace file as base64
+	//
+	// Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+	//
+	// Corresponds with GET /session/files/content (the `ReadWorkspaceFile` operationId).
+	ReadWorkspaceFile(ctx context.Context, params *ReadWorkspaceFileParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// WriteWorkspaceFileWithBody Write a workspace file atomically
+	//
+	// Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /session/files/content (the `WriteWorkspaceFile` operationId).
+	WriteWorkspaceFileWithBody(ctx context.Context, params *WriteWorkspaceFileParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// WriteWorkspaceFile Write a workspace file atomically
+	//
+	// Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /session/files/content (the `WriteWorkspaceFile` operationId).
+	WriteWorkspaceFile(ctx context.Context, params *WriteWorkspaceFileParams, body WriteWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListSessionJobs List the commands this session has started
 	//
 	// Corresponds with GET /session/jobs (the `ListSessionJobs` operationId).
@@ -2307,7 +2545,7 @@ type ClientInterface interface {
 
 	// ReconfigureSessionWithBody Move an idle session to a different agent space
 	//
-	// Changes the agent space a session's tools run in and records the decision with the caller's reason. The named agent space must be one the deployment offers; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
+	// Changes the agent space a session's tools run in, for that session and every other session of its workspace together, because the sessions of one workspace share one agent space. It records a decision for each session with the caller's reason and returns the named session's. The named agent space must be one the deployment offers; an undefined name is refused with 403. While any session of the workspace has a turn in flight the change is refused with 409 SESSION_BUSY, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success each session's current worker is stopped, so its next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -2316,7 +2554,7 @@ type ClientInterface interface {
 
 	// ReconfigureSession Move an idle session to a different agent space
 	//
-	// Changes the agent space a session's tools run in and records the decision with the caller's reason. The named agent space must be one the deployment offers; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
+	// Changes the agent space a session's tools run in, for that session and every other session of its workspace together, because the sessions of one workspace share one agent space. It records a decision for each session with the caller's reason and returns the named session's. The named agent space must be one the deployment offers; an undefined name is refused with 403. While any session of the workspace has a turn in flight the change is refused with 409 SESSION_BUSY, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success each session's current worker is stopped, so its next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -2344,7 +2582,7 @@ type ClientInterface interface {
 
 	// OpenSessionWithBody Open or resume the session for a workspace
 	//
-	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND. Every session of one workspace shares one agent space. A request that names no agent space gets the workspace's, or the default when the workspace has no session yet, and a request that names a different agent space than the workspace's is refused with 409 AGENT_SPACE_CONFLICT, whose message names the workspace's current agent space.
 	//
 	// Takes any type of body and a specified content type.
 	//
@@ -2353,7 +2591,7 @@ type ClientInterface interface {
 
 	// OpenSession Open or resume the session for a workspace
 	//
-	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND. Every session of one workspace shares one agent space. A request that names no agent space gets the workspace's, or the default when the workspace has no session yet, and a request that names a different agent space than the workspace's is refused with 409 AGENT_SPACE_CONFLICT, whose message names the workspace's current agent space.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -2382,6 +2620,38 @@ type ClientInterface interface {
 // Corresponds with GET /agent-spaces (the `ListAgentSpaces` operationId).
 func (c *Client) ListAgentSpaces(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListAgentSpacesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListCronJobs List configured scheduled jobs
+//
+// Returns startup-loaded jobs with their next occurrence and last run.
+//
+// Corresponds with GET /cron/jobs (the `ListCronJobs` operationId).
+func (c *Client) ListCronJobs(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListCronJobsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListCronRuns List durable scheduled run history
+//
+// Corresponds with GET /cron/runs (the `ListCronRuns` operationId).
+func (c *Client) ListCronRuns(ctx context.Context, params *ListCronRunsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListCronRunsRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -2655,6 +2925,95 @@ func (c *Client) ListSessionFeed(ctx context.Context, params *ListSessionFeedPar
 	return c.Client.Do(req)
 }
 
+// DeleteWorkspaceFile Delete a file or empty workspace directory
+//
+// Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+//
+// Corresponds with DELETE /session/files (the `DeleteWorkspaceFile` operationId).
+func (c *Client) DeleteWorkspaceFile(ctx context.Context, params *DeleteWorkspaceFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteWorkspaceFileRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListWorkspaceFiles List a workspace directory or inspect a file
+//
+// Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+//
+// Corresponds with GET /session/files (the `ListWorkspaceFiles` operationId).
+func (c *Client) ListWorkspaceFiles(ctx context.Context, params *ListWorkspaceFilesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListWorkspaceFilesRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReadWorkspaceFile Read a bounded workspace file as base64
+//
+// Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+//
+// Corresponds with GET /session/files/content (the `ReadWorkspaceFile` operationId).
+func (c *Client) ReadWorkspaceFile(ctx context.Context, params *ReadWorkspaceFileParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReadWorkspaceFileRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// WriteWorkspaceFileWithBody Write a workspace file atomically
+//
+// Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /session/files/content (the `WriteWorkspaceFile` operationId).
+func (c *Client) WriteWorkspaceFileWithBody(ctx context.Context, params *WriteWorkspaceFileParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewWriteWorkspaceFileRequestWithBody(c.Server, params, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// WriteWorkspaceFile Write a workspace file atomically
+//
+// Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /session/files/content (the `WriteWorkspaceFile` operationId).
+func (c *Client) WriteWorkspaceFile(ctx context.Context, params *WriteWorkspaceFileParams, body WriteWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewWriteWorkspaceFileRequest(c.Server, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ListSessionJobs List the commands this session has started
 //
 // Corresponds with GET /session/jobs (the `ListSessionJobs` operationId).
@@ -2898,7 +3257,7 @@ func (c *Client) GetSessionPromptSnapshot(ctx context.Context, promptHash Prompt
 
 // ReconfigureSessionWithBody Move an idle session to a different agent space
 //
-// Changes the agent space a session's tools run in and records the decision with the caller's reason. The named agent space must be one the deployment offers; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
+// Changes the agent space a session's tools run in, for that session and every other session of its workspace together, because the sessions of one workspace share one agent space. It records a decision for each session with the caller's reason and returns the named session's. The named agent space must be one the deployment offers; an undefined name is refused with 403. While any session of the workspace has a turn in flight the change is refused with 409 SESSION_BUSY, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success each session's current worker is stopped, so its next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
 //
 // Takes any type of body and a specified content type.
 //
@@ -2917,7 +3276,7 @@ func (c *Client) ReconfigureSessionWithBody(ctx context.Context, params *Reconfi
 
 // ReconfigureSession Move an idle session to a different agent space
 //
-// Changes the agent space a session's tools run in and records the decision with the caller's reason. The named agent space must be one the deployment offers; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
+// Changes the agent space a session's tools run in, for that session and every other session of its workspace together, because the sessions of one workspace share one agent space. It records a decision for each session with the caller's reason and returns the named session's. The named agent space must be one the deployment offers; an undefined name is refused with 403. While any session of the workspace has a turn in flight the change is refused with 409 SESSION_BUSY, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success each session's current worker is stopped, so its next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -2985,7 +3344,7 @@ func (c *Client) ListSessions(ctx context.Context, params *ListSessionsParams, r
 
 // OpenSessionWithBody Open or resume the session for a workspace
 //
-// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND. Every session of one workspace shares one agent space. A request that names no agent space gets the workspace's, or the default when the workspace has no session yet, and a request that names a different agent space than the workspace's is refused with 409 AGENT_SPACE_CONFLICT, whose message names the workspace's current agent space.
 //
 // Takes any type of body and a specified content type.
 //
@@ -3004,7 +3363,7 @@ func (c *Client) OpenSessionWithBody(ctx context.Context, contentType string, bo
 
 // OpenSession Open or resume the session for a workspace
 //
-// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND. Every session of one workspace shares one agent space. A request that names no agent space gets the workspace's, or the default when the workspace has no session yet, and a request that names a different agent space than the workspace's is refused with 409 AGENT_SPACE_CONFLICT, whose message names the workspace's current agent space.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -3072,6 +3431,111 @@ func NewListAgentSpacesRequest(server string) (*http.Request, error) {
 	queryURL, err := serverURL.Parse(operationPath)
 	if err != nil {
 		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListCronJobsRequest constructs an http.Request for the ListCronJobs method
+func NewListCronJobsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/cron/jobs")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListCronRunsRequest constructs an http.Request for the ListCronRuns method
+func NewListCronRunsRequest(server string, params *ListCronRunsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/cron/runs")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Job != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "job", *params.Job, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
@@ -4194,6 +4658,252 @@ func NewListSessionFeedRequest(server string, params *ListSessionFeedParams) (*h
 	if err != nil {
 		return nil, err
 	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Session-ID", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewDeleteWorkspaceFileRequest constructs an http.Request for the DeleteWorkspaceFile method
+func NewDeleteWorkspaceFileRequest(server string, params *DeleteWorkspaceFileParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/files")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Session-ID", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewListWorkspaceFilesRequest constructs an http.Request for the ListWorkspaceFiles method
+func NewListWorkspaceFilesRequest(server string, params *ListWorkspaceFilesParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/files")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Path != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", *params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Session-ID", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewReadWorkspaceFileRequest constructs an http.Request for the ReadWorkspaceFile method
+func NewReadWorkspaceFileRequest(server string, params *ReadWorkspaceFileParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/files/content")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if queryFrag, err := runtime.StyleParamWithOptions("form", true, "path", params.Path, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+			return nil, err
+		} else {
+			for _, qp := range strings.Split(queryFrag, "&") {
+				rawQueryFragments = append(rawQueryFragments, qp)
+			}
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		var headerParam0 string
+
+		headerParam0, err = runtime.StyleParamWithOptions("simple", false, "X-Session-ID", params.XSessionID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: "uuid"})
+		if err != nil {
+			return nil, err
+		}
+
+		req.Header.Set("X-Session-ID", headerParam0)
+
+	}
+
+	return req, nil
+}
+
+// NewWriteWorkspaceFileRequest calls the generic WriteWorkspaceFile builder with application/json body
+func NewWriteWorkspaceFileRequest(server string, params *WriteWorkspaceFileParams, body WriteWorkspaceFileJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewWriteWorkspaceFileRequestWithBody(server, params, "application/json", bodyReader)
+}
+
+// NewWriteWorkspaceFileRequestWithBody constructs an http.Request for the WriteWorkspaceFile method, with any body, and a specified content type
+func NewWriteWorkspaceFileRequestWithBody(server string, params *WriteWorkspaceFileParams, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/session/files/content")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	if params != nil {
 
@@ -5576,6 +6286,22 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /agent-spaces (the `ListAgentSpaces` operationId).
 	ListAgentSpacesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAgentSpacesResponse, error)
 
+	// ListCronJobsWithResponse List configured scheduled jobs
+	//
+	// Returns startup-loaded jobs with their next occurrence and last run.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /cron/jobs (the `ListCronJobs` operationId).
+	ListCronJobsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListCronJobsResponse, error)
+
+	// ListCronRunsWithResponse List durable scheduled run history
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /cron/runs (the `ListCronRuns` operationId).
+	ListCronRunsWithResponse(ctx context.Context, params *ListCronRunsParams, reqEditors ...RequestEditorFn) (*ListCronRunsResponse, error)
+
 	// ListMessagesWithResponse List stored conversation messages
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -5703,6 +6429,51 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /session/feed (the `ListSessionFeed` operationId).
 	ListSessionFeedWithResponse(ctx context.Context, params *ListSessionFeedParams, reqEditors ...RequestEditorFn) (*ListSessionFeedResponse, error)
 
+	// DeleteWorkspaceFileWithResponse Delete a file or empty workspace directory
+	//
+	// Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /session/files (the `DeleteWorkspaceFile` operationId).
+	DeleteWorkspaceFileWithResponse(ctx context.Context, params *DeleteWorkspaceFileParams, reqEditors ...RequestEditorFn) (*DeleteWorkspaceFileResponse, error)
+
+	// ListWorkspaceFilesWithResponse List a workspace directory or inspect a file
+	//
+	// Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /session/files (the `ListWorkspaceFiles` operationId).
+	ListWorkspaceFilesWithResponse(ctx context.Context, params *ListWorkspaceFilesParams, reqEditors ...RequestEditorFn) (*ListWorkspaceFilesResponse, error)
+
+	// ReadWorkspaceFileWithResponse Read a bounded workspace file as base64
+	//
+	// Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /session/files/content (the `ReadWorkspaceFile` operationId).
+	ReadWorkspaceFileWithResponse(ctx context.Context, params *ReadWorkspaceFileParams, reqEditors ...RequestEditorFn) (*ReadWorkspaceFileResponse, error)
+
+	// WriteWorkspaceFileWithBodyWithResponse Write a workspace file atomically
+	//
+	// Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /session/files/content (the `WriteWorkspaceFile` operationId).
+	WriteWorkspaceFileWithBodyWithResponse(ctx context.Context, params *WriteWorkspaceFileParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*WriteWorkspaceFileResponse, error)
+
+	// WriteWorkspaceFileWithResponse Write a workspace file atomically
+	//
+	// Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /session/files/content (the `WriteWorkspaceFile` operationId).
+	WriteWorkspaceFileWithResponse(ctx context.Context, params *WriteWorkspaceFileParams, body WriteWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*WriteWorkspaceFileResponse, error)
+
 	// ListSessionJobsWithResponse List the commands this session has started
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -5818,7 +6589,7 @@ type ClientWithResponsesInterface interface {
 
 	// ReconfigureSessionWithBodyWithResponse Move an idle session to a different agent space
 	//
-	// Changes the agent space a session's tools run in and records the decision with the caller's reason. The named agent space must be one the deployment offers; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
+	// Changes the agent space a session's tools run in, for that session and every other session of its workspace together, because the sessions of one workspace share one agent space. It records a decision for each session with the caller's reason and returns the named session's. The named agent space must be one the deployment offers; an undefined name is refused with 403. While any session of the workspace has a turn in flight the change is refused with 409 SESSION_BUSY, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success each session's current worker is stopped, so its next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5827,7 +6598,7 @@ type ClientWithResponsesInterface interface {
 
 	// ReconfigureSessionWithResponse Move an idle session to a different agent space
 	//
-	// Changes the agent space a session's tools run in and records the decision with the caller's reason. The named agent space must be one the deployment offers; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
+	// Changes the agent space a session's tools run in, for that session and every other session of its workspace together, because the sessions of one workspace share one agent space. It records a decision for each session with the caller's reason and returns the named session's. The named agent space must be one the deployment offers; an undefined name is refused with 403. While any session of the workspace has a turn in flight the change is refused with 409 SESSION_BUSY, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success each session's current worker is stopped, so its next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5861,7 +6632,7 @@ type ClientWithResponsesInterface interface {
 
 	// OpenSessionWithBodyWithResponse Open or resume the session for a workspace
 	//
-	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND. Every session of one workspace shares one agent space. A request that names no agent space gets the workspace's, or the default when the workspace has no session yet, and a request that names a different agent space than the workspace's is refused with 409 AGENT_SPACE_CONFLICT, whose message names the workspace's current agent space.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5870,7 +6641,7 @@ type ClientWithResponsesInterface interface {
 
 	// OpenSessionWithResponse Open or resume the session for a workspace
 	//
-	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+	// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND. Every session of one workspace shares one agent space. A request that names no agent space gets the workspace's, or the default when the workspace has no session yet, and a request that names a different agent space than the workspace's is refused with 409 AGENT_SPACE_CONFLICT, whose message names the workspace's current agent space.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5952,6 +6723,137 @@ func (r ListAgentSpacesResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListAgentSpacesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ListCronJobsResponse200Headers the declared response headers of an HTTP 200 response for ListCronJobs
+type ListCronJobsResponse200Headers struct {
+	XRequestID openapi_types.UUID
+}
+
+type ListCronJobsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *CronJobList
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ListCronJobsResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListCronJobsResponse) GetJSON200() *CronJobList {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListCronJobsResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListCronJobsResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListCronJobsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListCronJobsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListCronJobsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListCronJobsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ListCronRunsResponse200Headers the declared response headers of an HTTP 200 response for ListCronRuns
+type ListCronRunsResponse200Headers struct {
+	XRequestID openapi_types.UUID
+}
+
+type ListCronRunsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *CronRunPage
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ListCronRunsResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListCronRunsResponse) GetJSON200() *CronRunPage {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ListCronRunsResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListCronRunsResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListCronRunsResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListCronRunsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListCronRunsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListCronRunsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListCronRunsResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -7246,6 +8148,363 @@ func (r ListSessionFeedResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListSessionFeedResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// DeleteWorkspaceFileResponse204Headers the declared response headers of an HTTP 204 response for DeleteWorkspaceFile
+type DeleteWorkspaceFileResponse204Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type DeleteWorkspaceFileResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorForbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorConflict
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers204 the parsed response headers for an HTTP 204 response
+	Headers204 *DeleteWorkspaceFileResponse204Headers
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r DeleteWorkspaceFileResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r DeleteWorkspaceFileResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r DeleteWorkspaceFileResponse) GetJSON403() *ErrorForbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r DeleteWorkspaceFileResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r DeleteWorkspaceFileResponse) GetJSON409() *ErrorConflict {
+	return r.JSON409
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r DeleteWorkspaceFileResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteWorkspaceFileResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteWorkspaceFileResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteWorkspaceFileResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteWorkspaceFileResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ListWorkspaceFilesResponse200Headers the declared response headers of an HTTP 200 response for ListWorkspaceFiles
+type ListWorkspaceFilesResponse200Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListWorkspaceFilesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *WorkspaceFileListing
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorForbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorConflict
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ListWorkspaceFilesResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListWorkspaceFilesResponse) GetJSON200() *WorkspaceFileListing {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ListWorkspaceFilesResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListWorkspaceFilesResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ListWorkspaceFilesResponse) GetJSON403() *ErrorForbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ListWorkspaceFilesResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r ListWorkspaceFilesResponse) GetJSON409() *ErrorConflict {
+	return r.JSON409
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListWorkspaceFilesResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListWorkspaceFilesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListWorkspaceFilesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListWorkspaceFilesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListWorkspaceFilesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// ReadWorkspaceFileResponse200Headers the declared response headers of an HTTP 200 response for ReadWorkspaceFile
+type ReadWorkspaceFileResponse200Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ReadWorkspaceFileResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *WorkspaceFileContent
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorForbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorConflict
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *ReadWorkspaceFileResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ReadWorkspaceFileResponse) GetJSON200() *WorkspaceFileContent {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ReadWorkspaceFileResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ReadWorkspaceFileResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ReadWorkspaceFileResponse) GetJSON403() *ErrorForbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ReadWorkspaceFileResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r ReadWorkspaceFileResponse) GetJSON409() *ErrorConflict {
+	return r.JSON409
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ReadWorkspaceFileResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ReadWorkspaceFileResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReadWorkspaceFileResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReadWorkspaceFileResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReadWorkspaceFileResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// WriteWorkspaceFileResponse200Headers the declared response headers of an HTTP 200 response for WriteWorkspaceFile
+type WriteWorkspaceFileResponse200Headers struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type WriteWorkspaceFileResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *WorkspaceFileEntry
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ErrorBadRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ErrorUnauthorized
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *ErrorForbidden
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ErrorNotFound
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorConflict
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ErrorInternal
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *WriteWorkspaceFileResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r WriteWorkspaceFileResponse) GetJSON200() *WorkspaceFileEntry {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r WriteWorkspaceFileResponse) GetJSON400() *ErrorBadRequest {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r WriteWorkspaceFileResponse) GetJSON401() *ErrorUnauthorized {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r WriteWorkspaceFileResponse) GetJSON403() *ErrorForbidden {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r WriteWorkspaceFileResponse) GetJSON404() *ErrorNotFound {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r WriteWorkspaceFileResponse) GetJSON409() *ErrorConflict {
+	return r.JSON409
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r WriteWorkspaceFileResponse) GetJSON500() *ErrorInternal {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r WriteWorkspaceFileResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r WriteWorkspaceFileResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r WriteWorkspaceFileResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r WriteWorkspaceFileResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -8579,6 +9838,8 @@ type OpenSessionResponse struct {
 	JSON403 *ErrorForbidden
 	// JSON404 the response for an HTTP 404 `application/json` response
 	JSON404 *ErrorNotFound
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ErrorConflict
 	// JSON500 the response for an HTTP 500 `application/json` response
 	JSON500 *ErrorInternal
 	// Headers200 the parsed response headers for an HTTP 200 response
@@ -8608,6 +9869,11 @@ func (r OpenSessionResponse) GetJSON403() *ErrorForbidden {
 // GetJSON404 returns the response for an HTTP 404 `application/json` response
 func (r OpenSessionResponse) GetJSON404() *ErrorNotFound {
 	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r OpenSessionResponse) GetJSON409() *ErrorConflict {
+	return r.JSON409
 }
 
 // GetJSON500 returns the response for an HTTP 500 `application/json` response
@@ -8789,6 +10055,34 @@ func (c *ClientWithResponses) ListAgentSpacesWithResponse(ctx context.Context, r
 		return nil, err
 	}
 	return ParseListAgentSpacesResponse(rsp)
+}
+
+// ListCronJobsWithResponse List configured scheduled jobs
+//
+// Returns startup-loaded jobs with their next occurrence and last run.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /cron/jobs (the `ListCronJobs` operationId).
+func (c *ClientWithResponses) ListCronJobsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListCronJobsResponse, error) {
+	rsp, err := c.ListCronJobs(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListCronJobsResponse(rsp)
+}
+
+// ListCronRunsWithResponse List durable scheduled run history
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /cron/runs (the `ListCronRuns` operationId).
+func (c *ClientWithResponses) ListCronRunsWithResponse(ctx context.Context, params *ListCronRunsParams, reqEditors ...RequestEditorFn) (*ListCronRunsResponse, error) {
+	rsp, err := c.ListCronRuns(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListCronRunsResponse(rsp)
 }
 
 // ListMessagesWithResponse List stored conversation messages
@@ -9020,6 +10314,81 @@ func (c *ClientWithResponses) ListSessionFeedWithResponse(ctx context.Context, p
 	return ParseListSessionFeedResponse(rsp)
 }
 
+// DeleteWorkspaceFileWithResponse Delete a file or empty workspace directory
+//
+// Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /session/files (the `DeleteWorkspaceFile` operationId).
+func (c *ClientWithResponses) DeleteWorkspaceFileWithResponse(ctx context.Context, params *DeleteWorkspaceFileParams, reqEditors ...RequestEditorFn) (*DeleteWorkspaceFileResponse, error) {
+	rsp, err := c.DeleteWorkspaceFile(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteWorkspaceFileResponse(rsp)
+}
+
+// ListWorkspaceFilesWithResponse List a workspace directory or inspect a file
+//
+// Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /session/files (the `ListWorkspaceFiles` operationId).
+func (c *ClientWithResponses) ListWorkspaceFilesWithResponse(ctx context.Context, params *ListWorkspaceFilesParams, reqEditors ...RequestEditorFn) (*ListWorkspaceFilesResponse, error) {
+	rsp, err := c.ListWorkspaceFiles(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListWorkspaceFilesResponse(rsp)
+}
+
+// ReadWorkspaceFileWithResponse Read a bounded workspace file as base64
+//
+// Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /session/files/content (the `ReadWorkspaceFile` operationId).
+func (c *ClientWithResponses) ReadWorkspaceFileWithResponse(ctx context.Context, params *ReadWorkspaceFileParams, reqEditors ...RequestEditorFn) (*ReadWorkspaceFileResponse, error) {
+	rsp, err := c.ReadWorkspaceFile(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReadWorkspaceFileResponse(rsp)
+}
+
+// WriteWorkspaceFileWithBodyWithResponse Write a workspace file atomically
+//
+// Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /session/files/content (the `WriteWorkspaceFile` operationId).
+func (c *ClientWithResponses) WriteWorkspaceFileWithBodyWithResponse(ctx context.Context, params *WriteWorkspaceFileParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*WriteWorkspaceFileResponse, error) {
+	rsp, err := c.WriteWorkspaceFileWithBody(ctx, params, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseWriteWorkspaceFileResponse(rsp)
+}
+
+// WriteWorkspaceFileWithResponse Write a workspace file atomically
+//
+// Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /session/files/content (the `WriteWorkspaceFile` operationId).
+func (c *ClientWithResponses) WriteWorkspaceFileWithResponse(ctx context.Context, params *WriteWorkspaceFileParams, body WriteWorkspaceFileJSONRequestBody, reqEditors ...RequestEditorFn) (*WriteWorkspaceFileResponse, error) {
+	rsp, err := c.WriteWorkspaceFile(ctx, params, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseWriteWorkspaceFileResponse(rsp)
+}
+
 // ListSessionJobsWithResponse List the commands this session has started
 //
 // Returns a wrapper object for the known response body format(s).
@@ -9225,7 +10594,7 @@ func (c *ClientWithResponses) GetSessionPromptSnapshotWithResponse(ctx context.C
 
 // ReconfigureSessionWithBodyWithResponse Move an idle session to a different agent space
 //
-// Changes the agent space a session's tools run in and records the decision with the caller's reason. The named agent space must be one the deployment offers; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
+// Changes the agent space a session's tools run in, for that session and every other session of its workspace together, because the sessions of one workspace share one agent space. It records a decision for each session with the caller's reason and returns the named session's. The named agent space must be one the deployment offers; an undefined name is refused with 403. While any session of the workspace has a turn in flight the change is refused with 409 SESSION_BUSY, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success each session's current worker is stopped, so its next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -9240,7 +10609,7 @@ func (c *ClientWithResponses) ReconfigureSessionWithBodyWithResponse(ctx context
 
 // ReconfigureSessionWithResponse Move an idle session to a different agent space
 //
-// Changes the agent space a session's tools run in and records the decision with the caller's reason. The named agent space must be one the deployment offers; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
+// Changes the agent space a session's tools run in, for that session and every other session of its workspace together, because the sessions of one workspace share one agent space. It records a decision for each session with the caller's reason and returns the named session's. The named agent space must be one the deployment offers; an undefined name is refused with 403. While any session of the workspace has a turn in flight the change is refused with 409 SESSION_BUSY, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success each session's current worker is stopped, so its next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -9298,7 +10667,7 @@ func (c *ClientWithResponses) ListSessionsWithResponse(ctx context.Context, para
 
 // OpenSessionWithBodyWithResponse Open or resume the session for a workspace
 //
-// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND. Every session of one workspace shares one agent space. A request that names no agent space gets the workspace's, or the default when the workspace has no session yet, and a request that names a different agent space than the workspace's is refused with 409 AGENT_SPACE_CONFLICT, whose message names the workspace's current agent space.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -9313,7 +10682,7 @@ func (c *ClientWithResponses) OpenSessionWithBodyWithResponse(ctx context.Contex
 
 // OpenSessionWithResponse Open or resume the session for a workspace
 //
-// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+// Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND. Every session of one workspace shares one agent space. A request that names no agent space gets the workspace's, or the default when the workspace has no session yet, and a request that names a different agent space than the workspace's is refused with 409 AGENT_SPACE_CONFLICT, whose message names the workspace's current agent space.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -9396,6 +10765,119 @@ func ParseListAgentSpacesResponse(rsp *http.Response) (*ListAgentSpacesResponse,
 	switch {
 	case rsp.StatusCode == 200:
 		var headers ListAgentSpacesResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListCronJobsResponse parses an HTTP response from a ListCronJobsWithResponse call
+func ParseListCronJobsResponse(rsp *http.Response) (*ListCronJobsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListCronJobsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CronJobList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ListCronJobsResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListCronRunsResponse parses an HTTP response from a ListCronRunsWithResponse call
+func ParseListCronRunsResponse(rsp *http.Response) (*ListCronRunsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListCronRunsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest CronRunPage
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ListCronRunsResponse200Headers
 		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
 			var value openapi_types.UUID
 			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
@@ -10626,6 +12108,354 @@ func ParseListSessionFeedResponse(rsp *http.Response) (*ListSessionFeedResponse,
 	switch {
 	case rsp.StatusCode == 200:
 		var headers ListSessionFeedResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseDeleteWorkspaceFileResponse parses an HTTP response from a DeleteWorkspaceFileWithResponse call
+func ParseDeleteWorkspaceFileResponse(rsp *http.Response) (*DeleteWorkspaceFileResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteWorkspaceFileResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorForbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorConflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		var headers DeleteWorkspaceFileResponse204Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers204 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseListWorkspaceFilesResponse parses an HTTP response from a ListWorkspaceFilesWithResponse call
+func ParseListWorkspaceFilesResponse(rsp *http.Response) (*ListWorkspaceFilesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListWorkspaceFilesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest WorkspaceFileListing
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorForbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorConflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ListWorkspaceFilesResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseReadWorkspaceFileResponse parses an HTTP response from a ReadWorkspaceFileWithResponse call
+func ParseReadWorkspaceFileResponse(rsp *http.Response) (*ReadWorkspaceFileResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReadWorkspaceFileResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest WorkspaceFileContent
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorForbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorConflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers ReadWorkspaceFileResponse200Headers
+		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XRequestID = value
+		}
+		if values := rsp.Header.Values("X-Session-ID"); len(values) > 0 {
+			var value openapi_types.UUID
+			if err := runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
+				return nil, err
+			}
+			headers.XSessionID = value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
+// ParseWriteWorkspaceFileResponse parses an HTTP response from a WriteWorkspaceFileWithResponse call
+func ParseWriteWorkspaceFileResponse(rsp *http.Response) (*WriteWorkspaceFileResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &WriteWorkspaceFileResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest WorkspaceFileEntry
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ErrorBadRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ErrorUnauthorized
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest ErrorForbidden
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ErrorNotFound
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorConflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ErrorInternal
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers WriteWorkspaceFileResponse200Headers
 		if values := rsp.Header.Values("X-Request-ID"); len(values) > 0 {
 			var value openapi_types.UUID
 			if err := runtime.BindStyledParameterWithOptions("simple", "X-Request-ID", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"}); err != nil {
@@ -11948,6 +13778,13 @@ func ParseOpenSessionResponse(rsp *http.Response) (*OpenSessionResponse, error) 
 			return nil, err
 		}
 		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ErrorConflict
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest ErrorInternal

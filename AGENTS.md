@@ -2,39 +2,27 @@
 
 Peen is a durable coding-agent service written in Go. One controller owns SQLite, the REST and WebSocket API, and the embedded browser control surface, and it runs each session's turns in its own worker process or container. `CLAUDE.md` is a link to this file and `.claude` is a link to `.agents`, so every agent reads the same instructions.
 
-Start with [docs/development.md](docs/development.md) for the repository layout, the Make targets, and what "done" means. The topic rules in `.agents/rules/` hold the details, and a rule wins over this file and the guide when they disagree.
+Start with [docs/development.md](docs/development.md) for the repository layout, the Make targets, and what "done" means. [.agents/rules/core.md](.agents/rules/core.md) holds the rules for every change.
+
+Area rules live in `.agents/rule-details/`. Read the matching file in full before you edit that area or run its commands. An area rule wins over this file and over the guide when they disagree. [.agents/rule-gate.json](.agents/rule-gate.json) maps the same paths for tools that enforce the reads.
 
 | Rule | Read it before you touch |
 | --- | --- |
-| [make.md](.agents/rules/make.md) | the Makefile, or any command you are about to run |
-| [go.md](.agents/rules/go.md) | Go code: lint, errors, logging |
-| [go-tests.md](.agents/rules/go-tests.md) | Go tests and the test tiers |
-| [constants.md](.agents/rules/constants.md) | named values, enums, sentinels |
-| [naming.md](.agents/rules/naming.md) | any name Peen invents |
-| [config.md](.agents/rules/config.md) | `PEEN_` settings |
-| [security.md](.agents/rules/security.md) | secrets, directories, workers, hooks, untrusted input |
-| [http-api.md](.agents/rules/http-api.md) | REST endpoints and WebSocket frames |
-| [database.md](.agents/rules/database.md) | the schema, migrations, queries |
-| [generated-code.md](.agents/rules/generated-code.md) | anything generated, and how to regenerate it |
-| [dependencies.md](.agents/rules/dependencies.md) | Go modules, pnpm packages, base images |
-| [docker.md](.agents/rules/docker.md) | `Dockerfile`, `Dockerfile.dev`, the entrypoint |
-| [shell.md](.agents/rules/shell.md) | shell scripts |
-| [web.md](.agents/rules/web.md) | the control surface under `web/` |
-| [ci.md](.agents/rules/ci.md) | GitHub workflows |
-| [docs-and-prose.md](.agents/rules/docs-and-prose.md) | docs, README, and any prose |
-| [model-facing-text.md](.agents/rules/model-facing-text.md) | the system prompt, built-in harness files, tool descriptions, injected blocks, and anything else a model reads |
-| [versioning.md](.agents/rules/versioning.md) | the CHANGELOG, version numbers, commit messages |
-
-The rules most often broken:
-
-- Make is the only entry point, and every Go, Node, and lint command runs in the dev image. Never install or run Go, pnpm, or linters on the host.
-- Run one lint, test, or build target at a time. Each one is a full container build or Go compile.
-- Never edit generated files or `vendor/`. Change the source, run `make generate` or the `make pkg-*` targets, and commit both.
-- A change that alters behavior, configuration, the API, events, or harness formats updates the docs, `.env.example`, and the CHANGELOG in the same change.
-- Never commit a secret, and never write a provider key, `PEEN_API_TOKEN`, or a worker credential into config, logs, SQLite, events, or errors.
-- A change is done when `make lint` is clean and the test tier that can see it passes, `make test-coverage` before release.
-- Never add `Closes #N` or another issue-closing keyword to a commit unless the maintainer asked for that issue to be closed.
-
-`internal/pkg/harness/builtin/AGENTS.md` is product text, the operating rules Peen ships to every user. Edit it as content. It is not an instruction for that directory.
-
-`.agents/skills/peen` is the published skill for operating Peen, not a rule for changing it.
+| [make.md](.agents/rule-details/make.md) | `Makefile`, `scripts/make/`, a new Make target |
+| [go.md](.agents/rule-details/go.md) | any `.go` file: lint, errors, logging |
+| [go-tests.md](.agents/rule-details/go-tests.md) | `*_test.go`, `tests/`, the test tiers |
+| [constants.md](.agents/rule-details/constants.md) | `constants.go`, `errors.go`, `types.go`, `web/src/lib/common/constants.ts`, any named value or enum |
+| [naming.md](.agents/rule-details/naming.md) | a new tool, hook event, event type, JSON or YAML key, or any other name Peen invents |
+| [config.md](.agents/rule-details/config.md) | `internal/pkg/config/`, `.env.example`, a `PEEN_` setting |
+| [security.md](.agents/rule-details/security.md) | secrets, directories, workers, `internal/pkg/worker/`, `internal/pkg/control/`, the outside-input packages `internal/pkg/telegram*/`, `mcpserver/`, `mcptools/`, `openaicompat/`, and `cron*/`, hooks, untrusted input |
+| [http-api.md](.agents/rule-details/http-api.md) | `api/`, `internal/pkg/http/`, `pkg/http/`, REST endpoints, WebSocket frames |
+| [database.md](.agents/rule-details/database.md) | `internal/pkg/db/`, `cmd/repogen/`, the schema, migrations, queries |
+| [generated-code.md](.agents/rule-details/generated-code.md) | `gen.go`, `*.gen.go`, `generated.ts`, `.env.example`, `internal/pkg/http/server/web/dist/`, any generator or generated output |
+| [dependencies.md](.agents/rule-details/dependencies.md) | `go.mod`, `go.sum`, `vendor/`, `web/` and `website/` `package.json` and pnpm files, `.golangci.yml` depguard, base images |
+| [docker.md](.agents/rule-details/docker.md) | `Dockerfile`, `Dockerfile.dev`, `docker/`, `.dockerignore` |
+| [shell.md](.agents/rule-details/shell.md) | `scripts/`, `install.sh`, any shell script |
+| [web.md](.agents/rule-details/web.md) | `web/`, `internal/pkg/http/server/web/` |
+| [ci.md](.agents/rule-details/ci.md) | `.github/`, `action.yml` |
+| [docs-and-prose.md](.agents/rule-details/docs-and-prose.md) | `docs/`, `website/`, `scripts/make/docs*`, `README.md`, `AGENTS.md`, `.agents/`, any prose |
+| [model-facing-text.md](.agents/rule-details/model-facing-text.md) | the system prompt, `internal/pkg/harness/builtin/`, tool descriptions, injected blocks, anything a model reads |
+| [versioning.md](.agents/rule-details/versioning.md) | `CHANGELOG.md`, version numbers, `.agents/.codex-plugin/plugin.json`, commit messages |

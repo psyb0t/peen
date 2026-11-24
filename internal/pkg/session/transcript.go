@@ -709,6 +709,8 @@ func (s *Store) finishTurn(
 		turn.CompletedAt.Value(s.now()),
 		turn.FailureClassification.Value(input.FailureClassification),
 	}
+	assignments = append(assignments, turnOutputAssignments(tx, input)...)
+
 	if input.ContextSnapshotHash != nil {
 		assignments = append(
 			assignments,

@@ -208,69 +208,133 @@ func (s *Store) GetWorkerGeneration(
 	return stored, nil
 }
 
-// ReconfigureAgentSpace moves one idle session to a different agent space and
-// records why.
+// ReconfigureAgentSpace moves every session of one workspace to a different
+// agent space and records why, one decision per session. The decision for
+// sessionID comes first.
 //
-// It refuses a session with a turn in flight, because changing the environment
-// under running work would leave that turn's tool calls attributed to an agent
-// space that did not run them. The caller stops the session's worker
-// afterwards so the next turn starts a new generation in the new agent space.
+// The sessions of one workspace share one agent space, so they move together.
+// It refuses while any of them has a turn in flight, because changing the
+// environment under running work would leave that turn's tool calls
+// attributed to an agent space that did not run them. The caller stops each
+// session's worker afterwards so its next turn starts a new generation in the
+// new agent space.
 func (s *Store) ReconfigureAgentSpace(
 	ctx context.Context,
 	sessionID uuid.UUID,
 	toAgentSpace string,
 	reason string,
-) (*models.SessionAgentSpaceDecision, error) {
+) ([]*models.SessionAgentSpaceDecision, error) {
 	if err := validateReconfigureInput(toAgentSpace, reason); err != nil {
 		return nil, err
 	}
 
-	stored, err := s.findSession(ctx, sessionID)
-	if err != nil {
-		return nil, ctxerrors.Wrap(err, "find session for reconfiguration")
-	}
+	var decisions []*models.SessionAgentSpaceDecision
 
-	if s.IsActive(sessionID) {
-		return nil, ctxerrors.Wrap(
-			ErrSessionBusy,
-			"a session with a running turn cannot be reconfigured",
-		)
-	}
+	// activeMu is taken before the transaction, the order every other
+	// lease-aware write uses, so no turn is admitted between the check and
+	// the move.
+	s.activeMu.Lock()
+	defer s.activeMu.Unlock()
 
-	decision := &models.SessionAgentSpaceDecision{
-		ID:             s.newID(),
-		SessionID:      sessionID,
-		FromAgentSpace: stored.AgentSpace,
-		ToAgentSpace:   toAgentSpace,
-		Reason:         reason,
-		DecidedAt:      s.now(),
-	}
-
-	if err := s.query.Transaction(func(tx *repositories.Query) error {
-		session := tx.Session
-
-		result, err := session.WithContext(ctx).
-			Where(session.ID.Eq(sessionID)).
-			UpdateSimple(session.AgentSpace.Value(toAgentSpace))
+	err := s.query.Transaction(func(tx *repositories.Query) error {
+		stored, err := tx.Session.WithContext(ctx).
+			Where(tx.Session.ID.Eq(sessionID)).
+			First()
 		if err != nil {
-			return ctxerrors.Wrap(err, "update session agent space")
+			return ctxerrors.Wrap(err, "find session for reconfiguration")
 		}
 
-		if result.RowsAffected == 0 {
-			return ctxerrors.Wrap(commerr.ErrNotFound, "session")
+		sessions, err := workspaceSessions(ctx, tx, stored)
+		if err != nil {
+			return err
 		}
 
-		if err := tx.SessionAgentSpaceDecision.WithContext(ctx).
-			Create(decision); err != nil {
-			return ctxerrors.Wrap(err, "record agent space decision")
-		}
+		decisions, err = s.recordAgentSpaceMoves(ctx, tx, sessionID,
+			sessions, toAgentSpace, reason)
 
-		return nil
-	}); err != nil {
+		return err
+	})
+	if err != nil {
 		return nil, ctxerrors.Wrap(err, "reconfigure agent space")
 	}
 
-	return decision, nil
+	return decisions, nil
+}
+
+// recordAgentSpaceMoves runs with activeMu held.
+func (s *Store) recordAgentSpaceMoves(
+	ctx context.Context,
+	tx *repositories.Query,
+	sessionID uuid.UUID,
+	sessions []*models.Session,
+	toAgentSpace string,
+	reason string,
+) ([]*models.SessionAgentSpaceDecision, error) {
+	for _, stored := range sessions {
+		if _, active := s.active[stored.ID]; active {
+			return nil, ctxerrors.Wrap(
+				ErrSessionBusy,
+				"a session of this workspace has a running turn",
+			)
+		}
+	}
+
+	decisions := make([]*models.SessionAgentSpaceDecision, 0, len(sessions))
+	now := s.now()
+
+	for _, stored := range sessions {
+		decision := &models.SessionAgentSpaceDecision{
+			ID:             s.newID(),
+			SessionID:      stored.ID,
+			FromAgentSpace: stored.AgentSpace,
+			ToAgentSpace:   toAgentSpace,
+			Reason:         reason,
+			DecidedAt:      now,
+		}
+
+		if err := moveSessionAgentSpace(ctx, tx, decision); err != nil {
+			return nil, err
+		}
+
+		if stored.ID == sessionID {
+			decisions = append(
+				[]*models.SessionAgentSpaceDecision{decision},
+				decisions...,
+			)
+
+			continue
+		}
+
+		decisions = append(decisions, decision)
+	}
+
+	return decisions, nil
+}
+
+func moveSessionAgentSpace(
+	ctx context.Context,
+	tx *repositories.Query,
+	decision *models.SessionAgentSpaceDecision,
+) error {
+	session := tx.Session
+
+	result, err := session.WithContext(ctx).
+		Where(session.ID.Eq(decision.SessionID)).
+		UpdateSimple(session.AgentSpace.Value(decision.ToAgentSpace))
+	if err != nil {
+		return ctxerrors.Wrap(err, "update session agent space")
+	}
+
+	if result.RowsAffected == 0 {
+		return ctxerrors.Wrap(commerr.ErrNotFound, "session")
+	}
+
+	if err := tx.SessionAgentSpaceDecision.WithContext(ctx).
+		Create(decision); err != nil {
+		return ctxerrors.Wrap(err, "record agent space decision")
+	}
+
+	return nil
 }
 
 // validateReconfigureInput refuses a change that would leave the history

@@ -1,12 +1,12 @@
 ---
 title: "Architecture"
 description: "How Peen's controller, workers, SQLite stores, and durable workflows fit together, what one turn does, and the terms and libraries it uses."
-nav_order: 12
+nav_order: 18
 ---
 
 # Architecture
 
-Peen is a durable coding-agent service. A client opens a WebSocket, sends a task for a named session, and watches the model, tools, hooks, and child agents work. The default socket is a global event feed. Clients build session tabs by filtering event metadata, or ask the server to send one session only. Peen saves the work as it happens, so reconnecting after a client or process restart keeps the conversation.
+Peen is a durable coding-agent service. A client opens a WebSocket, sends a task for a named session, and watches the model, tools, hooks, and child agents work. The default socket is a global event feed. Clients build session tabs by filtering event metadata, or ask the server to send one session only. Peen saves the work as it happens, so reconnecting after a client or process restart keeps the conversation. WebSocket is one of several entry points that start turns; the others are the OpenAI API, the MCP control server, scheduled turns, and the Telegram bot, described under [sessions and entry points](#sessions-and-entry-points).
 
 ```text
 WebSocket client
@@ -29,7 +29,7 @@ harness, tools, hooks, child agents
       +--> workspace files and commands
 ```
 
-REST sits beside the WebSocket. It reads stored session state, lists messages, protocol events, notices, compactions, model exchanges, jobs, and child-agent runs, and cancels work. It never accepts a user message. It starts a turn only when a posted notice wakes an idle session through an event handler. [The API reference](http-api.md) has the contract.
+REST sits beside the WebSocket. It reads stored session state, lists messages, protocol events, notices, compactions, model exchanges, jobs, and child-agent runs, reads and writes workspace files, and cancels work. No `/api/v1` endpoint accepts a user message. It starts a turn only when a posted notice wakes an idle session through an event handler. [The API reference](http-api.md) has the contract.
 
 [Aichteeteapee](https://github.com/psyb0t/aichteeteapee) supplies Peen's HTTP server, REST error envelope, and WebSocket hub. Peen gives every socket its own server-controlled identity in that hub. The server sends a session's events to global sockets and to sockets filtered for that session.
 
@@ -51,9 +51,21 @@ The controller decides at startup whether it has Docker access, by checking whet
 
 Events reach clients only after they are stored. A worker's turn writes through the control plane, and a feed pump reads each session's newly committed rows in sequence order and fans them out to the WebSocket hub right after the write lands. A client therefore never sees an event that a reconnect and replay through [the session feed](http-api.md#get-apiv1sessionfeed) would not produce.
 
+Controller integrations use the same workspace policy and worker routing. An integration that waits for its own result is refused when the session is busy, sees only its own request's committed events, and drains the remaining stored events before it returns. Feed subscribers have bounded buffers; a slow subscriber is disconnected without delaying the WebSocket hub. Caller cancellation waits for the request's admission or worker answer before stopping its exact turn, so it cannot stop a different request that uses the session.
+
+## Sessions and entry points
+
+Every entry point is a door into the same app: the WebSocket and REST API, the [OpenAI API](openai-api.md), the [MCP control server](mcp-server.md), [scheduled turns](cron.md), and the [Telegram bot](telegram.md). Each has its own key, which [Security](security.md#entry-points) lists, and all of them reach sessions through the same registry, workspace policy and workers.
+
+A session is one conversation in one workspace directory, with its own history, turns and worker. A workspace can hold several sessions. Its canonical session is the one `POST /api/v1/sessions/open` creates the first time and returns on every later open; `peen`, the control surface, and an MCP `sendMessage` that names a workspace all use it. The other doors open fresh sessions beside it in the same directory: an OpenAI request without `X-Peen-Session-ID`, each scheduled job (one session it continues, or a new one per run), and each Telegram chat and its `/new`. Fresh sessions share the workspace's files but not its history. A regular session is any session except the system session, and every door except a WebSocket `message.send` with `system` set reaches only regular sessions.
+
+All sessions of one workspace run in the workspace's one agent space. The first session sets it, a later open that names a different one is refused with `AGENT_SPACE_CONFLICT`, and a reconfigure moves every session of the workspace together. [Where it runs](where-it-runs.md#choosing-an-agent-space-for-a-workspace) has the details.
+
 ## One turn
 
 The runtime recovers the root agent's current directory and resolves its ancestor harness layers first. It builds the model context from the conversation, project rules, the names of the available skills and agents, and current runtime facts. The provider may then ask to use tools. Peen runs those tools, applies matching hooks, records the result, and returns it to the provider until the turn completes or fails.
+
+A turn may retain a JSON Schema and an absolute deadline with its original request. A structured-output activity runs after the normal loop finishes, makes tool-free model calls, validates their answers, and records usage and the validated value or failure. A worker enforces the saved deadline through the normal cancellation path, including after recovery. [The WebSocket contract](websocket-api.md#structured-output-and-turn-deadlines) describes both settings.
 
 A replacement worker claims an interrupted child when its next workflow activity starts. The activity and child ownership transfer commit together, retaining the original run identity and progress. A failed claim rolls back both records. Paused executions and children with requested cancellation or terminal state cannot acquire a new activity. A replaced worker cannot write new child checkpoints after ownership transfers. [Child recovery](agents.md#recovery-after-a-crash) describes pending tools, messages and limits.
 
@@ -208,7 +220,10 @@ Several words in these docs name different things on different pages. This is wh
 | protocol event | A stored record of one step of a turn, such as `turn.started` or `tool.use`. `GET /api/v1/session/events` lists them, and each one also goes out live as a WebSocket frame. | [Protocol event types](websocket-api.md#protocol-event-types) |
 | WebSocket frame | One JSON message on the WebSocket, in either direction: a client's `message.send`, a protocol event, or a `message.completed` or `message.failed` reply. | [WebSocket](websocket-api.md) |
 | upstream | One entry in `PEEN_UPSTREAMS`. The docs also call it a provider, and the API calls its name `connectionName`. All three mean the same configured entry. A qualified model name is `<upstream name>/<model ID>`, such as `zai/glm-5.3`. | [Providers](configuration.md#providers) |
-| agent space | The place a workspace's agent runs: `control`, next to Peen, or `docker:<profile>`, in its own container. A Docker profile is one entry in `PEEN_DOCKER_PROFILES`. | [Where it runs](where-it-runs.md) |
+| agent space | The place a workspace's agent runs: `control`, next to Peen, or `docker:<profile>`, in its own container. Every session of one workspace shares it. A Docker profile is one entry in `PEEN_DOCKER_PROFILES`. | [Where it runs](where-it-runs.md) |
+| canonical session | The session `POST /api/v1/sessions/open` creates for a workspace and returns on every later open. | [Sessions and entry points](#sessions-and-entry-points) |
+| fresh session | A further session in a workspace that already has one, opened by the OpenAI API, a scheduled job, or a Telegram chat. It has its own history and shares the workspace's files and agent space. | [Sessions and entry points](#sessions-and-entry-points) |
+| regular session | Any session except the system session. The file API and every integration reach only regular sessions. | [Sessions and entry points](#sessions-and-entry-points) |
 | control space | Where Peen itself runs when you install it with the installer: `host` or `docker`. | [Where it runs](where-it-runs.md#the-four-combinations) |
 | worker generation | One run of a session's worker process. A session gets a new generation each time Peen starts its worker. | [Workers](http-api.md#get-apiv1sessionworkers) |
 
@@ -222,7 +237,7 @@ The field name `type` also means different things. On a hook action it is the ac
 
 | Identifier | What it names | Who creates it | Where you see it |
 | --- | --- | --- | --- |
-| session ID | One session, which is one workspace's conversation. | Peen, the first time `POST /api/v1/sessions/open` opens that workspace. | `X-Session-ID`, frame `metadata.sessionId`, hook stdin `sessionId`. |
+| session ID | One session, which is one conversation in a workspace. | Peen, when `POST /api/v1/sessions/open` first opens a workspace, or when an entry point opens a fresh session. | `X-Session-ID`, frame `metadata.sessionId`, hook stdin `sessionId`. |
 | request ID | One accepted `message.send`, or one turn an event woke. | Peen, when it accepts the frame or starts the woken turn. | Frame `metadata.requestId`, turn records, hook stdin `requestId`. Every frame of one turn shares it. A queued message keeps its own. |
 | turn ID | One stored turn. | Peen, when the turn starts. | `GET /api/v1/session/turns`, `turnId` on stored messages, protocol events, and jobs, hook stdin `turnId`. |
 | call ID | One tool call inside a turn. | The model provider. | `callId` on `tool.use` and `tool.result`, `id` and `tool_use_id` on content blocks, `toolCallId` on stored messages, hook stdin `callId`. |

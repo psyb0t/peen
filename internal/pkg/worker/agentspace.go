@@ -26,6 +26,11 @@ const (
 	// maxProfileNameLength bounds a Docker profile name.
 	maxProfileNameLength = 64
 
+	maxProfileEnvironmentEntries    = 128
+	maxProfileEnvironmentKeyBytes   = 256
+	maxProfileEnvironmentValueBytes = 32768
+	maxProfileGitIdentityBytes      = 256
+
 	warningDockerFull = "docker: full mounts the host Docker socket into the " +
 		"worker, which is host root"
 	warningDockerReadonly = "docker: readonly lets the worker list and " +
@@ -84,6 +89,12 @@ type AgentSpace struct {
 
 	// Sudo permits passwordless sudo inside the worker.
 	Sudo bool
+
+	// Env is non-secret operator configuration visible to agent commands.
+	Env map[string]string
+
+	GitName  string
+	GitEmail string
 }
 
 // DockerSpaceName is the agent space name of a Docker profile.
@@ -190,15 +201,20 @@ func (s AgentSpace) validateControl() error {
 		)
 	}
 
-	if s.Image != "" || len(s.Mounts) != 0 || s.Docker != "" ||
-		s.Network != "" || s.Sudo {
+	if s.hasDockerConfiguration() {
 		return ctxerrors.Wrap(
 			commerr.ErrValidationFailed,
-			"the control agent space takes no image, mounts, or grants",
+			"the control agent space takes no Docker profile settings",
 		)
 	}
 
 	return nil
+}
+
+func (s AgentSpace) hasDockerConfiguration() bool {
+	return s.Image != "" || len(s.Mounts) != 0 || s.Docker != "" ||
+		s.Network != "" || s.Sudo || len(s.Env) != 0 ||
+		s.GitName != "" || s.GitEmail != ""
 }
 
 func (s AgentSpace) validateDocker() error {
@@ -217,7 +233,116 @@ func (s AgentSpace) validateDocker() error {
 		return err
 	}
 
+	if err := s.validateProfileEnvironment(); err != nil {
+		return err
+	}
+
 	return s.validateMounts()
+}
+
+func (s AgentSpace) validateProfileEnvironment() error {
+	if len(s.Env) > maxProfileEnvironmentEntries {
+		return ctxerrors.Wrap(
+			commerr.ErrValidationFailed,
+			"Docker profile has too many environment entries",
+		)
+	}
+
+	for key, value := range s.Env {
+		if !validProfileEnvironmentKey(key) ||
+			profileEnvironmentReserved(key) {
+			return ctxerrors.Wrapf(
+				commerr.ErrValidationFailed,
+				"Docker profile environment key %q is invalid or reserved",
+				key,
+			)
+		}
+
+		if !validProfileEnvironmentValue(
+			value,
+			maxProfileEnvironmentValueBytes,
+		) {
+			return ctxerrors.Wrapf(
+				commerr.ErrValidationFailed,
+				"Docker profile environment value for %q is invalid",
+				key,
+			)
+		}
+	}
+
+	return s.validateGitIdentity()
+}
+
+func (s AgentSpace) validateGitIdentity() error {
+	for _, field := range []struct {
+		name  string
+		value string
+	}{
+		{name: "gitName", value: s.GitName},
+		{name: "gitEmail", value: s.GitEmail},
+	} {
+		if !validProfileEnvironmentValue(
+			field.value,
+			maxProfileGitIdentityBytes,
+		) {
+			return ctxerrors.Wrapf(
+				commerr.ErrValidationFailed,
+				"Docker profile %s is invalid",
+				field.name,
+			)
+		}
+	}
+
+	return nil
+}
+
+func validProfileEnvironmentValue(value string, maxBytes int) bool {
+	return len(value) <= maxBytes && !strings.ContainsAny(value, "\x00\r\n")
+}
+
+func validProfileEnvironmentKey(key string) bool {
+	if key == "" || len(key) > maxProfileEnvironmentKeyBytes {
+		return false
+	}
+
+	for index, char := range key {
+		if char == '_' || isASCIIAlphabetic(char) {
+			continue
+		}
+
+		if index > 0 && char >= '0' && char <= '9' {
+			continue
+		}
+
+		return false
+	}
+
+	return true
+}
+
+func isASCIIAlphabetic(char rune) bool {
+	return (char >= 'a' && char <= 'z') ||
+		(char >= 'A' && char <= 'Z')
+}
+
+// Profile values reach the root bootstrap. Startup hooks and loader paths
+// must not let workspace code run before the worker drops its identity.
+func profileEnvironmentReserved(key string) bool {
+	if strings.HasPrefix(key, "PEEN_") ||
+		strings.HasPrefix(key, "LD_") ||
+		strings.HasPrefix(key, "GIT_AUTHOR_") ||
+		strings.HasPrefix(key, "GIT_COMMITTER_") {
+		return true
+	}
+
+	switch key {
+	case "PATH", "HOME", "USER", "LOGNAME", "DOCKER_HOST":
+		return true
+	case "BASH_ENV", "ENV", "BASHOPTS", "SHELLOPTS", "PS4", "GCONV_PATH":
+		return true
+	}
+
+	return false
 }
 
 func (s AgentSpace) validateGrants() error {

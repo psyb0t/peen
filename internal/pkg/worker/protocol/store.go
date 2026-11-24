@@ -339,10 +339,16 @@ func (s *Store) Cancel(
 // durable write. The controller calls it through the cancel command, which it
 // sends after it has already recorded the request.
 func (s *Store) RequestLocalCancellation(sessionID uuid.UUID) bool {
+	return s.requestLocalCancellation(sessionID, uuid.Nil)
+}
+
+func (s *Store) requestLocalCancellation(
+	sessionID, turnID uuid.UUID,
+) bool {
 	s.activeMutex.Lock()
 
 	active, held := s.active[sessionID]
-	if !held {
+	if !held || (turnID != uuid.Nil && active.turnID != turnID) {
 		s.activeMutex.Unlock()
 
 		return false

@@ -112,7 +112,7 @@ func reconfigureSessionFailure(
 		return api.ReconfigureSession409JSONResponse{
 			ErrorConflictJSONResponse: api.ErrorConflictJSONResponse(
 				sessionBusyError(
-					"a session with a running turn cannot be reconfigured",
+					"a session of this workspace has a running turn",
 				),
 			),
 		}, nil

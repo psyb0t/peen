@@ -6,6 +6,8 @@ import (
 	servicemanager "github.com/psyb0t/peen/internal/pkg/service-manager"
 	controlapi "github.com/psyb0t/peen/internal/pkg/services/control-api"
 	controlcore "github.com/psyb0t/peen/internal/pkg/services/control-core"
+	controlcron "github.com/psyb0t/peen/internal/pkg/services/control-cron"
+	controltelegram "github.com/psyb0t/peen/internal/pkg/services/control-telegram"
 )
 
 func Init() {
@@ -17,6 +19,14 @@ func Init() {
 
 	sm.Register(controlcore.ServiceName, func() (servicemanager.Service, error) {
 		return controlcore.New()
+	})
+
+	sm.Register(controlcron.ServiceName, func() (servicemanager.Service, error) {
+		return controlcron.New()
+	})
+
+	sm.Register(controltelegram.ServiceName, func() (servicemanager.Service, error) {
+		return controltelegram.New()
 	})
 
 }

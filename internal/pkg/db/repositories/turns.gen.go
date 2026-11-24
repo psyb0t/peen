@@ -28,6 +28,8 @@ func newTurn(db *gorm.DB, opts ...gen.DOOption) turn {
 
 	tableName := _turn.turnDo.TableName()
 	_turn.ALL = field.NewAsterisk(tableName)
+	_turn.Output = field.NewString(tableName, "output")
+	_turn.OutputError = field.NewString(tableName, "output_error")
 	_turn.ID = field.NewField(tableName, "id")
 	_turn.SessionID = field.NewField(tableName, "session_id")
 	_turn.RequestID = field.NewField(tableName, "request_id")
@@ -51,6 +53,8 @@ type turn struct {
 	turnDo
 
 	ALL                   field.Asterisk
+	Output                field.String
+	OutputError           field.String
 	ID                    field.Field
 	SessionID             field.Field
 	RequestID             field.Field
@@ -80,6 +84,8 @@ func (t turn) As(alias string) *turn {
 
 func (t *turn) updateTableName(table string) *turn {
 	t.ALL = field.NewAsterisk(table)
+	t.Output = field.NewString(table, "output")
+	t.OutputError = field.NewString(table, "output_error")
 	t.ID = field.NewField(table, "id")
 	t.SessionID = field.NewField(table, "session_id")
 	t.RequestID = field.NewField(table, "request_id")
@@ -109,7 +115,9 @@ func (t *turn) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (t *turn) fillFieldMap() {
-	t.fieldMap = make(map[string]field.Expr, 13)
+	t.fieldMap = make(map[string]field.Expr, 15)
+	t.fieldMap["output"] = t.Output
+	t.fieldMap["output_error"] = t.OutputError
 	t.fieldMap["id"] = t.ID
 	t.fieldMap["session_id"] = t.SessionID
 	t.fieldMap["request_id"] = t.RequestID

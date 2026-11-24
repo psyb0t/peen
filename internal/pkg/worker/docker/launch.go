@@ -43,7 +43,12 @@ const (
 	bootstrapAllowSudoEnvKey = "PEEN_WORKER_ALLOW_SUDO"
 	bootstrapAllowSudoValue  = "true"
 
-	workerEnvironmentBaseEntries = 9
+	gitAuthorNameEnvKey     = "GIT_AUTHOR_NAME"
+	gitCommitterNameEnvKey  = "GIT_COMMITTER_NAME"
+	gitAuthorEmailEnvKey    = "GIT_AUTHOR_EMAIL"
+	gitCommitterEmailEnvKey = "GIT_COMMITTER_EMAIL"
+
+	workerEnvironmentBaseEntries = 13
 	validateRuntimeEnvironmentOp = "validate Docker worker runtime environment"
 
 	// bootstrapUser starts a worker as root so the image entrypoint can create
@@ -107,24 +112,7 @@ func BuildCreateRequest(spec LaunchSpec) (CreateRequest, error) {
 		return CreateRequest{}, err
 	}
 
-	environment := make(
-		map[string]string,
-		len(spec.RuntimeEnvironment)+workerEnvironmentBaseEntries,
-	)
-	maps.Copy(environment, spec.RuntimeEnvironment)
-	maps.Copy(environment, spec.Identity.Environment())
-	environment[configEnvKey] = spec.Document.ConfigDirectory
-
-	maps.Copy(environment, spec.Identity.BootstrapEnvironment(groups))
-
-	if spec.AgentSpace.Sudo {
-		environment[bootstrapAllowSudoEnvKey] = bootstrapAllowSudoValue
-	}
-
-	if spec.AgentSpace.Docker == worker.DockerAccessReadonly {
-		environment[dockerHostEnvKey] = dockerHostUnixScheme +
-			ReadonlyProxySocketPath(spec.Document)
-	}
+	environment := spec.environment(groups)
 
 	return CreateRequest{
 		Name:             worker.ContainerName(spec.Document.SessionID),
@@ -139,6 +127,41 @@ func BuildCreateRequest(spec LaunchSpec) (CreateRequest, error) {
 		NoNewPrivileges:  !spec.AgentSpace.Sudo,
 		Labels:           worker.ContainerLabels(spec.Document.SessionID),
 	}, nil
+}
+
+func (s LaunchSpec) environment(groups []string) map[string]string {
+	environment := make(
+		map[string]string,
+		len(s.RuntimeEnvironment)+len(s.AgentSpace.Env)+
+			workerEnvironmentBaseEntries,
+	)
+	maps.Copy(environment, s.AgentSpace.Env)
+	maps.Copy(environment, s.RuntimeEnvironment)
+	maps.Copy(environment, s.Identity.Environment())
+
+	if s.AgentSpace.GitName != "" {
+		environment[gitAuthorNameEnvKey] = s.AgentSpace.GitName
+		environment[gitCommitterNameEnvKey] = s.AgentSpace.GitName
+	}
+
+	if s.AgentSpace.GitEmail != "" {
+		environment[gitAuthorEmailEnvKey] = s.AgentSpace.GitEmail
+		environment[gitCommitterEmailEnvKey] = s.AgentSpace.GitEmail
+	}
+
+	environment[configEnvKey] = s.Document.ConfigDirectory
+	maps.Copy(environment, s.Identity.BootstrapEnvironment(groups))
+
+	if s.AgentSpace.Sudo {
+		environment[bootstrapAllowSudoEnvKey] = bootstrapAllowSudoValue
+	}
+
+	if s.AgentSpace.Docker == worker.DockerAccessReadonly {
+		environment[dockerHostEnvKey] = dockerHostUnixScheme +
+			ReadonlyProxySocketPath(s.Document)
+	}
+
+	return environment
 }
 
 // ReadonlyProxySocketPath is where the controller runs a `docker: readonly`
@@ -275,6 +298,7 @@ func workerEnvironmentReserved(key string) bool {
 		"PEEN_DOCKER_PROFILES",
 		"PEEN_DEFAULT_AGENT_SPACE",
 		"PEEN_WORKSPACE_ROOT",
+		"PEEN_MAX_FILE_API_BYTES",
 		"PEEN_HTTP_LISTEN_ADDRESS",
 		"PEEN_METRICS_LISTEN_ADDRESS",
 		"PEEN_METRICS_RETENTION",

@@ -8,7 +8,7 @@ import (
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/peen/internal/pkg/events"
-	"go.yaml.in/yaml/v3" //nolint:depguard // Parses the Agent Skills YAML contract.
+	"go.yaml.in/yaml/v3"
 )
 
 const (

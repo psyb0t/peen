@@ -140,6 +140,8 @@ Usage: peen [command] [arguments]
       --control-space host|docker   Override where Peen runs for this invocation
       --model MODEL --reasoning-effort LEVEL --agent-space SPACE
       --system-prompt TEXT --system-prompt-mode append|replace
+      --output-schema FILE          JSON Schema the final answer must match
+      --timeout DURATION            Cancel the turn after DURATION, such as 30m
 
   peen setup [flags]        Create or update the configuration and pin the image
       --control-space host|docker   Where Peen runs (default docker)

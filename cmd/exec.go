@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
@@ -36,6 +38,8 @@ The prompt is the value of --prompt, or the arguments joined by spaces, but not 
 
 By default standard output carries every frame of the session exactly as the WebSocket sends it, one JSON object per line: the model's thinking and reply deltas, tool calls and results, child agent runs, and the turn's end. --output text writes the reply to standard output and the rest to standard error. Logs go to standard error at warn level unless LOG_LEVEL says otherwise.
 
+--output-schema names a JSON Schema file the final answer must match: standard output then carries only the matching JSON, and everything else goes to standard error. --timeout cancels the turn once it has run that long, such as 30m.
+
 The first interrupt abandons startup or cancels the running turn and waits for confirmation. A second stops streaming and shuts down an in-process controller; a third exits immediately. The exit status is 0 when the turn completed, 1 when it failed, and 130 when it was cancelled.`
 
 const (
@@ -52,6 +56,8 @@ const (
 	flagAgentSpace       = "agent-space"
 	flagWorkspace        = "workspace"
 	flagOutput           = "output"
+	flagOutputSchema     = "output-schema"
+	flagTurnTimeout      = "timeout"
 
 	// promptFromStdin is the one argument that reads the prompt from
 	// standard input.
@@ -83,6 +89,8 @@ func (e exitCodeError) Error() string {
 
 // execOptions are the exec command's flags.
 type execOptions struct {
+	outputSchema     string
+	timeout          time.Duration
 	prompt           string
 	model            string
 	reasoningEffort  string
@@ -118,6 +126,10 @@ func execCommand() *cobra.Command {
 // bindExecFlags registers the exec flags on command, writing into options.
 func bindExecFlags(command *cobra.Command, options *execOptions) {
 	flags := command.Flags()
+	flags.StringVar(&options.outputSchema, flagOutputSchema, "",
+		"JSON Schema file for the final answer")
+	flags.DurationVar(&options.timeout, flagTurnTimeout, 0,
+		"overall turn timeout, such as 30m")
 	flags.StringVar(
 		&options.prompt,
 		flagPrompt,
@@ -327,7 +339,10 @@ func execMessage(
 	prompt string,
 	options execOptions,
 ) (wsapi.MessageSendData, error) {
-	message := wsapi.MessageSendData{Message: prompt}
+	message, err := execTurnSettings(prompt, options)
+	if err != nil {
+		return message, err
+	}
 
 	if options.model != "" {
 		message.Model = &options.model
@@ -350,6 +365,38 @@ func execMessage(
 			err,
 			"check the turn flags",
 		)
+	}
+
+	return message, nil
+}
+
+func execTurnSettings(
+	prompt string,
+	options execOptions,
+) (wsapi.MessageSendData, error) {
+	message := wsapi.MessageSendData{Message: prompt}
+
+	if options.outputSchema != "" {
+		data, err := os.ReadFile(options.outputSchema)
+		if err != nil {
+			return message, ctxerrors.Wrap(err, "read --output-schema")
+		}
+
+		if err := json.Unmarshal(data, &message.OutputSchema); err != nil ||
+			message.OutputSchema == nil {
+			return message, ctxerrors.Wrap(commerr.ErrValidationFailed,
+				"--output-schema must hold a JSON object")
+		}
+	}
+
+	if options.timeout < 0 {
+		return message, ctxerrors.Wrap(commerr.ErrValidationFailed,
+			"--timeout must be non-negative")
+	}
+
+	if options.timeout > 0 {
+		seconds := int64((options.timeout-1)/time.Second) + 1
+		message.TimeoutSeconds = &seconds
 	}
 
 	return message, nil

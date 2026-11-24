@@ -44,6 +44,7 @@ func (c *rootWorkflowCallbacks) beforeFinish(
 	}
 
 	result.Finish.Turn = &session.FinalizeTurnInput{
+		Output: result.Result.Output, OutputError: result.Result.OutputError,
 		State: state, FailureClassification: classification,
 		FailureDetail:       rootFailureDetail(result),
 		ContextSnapshotHash: &shared.prepared.contextHash,
@@ -81,6 +82,7 @@ func (c *rootWorkflowCallbacks) finalEvent(
 	kind := EventTypeTurnCompleted
 
 	var payload any = turnCompletedPayload{
+		Output: result.Result.Output, OutputError: result.Result.OutputError,
 		Model: prepared.modelReference, Text: result.Result.Text,
 		FinishReason: result.Result.FinishReason,
 	}

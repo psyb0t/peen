@@ -36,6 +36,11 @@ commit.txt
 /data/
 web/node_modules/
 web/.svelte-kit/
+/website/build/
+/website/node_modules/
+/website/.content/
+/website/.assets/
+/website/.docusaurus/
 .pnpm-store/
 coverage.html
 coverage_filtered.txt

@@ -159,7 +159,15 @@ func runTurn(
 		options,
 		&workers,
 	)
+
 	output := newRenderer(options.Output, options.Stdout, options.Stderr)
+	if options.Message.OutputSchema != nil {
+		output = &structuredRenderer{
+			stdout: options.Stdout,
+			details: newRenderer(options.Output,
+				options.Stderr, options.Stderr),
+		}
+	}
 
 	result, err := client.RunTurn(
 		turnCtx,
@@ -226,14 +234,10 @@ func openSession(
 
 	agentSpace := NormalizeAgentSpace(options.AgentSpace)
 
-	request := api.OpenSessionRequest{Workspace: options.Workspace}
-	if agentSpace != "" {
-		request.AgentSpace = &agentSpace
-	}
-
-	opened, err := client.OpenSession(ctx, request)
+	opened, err := openWorkspaceSession(ctx, client, options.Workspace,
+		agentSpace)
 	if err != nil {
-		return uuid.Nil, ctxerrors.Wrap(err, "open the workspace session")
+		return uuid.Nil, err
 	}
 
 	sessionID := opened.Session.Id
@@ -264,6 +268,35 @@ func openSession(
 	)
 
 	return sessionID, nil
+}
+
+// openWorkspaceSession opens the workspace in agentSpace. When the workspace
+// already runs in another agent space it opens it as it is, and the caller's
+// move then takes every session of the workspace along.
+func openWorkspaceSession(
+	ctx context.Context,
+	client *controlclient.Client,
+	workspace string,
+	agentSpace string,
+) (api.OpenedSession, error) {
+	request := api.OpenSessionRequest{Workspace: workspace}
+	if agentSpace != "" {
+		request.AgentSpace = &agentSpace
+	}
+
+	opened, err := client.OpenSession(ctx, request)
+	if err != nil && agentSpace != "" && errors.Is(err, commerr.ErrConflict) {
+		opened, err = client.OpenSession(ctx, api.OpenSessionRequest{
+			Workspace: workspace,
+		})
+	}
+
+	if err != nil {
+		return api.OpenedSession{}, ctxerrors.Wrap(err,
+			"open the workspace session")
+	}
+
+	return opened, nil
 }
 
 // NormalizeAgentSpace expands the docker shorthand to docker:default and

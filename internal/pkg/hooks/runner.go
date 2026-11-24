@@ -49,6 +49,7 @@ type Runner struct {
 	callback            func(context.Context, Invocation) (Outcome, error)
 	hooks               []harness.Hook
 	workspace           string
+	configDirectory     string
 	commandTimeout      time.Duration
 	maxCommandOutput    int
 	publisher           EventPublisher
@@ -95,6 +96,7 @@ func New(options Options) (Runner, error) {
 		callback:            options.Callback,
 		hooks:               options.Snapshot.Hooks(),
 		workspace:           filepath.Clean(options.Workspace),
+		configDirectory:     options.Snapshot.ConfigRoot(),
 		commandTimeout:      options.CommandTimeout,
 		maxCommandOutput:    options.MaxCommandOutput,
 		publisher:           options.Publisher,
@@ -380,13 +382,14 @@ func (r Runner) runCommandAction(
 		return actionResult{}, err
 	}
 
-	timeout, err := action.CommandTimeout()
+	timeout, err := r.commandActionTimeout(action)
 	if err != nil {
 		return actionResult{}, ctxerrors.Wrap(err, "resolve command timeout")
 	}
 
-	if timeout == 0 {
-		timeout = r.commandTimeout
+	commandName, environment, err := r.operatorCommand(action)
+	if err != nil {
+		return actionResult{}, err
 	}
 
 	commandCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -408,9 +411,9 @@ func (r Runner) runCommandAction(
 	}()
 
 	output, err := r.runCommand(commandCtx, CommandInput{
-		Command:     action.Command,
+		Command:     commandName,
 		Args:        append([]string(nil), action.Args...),
-		Environment: cloneEnvironment(action.Environment),
+		Environment: environment,
 		WorkingDir:  actionWorkingDirectory(r.workspace, action.WorkingDir),
 		Stdin:       append([]byte(nil), payload...),
 		MaxOutput:   r.maxCommandOutput,

@@ -10,7 +10,7 @@
 
 _peen goes in vageen_
 
-Peen is a coding agent built as a server. One control server opens a session for each workspace directory and runs Peen's agent for that session in its own worker, either a process beside the controller or a separate Docker container. Clients send work and watch it live over WebSocket, and the agent keeps working when they disconnect. It can read code, edit files, run commands, use skills, launch child agents, and follow the `AGENTS.md` and rules sitting beside the project.
+Peen is a coding agent built as a server. One control server opens sessions for workspace directories and runs Peen's agent for that session in its own worker, either a process beside the controller or a separate Docker container. Clients send work and watch it live over WebSocket, and the agent keeps working when they disconnect. It can read code, edit files, run commands, use skills, launch child agents, and follow the `AGENTS.md` and rules sitting beside the project.
 
 Every conversation, tool call, agent event, context snapshot, compaction, and provider exchange lands in SQLite. Model records keep the request and response, thinking, usage, retries, cost, model identity, and connection name, never the provider credential. Reconnect after a restart and the history is still there. A global WebSocket receives every session's live feed; a session-filtered socket receives only that session.
 
@@ -19,6 +19,8 @@ Root and nested agent conversations run through SQLite-backed go-workflows. Afte
 One host runs one control plane. It owns SQLite, the API, and the event feed, and the operator chooses whether workers run as child processes or containers. See [Where it runs](https://psyb0t.github.io/peen/where-it-runs/) and [Architecture](https://psyb0t.github.io/peen/architecture/).
 
 Peen ships its own browser [control surface](https://psyb0t.github.io/peen/control-surface/) at the controller's root URL. It is one client among many, so a terminal client, a bot, or your own application can watch the same live work and use the same stored records.
+
+Any turn can ask for a final answer validated against a JSON Schema and set an overall deadline, from the [WebSocket API](https://psyb0t.github.io/peen/websocket-api/#structured-output-and-turn-deadlines) or the [command line](https://psyb0t.github.io/peen/command-line/#flags). A [workspace file API](https://psyb0t.github.io/peen/http-api/#workspace-files) lists, reads, writes, and deletes files in a session's workspace. Optional integrations, off by default, serve [OpenAI Chat Completions clients](https://psyb0t.github.io/peen/openai-api/), [MCP clients](https://psyb0t.github.io/peen/mcp-server/), a [Telegram bot](https://psyb0t.github.io/peen/telegram/), and [scheduled turns](https://psyb0t.github.io/peen/cron/).
 
 ## Contents
 
@@ -124,8 +126,12 @@ The full documentation is at [psyb0t.github.io/peen](https://psyb0t.github.io/pe
 | Define child agents for contained jobs | [Named agents](https://psyb0t.github.io/peen/agents/) |
 | React to background jobs, child agents, and outside systems | [Session events](https://psyb0t.github.io/peen/events/) |
 | Add hard checks or model instructions around actions | [Hooks](https://psyb0t.github.io/peen/hooks/) |
-| Give the agent the tools of MCP servers | [MCP servers](https://psyb0t.github.io/peen/mcp/) |
+| Give the agent the tools of MCP servers | [MCP tool servers](https://psyb0t.github.io/peen/mcp/) |
 | Build a client | [WebSocket API](https://psyb0t.github.io/peen/websocket-api/), [REST API](https://psyb0t.github.io/peen/http-api/), [api/api.yml](https://github.com/psyb0t/peen/blob/main/api/api.yml), and [api/asyncapi.yaml](https://github.com/psyb0t/peen/blob/main/api/asyncapi.yaml) |
+| Connect an OpenAI Chat Completions client | [OpenAI API](https://psyb0t.github.io/peen/openai-api/) |
+| Operate Peen from an MCP client | [MCP control server](https://psyb0t.github.io/peen/mcp-server/) |
+| Run prompts on a schedule | [Scheduled turns](https://psyb0t.github.io/peen/cron/) |
+| Drive a workspace from Telegram | [Telegram bot](https://psyb0t.github.io/peen/telegram/) |
 | Embed Peen in a Go process | [Go embedding guide](https://psyb0t.github.io/peen/embedding/) |
 | Fix something that broke | [Troubleshooting](https://psyb0t.github.io/peen/troubleshooting/) |
 | See how it fits together and what it is built with | [Architecture](https://psyb0t.github.io/peen/architecture/) |

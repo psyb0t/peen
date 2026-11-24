@@ -525,11 +525,21 @@ func (h *commandHandler) HandleCommand(
 		return nil, err
 	}
 
+	return h.dispatchCommand(ctx, command, payload)
+}
+
+func (h *commandHandler) dispatchCommand(
+	ctx context.Context,
+	command protocol.Command,
+	payload json.RawMessage,
+) (any, error) {
 	switch command {
 	case protocol.CommandRunTurn:
 		return h.runTurn(ctx, payload)
 	case protocol.CommandCancel:
 		return h.cancelTurn(ctx)
+	case protocol.CommandCancelTurn:
+		return h.cancelExactTurn(ctx, payload)
 	case protocol.CommandSignalJob:
 		return h.signalJob(ctx, payload)
 	case protocol.CommandCancelAgentRun:
@@ -631,7 +641,10 @@ func (h *commandHandler) runTurn(
 		return nil, ctxerrors.Wrap(err, "run the session turn")
 	}
 
-	return protocol.TurnResult{Text: result.Text, Queued: result.Queued}, nil
+	return protocol.TurnResult{
+		Text: result.Text, Queued: result.Queued,
+		Output: result.Output, OutputError: result.OutputError,
+	}, nil
 }
 
 // turnMessage turns a runTurn command into this worker's session turn.
@@ -640,6 +653,9 @@ func turnMessage(
 	request protocol.RunTurn,
 ) agent.MessageRequest {
 	message := agent.MessageRequest{
+		RequireNewTurn:       request.RequireNewTurn,
+		OutputSchema:         request.OutputSchema,
+		TimeoutSeconds:       request.TimeoutSeconds,
 		ExpectedStopRevision: request.ExpectedStopRevision,
 		SessionID:            &sessionID,
 		Message:              request.Message,

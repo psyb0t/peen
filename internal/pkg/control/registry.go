@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"errors"
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
@@ -15,10 +16,11 @@ import (
 // RegistryOptions supplies the durable store and the policy a registry opens
 // workspaces under.
 type RegistryOptions struct {
-	Store        *session.Store
-	Policy       *WorkspacePolicy
-	RootAgent    string
-	DefaultModel string
+	Store           *session.Store
+	Policy          *WorkspacePolicy
+	RootAgent       string
+	DefaultModel    string
+	MaxFileAPIBytes int64
 
 	// AgentSpaces are the deployment's allowed agent spaces. A client names
 	// one when it opens a workspace, and an undefined name is refused.
@@ -44,12 +46,13 @@ type RegistryOptions struct {
 // client-requested workspace becomes a durable session, so the workspace policy
 // cannot be bypassed by reaching the store directly.
 type Registry struct {
-	store        *session.Store
-	policy       *WorkspacePolicy
-	agentSpaces  *worker.AgentSpaceSet
-	workers      *supervisor.Supervisor
-	rootAgent    string
-	defaultModel string
+	store           *session.Store
+	policy          *WorkspacePolicy
+	agentSpaces     *worker.AgentSpaceSet
+	workers         *supervisor.Supervisor
+	rootAgent       string
+	defaultModel    string
+	maxFileAPIBytes int64
 
 	learnedDirectory string
 	systemWorkspace  string
@@ -80,12 +83,13 @@ func NewRegistry(options RegistryOptions) (*Registry, error) {
 	}
 
 	return &Registry{
-		store:        options.Store,
-		policy:       options.Policy,
-		agentSpaces:  options.AgentSpaces,
-		workers:      options.Workers,
-		rootAgent:    options.RootAgent,
-		defaultModel: options.DefaultModel,
+		store:           options.Store,
+		policy:          options.Policy,
+		agentSpaces:     options.AgentSpaces,
+		workers:         options.Workers,
+		rootAgent:       options.RootAgent,
+		defaultModel:    options.DefaultModel,
+		maxFileAPIBytes: options.MaxFileAPIBytes,
 
 		learnedDirectory: options.LearnedDirectory,
 		systemWorkspace:  options.SystemWorkspace,
@@ -98,23 +102,36 @@ func NewRegistry(options RegistryOptions) (*Registry, error) {
 // The policy check runs before the store is touched, so a path outside every
 // configured root is refused without creating a row. Opening the same directory
 // again, by any of its names, resumes the existing session rather than making a
-// second one.
+// second one. Every session of a workspace shares one agent space: an empty
+// agentSpaceName takes it, and a different name is refused with
+// session.AgentSpaceConflictError.
 func (r *Registry) Open(
 	ctx context.Context,
 	requested string,
 	agentSpaceName string,
 ) (OpenResult, error) {
-	// Naming an agent space is the only environment choice a client gets, and
-	// an undefined name is refused before any row exists.
-	agentSpace, err := r.agentSpaces.Select(agentSpaceName)
-	if err != nil {
-		ctxscope.GetLogger(ctx).Warn(
-			"workspace open refused",
-			"reason", "agent_space_policy",
-			"err", err,
-		)
+	return r.openWorkspace(ctx, requested, agentSpaceName, false)
+}
 
-		return OpenResult{}, ctxerrors.Wrap(err, "select agent space")
+// OpenFresh creates independent history under the same workspace and agent
+// space policy as Open, in the agent space the workspace's sessions share. It
+// never replaces the workspace's canonical session.
+func (r *Registry) OpenFresh(
+	ctx context.Context,
+	requested string,
+	agentSpaceName string,
+) (OpenResult, error) {
+	return r.openWorkspace(ctx, requested, agentSpaceName, true)
+}
+
+func (r *Registry) openWorkspace(
+	ctx context.Context,
+	requested string,
+	agentSpaceName string,
+	fresh bool,
+) (OpenResult, error) {
+	if err := r.checkRequestedAgentSpace(ctx, agentSpaceName); err != nil {
+		return OpenResult{}, err
 	}
 
 	canonical, err := r.policy.Resolve(requested)
@@ -130,19 +147,33 @@ func (r *Registry) Open(
 		return OpenResult{}, ctxerrors.Wrap(err, "resolve requested workspace")
 	}
 
-	opened, err := r.store.OpenWorkspace(
+	open := r.store.OpenWorkspace
+	if fresh {
+		open = r.store.CreateWorkspaceSession
+	}
+
+	opened, err := open(
 		ctx,
 		canonical,
 		session.OpenSessionOptions{
 			RootAgent: r.rootAgent,
 			ModelID:   r.defaultModel,
-			// Only a newly created session takes this. Opening an existing
-			// session never silently changes the agent space it already runs
-			// in.
-			AgentSpace: agentSpace.Name,
+			// Every session of a workspace shares one agent space. A name
+			// that differs from the workspace's is refused, and opening never
+			// changes the agent space a workspace already runs in.
+			AgentSpace:        agentSpaceName,
+			DefaultAgentSpace: r.agentSpaces.Default(),
 		},
 	)
 	if err != nil {
+		if errors.Is(err, commerr.ErrConflict) {
+			ctxscope.GetLogger(ctx).Warn(
+				"workspace open refused",
+				"reason", "agent_space_conflict",
+				"err", err,
+			)
+		}
+
 		return OpenResult{}, ctxerrors.Wrap(err, "open workspace session")
 	}
 
@@ -158,6 +189,51 @@ func (r *Registry) Open(
 		Session: opened.Session,
 		Created: opened.Created,
 	}, nil
+}
+
+// checkRequestedAgentSpace refuses an agent space the deployment does not
+// offer. Naming an agent space is the only environment choice a client gets,
+// and an undefined name is refused before any row exists. An empty name is
+// left for the store, which gives the workspace's own agent space.
+func (r *Registry) checkRequestedAgentSpace(
+	ctx context.Context,
+	agentSpaceName string,
+) error {
+	if agentSpaceName == "" {
+		return nil
+	}
+
+	if _, err := r.agentSpaces.Select(agentSpaceName); err != nil {
+		ctxscope.GetLogger(ctx).Warn(
+			"workspace open refused",
+			"reason", "agent_space_policy",
+			"err", err,
+		)
+
+		return ctxerrors.Wrap(err, "select agent space")
+	}
+
+	return nil
+}
+
+// WorkspaceAgentSpace reports the agent space a requested workspace's sessions
+// share, after the same policy check Open applies. found is false while the
+// workspace has no session.
+func (r *Registry) WorkspaceAgentSpace(
+	ctx context.Context,
+	requested string,
+) (string, bool, error) {
+	canonical, err := r.policy.Resolve(requested)
+	if err != nil {
+		return "", false, ctxerrors.Wrap(err, "resolve requested workspace")
+	}
+
+	space, found, err := r.store.WorkspaceAgentSpace(ctx, canonical)
+	if err != nil {
+		return "", false, ctxerrors.Wrap(err, "read workspace agent space")
+	}
+
+	return space, found, nil
 }
 
 // Roots reports the directories this registry will open sessions under.

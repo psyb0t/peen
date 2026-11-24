@@ -106,8 +106,6 @@ func (s *ControlCore) Ready() <-chan struct{} {
 
 // Run opens the controller's state, publishes it for control-api, and holds it
 // until the context ends.
-//
-//nolint:funlen // Keep lock and core cleanup in their ownership order.
 func (s *ControlCore) Run(ctx context.Context) (runErr error) {
 	ctx = ctxscope.Set(ctx, ctxscope.Attr("service", ServiceName))
 	logger := ctxscope.GetLogger(ctx)
@@ -133,27 +131,8 @@ func (s *ControlCore) Run(ctx context.Context) (runErr error) {
 
 	defer releaseState(ctx)
 
-	if err := s.dependencies.configureAuditLog(); err != nil {
-		return ctxerrors.Wrap(err, "configure durable audit logging")
-	}
-
-	upstreams, err := config.Upstreams()
+	upstreams, err := s.prepareController(ctx, config)
 	if err != nil {
-		return ctxerrors.Wrap(err, "load configured providers")
-	}
-
-	logValidatedConfig(ctx, config, upstreams)
-
-	auditLogDirectory, err := s.dependencies.auditLogDirectory()
-	if err != nil {
-		return ctxerrors.Wrap(err, "load the audit log directory")
-	}
-
-	if err := prepareLearnedDirectory(
-		ctx,
-		config,
-		auditLogDirectory,
-	); err != nil {
 		return err
 	}
 
@@ -165,6 +144,10 @@ func (s *ControlCore) Run(ctx context.Context) (runErr error) {
 	defer func() {
 		runErr = errors.Join(runErr, s.closeCore(ctx, core))
 	}()
+
+	if err := prepareIntegrations(ctx, core); err != nil {
+		return err
+	}
 
 	if err := s.dependencies.handoff.Publish(core); err != nil {
 		return ctxerrors.Wrap(err, "publish control core")
@@ -188,6 +171,37 @@ func (s *ControlCore) Run(ctx context.Context) (runErr error) {
 	logger.Info("control core context cancelled")
 
 	return nil
+}
+
+func (s *ControlCore) prepareController(
+	ctx context.Context,
+	config peenconfig.Config,
+) ([]peenconfig.Upstream, error) {
+	if err := s.dependencies.configureAuditLog(); err != nil {
+		return nil, ctxerrors.Wrap(err, "configure durable audit logging")
+	}
+
+	upstreams, err := config.Upstreams()
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "load configured providers")
+	}
+
+	logValidatedConfig(ctx, config, upstreams)
+
+	auditLogDirectory, err := s.dependencies.auditLogDirectory()
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "load the audit log directory")
+	}
+
+	if err := prepareLearnedDirectory(
+		ctx,
+		config,
+		auditLogDirectory,
+	); err != nil {
+		return nil, err
+	}
+
+	return upstreams, nil
 }
 
 // discoverModels finds the configured providers' models and resolves the
@@ -453,6 +467,14 @@ func openMetricsStore(
 func (s *ControlCore) closeCore(ctx context.Context, core *control.Core) error {
 	s.dependencies.handoff.Clear()
 
+	if core.Cron != nil {
+		core.Cron.Close()
+	}
+
+	if core.Telegram != nil {
+		core.Telegram.Close()
+	}
+
 	return errors.Join(
 		stopSessionJobs(ctx, core.Runtime),
 		stopSessionWorkers(ctx, core.Workers),
@@ -697,12 +719,13 @@ func newSessionRegistry(
 	}
 
 	registry, err := control.NewRegistry(control.RegistryOptions{
-		Store:        store,
-		Policy:       policy,
-		AgentSpaces:  agentSpaces,
-		Workers:      workers,
-		RootAgent:    config.RootAgent(),
-		DefaultModel: config.DefaultModel,
+		Store:           store,
+		Policy:          policy,
+		AgentSpaces:     agentSpaces,
+		Workers:         workers,
+		RootAgent:       config.RootAgent(),
+		DefaultModel:    config.DefaultModel,
+		MaxFileAPIBytes: config.MaxFileAPIBytes,
 
 		LearnedDirectory: config.LoadedLearnedDirectory(),
 		SystemWorkspace:  systemWorkspace(config),
@@ -848,4 +871,12 @@ func (s *ControlCore) Stop(ctx context.Context) error {
 	ctxscope.GetLogger(serviceCtx).Info("stopping control core")
 
 	return nil
+}
+
+func prepareIntegrations(ctx context.Context, core *control.Core) error {
+	if err := prepareTelegram(core); err != nil {
+		return err
+	}
+
+	return prepareCron(ctx, core)
 }

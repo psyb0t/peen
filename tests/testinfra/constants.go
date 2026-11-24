@@ -32,8 +32,13 @@ const (
 	appCrashRecovery           = "resume"
 	appFixtureInstructionsPath = "/tmp/peen-test-AGENTS.md"
 	appFixtureAgentPath        = "/tmp/peen-test-default.md"
-	appFixtureFileMode         = 0o644
-	appFixtureDirectoryMode    = 0o755
+	appCronFixturePath         = "/tmp/peen-test-cron.yaml"
+	appRunCommand              = "exec /app/app run"
+	appBootstrapCommandIndex   = 2
+	appCronCopyCommand         = "cp " + appCronFixturePath + " " +
+		appConfigDirectory + "/.agents/cron.yaml\n"
+	appFixtureFileMode      = 0o644
+	appFixtureDirectoryMode = 0o755
 	// ConfigInstructions is the AGENTS.md the app container's config
 	// directory holds.
 	ConfigInstructions = "Follow the request and use available tools."

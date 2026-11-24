@@ -46,6 +46,7 @@ func newRouter(
 					{Path: apiMountPattern, Handler: apiHandler.ServeHTTP},
 				},
 			},
+			{Routes: protocolRoutes(server)},
 			{
 				Routes: []serbewr.RouteConfig{
 					{Path: spaMountPattern, Handler: spaHandler.ServeHTTP},
@@ -62,7 +63,7 @@ func globalMiddlewares(server *Server) []middleware.Middleware {
 		middleware.Logger(middleware.WithIncludeQuery(false)),
 		middleware.Recovery(),
 		middleware.SecurityHeaders(),
-		middleware.CORS(),
+		protocolCORS,
 		server.requestMetrics,
 	}
 }
@@ -74,8 +75,17 @@ func apiMiddlewares(
 	return []middleware.Middleware{
 		server.authenticate,
 		negotiateResponse,
-		limitBody,
+		server.limitBody,
 		validateJSONBody,
 		validator,
+	}
+}
+
+func protocolRoutes(server *Server) []serbewr.RouteConfig {
+	return []serbewr.RouteConfig{
+		{Path: mcpMountPattern, Handler: server.mcpHTTPHandler.ServeHTTP},
+		{Path: mcpBaseURL, Handler: server.mcpHTTPHandler.ServeHTTP},
+		{Path: openAIMountPattern, Handler: server.openAIHandler().ServeHTTP},
+		{Path: openAIBaseURL, Handler: server.openAIHandler().ServeHTTP},
 	}
 }

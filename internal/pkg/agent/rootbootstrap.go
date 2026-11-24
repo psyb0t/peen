@@ -1,6 +1,9 @@
 package agent
 
 import (
+	"encoding/json"
+	"time"
+
 	"github.com/google/uuid"
 	"github.com/psyb0t/elelem"
 )
@@ -13,6 +16,8 @@ type workflowRootOrigin struct {
 }
 
 type workflowRootBootstrap struct {
+	OutputSchema     json.RawMessage        `json:"outputSchema,omitempty"`
+	Deadline         time.Time              `json:"deadline"`
 	Version          int                    `json:"version"`
 	SessionID        uuid.UUID              `json:"sessionId"`
 	TurnID           uuid.UUID              `json:"turnId"`
@@ -37,6 +42,7 @@ func (r *Runtime) rootWorkflowBootstrap(
 	p *preparedTurn,
 ) *workflowRootBootstrap {
 	saved := &workflowRootBootstrap{
+		OutputSchema: p.input.OutputSchema, Deadline: p.input.Deadline,
 		Version:   rootWorkflowBootstrapVersion,
 		SessionID: p.lease.SessionID, TurnID: p.lease.TurnID,
 		RequestID: p.turn.requestID, SessionCreated: p.opened.Created,
@@ -64,6 +70,7 @@ func (b *workflowRootBootstrap) request(sink EventSink) TurnRequest {
 	sessionID := b.SessionID
 
 	input := TurnRequest{
+		OutputSchema: b.OutputSchema, Deadline: b.Deadline,
 		SessionID: &sessionID, RequestID: b.RequestID,
 		Message: b.Message, Workspace: b.Workspace, Model: b.Model,
 		ReasoningEffort: b.ReasoningEffort, SystemPrompt: b.SystemPrompt,

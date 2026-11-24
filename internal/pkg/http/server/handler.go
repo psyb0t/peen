@@ -37,6 +37,10 @@ func newInProcessHandler(
 		middleware.Chain(apiHandler, apiMiddlewares(server, validator)...),
 	)
 	mux.Handle("/", spaHandler)
+	mux.Handle(openAIBaseURL+"/", server.openAIHandler())
+	mux.Handle(openAIBaseURL, server.openAIHandler())
+	mux.Handle(mcpBaseURL, server.mcpHTTPHandler)
+	mux.Handle(mcpBaseURL+"/", server.mcpHTTPHandler)
 
 	return middleware.Chain(mux, globalMiddlewares(server)...)
 }

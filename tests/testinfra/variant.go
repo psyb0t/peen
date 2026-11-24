@@ -4,6 +4,7 @@ import (
 	"context"
 	"maps"
 	"net/http"
+	"strings"
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/testcontainers/testcontainers-go"
@@ -12,6 +13,8 @@ import (
 // VariantOptions changes the environment of a second application container
 // started from the image the base Infra built.
 type VariantOptions struct {
+	// CronConfiguration is installed by the controller's own startup user.
+	CronConfiguration string
 	// Environment adds or replaces application environment variables.
 	Environment map[string]string
 	// UnsetEnvironment removes variables the base environment sets.
@@ -51,14 +54,13 @@ func (i *Infra) StartVariant(
 		return setupFailure(provider, err)
 	}
 
+	request := appContainerRequest(i.image, environment, coverage)
+	configureVariantCron(&request, options.CronConfiguration)
+
 	container, err := testcontainers.GenericContainer(ctx,
 		testcontainers.GenericContainerRequest{
-			ContainerRequest: appContainerRequest(
-				i.image,
-				environment,
-				coverage,
-			),
-			Started: false,
+			ContainerRequest: request,
+			Started:          false,
 		},
 	)
 	if err != nil {
@@ -81,6 +83,27 @@ func (i *Infra) StartVariant(
 	}
 
 	return variant, nil
+}
+
+func configureVariantCron(
+	request *testcontainers.ContainerRequest,
+	configuration string,
+) {
+	if configuration == "" {
+		return
+	}
+
+	request.Files = append(request.Files, testcontainers.ContainerFile{
+		Reader:            strings.NewReader(configuration),
+		ContainerFilePath: appCronFixturePath, FileMode: appFixtureFileMode,
+	})
+
+	request.Entrypoint[appBootstrapCommandIndex] = strings.Replace(
+		appBootstrapCommand,
+		appRunCommand,
+		appCronCopyCommand+appRunCommand,
+		1,
+	)
 }
 
 // variantEnvironment returns the base application environment with the

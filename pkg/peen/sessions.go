@@ -2,6 +2,7 @@ package peen
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
@@ -150,7 +151,10 @@ func (s *Session) Send(
 		return MessageResult{}, translateTurnError(err)
 	}
 
-	return MessageResult{Message: result.Text, Queued: result.Queued}, nil
+	return MessageResult{
+		Message: result.Text, Queued: result.Queued,
+		Output: result.Output, OutputError: result.OutputError,
+	}, nil
 }
 
 // Details reads session metadata without changing it.
@@ -253,9 +257,17 @@ func (request MessageRequest) internalRequest(
 	sessionID uuid.UUID,
 ) (agent.MessageRequest, uuid.UUID, error) {
 	input := agent.MessageRequest{
-		SessionID: &sessionID,
-		Message:   request.Message,
+		OutputSchema: request.OutputSchema,
+		SessionID:    &sessionID,
+		Message:      request.Message,
 	}
+
+	seconds, err := request.timeoutSeconds()
+	if err != nil {
+		return agent.MessageRequest{}, uuid.Nil, err
+	}
+
+	input.TimeoutSeconds = seconds
 
 	for _, image := range request.Images {
 		input.Images = append(input.Images, agent.MessageImage{
@@ -301,6 +313,19 @@ func (request MessageRequest) parsedRequestID() (uuid.UUID, error) {
 	}
 
 	return parseRecordID(request.RequestID)
+}
+
+func (request MessageRequest) timeoutSeconds() (int, error) {
+	maximum := time.Duration(agent.MaxTurnTimeoutSeconds) * time.Second
+	if request.Timeout < 0 || request.Timeout > maximum {
+		return 0, ctxerrors.Wrap(commerr.ErrValidationFailed, "message timeout")
+	}
+
+	if request.Timeout == 0 {
+		return 0, nil
+	}
+
+	return int((request.Timeout-1)/time.Second) + 1, nil
 }
 
 func (request MessageRequest) parsedChildID() (uuid.UUID, error) {

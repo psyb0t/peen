@@ -7,6 +7,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/http/api"
+	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/worker"
 )
 
@@ -55,7 +56,8 @@ func (s *Server) OpenSession(
 // openSessionFailure maps an open failure onto its response. A workspace the
 // deployment does not expose is a 403 rather than a 404, so a client cannot
 // probe which directories exist by reading the status code. An agent space the
-// deployment does not offer is also a 403, with its own code.
+// deployment does not offer is also a 403, with its own code, and an agent
+// space other than the workspace's is a 409 AGENT_SPACE_CONFLICT.
 //
 //nolint:ireturn // Generated strict handler response interface.
 func openSessionFailure(
@@ -65,6 +67,15 @@ func openSessionFailure(
 		return api.OpenSession403JSONResponse{
 			ErrorForbiddenJSONResponse: api.ErrorForbiddenJSONResponse(
 				agentSpaceNotAllowedError(),
+			),
+		}, nil
+	}
+
+	var conflict *session.AgentSpaceConflictError
+	if errors.As(err, &conflict) {
+		return api.OpenSession409JSONResponse{
+			ErrorConflictJSONResponse: api.ErrorConflictJSONResponse(
+				agentSpaceConflictError(conflict),
 			),
 		}, nil
 	}
@@ -162,6 +173,17 @@ func (s *Server) ListSessions(
 			XRequestID: requestID(ctx),
 		},
 	}, nil
+}
+
+// agentSpaceConflictError names the workspace's current agent space, so the
+// client can open it without one or move the workspace on purpose.
+func agentSpaceConflictError(
+	conflict *session.AgentSpaceConflictError,
+) api.Error {
+	return api.Error{
+		Code:    ErrorCodeAgentSpaceConflict,
+		Message: conflict.Error(),
+	}
 }
 
 // workspaceNotAllowedError names no root, because a refused caller is not

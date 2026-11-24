@@ -18,13 +18,13 @@ peen --model provider/model --output text --prompt "explain this project"
 printf '%s\n' 'review the current changes' | peen --prompt -
 ```
 
-Peen opens or resumes the directory's durable session, sends the prompt over WebSocket, streams the session's frames, and exits when the turn ends. It reuses a controller answering at `PEEN_HTTP_LISTEN_ADDRESS` and leaves it running. With none running, it starts a controller inside the command, serves the API through an in-memory listener with no TCP or metrics port, and stops it after the turn. A prompt sent during an active turn is queued into that turn, and the command follows it to its end. Other connected clients see the same work.
+Peen opens or resumes the directory's durable session, sends the prompt over WebSocket, streams the session's frames, and exits when the turn ends. It reuses a controller answering at `PEEN_HTTP_LISTEN_ADDRESS` and leaves it running. With none running, it starts a controller inside the command, serves the API through an in-memory listener with no TCP or metrics port, and stops it after the turn. A prompt sent during an active turn is queued into that turn, and the command follows it to its end. With `--output-schema` or `--timeout`, the prompt needs a turn of its own, so it fails with `SESSION_BUSY` while another turn runs. Other connected clients see the same work.
 
 ## Output and exit status
 
 Output defaults to JSONL, preserving every WebSocket frame on stdout. `--output text` puts reply text on stdout and thinking, tools, child agents, and failures on stderr. Logs go to stderr at `warn` unless `LOG_LEVEL` is set.
 
-Exit status is 0 for completion, 1 for failure, and 130 for cancellation. The first interrupt requests cancellation and waits for confirmation, the second stops streaming and shuts down, and the third exits immediately. A question without a terminal available to answer cancels the turn.
+Exit status is 0 for completion, 1 for failure, and 130 for cancellation, including a turn that `--timeout` cancelled. The first interrupt requests cancellation and waits for confirmation, the second stops streaming and shuts down, and the third exits immediately. A question without a terminal available to answer cancels the turn.
 
 ## Flags
 
@@ -39,6 +39,8 @@ A word that is not a `peen` command is refused, so a mistyped command never send
 | `--system-prompt-mode append\|replace` | Add the instructions to the system prompt or replace it. |
 | `--agent-space control\|docker\|docker:<profile>` | The session's agent space. An existing session moves when needed. `docker` means `docker:default`. |
 | `--output text` | Readable output instead of JSONL. |
+| `--output-schema FILE` | Validate the final answer against a JSON Schema file. Only the validated JSON goes to stdout; other output goes to stderr. If every attempt fails validation, the turn still completes with exit status 0, stdout stays empty, and the reason is on stderr. In the docker control space the command runs in a container that sees only the configuration directory, the state directory and the workspace root, with the workspace as its working directory, so the file must be under one of those directories, and a relative path resolves against the workspace. |
+| `--timeout DURATION` | Overall turn timeout, such as `30m`, up to 24 hours, rounded up to whole seconds. Zero keeps the deployment default. Expiry cancels the turn and its child work and exits with status 130. |
 | `--control-space host\|docker` | Installed command only. Where the controller client runs for this invocation. |
 
 Defaults come from your configuration. The installed command lets exported `PEEN_*` and logging settings override its `.env` for the run, except `PEEN_HOME`, `PEEN_INSTALL_*`, and `PEEN_NO_BROWSER`.

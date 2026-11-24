@@ -1,7 +1,7 @@
 ---
 title: Troubleshooting
 description: Fix Peen when it refuses to start, a port or provider key is wrong, a harness file fails to load, or the API answers with an error code.
-nav_order: 16
+nav_order: 17
 ---
 
 # Troubleshooting
@@ -31,12 +31,25 @@ Startup names the variable and the value it rejected, and `peen start` prints th
 | The config and state directories overlap | `PEEN_CONFIG_DIR` and `PEEN_STATE_DIR` are equal, or one is inside the other. | Point them at [separate directories](configuration.md#directories). |
 | The metrics address is refused | `PEEN_METRICS_LISTEN_ADDRESS` is a wildcard or non-loopback address. | Use a loopback address such as `127.0.0.1:9090`. See [metrics](configuration.md#metrics). |
 | A Docker profile or agent space value is refused | A bad value in `PEEN_DOCKER_PROFILES` or `PEEN_DEFAULT_AGENT_SPACE`. | See [why startup was refused](where-it-runs.md#why-startup-was-refused). |
+| `PEEN_TELEGRAM_TOKEN is missing or invalid`, `PEEN_TELEGRAM_ALLOWED_CHATS requires nonzero chat IDs`, or `PEEN_TELEGRAM_WORKSPACE must be absolute` | `PEEN_TELEGRAM=true` with incomplete settings. | Set all three. See [Telegram](configuration.md#telegram). |
+| `load cron jobs`, with the job and field it refused | `.agents/cron.yaml` is invalid, or a job names an agent space or Telegram chat the deployment does not allow. | Fix the job and restart. See [scheduled turns](cron.md). |
+| A cron job's agent space conflicts with its workspace, naming the job, the workspace, and both agent spaces | Every session of a workspace shares one agent space, and the job's `agentSpace` differs from the one the workspace already uses. | Give the job the workspace's agent space, or leave `agentSpace` out, or move the workspace with `POST /api/v1/session/reconfigure`. |
+| `PEEN_OPENAI_WORKSPACE must be absolute` | The OpenAI fallback workspace is a relative path. | Use an absolute path inside the workspace root. |
+| `PEEN_MCP_SERVER_ALLOWED_HOSTS is invalid` or `PEEN_MCP_SERVER_ALLOWED_ORIGINS is invalid` | A wildcard, a port in a host, or an origin that is not an exact HTTP or HTTPS origin. | See [MCP control server](mcp-server.md#connect). |
 
 ## The controller does not answer
 
 `peen doctor` reports `the controller is not running` until you run `peen start`. When it reports that `/healthz` does not answer, read `peen logs`, because the error is in there.
 
 When `GET /api/v1/models` answers with an error, check `PEEN_API_TOKEN` and the provider settings with `peen config edit`.
+
+## An optional endpoint answers 404, 421, or 403
+
+`/openai/v1` and `/mcp/v1` answer a plain `404` while `PEEN_OPENAI_API` or `PEEN_MCP_SERVER` is off. Turn the setting on and restart. `/mcp/v1` answers `421` when the request's `Host` is not in `PEEN_MCP_SERVER_ALLOWED_HOSTS`, and `403` when its `Origin` is not in `PEEN_MCP_SERVER_ALLOWED_ORIGINS`. Add the address the client uses. See [MCP control server](mcp-server.md#connect).
+
+## The Telegram bot never answers
+
+Peen ignores messages from chats and users outside `PEEN_TELEGRAM_ALLOWED_CHATS` and `PEEN_TELEGRAM_ALLOWED_USERS` without replying or logging. Check the IDs and restart. See [Telegram bot](telegram.md).
 
 ## Every session fails at its first turn
 
@@ -58,24 +71,27 @@ Stop pauses unfinished work, and reconnecting leaves it paused. Ask the agent to
 
 ## API error codes
 
-Error responses carry `{"code", "message"}`. These are the codes Peen adds to the [REST API](http-api.md).
+Error responses carry `{"code", "message"}`. These are the codes Peen adds to the [REST API](http-api.md) and to WebSocket `message.failed` frames. The [OpenAI API](openai-api.md#errors) and the [MCP control server](mcp-server.md#errors) report errors in their own formats.
 
-| Code | Meaning |
-| --- | --- |
-| `INVALID_SESSION_ID` | The `X-Session-ID` header is malformed. |
-| `SESSION_NOT_FOUND` | The session ID is well formed, but no such session exists. |
-| `SESSION_BUSY` | The session already has an active turn. |
-| `TURN_CANCELLED` | The turn ended because its session was cancelled. |
-| `USER_MESSAGE_QUEUE_FULL` | The active turn cannot accept another queued message. |
-| `AGENT_SPACE_NOT_ALLOWED` | The deployment does not offer that agent space. The response never names the ones it does. |
-| `SYSTEM_AGENT_OFF` | A system session was requested while `PEEN_SYSTEM_AGENT` is off. |
-| `WORKSPACE_NOT_ALLOWED` | The workspace falls outside the workspace root, or would expose Peen's own directories. See [workspaces](where-it-runs.md#workspaces-that-would-expose-peens-own-directories). |
-| `WORKSPACE_NOT_FOUND` | The workspace is allowed, but its directory no longer exists. |
-| `AGENT_FINISHED` | A message went to a child agent that has already ended. |
-| `AGENT_NOT_FOUND` | A message went to an agent run the session never had. |
-| `HARNESS_CONFIGURATION_INVALID` | A harness safety bound stops the turn from starting. |
-| `TURN_ROUND_LIMIT` | The turn used every round `PEEN_MAX_TOOL_ROUNDS` allows. The message names the limit. |
-| `TURN_TOKEN_LIMIT` | The turn billed the tokens `PEEN_MAX_TURN_TOKENS` allows. The message names the limit. |
+| Code | Where | Meaning |
+| --- | --- | --- |
+| `INVALID_SESSION_ID` | REST, WebSocket upgrade | The `X-Session-ID` header, or the `sessionId` filter on `GET /ws/v1`, is malformed. |
+| `SESSION_NOT_FOUND` | REST, WebSocket | The session ID is well formed, but no such session exists. |
+| `SESSION_BUSY` | REST, WebSocket | The session already has an active turn. |
+| `TURN_CANCELLED` | WebSocket | The turn ended because its session was cancelled. |
+| `TURN_TIMEOUT` | WebSocket | The turn reached its overall deadline. Increase `timeoutSeconds` or `PEEN_TURN_TIMEOUT`. |
+| `OUTPUT_SCHEMA_INVALID` | WebSocket | The schema cannot compile without external resources or exceeds `PEEN_MAX_OUTPUT_SCHEMA_BYTES`. |
+| `USER_MESSAGE_QUEUE_FULL` | WebSocket | The active turn cannot accept another queued message. |
+| `AGENT_SPACE_NOT_ALLOWED` | REST | The deployment does not offer that agent space. The response never names the ones it does. |
+| `AGENT_SPACE_CONFLICT` | REST, WebSocket | The request named an agent space other than the one its workspace's sessions share. The message names the current one. Leave the agent space out, name that one, or change it with [`POST /api/v1/session/reconfigure`](http-api.md#post-apiv1sessionreconfigure). |
+| `SYSTEM_AGENT_OFF` | REST | A system session was requested while `PEEN_SYSTEM_AGENT` is off. |
+| `WORKSPACE_NOT_ALLOWED` | REST | The workspace falls outside the workspace root, or would expose Peen's own directories, or a file path leaves the workspace. See [workspaces](where-it-runs.md#workspaces-that-would-expose-peens-own-directories). |
+| `WORKSPACE_NOT_FOUND` | REST | The workspace is allowed, but its directory no longer exists. |
+| `AGENT_FINISHED` | WebSocket | A message went to a child agent that has already ended. |
+| `AGENT_NOT_FOUND` | WebSocket | A message went to an agent run the session never had. |
+| `HARNESS_CONFIGURATION_INVALID` | WebSocket | A harness safety bound stops the turn from starting. |
+| `TURN_ROUND_LIMIT` | WebSocket | The turn used every round `PEEN_MAX_TOOL_ROUNDS` allows. The message names the limit. |
+| `TURN_TOKEN_LIMIT` | WebSocket | The turn billed the tokens `PEEN_MAX_TURN_TOKENS` allows. The message names the limit. |
 
 ## Still stuck
 

@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/http"
 	"sync"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/control"
 	peenhttp "github.com/psyb0t/peen/internal/pkg/http/server"
 	"github.com/psyb0t/peen/internal/pkg/metrics"
+	"github.com/psyb0t/peen/internal/pkg/openaicompat"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
@@ -112,18 +114,7 @@ func (s *ControlAPI) Run(ctx context.Context) error {
 		return ctxerrors.Wrap(err, "await the control core")
 	}
 
-	server, err := peenhttp.New(peenhttp.Dependencies{
-		Runtime:       core.Runtime,
-		Sessions:      core.Sessions,
-		Turns:         core.Turns,
-		APIToken:      core.Config.APIToken,
-		ListenAddress: core.Config.HTTPListenAddress,
-		// A message.send may carry images, so the hub reads frames as large
-		// as the deployment's message, prompt, and image bounds allow.
-		WebSocketReadLimit: core.Config.WebSocketReadLimit(),
-		Metrics:            core.Metrics,
-		ServiceContext:     func() context.Context { return ctx },
-	})
+	server, err := newControlServer(ctx, core)
 	if err != nil {
 		return ctxerrors.Wrap(err, "create control API server")
 	}
@@ -167,6 +158,78 @@ func (s *ControlAPI) Run(ctx context.Context) error {
 	go s.signalReadyWhenListening(ctx, core.Config.HTTPListenAddress)
 
 	return serveBoth(ctx, server, metricsServer, metricsListener)
+}
+
+func newControlServer(
+	ctx context.Context,
+	core *control.Core,
+) (*peenhttp.Server, error) {
+	openAI, err := openAIHandler(core)
+	if err != nil {
+		return nil, err
+	}
+
+	protocol, err := mcpServer(core)
+	if err != nil {
+		return nil, err
+	}
+
+	policy, err := core.Config.MCPServerPolicy()
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "build MCP HTTP policy")
+	}
+
+	server, err := peenhttp.New(peenhttp.Dependencies{
+		Cron:                 core.Cron,
+		MCPServer:            protocol,
+		MCPPolicy:            policy,
+		OpenAIHandler:        openAI,
+		MaxOutputSchemaBytes: core.Config.MaxOutputSchemaBytes,
+		MaxFileAPIBytes:      core.Config.MaxFileAPIBytes,
+		WorkspaceFiles:       core.Sessions,
+		Runtime:              core.Runtime,
+		Sessions:             core.Sessions,
+		Turns:                core.Turns,
+		APIToken:             core.Config.APIToken,
+		ListenAddress:        core.Config.HTTPListenAddress,
+		// A message.send may carry images, so the hub reads frames as large
+		// as the deployment's message, prompt, and image bounds allow.
+		WebSocketReadLimit: core.Config.WebSocketReadLimit(),
+		Metrics:            core.Metrics,
+		ServiceContext:     func() context.Context { return ctx },
+	})
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "build control HTTP dependencies")
+	}
+
+	return server, nil
+}
+
+func openAIHandler(core *control.Core) (http.Handler, error) {
+	if !core.Config.OpenAIAPI {
+		return nil, nil //nolint:nilnil // Nil disables the optional protocol.
+	}
+
+	conversation, err := control.NewConversation(core.Sessions,
+		core.Turns, core.Feed)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "create OpenAI conversation runner")
+	}
+
+	handler, err := openaicompat.New(openaicompat.Dependencies{
+		Runner: conversation, Models: core.Runtime,
+		DefaultModel:         core.Config.DefaultModel,
+		DefaultWorkspace:     core.Config.OpenAIWorkspace,
+		MaxRequestBytes:      core.Config.WebSocketReadLimit(),
+		MaxImages:            core.Config.MaxImagesPerMessage,
+		MaxImageBytes:        core.Config.MaxImageBytes,
+		MaxOutputSchemaBytes: core.Config.MaxOutputSchemaBytes,
+	})
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "create OpenAI protocol handler")
+	}
+
+	return handler, nil
 }
 
 // signalReadyWhenListening closes the ready channel once the API endpoint

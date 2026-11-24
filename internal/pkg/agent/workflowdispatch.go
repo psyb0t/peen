@@ -39,6 +39,7 @@ func newWorkflowDispatch(
 }
 
 func (d *workflowDispatch) bind(options *workflowExecutionOptions) {
+	options.StructuredOutput = d.root.structuredOutput
 	options.OpeningHook = d.openingHook
 	options.AfterOpeningHook = d.afterOpeningHook
 	options.PrepareRound = d.prepareRound

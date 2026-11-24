@@ -73,6 +73,8 @@ func (n *nativeWorkflowRunner) cleanupFailedSubmission(
 }
 
 func (p *preparedTurn) releaseTurnCapacity() {
+	p.stopDeadline()
+
 	if p.releaseTurnSlot != nil {
 		p.releaseTurnSlot()
 	}

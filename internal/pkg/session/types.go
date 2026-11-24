@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -49,10 +50,15 @@ type OpenSessionOptions struct {
 	RootAgent string
 	ModelID   string
 
-	// AgentSpace is the agent space a newly created session runs in. Opening
-	// an existing session never changes its agent space, so this only applies
-	// to creation.
+	// AgentSpace is the agent space the caller asks for. Every session of one
+	// workspace shares one agent space: empty takes the workspace's, the same
+	// name is accepted, and another name is refused with an
+	// AgentSpaceConflictError. Opening never changes an agent space.
 	AgentSpace string
+
+	// DefaultAgentSpace is the agent space a workspace's first session takes
+	// when AgentSpace is empty.
+	DefaultAgentSpace string
 }
 
 // OpenSessionResult is a resolved session and whether this call created it.
@@ -118,6 +124,8 @@ type EventInput struct {
 
 // FinalizeTurnInput describes terminal turn state and durable references.
 type FinalizeTurnInput struct {
+	Output                json.RawMessage  `json:"output,omitempty"`
+	OutputError           string           `json:"outputError,omitempty"`
 	State                 models.TurnState `json:"state"`
 	FailureClassification string           `json:"failureClassification"`
 	// FailureDetail is the error a turn that did not complete ended with, as

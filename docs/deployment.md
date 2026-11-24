@@ -2,7 +2,6 @@
 title: "Deployment"
 description: "Install Peen with the installer, use the peen command, build it from source, or run it by hand in Docker, with storage, upgrades, and backups."
 nav_order: 3
-has_children: true
 ---
 
 # Deployment
@@ -86,7 +85,7 @@ In the docker control space the controller runs as your UID and GID with `.env` 
 
 The host control space starts the binary with only `HOME`, `PATH`, `USER`, `LOGNAME`, `LANG`, `LC_ALL`, `TZ`, `DOCKER_HOST`, and the contents of `.env` in its environment. For one-shot turns, exported `PEEN_*`, `LOG_LEVEL`, `LOG_FORMAT`, and `LOG_ADD_SOURCE` override `.env`, except the wrapper-owned `PEEN_HOME`, `PEEN_INSTALL_*`, and `PEEN_NO_BROWSER`. Other exported shell values are not forwarded.
 
-Before 1.0 a release can refuse a database an earlier release created. When `peen upgrade` cannot start the new release, it prints the controller's error, which names the files to delete. See [durable state and mounts](#durable-state-and-mounts).
+Before 1.0 a release can refuse a database an earlier release created. When the release notes say a release resets the database, run the reset steps in [durable state and mounts](#durable-state-and-mounts) before you upgrade. When `peen upgrade` cannot start the new release, it prints the controller's error, which names the files to delete.
 
 ## Install from source
 
@@ -185,6 +184,20 @@ healthcheck:
 Peen keeps two directories apart. `PEEN_CONFIG_DIR` holds `AGENTS.md` and the harness files, and every Docker worker receives it read-only. `PEEN_STATE_DIR` holds the session database `peen.db`, the workflow database `workflows.db`, the metrics database `metrics.db`, the audit logs, and the worker sockets, and no Docker worker receives it. A `control` worker runs as the controller's user and reaches both. Peen refuses to start when the two are the same path or one sits inside the other, because the read-only configuration mount would otherwise carry the database into every Docker worker.
 
 Before 1.0 Peen refuses an earlier database when its schema differs from the current schema. On open, Peen compares the database's schema with the schema its own migrations build, and refuses to start when they differ, with an error that names the files to delete. Stop Peen, delete `peen.db`, `peen.db-wal`, `peen.db-shm`, `workflows.db`, `workflows.db-wal`, and `workflows.db-shm` from `PEEN_STATE_DIR`, and start it again to create new databases. A leftover `peen.db-wal` next to a new `peen.db` makes SQLite try to replay it into the wrong file. Keeping `workflows.db` still starts, but leaves the deleted sessions' workflow instances orphaned in it. Deleting the databases discards every stored session, transcript, job record, model call, and workflow history, so copy the six files first if you want to keep the history.
+
+With the installer, reset before upgrading like this. It stops Peen, copies the whole state directory beside it, deletes the six files, upgrades, and starts the new release:
+
+```bash
+peen stop
+state="$(peen config get PEEN_STATE_DIR)"
+cp -a "$state" "$state.backup-$(date +%Y%m%d%H%M%S)"
+rm -f "$state"/peen.db "$state"/peen.db-wal "$state"/peen.db-shm \
+  "$state"/workflows.db "$state"/workflows.db-wal "$state"/workflows.db-shm
+peen upgrade
+peen start
+```
+
+Do not run `peen`, `peen start`, or a one-shot turn between the delete and the upgrade. The old release would create a new database in its own schema, which the new release refuses again. Only the old release can open the backup's databases.
 
 For a consistent backup, stop Peen and copy the entire state directory, including both SQLite databases and any `-wal` or `-shm` files. Restore the files together. Copying only `peen.db` loses workflow scheduling history.
 

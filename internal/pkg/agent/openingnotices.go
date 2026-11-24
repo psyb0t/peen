@@ -120,6 +120,7 @@ func (o *turnOpening) admissionInput(
 		RequestID: requestID, Workspace: workspace, Events: events,
 		WakeNoticeID: turnWakeNoticeID(input), ExpectedStopRevision: revision,
 		Messages: turnStartMessages(turnStartContent{
+			outputSchema:     o.assembly.outputSchema,
 			prompt:           input.Message,
 			images:           input.Images,
 			isPromptInjected: input.Origin != nil,

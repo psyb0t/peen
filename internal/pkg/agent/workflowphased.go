@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"errors"
 
 	"github.com/psyb0t/ctxerrors"
@@ -68,6 +69,32 @@ func (e *workflowExecution) run(
 
 	return finishFailedWorkflow(ctx, input, result, ctxerrors.Wrap(
 		workflowRoundLimitError(input), "workflow round budget exhausted"))
+}
+
+func finishStructuredOutput(
+	ctx workflow.Context,
+	input workflowExecutionInput,
+	result workflowRoundResult,
+	round int,
+) (workflowRoundResult, error) {
+	var conversation workflowConversation
+	if err := json.Unmarshal(result.Context, &conversation); err != nil {
+		return result, ctxerrors.Wrap(err, "read final output settings")
+	}
+
+	if conversation.Root == nil || len(conversation.Root.OutputSchema) == 0 {
+		return result, nil
+	}
+
+	input.Context = result.Context
+	result.RootProjection = nil
+	result.ChildProjection = nil
+
+	return awaitWorkflowActivity[workflowRoundResult](ctx,
+		structuredOutputActivityName, workflowStructuredInput{
+			Round:  workflowRoundInput{Execution: input, Round: round},
+			Result: result,
+		})
 }
 
 func workflowHistoryRolloverDue(input workflowExecutionInput,

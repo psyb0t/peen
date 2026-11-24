@@ -30,6 +30,9 @@ These are the in-process equivalents of deployment settings. [`pkg/peen`](https:
 | `PEEN_COMPACTION_MAX_OUTPUT_TOKENS` | `CompactionOutputTokens` | `16384` |
 | `PEEN_CRASH_RECOVERY` | `ResumeAfterCrash` (`true` is `resume`) | `false` |
 | `PEEN_MODEL_REQUEST_TIMEOUT` | `ModelRequestTimeout` | `10m` |
+| `PEEN_TURN_TIMEOUT` | none; set `MessageRequest.Timeout` per message | no overall deadline |
+| `PEEN_OUTPUT_SCHEMA_ATTEMPTS` | none | fixed at `3` |
+| `PEEN_MAX_OUTPUT_SCHEMA_BYTES` | none | fixed at `65536` |
 | `PEEN_MAX_CONCURRENT_TURNS` | `MaxConcurrentTurns` | `16` |
 | `PEEN_MAX_QUEUED_USER_MESSAGES` | `MaxQueuedUserMessages` | `16` |
 | `PEEN_MAX_MESSAGE_BYTES` | `MaxMessageBytes` | `262144` |
@@ -79,4 +82,4 @@ Additional ToolLimits fields cover patches and jobs: MaxPatchBytes 1 MiB, MaxPat
 
 Workspace defaults to the current directory captured at construction. Filesystem and WorkspaceID supply a virtual workspace instead. InMemoryStore uses ephemeral SQLite and temporary hook state. BaseSystemPrompt and AppendSystemPrompt provide prompt values; CompactionPrompt provides summarizer instructions. Harness, Tools, DisableTools, Hooks and CommandRunner provide extensions.
 
-HTTP listeners and authentication, Docker profiles, worker supervision and controller workspace policy are deployment features. They have no in-process Options equivalent.
+HTTP listeners and authentication, the [OpenAI API](openai-api.md), the [MCP control server](mcp-server.md), the [workspace file API](http-api.md#workspace-files), [scheduled turns](cron.md), the [Telegram bot](telegram.md), Docker profiles, worker supervision and controller workspace policy are deployment features. They have no in-process Options equivalent.

@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -416,7 +417,8 @@ func (c *Client) doWithSession(
 }
 
 // responseError turns a non-200 into the API's own error envelope when the
-// body carries one, so a command prints the controller's stable code.
+// body carries one, so a command prints the controller's stable code. A 409
+// also matches commerr.ErrConflict, so a caller can react to the conflict.
 func (c *Client) responseError(response *http.Response) error {
 	payload, err := io.ReadAll(io.LimitReader(response.Body, maxErrorBodyBytes))
 	if err != nil {
@@ -437,8 +439,13 @@ func (c *Client) responseError(response *http.Response) error {
 		)
 	}
 
+	cause := commerr.ErrFetchFailed
+	if response.StatusCode == http.StatusConflict {
+		cause = errors.Join(commerr.ErrFetchFailed, commerr.ErrConflict)
+	}
+
 	return ctxerrors.Wrapf(
-		commerr.ErrFetchFailed,
+		cause,
 		"control API returned %d %s: %s",
 		response.StatusCode,
 		envelope.Code,

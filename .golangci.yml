@@ -104,6 +104,9 @@ linters:
             - github.com/pkg/errors
             - github.com/spf13/viper
             - github.com/sirupsen/logrus
+            - github.com/modelcontextprotocol/go-sdk
+            - github.com/robfig/cron/v3
+            - go.yaml.in/yaml/v3
             - github.com/google/uuid
             - github.com/getkin/kin-openapi
             - github.com/gorilla/websocket
@@ -116,6 +119,7 @@ linters:
             # PDF text extraction for readFile.
             - github.com/ledongthuc/pdf
             - github.com/spf13/cobra
+            - github.com/santhosh-tekuri/jsonschema/v6
             # Integration-test harness under tests/ that builds and runs the app
             # image via testcontainers-go. Test-only; production never imports it.
             - github.com/testcontainers/testcontainers-go

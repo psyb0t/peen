@@ -198,6 +198,51 @@ func (e AgentSpaceNetwork) Valid() bool {
 	}
 }
 
+// Defines values for CronJobSession.
+const (
+	CronJobSessionContinue CronJobSession = "continue"
+	CronJobSessionNew      CronJobSession = "new"
+)
+
+// Valid indicates whether the value is a known member of the CronJobSession enum.
+func (e CronJobSession) Valid() bool {
+	switch e {
+	case CronJobSessionContinue:
+		return true
+	case CronJobSessionNew:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CronRunState.
+const (
+	CronRunStateCancelled CronRunState = "cancelled"
+	CronRunStateCompleted CronRunState = "completed"
+	CronRunStateFailed    CronRunState = "failed"
+	CronRunStateRunning   CronRunState = "running"
+	CronRunStateSkipped   CronRunState = "skipped"
+)
+
+// Valid indicates whether the value is a known member of the CronRunState enum.
+func (e CronRunState) Valid() bool {
+	switch e {
+	case CronRunStateCancelled:
+		return true
+	case CronRunStateCompleted:
+		return true
+	case CronRunStateFailed:
+		return true
+	case CronRunStateRunning:
+		return true
+	case CronRunStateSkipped:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for JobState.
 const (
 	JobStateExited      JobState = "exited"
@@ -678,6 +723,27 @@ func (e WorkerGenerationState) Valid() bool {
 	}
 }
 
+// Defines values for WorkspaceFileType.
+const (
+	WorkspaceFileTypeDirectory WorkspaceFileType = "directory"
+	WorkspaceFileTypeFile      WorkspaceFileType = "file"
+	WorkspaceFileTypeSymlink   WorkspaceFileType = "symlink"
+)
+
+// Valid indicates whether the value is a known member of the WorkspaceFileType enum.
+func (e WorkspaceFileType) Valid() bool {
+	switch e {
+	case WorkspaceFileTypeDirectory:
+		return true
+	case WorkspaceFileTypeFile:
+		return true
+	case WorkspaceFileTypeSymlink:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Order.
 const (
 	OrderAsc  Order = "asc"
@@ -1111,6 +1177,48 @@ type ContextSnapshot struct {
 	Manifest        []ContextManifestEntry `json:"manifest"`
 	ResolvedContent string                 `json:"resolvedContent"`
 }
+
+// CronJob defines model for CronJob.
+type CronJob struct {
+	LastRun         *CronRun       `json:"lastRun,omitempty"`
+	Name            string         `json:"name"`
+	NextScheduledAt time.Time      `json:"nextScheduledAt"`
+	Schedule        string         `json:"schedule"`
+	Session         CronJobSession `json:"session"`
+	TimeZone        string         `json:"timeZone"`
+}
+
+// CronJobSession defines model for CronJob.Session.
+type CronJobSession string
+
+// CronJobList defines model for CronJobList.
+type CronJobList struct {
+	Items []CronJob `json:"items"`
+}
+
+// CronRun defines model for CronRun.
+type CronRun struct {
+	// Error A safe fixed reason for failure, cancellation or skipping.
+	Error       *string             `json:"error,omitempty"`
+	FinishedAt  *time.Time          `json:"finishedAt,omitempty"`
+	Id          openapi_types.UUID  `json:"id"`
+	JobName     string              `json:"jobName"`
+	ScheduledAt time.Time           `json:"scheduledAt"`
+	SessionId   *openapi_types.UUID `json:"sessionId,omitempty"`
+	StartedAt   *time.Time          `json:"startedAt,omitempty"`
+	State       CronRunState        `json:"state"`
+}
+
+// CronRunPage defines model for CronRunPage.
+type CronRunPage struct {
+	HasMore bool      `json:"hasMore"`
+	Items   []CronRun `json:"items"`
+	Limit   int32     `json:"limit"`
+	Offset  int32     `json:"offset"`
+}
+
+// CronRunState defines model for CronRunState.
+type CronRunState string
 
 // Error defines model for Error.
 type Error struct {
@@ -1671,12 +1779,18 @@ type Turn struct {
 	ContextSnapshotHash   *string            `json:"contextSnapshotHash,omitempty"`
 	FailureClassification string             `json:"failureClassification"`
 	Id                    openapi_types.UUID `json:"id"`
-	PromptSnapshotHash    *string            `json:"promptSnapshotHash,omitempty"`
-	RequestId             openapi_types.UUID `json:"requestId"`
-	SessionId             openapi_types.UUID `json:"sessionId"`
-	StartedAt             time.Time          `json:"startedAt"`
-	State                 TurnState          `json:"state"`
-	Workspace             string             `json:"workspace"`
+
+	// Output The validated JSON answer when outputSchema was given.
+	Output interface{} `json:"output,omitempty"`
+
+	// OutputError Why every structured output attempt failed.
+	OutputError        *string            `json:"outputError,omitempty"`
+	PromptSnapshotHash *string            `json:"promptSnapshotHash,omitempty"`
+	RequestId          openapi_types.UUID `json:"requestId"`
+	SessionId          openapi_types.UUID `json:"sessionId"`
+	StartedAt          time.Time          `json:"startedAt"`
+	State              TurnState          `json:"state"`
+	Workspace          string             `json:"workspace"`
 }
 
 // TurnState defines model for Turn.State.
@@ -1725,6 +1839,42 @@ type WorkerGenerationPage struct {
 	Items   []WorkerGeneration `json:"items"`
 	Limit   int32              `json:"limit"`
 	Offset  int32              `json:"offset"`
+}
+
+// WorkspaceFileContent defines model for WorkspaceFileContent.
+type WorkspaceFileContent struct {
+	// ContentBase64 Base64 bytes bounded by PEEN_MAX_FILE_API_BYTES after decoding.
+	ContentBase64 string `json:"contentBase64"`
+	Path          string `json:"path"`
+	Size          int64  `json:"size"`
+}
+
+// WorkspaceFileEntry defines model for WorkspaceFileEntry.
+type WorkspaceFileEntry struct {
+	ModifiedAt time.Time         `json:"modifiedAt"`
+	Name       string            `json:"name"`
+	Size       int64             `json:"size"`
+	Type       WorkspaceFileType `json:"type"`
+}
+
+// WorkspaceFileListing defines model for WorkspaceFileListing.
+type WorkspaceFileListing struct {
+	Entries    []WorkspaceFileEntry `json:"entries"`
+	ModifiedAt time.Time            `json:"modifiedAt"`
+	Path       string               `json:"path"`
+	Size       int64                `json:"size"`
+	Type       WorkspaceFileType    `json:"type"`
+}
+
+// WorkspaceFileType defines model for WorkspaceFileType.
+type WorkspaceFileType string
+
+// WorkspaceFileWrite defines model for WorkspaceFileWrite.
+type WorkspaceFileWrite struct {
+	// ContentBase64 Base64 bytes bounded by PEEN_MAX_FILE_API_BYTES after decoding.
+	ContentBase64     string `json:"contentBase64"`
+	CreateDirectories *bool  `json:"createDirectories,omitempty"`
+	Path              string `json:"path"`
 }
 
 // WorkspaceRootList defines model for WorkspaceRootList.
@@ -1783,6 +1933,14 @@ type ErrorNotFound = Error
 
 // ErrorUnauthorized defines model for ErrorUnauthorized.
 type ErrorUnauthorized = Error
+
+// ListCronRunsParams defines parameters for ListCronRuns.
+type ListCronRunsParams struct {
+	// Job Restrict the page to this configured or historical job name.
+	Job    *string `form:"job,omitempty" json:"job,omitempty"`
+	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+}
 
 // ListMessagesParams defines parameters for ListMessages.
 type ListMessagesParams struct {
@@ -1897,6 +2055,32 @@ type ListSessionFeedParams struct {
 	// Cursor Return items with a sequence greater than this value.
 	Cursor     *int64            `form:"cursor,omitempty" json:"cursor,omitempty"`
 	Limit      *int32            `form:"limit,omitempty" json:"limit,omitempty"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// DeleteWorkspaceFileParams defines parameters for DeleteWorkspaceFile.
+type DeleteWorkspaceFileParams struct {
+	// Path Clean relative workspace path.
+	Path       string            `form:"path" json:"path"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// ListWorkspaceFilesParams defines parameters for ListWorkspaceFiles.
+type ListWorkspaceFilesParams struct {
+	// Path Clean relative workspace path. Empty lists the workspace root.
+	Path       *string           `form:"path,omitempty" json:"path,omitempty"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// ReadWorkspaceFileParams defines parameters for ReadWorkspaceFile.
+type ReadWorkspaceFileParams struct {
+	// Path Clean relative workspace path.
+	Path       string            `form:"path" json:"path"`
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
+}
+
+// WriteWorkspaceFileParams defines parameters for WriteWorkspaceFile.
+type WriteWorkspaceFileParams struct {
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
@@ -2028,6 +2212,9 @@ type ListSessionsParams struct {
 	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
+// WriteWorkspaceFileJSONRequestBody defines body for WriteWorkspaceFile for application/json ContentType.
+type WriteWorkspaceFileJSONRequestBody = WorkspaceFileWrite
+
 // SignalSessionJobJSONRequestBody defines body for SignalSessionJob for application/json ContentType.
 type SignalSessionJobJSONRequestBody = JobSignalRequest
 
@@ -2045,6 +2232,12 @@ type ServerInterface interface {
 	// ListAgentSpaces List the agent spaces a client may name
 	// (GET /agent-spaces)
 	ListAgentSpaces(w http.ResponseWriter, r *http.Request)
+	// ListCronJobs List configured scheduled jobs
+	// (GET /cron/jobs)
+	ListCronJobs(w http.ResponseWriter, r *http.Request)
+	// ListCronRuns List durable scheduled run history
+	// (GET /cron/runs)
+	ListCronRuns(w http.ResponseWriter, r *http.Request, params ListCronRunsParams)
 	// ListMessages List stored conversation messages
 	// (GET /messages)
 	ListMessages(w http.ResponseWriter, r *http.Request, params ListMessagesParams)
@@ -2096,6 +2289,18 @@ type ServerInterface interface {
 	// ListSessionFeed Replay a session's live feed from a sequence
 	// (GET /session/feed)
 	ListSessionFeed(w http.ResponseWriter, r *http.Request, params ListSessionFeedParams)
+	// DeleteWorkspaceFile Delete a file or empty workspace directory
+	// (DELETE /session/files)
+	DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, params DeleteWorkspaceFileParams)
+	// ListWorkspaceFiles List a workspace directory or inspect a file
+	// (GET /session/files)
+	ListWorkspaceFiles(w http.ResponseWriter, r *http.Request, params ListWorkspaceFilesParams)
+	// ReadWorkspaceFile Read a bounded workspace file as base64
+	// (GET /session/files/content)
+	ReadWorkspaceFile(w http.ResponseWriter, r *http.Request, params ReadWorkspaceFileParams)
+	// WriteWorkspaceFile Write a workspace file atomically
+	// (PUT /session/files/content)
+	WriteWorkspaceFile(w http.ResponseWriter, r *http.Request, params WriteWorkspaceFileParams)
 	// ListSessionJobs List the commands this session has started
 	// (GET /session/jobs)
 	ListSessionJobs(w http.ResponseWriter, r *http.Request, params ListSessionJobsParams)
@@ -2172,6 +2377,79 @@ func (siw *ServerInterfaceWrapper) ListAgentSpaces(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListAgentSpaces(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListCronJobs operation middleware
+func (siw *ServerInterfaceWrapper) ListCronJobs(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListCronJobs(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListCronRuns operation middleware
+func (siw *ServerInterfaceWrapper) ListCronRuns(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListCronRunsParams
+
+	// ------------- Optional query parameter "job" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "job", r.URL.Query(), &params.Job, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "job"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "job", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListCronRuns(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3273,6 +3551,225 @@ func (siw *ServerInterfaceWrapper) ListSessionFeed(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListSessionFeed(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteWorkspaceFile operation middleware
+func (siw *ServerInterfaceWrapper) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params DeleteWorkspaceFileParams
+
+	// ------------- Required query parameter "path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Session-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
+		var XSessionID SessionIDRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
+			return
+		}
+
+		params.XSessionID = XSessionID
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteWorkspaceFile(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListWorkspaceFiles operation middleware
+func (siw *ServerInterfaceWrapper) ListWorkspaceFiles(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListWorkspaceFilesParams
+
+	// ------------- Optional query parameter "path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Session-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
+		var XSessionID SessionIDRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
+			return
+		}
+
+		params.XSessionID = XSessionID
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListWorkspaceFiles(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReadWorkspaceFile operation middleware
+func (siw *ServerInterfaceWrapper) ReadWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ReadWorkspaceFileParams
+
+	// ------------- Required query parameter "path" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "path", r.URL.Query(), &params.Path, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "path"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "path", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Session-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
+		var XSessionID SessionIDRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
+			return
+		}
+
+		params.XSessionID = XSessionID
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReadWorkspaceFile(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// WriteWorkspaceFile operation middleware
+func (siw *ServerInterfaceWrapper) WriteWorkspaceFile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params WriteWorkspaceFileParams
+
+	headers := r.Header
+
+	// ------------- Required header parameter "X-Session-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Session-ID")]; found {
+		var XSessionID SessionIDRequired
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Session-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Session-ID", valueList[0], &XSessionID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: true, Type: "string", Format: "uuid"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Session-ID", Err: err})
+			return
+		}
+
+		params.XSessionID = XSessionID
+
+	} else {
+		err := fmt.Errorf("Header parameter X-Session-ID is required, but not found")
+		siw.ErrorHandlerFunc(w, r, &RequiredHeaderError{ParamName: "X-Session-ID", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.WriteWorkspaceFile(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4593,6 +5090,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 		ErrorHandlerFunc:   options.ErrorHandlerFunc,
 	}
 
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/cron/jobs", wrapper.ListCronJobs)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/cron/runs", wrapper.ListCronRuns)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/messages", wrapper.ListMessages)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/sessions", wrapper.ListSessions)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/sessions/open", wrapper.OpenSession)
@@ -4631,6 +5130,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/learned", wrapper.ListSessionLearnedFiles)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/session/learned/file", wrapper.DeleteSessionLearnedFile)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/learned/file", wrapper.GetSessionLearnedFile)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/session/files", wrapper.DeleteWorkspaceFile)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/files", wrapper.ListWorkspaceFiles)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/session/files/content", wrapper.ReadWorkspaceFile)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/session/files/content", wrapper.WriteWorkspaceFile)
 
 	return m
 }
@@ -4693,6 +5196,135 @@ func (response ListAgentSpaces401JSONResponse) VisitListAgentSpacesResponse(w ht
 type ListAgentSpaces500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response ListAgentSpaces500JSONResponse) VisitListAgentSpacesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCronJobsRequestObject struct {
+}
+
+type ListCronJobsResponseObject interface {
+	VisitListCronJobsResponse(w http.ResponseWriter) error
+}
+
+type ListCronJobs200ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+}
+
+type ListCronJobs200JSONResponse struct {
+	Body    CronJobList
+	Headers ListCronJobs200ResponseHeaders
+}
+
+func (response ListCronJobs200JSONResponse) VisitListCronJobsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCronJobs401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response ListCronJobs401JSONResponse) VisitListCronJobsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCronJobs500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response ListCronJobs500JSONResponse) VisitListCronJobsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCronRunsRequestObject struct {
+	Params ListCronRunsParams
+}
+
+type ListCronRunsResponseObject interface {
+	VisitListCronRunsResponse(w http.ResponseWriter) error
+}
+
+type ListCronRuns200ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+}
+
+type ListCronRuns200JSONResponse struct {
+	Body    CronRunPage
+	Headers ListCronRuns200ResponseHeaders
+}
+
+func (response ListCronRuns200JSONResponse) VisitListCronRunsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCronRuns400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response ListCronRuns400JSONResponse) VisitListCronRunsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCronRuns401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response ListCronRuns401JSONResponse) VisitListCronRunsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCronRuns500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response ListCronRuns500JSONResponse) VisitListCronRunsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -6167,6 +6799,463 @@ func (response ListSessionFeed404JSONResponse) VisitListSessionFeedResponse(w ht
 type ListSessionFeed500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response ListSessionFeed500JSONResponse) VisitListSessionFeedResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteWorkspaceFileRequestObject struct {
+	Params DeleteWorkspaceFileParams
+}
+
+type DeleteWorkspaceFileResponseObject interface {
+	VisitDeleteWorkspaceFileResponse(w http.ResponseWriter) error
+}
+
+type DeleteWorkspaceFile204ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type DeleteWorkspaceFile204Response struct {
+	Headers DeleteWorkspaceFile204ResponseHeaders
+}
+
+func (response DeleteWorkspaceFile204Response) VisitDeleteWorkspaceFileResponse(w http.ResponseWriter) error {
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteWorkspaceFile400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response DeleteWorkspaceFile400JSONResponse) VisitDeleteWorkspaceFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteWorkspaceFile401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response DeleteWorkspaceFile401JSONResponse) VisitDeleteWorkspaceFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteWorkspaceFile403JSONResponse struct{ ErrorForbiddenJSONResponse }
+
+func (response DeleteWorkspaceFile403JSONResponse) VisitDeleteWorkspaceFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteWorkspaceFile404JSONResponse struct{ ErrorNotFoundJSONResponse }
+
+func (response DeleteWorkspaceFile404JSONResponse) VisitDeleteWorkspaceFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteWorkspaceFile409JSONResponse struct{ ErrorConflictJSONResponse }
+
+func (response DeleteWorkspaceFile409JSONResponse) VisitDeleteWorkspaceFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteWorkspaceFile500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response DeleteWorkspaceFile500JSONResponse) VisitDeleteWorkspaceFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListWorkspaceFilesRequestObject struct {
+	Params ListWorkspaceFilesParams
+}
+
+type ListWorkspaceFilesResponseObject interface {
+	VisitListWorkspaceFilesResponse(w http.ResponseWriter) error
+}
+
+type ListWorkspaceFiles200ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ListWorkspaceFiles200JSONResponse struct {
+	Body    WorkspaceFileListing
+	Headers ListWorkspaceFiles200ResponseHeaders
+}
+
+func (response ListWorkspaceFiles200JSONResponse) VisitListWorkspaceFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListWorkspaceFiles400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response ListWorkspaceFiles400JSONResponse) VisitListWorkspaceFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListWorkspaceFiles401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response ListWorkspaceFiles401JSONResponse) VisitListWorkspaceFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListWorkspaceFiles403JSONResponse struct{ ErrorForbiddenJSONResponse }
+
+func (response ListWorkspaceFiles403JSONResponse) VisitListWorkspaceFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListWorkspaceFiles404JSONResponse struct{ ErrorNotFoundJSONResponse }
+
+func (response ListWorkspaceFiles404JSONResponse) VisitListWorkspaceFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListWorkspaceFiles409JSONResponse struct{ ErrorConflictJSONResponse }
+
+func (response ListWorkspaceFiles409JSONResponse) VisitListWorkspaceFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListWorkspaceFiles500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response ListWorkspaceFiles500JSONResponse) VisitListWorkspaceFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReadWorkspaceFileRequestObject struct {
+	Params ReadWorkspaceFileParams
+}
+
+type ReadWorkspaceFileResponseObject interface {
+	VisitReadWorkspaceFileResponse(w http.ResponseWriter) error
+}
+
+type ReadWorkspaceFile200ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type ReadWorkspaceFile200JSONResponse struct {
+	Body    WorkspaceFileContent
+	Headers ReadWorkspaceFile200ResponseHeaders
+}
+
+func (response ReadWorkspaceFile200JSONResponse) VisitReadWorkspaceFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReadWorkspaceFile400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response ReadWorkspaceFile400JSONResponse) VisitReadWorkspaceFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReadWorkspaceFile401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response ReadWorkspaceFile401JSONResponse) VisitReadWorkspaceFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReadWorkspaceFile403JSONResponse struct{ ErrorForbiddenJSONResponse }
+
+func (response ReadWorkspaceFile403JSONResponse) VisitReadWorkspaceFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReadWorkspaceFile404JSONResponse struct{ ErrorNotFoundJSONResponse }
+
+func (response ReadWorkspaceFile404JSONResponse) VisitReadWorkspaceFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReadWorkspaceFile409JSONResponse struct{ ErrorConflictJSONResponse }
+
+func (response ReadWorkspaceFile409JSONResponse) VisitReadWorkspaceFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReadWorkspaceFile500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response ReadWorkspaceFile500JSONResponse) VisitReadWorkspaceFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(500)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WriteWorkspaceFileRequestObject struct {
+	Params WriteWorkspaceFileParams
+	Body   *WriteWorkspaceFileJSONRequestBody
+}
+
+type WriteWorkspaceFileResponseObject interface {
+	VisitWriteWorkspaceFileResponse(w http.ResponseWriter) error
+}
+
+type WriteWorkspaceFile200ResponseHeaders struct {
+	XRequestID openapi_types.UUID
+	XSessionID openapi_types.UUID
+}
+
+type WriteWorkspaceFile200JSONResponse struct {
+	Body    WorkspaceFileEntry
+	Headers WriteWorkspaceFile200ResponseHeaders
+}
+
+func (response WriteWorkspaceFile200JSONResponse) VisitWriteWorkspaceFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Request-ID", fmt.Sprint(response.Headers.XRequestID))
+	w.Header().Set("X-Session-ID", fmt.Sprint(response.Headers.XSessionID))
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WriteWorkspaceFile400JSONResponse struct{ ErrorBadRequestJSONResponse }
+
+func (response WriteWorkspaceFile400JSONResponse) VisitWriteWorkspaceFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(400)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WriteWorkspaceFile401JSONResponse struct{ ErrorUnauthorizedJSONResponse }
+
+func (response WriteWorkspaceFile401JSONResponse) VisitWriteWorkspaceFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WriteWorkspaceFile403JSONResponse struct{ ErrorForbiddenJSONResponse }
+
+func (response WriteWorkspaceFile403JSONResponse) VisitWriteWorkspaceFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(403)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WriteWorkspaceFile404JSONResponse struct{ ErrorNotFoundJSONResponse }
+
+func (response WriteWorkspaceFile404JSONResponse) VisitWriteWorkspaceFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WriteWorkspaceFile409JSONResponse struct{ ErrorConflictJSONResponse }
+
+func (response WriteWorkspaceFile409JSONResponse) VisitWriteWorkspaceFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type WriteWorkspaceFile500JSONResponse struct{ ErrorInternalJSONResponse }
+
+func (response WriteWorkspaceFile500JSONResponse) VisitWriteWorkspaceFileResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -7774,6 +8863,20 @@ func (response OpenSession404JSONResponse) VisitOpenSessionResponse(w http.Respo
 	return err
 }
 
+type OpenSession409JSONResponse struct{ ErrorConflictJSONResponse }
+
+func (response OpenSession409JSONResponse) VisitOpenSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(409)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type OpenSession500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response OpenSession500JSONResponse) VisitOpenSessionResponse(w http.ResponseWriter) error {
@@ -7923,6 +9026,12 @@ type StrictServerInterface interface {
 	// ListAgentSpaces List the agent spaces a client may name
 	// (GET /agent-spaces)
 	ListAgentSpaces(ctx context.Context, request ListAgentSpacesRequestObject) (ListAgentSpacesResponseObject, error)
+	// ListCronJobs List configured scheduled jobs
+	// (GET /cron/jobs)
+	ListCronJobs(ctx context.Context, request ListCronJobsRequestObject) (ListCronJobsResponseObject, error)
+	// ListCronRuns List durable scheduled run history
+	// (GET /cron/runs)
+	ListCronRuns(ctx context.Context, request ListCronRunsRequestObject) (ListCronRunsResponseObject, error)
 	// ListMessages List stored conversation messages
 	// (GET /messages)
 	ListMessages(ctx context.Context, request ListMessagesRequestObject) (ListMessagesResponseObject, error)
@@ -7974,6 +9083,18 @@ type StrictServerInterface interface {
 	// ListSessionFeed Replay a session's live feed from a sequence
 	// (GET /session/feed)
 	ListSessionFeed(ctx context.Context, request ListSessionFeedRequestObject) (ListSessionFeedResponseObject, error)
+	// DeleteWorkspaceFile Delete a file or empty workspace directory
+	// (DELETE /session/files)
+	DeleteWorkspaceFile(ctx context.Context, request DeleteWorkspaceFileRequestObject) (DeleteWorkspaceFileResponseObject, error)
+	// ListWorkspaceFiles List a workspace directory or inspect a file
+	// (GET /session/files)
+	ListWorkspaceFiles(ctx context.Context, request ListWorkspaceFilesRequestObject) (ListWorkspaceFilesResponseObject, error)
+	// ReadWorkspaceFile Read a bounded workspace file as base64
+	// (GET /session/files/content)
+	ReadWorkspaceFile(ctx context.Context, request ReadWorkspaceFileRequestObject) (ReadWorkspaceFileResponseObject, error)
+	// WriteWorkspaceFile Write a workspace file atomically
+	// (PUT /session/files/content)
+	WriteWorkspaceFile(ctx context.Context, request WriteWorkspaceFileRequestObject) (WriteWorkspaceFileResponseObject, error)
 	// ListSessionJobs List the commands this session has started
 	// (GET /session/jobs)
 	ListSessionJobs(ctx context.Context, request ListSessionJobsRequestObject) (ListSessionJobsResponseObject, error)
@@ -8092,6 +9213,56 @@ func (sh *strictHandler) ListAgentSpaces(w http.ResponseWriter, r *http.Request)
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListAgentSpacesResponseObject); ok {
 		if err := validResponse.VisitListAgentSpacesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListCronJobs operation middleware
+func (sh *strictHandler) ListCronJobs(w http.ResponseWriter, r *http.Request) {
+	var request ListCronJobsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListCronJobs(ctx, request.(ListCronJobsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListCronJobs")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListCronJobsResponseObject); ok {
+		if err := validResponse.VisitListCronJobsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListCronRuns operation middleware
+func (sh *strictHandler) ListCronRuns(w http.ResponseWriter, r *http.Request, params ListCronRunsParams) {
+	var request ListCronRunsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListCronRuns(ctx, request.(ListCronRunsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListCronRuns")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListCronRunsResponseObject); ok {
+		if err := validResponse.VisitListCronRunsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -8541,6 +9712,117 @@ func (sh *strictHandler) ListSessionFeed(w http.ResponseWriter, r *http.Request,
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListSessionFeedResponseObject); ok {
 		if err := validResponse.VisitListSessionFeedResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteWorkspaceFile operation middleware
+func (sh *strictHandler) DeleteWorkspaceFile(w http.ResponseWriter, r *http.Request, params DeleteWorkspaceFileParams) {
+	var request DeleteWorkspaceFileRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteWorkspaceFile(ctx, request.(DeleteWorkspaceFileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteWorkspaceFile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteWorkspaceFileResponseObject); ok {
+		if err := validResponse.VisitDeleteWorkspaceFileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListWorkspaceFiles operation middleware
+func (sh *strictHandler) ListWorkspaceFiles(w http.ResponseWriter, r *http.Request, params ListWorkspaceFilesParams) {
+	var request ListWorkspaceFilesRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListWorkspaceFiles(ctx, request.(ListWorkspaceFilesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListWorkspaceFiles")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListWorkspaceFilesResponseObject); ok {
+		if err := validResponse.VisitListWorkspaceFilesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ReadWorkspaceFile operation middleware
+func (sh *strictHandler) ReadWorkspaceFile(w http.ResponseWriter, r *http.Request, params ReadWorkspaceFileParams) {
+	var request ReadWorkspaceFileRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ReadWorkspaceFile(ctx, request.(ReadWorkspaceFileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ReadWorkspaceFile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ReadWorkspaceFileResponseObject); ok {
+		if err := validResponse.VisitReadWorkspaceFileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// WriteWorkspaceFile operation middleware
+func (sh *strictHandler) WriteWorkspaceFile(w http.ResponseWriter, r *http.Request, params WriteWorkspaceFileParams) {
+	var request WriteWorkspaceFileRequestObject
+
+	request.Params = params
+
+	var body WriteWorkspaceFileJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.WriteWorkspaceFile(ctx, request.(WriteWorkspaceFileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "WriteWorkspaceFile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(WriteWorkspaceFileResponseObject); ok {
+		if err := validResponse.VisitWriteWorkspaceFileResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {

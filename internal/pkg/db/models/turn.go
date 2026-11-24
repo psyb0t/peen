@@ -8,6 +8,8 @@ import (
 
 // Turn is one request execution within a session.
 type Turn struct {
+	Output                *string
+	OutputError           *string
 	ID                    uuid.UUID
 	SessionID             uuid.UUID
 	RequestID             uuid.UUID

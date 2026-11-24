@@ -25,9 +25,12 @@ func RuntimeOptionsFromConfig(
 	metricRegistry *metrics.Metrics,
 ) RuntimeOptions {
 	return RuntimeOptions{
-		Models:       models,
-		RootAgent:    deployment.RootAgent(),
-		DefaultModel: deployment.DefaultModel,
+		TurnTimeout:          deployment.TurnTimeout,
+		OutputSchemaAttempts: deployment.OutputSchemaAttempts,
+		MaxOutputSchemaBytes: deployment.MaxOutputSchemaBytes,
+		Models:               models,
+		RootAgent:            deployment.RootAgent(),
+		DefaultModel:         deployment.DefaultModel,
 
 		DisableBaseSystemPrompt: deployment.BaseSystemPromptDisabled(),
 

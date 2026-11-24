@@ -205,6 +205,11 @@ func (r *Runtime) RunMessage(
 	requestID uuid.UUID,
 	sink EventSink,
 ) (*MessageRunResult, error) {
+	if err := validateTurnSettingsShape(request.OutputSchema,
+		request.TimeoutSeconds, request.To); err != nil {
+		return nil, err
+	}
+
 	if request.To != nil {
 		return r.messageAgentRun(ctx, request, requestID)
 	}
@@ -222,6 +227,7 @@ func (r *Runtime) RunMessage(
 	}
 
 	return &MessageRunResult{
+		Output: result.Output, OutputError: result.OutputError,
 		SessionID: result.SessionID,
 		Queued:    result.Queued,
 		Text:      result.Text,
@@ -374,6 +380,9 @@ func messageRequestToTurnRequest(
 	}
 
 	input := TurnRequest{
+		RequireNewTurn:       request.RequireNewTurn,
+		OutputSchema:         request.OutputSchema,
+		TimeoutSeconds:       request.TimeoutSeconds,
 		Message:              request.Message,
 		Images:               request.Images,
 		Model:                optionalString(request.Model),
@@ -405,6 +414,11 @@ func messageRequestToTurnRequest(
 // future pkg/peen facade, and that caller must see the same rejection the
 // HTTP edge does.
 func validateMessageRequest(request MessageRequest) error {
+	if err := validateTurnSettingsShape(request.OutputSchema,
+		request.TimeoutSeconds, request.To); err != nil {
+		return err
+	}
+
 	if strings.TrimSpace(request.Message) == "" {
 		return ctxerrors.Wrap(commerr.ErrValidationFailed, "message")
 	}
@@ -505,6 +519,10 @@ func optionalString(value *string) string {
 }
 
 func translateOperationError(err error) error {
+	if errors.Is(err, ErrTurnTimeout) {
+		return ctxerrors.Wrap(ErrTurnTimeout, "turn deadline elapsed")
+	}
+
 	if errors.Is(err, session.ErrSessionBusy) {
 		return ctxerrors.Wrap(
 			commerr.ErrConflict,

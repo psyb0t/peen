@@ -42,10 +42,12 @@ type workflowRoundInput struct {
 }
 
 type workflowRoundResult struct {
-	Context  json.RawMessage   `json:"context"`
-	Calls    []elelem.ToolCall `json:"calls"`
-	Text     string            `json:"text"`
-	Continue bool              `json:"continue,omitempty"`
+	Output      json.RawMessage   `json:"output,omitempty"`
+	OutputError string            `json:"outputError,omitempty"`
+	Context     json.RawMessage   `json:"context"`
+	Calls       []elelem.ToolCall `json:"calls"`
+	Text        string            `json:"text"`
+	Continue    bool              `json:"continue,omitempty"`
 	// FinishReason is why the model stopped this round's reply. Results saved
 	// before it existed read empty.
 	FinishReason elelem.FinishReason `json:"finishReason,omitempty"`
@@ -77,6 +79,8 @@ type workflowActivityResult[T any] struct {
 // Phase callbacks run in individual native activities with saved inputs.
 // MergeRound only combines recorded values and must have no external effects.
 type workflowExecutionOptions struct {
+	StructuredOutput func(context.Context, workflowStructuredInput) (
+		workflowRoundResult, error)
 	OpeningHook func(context.Context, workflowOpeningInput) (
 		workflowOpeningResult, error)
 	AfterOpeningHook func(context.Context, workflowOpeningInput,

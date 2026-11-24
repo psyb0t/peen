@@ -86,6 +86,36 @@ type jsonlRenderer struct {
 	stdout io.Writer
 }
 
+type structuredRenderer struct {
+	stdout  io.Writer
+	details renderer
+}
+
+func (r *structuredRenderer) render(frame controlclient.TurnFrame) error {
+	if frame.Type != agent.EventTypeTurnCompleted {
+		return r.details.render(frame)
+	}
+
+	var result wsapi.TurnCompletedData
+	if err := json.Unmarshal(frame.Data, &result); err != nil {
+		return ctxerrors.Wrap(err, "decode structured output result")
+	}
+
+	if len(result.Output) == 0 {
+		return r.details.render(frame)
+	}
+
+	if _, err := fmt.Fprintln(r.stdout, string(result.Output)); err != nil {
+		return ctxerrors.Wrap(err, "write structured output")
+	}
+
+	return nil
+}
+
+func (r *structuredRenderer) finish() error {
+	return r.details.finish()
+}
+
 func (r *jsonlRenderer) render(frame controlclient.TurnFrame) error {
 	// The hub ends each frame with a newline. Trimming it keeps one frame
 	// per line instead of a frame followed by an empty line.
@@ -135,6 +165,8 @@ func (r *textRenderer) render(frame controlclient.TurnFrame) error {
 		return r.renderAgentRunEnded(frame)
 	case agent.EventTypeTurnFailed:
 		return r.renderTurnFailed(frame.Data)
+	case agent.EventTypeTurnCompleted:
+		return r.renderOutputError(frame.Data)
 	case agent.EventTypeTurnCancelled:
 		return r.line("turn cancelled")
 	case frameTypeMessageFailed:
@@ -142,6 +174,19 @@ func (r *textRenderer) render(frame controlclient.TurnFrame) error {
 	}
 
 	return nil
+}
+
+func (r *textRenderer) renderOutputError(data json.RawMessage) error {
+	var result wsapi.TurnCompletedData
+	if err := json.Unmarshal(data, &result); err != nil {
+		return ctxerrors.Wrap(err, "decode final output status")
+	}
+
+	if result.OutputError == nil {
+		return nil
+	}
+
+	return r.line("output failed: " + *result.OutputError)
 }
 
 func (r *textRenderer) finish() error {

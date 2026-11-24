@@ -63,6 +63,9 @@ type FeedPump struct {
 
 	admissionMutex   sync.Mutex
 	admissionWatches map[admissionKey]*admissionWatch
+
+	subscriberMutex sync.Mutex
+	subscribers     map[*feedSubscription]struct{}
 }
 
 // feedPumpSession is one session's delivery cursor and single-flight state.
@@ -88,12 +91,16 @@ type admissionWatch struct {
 // NewFeedPump builds a pump bound to ctx. Every pump goroutine stops when ctx
 // ends, so callers pass their service context, never context.Background.
 func NewFeedPump(ctx context.Context, store feedStore) *FeedPump {
-	return &FeedPump{
+	pump := &FeedPump{
 		ctx:              ctx,
 		store:            store,
 		sessions:         map[uuid.UUID]*feedPumpSession{},
 		admissionWatches: map[admissionKey]*admissionWatch{},
+		subscribers:      make(map[*feedSubscription]struct{}),
 	}
+	context.AfterFunc(ctx, pump.closeSubscribers)
+
+	return pump
 }
 
 // SetSink registers the live delivery path. Registering twice replaces it,
@@ -289,6 +296,7 @@ func (p *FeedPump) deliver(
 	}
 
 	p.reportAdmissions(sessionID, items)
+	p.deliverSubscribers(sessionID, items)
 
 	sink := p.getSink()
 	if sink == nil {

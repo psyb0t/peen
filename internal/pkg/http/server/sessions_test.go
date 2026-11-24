@@ -14,6 +14,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/http/api"
+	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/worker"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -225,6 +226,21 @@ func TestServerOpenSessionMapsRefusals(t *testing.T) {
 			),
 			wantStatus: http.StatusForbidden,
 			wantCode:   ErrorCodeAgentSpaceNotAllowed,
+		},
+		{
+			name: "agent space other than the workspace's",
+			body: `{"workspace":"` + testWorkspacePath +
+				`","agentSpace":"docker:sandbox"}`,
+			openErr: ctxerrors.Wrap(
+				&session.AgentSpaceConflictError{
+					Current: "control", Requested: "docker:sandbox",
+				},
+				"open workspace session",
+			),
+			wantStatus: http.StatusConflict,
+			wantCode:   ErrorCodeAgentSpaceConflict,
+			wantMessage: `this workspace runs in agent space "control", ` +
+				`not "docker:sandbox"`,
 		},
 		{
 			name: "workspace is not a directory",

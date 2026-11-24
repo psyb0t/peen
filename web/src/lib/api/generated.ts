@@ -4,6 +4,43 @@
  */
 
 export interface paths {
+	"/cron/jobs": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * List configured scheduled jobs
+		 * @description Returns startup-loaded jobs with their next occurrence and last run.
+		 */
+		get: operations["listCronJobs"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/cron/runs": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/** List durable scheduled run history */
+		get: operations["listCronRuns"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	"/messages": {
 		parameters: {
 			query?: never;
@@ -52,7 +89,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Open or resume the session for a workspace
-		 * @description Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND.
+		 * @description Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND. Every session of one workspace shares one agent space. A request that names no agent space gets the workspace's, or the default when the workspace has no session yet, and a request that names a different agent space than the workspace's is refused with 409 AGENT_SPACE_CONFLICT, whose message names the workspace's current agent space.
 		 */
 		post: operations["openSession"];
 		delete?: never;
@@ -172,7 +209,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Move an idle session to a different agent space
-		 * @description Changes the agent space a session's tools run in and records the decision with the caller's reason. The named agent space must be one the deployment offers; an undefined name is refused with 403. A session with a turn in flight is refused with 409, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success the session's current worker is stopped, so the next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
+		 * @description Changes the agent space a session's tools run in, for that session and every other session of its workspace together, because the sessions of one workspace share one agent space. It records a decision for each session with the caller's reason and returns the named session's. The named agent space must be one the deployment offers; an undefined name is refused with 403. While any session of the workspace has a turn in flight the change is refused with 409 SESSION_BUSY, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success each session's current worker is stopped, so its next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
 		 */
 		post: operations["reconfigureSession"];
 		delete?: never;
@@ -663,6 +700,54 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	"/session/files": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * List a workspace directory or inspect a file
+		 * @description Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+		 */
+		get: operations["listWorkspaceFiles"];
+		put?: never;
+		post?: never;
+		/**
+		 * Delete a file or empty workspace directory
+		 * @description Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+		 */
+		delete: operations["deleteWorkspaceFile"];
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/session/files/content": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Read a bounded workspace file as base64
+		 * @description Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+		 */
+		get: operations["readWorkspaceFile"];
+		/**
+		 * Write a workspace file atomically
+		 * @description Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+		 */
+		put: operations["writeWorkspaceFile"];
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -841,6 +926,39 @@ export interface components {
 			file: components["schemas"]["LearnedFile"];
 			content: string;
 		};
+		/** @enum {string} */
+		WorkspaceFileType: "file" | "directory" | "symlink";
+		WorkspaceFileEntry: {
+			name: string;
+			type: components["schemas"]["WorkspaceFileType"];
+			/** Format: int64 */
+			size: number;
+			/** Format: date-time */
+			modifiedAt: string;
+		};
+		WorkspaceFileListing: {
+			path: string;
+			type: components["schemas"]["WorkspaceFileType"];
+			/** Format: int64 */
+			size: number;
+			/** Format: date-time */
+			modifiedAt: string;
+			entries: components["schemas"]["WorkspaceFileEntry"][];
+		};
+		WorkspaceFileContent: {
+			path: string;
+			/** Format: int64 */
+			size: number;
+			/** @description Base64 bytes bounded by PEEN_MAX_FILE_API_BYTES after decoding. */
+			contentBase64: string;
+		};
+		WorkspaceFileWrite: {
+			path: string;
+			/** @description Base64 bytes bounded by PEEN_MAX_FILE_API_BYTES after decoding. */
+			contentBase64: string;
+			/** @default false */
+			createDirectories: boolean;
+		};
 		WorkspaceRootList: {
 			/** @description Canonical absolute directories the authenticated controller will accept as workspace roots. */
 			roots: string[];
@@ -1012,6 +1130,10 @@ export interface components {
 			cancelRequested: boolean;
 		};
 		Turn: {
+			/** @description The validated JSON answer when outputSchema was given. */
+			output?: unknown;
+			/** @description Why every structured output attempt failed. */
+			outputError?: string;
 			/** Format: uuid */
 			id: string;
 			/** Format: uuid */
@@ -1605,6 +1727,45 @@ export interface components {
 			offset: number;
 			hasMore: boolean;
 		};
+		/** @enum {string} */
+		CronRunState: "running" | "completed" | "failed" | "cancelled" | "skipped";
+		CronRun: {
+			/** Format: uuid */
+			id: string;
+			jobName: string;
+			/** Format: date-time */
+			scheduledAt: string;
+			/** Format: date-time */
+			startedAt?: string;
+			/** Format: date-time */
+			finishedAt?: string;
+			/** Format: uuid */
+			sessionId?: string;
+			state: components["schemas"]["CronRunState"];
+			/** @description A safe fixed reason for failure, cancellation or skipping. */
+			error?: string;
+		};
+		CronRunPage: {
+			items: components["schemas"]["CronRun"][];
+			/** Format: int32 */
+			limit: number;
+			/** Format: int32 */
+			offset: number;
+			hasMore: boolean;
+		};
+		CronJob: {
+			name: string;
+			schedule: string;
+			timeZone: string;
+			/** @enum {string} */
+			session: "continue" | "new";
+			/** Format: date-time */
+			nextScheduledAt: string;
+			lastRun?: components["schemas"]["CronRun"];
+		};
+		CronJobList: {
+			items: components["schemas"]["CronJob"][];
+		};
 		Error: {
 			code: string;
 			message: string;
@@ -1650,7 +1811,7 @@ export interface components {
 				"application/json": components["schemas"]["Error"];
 			};
 		};
-		/** @description Turn cannot run in its current state */
+		/** @description The request conflicts with current state, such as a session with a turn in flight or an agent space other than the workspace's */
 		ErrorConflict: {
 			headers: {
 				[name: string]: unknown;
@@ -1697,6 +1858,58 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+	listCronJobs: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Configured cron jobs */
+			200: {
+				headers: {
+					"X-Request-ID": components["headers"]["RequestID"];
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["CronJobList"];
+				};
+			};
+			401: components["responses"]["ErrorUnauthorized"];
+			500: components["responses"]["ErrorInternal"];
+		};
+	};
+	listCronRuns: {
+		parameters: {
+			query?: {
+				/** @description Restrict the page to this configured or historical job name. */
+				job?: string;
+				limit?: components["parameters"]["Limit"];
+				offset?: components["parameters"]["Offset"];
+			};
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Scheduled runs, newest scheduled occurrence first */
+			200: {
+				headers: {
+					"X-Request-ID": components["headers"]["RequestID"];
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["CronRunPage"];
+				};
+			};
+			400: components["responses"]["ErrorBadRequest"];
+			401: components["responses"]["ErrorUnauthorized"];
+			500: components["responses"]["ErrorInternal"];
+		};
+	};
 	listMessages: {
 		parameters: {
 			query?: {
@@ -1784,6 +1997,7 @@ export interface operations {
 			401: components["responses"]["ErrorUnauthorized"];
 			403: components["responses"]["ErrorForbidden"];
 			404: components["responses"]["ErrorNotFound"];
+			409: components["responses"]["ErrorConflict"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
@@ -2854,6 +3068,137 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			500: components["responses"]["ErrorInternal"];
+		};
+	};
+	listWorkspaceFiles: {
+		parameters: {
+			query?: {
+				/** @description Clean relative workspace path. Empty lists the workspace root. */
+				path?: string;
+			};
+			header: {
+				"X-Session-ID": components["parameters"]["SessionIDRequired"];
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description List a workspace directory or inspect a file */
+			200: {
+				headers: {
+					"X-Session-ID": components["headers"]["SessionID"];
+					"X-Request-ID": components["headers"]["RequestID"];
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["WorkspaceFileListing"];
+				};
+			};
+			400: components["responses"]["ErrorBadRequest"];
+			401: components["responses"]["ErrorUnauthorized"];
+			403: components["responses"]["ErrorForbidden"];
+			404: components["responses"]["ErrorNotFound"];
+			409: components["responses"]["ErrorConflict"];
+			500: components["responses"]["ErrorInternal"];
+		};
+	};
+	deleteWorkspaceFile: {
+		parameters: {
+			query: {
+				/** @description Clean relative workspace path. */
+				path: string;
+			};
+			header: {
+				"X-Session-ID": components["parameters"]["SessionIDRequired"];
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Delete a file or empty workspace directory */
+			204: {
+				headers: {
+					"X-Session-ID": components["headers"]["SessionID"];
+					"X-Request-ID": components["headers"]["RequestID"];
+					[name: string]: unknown;
+				};
+				content?: never;
+			};
+			400: components["responses"]["ErrorBadRequest"];
+			401: components["responses"]["ErrorUnauthorized"];
+			403: components["responses"]["ErrorForbidden"];
+			404: components["responses"]["ErrorNotFound"];
+			409: components["responses"]["ErrorConflict"];
+			500: components["responses"]["ErrorInternal"];
+		};
+	};
+	readWorkspaceFile: {
+		parameters: {
+			query: {
+				/** @description Clean relative workspace path. */
+				path: string;
+			};
+			header: {
+				"X-Session-ID": components["parameters"]["SessionIDRequired"];
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Read a bounded workspace file as base64 */
+			200: {
+				headers: {
+					"X-Session-ID": components["headers"]["SessionID"];
+					"X-Request-ID": components["headers"]["RequestID"];
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["WorkspaceFileContent"];
+				};
+			};
+			400: components["responses"]["ErrorBadRequest"];
+			401: components["responses"]["ErrorUnauthorized"];
+			403: components["responses"]["ErrorForbidden"];
+			404: components["responses"]["ErrorNotFound"];
+			409: components["responses"]["ErrorConflict"];
+			500: components["responses"]["ErrorInternal"];
+		};
+	};
+	writeWorkspaceFile: {
+		parameters: {
+			query?: never;
+			header: {
+				"X-Session-ID": components["parameters"]["SessionIDRequired"];
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["WorkspaceFileWrite"];
+			};
+		};
+		responses: {
+			/** @description Write a workspace file atomically */
+			200: {
+				headers: {
+					"X-Session-ID": components["headers"]["SessionID"];
+					"X-Request-ID": components["headers"]["RequestID"];
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["WorkspaceFileEntry"];
+				};
+			};
+			400: components["responses"]["ErrorBadRequest"];
+			401: components["responses"]["ErrorUnauthorized"];
+			403: components["responses"]["ErrorForbidden"];
+			404: components["responses"]["ErrorNotFound"];
+			409: components["responses"]["ErrorConflict"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};

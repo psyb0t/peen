@@ -32,6 +32,7 @@ type ScriptedToolTurn struct {
 	ApplyPatchArguments map[string]any
 	RunCommandArguments map[string]any
 	FinalAnswer         string
+	StructuredAnswer    string
 	Children            []ScriptedToolTurn
 }
 
@@ -153,8 +154,10 @@ type completionHold struct {
 }
 
 type providerCompletionRequest struct {
-	Model  string `json:"model"`
-	Stream bool   `json:"stream"`
+	//nolint:tagliatelle // OpenAI owns this field name.
+	ResponseFormat json.RawMessage `json:"response_format"`
+	Model          string          `json:"model"`
+	Stream         bool            `json:"stream"`
 	//nolint:tagliatelle // The OpenAI chat completions API defines this name.
 	ReasoningEffort string                      `json:"reasoning_effort"`
 	Messages        []providerCompletionMessage `json:"messages"`
@@ -285,7 +288,7 @@ func (m *openAIModelsMock) handleCompletion(
 		return
 	}
 
-	if completionRequest.Model != providerModel || !completionRequest.Stream {
+	if completionRequest.Model != providerModel {
 		http.Error(
 			writer,
 			"unexpected completion request",
@@ -303,6 +306,12 @@ func (m *openAIModelsMock) handleCompletion(
 		return
 	}
 
+	if !completionRequest.Stream {
+		m.writeStructuredCompletion(writer, completionRequest)
+
+		return
+	}
+
 	script := m.currentScript()
 	if script == nil {
 		m.writeCompletion(writer)
@@ -311,6 +320,47 @@ func (m *openAIModelsMock) handleCompletion(
 	}
 
 	m.writeScripted(writer, completionRequest, script)
+}
+
+func (m *openAIModelsMock) writeStructuredCompletion(
+	writer http.ResponseWriter,
+	request providerCompletionRequest,
+) {
+	if len(request.ResponseFormat) != 0 {
+		var format struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(request.ResponseFormat, &format); err != nil ||
+			(format.Type != "json_schema" && format.Type != "json_object") {
+			http.Error(writer, "unexpected response format",
+				http.StatusBadRequest)
+
+			return
+		}
+	}
+
+	answer := `{"answer":7}`
+	if script := m.currentScript(); script != nil &&
+		script.StructuredAnswer != "" {
+		answer = script.StructuredAnswer
+	}
+
+	writer.Header().Set("Content-Type", jsonMediaType)
+
+	if err := json.NewEncoder(writer).Encode(map[string]any{
+		"id": "structuredCompletion", "object": "chat.completion",
+		"model": providerModel, "created": 1,
+		"choices": []map[string]any{{
+			"index": 0, "finish_reason": "stop",
+			"message": struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			}{Role: providerRoleAssistant, Content: answer},
+		}},
+	}); err != nil {
+		http.Error(writer, "encode structured completion",
+			http.StatusInternalServerError)
+	}
 }
 
 // writeScripted answers a request under an active script: the issued Calls

@@ -47,6 +47,7 @@ const (
 // It stands in for the `peen worker` process so this test exercises the real
 // protocol, the real supervisor, and the real router without spawning anything.
 type routedWorker struct {
+	onTurn     func(context.Context, *routedWorker, protocol.RunTurn) (any, error)
 	connection *protocol.Connection
 	document   worker.LaunchDocument
 
@@ -122,6 +123,8 @@ func (w *routedWorker) HandleCommand(
 		return w.runTurn(ctx, payload)
 	case protocol.CommandCancel:
 		return protocol.CancelResult{CancelRequested: true}, nil
+	case protocol.CommandCancelTurn:
+		return w.cancelExactTurn(ctx, payload)
 	case protocol.CommandSignalJob:
 		return w.signalJob(payload)
 	case protocol.CommandCancelAgentRun:
@@ -143,6 +146,9 @@ func (w *routedWorker) runTurn(
 	}
 
 	w.turns = append(w.turns, request)
+	if w.onTurn != nil {
+		return w.onTurn(ctx, w, request)
+	}
 
 	store := w.connection.Store()
 
@@ -185,6 +191,7 @@ func (w *routedWorker) runTurn(
 
 // routedLauncher connects a routedWorker instead of starting a process.
 type routedLauncher struct {
+	onTurn    func(context.Context, *routedWorker, protocol.RunTurn) (any, error)
 	t         *testing.T
 	workers   []*routedWorker
 	workspace string
@@ -200,6 +207,7 @@ func (l *routedLauncher) Launch(
 	request worker.LaunchRequest,
 ) (worker.Process, error) {
 	built := &routedWorker{
+		onTurn:    l.onTurn,
 		document:  request.Document,
 		sessionID: request.Document.SessionID,
 		workspace: l.workspace,
@@ -267,6 +275,8 @@ func (p *publishedEvents) snapshot() []session.FeedItem {
 }
 
 type routingFixture struct {
+	registry  *control.Registry
+	feed      *control.FeedPump
 	router    *control.TurnRouter
 	store     *session.Store
 	launcher  *routedLauncher
@@ -357,6 +367,8 @@ func newRoutingFixture(t *testing.T) routingFixture {
 	require.NoError(t, err)
 
 	return routingFixture{
+		registry:  registry,
+		feed:      feed,
 		router:    router,
 		store:     store,
 		launcher:  launcher,
@@ -404,9 +416,12 @@ func TestRouterCarriesTheTurnSettingsToTheWorker(t *testing.T) {
 		t.Context(),
 		fixture.sessionID,
 		agent.MessageRequest{
+			RequireNewTurn:  true,
 			Message:         routedMessage,
 			Model:           &model,
 			ReasoningEffort: &effort,
+			OutputSchema:    json.RawMessage(`{"type":"object"}`),
+			TimeoutSeconds:  7,
 		},
 		uuid.New(),
 	)
@@ -417,6 +432,9 @@ func TestRouterCarriesTheTurnSettingsToTheWorker(t *testing.T) {
 	require.Len(t, turns, 1)
 	assert.Equal(t, model, turns[0].Model)
 	assert.Equal(t, effort, turns[0].ReasoningEffort)
+	assert.JSONEq(t, `{"type":"object"}`, string(turns[0].OutputSchema))
+	assert.Equal(t, 7, turns[0].TimeoutSeconds)
+	assert.True(t, turns[0].RequireNewTurn)
 }
 
 // A turn an event started reaches the worker with its origin, so the worker

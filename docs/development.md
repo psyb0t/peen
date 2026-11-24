@@ -1,20 +1,20 @@
 ---
 title: "Developing Peen"
 description: "Change Peen itself: repository layout, Make targets, test tiers, generated code, keeping the docs in sync, and releases."
-nav_order: 14
+nav_order: 20
 ---
 
 # Developing Peen
 
 Peen is a durable coding-agent service written in Go. One controller owns SQLite, the REST and WebSocket API, and the embedded browser control surface, and it starts one worker process or container per session to run that session's turns. Every message, tool call, event, and provider exchange is stored, so a session survives restarts.
 
-This page is for changing Peen itself. To run an agent against a project, start with [Getting started](getting-started.md) instead. The [topic rules](https://github.com/psyb0t/peen/tree/main/.agents/rules/) hold the details. When this page and a rule disagree, the rule is more specific and wins.
+This page is for changing Peen itself. To run an agent against a project, start with [Getting started](getting-started.md) instead. The [rules for every change](https://github.com/psyb0t/peen/blob/main/.agents/rules/core.md) and the [area rules](https://github.com/psyb0t/peen/tree/main/.agents/rule-details/) hold the details. When this page and a rule disagree, the rule is more specific and wins.
 
 ## Repository layout
 
 | Path | What it holds |
 | --- | --- |
-| [`api/api.yml`](https://github.com/psyb0t/peen/blob/main/api/api.yml) | The OpenAPI contract. Source for the Go server, the Go client, and the web client types. [`api/spec.go`](https://github.com/psyb0t/peen/blob/main/api/spec.go) embeds it for request validation. It is hand-written today and moves to a spec generated from Go in `cmd/apigen`; see `.agents/rules/http-api.md`. |
+| [`api/api.yml`](https://github.com/psyb0t/peen/blob/main/api/api.yml) | The OpenAPI contract. Source for the Go server, the Go client, and the web client types. [`api/spec.go`](https://github.com/psyb0t/peen/blob/main/api/spec.go) embeds it for request validation. It is hand-written today and moves to a spec generated from Go in `cmd/apigen`; see `.agents/rule-details/http-api.md`. |
 | [`api/asyncapi.yaml`](https://github.com/psyb0t/peen/blob/main/api/asyncapi.yaml) | The WebSocket contract. Source for the Go frame types in [`internal/pkg/http/wsapi`](https://github.com/psyb0t/peen/tree/main/internal/pkg/http/wsapi) and the web client's frame types. |
 | [`cmd/`](https://github.com/psyb0t/peen/tree/main/cmd) | Entry point. `main.go` is Servicepack's, `init.go` and `commands.go` are Peen's, `repogen/` is the gorm/gen generator, `envexample/` writes [`.env.example`](https://github.com/psyb0t/peen/blob/main/.env.example) from the env file template, `benchrelay/` is the model relay the benchmark task containers run, and `benchdriver/` runs the harness suite's scenario tasks inside them. |
 | `bench/` | The benchmark runner: the Harbor driver image, the Peen agent adapter, the provider proxy, the job writer, the task sandbox, Peen's behavior eval tasks in `eval/tasks/`, and the harness suite in `harness/`, with its tasks, the grader library, and the audit, report, and compare tools. See [Benchmarks](benchmarks.md#running-them). |
@@ -28,10 +28,15 @@ This page is for changing Peen itself. To run an agent against a project, start 
 | [`internal/pkg/session/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/session) | Durable, transport-neutral session transcript. |
 | [`internal/pkg/db/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/db) | SQLite open, embedded migrations, gorm models, generated repositories. |
 | [`internal/pkg/http/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/http) | [`api/`](https://github.com/psyb0t/peen/tree/main/api) is generated server code. `server/` holds handlers, middleware, WebSocket, and the embedded web build in `server/web/dist`. |
-| [`internal/pkg/control/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/control) | Workspace policy and the session registry. |
+| [`internal/pkg/control/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/control) | Workspace policy, the session registry, the conversation runner the OpenAI API and the MCP control server share, the workspace file API, and the controller side of cron and Telegram. |
 | [`internal/pkg/worker/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/worker) | Controller to worker boundary: protocol, supervisor, control and Docker launchers, agent spaces, the `docker: readonly` proxy in `dockerproxy/`, the worker command, worker logs. |
+| [`internal/pkg/cronconfig/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/cronconfig), `cronscheduler/`, `cronstore/` | Scheduled turns: the `cron.yaml` loader, the scheduler that runs jobs through session workers, and the durable schedule baselines and run claims. See [Scheduled turns](cron.md). |
+| [`internal/pkg/telegram/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/telegram), `telegrambot/`, `telegramstore/` | The Telegram Bot API client, the bot that routes allowlisted chats to regular workers, and the chat and notification bindings. See [Telegram bot](telegram.md). |
+| [`internal/pkg/mcpserver/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/mcpserver) | The tools of the `/mcp/v1` control server. See [MCP control server](mcp-server.md). |
+| [`internal/pkg/mcptools/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/mcptools) | The MCP client that connects a session's worker to the MCP servers the operator configures. See [MCP tool servers](mcp.md). |
+| [`internal/pkg/openaicompat/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/openaicompat) | The `/openai/v1` Chat Completions translation. See [OpenAI API](openai-api.md). |
 | [`internal/pkg/events/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/events), `metrics/`, `metricsstore/`, `auditlog/`, `config/` | Session events, Prometheus metrics and worker reports, the `metrics.db` writer, the JSON audit sink, and `PEEN_` configuration. The `.env.example` template is in [`internal/pkg/config/envtemplate/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/config/envtemplate). |
-| [`internal/pkg/services/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/services) | Servicepack services `control-core` and `control-api`. `services.gen.go` is generated. |
+| [`internal/pkg/services/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/services) | Servicepack services `control-core`, `control-api`, `control-cron`, and `control-telegram`. `services.gen.go` is generated. |
 | [`internal/pkg/service-manager/`](https://github.com/psyb0t/peen/tree/main/internal/pkg/service-manager), [`pkg/runner/`](https://github.com/psyb0t/peen/tree/main/pkg/runner) | Servicepack-owned. |
 | [`pkg/peen/`](https://github.com/psyb0t/peen/tree/main/pkg/peen) | The stable public Go API for running Peen in-process. |
 | [`pkg/http/api/client/`](https://github.com/psyb0t/peen/tree/main/pkg/http/api/client) | Generated public Go HTTP client. |
@@ -40,7 +45,8 @@ This page is for changing Peen itself. To run an agent against a project, start 
 | [`docker/entrypoint.sh`](https://github.com/psyb0t/peen/blob/main/docker/entrypoint.sh), [`Dockerfile`](https://github.com/psyb0t/peen/blob/main/Dockerfile), `Dockerfile.dev` | The production and worker image, its entrypoint, and the dev toolchain image. |
 | [`install.sh`](https://github.com/psyb0t/peen/blob/main/install.sh), [`scripts/peen.sh`](https://github.com/psyb0t/peen/blob/main/scripts/peen.sh) | The installer users pipe from curl, and the `peen` command it installs. |
 | [`scripts/`](https://github.com/psyb0t/peen/tree/main/scripts) | Make helpers. [`scripts/make/servicepack/`](https://github.com/psyb0t/peen/tree/main/scripts/make/servicepack) is Servicepack-owned. |
-| `docs/` | User and operator documentation. |
+| `docs/` | User and operator documentation, the source of the documentation site. |
+| [`website/`](https://github.com/psyb0t/peen/tree/main/website) | The Docusaurus project that builds `docs/` into the site. It holds no pages. See [the documentation site](#the-documentation-site). |
 
 [`internal/pkg/harness/builtin/AGENTS.md`](https://github.com/psyb0t/peen/blob/main/internal/pkg/harness/builtin/AGENTS.md) is product text: Peen's embedded operating rules for every user. When Peen works on this repository it also loads that file as a nested `AGENTS.md`. Treat it as content you edit, not as instructions for that directory.
 
@@ -71,6 +77,8 @@ Every operation is a Make target. Targets run Go, Node, and the linters inside t
 | Scan with govulncheck and semgrep into `sec.sarif` | `make sec` |
 | Regenerate the API code, repositories, web types, and `.env.example` | `make generate` |
 | Lint, type-check, test, and build the control surface | `make web-lint`, `make web-check`, `make web-test`, `make web-build` |
+| Build the documentation site into `website/build` | `make docs-build` |
+| Refresh the documentation site lockfile, or scan its packages for advisories | `make docs-lock`, `make docs-audit` |
 | Build the binary into `build/peen` | `make build` |
 | Build the production image | `make docker-build` |
 | Run this checkout's local controller | `make run-dev` |
@@ -80,7 +88,7 @@ Every operation is a Make target. Targets run Go, Node, and the linters inside t
 | Test Peen's harness, recovery, and provider handling with a live model, which costs money | `make bench-harness`, and `make bench-compare` to compare two builds, see [the harness suite](benchmarks.md#the-harness-suite) |
 | Test the benchmark proxy and the harness audit tools | `make bench-selftest` |
 
-Pick the tier that can see your change. A change inside one package needs `make test-unit` while you work. A change to HTTP, WebSocket, or wiring needs `make test-api`. A control surface change needs the web targets, `make web-build`, and `make test-browser`. A Dockerfile or entrypoint change needs `make test-docker-worker-source`. Before you call any change done, run `make lint` and `make test-coverage`, which is what `pre-commit.sh` and CI run. Every Go test target runs with `-race`. Fix reported races instead of disabling the detector.
+Pick the tier that can see your change. A change inside one package needs `make test-unit` while you work. A change to HTTP, WebSocket, or wiring needs `make test-api`. A control surface change needs the web targets, `make web-build`, and `make test-browser`. A Dockerfile or entrypoint change needs `make test-docker-worker-source`. A change is done when `make lint` is clean and the tier that can see it passes. `pre-commit.sh` and CI run `make lint` and `make test-coverage`, and every release needs `make test-coverage`. Every Go test target runs with `-race`. Fix reported races instead of disabling the detector.
 
 Make runs these targets in dev containers. To cap them with `--cpus`, copy `.env.dev.example` to `.env.dev` and set `DEV_CPUS` there; without `.env.dev` the containers run uncapped. `DEV_CPUS` on the command line overrides the file, for example `make test-coverage DEV_CPUS=4`. Keep the value at or below the machine's CPU count, or Docker refuses to start the container. The cap does not apply to `make run-dev` or to containers that tests start themselves. Run one of these targets at a time, never several in parallel and never from several agents at once. Each one is a full Go compile or image build, and several at once overload the machine.
 
@@ -104,7 +112,7 @@ Never hand-edit generated output. Change the source, regenerate, and commit both
 - `make web-build` rebuilds [`internal/pkg/http/server/web/dist`](https://github.com/psyb0t/peen/tree/main/internal/pkg/http/server/web/dist), the committed and embedded control surface.
 - `make service-registration` rebuilds [`internal/pkg/services/services.gen.go`](https://github.com/psyb0t/peen/blob/main/internal/pkg/services/services.gen.go).
 
-See `.agents/rules/generated-code.md`.
+See `.agents/rule-details/generated-code.md`.
 
 ## Servicepack-owned files
 
@@ -125,15 +133,15 @@ A change that alters behavior, configuration, the API, events, the harness, or d
 
 ## The documentation site
 
-GitHub Pages publishes `docs/` from `main` at <https://psyb0t.github.io/peen/>, built with Jekyll and the Just the Docs theme. Every page needs `title`, `description`, and `nav_order` front matter, and a child page needs `parent` set to its parent's exact title. `make docs-build` builds the site with the same image GitHub uses and writes it to `.testing/docs-site`.
+GitHub Pages publishes `docs/` at <https://psyb0t.github.io/peen/>, built with Docusaurus from the project in `website/`. Pages stay plain CommonMark, not MDX, so they read the same on GitHub. Every page needs `title`, `description`, and `nav_order` front matter, and a child page sets `parent` to its parent's exact title. `make docs-build` runs [`scripts/make/docs.sh`](https://github.com/psyb0t/peen/blob/main/scripts/make/docs.sh), which prepares the pages with [`scripts/make/docs_prepare.py`](https://github.com/psyb0t/peen/blob/main/scripts/make/docs_prepare.py), builds in a scratch copy, and writes the site to `website/build`. The prepare step refuses bad front matter, a description outside 50 to 170 characters, a repeated title or description, and Liquid syntax, and the build fails on a broken link or anchor. [`.github/workflows/docs.yml`](https://github.com/psyb0t/peen/blob/main/.github/workflows/docs.yml) runs the same target and deploys the site from `main`.
 
-Link another page with its relative `.md` path, so the link works on GitHub and on the site. Link a file outside `docs/` with its full GitHub URL, because the site does not contain it. Wrap a code block that holds a GitHub Actions expression, a dollar sign followed by double braces, in Liquid `raw` and `endraw` tags, each inside an HTML comment so GitHub hides it, or Jekyll treats the block as a template.
+Link another page with its relative `.md` path, so the link works on GitHub and on the site. Link a file outside `docs/` with its full GitHub URL, because the site does not contain it. [`.agents/rule-details/docs-and-prose.md`](https://github.com/psyb0t/peen/blob/main/.agents/rule-details/docs-and-prose.md) has the full page rules, and [`.agents/rule-details/dependencies.md`](https://github.com/psyb0t/peen/blob/main/.agents/rule-details/dependencies.md) covers the site's packages and `make docs-lock`.
 
 ## CHANGELOG, commits, and releases
 
 Each release is `## vX.Y.Z (YYYY-MM-DD)`, then one paragraph that says what changed for a user and what they must do before upgrading, or "No configuration or API migration is needed.". Bullets follow, each one change, starting with a verb: "Fixes", "Adds", "Changes", "Removes", "Updates". Breaking changes come first and start with "Breaking:", with the migration. Describe what a user sees, not how the code changed.
 
-Commit subjects use conventional commits in the imperative, lowercase: `fix: ...`, `feat: ...`, `docs: ...`, and `feat!:` for a breaking change. Text that speaks for the maintainer uses "I", never "we" or "the team". Releases are tagged by the maintainer, and the tag is the version. External pull requests are closed automatically, so report problems as issues. See `.agents/rules/versioning.md`.
+Commit subjects use conventional commits in the imperative, lowercase: `fix: ...`, `feat: ...`, `docs: ...`, and `feat!:` for a breaking change. Text that speaks for the maintainer uses "I", never "we" or "the team". Releases are tagged by the maintainer, and the tag is the version. External pull requests are closed automatically, so report problems as issues. See `.agents/rule-details/versioning.md`.
 
 ## Prose
 
@@ -141,22 +149,4 @@ Write plain, exact, active sentences. No filler words such as leverage, utilize,
 
 ## Rule files
 
-| File | Covers |
-| --- | --- |
-| `.agents/rules/go.md` | Lint setup, Peen's error mapping and codes, logging sinks, what never gets logged. |
-| `.agents/rules/naming.md` | camelCase for every name Peen owns: tools, hook events, session event types, YAML and JSON keys. What stays snake_case. |
-| `.agents/rules/constants.md` | Where constants and enums live, in Go and TypeScript. |
-| `.agents/rules/go-tests.md` | Test tiers and tags, coverage, testinfra. |
-| `.agents/rules/config.md` | `PEEN_` variables, gonfiguration, validation, the worker allowlist. |
-| `.agents/rules/http-api.md` | The OpenAPI and AsyncAPI contracts, generated strict server, aichteeteapee, WebSocket. |
-| `.agents/rules/database.md` | SQLite, migrations, models, gorm/gen repositories and queriers. |
-| `.agents/rules/web.md` | The SvelteKit control surface: layout, lint, checks, tests, build. |
-| `.agents/rules/generated-code.md` | Every generator, its source, and how to regenerate. |
-| `.agents/rules/dependencies.md` | Vendored Go modules, pnpm, the age gate, depguard, tools. |
-| `.agents/rules/security.md` | Secrets, directory separation, workers, hooks, untrusted input. |
-| `.agents/rules/docker.md` | The production and worker image, the dev image, pinning, the entrypoint. |
-| `.agents/rules/make.md` | Makefile conventions and the dev container. |
-| `.agents/rules/shell.md` | Where scripts live, logging, the `peen` command, and lint. |
-| `.agents/rules/ci.md` | The GitHub workflows and what a change must not break. |
-| `.agents/rules/versioning.md` | Semver policy, CHANGELOG entry shape, commits, manifests. |
-| `.agents/rules/docs-and-prose.md` | Doc placement, sync, and Markdown format. |
+[`.agents/rules/core.md`](https://github.com/psyb0t/peen/blob/main/.agents/rules/core.md) holds the rules for every change, and every agent session loads it. Area rules live in [`.agents/rule-details/`](https://github.com/psyb0t/peen/tree/main/.agents/rule-details/) and are read before touching their area. The table in [`AGENTS.md`](https://github.com/psyb0t/peen/blob/main/AGENTS.md) maps each area rule to the paths it covers, and [`.agents/rule-gate.json`](https://github.com/psyb0t/peen/blob/main/.agents/rule-gate.json) maps the same paths for tools that enforce the reads.

@@ -1,8 +1,7 @@
 ---
 title: "Embedding Peen"
 description: "Run the Peen agent engine inside a Go process with pkg/peen: sessions, replay, subscriptions, custom tools, hooks, and filesystems."
-nav_order: 11
-has_children: true
+nav_order: 15
 ---
 
 # Embedding Peen
@@ -68,7 +67,9 @@ result, err := session.Send(ctx, peen.MessageRequest{
 }, nil)
 ```
 
-Send accepts an optional model, reasoning effort, system prompt, UUID request ID and To child run ID. Settings apply to a new root turn. A message delivered to an active turn or child's inbox returns `Queued: true` and an empty answer. Queued input cannot override turn settings. `Images` attaches PNG, JPEG, GIF, or WebP bytes to a message that starts a turn, up to `MaxImagesPerMessage` of at most `MaxImageBytes` each. Send refuses images on queued input, on a message to a child, and for a model that does not take images. Roots, children and grandchildren use the same durable workflow schedule. Startup restores unfinished work from saved context and accepted inbox messages. Stop preserves its pause until explicit continuation; an unrelated new request can start another turn. See [child recovery](agents.md#recovery-after-a-crash).
+Send accepts an optional model, reasoning effort, system prompt, output schema, timeout, UUID request ID and To child run ID. Settings apply to a new root turn. A message delivered to an active turn or child's inbox returns `Queued: true` and an empty answer. Queued input cannot override turn settings. `Images` attaches PNG, JPEG, GIF, or WebP bytes to a message that starts a turn, up to `MaxImagesPerMessage` of at most `MaxImageBytes` each. Send refuses images on queued input, on a message to a child, and for a model that does not take images. Roots, children and grandchildren use the same durable workflow schedule. Startup restores unfinished work from saved context and accepted inbox messages. Stop preserves its pause until explicit continuation; an unrelated new request can start another turn. See [child recovery](agents.md#recovery-after-a-crash).
+
+`MessageRequest.OutputSchema` accepts a JSON Schema as `json.RawMessage`. `MessageResult.Output` carries the validated JSON value, and `OutputError` explains exhausted validation attempts; the turn still completes and `Message` holds the final text. `MessageRequest.Timeout` sets an overall duration for the turn and its child work, rounded up to whole seconds, with a maximum of 24 hours. Zero sets no deadline, because an embedded runtime has no deployment-wide turn timeout. Both settings require a new root turn and are refused on messages to a child. While a turn is active, a message that carries either one is not queued: Send returns an error matching `commerr.ErrConflict`. When the deadline passes, the turn stops and Send returns an error matching `peen.ErrTurnTimeout`. The absolute deadline survives continuation and recovery. [Structured output and turn deadlines](websocket-api.md#structured-output-and-turn-deadlines) describes the same rules over the wire protocol.
 
 SystemPrompt uses PromptModeAppend or PromptModeReplace for one message. BaseSystemPrompt and AppendSystemPrompt configure the runtime; absent values retain the deployment prompt files and embedded default. An explicit AppendSystemPrompt replaces file-based append text while preserving the selected base. CompactionPrompt configures the summarizer.
 

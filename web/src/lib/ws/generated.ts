@@ -114,6 +114,14 @@ export interface MessageSendData {
   reasoningEffort?: MessageSendReasoningEffort;
   systemPrompt?: MessageSystemPrompt;
   /**
+   * JSON Schema for the final validated output. At most PEEN_MAX_OUTPUT_SCHEMA_BYTES bytes, 65536 by default. Cannot combine with to or join an active turn. External references are refused.
+   */
+  outputSchema?: Record<string, unknown>;
+  /**
+   * Overall turn timeout in seconds. Cannot combine with to or join an active turn.
+   */
+  timeoutSeconds?: number;
+  /**
    * Not enforced by the generated code: format uuid.
    */
   to?: string;
@@ -130,7 +138,7 @@ export function validateMessageSendData(
 ): asserts value is MessageSendData {
   const object = rtObject(value, path);
   rtRequire(path, object, ["message"]);
-  rtKnownKeys(path, object, ["system", "message", "model", "reasoningEffort", "systemPrompt", "to", "images"]);
+  rtKnownKeys(path, object, ["system", "message", "model", "reasoningEffort", "systemPrompt", "outputSchema", "timeoutSeconds", "to", "images"]);
   if (object["system"] !== undefined) {
     rtBoolean(object["system"], path + ".system");
   }
@@ -145,13 +153,21 @@ export function validateMessageSendData(
   if (object["systemPrompt"] !== undefined) {
     validateMessageSystemPrompt(object["systemPrompt"], path + ".systemPrompt");
   }
+  if (object["outputSchema"] !== undefined) {
+    rtObject(object["outputSchema"], path + ".outputSchema");
+  }
+  if (object["timeoutSeconds"] !== undefined) {
+    const v5 = rtInteger(object["timeoutSeconds"], path + ".timeoutSeconds");
+    rtMinimum(path + ".timeoutSeconds", v5, 1);
+    rtMaximum(path + ".timeoutSeconds", v5, 86400);
+  }
   if (object["to"] !== undefined) {
     rtString(object["to"], path + ".to");
   }
   if (object["images"] !== undefined) {
-    const a5 = rtArray(object["images"], path + ".images");
-    for (let i6 = 0; i6 < a5.length; i6++) {
-      validateMessageImage(a5[i6], path + ".images" + "[" + i6 + "]");
+    const a7 = rtArray(object["images"], path + ".images");
+    for (let i8 = 0; i8 < a7.length; i8++) {
+      validateMessageImage(a7[i8], path + ".images" + "[" + i8 + "]");
     }
   }
 }
@@ -560,10 +576,10 @@ export function validateMessageFailedData(
 /**
  * AGENT_PAUSED is deprecated and no longer sent, because a message to a paused child now resumes it.
  */
-export type MessageFailedCode = "VALIDATION_FAILED" | "INTERNAL_SERVER_ERROR" | "SESSION_NOT_FOUND" | "TURN_CANCELLED" | "USER_MESSAGE_QUEUE_FULL" | "SESSION_BUSY" | "AGENT_FINISHED" | "AGENT_NOT_FOUND" | "AGENT_PAUSED" | "HARNESS_CONFIGURATION_INVALID" | "TURN_ROUND_LIMIT" | "TURN_TOKEN_LIMIT";
+export type MessageFailedCode = "VALIDATION_FAILED" | "INTERNAL_SERVER_ERROR" | "SESSION_NOT_FOUND" | "TURN_CANCELLED" | "TURN_TIMEOUT" | "OUTPUT_SCHEMA_INVALID" | "USER_MESSAGE_QUEUE_FULL" | "SESSION_BUSY" | "AGENT_FINISHED" | "AGENT_NOT_FOUND" | "AGENT_PAUSED" | "HARNESS_CONFIGURATION_INVALID" | "TURN_ROUND_LIMIT" | "TURN_TOKEN_LIMIT";
 
 /** Values of MessageFailedCode. */
-export const MessageFailedCodeValues = ["VALIDATION_FAILED", "INTERNAL_SERVER_ERROR", "SESSION_NOT_FOUND", "TURN_CANCELLED", "USER_MESSAGE_QUEUE_FULL", "SESSION_BUSY", "AGENT_FINISHED", "AGENT_NOT_FOUND", "AGENT_PAUSED", "HARNESS_CONFIGURATION_INVALID", "TURN_ROUND_LIMIT", "TURN_TOKEN_LIMIT"] as const;
+export const MessageFailedCodeValues = ["VALIDATION_FAILED", "INTERNAL_SERVER_ERROR", "SESSION_NOT_FOUND", "TURN_CANCELLED", "TURN_TIMEOUT", "OUTPUT_SCHEMA_INVALID", "USER_MESSAGE_QUEUE_FULL", "SESSION_BUSY", "AGENT_FINISHED", "AGENT_NOT_FOUND", "AGENT_PAUSED", "HARNESS_CONFIGURATION_INVALID", "TURN_ROUND_LIMIT", "TURN_TOKEN_LIMIT"] as const;
 
 /** validateMessageFailedCode throws a ValidationError when value is not a valid MessageFailedCode. */
 export function validateMessageFailedCode(
@@ -1942,6 +1958,14 @@ export function validateTurnCompleted(
 }
 
 export interface TurnCompletedData {
+  /**
+   * The validated JSON answer when outputSchema was given.
+   */
+  output?: unknown;
+  /**
+   * Why every structured output attempt failed.
+   */
+  outputError?: string;
   model: string;
   text: string;
   /**
@@ -1957,7 +1981,10 @@ export function validateTurnCompletedData(
 ): asserts value is TurnCompletedData {
   const object = rtObject(value, path);
   rtRequire(path, object, ["model", "text"]);
-  rtKnownKeys(path, object, ["model", "text", "finishReason"]);
+  rtKnownKeys(path, object, ["output", "outputError", "model", "text", "finishReason"]);
+  if (object["outputError"] !== undefined) {
+    rtString(object["outputError"], path + ".outputError");
+  }
   rtString(object["model"], path + ".model");
   rtString(object["text"], path + ".text");
   if (object["finishReason"] !== undefined) {
@@ -2061,7 +2088,7 @@ export function validateTurnCancelled(
 }
 
 export interface TurnCancelledData {
-  reason: "cancelled";
+  reason: TurnCancelledDataReason;
 }
 
 /** validateTurnCancelledData throws a ValidationError when value is not a valid TurnCancelledData. */
@@ -2072,7 +2099,20 @@ export function validateTurnCancelledData(
   const object = rtObject(value, path);
   rtRequire(path, object, ["reason"]);
   rtKnownKeys(path, object, ["reason"]);
-  rtConst(path + ".reason", object["reason"], "cancelled");
+  validateTurnCancelledDataReason(object["reason"], path + ".reason");
+}
+
+export type TurnCancelledDataReason = "cancelled" | "timeout";
+
+/** Values of TurnCancelledDataReason. */
+export const TurnCancelledDataReasonValues = ["cancelled", "timeout"] as const;
+
+/** validateTurnCancelledDataReason throws a ValidationError when value is not a valid TurnCancelledDataReason. */
+export function validateTurnCancelledDataReason(
+  value: unknown,
+  path: string = "TurnCancelledDataReason",
+): asserts value is TurnCancelledDataReason {
+  rtEnum(path, value, TurnCancelledDataReasonValues);
 }
 
 export interface NoticeCreated {
@@ -3802,6 +3842,12 @@ function rtMaxLength(path: string, value: string, limit: number): void {
 function rtMinimum(path: string, value: number, limit: number): void {
   if (value < limit) {
     rtFail(path, `less than ${limit}`);
+  }
+}
+
+function rtMaximum(path: string, value: number, limit: number): void {
+  if (value > limit) {
+    rtFail(path, `greater than ${limit}`);
   }
 }
 

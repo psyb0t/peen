@@ -75,11 +75,12 @@ func TestRunReconfiguresOnlyDifferentAgentSpace(t *testing.T) {
 		requested string
 		existing  string
 		moves     int32
+		opens     int32
 	}{
-		{name: "keep default", existing: "control"},
-		{name: "same", requested: "control", existing: "control"},
-		{name: "normalize", requested: "docker", existing: "docker:default"},
-		{name: "move", requested: "docker", existing: "control", moves: 1},
+		{name: "keep default", existing: "control", opens: 1},
+		{name: "same", requested: "control", existing: "control", opens: 1},
+		{name: "normalize", requested: "docker", existing: "docker:default", opens: 1},
+		{name: "move", requested: "docker", existing: "control", moves: 1, opens: 2},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -105,6 +106,7 @@ func TestRunReconfiguresOnlyDifferentAgentSpace(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, controlclient.TurnOutcomeCompleted, result.Outcome)
 			assert.Equal(t, tc.moves, stub.moves.Load())
+			assert.Equal(t, tc.opens, stub.opens.Load())
 			assert.True(t, closed.Load())
 		})
 	}
@@ -159,6 +161,7 @@ type oneshotStub struct {
 	space     string
 	question  bool
 	failOpen  bool
+	opens     atomic.Int32
 	moves     atomic.Int32
 	cancels   atomic.Int32
 	cancelled chan struct{}
@@ -172,12 +175,26 @@ func (s *oneshotStub) connection(t *testing.T) *controlclient.Client {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/sessions/open", func(
 		w http.ResponseWriter,
-		_ *http.Request,
+		r *http.Request,
 	) {
+		s.opens.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		if s.failOpen {
 			w.WriteHeader(http.StatusInternalServerError)
 			_, _ = io.WriteString(w, `{"code":"INTERNAL_ERROR","message":"failed"}`)
+
+			return
+		}
+		request := struct {
+			AgentSpace string `json:"agentSpace"`
+		}{}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+		}
+		if request.AgentSpace != "" && request.AgentSpace != s.space {
+			w.WriteHeader(http.StatusConflict)
+			_, _ = io.WriteString(w,
+				`{"code":"AGENT_SPACE_CONFLICT","message":"conflict"}`)
 
 			return
 		}

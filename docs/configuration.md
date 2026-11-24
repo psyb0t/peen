@@ -1,6 +1,6 @@
 ---
 title: "Configuration"
-description: "Every PEEN_ environment variable: providers, models, directories, Docker workers, logging, metrics, context, tool limits, and child agent limits."
+description: "Every PEEN_ environment variable: providers, models, directories, Docker workers, logging, metrics, context and tool limits, child agents, and integrations."
 nav_order: 2
 parent: "Deployment"
 ---
@@ -45,7 +45,7 @@ These values decide where Peen keeps its state and which model handles a task. S
 | `PEEN_LEARNED_DIR` | `PEEN_CONFIG_DIR/.agents/learned` | The global learned directory, an absolute path every session reads while auto-evolve is on. It may sit inside `PEEN_CONFIG_DIR` but may not be or contain it, and may not overlap `PEEN_STATE_DIR`, `PEEN_WORKER_SOCKET_DIR`, or `PEEN_LOG_DIRECTORY`. The controller creates it at startup. |
 | `PEEN_WRITABLE_LEARNED_DIR` | `false` | With auto-evolve on, `true` mounts the global learned directory writable into every Docker worker and tells the agent it may save rules and skills there. Any Docker session can then change what every session loads. The controller logs a warning at startup. |
 | `PEEN_WRITABLE_CONFIG_DIR` | `false` | `true` mounts `PEEN_CONFIG_DIR` writable into every Docker worker, and with auto-evolve on tells the agent it may change the files there. Any Docker session can then change the global harness, hooks included, that every session loads. The controller logs a warning at startup. |
-| `PEEN_MCP` | `true` | `false` turns MCP servers off. With it on, every session starts the servers in `PEEN_CONFIG_DIR/.agents/mcp.json`. See [MCP servers](mcp.md). |
+| `PEEN_MCP` | `true` | `false` turns MCP servers off. With it on, every session starts the servers in `PEEN_CONFIG_DIR/.agents/mcp.json`. See [MCP tool servers](mcp.md). |
 | `PEEN_WORKSPACE_MCP` | `false` | `true` also reads `<workspace>/.agents/mcp.json`. Opening a session then runs any stdio server the workspace names. A workspace server gets no secrets. |
 | `PEEN_MCP_ENV` | empty | Comma-separated variables that `mcp.json` may hand a server through `envFrom` or `bearerTokenEnv`. Peen passes them to workers and removes them from every command the agent runs. A `PEEN_` setting is refused. |
 | `PEEN_MCP_START_TIMEOUT` | `30s` | Limits starting one MCP server and listing its tools. Zero takes the default. |
@@ -109,7 +109,16 @@ Peen refuses to start when the root is relative or missing, so a typo fails at s
 
 A session's agent runs in an agent space: `control`, which runs it where Peen runs, or `docker:<profile>`, which runs it in its own container. A client names an agent space when it opens a workspace and never sends an image, mount, network setting, or capability. [Where it runs](where-it-runs.md) is the reference for both kinds, for every Docker profile option and its default, and for the rule that refuses `control` when the controller can reach a Docker socket. The settings are `PEEN_DOCKER_PROFILES` and `PEEN_DEFAULT_AGENT_SPACE` in the table above.
 
-Naming an agent space the deployment does not offer returns 403 and creates nothing, even when the workspace already has a session. Opening an existing session never changes the agent space it already runs in. Moving a session is `POST /api/v1/session/reconfigure`. See [choosing an agent space](where-it-runs.md#choosing-an-agent-space-for-a-workspace).
+Naming an agent space the deployment does not offer returns 403 and creates nothing, even when the workspace already has a session. Every session of one workspace, including the extra sessions the OpenAI API, the MCP control server, scheduled turns and Telegram open there, shares one agent space. A workspace with no session yet takes the space its first opener names, or the default. After that, a request that names no space gets the workspace's, and one that names a different space returns `409 AGENT_SPACE_CONFLICT` with the workspace's current space. `POST /api/v1/session/reconfigure` moves every session of the workspace together, and is refused while any of them runs a turn. See [choosing an agent space](where-it-runs.md#choosing-an-agent-space-for-a-workspace).
+
+A Docker profile can also pass non-secret environment variables and a git commit identity to its workers. This replaces the built-in `default` profile with one that sets both, so repeat any `image`, `mounts`, or grants the default needs:
+
+```bash
+peen config set PEEN_DOCKER_PROFILES '[{"name":"default","env":{"NODE_ENV":"development"},"gitName":"Peen Agent","gitEmail":"agent@example.com"}]'
+peen restart
+```
+
+[Profile environment and git identity](where-it-runs.md#profile-environment-and-git-identity) lists the limits and the refused names.
 
 ## Docker workers
 
@@ -250,10 +259,15 @@ Every time setting is a Go duration such as `90s`, `10m`, or `1h30m`. A bare num
 | `PEEN_COMPACTION_SUMMARY_PERCENT` | `30` | Share of `PEEN_MAX_CONTEXT_TOKENS` a generated summary gets, from `1` to `50`, never more than `PEEN_COMPACTION_MAX_OUTPUT_TOKENS`. That summary room and `PEEN_OUTPUT_RESERVE_TOKENS` together must be smaller than `PEEN_MAX_CONTEXT_TOKENS`, and the check runs even when `drop-oldest` is active. |
 | `PEEN_COMPACTION_TARGET_PERCENT` | `50` | How much of the context budget the rest of the request may take after a summary, from `10` to `90`. A summary covers enough old history to get there, so one compaction makes room for several turns. The newest ended turn always stays as it was, and when no summary can get that low, Peen summarizes only as much as the request needs to fit. |
 | `PEEN_COMPACTION_MAX_OUTPUT_TOKENS` | `16384` | Ceiling on the summary room. Keep it within the output limit of `PEEN_COMPACTION_MODEL`. |
-| `PEEN_MODEL_REQUEST_TIMEOUT` | `10m` | Limit on each model request: every round of a turn and every compaction summary. A turn has no overall time limit; `PEEN_MAX_TOOL_ROUNDS` bounds how many model requests it makes. |
+| `PEEN_MODEL_REQUEST_TIMEOUT` | `10m` | Limit on each model request: every round of a turn and every compaction summary. `PEEN_TURN_TIMEOUT` separately bounds the whole turn. |
+| `PEEN_TURN_TIMEOUT` | `0` | Overall turn timeout, including its child work. `0` leaves the turn unlimited, and a negative value fails startup. A message's `timeoutSeconds` replaces it for that turn, longer or shorter, so it is a default, not a cap. |
+| `PEEN_OUTPUT_SCHEMA_ATTEMPTS` | `3` | Total final-answer attempts when a turn requests structured output, from 1 to 10. |
+| `PEEN_MAX_OUTPUT_SCHEMA_BYTES` | `65536` | Positive byte limit on the JSON Schema accepted with a message. |
 | `PEEN_CRASH_RECOVERY` | `pause` | What happens to work a crashed controller or worker left unfinished, for every workspace this controller serves. `pause` keeps it paused until a turn asks the agent to continue it. `resume` lets a worker continue it by itself, for deployments that run unattended: the controller starts a worker at startup for every session with running work, and starts a new one when a session's worker is lost. A new message waits behind that resumed root, including when its worker has not started yet, and starts a separate turn after it finishes. `pause` still allows a new message to start a new turn while earlier work stays paused, and Stop still pauses resumed work. A tool call the crash cut off is not run again: the continued work reads it as an error result saying Peen crashed while it ran and its outcome is unknown. |
 | `PEEN_MAX_CONCURRENT_TURNS` | `16` | Turns that may run at once, across every session in the process. |
 | `PEEN_MAX_QUEUED_USER_MESSAGES` | `16` | Messages sent while a turn is running wait until the model's current round ends. At most this many can wait at once, counting each skill message or already-loaded note that follows a queued message. A long turn can accept more in total, because delivery frees slots. Each one is reported with `userMessage.queued` and then `userMessage.delivered`. See [queued messages](websocket-api.md). |
+
+Structured output applies only when a message carries a schema. See [structured output and turn deadlines](websocket-api.md#structured-output-and-turn-deadlines).
 
 ### Provider retries
 
@@ -283,6 +297,7 @@ After fitting, Peen can re-attach missing ranges from kept inventory groups, new
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `PEEN_MAX_MESSAGE_BYTES` | `262144` | Limits the `message` field in a `message.send` WebSocket frame. |
+| `PEEN_MAX_FILE_API_BYTES` | `16777216` | Maximum decoded bytes the [workspace file API](http-api.md#workspace-files) reads or writes in one call, from 1 to 1073741824. Controller-only, separate from tool limits. |
 | `PEEN_MAX_SYSTEM_PROMPT_BYTES` | `65536` | Limits the optional [`systemPrompt.content`](websocket-api.md) field of a `message.send` frame. |
 | `PEEN_MAX_SYSTEM_PROMPT_PERCENT` | `25` | Refuses a turn, or a child agent launch, whose system prompt is estimated at more than this percent of `PEEN_MAX_CONTEXT_TOKENS`. The system prompt includes the base prompt, every rule and `AGENTS.md` file that loads on every turn, learned rules, and the agent's instructions. Rules scoped with `paths` do not count. Peen estimates with the o200k tokenizer, so the count is close to, not equal to, what a provider bills. The refusal is `message.failed` with `HARNESS_CONFIGURATION_INVALID`, and the controller log names the three largest sections. `0` turns the check off. See [The prompt budget](harness.md#the-prompt-budget). |
 | `PEEN_MAX_IMAGES_PER_MESSAGE` | `4` | Limits the [`images`](websocket-api.md) one `message.send` frame carries. |
@@ -368,3 +383,29 @@ Detached jobs belong to the session, not the turn. Once `runCommand` returns a r
 ## Agent run observability
 
 Each `launchAgent` call creates a SQLite run record and stored event records. Peen updates the record when a cancel is requested and when the run ends. Use the session agent-run REST endpoints to inspect or cancel a run, list the runs waiting on a question, and read a run's events during and after it. SQLite is the only stored replay record. Peen keeps no JSONL copy of transcripts.
+
+## Integrations
+
+These optional entry points are off by default and belong only to the controller. Each one starts coding-agent turns, so read [Security](security.md) before enabling one. Their pages cover setup and behavior; this section lists the settings.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `PEEN_OPENAI_API` | `false` | Enables the [OpenAI API](openai-api.md) at `/openai/v1`, with the same token as the REST API. |
+| `PEEN_OPENAI_WORKSPACE` | empty | Absolute fallback workspace for a fresh OpenAI conversation. A request's `X-Peen-Workspace` overrides it, and the workspace policy applies to both. |
+| `PEEN_MCP_SERVER` | `false` | Enables the [MCP control server](mcp-server.md) at `/mcp/v1`. |
+| `PEEN_MCP_SERVER_ALLOWED_HOSTS` | `localhost,127.0.0.1,[::1]` | Comma-separated hostnames without ports that `/mcp/v1` accepts. See [MCP control server](mcp-server.md). |
+| `PEEN_MCP_SERVER_ALLOWED_ORIGINS` | `http://localhost:8080,http://127.0.0.1:8080,http://[::1]:8080` | Exact comma-separated origins that `/mcp/v1` accepts. |
+| `PEEN_CRON` | `false` | Loads [scheduled turns](cron.md) from `PEEN_CONFIG_DIR/.agents/cron.yaml` once at startup. |
+
+### Telegram
+
+[Telegram](telegram.md) covers setup, commands, file limits and notification replies.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `PEEN_TELEGRAM` | `false` | Enables outbound Bot API polling and the chat controller. |
+| `PEEN_TELEGRAM_TOKEN` | empty | Required bot token when enabled. Secret, never sent to workers or commands. |
+| `PEEN_TELEGRAM_ALLOWED_CHATS` | empty | Required comma-separated nonzero signed chat IDs. |
+| `PEEN_TELEGRAM_ALLOWED_USERS` | empty | Optional comma-separated positive user IDs. When set, only these users in allowed chats are answered. |
+| `PEEN_TELEGRAM_WORKSPACE` | empty | Required existing absolute directory under the workspace root. Chat directories are created beneath it. |
+| `PEEN_TELEGRAM_AGENT_SPACE` | deployment default | Agent space for chat sessions. |

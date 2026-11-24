@@ -6,7 +6,7 @@ nav_order: 10
 
 # REST API
 
-Use REST to read what Peen stored or to control a run. Use the [WebSocket API](websocket-api.md) to send messages and watch turns as they happen. A typed message reaches the agent only over WebSocket. The one REST call that can start a turn is [`POST /api/v1/session/notices`](#post-apiv1sessionnotices), and only when an event handler lets that notice wake an idle session. A normal socket receives live events for every session, and the client decides which session tab to render from each event's metadata.
+Use REST to read what Peen stored or to control a run. Use the [WebSocket API](websocket-api.md) to send messages and watch turns as they happen. Under `/api/v1`, the only call that can start a turn is [`POST /api/v1/session/notices`](#post-apiv1sessionnotices), and only when an event handler lets that notice wake an idle session. Outside `/api/v1`, the optional [OpenAI API](openai-api.md) and [MCP control server](mcp-server.md) run turns, one request per turn, and [scheduled turns](cron.md) and the [Telegram bot](telegram.md) start turns too. A normal socket receives live events for every session, and the client decides which session tab to render from each event's metadata.
 
 The full REST contract is [api/api.yml](https://github.com/psyb0t/peen/blob/main/api/api.yml) (OpenAPI 3.1). Peen's embedded browser control surface is served at `/` and is built from the same generated REST types. This page explains the parts another client needs to get right.
 
@@ -18,7 +18,7 @@ Every operation is mounted under `/api/v1`. `Authorization: Bearer <token>` is r
 
 ## POST /api/v1/sessions/open
 
-Opens the session for a workspace, creating it the first time that directory is opened. No session header. `agentSpace` is optional and sets the agent space only when this call creates the session. Leave it out for the controller's default agent space. A name the deployment does not offer returns `403 AGENT_SPACE_NOT_ALLOWED`, even when the workspace already has a session.
+Opens the session for a workspace, creating it the first time that directory is opened. No session header. Every session of one workspace shares one agent space. `agentSpace` is optional. For a workspace with no session yet it picks the agent space, and leaving it out gives the controller's default. For a workspace that already has sessions, leaving it out or naming the space they use opens the session, and naming a different one returns `409 AGENT_SPACE_CONFLICT`, whose message names the workspace's current agent space. Use [`POST /api/v1/session/reconfigure`](#post-apiv1sessionreconfigure) to change it. A name the deployment does not offer returns `403 AGENT_SPACE_NOT_ALLOWED`, even when the workspace already has a session.
 
 ```json
 {"workspace": "/home/me/work/my-app", "agentSpace": "control"}
@@ -98,6 +98,8 @@ Lists the stored conversation messages of one existing session. `X-Session-ID` i
 
 Lists stored turns, newest first. `X-Session-ID` is required. Query parameters are `limit` and `offset`. Each turn includes its request ID, workspace, state, cancellation flag, timestamps, failure category, and the hashes of the context and prompt snapshots used for that turn, when they exist.
 
+A turn that requested structured output also carries `output`, the JSON value validated against its schema, or `outputError`, why every attempt failed. See [structured output and turn deadlines](websocket-api.md#structured-output-and-turn-deadlines).
+
 ## GET /api/v1/session/context-snapshots/{contextHash}
 
 Reads the exact resolved context a turn's `contextSnapshotHash` names. `X-Session-ID` is required. The response includes the hash, creation time, resolved content, and manifest. The manifest is an array of the layers the context was built from, in resolution order, each with `kind`, `name`, `source`, `priority`, and `hash`. A hash belonging to another session returns `404`.
@@ -112,7 +114,7 @@ Lists the learned rules and skills the session loads: those under `.agents/learn
 
 ## GET /api/v1/session/mcp
 
-Reports the session's MCP servers as the worker last saw them. `X-Session-ID` is required. The response is `{servers, reportedAt}`. `servers` is the data of the latest `mcp.status` event, and `reportedAt` is when the worker emitted it, at the start of a turn. Before any turn has reported, `servers` is empty and `reportedAt` is `null`. A server that stopped after that turn started still shows as `ready` until the next turn reports. See [MCP servers](mcp.md#status).
+Reports the session's MCP servers as the worker last saw them. `X-Session-ID` is required. The response is `{servers, reportedAt}`. `servers` is the data of the latest `mcp.status` event, and `reportedAt` is when the worker emitted it, at the start of a turn. Before any turn has reported, `servers` is empty and `reportedAt` is `null`. A server that stopped after that turn started still shows as `ready` until the next turn reports. See [MCP tool servers](mcp.md#status).
 
 ## GET /api/v1/session/learned/file
 
@@ -180,7 +182,7 @@ An active foreground `runCommand` kills its process group when interrupted. Comm
 
 ## POST /api/v1/session/reconfigure
 
-Moves an idle session to another agent space. `X-Session-ID` is required. Both fields are required, and any other field is rejected.
+Moves an idle session, and every other session of the same workspace with it, to another agent space. `X-Session-ID` is required. Both fields are required, and any other field is rejected.
 
 ```json
 {"agentSpace": "docker:builder", "reason": "needs to build container images"}
@@ -192,7 +194,7 @@ The response is the recorded decision:
 {"id": "uuid", "sessionId": "uuid", "fromAgentSpace": "docker:default", "toAgentSpace": "docker:builder", "reason": "needs to build container images", "decidedAt": "..."}
 ```
 
-A name the deployment does not offer returns `403 AGENT_SPACE_NOT_ALLOWED`. A session with a turn in flight returns `409 SESSION_BUSY`. On success Peen stops the session's worker, and the next turn starts a new worker generation in the new agent space.
+Every session of one workspace shares one agent space, so the change applies to all of them together. A name the deployment does not offer returns `403 AGENT_SPACE_NOT_ALLOWED`. When any session of the workspace has a turn in flight, the call returns `409 SESSION_BUSY` and changes nothing. On success Peen records a decision for each of those sessions and stops each one's worker, and each session's next turn starts a new worker generation in the new agent space. The response is the decision for the session the call named.
 
 ## GET /api/v1/session/agent-space-decisions
 
@@ -335,3 +337,35 @@ Cancels one child agent run without ending its parent turn. The unfinished child
 ```json
 {"agentRunId": "uuid", "cancelRequested": true, "state": "cancelled"}
 ```
+
+## Workspace files
+
+These four operations read and change files in a session's workspace. Each requires `X-Session-ID`, and every path is relative to the session's stored workspace.
+
+`GET /api/v1/session/files` lists the workspace root or one directory's direct entries. Pass an optional `path` query parameter to inspect a path; leave it out for the root. The response is `{path, type, size, modifiedAt, entries}`, where `path` echoes the requested string, `""` for the root. Each entry has `name`, `type` (`file`, `directory`, or `symlink`), `size`, and `modifiedAt`. A file returns its metadata with empty `entries`. A symbolic link reports `type: "symlink"` with empty `entries`, even when it points to a directory.
+
+`GET /api/v1/session/files/content?path=...` reads a file and returns `{path, size, contentBase64}`, where `size` is the decoded size.
+
+`PUT /api/v1/session/files/content` writes a file atomically. Its JSON body carries the relative `path`, the base64 `contentBase64`, and an optional `createDirectories`, which creates missing parent directories when `true`. The response is the written file's `{name, type, size, modifiedAt}`.
+
+```bash
+curl -X PUT http://127.0.0.1:8080/api/v1/session/files/content \
+  -H "Authorization: Bearer $PEEN_API_TOKEN" \
+  -H "X-Session-ID: <session-id>" \
+  -H "Content-Type: application/json" \
+  -d '{"path": "notes/todo.txt", "contentBase64": "aGVsbG8K", "createDirectories": true}'
+```
+
+`DELETE /api/v1/session/files?path=...` removes one file, symlink, or empty directory and answers `204` with no body. It never follows a symlink and never deletes a directory's contents. Deleting a non-empty directory returns `409`.
+
+Successful calls other than DELETE answer `200`. The errors are:
+
+- `403 WORKSPACE_NOT_ALLOWED` for any path that is not clean and relative, as `path.Clean` would leave it: an absolute path, `..`, a leading `./`, a trailing `/`, a doubled `/`, `.`, a NUL byte, or an empty path on read, write, or delete. A symlink that leads out of the workspace and the system session get the same answer.
+- `400 VALIDATION_FAILED` for reading something that is not a regular file, a file larger than `PEEN_MAX_FILE_API_BYTES` (16 MiB by default), and writing content that is not valid base64 or decodes past that limit.
+- `404` for a path that does not exist.
+
+## Scheduled turns
+
+`GET /api/v1/cron/jobs` returns `items` with each enabled job's `name`, `schedule`, `timeZone`, `session`, `nextScheduledAt` and optional `lastRun`. It returns an empty list when scheduling is off.
+
+`GET /api/v1/cron/runs` returns `items`, `limit`, `offset` and `hasMore`. The optional `job` filters by exact job name. `limit` defaults to 50 and accepts 1 to 200; `offset` defaults to zero and must be non-negative. Rows sort by scheduled time descending, then ID descending. Each row includes `id`, `jobName`, `scheduledAt`, `state` (`running`, `completed`, `failed`, `cancelled` or `skipped`), and optional `startedAt`, `finishedAt`, `sessionId` and `error`. `error` is one of the fixed reasons listed in [runs and history](cron.md#runs-and-history). Treat a value you do not know as an unknown failure. Invalid filters or bounds return 400. History includes jobs removed from configuration and remains available with cron off. Both endpoints require the usual bearer token and need no session header. See [scheduled turns](cron.md).

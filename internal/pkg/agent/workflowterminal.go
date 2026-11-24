@@ -63,6 +63,11 @@ func terminalWorkflowFinish(
 	result workflowRoundResult,
 	round int,
 ) (workflowFinishResult, error) {
+	result, err := finishStructuredOutput(ctx, input, result, round)
+	if err != nil {
+		return workflowFinishResult{}, err
+	}
+
 	finish := workflowFinishInput{
 		Execution: input, Round: round,
 		Result: workflowFinishResult{

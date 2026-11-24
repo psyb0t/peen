@@ -89,6 +89,11 @@ func (n *nativeWorkflowRunner) run(
 	}
 
 	runtime.store.RegisterCancellation(prepared.lease, cancel)
+	//nolint:contextcheck // A deadline follows the worker across requests.
+	runtime.armTurnDeadline(n.engine.options.Lifecycle, prepared)
+
+	deadline := prepared.deadline
+
 	prepared.attachPublisher(context.WithoutCancel(ctx))
 
 	if err := prepared.turn.publishInitialEvents(); err != nil {
@@ -112,6 +117,9 @@ func (n *nativeWorkflowRunner) run(
 		submission.Instance, workflowResultWaitTimeout)
 	if err != nil {
 		err = restoreWorkflowSentinels(err)
+		if deadline != nil && deadline.fired.Load() {
+			err = errors.Join(err, ErrTurnTimeout)
+		}
 
 		if ctx.Err() != nil {
 			err = errors.Join(err,
@@ -176,8 +184,12 @@ func (n *nativeWorkflowRunner) interrupted(
 	// Stop pauses the work rather than cancelling it for good, so the
 	// turnCancelled hook does not run. The turn itself still ends, with a
 	// stored turn.cancelled frame.
-	return n.dispatch.runtime.endUnfinishedTurn(cleanup, prepared,
-		session.CancelledTurnEnd())
+	end := session.CancelledTurnEnd()
+	if prepared.deadlineExpired() {
+		end = session.TimeoutTurnEnd()
+	}
+
+	return n.dispatch.runtime.endUnfinishedTurn(cleanup, prepared, end)
 }
 
 // failed ends a turn whose root workflow failed. The root is paused rather
@@ -248,6 +260,7 @@ func nativeRootTurnResult(
 	prepared.turn.mutex.Unlock()
 
 	return &TurnResult{
+		Output: result.Output, OutputError: result.OutputError,
 		SessionID: prepared.lease.SessionID, Created: prepared.opened.Created,
 		Text: result.Text, Thinking: conversation.reasoning(),
 		Model: conversation.ModelReference, Events: events,

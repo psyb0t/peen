@@ -246,11 +246,19 @@ func (c *rootWorkflowCallbacks) restoreCallbackScope(
 		revision: claim.ControlRevision,
 		lease:    prepared.lease,
 	}
+	if native := c.runtime.nativeWorkflowRunner(); native != nil {
+		//nolint:contextcheck // A deadline outlives its restoring activity.
+		c.runtime.armTurnDeadline(native.engine.options.Lifecycle, prepared)
+	}
 
 	return slot.current, nil
 }
 
 func (s *rootCallbackScope) releaseTurnCapacity() {
+	if s != nil && s.prepared != nil {
+		s.prepared.stopDeadline()
+	}
+
 	if s != nil && s.releaseTurnSlot != nil {
 		s.releaseTurnSlot()
 	}

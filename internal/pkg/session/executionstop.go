@@ -15,10 +15,23 @@ func (s *Store) pauseSessionExecutions(
 	query *repositories.Query,
 	sessionID uuid.UUID,
 ) (bool, error) {
+	return s.pauseTurnExecutions(ctx, query, sessionID, uuid.Nil)
+}
+
+func (s *Store) pauseTurnExecutions(
+	ctx context.Context,
+	query *repositories.Query,
+	sessionID, turnID uuid.UUID,
+) (bool, error) {
 	repository := query.Execution
 
-	executions, err := repository.WithContext(ctx).
-		Where(repository.SessionID.Eq(sessionID)).Find()
+	selected := repository.WithContext(ctx).
+		Where(repository.SessionID.Eq(sessionID))
+	if turnID != uuid.Nil {
+		selected = selected.Where(repository.RootTurnID.Eq(turnID))
+	}
+
+	executions, err := selected.Find()
 	if err != nil {
 		return false, ctxerrors.Wrap(err, "read stopped executions")
 	}

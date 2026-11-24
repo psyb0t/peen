@@ -1,5 +1,14 @@
 package control
 
+import "time"
+
+const (
+	feedSubscriberBuffer       = 8
+	conversationCleanupTimeout = 10 * time.Second
+	workspaceFileMode          = 0o640
+	workspaceDirectoryMode     = 0o750
+)
+
 // Service names for the two control services. They live here rather than in
 // either service because the dependency edge between them needs the other's
 // name, and a service never imports a sibling service.
@@ -10,5 +19,7 @@ const (
 
 	// APIServiceName serves REST, the global WebSocket feed, and metrics over
 	// what CoreServiceName opened.
-	APIServiceName = "control-api"
+	APIServiceName      = "control-api"
+	CronServiceName     = "control-cron"
+	TelegramServiceName = "control-telegram"
 )

@@ -126,8 +126,8 @@ type Options struct {
 	// a turn resumes it.
 	ResumeAfterCrash bool
 	// ModelRequestTimeout bounds each model request, a turn's rounds and a
-	// compaction summary alike. A turn has no overall time limit. Zero takes
-	// the package default.
+	// compaction summary alike. It does not bound a whole turn; set
+	// MessageRequest.Timeout for that. Zero takes the package default.
 	ModelRequestTimeout time.Duration
 	// MaxConcurrentTurns bounds turns running at once across every session.
 	// Zero takes the internal default; negative disables the bound.
@@ -232,6 +232,14 @@ type SystemPrompt struct {
 // MessageRequest describes one user message and its optional per-message
 // settings.
 type MessageRequest struct {
+	// OutputSchema is a JSON Schema object the turn's final answer must
+	// match. Peen asks the model for a matching JSON answer after the turn's
+	// work and returns it in MessageResult.Output. Empty asks for none.
+	OutputSchema json.RawMessage
+	// Timeout bounds the whole turn. When it elapses Peen cancels the turn and
+	// SendMessage returns an error matching ErrTurnTimeout. Zero sets no
+	// limit; a negative value or one over a day is refused.
+	Timeout         time.Duration
 	Model           string
 	ReasoningEffort string
 	RequestID       string
@@ -258,7 +266,13 @@ type Image struct {
 
 // MessageResult carries a final answer or acceptance into an active turn.
 type MessageResult struct {
-	Message string
+	// Output is the JSON answer matching MessageRequest.OutputSchema. It is
+	// empty when no schema was asked for or no answer matched.
+	Output json.RawMessage
+	// OutputError says why no answer matched OutputSchema. It is empty on
+	// success and when no schema was asked for.
+	OutputError string
+	Message     string
 	// Queued reports that an active turn accepted the message. Message is empty
 	// because the original turn owns the eventual model response.
 	Queued bool

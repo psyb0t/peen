@@ -164,6 +164,15 @@ func TestTurnMessageCarriesTheCommandSettings(t *testing.T) {
 			},
 		},
 		{
+			name: "structured output with timeout",
+			request: protocol.RunTurn{
+				Message:        testTurnMessage,
+				RequireNewTurn: true,
+				OutputSchema:   json.RawMessage(`{"type":"object"}`),
+				TimeoutSeconds: 7,
+			},
+		},
+		{
 			name: "a message for a child agent",
 			request: protocol.RunTurn{
 				Message: testTurnMessage,
@@ -188,6 +197,9 @@ func TestTurnMessageCarriesTheCommandSettings(t *testing.T) {
 				optionalValue(message.ReasoningEffort),
 			)
 			assert.Equal(t, tc.request.To, message.To)
+			assert.Equal(t, tc.request.OutputSchema, message.OutputSchema)
+			assert.Equal(t, tc.request.TimeoutSeconds, message.TimeoutSeconds)
+			assert.Equal(t, tc.request.RequireNewTurn, message.RequireNewTurn)
 
 			if tc.request.Origin == nil {
 				assert.Nil(t, message.Origin)

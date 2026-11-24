@@ -315,6 +315,20 @@ components:
           enum: [minimal, low, medium, high, xhigh, max]
         systemPrompt:
           $ref: "#/components/schemas/MessageSystemPrompt"
+        outputSchema:
+          type: object
+          description: >-
+            JSON Schema for the final validated output. At most
+            PEEN_MAX_OUTPUT_SCHEMA_BYTES bytes, 65536 by default. Cannot
+            combine with to or join an active turn. External references
+            are refused.
+        timeoutSeconds:
+          type: integer
+          minimum: 1
+          maximum: 86400
+          description: >-
+            Overall turn timeout in seconds. Cannot combine with to or
+            join an active turn.
         to:
           type: string
           format: uuid
@@ -412,6 +426,8 @@ components:
             - INTERNAL_SERVER_ERROR
             - SESSION_NOT_FOUND
             - TURN_CANCELLED
+            - TURN_TIMEOUT
+            - OUTPUT_SCHEMA_INVALID
             - USER_MESSAGE_QUEUE_FULL
             - SESSION_BUSY
             - AGENT_FINISHED
@@ -1120,6 +1136,11 @@ components:
       additionalProperties: false
       required: [model, text]
       properties:
+        output:
+          description: The validated JSON answer when outputSchema was given.
+        outputError:
+          type: string
+          description: Why every structured output attempt failed.
         model:
           type: string
         text:
@@ -1202,7 +1223,7 @@ components:
       properties:
         reason:
           type: string
-          const: cancelled
+          enum: [cancelled, timeout]
 
     TurnCancelled:
       title: TurnCancelled

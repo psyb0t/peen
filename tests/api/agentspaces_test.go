@@ -44,6 +44,16 @@ func openWorkspaceInAgentSpace(
 		[]byte(freshWorkspaceFixtureContent),
 	))
 
+	return openWorkspaceDirectory(t, directory, agentSpace)
+}
+
+func openWorkspaceDirectory(
+	t *testing.T,
+	directory string,
+	agentSpace string,
+) *apiResponse {
+	t.Helper()
+
 	request := map[string]string{
 		"workspace": path.Join(testinfra.ContainerWorkingDirectory, directory),
 	}
@@ -231,4 +241,62 @@ func TestAPIRejectsTheRemovedProfileFieldOnReconfigure(t *testing.T) {
 	)
 
 	assert.Equal(t, http.StatusBadRequest, moved.StatusCode)
+}
+
+// Every session of one workspace shares its agent space. Reopening it with no
+// agent space resumes it, naming another one is refused with
+// AGENT_SPACE_CONFLICT, and a reconfigure moves the workspace so the new name
+// is the one that opens.
+func TestAPIKeepsOneAgentSpacePerWorkspace(t *testing.T) {
+	directory := agentSpaceWorkspacePre + uuid.NewString()
+	require.NoError(t, integrationInfra.WriteWorkspaceFile(
+		t.Context(),
+		path.Join(directory, freshWorkspaceFixtureFile),
+		[]byte(freshWorkspaceFixtureContent),
+	))
+
+	first := openWorkspaceDirectory(t, directory, agentSpaceControl)
+	requireAPIStatus(t, first, http.StatusOK)
+	opened := decodeResponse[api.OpenedSession](t, first)
+
+	refused := openWorkspaceDirectory(t, directory, agentSpaceDockerDefault)
+	requireAPIStatus(t, refused, http.StatusConflict)
+	assertErrorCode(t, refused, server.ErrorCodeAgentSpaceConflict)
+	envelope := decodeResponse[api.Error](t, refused)
+	assert.Equal(t,
+		`this workspace runs in agent space "control", not "docker:default"`,
+		envelope.Message)
+
+	resumed := openWorkspaceDirectory(t, directory, "")
+	requireAPIStatus(t, resumed, http.StatusOK)
+	assert.Equal(t, opened.Session.Id,
+		decodeResponse[api.OpenedSession](t, resumed).Session.Id)
+
+	body, err := json.Marshal(api.ReconfigureSessionRequest{
+		AgentSpace: agentSpaceDockerDefault,
+		Reason:     agentSpaceReason,
+	})
+	require.NoError(t, err)
+
+	moved := apiRequest(
+		t,
+		http.MethodPost,
+		sessionReconfigurePath,
+		body,
+		withHeader(
+			authenticatedHeaders(),
+			headerSessionID,
+			opened.Session.Id.String(),
+		),
+	)
+	requireAPIStatus(t, moved, http.StatusOK)
+
+	reopened := openWorkspaceDirectory(t, directory, agentSpaceDockerDefault)
+	requireAPIStatus(t, reopened, http.StatusOK)
+	assert.Equal(t, opened.Session.Id,
+		decodeResponse[api.OpenedSession](t, reopened).Session.Id)
+
+	stale := openWorkspaceDirectory(t, directory, agentSpaceControl)
+	requireAPIStatus(t, stale, http.StatusConflict)
+	assertErrorCode(t, stale, server.ErrorCodeAgentSpaceConflict)
 }

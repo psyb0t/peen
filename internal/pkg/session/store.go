@@ -73,36 +73,92 @@ func (s *Store) OpenWorkspaceIdentity(
 		)
 	}
 
-	session, err := s.findWorkspaceSession(ctx, canonicalWorkspace)
-	if err == nil {
-		return &OpenSessionResult{Session: session}, nil
-	}
+	var result *OpenSessionResult
 
-	if !errors.Is(err, commerr.ErrNotFound) {
-		return nil, ctxerrors.Wrap(err, "find workspace session")
-	}
-
-	now := s.now()
-
-	created := &models.Session{
-		ID:         s.newID(),
-		CreatedAt:  now,
-		UpdatedAt:  now,
-		RootAgent:  options.RootAgent,
-		ModelID:    options.ModelID,
-		Workspace:  canonicalWorkspace,
-		AgentSpace: options.AgentSpace,
-	}
-	if err := s.query.Session.WithContext(ctx).Create(created); err != nil {
-		existing, lookupErr := s.findWorkspaceSession(ctx, canonicalWorkspace)
-		if lookupErr == nil {
-			return &OpenSessionResult{Session: existing}, nil
+	err := s.query.Transaction(func(tx *repositories.Query) error {
+		agentSpace, err := workspaceAgentSpaceFor(ctx, tx,
+			canonicalWorkspace, options)
+		if err != nil {
+			return err
 		}
 
-		return nil, ctxerrors.Wrap(err, "create workspace session")
+		existing, err := findWorkspaceSession(ctx, tx, canonicalWorkspace)
+		if err == nil {
+			result = &OpenSessionResult{Session: existing}
+
+			return nil
+		}
+
+		if !errors.Is(err, commerr.ErrNotFound) {
+			return ctxerrors.Wrap(err, "find workspace session")
+		}
+
+		created := s.newWorkspaceSession(canonicalWorkspace, options)
+		created.AgentSpace = agentSpace
+
+		if err := tx.Session.WithContext(ctx).Create(created); err != nil {
+			return ctxerrors.Wrap(err, "create workspace session")
+		}
+
+		result = &OpenSessionResult{Session: created, Created: true}
+
+		return nil
+	})
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "open workspace session")
+	}
+
+	return result, nil
+}
+
+// CreateWorkspaceSession creates independent history in a real workspace,
+// in the agent space that workspace's sessions already share.
+// This controller operation is deliberately absent from worker Storage RPC.
+func (s *Store) CreateWorkspaceSession(
+	ctx context.Context,
+	workspace string,
+	options OpenSessionOptions,
+) (*OpenSessionResult, error) {
+	canonical, err := canonicalWorkspace(workspace)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "resolve fresh session workspace")
+	}
+
+	created := s.newWorkspaceSession(canonical, options)
+	created.WorkspaceSlot = created.ID.String()
+
+	err = s.query.Transaction(func(tx *repositories.Query) error {
+		agentSpace, err := workspaceAgentSpaceFor(ctx, tx, canonical, options)
+		if err != nil {
+			return err
+		}
+
+		created.AgentSpace = agentSpace
+
+		if err := tx.Session.WithContext(ctx).Create(created); err != nil {
+			return ctxerrors.Wrap(err, "create fresh workspace session")
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "create fresh workspace session")
 	}
 
 	return &OpenSessionResult{Session: created, Created: true}, nil
+}
+
+func (s *Store) newWorkspaceSession(
+	workspace string,
+	options OpenSessionOptions,
+) *models.Session {
+	now := s.now()
+
+	return &models.Session{
+		ID: s.newID(), CreatedAt: now, UpdatedAt: now,
+		RootAgent: options.RootAgent, ModelID: options.ModelID,
+		Workspace: workspace,
+	}
 }
 
 // NewStore builds a store over an already-open migrated database handle.
@@ -337,14 +393,15 @@ func (s *Store) findSession(
 	return result, nil
 }
 
-func (s *Store) findWorkspaceSession(
+func findWorkspaceSession(
 	ctx context.Context,
+	tx *repositories.Query,
 	workspace string,
 ) (*models.Session, error) {
-	session := s.query.Session
+	session := tx.Session
 
 	result, err := session.WithContext(ctx).
-		Where(session.Workspace.Eq(workspace)).
+		Where(session.Workspace.Eq(workspace), session.WorkspaceSlot.Eq("")).
 		First()
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "query workspace session")

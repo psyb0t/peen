@@ -94,7 +94,7 @@ func TestObserveModelRequestRecordsCancellationAndTokens(t *testing.T) {
 			t,
 			families,
 			"peen_model_tokens_total",
-			withMetricLabel(labels, "kind", "input"),
+			withMetricKind(labels, "input"),
 		),
 	)
 	assert.Equal(
@@ -104,7 +104,7 @@ func TestObserveModelRequestRecordsCancellationAndTokens(t *testing.T) {
 			t,
 			families,
 			"peen_model_tokens_total",
-			withMetricLabel(labels, "kind", "output"),
+			withMetricKind(labels, "output"),
 		),
 	)
 }
@@ -152,14 +152,13 @@ func hasMetricLabels(metric *dto.Metric, wantLabels map[string]string) bool {
 	return true
 }
 
-func withMetricLabel(
+func withMetricKind(
 	labels map[string]string,
-	name string,
 	value string,
 ) map[string]string {
 	withLabel := make(map[string]string, len(labels)+1)
 	maps.Copy(withLabel, labels)
-	withLabel[name] = value
+	withLabel["kind"] = value
 
 	return withLabel
 }

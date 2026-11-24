@@ -12,9 +12,10 @@ CREATE TABLE sessions (
     workspace TEXT NOT NULL DEFAULT '',
     agent_space TEXT NOT NULL DEFAULT '',
     stop_revision INTEGER NOT NULL DEFAULT 0 CHECK (stop_revision >= 0),
-    feed_sequence INTEGER NOT NULL DEFAULT 0 CHECK (feed_sequence >= 0)
+    feed_sequence INTEGER NOT NULL DEFAULT 0 CHECK (feed_sequence >= 0),
+    workspace_slot TEXT NOT NULL DEFAULT ''
 );
 
 CREATE UNIQUE INDEX sessions_workspace_unique_index
-    ON sessions (workspace)
+    ON sessions (workspace, workspace_slot)
     WHERE workspace <> '';

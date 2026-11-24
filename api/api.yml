@@ -2,13 +2,64 @@ openapi: 3.1.0
 info:
   title: Peen API
   version: 1.0.0
-  description: Stateful agent sessions with durable SQLite reads and WebSocket turns.
+  description: >-
+    Stateful agent sessions with durable SQLite reads and WebSocket turns.
+    WebSocket message failures include OUTPUT_SCHEMA_INVALID for a refused
+    outputSchema and TURN_TIMEOUT when a turn reaches its overall deadline.
 servers:
   - url: /api/v1
 security:
   - bearerAuth: []
   - {}
 paths:
+  /cron/jobs:
+    get:
+      operationId: listCronJobs
+      summary: List configured scheduled jobs
+      description: Returns startup-loaded jobs with their next occurrence and last run.
+      responses:
+        '200':
+          description: Configured cron jobs
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CronJobList'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /cron/runs:
+    get:
+      operationId: listCronRuns
+      summary: List durable scheduled run history
+      parameters:
+        - name: job
+          in: query
+          schema:
+            type: string
+            pattern: '^[A-Za-z0-9_-]{1,64}$'
+          description: Restrict the page to this configured or historical job name.
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Scheduled runs, newest scheduled occurrence first
+          headers:
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CronRunPage'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
   /messages:
     get:
       operationId: listMessages
@@ -79,7 +130,12 @@ paths:
         sits inside the controller's state directory, or is or contains its
         configuration directory, and an agent space the deployment does not offer
         is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory
-        does not exist returns 404 WORKSPACE_NOT_FOUND.
+        does not exist returns 404 WORKSPACE_NOT_FOUND. Every session of one
+        workspace shares one agent space. A request that names no agent space
+        gets the workspace's, or the default when the workspace has no
+        session yet, and a request that names a different agent space than
+        the workspace's is refused with 409 AGENT_SPACE_CONFLICT, whose message
+        names the workspace's current agent space.
       requestBody:
         required: true
         content:
@@ -106,6 +162,8 @@ paths:
           $ref: '#/components/responses/ErrorForbidden'
         '404':
           $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
         '500':
           $ref: '#/components/responses/ErrorInternal'
   /sessions/system:
@@ -246,14 +304,17 @@ paths:
       operationId: reconfigureSession
       summary: Move an idle session to a different agent space
       description: >
-        Changes the agent space a session's tools run in and records the
-        decision with the caller's reason. The named agent space must be one
-        the deployment offers; an undefined name is refused with 403. A session
-        with a turn in flight is refused with 409, because changing the
-        environment under running work would attribute that turn's tool calls
-        to an agent space that did not run them. On success the session's
-        current worker is stopped, so the next turn starts a new generation in
-        the new agent space. The client names only an agent space and never
+        Changes the agent space a session's tools run in, for that session and
+        every other session of its workspace together, because the sessions of
+        one workspace share one agent space. It records a decision for each
+        session with the caller's reason and returns the named session's. The
+        named agent space must be one the deployment offers; an undefined name
+        is refused with 403. While any session of the workspace has a turn in
+        flight the change is refused with 409 SESSION_BUSY, because changing
+        the environment under running work would attribute that turn's tool
+        calls to an agent space that did not run them. On success each
+        session's current worker is stopped, so its next turn starts a new
+        generation in the new agent space. The client names only an agent space and never
         sends an image, mount, network setting, or capability.
       parameters:
         - $ref: '#/components/parameters/SessionIDRequired'
@@ -1223,6 +1284,156 @@ paths:
           $ref: '#/components/responses/ErrorNotFound'
         '500':
           $ref: '#/components/responses/ErrorInternal'
+  /session/files:
+    get:
+      operationId: listWorkspaceFiles
+      summary: List a workspace directory or inspect a file
+      description: >
+        Paths stay inside the regular session workspace. Absolute paths,
+        traversal and symbolic links that escape it are refused.
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - name: path
+          in: query
+          required: false
+          description: Clean relative workspace path. Empty lists the workspace root.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List a workspace directory or inspect a file
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceFileListing'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+    delete:
+      operationId: deleteWorkspaceFile
+      summary: Delete a file or empty workspace directory
+      description: >
+        Paths stay inside the regular session workspace. Absolute paths,
+        traversal and symbolic links that escape it are refused.
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - name: path
+          in: query
+          required: true
+          description: Clean relative workspace path.
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Delete a file or empty workspace directory
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+  /session/files/content:
+    get:
+      operationId: readWorkspaceFile
+      summary: Read a bounded workspace file as base64
+      description: >
+        Paths stay inside the regular session workspace. Absolute paths,
+        traversal and symbolic links that escape it are refused.
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+        - name: path
+          in: query
+          required: true
+          description: Clean relative workspace path.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Read a bounded workspace file as base64
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceFileContent'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
+    put:
+      operationId: writeWorkspaceFile
+      summary: Write a workspace file atomically
+      description: >
+        Paths stay inside the regular session workspace. Absolute paths,
+        traversal and symbolic links that escape it are refused.
+      parameters:
+        - $ref: '#/components/parameters/SessionIDRequired'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceFileWrite'
+      responses:
+        '200':
+          description: Write a workspace file atomically
+          headers:
+            X-Session-ID:
+              $ref: '#/components/headers/SessionID'
+            X-Request-ID:
+              $ref: '#/components/headers/RequestID'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceFileEntry'
+        '400':
+          $ref: '#/components/responses/ErrorBadRequest'
+        '401':
+          $ref: '#/components/responses/ErrorUnauthorized'
+        '403':
+          $ref: '#/components/responses/ErrorForbidden'
+        '404':
+          $ref: '#/components/responses/ErrorNotFound'
+        '409':
+          $ref: '#/components/responses/ErrorConflict'
+        '500':
+          $ref: '#/components/responses/ErrorInternal'
 components:
   securitySchemes:
     bearerAuth:
@@ -1375,7 +1586,9 @@ components:
           schema:
             $ref: '#/components/schemas/Error'
     ErrorConflict:
-      description: Turn cannot run in its current state
+      description: >-
+        The request conflicts with current state, such as a session with a
+        turn in flight or an agent space other than the workspace's
       content:
         application/json:
           schema:
@@ -1712,6 +1925,70 @@ components:
           $ref: '#/components/schemas/LearnedFile'
         content:
           type: string
+    WorkspaceFileType:
+      type: string
+      enum: [file, directory, symlink]
+    WorkspaceFileEntry:
+      type: object
+      additionalProperties: false
+      required: [name, type, size, modifiedAt]
+      properties:
+        name:
+          type: string
+        type:
+          $ref: '#/components/schemas/WorkspaceFileType'
+        size:
+          type: integer
+          format: int64
+        modifiedAt:
+          type: string
+          format: date-time
+    WorkspaceFileListing:
+      type: object
+      additionalProperties: false
+      required: [path, type, size, modifiedAt, entries]
+      properties:
+        path:
+          type: string
+        type:
+          $ref: '#/components/schemas/WorkspaceFileType'
+        size:
+          type: integer
+          format: int64
+        modifiedAt:
+          type: string
+          format: date-time
+        entries:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkspaceFileEntry'
+    WorkspaceFileContent:
+      type: object
+      additionalProperties: false
+      required: [path, size, contentBase64]
+      properties:
+        path:
+          type: string
+        size:
+          type: integer
+          format: int64
+        contentBase64:
+          type: string
+          description: Base64 bytes bounded by PEEN_MAX_FILE_API_BYTES after decoding.
+    WorkspaceFileWrite:
+      type: object
+      additionalProperties: false
+      required: [path, contentBase64]
+      properties:
+        path:
+          type: string
+          minLength: 1
+        contentBase64:
+          type: string
+          description: Base64 bytes bounded by PEEN_MAX_FILE_API_BYTES after decoding.
+        createDirectories:
+          type: boolean
+          default: false
     WorkspaceRootList:
       type: object
       additionalProperties: false
@@ -2081,6 +2358,11 @@ components:
         [id, sessionId, requestId, workspace, state, cancelRequested, startedAt,
          failureClassification]
       properties:
+        output:
+          description: The validated JSON answer when outputSchema was given.
+        outputError:
+          type: string
+          description: Why every structured output attempt failed.
         id:
           type: string
           format: uuid
@@ -3165,6 +3447,81 @@ components:
           format: int32
         hasMore:
           type: boolean
+    CronRunState:
+      type: string
+      enum: [running, completed, failed, cancelled, skipped]
+    CronRun:
+      type: object
+      additionalProperties: false
+      required: [id, jobName, scheduledAt, state]
+      properties:
+        id:
+          type: string
+          format: uuid
+        jobName:
+          type: string
+        scheduledAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+        sessionId:
+          type: string
+          format: uuid
+        state:
+          $ref: '#/components/schemas/CronRunState'
+        error:
+          type: string
+          description: A safe fixed reason for failure, cancellation or skipping.
+    CronRunPage:
+      type: object
+      additionalProperties: false
+      required: [items, limit, offset, hasMore]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CronRun'
+        limit:
+          type: integer
+          format: int32
+        offset:
+          type: integer
+          format: int32
+        hasMore:
+          type: boolean
+    CronJob:
+      type: object
+      additionalProperties: false
+      required: [name, schedule, timeZone, session, nextScheduledAt]
+      properties:
+        name:
+          type: string
+        schedule:
+          type: string
+        timeZone:
+          type: string
+        session:
+          type: string
+          enum: [continue, new]
+        nextScheduledAt:
+          type: string
+          format: date-time
+        lastRun:
+          $ref: '#/components/schemas/CronRun'
+    CronJobList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CronJob'
     Error:
       type: object
       additionalProperties: false

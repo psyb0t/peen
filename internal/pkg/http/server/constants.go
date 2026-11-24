@@ -1,14 +1,21 @@
 package server
 
-import "github.com/psyb0t/aichteeteapee"
+import (
+	"github.com/psyb0t/aichteeteapee"
+	"github.com/psyb0t/peen/internal/pkg/config"
+)
 
 // Header names, auth schemes, and content types come from aichteeteapee rather
 // than being retyped here. Only X-Session-ID is Peen's own, so it is the only
 // one defined locally.
 const (
-	apiBaseURL      = "/api/v1"
-	apiMountPattern = apiBaseURL + "/{path...}"
-	spaMountPattern = "/{path...}"
+	mcpBaseURL         = "/mcp/v1"
+	mcpMountPattern    = mcpBaseURL + "/{path...}"
+	apiBaseURL         = "/api/v1"
+	openAIBaseURL      = "/openai/v1"
+	openAIMountPattern = openAIBaseURL + "/{path...}"
+	apiMountPattern    = apiBaseURL + "/{path...}"
+	spaMountPattern    = "/{path...}"
 
 	// webSocketPath is its own literal, not derived from apiBaseURL: the
 	// WebSocket and the REST API are separate surfaces with separate paths.
@@ -94,5 +101,8 @@ const (
 	httpRequestRejectedLogMessage        = "HTTP request rejected"
 	httpRequestFailedLogMessage          = "HTTP request failed"
 
-	maximumRequestBodyBytes int64 = 1 << 20
+	maximumRequestBodyBytes  int64 = 1 << 20
+	workspaceFileContentPath       = apiBaseURL + "/session/files/content"
+	fileRequestBodyOverhead  int64 = 64 << 10
+	defaultMaxFileAPIBytes         = config.DefaultMaxFileAPIBytes
 )

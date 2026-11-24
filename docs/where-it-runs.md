@@ -12,7 +12,7 @@ Two settings decide what an agent can touch. You choose both when you install, a
 - The control space is where Peen itself runs. `host` runs the Peen binary on your machine, and `docker` runs it in a container. It is `--control-space` in the installer and `PEEN_CONTROL_SPACE` in `.env`.
 - The agent space is where each workspace's agent runs. `control` runs it in the same place as Peen, and `docker` gives each workspace its own container. It is `--agent-space` in the installer and `PEEN_DEFAULT_AGENT_SPACE` in `.env`, where `docker` is written `docker:default`.
 
-A workspace is a project directory you open with `peen` or in the control surface. Each workspace gets one durable session and one agent.
+A workspace is a project directory you open with `peen`, in the control surface, or through any other [entry point](security.md#entry-points). It can hold several durable [sessions](architecture.md#sessions-and-entry-points), each with its own history, and all of them run in the workspace's one agent space.
 
 ## The four combinations
 
@@ -30,7 +30,7 @@ To change a setting later, run `peen setup` with the new flag and then `peen res
 An agent space is the place a workspace's agent runs. There are two kinds.
 
 - `control` runs the agent where Peen runs, as a child process of the controller. It has the controller's user, files, and groups. It is built in, takes no settings, and needs no image.
-- `docker:<profile>` runs the agent in its own container, one per workspace, named `peen-worker-<session-uuid>`. The container sees the workspace, the configuration directory read-only, a private directory for its session, and whatever the Docker profile adds. `PEEN_WRITABLE_CONFIG_DIR=true` mounts the configuration directory writable instead, and while `PEEN_AUTO_EVOLVE` is on the container also gets the global learned directory, read-only unless `PEEN_WRITABLE_LEARNED_DIR=true`. See [auto-evolve](harness.md#auto-evolve). The session directory holds the socket the worker talks to Peen through and the directory [hooks](hooks.md) may keep state in. The profile name after the colon picks the profile, for example `docker:default` or `docker:ops`.
+- `docker:<profile>` runs the agent in its own container, one per session, named `peen-worker-<session-uuid>`. The container sees the workspace, the configuration directory read-only, a private directory for its session, and whatever the Docker profile adds. `PEEN_WRITABLE_CONFIG_DIR=true` mounts the configuration directory writable instead, and while `PEEN_AUTO_EVOLVE` is on the container also gets the global learned directory, read-only unless `PEEN_WRITABLE_LEARNED_DIR=true`. See [auto-evolve](harness.md#auto-evolve). The session directory holds the socket the worker talks to Peen through and the directory [hooks](hooks.md) may keep state in. The profile name after the colon picks the profile, for example `docker:default` or `docker:ops`.
 
 A client picks an agent space by name when it opens a workspace, and never sends an image, mount, network setting, or capability. Those come from the operator's configuration alone. `PEEN_DEFAULT_AGENT_SPACE` names the agent space for a workspace opened without a choice, and `PEEN_DOCKER_PROFILES` defines the Docker profiles. See [configuration](configuration.md#agent-spaces) for the variables.
 
@@ -40,14 +40,14 @@ What `control` can touch depends on where Peen runs:
 - Peen in a container with no Docker daemon in reach: the mounted directories. Those include `PEEN_CONFIG_DIR`, which the agent can write, and `PEEN_STATE_DIR`, which holds every session's transcript in `peen.db`. Outside the container it reaches whatever the container's network reaches, which by default includes your LAN and the internet.
 - Peen anywhere it can reach a Docker daemon: host root. This is why Peen refuses `control` there. See [the Docker socket rule](#the-docker-socket-rule).
 
-Commands the agent runs, in any agent space, start with an environment that has `PEEN_API_TOKEN` and every variable named by an upstream's `apiKeyEnv` removed. A `control` worker itself never receives `PEEN_API_TOKEN`, `PEEN_STATE_DIR`, the controller's Docker settings, or any other `PEEN_` setting a worker does not read. It keeps the provider credentials, because it makes the model calls. Variables that are not Peen settings, such as `PATH` and `HOME`, pass through to the agent's commands unchanged. The `peen` command starts a host controller with only `HOME`, `PATH`, `USER`, `LOGNAME`, `LANG`, `LC_ALL`, `TZ`, `DOCKER_HOST`, and the contents of `.env`, so secrets exported in your shell do not reach the agent. If you start the binary yourself, do not start it with unrelated secrets in its environment.
+Commands the agent runs, in any agent space, start with an environment that has `PEEN_API_TOKEN`, `PEEN_TELEGRAM_TOKEN`, every variable named by an upstream's `apiKeyEnv`, and every variable named in `PEEN_MCP_ENV` removed. A `control` worker itself never receives `PEEN_API_TOKEN`, `PEEN_STATE_DIR`, the controller's Docker settings, or any other `PEEN_` setting a worker does not read. It keeps the provider credentials, because it makes the model calls. Variables that are not Peen settings pass through to the agent's commands, with the trusted operator [bin directory](harness.md#operator-commands) prepended to `PATH` when present. The `peen` command starts a host controller with only `HOME`, `PATH`, `USER`, `LOGNAME`, `LANG`, `LC_ALL`, `TZ`, `DOCKER_HOST`, and the contents of `.env`, so secrets exported in your shell do not reach the agent. If you start the binary yourself, do not start it with unrelated secrets in its environment.
 
 On Linux the controller and every worker mark themselves non-dumpable when they start. The kernel then refuses a command that runs as the same user when it tries to read their `/proc/<pid>/environ`, their memory, or attach to them with ptrace, so a `control` agent cannot take the API token or a provider key from either process. Commands the agent starts are ordinary processes and stay readable to each other.
 
 A `control` agent still runs as the controller's user, and that leaves these limits:
 
 - It can read and change `PEEN_STATE_DIR`, which holds `peen.db` with every session's transcript, and `PEEN_CONFIG_DIR`.
-- It can read any file or other process of that user that holds a secret, such as an `.env` file or the shell you exported `PEEN_API_TOKEN` in.
+- It can read any file or other process of that user that holds a secret, such as an `.env` file with `PEEN_API_TOKEN` or `PEEN_TELEGRAM_TOKEN`, or the shell you exported one in.
 - Non-dumpable does not stop root or a process with `CAP_SYS_PTRACE`. Do not run the controller as root or grant it that capability.
 
 A Docker agent space is the isolation boundary. Use one when an agent must not see other sessions.
@@ -80,9 +80,20 @@ Every option is optional except `name`. `docker` defaults to `none` and `sudo` t
 | `docker` | `none` | How much of the host Docker daemon the agent reaches. `none` gives it nothing. `readonly` gives it a Docker API that answers only read requests, described [below](#docker-readonly). `full` mounts the controller's Docker socket at `/var/run/docker.sock` in the container and adds the socket's group to the agent's account, which is host root. |
 | `network` | `bridge` | The container's network. `bridge` is Docker's default network. `none` disables networking, which also stops the agent from calling its model provider. `host` shares the host's network, so the agent can reach every service the host can. |
 | `sudo` | `false` | `true` gives the agent passwordless sudo inside the container and removes the container's `no-new-privileges` guard. |
+| `env` | none | Non-secret environment variables passed to the worker and its commands, as a JSON object of string values. See [Profile environment and git identity](#profile-environment-and-git-identity). |
+| `gitName` | empty | Sets both `GIT_AUTHOR_NAME` and `GIT_COMMITTER_NAME` for the worker's git commands. |
+| `gitEmail` | empty | Sets both `GIT_AUTHOR_EMAIL` and `GIT_COMMITTER_EMAIL` for the worker's git commands. |
 | `revision` | `0` | A number you raise by hand when you change the profile. Peen stores it with every worker it starts, which `GET /api/v1/session/workers` lists, so the record shows which definition ran. Peen does not check it. |
 
 A profile named `default` always exists with no Docker access, the `bridge` network, and no sudo. Defining a profile named `default` replaces the built-in one, which is how you give the default agent space an image, a mount, or Docker access. Defining a key Peen does not know, such as the removed `allowNetwork`, stops startup.
+
+### Profile environment and git identity
+
+Use `env` for settings such as build modes or application defaults. Its values are visible to everything the agent runs and can appear in tool output and transcripts, so never put secrets there. Provider credentials belong in the variable named by an upstream's `apiKeyEnv`; MCP credentials belong in `PEEN_MCP_ENV`. See [configuration](configuration.md) and [MCP servers](mcp.md).
+
+A profile accepts up to 128 environment entries. Names match `[A-Za-z_][A-Za-z0-9_]*` and are at most 256 bytes. Values are at most 32768 bytes. Peen refuses `PATH`, `HOME`, `USER`, `LOGNAME`, `DOCKER_HOST`, every `PEEN_` key, every `GIT_AUTHOR_` and `GIT_COMMITTER_` key, and any name reserved for provider or MCP credentials. It also refuses every `LD_` key, `BASH_ENV`, `ENV`, `BASHOPTS`, `SHELLOPTS`, `PS4`, and `GCONV_PATH`, because they can affect the root bootstrap before it drops the worker's identity. Values, `gitName`, and `gitEmail` cannot contain NUL, CR, or LF. Each git field is at most 256 bytes. Invalid settings stop startup without printing their values.
+
+Set `gitName` and `gitEmail` when git commands in a Docker worker need a commit identity. Each field sets both the author and committer variable; an empty field leaves the image's git defaults in effect. These fields do not change the host account the worker runs as. The `control` agent space accepts no profile environment or git identity settings.
 
 ### `docker: readonly`
 
@@ -104,11 +115,11 @@ Peen reads `PEEN_DOCKER_PROFILES` at startup, so a profile change needs `peen re
 
 ## Choosing an agent space for a workspace
 
-A workspace gets its agent space once, when its session is created, and keeps it. `peen` creates the session in the default agent space. To create it in another one, open the workspace for the first time in the control surface and choose an agent space in the "Agent space" dropdown, or send `agentSpace` to `POST /api/v1/sessions/open`. Opening a workspace that already has a session never moves it, so for a workspace you opened before, use the move described below. Peen still checks the name on every open. A name the deployment does not offer returns `403 AGENT_SPACE_NOT_ALLOWED` and creates nothing, even for a workspace that already has a session.
+A workspace gets its agent space once, when its first session is created, and every later session of that workspace uses the same one, whichever entry point opens it. `peen` creates the first session in the default agent space. To create it in another one, open the workspace for the first time in the control surface and choose an agent space in the "Agent space" dropdown, or send `agentSpace` to `POST /api/v1/sessions/open`. Once a workspace has a session, a request that names no agent space gets the workspace's one, and a request that names a different one returns `409 AGENT_SPACE_CONFLICT`, naming the workspace's current agent space, and creates nothing. For a workspace you opened before, use the move described below. Peen also checks the name on every open. A name the deployment does not offer returns `403 AGENT_SPACE_NOT_ALLOWED` and creates nothing, even for a workspace that already has a session. [Security](security.md#docker-agent-spaces) explains what the one-space rule protects.
 
-Moving a session later is `POST /api/v1/session/reconfigure`, or the "Change agent space" form in the details panel. It needs a reason, refuses a session with a turn in flight, stops the session's current worker, and records the move in the session's agent space history, which `GET /api/v1/session/agent-space-decisions` returns. The next turn starts a new worker in the new agent space. The [API reference](http-api.md#get-apiv1agent-spaces) has the request and response shapes.
+Moving a workspace later is `POST /api/v1/session/reconfigure` on any of its sessions, or the "Change agent space" form in the details panel. It moves every session of that workspace together. It needs a reason, is refused while any of those sessions has a turn in flight, stops each session's current worker, and records the move in each session's agent space history, which `GET /api/v1/session/agent-space-decisions` returns. Each session's next turn starts a new worker in the new agent space. A [scheduled job](cron.md) whose `agentSpace` no longer matches then fails its runs until you change the job and restart. The [API reference](http-api.md#get-apiv1agent-spaces) has the request and response shapes.
 
-A session keeps the agent space it was opened in. The deployment can stop offering it later, because you removed the profile or because the controller can now reach a Docker daemon and `control` is gone. Every turn in that session then fails with `AGENT_SPACE_NOT_ALLOWED` until you move it with `POST /api/v1/session/reconfigure`.
+A workspace keeps its agent space. The deployment can stop offering it later, because you removed the profile or because the controller can now reach a Docker daemon and `control` is gone. Every turn in that workspace's sessions then fails with `AGENT_SPACE_NOT_ALLOWED` until you move it with `POST /api/v1/session/reconfigure`.
 
 ## The Docker socket rule
 
@@ -153,7 +164,7 @@ A default of `docker:<profile>` on a controller with no Docker daemon in reach p
 
 ## Questions this page answers
 
-- Where does my agent run? In the agent space of its workspace: `control` next to Peen, or `docker:<profile>` in its own container. `peen status` shows the default, and the session list and `GET /api/v1/session` report each session's `agentSpace`.
+- Where does my agent run? In the agent space of its workspace, which every session of that workspace shares: `control` next to Peen, or `docker:<profile>` in its own container. `peen status` shows the default, and the session list and `GET /api/v1/session` report each session's `agentSpace`.
 - What can it touch? See [the four combinations](#the-four-combinations), [Agent spaces](#agent-spaces) for `control`, and the profile's `mounts`, `docker`, `network`, and `sudo` for a Docker space.
 - How do I give each workspace its own container? Install with `--agent-space docker`, or run `peen setup --agent-space docker && peen restart`. Every workspace then runs in a `docker:<profile>` container, `docker:default` unless you pick another. You cannot keep some workspaces on `control`, because a reachable daemon removes it for all of them.
 - How do I give an agent Docker access? Set `docker: readonly` in its profile to let it list and inspect containers, or `docker: full` for the whole daemon, which is host root.

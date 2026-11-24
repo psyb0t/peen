@@ -1,7 +1,7 @@
 ---
 title: "Benchmarks"
 description: "How Peen does on coding agent benchmarks, the method behind each run, and the Peen defects the runs found."
-nav_order: 13
+nav_order: 19
 ---
 
 # Benchmarks

@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"errors"
+	"os"
 	"slices"
 	"strings"
 
@@ -13,7 +14,7 @@ import (
 // setting that carries a secret goes here, so no command the agent runs
 // inherits it.
 func secretSettingKeys() []string {
-	return []string{environmentAPIToken}
+	return []string{environmentAPIToken, environmentTelegramToken}
 }
 
 // CommandEnvironment returns environ without Peen's own secrets, for the
@@ -61,5 +62,26 @@ func (c Config) CommandEnvironment(environ []string) ([]string, error) {
 		kept = append(kept, entry)
 	}
 
-	return kept, nil
+	return c.prependOperatorBin(kept)
+}
+
+func prependCommandPath(environ []string, directory string) []string {
+	path := directory
+
+	for _, entry := range environ {
+		key, value, _ := strings.Cut(entry, "=")
+		if key == "PATH" && value != "" {
+			path = directory + string(os.PathListSeparator) + value
+		}
+	}
+
+	result := make([]string, 0, len(environ)+1)
+	for _, entry := range environ {
+		key, _, _ := strings.Cut(entry, "=")
+		if key != "PATH" {
+			result = append(result, entry)
+		}
+	}
+
+	return append(result, "PATH="+path)
 }

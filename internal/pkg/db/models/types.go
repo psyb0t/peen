@@ -1,6 +1,7 @@
 package models
 
 type (
+	CronRunState         string
 	ExecutionKind        string
 	ExecutionState       string
 	ActivityKind         string
@@ -38,6 +39,12 @@ type (
 )
 
 const (
+	CronRunStateRunning   CronRunState = "running"
+	CronRunStateCompleted CronRunState = "completed"
+	CronRunStateFailed    CronRunState = "failed"
+	CronRunStateCancelled CronRunState = "cancelled"
+	CronRunStateSkipped   CronRunState = "skipped"
+
 	InboxMessageStateQueued    InboxMessageState = "queued"
 	InboxMessageStateDelivered InboxMessageState = "delivered"
 	InboxMessageStateDeferred  InboxMessageState = "deferred"

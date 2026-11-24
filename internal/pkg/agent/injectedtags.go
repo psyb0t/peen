@@ -1,14 +1,52 @@
 package agent
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 	"text/template"
 
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/elelem"
 	"github.com/psyb0t/peen/internal/pkg/events"
 	"github.com/psyb0t/peen/internal/pkg/harness"
+	"github.com/psyb0t/peen/internal/pkg/modeljson"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
+
+const outputSchemaBlockFormat = "<outputSchema>\n%s\n</outputSchema>"
+
+func outputSchemaPrompt(
+	prompt elelem.Prompt,
+	schema json.RawMessage,
+) (elelem.Prompt, string, error) {
+	block, err := renderOutputSchema(schema)
+	if err != nil {
+		return prompt, "", err
+	}
+
+	if block != "" {
+		prompt = prompt.UserText(block)
+	}
+
+	return prompt, block, nil
+}
+
+func renderOutputSchema(schema json.RawMessage) (string, error) {
+	if len(schema) == 0 {
+		return "", nil
+	}
+
+	encoded, err := modeljson.Marshal(schema)
+	if err != nil {
+		return "", ctxerrors.Wrap(err, "encode output schema block")
+	}
+
+	body := strings.ReplaceAll(string(encoded), "</outputSchema",
+		`\u003c/outputSchema`)
+
+	return fmt.Sprintf(outputSchemaBlockFormat, body), nil
+}
 
 const (
 	// hookContextTemplateText is what a hook inject action reaches the model

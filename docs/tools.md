@@ -89,4 +89,4 @@ These tools work on what Peen kept after a stop or a crash. [Recovery after a cr
 
 ## MCP and custom tools
 
-[MCP servers](mcp.md) add their tools next to these. An embedded runtime can add Go handlers with [Options.Tools](embedding.md#extension-points).
+[MCP tool servers](mcp.md) add their tools next to these. An embedded runtime can add Go handlers with [Options.Tools](embedding.md#extension-points).

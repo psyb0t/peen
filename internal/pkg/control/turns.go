@@ -128,6 +128,17 @@ func (r *TurnRouter) RunReservedSessionMessage(
 	request agent.MessageRequest,
 	requestID uuid.UUID,
 ) (*agent.MessageRunResult, error) {
+	return r.runReservedSessionMessage(ctx, nil, reservation, request,
+		requestID, nil)
+}
+
+func (r *TurnRouter) runReservedSessionMessage(
+	ctx, turnContext context.Context,
+	reservation *session.AdmissionTicket,
+	request agent.MessageRequest,
+	requestID uuid.UUID,
+	onAdmission func(),
+) (*agent.MessageRunResult, error) {
 	defer reservation.Release()
 
 	ctx, cancel := reservation.BindContext(ctx)
@@ -139,17 +150,8 @@ func (r *TurnRouter) RunReservedSessionMessage(
 		requestID = uuid.New()
 	}
 
-	stored, err := r.registry.store.Get(ctx, reservation.SessionID())
+	stored, err := r.loadRoutedSession(ctx, reservation.SessionID(), request)
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "load the routed session")
-	}
-
-	if err := session.ValidateStopRevision(request.ExpectedStopRevision,
-		stored.StopRevision); err != nil {
-		return nil, ctxerrors.Wrap(err, "validate routed stop revision")
-	}
-
-	if err := checkSystemRouting(stored, request); err != nil {
 		return nil, err
 	}
 
@@ -157,11 +159,8 @@ func (r *TurnRouter) RunReservedSessionMessage(
 		return nil, ctxerrors.Wrap(err, "wait for the session to admit")
 	}
 
-	stopWatching := r.admissionEvents.WatchAdmission(
-		stored.ID,
-		requestID,
-		reservation.Release,
-	)
+	stopWatching := r.watchAdmission(stored.ID, requestID, reservation,
+		onAdmission)
 	defer stopWatching()
 
 	live, err := r.workers.EnsureSessionWorker(
@@ -182,7 +181,51 @@ func (r *TurnRouter) RunReservedSessionMessage(
 		)
 	}
 
-	return runInWorker(ctx, live, stored, request, requestID)
+	if err := ctx.Err(); err != nil {
+		return nil, ctxerrors.Wrap(err, "prepare worker turn")
+	}
+
+	if turnContext == nil {
+		turnContext = ctx
+	}
+
+	return runInWorker(turnContext, live, stored, request, requestID)
+}
+
+func (r *TurnRouter) loadRoutedSession(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	request agent.MessageRequest,
+) (*models.Session, error) {
+	stored, err := r.registry.store.Get(ctx, sessionID)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "load the routed session")
+	}
+
+	if err := session.ValidateStopRevision(request.ExpectedStopRevision,
+		stored.StopRevision); err != nil {
+		return nil, ctxerrors.Wrap(err, "validate routed stop revision")
+	}
+
+	if err := checkSystemRouting(stored, request); err != nil {
+		return nil, err
+	}
+
+	return stored, nil
+}
+
+func (r *TurnRouter) watchAdmission(
+	sessionID, requestID uuid.UUID,
+	reservation *session.AdmissionTicket,
+	onAdmission func(),
+) func() {
+	return r.admissionEvents.WatchAdmission(sessionID, requestID, func() {
+		reservation.Release()
+
+		if onAdmission != nil {
+			onAdmission()
+		}
+	})
 }
 
 // checkSystemRouting keeps a client's message and the system session apart: the
@@ -234,6 +277,9 @@ func runInWorker(
 	)
 
 	result, err := live.RunTurn(ctx, protocol.RunTurn{
+		RequireNewTurn:       request.RequireNewTurn,
+		OutputSchema:         request.OutputSchema,
+		TimeoutSeconds:       request.TimeoutSeconds,
 		ExpectedStopRevision: &revision,
 		RequestID:            requestID,
 		Message:              request.Message,
@@ -250,6 +296,7 @@ func runInWorker(
 	}
 
 	return &agent.MessageRunResult{
+		Output: result.Output, OutputError: result.OutputError,
 		SessionID: stored.ID,
 		Queued:    result.Queued,
 		Text:      result.Text,

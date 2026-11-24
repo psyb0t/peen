@@ -61,6 +61,8 @@ func (w *fakeWorker) HandleCommand(
 		return protocol.TurnResult{Text: "done"}, nil
 	case protocol.CommandCancel, protocol.CommandCancelAgentRun:
 		return protocol.CancelResult{CancelRequested: true}, nil
+	case protocol.CommandCancelTurn:
+		return protocol.CancelResult{}, nil
 	case protocol.CommandSignalJob:
 		return protocol.SignalJobResult{Handled: true, Signalled: true}, nil
 	case protocol.CommandShutdown:

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -716,6 +717,8 @@ func environmentList(environment map[string]string) []string {
 	for key, value := range environment {
 		rendered = append(rendered, key+"="+value)
 	}
+
+	slices.Sort(rendered)
 
 	return rendered
 }

@@ -1,0 +1,43 @@
+{
+  "comment": "Which .agents/rule-details/ files to read before editing a path. Each edit pattern is a regular expression on the repository-relative path. Keep it in step with the table in AGENTS.md.",
+  "topics": {
+    "make": ["make.md"],
+    "go": ["go.md"],
+    "goTests": ["go-tests.md"],
+    "constants": ["constants.md"],
+    "naming": ["naming.md"],
+    "config": ["config.md"],
+    "security": ["security.md"],
+    "httpApi": ["http-api.md"],
+    "database": ["database.md"],
+    "generatedCode": ["generated-code.md"],
+    "dependencies": ["dependencies.md"],
+    "docker": ["docker.md"],
+    "shell": ["shell.md"],
+    "web": ["web.md"],
+    "ci": ["ci.md"],
+    "docs": ["docs-and-prose.md"],
+    "modelFacingText": ["model-facing-text.md"],
+    "versioning": ["versioning.md"]
+  },
+  "edits": [
+    { "pattern": "^(Makefile$|scripts/make/)", "topics": ["make"] },
+    { "pattern": "\\.go$", "topics": ["go"] },
+    { "pattern": "(_test\\.go$|^tests/)", "topics": ["goTests"] },
+    { "pattern": "((^|/)(constants|errors|types)\\.go$|^web/src/lib/common/constants\\.ts$)", "topics": ["constants"] },
+    { "pattern": "^(api/|internal/pkg/(naming|events)/|internal/pkg/harness/types\\.go$|internal/pkg/agent/(types|tools|toolschemas)\\.go$)", "topics": ["naming"] },
+    { "pattern": "^(internal/pkg/config/|\\.env\\.example$)", "topics": ["config"] },
+    { "pattern": "^(internal/pkg/(worker|control|hooks|nondumpable|metrics|telegram|telegrambot|telegramstore|mcpserver|mcptools|openaicompat|cronconfig|cronscheduler|cronstore)/|internal/pkg/config/(workerenvironment|commandenvironment|agentspaces|dockerauthority)\\.go$|docker/|scripts/peen\\.sh$|\\.gitleaks\\.toml$)", "topics": ["security"] },
+    { "pattern": "^(api/|internal/pkg/http/|pkg/http/)", "topics": ["httpApi"] },
+    { "pattern": "^(internal/pkg/db/|cmd/repogen/)", "topics": ["database"] },
+    { "pattern": "((^|/)gen\\.go$|\\.gen\\.go$|(^|/)generated\\.ts$|^\\.env\\.example$|^internal/pkg/http/server/web/dist/|^cmd/(repogen|envexample)/)", "topics": ["generatedCode"] },
+    { "pattern": "^(go\\.(mod|sum)$|vendor/|(web|website)/(package\\.json|pnpm-lock\\.yaml|pnpm-workspace\\.yaml)$|\\.golangci\\.yml$|Dockerfile(\\.dev)?$)", "topics": ["dependencies"] },
+    { "pattern": "^(Dockerfile|docker/|\\.dockerignore$)", "topics": ["docker"] },
+    { "pattern": "\\.sh$", "topics": ["shell"] },
+    { "pattern": "^(web/|internal/pkg/http/server/web/)", "topics": ["web"] },
+    { "pattern": "^(\\.github/|action\\.yml$)", "topics": ["ci"] },
+    { "pattern": "(\\.md$|^website/|^scripts/make/docs)", "topics": ["docs"] },
+    { "pattern": "^(internal/pkg/harness/builtin/|internal/pkg/harness/promptblocks\\.go$|internal/pkg/agent/(types|systemprompt|tools|toolschemas|injectedtags|roundbudget|turnendnotices|contextfit|compactionprompt|childrecoveryprompt|launchagent|mcp)\\.go$|internal/pkg/agent/compaction_prompt\\.md$)", "topics": ["modelFacingText"] },
+    { "pattern": "^(CHANGELOG\\.md$|\\.agents/\\.codex-plugin/plugin\\.json$)", "topics": ["versioning"] }
+  ]
+}

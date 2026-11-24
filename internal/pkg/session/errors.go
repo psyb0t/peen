@@ -2,6 +2,7 @@ package session
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/elelem"
@@ -22,6 +23,8 @@ var errCompactionPredecessorChanged = errors.New(
 	"compaction predecessor changed")
 
 var (
+	ErrOutputSchemaInvalid = errors.New("output schema is invalid")
+	ErrTurnTimeout         = errors.New("turn timeout elapsed")
 	// ErrExecutionInboxPending requires continuation before successful finish.
 	// Storage and transport return it joined with commerr.ErrConflict.
 	ErrExecutionInboxPending = errors.New("execution inbox has pending work")
@@ -94,3 +97,22 @@ var (
 	// commerr.ErrOutOfRange.
 	ErrTurnTokenLimit = errors.New("the turn reached its token limit")
 )
+
+// AgentSpaceConflictError refuses a request that names an agent space other
+// than the one its workspace's sessions already share. It matches
+// commerr.ErrConflict. Its text names both agent spaces, holds no source
+// location or path, and is written for the client that sent the request.
+type AgentSpaceConflictError struct {
+	Current   string
+	Requested string
+}
+
+func (e *AgentSpaceConflictError) Error() string {
+	return fmt.Sprintf("this workspace runs in agent space %q, not %q",
+		e.Current, e.Requested)
+}
+
+// Is makes the error match commerr.ErrConflict.
+func (e *AgentSpaceConflictError) Is(target error) bool {
+	return target == commerr.ErrConflict
+}
