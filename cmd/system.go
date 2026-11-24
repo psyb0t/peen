@@ -38,7 +38,7 @@ func systemCommand() *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(command *cobra.Command, args []string) error {
-			return runSystem(command, args, options)
+			return exitWithTurnStatus(runSystem(command, args, options))
 		},
 	}
 

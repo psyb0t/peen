@@ -77,14 +77,27 @@ const (
 	execDefaultLogLevel = "warn"
 )
 
-// exitCodeError carries a process exit status out of a command. main exits
-// with it and does not log it as a failure.
+// exitCodeError carries a process exit status out of runExec. The exec
+// command exits with it and does not log it as a failure.
 type exitCodeError struct {
 	code int
 }
 
 func (e exitCodeError) Error() string {
 	return "exit status " + strconv.Itoa(e.code)
+}
+
+// exitWithTurnStatus exits with the status an exitCodeError carries and
+// returns any other error unchanged. main belongs to Servicepack and exits 1
+// on every error, so turn commands apply their own status here, after their
+// run function has cleaned up.
+func exitWithTurnStatus(err error) error {
+	exitCode := exitCodeError{}
+	if errors.As(err, &exitCode) {
+		os.Exit(exitCode.code)
+	}
+
+	return err
 }
 
 // execOptions are the exec command's flags.
@@ -114,7 +127,7 @@ func execCommand() *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(command *cobra.Command, args []string) error {
-			return runExec(command, args, options)
+			return exitWithTurnStatus(runExec(command, args, options))
 		},
 	}
 
