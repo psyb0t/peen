@@ -1121,7 +1121,7 @@ github.com/psyb0t/go-workflows/worker
 github.com/psyb0t/go-workflows/workflow
 github.com/psyb0t/go-workflows/workflow/executor
 github.com/psyb0t/go-workflows/workflow/executor/cache
-# github.com/psyb0t/goenv v1.0.10
+# github.com/psyb0t/goenv v1.0.11
 ## explicit; go 1.26
 github.com/psyb0t/goenv
 # github.com/psyb0t/gofindimpl v1.0.12

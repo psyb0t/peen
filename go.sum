@@ -698,8 +698,8 @@ github.com/psyb0t/go-asyncapi v0.1.0 h1:8lfCLJLEjaugBjrLpnPTcyQX5960eSY91FldIQVu
 github.com/psyb0t/go-asyncapi v0.1.0/go.mod h1:7ODH+p+fS7YGCzCiBUXH0Fh1nNvlZVwGUWb3ujMHtbQ=
 github.com/psyb0t/go-workflows v1.3.1 h1:hcegX5f1TEH33QPJhdgnudWXuSjldATlnlKS7dzzc9Y=
 github.com/psyb0t/go-workflows v1.3.1/go.mod h1:x6gjB78ApM0zDgV1iNyz4rbm8EWfcF4NLa48i4NVmos=
-github.com/psyb0t/goenv v1.0.10 h1:6hECZpebLN7JoZIpQOrvD+5BjDKxoFiiXATiDMxuAW4=
-github.com/psyb0t/goenv v1.0.10/go.mod h1:Ol/6C6q5MarjfdYQDqI0bEvdi/DCfkgyJmssZvAXJEY=
+github.com/psyb0t/goenv v1.0.11 h1:vSP/bJx+yXJE83aYKArfs6sMvAZ5Nz1K6E+8wWRIe7A=
+github.com/psyb0t/goenv v1.0.11/go.mod h1:Ol/6C6q5MarjfdYQDqI0bEvdi/DCfkgyJmssZvAXJEY=
 github.com/psyb0t/gofindimpl v1.0.12 h1:X0YW47nGInQdTYKaUgYdkhp0DdpHNelaOIzMnm0T+fQ=
 github.com/psyb0t/gofindimpl v1.0.12/go.mod h1:5WbTY/pJGir3VJygNJCvCNw5dhLx5vwKjc79feb931c=
 github.com/psyb0t/gonfiguration v1.6.4 h1:zvZbDoNrHxADYfk2rJHXj1NFib/1W6XQqQ8qKYKS1ws=

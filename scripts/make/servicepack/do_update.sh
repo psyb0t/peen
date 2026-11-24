@@ -90,17 +90,17 @@ section "Updating Framework Files"
 # ITS OWN .servicepackupdateignore -- that is the intended opt-out, not a
 # blanket exclude baked into the framework.
 #
-# The list above is the mechanical floor (git internals, the dependency merge,
-# per-project prose, and the downstream-owned docs/ and tests/ trees). The
-# opt-outs that nearly every project wants ship
+# The list below is the mechanical floor (git internals, the dependency merge,
+# per-project prose and agent instructions, and the downstream-owned docs/ and
+# tests/ trees). The opt-outs that nearly every project wants ship
 # in the .servicepackupdateignore this repo hands you -- the framework's own
-# publication workflows, agent skill, funding links, secret-scanning allowlist
+# publication workflows, funding links, secret-scanning allowlist
 # and docker context. Those are the framework's furniture rather than a
 # baseline you customize, so they start ignored instead of leaving each project
 # to find out the hard way. Read that file, not this list, when you want to
 # know what your project is keeping for itself.
 #
-# Note that file is excluded from the sync (above), so it is yours from the
+# Note that file is excluded from the sync (below), so it is yours from the
 # moment you scaffold: a framework update can never rewrite your opt-outs, and
 # equally never adds new default ones to an existing project. When a release
 # adds an entry, existing downstreams have to copy it over by hand.
@@ -117,29 +117,54 @@ section "Updating Framework Files"
 # its own pattern matching, and quoting is what guarantees the shell keeps its
 # hands off it.
 EXCLUDE_ARGS=(
-	"--exclude=internal/pkg/services/*"
-	# A downstream owns its docs and its test tree outright. docs/ is prose it
-	# rewrites for its own app. tests/ is the testcontainers harness plus its
-	# own service tests. The framework ships both only as a scaffold, and an
-	# update overwriting either is never wanted, so this protection lives in the
+	# Every entry is anchored with a leading /. rsync matches a pattern without
+	# one at any depth, so `README.md` used to skip the framework's own READMEs
+	# in internal/pkg/service-manager/, pkg/runner/ and scripts/make/servicepack/
+	# as well, and those never updated in a project.
+	"--exclude=/internal/pkg/services/*"
+	# A downstream owns its docs and its test tree outright. `make own` deletes
+	# servicepack's docs/, so whatever is there is the project's own. tests/ is
+	# the testcontainers harness plus its own service tests. An update
+	# overwriting either is never wanted, so this protection lives in the
 	# mechanical floor. It is not an optional per-project opt-out a downstream
 	# has to remember to copy into its .servicepackupdateignore.
-	"--exclude=docs/"
-	"--exclude=tests/"
-	"--exclude=README.md"
-	"--exclude=LICENSE"
-	"--exclude=CHANGELOG.md"
-	"--exclude=.git"
-	"--exclude=.gitignore"
-	"--exclude=.servicepackupdateignore"
-	"--exclude=Makefile"
-	"--exclude=Dockerfile"
-	"--exclude=Dockerfile.dev"
-	"--exclude=build/"
-	"--exclude=coverage.txt"
-	"--exclude=vendor/"
-	"--exclude=go.mod"
-	"--exclude=go.sum"
+	"--exclude=/docs/"
+	"--exclude=/tests/"
+	# servicepack's own documentation site: the Docusaurus build in website/ and
+	# the workflow that publishes it to servicepack's GitHub Pages. `make own`
+	# deletes both. Synced, they would add a site that builds servicepack's
+	# pages under its URL, and a workflow that fails on every push without them.
+	"--exclude=/website/"
+	"--exclude=/.github/workflows/docs.yml"
+	# Closes outside pull requests with servicepack's author's message. `make own`
+	# deletes it; a project that wants the same policy writes its own.
+	"--exclude=/.github/workflows/collaborators-only.yml"
+	"--exclude=/README.md"
+	# Agent instructions are per-project prose, like README.md. AGENTS.md and
+	# .agents/rules/ describe how to change THIS repo, and CLAUDE.md and .claude
+	# are committed symlinks onto them. Synced, they would replace a
+	# downstream's own instructions with servicepack's, or swap its real .claude
+	# directory for a link. .agents also holds the servicepack skill and plugin
+	# manifests. The shipped .servicepackupdateignore used to be the only guard
+	# on .agents, and a project scaffolded before that line existed has no copy
+	# of it, so the whole tree belongs in the floor rather than just its rules.
+	"--exclude=/AGENTS.md"
+	"--exclude=/CLAUDE.md"
+	"--exclude=/.claude"
+	"--exclude=/.agents"
+	"--exclude=/LICENSE"
+	"--exclude=/CHANGELOG.md"
+	"--exclude=/.git"
+	"--exclude=/.gitignore"
+	"--exclude=/.servicepackupdateignore"
+	"--exclude=/Makefile"
+	"--exclude=/Dockerfile"
+	"--exclude=/Dockerfile.dev"
+	"--exclude=/build/"
+	"--exclude=/coverage.txt"
+	"--exclude=/vendor/"
+	"--exclude=/go.mod"
+	"--exclude=/go.sum"
 )
 
 # Add excludes from .servicepackupdateignore if it exists

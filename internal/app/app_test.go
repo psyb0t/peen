@@ -16,7 +16,7 @@ import (
 const (
 	// Generous on purpose: this bounds only a FAILING test, and a consumer's
 	// machine may be running a browser suite and image builds alongside it.
-	servicesRunningTimeout = time.Minute
+	servicesRunningTimeout = 5 * time.Second
 	servicesRunningPoll    = time.Millisecond
 )
 
@@ -545,5 +545,27 @@ func TestApp_PostStopHooks(t *testing.T) {
 		runAppBriefly(t, a)
 
 		assert.Equal(t, []string{"cleanup1", "cleanup2"}, order)
+	})
+
+	// Run's deferred Stop used to pass Run's own context, which Stop cancels
+	// first, so cleanup in a post-stop hook got an already-cancelled context.
+	t.Run("hook context is not cancelled", func(t *testing.T) {
+		resetInstance()
+
+		a := createTestApp()
+
+		var hookErr error
+
+		hookCalled := false
+
+		a.OnPostStop(func(ctx context.Context) {
+			hookCalled = true
+			hookErr = ctx.Err()
+		})
+
+		runAppBriefly(t, a)
+
+		require.True(t, hookCalled)
+		assert.NoError(t, hookErr)
 	})
 }

@@ -1,7 +1,7 @@
 # Development Dockerfile
 # Pinned by digest, not by tag — a tag is mutable and lets an upstream
 # republish different bytes under the same name. Bump deliberately.
-FROM golang:1.26.9-alpine@sha256:cdfd4fe2da6b225d8b40c6b7a105736e548e83ff56d5d8f9394446eeb5eb84e0
+FROM golang:1.26.11-alpine@sha256:ecb67f987aa1a57794c91d19ade7ae0209f2f0f5496aaef9e6ae85ddf92d02ab
 
 # Install build dependencies
 RUN apk add --no-cache \

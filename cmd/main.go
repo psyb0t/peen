@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"os"
 
 	"github.com/psyb0t/ctxerrors"
@@ -39,11 +38,6 @@ func main() {
 
 	rootCmd := buildRootCommand()
 	if err := rootCmd.ExecuteContext(context.Background()); err != nil {
-		exitCode := exitCodeError{}
-		if errors.As(err, &exitCode) {
-			os.Exit(exitCode.code)
-		}
-
 		ctxscope.GetLogger(context.Background()).Error(
 			"command failed",
 			"err", err,

@@ -61,7 +61,7 @@ func waitThenCancel(
 	cond func() bool,
 ) {
 	go func() {
-		deadline := time.After(runHangGuard)
+		deadline := time.After(5 * time.Second)
 
 		tick := time.NewTicker(time.Millisecond)
 		defer tick.Stop()
@@ -419,7 +419,7 @@ func TestIntegration_BackwardCompatibility(
 				}
 
 				assert.NoError(t, err)
-			case <-time.After(runHangGuard):
+			case <-time.After(2 * time.Second):
 				t.Fatal("timed out")
 			}
 		})

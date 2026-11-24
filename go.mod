@@ -23,7 +23,7 @@ require (
 	github.com/psyb0t/essessey v0.7.5
 	github.com/psyb0t/gen-asyncapi v0.2.0
 	github.com/psyb0t/go-workflows v1.3.1
-	github.com/psyb0t/goenv v1.0.10
+	github.com/psyb0t/goenv v1.0.11
 	github.com/psyb0t/gonfiguration v1.6.4
 	github.com/psyb0t/slogging v1.7.1
 	github.com/robfig/cron/v3 v3.0.1
