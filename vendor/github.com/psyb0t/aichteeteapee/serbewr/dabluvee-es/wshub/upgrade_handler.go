@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 	"github.com/psyb0t/aichteeteapee"
+	"github.com/psyb0t/aichteeteapee/serbewr/dabluvee-es/internal/handshake"
 )
 
 // UpgradeHandler creates an HTTP handler that upgrades connections
@@ -19,15 +19,6 @@ func UpgradeHandler( //nolint:funlen
 
 	for _, opt := range opts {
 		opt(&config)
-	}
-
-	upgrader := websocket.Upgrader{
-		ReadBufferSize:    config.ReadBufferSize,
-		WriteBufferSize:   config.WriteBufferSize,
-		HandshakeTimeout:  config.HandshakeTimeout,
-		CheckOrigin:       config.CheckOrigin,
-		Subprotocols:      config.Subprotocols,
-		EnableCompression: config.EnableCompression,
 	}
 
 	slog.Debug(
@@ -52,7 +43,7 @@ func UpgradeHandler( //nolint:funlen
 			aichteeteapee.FieldEndpoint, r.URL.Path,
 		)
 
-		conn, err := upgrader.Upgrade(w, r, nil)
+		conn, err := handshake.Open(w, r, config.UpgradeHandlerConfig)
 		if err != nil {
 			slog.Error(
 				"websocket upgrade failed",

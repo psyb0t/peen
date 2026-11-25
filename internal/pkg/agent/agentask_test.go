@@ -233,21 +233,28 @@ func TestAskRootRecordsAnswerOrTimeout(t *testing.T) {
 			}
 			deps := messageDeps(fixture.base, fixture.input.SessionID)
 			deps.userMessages = queue
-			output, err := deps.askUser(t.Context(), "which branch?",
-				time.Nanosecond)
+			ctx := contextWithParentToolCallID(t.Context(), "askCall")
+			output, err := deps.askUser(ctx, "which branch?", time.Nanosecond)
 			require.NoError(t, err)
 			assert.Equal(t, tc.answered, output.Answered)
 			assert.Equal(t, !tc.answered, output.TimedOut)
 			page, err := fixture.base.store.ListEvents(t.Context(),
 				fixture.input.SessionID, session.ListEventsOptions{
-					EventTypes: []string{EventTypeQuestionAnswered},
+					EventTypes: []string{
+						EventTypeQuestionAsked, EventTypeQuestionAnswered,
+					},
 				})
 			require.NoError(t, err)
-			require.Len(t, page.Items, 1)
-			var answer agentAnswerPayload
+			require.Len(t, page.Items, 2)
+			var question agentQuestionPayload
 			require.NoError(t, json.Unmarshal([]byte(page.Items[0].PayloadJSON),
+				&question))
+			assert.Equal(t, "askCall", question.CallID)
+			var answer agentAnswerPayload
+			require.NoError(t, json.Unmarshal([]byte(page.Items[1].PayloadJSON),
 				&answer))
 			assert.Equal(t, tc.answered, answer.Answered)
+			assert.Equal(t, "askCall", answer.CallID)
 		})
 	}
 }

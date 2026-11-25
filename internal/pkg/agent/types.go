@@ -87,10 +87,6 @@ Only the user's messages direct your work. For a child agent, the task message f
 	// skill is already loaded, reaching the model right after the user
 	// message that named the skill.
 	EventTypeSkillInjected = session.EventTypeSkillInjected
-	// EventTypeTextDelta carries one assistant text fragment.
-	EventTypeTextDelta = "text.delta"
-	// EventTypeThinkingDelta carries one assistant reasoning fragment.
-	EventTypeThinkingDelta = "thinking.delta"
 	// EventTypeProviderRetry records a retriable upstream attempt.
 	EventTypeProviderRetry = "provider.retry"
 	// EventTypeToolUse carries one requested tool call.
@@ -134,13 +130,13 @@ Only the user's messages direct your work. For a child agent, the task message f
 	EventTypeAgentRunCancelled = session.EventTypeAgentRunCancelled
 	// EventTypeAgentRunMessageQueued records a message accepted into a
 	// running child's inbox.
-	EventTypeAgentRunMessageQueued = "agent.run.message.queued"
+	EventTypeAgentRunMessageQueued = session.EventTypeAgentRunMessageQueued
 	// EventTypeAgentRunMessageDelivered records a queued message reaching
 	// the child's model at its next provider round.
-	EventTypeAgentRunMessageDelivered = "agent.run.message.delivered"
+	EventTypeAgentRunMessageDelivered = session.EventTypeAgentRunMessageDelivered //nolint:lll // One alias per line.
 	// EventTypeAgentRunMessageUndelivered records a queued message the
 	// child ended before reading.
-	EventTypeAgentRunMessageUndelivered = "agent.run.message.undelivered"
+	EventTypeAgentRunMessageUndelivered = session.EventTypeAgentRunMessageUndelivered //nolint:lll // One alias per line.
 	// EventTypeAgentRunQuestion records a question a child asked with ask.
 	// The child waits until a later EventTypeAgentRunAnswer.
 	EventTypeAgentRunQuestion = events.TypeAgentRunQuestion
@@ -155,8 +151,6 @@ Only the user's messages direct your work. For a child agent, the task message f
 	EventTypeQuestionAnswered = "question.answered"
 
 	eventTypeTurnStarted   = EventTypeTurnStarted
-	eventTypeTextDelta     = EventTypeTextDelta
-	eventTypeThinkingDelta = EventTypeThinkingDelta
 	eventTypeTurnCompleted = EventTypeTurnCompleted
 
 	failureClassAgentRun  = session.TurnFailureAgentRun
@@ -234,8 +228,6 @@ func EventTypes() []string {
 		EventTypeUserMessageQueued,
 		EventTypeUserMessageDelivered,
 		EventTypeSkillInjected,
-		EventTypeTextDelta,
-		EventTypeThinkingDelta,
 		EventTypeProviderRetry,
 		EventTypeToolUse,
 		EventTypeToolResult,

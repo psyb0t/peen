@@ -9,6 +9,7 @@ import (
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
+	"github.com/psyb0t/peen/internal/pkg/http/wsapi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -208,4 +209,45 @@ func TestNativeChildCancellationPreservesTerminalDescendants(t *testing.T) {
 			assert.Equal(t, originalRun, savedRun)
 		})
 	}
+}
+
+// A restart marks a running child interrupted. Cancelling it afterwards
+// replaces that classification, so the stored run and its agent.run.cancelled
+// event both say cancelled and the event matches the WebSocket contract.
+func TestNativeChildCancellationReplacesInterruptedClassification(
+	t *testing.T,
+) {
+	t.Parallel()
+	fixture := newExecutionFixture(t)
+	child := executionChildForTest(t, fixture, fixture.root)
+	repository := fixture.store.query.AgentRun
+	_, err := repository.WithContext(t.Context()).Where(
+		repository.ID.Eq(*child.AgentRunID),
+	).UpdateSimple(
+		repository.State.Value(string(models.AgentRunStateInterrupted)),
+		repository.FailureClassification.Value("interrupted"),
+		repository.FailureDetail.Value("process stopped"),
+	)
+	require.NoError(t, err)
+	run, requested, err := fixture.store.RequestAgentRunCancellation(
+		t.Context(), fixture.sessionID, *child.AgentRunID)
+	require.NoError(t, err)
+	assert.True(t, requested)
+	assert.Equal(t, models.AgentRunStateCancelled, run.State)
+	assert.Equal(t, TurnFailureCancelled, run.FailureClassification)
+	stored, err := fixture.store.GetAgentRun(t.Context(), fixture.sessionID,
+		run.ID)
+	require.NoError(t, err)
+	assert.Equal(t, TurnFailureCancelled, stored.FailureClassification)
+	page, err := fixture.store.ListAgentRunEvents(t.Context(),
+		fixture.sessionID, run.ID, ListAgentRunEventsOptions{})
+	require.NoError(t, err)
+	require.NotEmpty(t, page.Items)
+	last := page.Items[len(page.Items)-1]
+	assert.Equal(t, EventTypeAgentRunCancelled, last.EventType)
+	terminal := wsapi.AgentRunTerminalEvent{}
+	require.NoError(t, terminal.UnmarshalJSON([]byte(last.PayloadJSON)))
+	require.NotNil(t, terminal.FailureClassification)
+	assert.Equal(t, TurnFailureCancelled,
+		string(*terminal.FailureClassification))
 }

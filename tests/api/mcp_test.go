@@ -14,9 +14,9 @@ import (
 )
 
 const (
-	mcpTestStatusPath = apiBasePath + "/session/mcp"
-	mcpTestToolName   = "mcp__fixture__echo"
-	mcpTestTask       = "echo through the MCP server"
+	mcpTestToolName  = "mcp__fixture__echo"
+	mcpTestPlainTask = "a turn with no MCP servers"
+	mcpTestTask      = "echo through the MCP server"
 
 	// mcpTestServerScript is a stdio MCP server with one echo tool, written
 	// in bash and jq because the worker image has no other interpreter. It
@@ -126,4 +126,21 @@ func TestMCPServerToolRunsAndItsStatusIsReported(t *testing.T) {
 
 	require.Contains(t, byName, "bad_name")
 	assert.Equal(t, api.MCPServerStatusStateFailed, byName["bad_name"].State)
+}
+
+// A turn with no MCP configuration still reports, with an empty server
+// list, so the latest report never names servers that are not configured.
+func TestMCPStatusIsEmptyForATurnWithoutMCP(t *testing.T) {
+	workspace := openFreshWorkspace(t, "mcp-none-", nil)
+	connection := openSessionConnection(t, workspace.sessionID)
+
+	sendSessionMessage(t, connection, workspace.sessionID, mcpTestPlainTask)
+	frames := readFramesUntilTurnCompleted(t, connection)
+	statusFrames := framesOfType(frames, "mcp.status")
+	require.Len(t, statusFrames, 1)
+	assert.JSONEq(t, `{"servers":[]}`, string(statusFrames[0].Data))
+
+	report := mcpStatus(t, workspace)
+	assert.Empty(t, report.Servers)
+	assert.NotNil(t, report.ReportedAt)
 }

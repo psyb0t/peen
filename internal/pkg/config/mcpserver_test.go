@@ -25,7 +25,8 @@ func TestMCPServerPolicyDefaultsAndControllerBoundary(t *testing.T) {
 	for _, origin := range []string{"null", "http://localhost", "http://localhost:8080/", "https://attacker.example", "http://localhost:8080#"} {
 		assert.False(t, policy.AllowsOrigin(origin), origin)
 	}
-	assert.False(t, policy.HasNonLoopbackHosts())
+	assert.Equal(t, []string{"127.0.0.1", "::1", "localhost"}, policy.Hosts())
+	assert.Equal(t, []string{"http://127.0.0.1:8080", "http://[::1]:8080", "http://localhost:8080"}, policy.Origins())
 	for _, key := range []string{"PEEN_MCP_SERVER", "PEEN_MCP_SERVER_ALLOWED_HOSTS", "PEEN_MCP_SERVER_ALLOWED_ORIGINS"} {
 		assert.True(t, workerEnvironmentReserved(key))
 		assert.False(t, workerRuntimeEnvironmentKey(key))
@@ -52,7 +53,8 @@ func TestMCPServerPolicyRejectsMalformedConfiguration(t *testing.T) {
 	}
 	policy, err := (Config{MCPServerAllowedHosts: "Peen.Example", MCPServerAllowedOrigins: "https://peen.example"}).MCPServerPolicy()
 	require.NoError(t, err)
-	assert.True(t, policy.HasNonLoopbackHosts())
+	assert.Equal(t, []string{"peen.example"}, policy.Hosts())
+	assert.Equal(t, []string{"https://peen.example"}, policy.Origins())
 	assert.True(t, policy.AllowsHost("peen.example:443"))
 	assert.True(t, policy.AllowsOrigin("https://PEEN.EXAMPLE"))
 	assert.False(t, policy.AllowsOrigin("http://peen.example"))

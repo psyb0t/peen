@@ -14,7 +14,7 @@ require (
 	github.com/prometheus/client_golang v1.12.1
 	github.com/prometheus/client_model v0.2.0
 	github.com/prometheus/common v0.32.1
-	github.com/psyb0t/aichteeteapee v1.14.0
+	github.com/psyb0t/aichteeteapee v1.18.0
 	github.com/psyb0t/commander v0.6.0
 	github.com/psyb0t/common-go v0.10.0
 	github.com/psyb0t/ctxerrors v0.9.0
@@ -129,6 +129,7 @@ require (
 	github.com/fzipp/gocyclo v0.6.0 // indirect
 	github.com/ghostiam/protogetter v0.3.20 // indirect
 	github.com/go-critic/go-critic v0.14.3 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.9 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect

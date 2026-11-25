@@ -13,14 +13,13 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/psyb0t/aichteeteapee"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/internal/pkg/http/server"
 	"github.com/psyb0t/peen/tests/testinfra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-const fileAPIPath = apiBasePath + "/session/files"
 
 func fileAPIWorkspace(t *testing.T) freshWorkspace {
 	t.Helper()
@@ -96,6 +95,64 @@ func TestAPIWorkspaceFilesRoundTripAndLeafDeletion(t *testing.T) {
 	response = apiRequest(t, http.MethodGet,
 		fileAPIPath+"/content?path="+url.QueryEscape(name), nil, headers)
 	requireAPIStatus(t, response, http.StatusNotFound)
+}
+
+// A directory holding a link that leads outside the workspace still lists,
+// with the link reported as a symlink and its target never read. Naming the
+// link itself stays refused, and a path through a regular file is missing.
+func TestAPIWorkspaceFilesListEscapingLinksAndMissThroughFiles(t *testing.T) {
+	workspace := fileAPIWorkspace(t)
+	headers := withHeader(authenticatedHeaders(), headerSessionID,
+		workspace.sessionID.String())
+	fileAPIFixtureCommand(t, "ln", "-s", "/etc/passwd", path.Join(
+		workspace.directory, "outside"))
+	response := fileAPIWrite(t, workspace, "README.md", []byte("readme"))
+	requireAPIStatus(t, response, http.StatusOK)
+
+	response = apiRequest(t, http.MethodGet, fileAPIPath, nil, headers)
+	requireAPIStatus(t, response, http.StatusOK)
+	listing := decodeResponse[api.WorkspaceFileListing](t, response)
+
+	byName := map[string]api.WorkspaceFileEntry{}
+	for _, entry := range listing.Entries {
+		byName[entry.Name] = entry
+	}
+
+	require.Contains(t, byName, "outside")
+	assert.Equal(t, api.WorkspaceFileTypeSymlink, byName["outside"].Type)
+	assert.EqualValues(t, len("/etc/passwd"), byName["outside"].Size)
+	assert.NotContains(t, string(response.Body), "root:")
+	assert.Equal(t, api.WorkspaceFileTypeFile, byName["README.md"].Type)
+
+	response = apiRequest(t, http.MethodGet, fileAPIPath+"?path=outside",
+		nil, headers)
+	requireAPIStatus(t, response, http.StatusForbidden)
+	assertErrorCode(t, response, server.ErrorCodeWorkspaceNotAllowed)
+
+	response = apiRequest(t, http.MethodGet, fileAPIPath+"?path=..",
+		nil, headers)
+	requireAPIStatus(t, response, http.StatusForbidden)
+	envelope := decodeResponse[api.Error](t, response)
+	assert.Equal(t, "path must be a clean relative path inside the workspace",
+		envelope.Message)
+
+	for _, operation := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, fileAPIPath + "?path=README.md/x"},
+		{http.MethodGet, fileAPIPath + "/content?path=README.md/x"},
+		{http.MethodDelete, fileAPIPath + "?path=README.md/x"},
+	} {
+		response = apiRequest(t, operation.method, operation.path, nil,
+			headers)
+		requireAPIStatus(t, response, http.StatusNotFound)
+		assertErrorCode(t, response, aichteeteapee.ErrorCodeNotFound)
+	}
+
+	response = fileAPIWrite(t, workspace, "README.md/x", []byte("x"))
+	requireAPIStatus(t, response, http.StatusNotFound)
+	assertErrorCode(t, response, aichteeteapee.ErrorCodeNotFound)
 }
 
 func TestAPIWorkspaceFilesRefuseEscapeAndOversize(t *testing.T) {

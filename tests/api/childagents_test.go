@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/psyb0t/aichteeteapee"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/agent"
@@ -27,8 +28,6 @@ import (
 )
 
 const (
-	agentRunsPath = sessionPath + "/agents"
-
 	agentToolsWorkspacePrefix = "launchagent-"
 	agentToolsMessage         = "launch the general purpose agent"
 	agentToolsAgent           = "core:general-purpose"
@@ -50,6 +49,11 @@ const (
 	childAskAnswer   = "use the main branch"
 	childAskDone     = "the child used the answer"
 	childAskRootDone = "the root delegated"
+
+	childJobMessage  = "delegate a command to a child"
+	childJobTask     = "run one quick command"
+	childJobDone     = "the child ran the command"
+	childJobRootDone = "the root delegated the command"
 
 	childStopMessage = "start a child that waits"
 	childStopTask    = "wait until someone stops you"
@@ -122,6 +126,7 @@ func TestAPIChildAgentAsksAndTheUserAnswersIt(t *testing.T) {
 	)
 	assert.False(t, finished.Waiting)
 	assert.Equal(t, childAskDone, finished.ResponseText)
+	assertAnswerQueuedAndDelivered(t, workspace.sessionID, child.AgentRunId)
 
 	childRequests := 0
 
@@ -469,6 +474,42 @@ func crashTreeLaunchCalls(names []string) []testinfra.ScriptedToolCall {
 	return calls
 }
 
+// assertAnswerQueuedAndDelivered checks that the answer sent to a waiting
+// child shows up on the child's own event stream, first as
+// agent.run.message.queued and then as agent.run.message.delivered with the
+// same acceptanceId.
+func assertAnswerQueuedAndDelivered(t *testing.T, sessionID, runID uuid.UUID) {
+	t.Helper()
+	response := apiRequest(t, http.MethodGet,
+		agentRunsPath+"/"+runID.String()+"/events", nil,
+		withHeader(authenticatedHeaders(), headerSessionID, sessionID.String()))
+	requireAPIStatus(t, response, http.StatusOK)
+	page := decodeResponse[api.AgentRunEventPage](t, response)
+	queued := map[string]bool{}
+	delivered := false
+	for _, event := range page.Events {
+		if event.Payload == nil {
+			continue
+		}
+		payload := *event.Payload
+		message, _ := payload["message"].(string)
+		acceptanceID, _ := payload["acceptanceId"].(string)
+		if !strings.Contains(message, childAskAnswer) {
+			continue
+		}
+		switch event.Type {
+		case agent.EventTypeAgentRunMessageQueued:
+			queued[acceptanceID] = true
+		case agent.EventTypeAgentRunMessageDelivered:
+			assert.True(t, queued[acceptanceID],
+				"a delivered message follows its queued step")
+			delivered = true
+		}
+	}
+	assert.NotEmpty(t, queued, "the answer is reported as queued")
+	assert.True(t, delivered, "the answer is reported as delivered")
+}
+
 func crashTreeEffectPath(sessionID uuid.UUID, name string) string {
 	return path.Join(testinfra.ContainerWorkingDirectory, "tree-effect-"+sessionID.String()+"-"+name+".txt")
 }
@@ -614,6 +655,97 @@ func TestAPICancelStopsAChildRunningInTheWorker(t *testing.T) {
 		api.AgentRunStateCancelled,
 	)
 	assert.True(t, cancelled.CancelRequested)
+}
+
+// A child that runs a command leaves a job naming its agent run, and its own
+// transcript returns the tool call with the same camelCase keys the session
+// transcript uses. A parent filter that is neither a run ID nor root is a
+// validation failure, not a server error.
+func TestAPIChildAgentJobsAndToolCallsUseTheAPIShape(t *testing.T) {
+	workspace := openFreshWorkspace(t, childAgentsWorkspacePrefix, nil)
+	connection := openSessionConnection(t, workspace.sessionID)
+	headers := withHeader(authenticatedHeaders(), headerSessionID,
+		workspace.sessionID.String())
+
+	t.Cleanup(integrationInfra.DisableScriptedToolTurn)
+	integrationInfra.EnableScriptedToolTurn(testinfra.ScriptedToolTurn{
+		UserMessage: childJobMessage,
+		Calls: []testinfra.ScriptedToolCall{
+			{
+				Name: "launchAgent",
+				Arguments: map[string]any{
+					"agent": childAgentsCoreAgent,
+					"task":  childJobTask,
+				},
+			},
+			{
+				Name:      "waitMessages",
+				Arguments: map[string]any{"timeout": childAgentsWaitBound},
+			},
+		},
+		FinalAnswer: childJobRootDone,
+		Children: []testinfra.ScriptedToolTurn{{
+			UserMessage: childJobTask,
+			Calls: []testinfra.ScriptedToolCall{{
+				Name: "runCommand",
+				Arguments: map[string]any{
+					"command": "true",
+					"purpose": childJobTask,
+				},
+			}},
+			FinalAnswer: childJobDone,
+		}},
+	})
+
+	sendSessionMessage(t, connection, workspace.sessionID, childJobMessage)
+	readFramesUntilTurnCompleted(t, connection)
+
+	runs := awaitAgentRuns(t, workspace.sessionID, "", 1)
+	child := awaitAgentRunState(t, workspace.sessionID, runs[0].AgentRunId,
+		api.AgentRunStateCompleted)
+
+	response := apiRequest(t, http.MethodGet, sessionPath+"/jobs", nil,
+		headers)
+	requireAPIStatus(t, response, http.StatusOK)
+	jobs := decodeResponse[api.JobPage](t, response).Jobs
+	require.Len(t, jobs, 1)
+	require.NotNil(t, jobs[0].AgentRunId)
+	assert.Equal(t, child.AgentRunId, *jobs[0].AgentRunId)
+
+	response = apiRequest(t, http.MethodGet,
+		agentRunsPath+"/"+child.AgentRunId.String()+"/messages", nil, headers)
+	requireAPIStatus(t, response, http.StatusOK)
+
+	var raw struct {
+		Messages []struct {
+			Role      string                       `json:"role"`
+			ToolCalls []map[string]json.RawMessage `json:"toolCalls"`
+		} `json:"messages"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body, &raw))
+
+	calls := 0
+
+	for _, message := range raw.Messages {
+		for _, call := range message.ToolCalls {
+			calls++
+
+			assert.Contains(t, call, "id")
+			assert.Contains(t, call, "name")
+			assert.Contains(t, call, "arguments")
+			assert.NotContains(t, call, "ID")
+			assert.NotContains(t, call, "Name")
+			assert.NotContains(t, call, "Arguments")
+			assert.JSONEq(t, `"runCommand"`, string(call["name"]))
+		}
+	}
+
+	assert.Equal(t, 1, calls)
+
+	response = apiRequest(t, http.MethodGet,
+		agentRunsPath+"?parentAgentRunId=not-a-run", nil, headers)
+	requireAPIStatus(t, response, http.StatusBadRequest)
+	assertErrorCode(t, response, aichteeteapee.ErrorCodeValidationFailed)
 }
 
 func listAgentRuns(

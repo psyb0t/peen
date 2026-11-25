@@ -80,6 +80,6 @@ A tool's text goes to the model like any tool output, inside the `<toolOutput>` 
 
 ## Status
 
-At the start of every turn the worker emits an `mcp.status` event listing every configured server: its name, where it was configured, its transport, `ready` or `failed`, its tool names, why it failed, and any warnings. `GET /api/v1/session/mcp` returns the latest one with the time it was reported. See [HTTP API](http-api.md#get-apiv1sessionmcp) and [Session events](events.md).
+At the start of every turn the worker emits an `mcp.status` event listing every configured server: its name, where it was configured, its transport, `ready` or `failed`, its tool names, why it failed, and any warnings. With no server configured, the list is empty, so the report clears on the first turn after you remove `mcp.json`. [`GET /api/v1/session/mcp`](https://psyb0t.github.io/peen/api/get-session-mcp-status/) returns the latest one with the time it was reported. See [Session events](events.md).
 
 `PEEN_MCP=false` turns MCP off entirely.

@@ -19,6 +19,7 @@ type Client struct {
 	sendCh        chan *dabluveees.Event // Client-level message channel
 	doneCh        chan struct{}          // Client shutdown signal
 	wg            sync.WaitGroup         // Wait for goroutines to finish
+	lifecycleMu   sync.Mutex             // Guards pump startup during shutdown
 	stopOnce      sync.Once              // Ensure single stop
 	config        ClientConfig           // Client configuration
 	isStopped     atomic.Bool            // Atomic flag for client stopped state
@@ -78,6 +79,9 @@ func (c *Client) SetHub(hub Hub) {
 }
 
 func (c *Client) AddConnection(conn *Connection) {
+	c.lifecycleMu.Lock()
+	defer c.lifecycleMu.Unlock()
+
 	if c.isStopped.Load() {
 		slog.Debug(
 			"client is done, cannot add connection",
@@ -251,8 +255,9 @@ func (c *Client) Stop() {
 	<-c.readyToStopCh
 
 	c.stopOnce.Do(func() {
-		// Set done flag atomically first
+		c.lifecycleMu.Lock()
 		c.isStopped.Store(true)
+		c.lifecycleMu.Unlock()
 
 		slog.Info(
 			"stopping client",

@@ -1,6 +1,7 @@
 package wshub
 
 import (
+	"encoding/json"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -10,6 +11,13 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/psyb0t/aichteeteapee"
 	dabluveees "github.com/psyb0t/aichteeteapee/serbewr/dabluvee-es"
+)
+
+const (
+	// invalidEventCloseText is the close reason for an undecodable message.
+	// It is fixed so client bytes never reach the close frame.
+	invalidEventCloseText = "invalid event"
+	invalidEventReason    = "invalid_event"
 )
 
 type Connection struct {
@@ -300,6 +308,52 @@ func (c *Connection) writePump() { //nolint:cyclop,funlen
 	}
 }
 
+// handleInvalidEvent passes an undecodable message to the client's
+// InvalidEventHandler and reports whether the read pump should keep reading.
+// Otherwise it sends a 1007 close frame with a fixed reason. Neither the
+// close frame nor the log carries the client's bytes or the decode error.
+func (c *Connection) handleInvalidEvent(data []byte, decodeErr error) bool {
+	slog.Warn(
+		"invalid event received from connection",
+		aichteeteapee.FieldReason, invalidEventReason,
+		aichteeteapee.FieldBytes, len(data),
+		aichteeteapee.FieldHubName, c.GetHubName(),
+		aichteeteapee.FieldClientID, c.GetClientID(),
+		aichteeteapee.FieldConnectionID, c.id,
+	)
+
+	handler := c.client.config.InvalidEventHandler
+	if handler != nil {
+		c.client.hubMu.RLock()
+		hub := c.client.hub
+		c.client.hubMu.RUnlock()
+
+		if handler(hub, c.client, data, decodeErr) == nil {
+			return true
+		}
+
+		// The handler's error may wrap the decode error, which can quote
+		// client input, so it is not logged.
+		slog.Warn(
+			"invalid event handler closed connection",
+			aichteeteapee.FieldHubName, c.GetHubName(),
+			aichteeteapee.FieldClientID, c.GetClientID(),
+			aichteeteapee.FieldConnectionID, c.id,
+		)
+	}
+
+	// WriteControl is safe to call alongside the write pump.
+	_ = c.conn.WriteControl(
+		websocket.CloseMessage,
+		websocket.FormatCloseMessage(
+			websocket.CloseInvalidFramePayloadData, invalidEventCloseText,
+		),
+		time.Now().Add(c.client.config.WriteTimeout),
+	)
+
+	return false
+}
+
 // readPump handles inbound messages and connection monitoring.
 func (c *Connection) readPump() { //nolint:cyclop,funlen
 	defer func() {
@@ -364,8 +418,8 @@ func (c *Connection) readPump() { //nolint:cyclop,funlen
 		default:
 		}
 
-		var event dabluveees.Event
-		if err := c.conn.ReadJSON(&event); err != nil {
+		_, data, err := c.conn.ReadMessage()
+		if err != nil {
 			if websocket.IsCloseError(err,
 				websocket.CloseNormalClosure,
 				websocket.CloseGoingAway,
@@ -389,6 +443,19 @@ func (c *Connection) readPump() { //nolint:cyclop,funlen
 			)
 
 			return
+		}
+
+		var event dabluveees.Event
+		if err := json.Unmarshal(data, &event); err != nil {
+			if !c.handleInvalidEvent(data, err) {
+				return
+			}
+
+			_ = c.conn.SetReadDeadline(
+				time.Now().Add(c.client.config.ReadTimeout),
+			)
+
+			continue
 		}
 
 		// Check if done after reading event

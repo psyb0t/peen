@@ -120,6 +120,14 @@ func (s *Server) handleWebSocketMessage(
 ) error {
 	requestID := uuid.New()
 
+	// A frame without an id decodes to the nil UUID. Nothing could match an
+	// answer to it, so it is refused before any routing or work.
+	if event.ID == uuid.Nil {
+		s.rejectWebSocketMessageWithoutID(client.ID(), requestID)
+
+		return nil
+	}
+
 	sessionID, err := s.resolveWebSocketSession(event)
 	if err != nil {
 		s.rejectWebSocketSessionRouting(client.ID(), event.ID, requestID, err)
@@ -160,6 +168,62 @@ func (s *Server) handleWebSocketMessage(
 	reservation := s.deps.Turns.ReserveSessionMessage(sessionID)
 
 	go s.runWebSocketMessage(ctx, reservation, request, requestID, event.ID)
+
+	return nil
+}
+
+// rejectWebSocketMessageWithoutID answers a message.send that carries no id
+// on the sending socket only. The failure has no triggeredBy, because there
+// is no frame ID to name, and no sessionId, because nothing was routed.
+func (s *Server) rejectWebSocketMessageWithoutID(
+	clientID uuid.UUID,
+	requestID uuid.UUID,
+) {
+	ctx := s.deps.ServiceContext()
+
+	ctxscope.GetLogger(ctx).Warn(
+		"websocket message rejected",
+		"reason", "missing_event_id",
+	)
+	s.broadcastWebSocketFailureToClient(
+		ctx,
+		clientID,
+		nil,
+		requestID,
+		uuid.Nil,
+		newWebSocketMessageFailure(
+			aichteeteapee.ErrorCodeValidationFailed,
+			webSocketMessageMissingIDMessage,
+			"",
+		),
+	)
+}
+
+// handleInvalidWebSocketFrame answers a frame that does not decode as an
+// event, such as invalid JSON, an id that is not a UUID, or a field of the
+// wrong type. Like a frame without an id, it gets a message.failed on the
+// sending socket only, with no triggeredBy and no sessionId, and the socket
+// stays open. The hub has already logged the refusal and the frame's size;
+// neither the frame bytes nor the decode error, which can quote them, go
+// into the reply or the log.
+func (s *Server) handleInvalidWebSocketFrame(
+	_ wshub.Hub,
+	client *wshub.Client,
+	_ []byte,
+	_ error,
+) error {
+	s.broadcastWebSocketFailureToClient(
+		s.deps.ServiceContext(),
+		client.ID(),
+		nil,
+		uuid.New(),
+		uuid.Nil,
+		newWebSocketMessageFailure(
+			aichteeteapee.ErrorCodeValidationFailed,
+			webSocketMessageRejectedMessage,
+			"",
+		),
+	)
 
 	return nil
 }
@@ -431,8 +495,11 @@ func (s *Server) broadcastWebSocketFailureToClient(
 	event := dabluveees.NewEvent(
 		webSocketMessageFailedEventType,
 		failure,
-	).SetMetadata(webSocketMetadataRequestID, requestID.String()).
-		SetTriggeredBy(triggeringEventID)
+	).SetMetadata(webSocketMetadataRequestID, requestID.String())
+	if triggeringEventID != uuid.Nil {
+		event = event.SetTriggeredBy(triggeringEventID)
+	}
+
 	if sessionID != nil {
 		event = event.SetMetadata(
 			webSocketMetadataSessionID,

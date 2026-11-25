@@ -168,10 +168,14 @@ func (s *Store) cancelExecutionAgentRun(
 	now := s.now()
 	repository := tx.AgentRun
 
+	// A run that a restart interrupted still carries that classification.
+	// The cancellation replaces it, so the record and its terminal event say
+	// the run was cancelled.
 	_, err = repository.WithContext(ctx).Where(
 		repository.SessionID.Eq(run.SessionID), repository.ID.Eq(run.ID),
 	).UpdateSimple(
 		repository.State.Value(string(models.AgentRunStateCancelled)),
+		repository.FailureClassification.Value(TurnFailureCancelled),
 		repository.CancelRequested.Value(true), repository.EndedAt.Value(now),
 	)
 	if err != nil {
@@ -179,10 +183,15 @@ func (s *Store) cancelExecutionAgentRun(
 	}
 
 	run.State = models.AgentRunStateCancelled
+	run.FailureClassification = TurnFailureCancelled
 	run.CancelRequested, run.EndedAt = true, &now
 
 	if err := s.closeChildToolCalls(ctx, tx, run); err != nil {
 		return ctxerrors.Wrap(err, "close stopped child tool calls")
+	}
+
+	if err := s.recordUndeliveredChildInbox(ctx, tx, execution); err != nil {
+		return ctxerrors.Wrap(err, "report cancelled child unread inbox")
 	}
 
 	event, err := s.recordExecutionChildTerminal(ctx, tx, run)

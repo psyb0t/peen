@@ -337,8 +337,8 @@ func TestPromptHistoryAndRuntimeHelpers(t *testing.T) {
 		t,
 		turn.emit(
 			context.Background(),
-			EventTypeTextDelta,
-			textDeltaPayload{Text: "text"},
+			EventTypeQuestionAsked,
+			agentQuestionPayload{Question: "text"},
 		),
 	)
 
@@ -351,13 +351,13 @@ func TestPromptHistoryAndRuntimeHelpers(t *testing.T) {
 		t,
 		turn.emit(
 			context.Background(),
-			EventTypeTextDelta,
-			textDeltaPayload{Text: "text"},
+			EventTypeQuestionAsked,
+			agentQuestionPayload{Question: "text"},
 		),
 		sinkFailure,
 	)
 	require.Error(
 		t,
-		turn.emit(context.Background(), EventTypeTextDelta, make(chan int)),
+		turn.emit(context.Background(), EventTypeQuestionAsked, make(chan int)),
 	)
 }

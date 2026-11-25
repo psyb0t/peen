@@ -50,7 +50,18 @@ func TestServerSessionEventEndpoints(t *testing.T) {
 				eventsErr: commerr.ErrNotFound,
 			},
 			wantStatus: http.StatusNotFound,
-			wantCode:   aichteeteapee.ErrorCodeNotFound,
+			wantCode:   ErrorCodeSessionNotFound,
+		},
+		{
+			name:   "lists notices of an unknown session",
+			method: http.MethodGet,
+			path:   noticesPath,
+			runtime: &testRuntime{
+				sessionID: sessionID,
+				eventsErr: commerr.ErrNotFound,
+			},
+			wantStatus: http.StatusNotFound,
+			wantCode:   ErrorCodeSessionNotFound,
 		},
 		{
 			name:       "publishes a notice",
@@ -125,7 +136,7 @@ func TestServerSessionEventEndpoints(t *testing.T) {
 				eventsErr: commerr.ErrNotFound,
 			},
 			wantStatus: http.StatusNotFound,
-			wantCode:   aichteeteapee.ErrorCodeNotFound,
+			wantCode:   ErrorCodeSessionNotFound,
 		},
 	}
 

@@ -427,6 +427,149 @@ func TestWebSocketRejectsMalformedSessionIDMetadata(t *testing.T) {
 	assert.Zero(t, runtime.runCalls)
 }
 
+// A message.send with no id, or a null one, starts nothing. Its failure goes
+// to the sender only and names no frame, since the frame had no ID, and the
+// connection stays usable.
+func TestWebSocketRejectsMessageWithoutID(t *testing.T) {
+	testCases := []struct {
+		name  string
+		frame string
+	}{
+		{
+			name:  "missing",
+			frame: `{"type":"message.send","data":{"message":"hello"}}`,
+		},
+		{
+			name: "null",
+			frame: `{"id":null,"type":"message.send",` +
+				`"data":{"message":"hello"}}`,
+		},
+		{
+			name: "nil uuid",
+			frame: `{"id":"00000000-0000-0000-0000-000000000000",` +
+				`"type":"message.send","data":{"message":"hello"}}`,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			sessionID := uuid.New()
+			runtime := newTestRuntime(sessionID)
+			instance, err := newTestServer(Dependencies{Runtime: runtime})
+			require.NoError(t, err)
+			t.Cleanup(instance.webSocketHub.Close)
+
+			httpServer := httptest.NewServer(instance.inProcessHandler)
+			t.Cleanup(httpServer.Close)
+
+			sender := dialWebSocket(t, httpServer.URL, nil)
+			t.Cleanup(func() { require.NoError(t, sender.Close()) })
+
+			require.NoError(t, sender.WriteMessage(websocket.TextMessage,
+				[]byte(tc.frame)))
+
+			received := readWebSocketEvent(t, sender)
+			require.Equal(t, webSocketMessageFailedEventType,
+				string(received.Type))
+			assert.Nil(t, received.TriggeredBy)
+			_, hasSession := received.Metadata.Get(webSocketMetadataSessionID)
+			assert.False(t, hasSession)
+
+			failure := webSocketMessageFailure{}
+			require.NoError(t, json.Unmarshal(received.Data, &failure))
+			assert.Equal(t, aichteeteapee.ErrorCodeValidationFailed,
+				failure.Code)
+			assert.Equal(t, webSocketMessageMissingIDMessage, failure.Message)
+			assert.Zero(t, runtime.runCalls)
+
+			inbound := newWebSocketMessage(
+				agent.MessageRequest{Message: testWebSocketAgentMessage},
+			)
+			require.NoError(t, sender.WriteJSON(inbound))
+
+			completed := readWebSocketEvent(t, sender)
+			assert.Equal(t, webSocketMessageCompletedEventType,
+				string(completed.Type))
+		})
+	}
+}
+
+// A frame that does not decode as an event gets a message.failed on the
+// sending socket only, with no triggeredBy and no sessionId, quotes none of
+// the frame, and leaves the socket open for the next message.
+func TestWebSocketAnswersUndecodableFrames(t *testing.T) {
+	const marker = "frame-marker-text"
+
+	testCases := []struct {
+		name  string
+		frame string
+	}{
+		{name: "invalid json", frame: `{"type":"message.send",` + marker},
+		{
+			name: "id not a uuid",
+			frame: `{"id":"` + marker + `","type":"message.send",` +
+				`"data":{"message":"hello"}}`,
+		},
+		{
+			name: "type of the wrong kind",
+			frame: `{"id":"` + uuid.NewString() + `","type":42,` +
+				`"data":{"message":"` + marker + `"}}`,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			sessionID := uuid.New()
+			runtime := newTestRuntime(sessionID)
+			instance, err := newTestServer(Dependencies{Runtime: runtime})
+			require.NoError(t, err)
+			t.Cleanup(instance.webSocketHub.Close)
+
+			httpServer := httptest.NewServer(instance.inProcessHandler)
+			t.Cleanup(httpServer.Close)
+
+			sender := dialWebSocket(t, httpServer.URL, nil)
+			t.Cleanup(func() { require.NoError(t, sender.Close()) })
+
+			watcher := dialWebSocket(t, httpServer.URL, nil)
+			t.Cleanup(func() { require.NoError(t, watcher.Close()) })
+			waitForWebSocketClients(t, instance, sessionID, 2)
+
+			require.NoError(t, sender.WriteMessage(websocket.TextMessage,
+				[]byte(tc.frame)))
+
+			require.NoError(t, sender.SetReadDeadline(
+				time.Now().Add(testWebSocketEventuallyTimeout)))
+			_, raw, err := sender.ReadMessage()
+			require.NoError(t, err)
+			assert.NotContains(t, string(raw), marker)
+
+			received := dabluveees.Event{}
+			require.NoError(t, json.Unmarshal(raw, &received))
+			require.Equal(t, webSocketMessageFailedEventType,
+				string(received.Type))
+			assert.Nil(t, received.TriggeredBy)
+			_, hasSession := received.Metadata.Get(webSocketMetadataSessionID)
+			assert.False(t, hasSession)
+
+			failure := webSocketMessageFailure{}
+			require.NoError(t, json.Unmarshal(received.Data, &failure))
+			assert.Equal(t, aichteeteapee.ErrorCodeValidationFailed,
+				failure.Code)
+			assert.Equal(t, webSocketMessageRejectedMessage, failure.Message)
+			assert.Zero(t, runtime.runCalls)
+			assertNoWebSocketEvent(t, watcher)
+
+			inbound := newWebSocketMessage(
+				agent.MessageRequest{Message: testWebSocketAgentMessage},
+			)
+			require.NoError(t, sender.WriteJSON(inbound))
+
+			completed := readWebSocketEvent(t, sender)
+			assert.Equal(t, webSocketMessageCompletedEventType,
+				string(completed.Type))
+		})
+	}
+}
+
 // A control-surface runtime has no startup session, so a message that names no
 // session is refused rather than run against an arbitrary workspace.
 func TestWebSocketRequiresASessionWithoutAStartupSession(t *testing.T) {

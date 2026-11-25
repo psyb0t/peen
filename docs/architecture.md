@@ -49,7 +49,7 @@ A profile with `docker: readonly` gets no socket. For each such worker the contr
 
 The controller decides at startup whether it has Docker access, by checking whether it can reach a Docker socket. Without one, it registers no way to start containers, and a session in a Docker agent space is refused. Peen never falls back to the `control` agent space, because quietly giving up a container would run the model's tools in the controller's own environment. With a socket the rule runs the other way, and `control` is never offered, because a control worker could use the controller's socket to become host root.
 
-Events reach clients only after they are stored. A worker's turn writes through the control plane, and a feed pump reads each session's newly committed rows in sequence order and fans them out to the WebSocket hub right after the write lands. A client therefore never sees an event that a reconnect and replay through [the session feed](http-api.md#get-apiv1sessionfeed) would not produce.
+Events reach clients only after they are stored. A worker's turn writes through the control plane, and a feed pump reads each session's newly committed rows in sequence order and fans them out to the WebSocket hub right after the write lands. A client therefore never sees an event that a reconnect and replay through [the session feed](https://psyb0t.github.io/peen/api/list-session-feed/) would not produce.
 
 Controller integrations use the same workspace policy and worker routing. An integration that waits for its own result is refused when the session is busy, sees only its own request's committed events, and drains the remaining stored events before it returns. Feed subscribers have bounded buffers; a slow subscriber is disconnected without delaying the WebSocket hub. Caller cancellation waits for the request's admission or worker answer before stopping its exact turn, so it cannot stop a different request that uses the session.
 
@@ -225,7 +225,7 @@ Several words in these docs name different things on different pages. This is wh
 | fresh session | A further session in a workspace that already has one, opened by the OpenAI API, a scheduled job, or a Telegram chat. It has its own history and shares the workspace's files and agent space. | [Sessions and entry points](#sessions-and-entry-points) |
 | regular session | Any session except the system session. The file API and every integration reach only regular sessions. | [Sessions and entry points](#sessions-and-entry-points) |
 | control space | Where Peen itself runs when you install it with the installer: `host` or `docker`. | [Where it runs](where-it-runs.md#the-four-combinations) |
-| worker generation | One run of a session's worker process. A session gets a new generation each time Peen starts its worker. | [Workers](http-api.md#get-apiv1sessionworkers) |
+| worker generation | One run of a session's worker process. A session gets a new generation each time Peen starts its worker. | [Workers](https://psyb0t.github.io/peen/api/list-session-workers/) |
 
 The `agent.` prefix appears in two places. `agent.finished`, `agent.failed`, `agent.message`, and `agent.question` are session events. `agent.run.started`, `agent.run.tool.use`, and the other `agent.run.*` names are protocol events of a child agent run.
 

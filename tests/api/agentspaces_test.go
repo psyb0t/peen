@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/psyb0t/aichteeteapee"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	server "github.com/psyb0t/peen/internal/pkg/http/server"
 	"github.com/psyb0t/peen/tests/testinfra"
@@ -17,7 +18,6 @@ import (
 )
 
 const (
-	agentSpacesPath         = apiBasePath + "/agent-spaces"
 	sessionOpenPath         = apiBasePath + "/sessions/open"
 	sessionReconfigurePath  = sessionPath + "/reconfigure"
 	agentSpaceDecisionsPath = sessionPath + "/agent-space-decisions"
@@ -204,6 +204,24 @@ func TestAPIReconfiguresAnAgentSpaceAndRecordsTheDecision(t *testing.T) {
 	session := getSession(t, opened.Session.Id)
 	require.NotNil(t, session.AgentSpace)
 	assert.Equal(t, agentSpaceDockerDefault, *session.AgentSpace)
+
+	// Moving to the agent space the workspace already runs in changes
+	// nothing and records no second decision.
+	unchanged := apiRequest(
+		t,
+		http.MethodPost,
+		sessionReconfigurePath,
+		body,
+		headers,
+	)
+	requireAPIStatus(t, unchanged, http.StatusConflict)
+	assertErrorCode(t, unchanged, aichteeteapee.ErrorCodeConflict)
+
+	listed = apiRequest(t, http.MethodGet, agentSpaceDecisionsPath, nil,
+		headers)
+	requireAPIStatus(t, listed, http.StatusOK)
+	assert.Len(t, decodeResponse[api.SessionAgentSpaceDecisionPage](t,
+		listed).Items, 1)
 
 	refusedBody, err := json.Marshal(api.ReconfigureSessionRequest{
 		AgentSpace: agentSpaceUndefined,

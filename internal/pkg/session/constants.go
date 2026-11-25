@@ -22,6 +22,14 @@ const (
 	EventTypeTurnFailed           = "turn.failed"
 	EventTypeTurnCancelled        = "turn.cancelled"
 
+	// EventTypeAgentRunMessageQueued, EventTypeAgentRunMessageDelivered,
+	// and EventTypeAgentRunMessageUndelivered follow one message through a
+	// running child's inbox: accepted, read by its model, or left unread
+	// when the child ended.
+	EventTypeAgentRunMessageQueued      = "agent.run.message.queued"
+	EventTypeAgentRunMessageDelivered   = "agent.run.message.delivered"
+	EventTypeAgentRunMessageUndelivered = "agent.run.message.undelivered"
+
 	eventTypeToolUse    = "tool.use"
 	eventTypeToolResult = "tool.result"
 

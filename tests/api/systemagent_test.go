@@ -16,6 +16,7 @@ import (
 	"github.com/gorilla/websocket"
 	dabluveees "github.com/psyb0t/aichteeteapee/serbewr/dabluvee-es"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
+	server "github.com/psyb0t/peen/internal/pkg/http/server"
 	"github.com/psyb0t/peen/tests/testinfra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -324,4 +325,9 @@ func TestAPISystemSessionStaysInControl(t *testing.T) {
 		headers,
 	)
 	requireAPIStatus(t, response, http.StatusForbidden)
+
+	envelope := decodeResponse[api.Error](t, response)
+	assert.Equal(t, server.ErrorCodeAgentSpaceNotAllowed, envelope.Code)
+	assert.Equal(t, "the system session's agent space cannot be changed",
+		envelope.Message)
 }

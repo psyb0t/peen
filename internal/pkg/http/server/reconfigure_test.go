@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,8 +10,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/psyb0t/aichteeteapee"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/peen/internal/pkg/control"
 	"github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
@@ -158,6 +161,59 @@ func TestServerReconfigureSessionRefusesABusySession(t *testing.T) {
 	envelope := api.Error{}
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &envelope))
 	assert.Equal(t, ErrorCodeSessionBusy, envelope.Code)
+}
+
+func TestServerReconfigureSessionRefusalsSayWhy(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		err         error
+		wantStatus  int
+		wantCode    aichteeteapee.ErrorCode
+		wantMessage string
+	}{
+		{
+			name: "the current agent space",
+			err: ctxerrors.Wrap(session.ErrAgentSpaceUnchanged,
+				"reconfigure to the current agent space"),
+			wantStatus:  http.StatusConflict,
+			wantCode:    aichteeteapee.ErrorCodeConflict,
+			wantMessage: agentSpaceUnchangedMessage,
+		},
+		{
+			name: "the system session",
+			err: ctxerrors.Wrap(errors.Join(commerr.ErrPermissionDenied,
+				control.ErrSystemSessionAgentSpace),
+				"reconfigure the system session"),
+			wantStatus:  http.StatusForbidden,
+			wantCode:    ErrorCodeAgentSpaceNotAllowed,
+			wantMessage: systemSessionAgentSpaceMessage,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sessionID := uuid.New()
+			instance, err := newTestServer(Dependencies{
+				Runtime:  newTestRuntime(sessionID),
+				Sessions: &testSessionRegistry{decisionErr: tc.err},
+			})
+			require.NoError(t, err)
+
+			recorder := httptest.NewRecorder()
+			instance.inProcessHandler.ServeHTTP(recorder, reconfigureRequest(
+				t,
+				sessionID,
+				`{"agentSpace":"control","reason":"stay put"}`,
+			))
+
+			require.Equal(t, tc.wantStatus, recorder.Code)
+			assertErrorEnvelope(t, recorder, tc.wantCode, tc.wantMessage)
+		})
+	}
 }
 
 func TestServerReconfigureSessionRejectsMalformedInput(t *testing.T) {

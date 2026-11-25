@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"math"
 	"testing"
 
@@ -193,4 +194,70 @@ func TestChildDeliverySequenceExhaustionRollsBackTranscript(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, models.InboxMessageStateQueued, row.State)
 	assert.Nil(t, row.DeliveredActivityID)
+}
+
+// A durable child's inbox reports each message on the run's own event stream:
+// queued when it is accepted, delivered when the model takes it, and
+// undelivered when the child ends before reading it. The acceptance ID links
+// the steps of one message.
+func TestChildInboxRecordsAgentRunMessageSteps(t *testing.T) {
+	t.Parallel()
+	fixture := newExecutionFixture(t)
+	child := executionChildForTest(t, fixture, fixture.root)
+	read := inboxTestInput()
+	_, err := fixture.store.AcceptChildExecutionMessage(t.Context(),
+		fixture.sessionID, child.ID, read)
+	require.NoError(t, err)
+	ids := []uuid.UUID{read.RequestID}
+	claim, err := fixture.store.BeginExecutionActivity(t.Context(),
+		fixture.sessionID, child.ID, uuid.New(), inboxTestModelInput(t, ids))
+	require.NoError(t, err)
+	_, err = fixture.store.DeliverChildExecutionMessages(t.Context(),
+		fixture.sessionID, claim.Lease, ids)
+	require.NoError(t, err)
+	unread := inboxTestInput()
+	unread.Message = "a message the child never reads"
+	_, err = fixture.store.AcceptChildExecutionMessage(t.Context(),
+		fixture.sessionID, child.ID, unread)
+	require.NoError(t, err)
+	_, _, err = fixture.store.RequestAgentRunCancellation(t.Context(),
+		fixture.sessionID, *child.AgentRunID)
+	require.NoError(t, err)
+	page, err := fixture.store.ListAgentRunEvents(t.Context(),
+		fixture.sessionID, *child.AgentRunID, ListAgentRunEventsOptions{})
+	require.NoError(t, err)
+	type step struct {
+		kind    string
+		payload childInboxEventPayload
+	}
+	steps := make([]step, 0, len(page.Items))
+	previous := int64(0)
+	for _, event := range page.Items {
+		assert.Greater(t, event.FeedSequence, previous)
+		previous = event.FeedSequence
+		if event.EventType == EventTypeAgentRunCancelled {
+			steps = append(steps, step{kind: event.EventType})
+
+			continue
+		}
+		payload := childInboxEventPayload{}
+		require.NoError(t, json.Unmarshal([]byte(event.PayloadJSON),
+			&payload))
+		steps = append(steps, step{kind: event.EventType, payload: payload})
+	}
+	assert.Equal(t, []step{
+		{EventTypeAgentRunMessageQueued, childInboxEventPayload{
+			Message: read.Message, AcceptanceID: read.RequestID,
+		}},
+		{EventTypeAgentRunMessageDelivered, childInboxEventPayload{
+			Message: read.Message, AcceptanceID: read.RequestID,
+		}},
+		{EventTypeAgentRunMessageQueued, childInboxEventPayload{
+			Message: unread.Message, AcceptanceID: unread.RequestID,
+		}},
+		{EventTypeAgentRunMessageUndelivered, childInboxEventPayload{
+			Message: unread.Message, AcceptanceID: unread.RequestID,
+		}},
+		{kind: EventTypeAgentRunCancelled},
+	}, steps)
 }

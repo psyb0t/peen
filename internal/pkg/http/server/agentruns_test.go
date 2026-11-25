@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/aichteeteapee"
+	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/stretchr/testify/assert"
@@ -89,7 +90,19 @@ func TestServerSessionAgentRunEndpoints(t *testing.T) {
 				agentRunsErr: commerr.ErrNotFound,
 			},
 			wantStatus: http.StatusNotFound,
-			wantCode:   aichteeteapee.ErrorCodeNotFound,
+			wantCode:   ErrorCodeSessionNotFound,
+		},
+		{
+			name:   "rejects a parent that is neither a run nor root",
+			method: http.MethodGet,
+			path:   agentRunsPath() + "?parentAgentRunId=nope",
+			runtime: &testRuntime{
+				sessionID: sessionID,
+				agentRunsErr: ctxerrors.Wrap(commerr.ErrValidationFailed,
+					"parentAgentRunId must be an agent run ID or \"root\""),
+			},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   aichteeteapee.ErrorCodeValidationFailed,
 		},
 		{
 			name:       "follows one agent run",

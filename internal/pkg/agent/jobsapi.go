@@ -324,6 +324,7 @@ func jobModelToAPI(stored *models.Job) (api.Job, error) {
 	}
 
 	result := api.Job{
+		AgentRunId:    stored.AgentRunID,
 		Command:       stored.Command,
 		Directory:     stored.Directory,
 		EndedAt:       stored.EndedAt,

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/psyb0t/aichteeteapee"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/control"
@@ -154,15 +156,32 @@ func TestServerWorkspaceFileDeleteMapsWorkspaceRefusal(t *testing.T) {
 func TestWorkspaceFileRoutesMapErrorsWithoutInternalDetails(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
-		name   string
-		err    error
-		status int
+		name         string
+		err          error
+		status       int
+		deleteStatus int
 	}{
-		{"forbidden", commerr.ErrPermissionDenied, http.StatusForbidden},
-		{"missing", commerr.ErrNotFound, http.StatusNotFound},
-		{"invalid", commerr.ErrValidationFailed, http.StatusBadRequest},
-		{"conflict", commerr.ErrInvalidState, http.StatusConflict},
-		{"unexpected", ctxerrors.New("unexpected failure"), http.StatusInternalServerError},
+		{
+			"forbidden", commerr.ErrPermissionDenied, http.StatusForbidden,
+			http.StatusForbidden,
+		},
+		{
+			"missing", commerr.ErrNotFound, http.StatusNotFound,
+			http.StatusNotFound,
+		},
+		{
+			"invalid", commerr.ErrValidationFailed, http.StatusBadRequest,
+			http.StatusBadRequest,
+		},
+		// Only a delete can meet a directory that is not empty.
+		{
+			"conflict", commerr.ErrInvalidState,
+			http.StatusInternalServerError, http.StatusConflict,
+		},
+		{
+			"unexpected", ctxerrors.New("unexpected failure"),
+			http.StatusInternalServerError, http.StatusInternalServerError,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -191,8 +210,96 @@ func TestWorkspaceFileRoutesMapErrorsWithoutInternalDetails(t *testing.T) {
 				request.Header.Set(headerContentType, mediaTypeJSON)
 				recorder := httptest.NewRecorder()
 				instance.inProcessHandler.ServeHTTP(recorder, request)
-				assert.Equal(t, test.status, recorder.Code, operation.method)
+				wantStatus := test.status
+				if operation.method == http.MethodDelete {
+					wantStatus = test.deleteStatus
+				}
+
+				assert.Equal(t, wantStatus, recorder.Code, operation.method)
 				assert.NotContains(t, recorder.Body.String(), "/private/worker")
+			}
+		})
+	}
+}
+
+func TestWorkspaceFileRoutesNameWhatIsMissingOrRefused(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name        string
+		err         error
+		sessionErr  error
+		wantStatus  int
+		wantCode    aichteeteapee.ErrorCode
+		wantMessage string
+	}{
+		{
+			name:        "missing path",
+			err:         commerr.ErrNotFound,
+			wantStatus:  http.StatusNotFound,
+			wantCode:    aichteeteapee.ErrorCodeNotFound,
+			wantMessage: workspacePathNotFoundMessage,
+		},
+		{
+			name:        "unknown session",
+			err:         commerr.ErrNotFound,
+			sessionErr:  commerr.ErrNotFound,
+			wantStatus:  http.StatusNotFound,
+			wantCode:    ErrorCodeSessionNotFound,
+			wantMessage: sessionNotFoundMessage,
+		},
+		{
+			name: "refused path",
+			err: errors.Join(commerr.ErrPermissionDenied,
+				control.ErrWorkspacePathRefused),
+			wantStatus:  http.StatusForbidden,
+			wantCode:    ErrorCodeWorkspaceNotAllowed,
+			wantMessage: workspacePathRefusedMessage,
+		},
+		{
+			name:        "refused session",
+			err:         commerr.ErrPermissionDenied,
+			wantStatus:  http.StatusForbidden,
+			wantCode:    ErrorCodeWorkspaceNotAllowed,
+			wantMessage: workspaceNotAllowedError().Message,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sessionID := uuid.New()
+			runtime := newTestRuntime(sessionID)
+			runtime.sessionErr = tc.sessionErr
+			instance, err := newTestServer(Dependencies{
+				Runtime:        runtime,
+				WorkspaceFiles: testWorkspaceFileService{err: tc.err},
+			})
+			require.NoError(t, err)
+
+			for _, operation := range []struct {
+				method string
+				path   string
+				body   string
+			}{
+				{http.MethodGet, "/session/files", ""},
+				{http.MethodGet, "/session/files/content?path=file", ""},
+				{
+					http.MethodPut, "/session/files/content",
+					`{"path":"file","contentBase64":"eA=="}`,
+				},
+				{http.MethodDelete, "/session/files?path=file", ""},
+			} {
+				request := httptest.NewRequestWithContext(t.Context(),
+					operation.method, apiBaseURL+operation.path,
+					strings.NewReader(operation.body))
+				request.Header.Set(headerSessionID, sessionID.String())
+				request.Header.Set(headerContentType, mediaTypeJSON)
+				recorder := httptest.NewRecorder()
+				instance.inProcessHandler.ServeHTTP(recorder, request)
+				assert.Equal(t, tc.wantStatus, recorder.Code, operation.method)
+				assertErrorEnvelope(t, recorder, tc.wantCode, tc.wantMessage)
 			}
 		})
 	}

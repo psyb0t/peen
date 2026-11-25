@@ -25,7 +25,15 @@ func (s *Server) ListSessionAgentRuns(
 		if errors.Is(err, commerr.ErrNotFound) {
 			return api.ListSessionAgentRuns404JSONResponse{
 				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-					notFoundError(),
+					sessionNotFoundError(),
+				),
+			}, nil
+		}
+
+		if errors.Is(err, commerr.ErrValidationFailed) {
+			return api.ListSessionAgentRuns400JSONResponse{
+				ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(
+					validationError(clientMessage(err)),
 				),
 			}, nil
 		}
@@ -57,10 +65,14 @@ func (s *Server) ListSessionAgentRunEvents(
 	)
 	if err != nil {
 		if errors.Is(err, commerr.ErrNotFound) {
+			body, lookupErr := s.missingRecordError(ctx,
+				request.Params.XSessionID, agentRunNotFoundMessage)
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+
 			return api.ListSessionAgentRunEvents404JSONResponse{
-				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-					notFoundError(),
-				),
+				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(body),
 			}, nil
 		}
 
@@ -90,10 +102,14 @@ func (s *Server) CancelSessionAgentRun(
 	)
 	if err != nil {
 		if errors.Is(err, commerr.ErrNotFound) {
+			body, lookupErr := s.missingRecordError(ctx,
+				request.Params.XSessionID, agentRunNotFoundMessage)
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+
 			return api.CancelSessionAgentRun404JSONResponse{
-				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-					notFoundError(),
-				),
+				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(body),
 			}, nil
 		}
 
@@ -130,7 +146,7 @@ func (s *Server) CancelSessionAgentRun(
 // A child agent runs a separate model context, so these rows are the child's
 // and never the session's.
 //
-//nolint:ireturn // Generated strict handler response interface.
+//nolint:dupl,ireturn // Each operation has its own generated response types.
 func (s *Server) ListSessionAgentRunMessages(
 	ctx context.Context,
 	request api.ListSessionAgentRunMessagesRequestObject,
@@ -143,10 +159,14 @@ func (s *Server) ListSessionAgentRunMessages(
 	)
 	if err != nil {
 		if errors.Is(err, commerr.ErrNotFound) {
+			body, lookupErr := s.missingRecordError(ctx,
+				request.Params.XSessionID, agentRunNotFoundMessage)
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+
 			return api.ListSessionAgentRunMessages404JSONResponse{
-				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-					notFoundError(),
-				),
+				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(body),
 			}, nil
 		}
 
@@ -172,7 +192,7 @@ func (s *Server) ListSessionAgentRunMessages(
 
 // ListSessionAgentRunCompactions returns one child's compaction lineage.
 //
-//nolint:ireturn // Generated strict handler response interface.
+//nolint:dupl,ireturn // Each operation has its own generated response types.
 func (s *Server) ListSessionAgentRunCompactions(
 	ctx context.Context,
 	request api.ListSessionAgentRunCompactionsRequestObject,
@@ -185,10 +205,14 @@ func (s *Server) ListSessionAgentRunCompactions(
 	)
 	if err != nil {
 		if errors.Is(err, commerr.ErrNotFound) {
+			body, lookupErr := s.missingRecordError(ctx,
+				request.Params.XSessionID, agentRunNotFoundMessage)
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+
 			return api.ListSessionAgentRunCompactions404JSONResponse{
-				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-					notFoundError(),
-				),
+				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(body),
 			}, nil
 		}
 
@@ -227,10 +251,14 @@ func (s *Server) GetSessionAgentRunCompaction(
 	)
 	if err != nil {
 		if errors.Is(err, commerr.ErrNotFound) {
+			body, lookupErr := s.missingRecordError(ctx,
+				request.Params.XSessionID, compactionNotFoundMessage)
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+
 			return api.GetSessionAgentRunCompaction404JSONResponse{
-				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-					notFoundError(),
-				),
+				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(body),
 			}, nil
 		}
 

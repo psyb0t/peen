@@ -21,7 +21,10 @@ func (s *Store) DeliverChildExecutionMessages(
 ) (*ExecutionInboxDelivery, error) {
 	var receipt *ExecutionInboxDelivery
 
-	err := s.query.Transaction(func(tx *repositories.Query) error {
+	err := s.feedTransaction(ctx, func(
+		ctx context.Context,
+		tx *repositories.Query,
+	) error {
 		var deliveryErr error
 
 		receipt, deliveryErr = s.deliverChildInboxMessages(ctx, tx, sessionID,
@@ -173,6 +176,11 @@ func (s *Store) recordChildInboxDelivery(
 		return ctxerrors.Wrap(err, "encode child delivery history")
 	}
 
-	return s.appendExecutionEvent(ctx, tx, execution,
-		ExecutionEventTypeInboxDelivered, encoded)
+	if err := s.appendExecutionEvent(ctx, tx, execution,
+		ExecutionEventTypeInboxDelivered, encoded); err != nil {
+		return ctxerrors.Wrap(err, "save child delivery history")
+	}
+
+	return s.recordChildInboxRunEvent(ctx, tx, execution,
+		EventTypeAgentRunMessageDelivered, row)
 }

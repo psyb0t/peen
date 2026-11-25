@@ -117,7 +117,7 @@ func (s *Server) ListSessionEvents(
 		if errors.Is(err, commerr.ErrNotFound) {
 			return api.ListSessionEvents404JSONResponse{
 				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-					notFoundError(),
+					sessionNotFoundError(),
 				),
 			}, nil
 		}
@@ -154,7 +154,7 @@ func (s *Server) ListSessionNotices(
 		if errors.Is(err, commerr.ErrNotFound) {
 			return api.ListSessionNotices404JSONResponse{
 				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-					notFoundError(),
+					sessionNotFoundError(),
 				),
 			}, nil
 		}
@@ -220,7 +220,7 @@ func (s *Server) publishSessionNoticeFailure(
 	case errors.Is(err, commerr.ErrNotFound):
 		return api.PublishSessionNotice404JSONResponse{
 			ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-				notFoundError(),
+				sessionNotFoundError(),
 			),
 		}, nil
 	case errors.Is(err, events.ErrInvalidType),

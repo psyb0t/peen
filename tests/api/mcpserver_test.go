@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/psyb0t/aichteeteapee"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/peen/tests/testinfra"
 	"github.com/stretchr/testify/assert"
@@ -38,14 +39,20 @@ func TestAPIMCPServerRoundTripAndRefusals(t *testing.T) {
 		"PEEN_MCP_SERVER": "true",
 	}})
 	for _, tc := range []struct {
-		auth   bool
-		host   string
-		origin string
-		status int
+		auth     bool
+		host     string
+		origin   string
+		status   int
+		envelope *aichteeteapee.ErrorResponse
 	}{
 		{status: http.StatusUnauthorized},
-		{auth: true, host: "attacker.example", status: http.StatusMisdirectedRequest},
-		{auth: true, host: "localhost", origin: "https://attacker.example", status: http.StatusForbidden},
+		{host: "attacker.example", status: http.StatusUnauthorized},
+		{auth: true, host: "attacker.example", status: http.StatusMisdirectedRequest, envelope: &aichteeteapee.ErrorResponseMisdirectedRequest},
+		{auth: true, host: "localhost", origin: "https://attacker.example", status: http.StatusForbidden, envelope: &aichteeteapee.ErrorResponseForbidden},
+		// The SDK answers 405 to GET in stateless mode, which proves the
+		// request passed the Host and Origin checks.
+		{auth: true, host: "localhost", origin: "http://localhost:8080", status: http.StatusMethodNotAllowed},
+		{auth: true, host: "localhost", status: http.StatusMethodNotAllowed},
 	} {
 		request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, variant.APIURL("/mcp/v1"), nil)
 		require.NoError(t, err)
@@ -65,6 +72,12 @@ func TestAPIMCPServerRoundTripAndRefusals(t *testing.T) {
 		body := readAPIResponse(t, response)
 		require.NoError(t, response.Body.Close())
 		assert.Equal(t, tc.status, body.StatusCode, string(body.Body))
+		assert.NotContains(t, string(body.Body), "attacker.example")
+		if tc.envelope != nil {
+			envelope := aichteeteapee.ErrorResponse{}
+			require.NoError(t, json.Unmarshal(body.Body, &envelope))
+			assert.Equal(t, *tc.envelope, envelope)
+		}
 	}
 	httpClient := *variant.HTTPClient()
 	base := httpClient.Transport

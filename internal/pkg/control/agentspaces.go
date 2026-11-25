@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"errors"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
@@ -65,8 +66,9 @@ func agentSpaceToAPI(space worker.AgentSpace) api.AgentSpace {
 // ReconfigureSession moves an idle session, and every other session of its
 // workspace, to a different agent space.
 //
-// The agent space must be one the deployment offers, no session of the
-// workspace may have a turn in flight, and the change is recorded for each
+// The agent space must be one the deployment offers and differ from the one
+// the workspace already runs in, no session of the workspace may have a turn
+// in flight, and the change is recorded for each
 // session with the caller's reason. Each session's current worker is stopped,
 // so its next turn starts a new generation in the new agent space rather than
 // continuing in the old environment. The returned decision is sessionID's.
@@ -85,8 +87,11 @@ func (r *Registry) ReconfigureSession(
 
 	if stored.RootAgent == harness.SystemAgentName {
 		return api.SessionAgentSpaceDecision{}, ctxerrors.Wrap(
-			commerr.ErrPermissionDenied,
-			"the system session stays in the control agent space",
+			errors.Join(
+				commerr.ErrPermissionDenied,
+				ErrSystemSessionAgentSpace,
+			),
+			"reconfigure the system session",
 		)
 	}
 

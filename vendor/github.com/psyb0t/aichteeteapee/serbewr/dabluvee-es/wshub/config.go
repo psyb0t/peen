@@ -15,6 +15,9 @@ type ClientConfig struct {
 	WriteTimeout    time.Duration
 	PingInterval    time.Duration
 	PongTimeout     time.Duration
+	// InvalidEventHandler receives messages that do not decode as an event.
+	// Nil closes the connection with code 1007 on the first such message.
+	InvalidEventHandler InvalidEventHandler
 }
 
 // NewClientConfig creates config with defaults from http/defaults.go.
@@ -82,5 +85,16 @@ func WithPingInterval(interval time.Duration) ClientOption {
 func WithPongTimeout(timeout time.Duration) ClientOption {
 	return func(c *ClientConfig) {
 		c.PongTimeout = timeout
+	}
+}
+
+// WithInvalidEventHandler sets the handler for messages that do not decode
+// as an event: malformed JSON, an id that is not a UUID, or a field of the
+// wrong type. When the handler returns nil the connection keeps reading.
+// When it returns an error, or no handler is set, the connection closes with
+// code 1007 (invalid frame payload data).
+func WithInvalidEventHandler(handler InvalidEventHandler) ClientOption {
+	return func(c *ClientConfig) {
+		c.InvalidEventHandler = handler
 	}
 }

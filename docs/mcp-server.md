@@ -34,10 +34,10 @@ The default allowed hosts are `localhost`, `127.0.0.1` and `[::1]`, with any val
 Peen checks each request in this order:
 
 1. The bearer token. A missing or wrong token gets `401` with the REST error envelope, before the Host is looked at.
-2. The `Host` header. A host outside the allowlist gets `421`.
-3. The `Origin` header. An origin outside the allowlist, or more than one `Origin` header, gets `403`. A request with no `Origin` header, which is how a client outside a browser connects, passes this check.
+2. The `Host` header. A host outside the allowlist gets `421` with code `MISDIRECTED_REQUEST`.
+3. The `Origin` header. An origin outside the allowlist, or more than one `Origin` header, gets `403` with code `FORBIDDEN`. A request with no `Origin` header, which is how a client outside a browser connects, passes this check, but a browser request that the browser marks as cross-site still gets `403`.
 
-The `421` and `403` bodies are plain text. Request bodies are limited to the larger of the WebSocket frame limit and the base64 size of `PEEN_MAX_FILE_API_BYTES`.
+The `421` and `403` bodies use the same `{"code", "message"}` envelope as the REST API. Request bodies are limited to the larger of the WebSocket frame limit and the base64 size of `PEEN_MAX_FILE_API_BYTES`.
 
 ## Tools
 
@@ -46,8 +46,8 @@ Every tool advertises only `{"type": "object"}` as its output schema, so this ta
 | Tool | Input | Result |
 | --- | --- | --- |
 | `sendMessage` | Exactly one of `sessionId` or `workspace`, plus a non-empty `message`. Optional `agentSpace` (with `workspace` only), `model`, `reasoningEffort`, `outputSchema` (a JSON Schema object), and `timeoutSeconds` (1 through 86400). | `{sessionId, text, state, output?, outputError?}`. `text` is the final answer and `state` is the stored turn state. |
-| `listSessions` | Optional `limit` and `offset`. | `{items, limit, offset, hasMore}`, the REST [session page](http-api.md#get-apiv1sessions) with only permitted regular sessions. |
-| `getSession` | `sessionId`. | The REST [session object](http-api.md#get-apiv1session). |
+| `listSessions` | Optional `limit` and `offset`. | `{items, limit, offset, hasMore}`, the REST [session page](https://psyb0t.github.io/peen/api/list-sessions/) with only permitted regular sessions. |
+| `getSession` | `sessionId`. | The REST [session object](https://psyb0t.github.io/peen/api/get-session/). |
 | `readMessages` | `sessionId` and optional `limit`. | `{items, limit, offset, hasMore}` with the last `limit` messages, oldest first. `hasMore` means older messages exist. |
 | `cancelTurn` | `sessionId`. | `{cancelled}`, `true` when a pending or running turn was signalled. |
 | `listModels` | None. | `{models}`, the same records as [`GET /api/v1/models`](websocket-api.md): `name`, `connectionName`, `modelId`, `contextWindowTokens` and `imageInput`. Pass `name` as `model`. |

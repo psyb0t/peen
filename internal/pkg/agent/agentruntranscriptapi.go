@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -231,15 +230,18 @@ func agentRunMessageToAPI(
 		return message, nil
 	}
 
-	toolCalls := []map[string]any{}
-	if err := json.Unmarshal(
-		[]byte(stored.ToolCallsJSON),
-		&toolCalls,
-	); err != nil {
+	// The row stores elelem's tool calls, whose keys are Go field names. The
+	// API returns them in the same camelCase shape as the session transcript.
+	toolCalls, err := toolCallsToAPI(stored.ToolCallsJSON)
+	if err != nil {
 		return api.AgentRunMessage{}, ctxerrors.Wrap(
 			err,
 			"decode child message tool calls",
 		)
+	}
+
+	if toolCalls == nil {
+		toolCalls = []api.MessageToolCall{}
 	}
 
 	message.ToolCalls = &toolCalls

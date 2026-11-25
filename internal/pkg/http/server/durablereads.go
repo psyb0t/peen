@@ -97,10 +97,14 @@ func (s *Server) GetSessionCompaction(
 	)
 	if err != nil {
 		if errors.Is(err, commerr.ErrNotFound) {
+			body, lookupErr := s.missingRecordError(ctx,
+				request.Params.XSessionID, compactionNotFoundMessage)
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+
 			return api.GetSessionCompaction404JSONResponse{
-				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-					notFoundError(),
-				),
+				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(body),
 			}, nil
 		}
 
@@ -155,7 +159,7 @@ func (s *Server) ListSessionModelRuns(
 
 // ListSessionModelRunCalls returns every provider round for one model run.
 //
-//nolint:ireturn // Generated strict handler response interface.
+//nolint:dupl,ireturn // Each operation has its own generated response types.
 func (s *Server) ListSessionModelRunCalls(
 	ctx context.Context,
 	request api.ListSessionModelRunCallsRequestObject,
@@ -168,10 +172,14 @@ func (s *Server) ListSessionModelRunCalls(
 	)
 	if err != nil {
 		if errors.Is(err, commerr.ErrNotFound) {
+			body, lookupErr := s.missingRecordError(ctx,
+				request.Params.XSessionID, modelRunNotFoundMessage)
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+
 			return api.ListSessionModelRunCalls404JSONResponse{
-				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-					notFoundError(),
-				),
+				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(body),
 			}, nil
 		}
 
@@ -209,10 +217,14 @@ func (s *Server) GetSessionContextSnapshot(
 	)
 	if err != nil {
 		if errors.Is(err, commerr.ErrNotFound) {
+			body, lookupErr := s.missingRecordError(ctx,
+				request.Params.XSessionID, contextSnapshotNotFoundMessage)
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+
 			return api.GetSessionContextSnapshot404JSONResponse{
-				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-					notFoundError(),
-				),
+				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(body),
 			}, nil
 		}
 
@@ -242,10 +254,14 @@ func (s *Server) GetSessionPromptSnapshot(
 	)
 	if err != nil {
 		if errors.Is(err, commerr.ErrNotFound) {
+			body, lookupErr := s.missingRecordError(ctx,
+				request.Params.XSessionID, promptSnapshotNotFoundMessage)
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+
 			return api.GetSessionPromptSnapshot404JSONResponse{
-				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-					notFoundError(),
-				),
+				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(body),
 			}, nil
 		}
 
@@ -275,10 +291,14 @@ func (s *Server) GetSessionAgentRun(
 	)
 	if err != nil {
 		if errors.Is(err, commerr.ErrNotFound) {
+			body, lookupErr := s.missingRecordError(ctx,
+				request.Params.XSessionID, agentRunNotFoundMessage)
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+
 			return api.GetSessionAgentRun404JSONResponse{
-				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-					notFoundError(),
-				),
+				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(body),
 			}, nil
 		}
 

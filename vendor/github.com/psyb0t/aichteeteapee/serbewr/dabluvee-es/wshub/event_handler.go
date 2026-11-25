@@ -8,6 +8,16 @@ import (
 // and returns an error if processing fails.
 type EventHandler func(hub Hub, client *Client, event *dabluveees.Event) error
 
+// InvalidEventHandler handles one message that did not decode as an event.
+// It runs on the connection's read pump, so it should return quickly. hub is
+// the client's hub and may be nil for a client outside a hub. data is the raw
+// message, at most the client's read limit; err is the decode error. Answer
+// the sender with client.SendEvent or hub.BroadcastToClients. Return nil to
+// keep the connection open, or an error to close it with code 1007.
+type InvalidEventHandler func(
+	hub Hub, client *Client, data []byte, err error,
+) error
+
 // EventTypeEchoRequestHandler handles echo request events by creating an
 // echo reply with the same data and setting the original request event ID as
 // triggeredBy.

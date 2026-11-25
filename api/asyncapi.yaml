@@ -2,40 +2,118 @@ asyncapi: 3.0.0
 info:
   title: Peen WebSocket API
   version: 1.0.0
-  description: >
-    The live socket that starts turns and streams every event a session
-    produces. REST reads what Peen already stored and controls a run; this
-    socket is the only way to start one.
+  description: |-
+    The live socket for Peen. A client sends `message.send` frames here to start a turn, to queue a message into a running turn, or to message a running child agent, and receives every frame its sessions produce as they happen. This socket is the only way to send a user message. The REST API under `/api/v1` reads what Peen stored and controls running work; a session's work keeps running when no client is connected.
+
+    ## Connecting
+
+    Open a WebSocket to `/ws/v1` (`wss://` in deployment) and offer the `peen.v1` subprotocol. The server selects it.
+
+    When the deployment sets `PEEN_API_TOKEN`, the handshake must carry the token, or the upgrade is refused with HTTP 401 `UNAUTHORIZED`:
+
+    - A client outside a browser sends `Authorization: Bearer <token>`.
+    - A browser, which cannot set headers on a WebSocket, offers a second subprotocol, `peen.bearer.<base64url-token>`, where `<base64url-token>` is the token in unpadded URL-safe Base64. The server still selects `peen.v1`.
+
+    Never put the token in the URL. A handshake that carries an `Origin` header must name the same host as the request; one without an `Origin` header is accepted.
+
+    Add `?sessionId=<uuid>` to receive only one session's frames. The value must appear once and be a canonical lowercase UUIDv4, or the upgrade fails with HTTP 400 `INVALID_SESSION_ID`. The filter only selects frames: it does not create, open, or authorize a session, and closing the socket stops nothing. Without it, the socket receives the frames of every session.
+
+    ## Sending
+
+    The only client frame is `message.send`. Every one must carry an `id`, a UUID you generate, and must name its session in `metadata.sessionId`, a canonical UUIDv4 from `POST /api/v1/sessions/open`, `GET /api/v1/sessions`, or `POST /api/v1/sessions/system`. The session ID routes the message; it does not grant access, and the message body cannot redirect it. Only an embedded single-workspace runtime accepts a frame without a session and uses its own session. Frames of any other `type` are ignored without a reply. A frame without an `id`, with a null `id`, or with the all-zero UUID gets `message.failed` with `VALIDATION_FAILED` and starts nothing. A frame that is not valid JSON in the frame's shape, whose `id` is not a UUID string, or that has a field of the wrong type gets `message.failed` with `VALIDATION_FAILED` on the sending socket only, with a null `triggeredBy` and no `metadata.sessionId`, and starts nothing; the connection stays open. A frame larger than the deployment's read limit (sized from the message, system prompt, output schema, and image limits) makes the server stop reading and close the connection with status 1009.
+
+    Peen accepts each session's messages in the order it receives them, from every client. The first starts a turn; a message that arrives while that turn runs joins its queue. Peen gives every accepted message a request ID, carried in `metadata.requestId` of its acknowledgement and of the frames it causes.
+
+    ## Sequenced frames and replay
+
+    Every server frame except `message.completed` and `message.failed` is rendered from a stored record and carries `metadata.sequence`, its position in the session's feed. Sequences are per session, start at 1, and count up by one across root turn events, `agent.run.*` child steps, and `notice.created` frames. Peen sends a frame only after its record is committed, in sequence order. A sequenced frame's `id` is the stored record's ID, its `timestamp` is the record's creation time in Unix seconds, and its `triggeredBy` is null, so it reads the same live and replayed.
+
+    Track the last sequence applied per session. After connecting or reconnecting, call `GET /api/v1/session/feed` with that session's `X-Session-ID` and `cursor` set to the last sequence applied (0 for the start), apply the returned frames in order, and repeat with `nextCursor` while `hasMore` is true. Then apply live frames, skipping any whose sequence is not greater than the last one applied. `GET /api/v1/session` reports the feed head as `feedSequence`, and `activeTurnFeedSequence` while a turn runs.
+
+    ## Acknowledgements
+
+    `message.completed` and `message.failed` answer one `message.send`. They are never stored, never replayed, and carry no `metadata.sequence`. `triggeredBy` is the `id` of the client frame they answer, so match on it: they reach every socket that receives that session's frames, not only the sender. Four failures go only to the sending socket: a frame without an `id`, which gets a null `triggeredBy` and no `metadata.sessionId`; a frame that does not decode, such as invalid JSON or an `id` that is not a UUID string, which gets the same; a frame whose session could not be resolved, which also carries no `metadata.sessionId`; and a frame whose `data` failed validation. Acknowledgements travel outside the feed, so they are not ordered against sequenced frames.
+
+    `message.completed` arrives when the turn the message started ends, with `queued: false`, or as soon as the message joins a running turn's queue or a child's inbox, with `queued: true`. `message.failed` carries one of these codes:
+
+    - `VALIDATION_FAILED`: the frame was invalid. Examples: a missing `id`, a missing or malformed `metadata.sessionId`, an unknown or missing field, a bad value, a message or system prompt over its byte limit, images the model cannot take or that break the image limits, an unknown `:skill` name, a queued message that tries to change the running turn's model, reasoning effort, or system prompt, or a field combined with `to` or `system` that cannot be. `message` names the problem when it is safe to show.
+    - `SESSION_NOT_FOUND`: `metadata.sessionId` names no session.
+    - `SESSION_BUSY`: the message carries `outputSchema` or `timeoutSeconds` and a turn is already active, or it otherwise conflicts with the active turn.
+    - `USER_MESSAGE_QUEUE_FULL`: the running turn's queue, or the child's inbox, already holds `PEEN_MAX_QUEUED_USER_MESSAGES` messages (16 by default).
+    - `OUTPUT_SCHEMA_INVALID`: `outputSchema` is over `PEEN_MAX_OUTPUT_SCHEMA_BYTES`, does not compile, or references an external resource.
+    - `TURN_CANCELLED`: the turn the message started was stopped.
+    - `TURN_TIMEOUT`: the turn's deadline, from `timeoutSeconds` or `PEEN_TURN_TIMEOUT`, expired.
+    - `TURN_ROUND_LIMIT`: the turn used up `PEEN_MAX_TOOL_ROUNDS` tool rounds.
+    - `TURN_TOKEN_LIMIT`: the turn billed `PEEN_MAX_TURN_TOKENS` tokens.
+    - `AGENT_FINISHED`: `to` names a child agent that has already ended.
+    - `AGENT_NOT_FOUND`: `to` names an agent run this session never had.
+    - `HARNESS_CONFIGURATION_INVALID`: the workspace agent configuration stops the turn from starting. `reason` says what to fix.
+    - `INTERNAL_SERVER_ERROR`: any other failure, including provider, worker, and tool errors. The message never includes their details.
+    - `AGENT_PAUSED`: deprecated and never sent. A message to a paused child resumes it.
 servers:
   peen:
     host: 127.0.0.1:8080
     pathname: /ws/v1
     protocol: ws
-    description: >
-      Connects with the `peen.v1` subprotocol, or `peen.bearer.<base64url
-      token>` to also carry a bearer token in the handshake. An optional
-      `?sessionId=<uuid>` query parameter filters the connection's live
-      frames to one session; without it the connection receives every
-      accepted session's frames.
+    description: >-
+      A controller on the local machine at its default port. `PEEN_HTTP_LISTEN_ADDRESS`
+      sets the address, `:8080` by default. Replace the host with your
+      deployment's and use `wss://` behind TLS. Offer the `peen.v1`
+      subprotocol, and, when `PEEN_API_TOKEN` is set, authenticate with an
+      `Authorization: Bearer` header or the `peen.bearer.<base64url-token>`
+      subprotocol. An optional `?sessionId=<uuid>` filters the socket's frames
+      to one session; without it the socket receives every session's frames.
 channels:
   socket:
     address: /ws/v1
+    description: >-
+      The one WebSocket at `/ws/v1`. Clients send `message.send` frames and
+      receive server frames for every session they watch, or for the one
+      session named by `?sessionId=`.
     messages:
       messageSend:
+        summary: >-
+          Send a message to a session, its running turn, or one of its child
+          agents.
+        description: >-
+          The `message.send` frame, the only frame a client sends. It starts a
+          turn, joins a running turn's queue, or, with `data.to`, reaches a
+          running child agent's inbox. Peen answers with `message.completed` or
+          `message.failed`, whose `triggeredBy` is this frame's `id`.
         payload:
           $ref: "#/components/schemas/MessageSend"
       serverEvent:
+        summary: >-
+          A frame the server sends: a sequenced session frame or an
+          acknowledgement.
+        description: >-
+          Every server frame, told apart by `type`. All are sequenced feed
+          frames that `GET /api/v1/session/feed` can replay, except
+          `message.completed` and `message.failed`, which acknowledge one
+          client frame and are never stored.
         payload:
           $ref: "#/components/schemas/ServerEvent"
 operations:
   sendMessage:
     action: send
+    description: >-
+      Send `message.send` frames. Each must carry a unique `id` and name its
+      session in `metadata.sessionId`. Peen accepts a session's messages in
+      arrival order: the first starts a turn and later ones join its queue
+      until it ends. Watch for the `message.completed` or `message.failed`
+      frame whose `triggeredBy` equals the frame's `id`.
     channel:
       $ref: "#/channels/socket"
     messages:
       - $ref: "#/channels/socket/messages/messageSend"
   receiveEvents:
     action: receive
+    description: >-
+      Receive server frames. Apply sequenced frames in `metadata.sequence`
+      order per session and keep the last sequence applied, so a reconnecting
+      client can catch up through `GET /api/v1/session/feed`. Treat a frame
+      whose `type` you do not know as skippable, but still advance your cursor
+      past its sequence.
     channel:
       $ref: "#/channels/socket"
     messages:
@@ -46,22 +124,46 @@ components:
       title: Metadata
       type: object
       additionalProperties: false
-      description: >
-        Routing and cursor information carried alongside every frame. Not
-        every field is present on every frame: a session-routing
-        `message.failed` sent only to its sender carries no `sessionId`,
-        and only a sequenced feed frame carries `sequence`.
+      description: >-
+        Routing and cursor information carried in every frame's `metadata`. On
+        `message.send` only `sessionId` is read. On server frames, which fields
+        are present depends on the frame: see each property.
       properties:
         sessionId:
           type: string
           format: uuid
+          description: >-
+            The session the frame belongs to, as a canonical lowercase UUIDv4.
+            On `message.send` it routes the message to that session; a value
+            that is not a canonical UUIDv4 string fails the message with
+            `VALIDATION_FAILED`. A client with no session to name, such as an
+            embedded single-workspace runtime, may omit it, and the message
+            then runs against the runtime's own session; a controller has no
+            such session, so it refuses a message without one. Every server
+            frame carries it, except a `message.failed` answering a message
+            Peen could not route or a `message.send` that carried no `id`.
         requestId:
           type: string
           format: uuid
+          description: >-
+            The ID Peen assigns to one submission. Every frame of a turn
+            carries the turn's request ID, except the `userMessage.*` frames of
+            a message queued into that turn, which carry the queued message's
+            own. `message.completed` and `message.failed` carry the request ID
+            of the submission they answer, so use it to find that submission's
+            stored frames. Absent on `agent.run.*` and `notice.created`. Peen
+            ignores a value sent on `message.send`.
         sequence:
           type: integer
           format: int64
           minimum: 1
+          description: >-
+            The frame's position in its session's feed. Sequences count up
+            from 1 with no gaps across every stored frame of the session.
+            Present only on stored frames, never on `message.completed` or
+            `message.failed`. To catch up after a reconnect, pass the last
+            sequence you applied as `cursor` to `GET /api/v1/session/feed`.
+            Peen ignores a value sent on `message.send`.
 
     # Shared data shapes, referenced from more than one frame.
 
@@ -70,11 +172,22 @@ components:
       type: object
       additionalProperties: false
       required: [callId, name, arguments]
+      description: >-
+        One tool call the model requested. It is the `data` of a root
+        `tool.use` frame and the `event` of a child's `agent.run.tool.use`
+        frame.
       properties:
         callId:
           type: string
+          description: >-
+            The call ID the model assigned. The matching `tool.result`, the
+            `tool_use` content block's `id`, and the `tool_result` block's
+            `tool_use_id` carry the same value.
         name:
           type: string
+          description: >-
+            The name of the tool the model called, as the tool catalogue lists
+            it. An MCP tool is named `mcp__<server>__<tool>`.
         arguments:
           title: ToolUseArguments
           type: [object, 'null']
@@ -87,48 +200,99 @@ components:
       type: object
       additionalProperties: false
       required: [callId, name, content, isError]
+      description: >-
+        The outcome of one tool call. It is the `data` of a root `tool.result`
+        frame and the `event` of a child's `agent.run.tool.result` frame. Every
+        `tool.use` gets exactly one result, even when its turn is stopped or
+        fails while the call runs.
       properties:
         callId:
           type: string
+          description: The call ID of the `tool.use` this result answers.
         name:
           type: string
+          description: The name of the tool that ran.
         content:
           type: string
+          description: >-
+            The result text as Peen hands it to the model. A call still running
+            when its turn or child run was stopped gets the fixed text "The tool
+            call was stopped before it returned a result. Its effect is
+            unknown." with `isError` set.
         isError:
           type: boolean
+          description: >-
+            `true` when the tool reported an error or the call was stopped
+            before it returned, `false` otherwise.
 
     ProviderRetry:
       title: ProviderRetry
       type: object
       additionalProperties: false
       required: [attempt, reason, status, delayMs]
+      description: >-
+        One failed provider request that Peen is about to retry. It is the
+        `data` of a root `provider.retry` frame and the `event` of a child's
+        `agent.run.provider.retry` frame. Peen sends it before it waits, so
+        `delayMs` is the wait still ahead. Only retryable failures (rate
+        limits, server errors, timeouts, and broken connections) produce it; a
+        failure Peen does not retry ends the turn instead.
       properties:
         attempt:
           type: integer
+          description: The number of the attempt that failed, counting from 1.
         reason:
           title: ProviderRetryReason
           type: string
           enum: ["", rate_limited, server_error, timeout, transport]
+          description: |-
+            Why the attempt failed:
+
+            - `""`: the failure was not classified. Peen does not retry such a failure, so a frame rarely carries it.
+            - `rate_limited`: the provider refused the request for rate limiting (HTTP 429 or the provider's rate limit code).
+            - `server_error`: the provider reported a server-side error or overload.
+            - `timeout`: the connection to the provider timed out.
+            - `transport`: the connection to the provider failed or broke before the provider answered.
         status:
           type: integer
+          description: >-
+            The HTTP status the failed attempt returned. `0` when the failure
+            carried no HTTP status, such as a broken connection. A provider that
+            reports an error inside a streamed response can leave this at
+            `200`.
         delayMs:
           type: integer
           format: int64
+          description: >-
+            How long Peen waits before the next attempt, in milliseconds.
 
     UserMessage:
       title: UserMessage
       type: object
       additionalProperties: false
       required: [message]
+      description: >-
+        A user message Peen accepted. It is the `data` of
+        `userMessage.created`, `userMessage.queued`, and
+        `userMessage.delivered`.
       properties:
         message:
           type: string
+          description: >-
+            The message text as it was accepted. For a turn a session event
+            started, this is the event handler's instructions.
         sourceEventId:
           type: string
           format: uuid
+          description: >-
+            The `id` of the `message.send` frame that carried the message.
+            Absent when no WebSocket frame carried it, such as a turn a session
+            event started.
         images:
           type: array
-          description: The images sent with the message, without their bytes.
+          description: >-
+            The images the message carries, without their bytes. Absent when
+            the message has none, and always absent on `userMessage.delivered`.
           items:
             $ref: "#/components/schemas/UserMessageImage"
 
@@ -137,131 +301,248 @@ components:
       type: object
       additionalProperties: false
       required: [mediaType, sizeBytes]
+      description: >-
+        One image a user message carries, described without its bytes. It
+        appears in `userMessage.created` and `userMessage.queued`.
       properties:
         mediaType:
           type: string
+          description: >-
+            The image's media type, as the `message.send` frame gave it:
+            `image/png`, `image/jpeg`, `image/gif`, or `image/webp`.
         sizeBytes:
           type: integer
+          description: The decoded size of the image in bytes.
 
     MessageImage:
       title: MessageImage
       type: object
       additionalProperties: false
       required: [mediaType, data]
+      description: >-
+        One image attached to a `message.send`. Peen stores it with the message
+        in the session database and replays it to the model on later turns.
       properties:
         mediaType:
           type: string
           enum: [image/png, image/jpeg, image/gif, image/webp]
+          description: |-
+            The image format. Peen checks that the decoded bytes are in the format this names and fails the message with `VALIDATION_FAILED` when they are not.
+
+            - `image/png`: PNG image.
+            - `image/jpeg`: JPEG image.
+            - `image/gif`: GIF image.
+            - `image/webp`: WebP image.
         data:
           type: string
           minLength: 1
           description: >-
-            The image bytes, base64-encoded. At most PEEN_MAX_IMAGE_BYTES
-            bytes once decoded, 5242880 by default.
+            The image bytes, base64-encoded with the standard padded alphabet.
+            At most `PEEN_MAX_IMAGE_BYTES` bytes once decoded, 5242880 by
+            default. Data that is not valid base64, or decodes to more than the
+            limit, fails the message with `VALIDATION_FAILED`.
 
     AgentRunInboxMessage:
       title: AgentRunInboxMessage
       type: object
       additionalProperties: false
       required: [message]
+      description: >-
+        A message accepted into a child agent's inbox: from the user through
+        `message.send` with `to`, from another agent, or from Peen itself, such
+        as a child's report to its parent, a session notice copied to running
+        children, or the note that resumes a paused child. It is the `event` of
+        `agent.run.message.queued`, `agent.run.message.delivered`, and
+        `agent.run.message.undelivered`.
       properties:
         message:
           type: string
+          description: >-
+            The message as the child reads it. A message from the user or
+            another agent is wrapped in the `<message>` block that names its
+            sender.
         acceptanceId:
           type: string
           format: uuid
+          description: >-
+            Links one message's queued step to its delivered or undelivered
+            step. Absent on events stored before Peen recorded it.
 
     QuestionAsked:
       title: QuestionAsked
       type: object
       additionalProperties: false
       required: [question]
+      description: >-
+        A question an agent asked with the `ask` tool. It is the `data` of a
+        root `question.asked` frame and the `event` of a child's
+        `agent.run.question` frame. The agent waits until a message reaches it
+        or the ask times out. For the root conversation, your next message is
+        the answer.
       properties:
         question:
           type: string
+          description: The question text.
         callId:
           type: string
+          description: >-
+            The call ID of the `ask` tool call, matching its `tool.use` and the
+            later answer frame. Present on every frame Peen sends now; absent
+            only on frames stored before Peen recorded it.
 
     QuestionAnswered:
       title: QuestionAnswered
       type: object
       additionalProperties: false
       required: [answered]
+      description: >-
+        The end of an `ask` call. It is the `data` of a root
+        `question.answered` frame and the `event` of a child's
+        `agent.run.answer` frame. It carries no answer text: the answer is the
+        message that reached the agent.
       properties:
         answered:
           type: boolean
+          description: >-
+            `true` when a message reached the agent before the ask timed out,
+            `false` when it timed out.
         callId:
           type: string
+          description: >-
+            The call ID of the `ask` tool call this ends, matching the
+            `question.asked` or `agent.run.question` frame. Present on every
+            frame Peen sends now; absent only on frames stored before Peen
+            recorded it.
 
     TextPayload:
       title: TextPayload
       type: object
       additionalProperties: false
       required: [text]
+      description: >-
+        One streamed fragment of a child agent's reply. It is the `event` of
+        `agent.run.text.delta` and `agent.run.thinking.delta`.
       properties:
         text:
           type: string
+          description: >-
+            The fragment. Append it to the run's earlier fragments of the same
+            kind, in sequence order.
 
     Notice:
       title: Notice
       type: object
       additionalProperties: false
       required: [id, sessionId, type, source, summary, delivery, createdAt]
-      description: >
-        One notice as it reaches the model, inside a `session.events`
-        frame's `notices`.
+      description: >-
+        One session event as it reached the model, inside a `session.events`
+        frame's `notices`. It is the same notice `GET /api/v1/session/notices`
+        lists and that a `notice.created` frame announced when it was recorded.
       properties:
         id:
           type: string
           format: uuid
+          description: The notice's ID, the same as on its `notice.created` frame.
         sessionId:
           type: string
           format: uuid
+          description: The session the notice belongs to.
         type:
           type: string
+          description: >-
+            The event type, a lowercase dotted name such as `job.exited` or
+            `ci.build.failed`, 1 to 8 parts and up to 128 characters. `job.*`,
+            `agent.*`, and `turn.*` are reserved for events Peen publishes
+            itself.
         source:
           type: string
+          description: >-
+            Who published the notice: `tools.job` for background jobs,
+            `agent.launchAgent` for child agents, `session.turn` for turns that
+            ended without completing, `hooks` for hooks, and `api` for
+            `POST /api/v1/session/notices`.
         summary:
           type: string
+          description: >-
+            A one-line headline the model reads first. At most
+            `PEEN_MAX_EVENT_SUMMARY_BYTES` bytes, 4096 by default.
         data:
           title: NoticeData
           type: object
-          description: Open. Caller-supplied at publication time.
+          description: >-
+            Open. A JSON object whose shape depends on `type`, at most
+            `PEEN_MAX_EVENT_DATA_BYTES` bytes encoded, 65536 by default. Absent
+            when the notice has none.
         delivery:
           title: NoticeDelivery
           type: string
           enum: [queue, wake]
+          description: |-
+            The delivery mode the publisher requested. A handler file for the type can override it.
+
+            - `queue`: the notice waits for the next turn start or tool boundary and never starts a turn by itself.
+            - `wake`: the notice may start a turn on an idle session when a handler for its type exists and the wake limit allows it; otherwise it is queued.
         createdAt:
           type: string
           format: date-time
+          description: When Peen stored the notice, RFC 3339.
 
     SessionNotice:
       title: SessionNotice
       type: object
       additionalProperties: false
       required: [id, type, source, summary, delivery, createdAt]
-      description: A `notice.created` frame's data. Carries no `sessionId`.
+      description: >-
+        A session notice as Peen recorded it. It is the `data` of a
+        `notice.created` frame, the same shape `GET /api/v1/session/notices`
+        returns. It carries no `sessionId`; the frame's `metadata.sessionId`
+        names the session.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The notice's ID. The same notice later appears with this ID in a
+            `session.events` frame when it reaches the model.
         type:
           type: string
+          description: >-
+            The event type, a lowercase dotted name such as `job.exited` or
+            `ci.build.failed`, 1 to 8 parts and up to 128 characters. `job.*`,
+            `agent.*`, and `turn.*` are reserved for events Peen publishes
+            itself.
         source:
           type: string
+          description: >-
+            Who published the notice: `tools.job` for background jobs,
+            `agent.launchAgent` for child agents, `session.turn` for turns that
+            ended without completing, `hooks` for hooks, and `api` for
+            `POST /api/v1/session/notices`.
         summary:
           type: string
+          description: >-
+            A one-line headline the model reads first. At most
+            `PEEN_MAX_EVENT_SUMMARY_BYTES` bytes, 4096 by default.
         data:
           title: SessionNoticeData
           type: object
-          description: Open. Caller-supplied at publication time.
+          description: >-
+            Open. A JSON object whose shape depends on `type`, at most
+            `PEEN_MAX_EVENT_DATA_BYTES` bytes encoded, 65536 by default. Absent
+            when the notice has none.
         delivery:
           title: SessionNoticeDelivery
           type: string
           enum: [queue, wake]
+          description: |-
+            The delivery mode the publisher requested. A handler file for the type can override it.
+
+            - `queue`: the notice waits for the next turn start or tool boundary and never starts a turn by itself.
+            - `wake`: the notice may start a turn on an idle session when a handler for its type exists and the wake limit allows it; otherwise it is queued.
         createdAt:
           type: string
           format: date-time
+          description: When Peen stored the notice, RFC 3339.
 
     # The client's one message.
 
@@ -270,75 +551,136 @@ components:
       type: object
       additionalProperties: false
       required: [content, mode]
+      description: >-
+        Instructions for the turn this message starts, in `message.send`
+        `data.systemPrompt`. Both fields are required when it is present. It
+        applies to that turn only and does not carry over to the next message.
+        A message queued into a running turn, or sent with `to`, cannot set it
+        and fails with `VALIDATION_FAILED`.
       properties:
         content:
           type: string
           minLength: 1
           description: >-
-            At most PEEN_MAX_SYSTEM_PROMPT_BYTES bytes, 65536 by default. The
-            limit is deployment configuration, so the server enforces it, not
-            this schema.
+            The instructions. Must not be empty. At most
+            `PEEN_MAX_SYSTEM_PROMPT_BYTES` bytes, 65536 by default. The limit is
+            deployment configuration, so the server enforces it, not this
+            schema, and fails a longer prompt with `VALIDATION_FAILED`.
         mode:
           title: MessageSystemPromptMode
           type: string
           enum: [append, replace]
+          description: |-
+            How `content` combines with Peen's built-in prompt. Either way, the harness instructions, rules, and environment block still follow it.
+
+            - `append`: Peen's built-in system prompt, followed by `content`.
+            - `replace`: `content` in place of Peen's built-in system prompt.
 
     MessageSendData:
       title: MessageSendData
       type: object
       additionalProperties: false
       required: [message]
-      description: >
-        `to` cannot combine with `model`, `reasoningEffort`, or
-        `systemPrompt`: those settings belong to the root conversation, not
-        a running child's inbox.
+      description: >-
+        The `data` of a `message.send` frame. Decoding is strict: an unknown
+        field (`workspace` included), a missing or empty `message`, or a value
+        outside its allowed range fails the message with `VALIDATION_FAILED`.
+        `to` cannot combine with `model`, `reasoningEffort`, `systemPrompt`,
+        `outputSchema`, `timeoutSeconds`, or `system`, because those settings
+        belong to a root turn and not to a running child's inbox.
+        `systemPrompt`, a `MessageSystemPrompt`, sets this turn's
+        instructions.
       properties:
         system:
           type: boolean
           description: >-
-            Set on a message to the system session and on nothing else. The
-            server refuses a mismatch either way, and `system` cannot combine
-            with `to`.
+            Set it to `true` on a message to the deployment's system session,
+            and leave it out or `false` on every other message. The server fails
+            a mismatch in either direction with `VALIDATION_FAILED`, and
+            `system` cannot combine with `to`.
         message:
           type: string
           minLength: 1
           description: >-
-            At most PEEN_MAX_MESSAGE_BYTES bytes, 262144 by default. The limit
-            is deployment configuration, so the server enforces it, not this
-            schema.
+            The text the model receives. It must contain at least one character
+            that is not whitespace. At most `PEEN_MAX_MESSAGE_BYTES` bytes,
+            262144 by default; the limit is deployment configuration, so the
+            server enforces it, not this schema. Write `:skill-name`, or
+            `:core:name` for a core skill, at the start or after a space to hand
+            that skill to the model. An unknown skill name fails the message
+            with `VALIDATION_FAILED`, and Peen stores nothing.
         model:
           type: string
-          description: "provider/model, one Peen discovered at startup."
+          description: >-
+            The model for this turn, as the `name` field of
+            `GET /api/v1/models` (`provider/model`). Without it the turn uses
+            `PEEN_DEFAULT_MODEL`. It applies to this turn only. A message queued
+            into a running turn may repeat the running turn's model but cannot
+            change it.
         reasoningEffort:
           title: MessageSendReasoningEffort
           type: string
           enum: [minimal, low, medium, high, xhigh, max]
+          description: |-
+            The reasoning level for this turn's model calls. Without it the model uses its own default. Peen fits the level to the model: a model without reasoning levels gets none, and a level outside its range runs at the nearest level it supports. A queued message may repeat the running turn's level but cannot change it.
+
+            - `minimal`: the lowest reasoning level.
+            - `low`: a low reasoning level.
+            - `medium`: a medium reasoning level.
+            - `high`: a high reasoning level.
+            - `xhigh`: a level above `high`, for models that offer one.
+            - `max`: the highest level the model offers.
         systemPrompt:
           $ref: "#/components/schemas/MessageSystemPrompt"
         outputSchema:
           type: object
           description: >-
-            JSON Schema for the final validated output. At most
-            PEEN_MAX_OUTPUT_SCHEMA_BYTES bytes, 65536 by default. Cannot
-            combine with to or join an active turn. External references
-            are refused.
+            A JSON Schema object the turn's final answer must match. After the
+            turn's work, Peen runs a final request without tools, validates the
+            answer, and retries up to `PEEN_OUTPUT_SCHEMA_ATTEMPTS` total
+            attempts, 3 by default. `turn.completed` reports the result in
+            `output` or `outputError`. At most `PEEN_MAX_OUTPUT_SCHEMA_BYTES`
+            bytes, 65536 by default. A schema that is too large, does not
+            compile, or references an external resource fails with
+            `OUTPUT_SCHEMA_INVALID`. Local references inside the schema work. It
+            cannot combine with `to`, and a message that carries it while a turn
+            is running fails with `SESSION_BUSY` instead of joining that turn.
         timeoutSeconds:
           type: integer
           minimum: 1
           maximum: 86400
           description: >-
-            Overall turn timeout in seconds. Cannot combine with to or
-            join an active turn.
+            A deadline for the whole turn, in seconds. Without it
+            `PEEN_TURN_TIMEOUT` applies, which is `0`, no limit, by default. The
+            deadline is absolute and survives recovery, so downtime counts
+            against it. When it expires, Peen stops the turn and its child
+            agents, stores `turn.cancelled` with `reason` `timeout`, and fails
+            the submission with `TURN_TIMEOUT`. It cannot combine with `to`, and
+            a message that carries it while a turn is running fails with
+            `SESSION_BUSY`.
         to:
           type: string
           format: uuid
+          description: >-
+            The `agentRunId` of a child agent of this session. The message goes
+            to that child's inbox instead of the root conversation, starts no
+            turn, and is answered at once with `message.completed`
+            `{"queued": true}`. The child reads it after its current tool call,
+            and a child that a Stop, crash, or failure paused resumes to read
+            it. Fails with `AGENT_FINISHED` when the child has ended,
+            `AGENT_NOT_FOUND` when the session has no such run, and
+            `USER_MESSAGE_QUEUE_FULL` when the child's inbox already holds
+            `PEEN_MAX_QUEUED_USER_MESSAGES` messages.
         images:
           type: array
           description: >-
             Images the model sees after the message text, at most
-            PEEN_MAX_IMAGES_PER_MESSAGE, 4 by default, only for a model that
-            accepts image input. A message queued into a running turn or sent
-            to a child agent may carry images too.
+            `PEEN_MAX_IMAGES_PER_MESSAGE`, 4 by default. Only a model that
+            accepts image input can take them: a message whose model does not
+            fails with `VALIDATION_FAILED`, and Peen never drops or converts an
+            image to make a message fit. A message queued into a running turn,
+            or sent with `to`, may carry images too. Once a session's history
+            holds images, its turns can only run on models that accept images.
           items:
             $ref: "#/components/schemas/MessageImage"
 
@@ -347,28 +689,38 @@ components:
       type: object
       additionalProperties: false
       required: [id, type, data]
-      description: >
-        The only client-to-server frame. `metadata.sessionId` names the
-        durable session this message runs against; a client with no
-        session to name, such as an embedded single-workspace runtime,
-        may omit it and fall back to the runtime's own session.
+      description: |-
+        The only frame a client sends. Each one submits one user message to the session that `metadata.sessionId` names. Naming the session routes the message but does not authorize it: Peen loads the session before it starts any work, and an unknown session fails with `SESSION_NOT_FOUND`. The first message for an idle session starts a turn. A message that arrives while a turn is running or starting joins that turn's queue, first in, first out, up to `PEEN_MAX_QUEUED_USER_MESSAGES` messages, 16 by default.
+
+        Every accepted message is first stored as a `userMessage.created` frame. The submission ends with one `message.completed` or `message.failed`, whose `triggeredBy` is this frame's `id`. A frame without an `id`, with a null `id`, or with the all-zero UUID gets a `message.failed` with `VALIDATION_FAILED` on this socket only, with a null `triggeredBy` and no `metadata.sessionId`, and starts nothing. A malformed `data` gets a `message.failed` on this socket only. A failure after Peen accepted the frame reaches every socket watching the session. Peen ignores a frame of any other `type` and does not reply to it. A frame that is not valid JSON in this shape, whose `id` is not a UUID string, or that has a field of the wrong type gets a `message.failed` with `VALIDATION_FAILED` on this socket only, with a null `triggeredBy` and no `metadata.sessionId`, and starts nothing; the connection stays open.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            A UUID you generate for this frame; use a fresh UUIDv4 for each
+            message. Peen echoes it as `triggeredBy` on the `message.completed`
+            or `message.failed` that answers this frame, and as `sourceEventId`
+            in the message's `userMessage.*` data. Required: a missing or null
+            `id`, the all-zero UUID, or a value that is not a UUID string
+            fails the frame with `VALIDATION_FAILED` and a null `triggeredBy`.
         type:
           type: string
           const: message.send
+          description: Always `message.send`.
         data:
           $ref: "#/components/schemas/MessageSendData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            Not read by the server. Send `0` or the send time in Unix seconds.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: Not read by the server. Send `null`.
 
     # Unsequenced server frames.
 
@@ -377,50 +729,83 @@ components:
       type: object
       additionalProperties: false
       required: [queued]
+      description: The `data` of a `message.completed` frame.
       properties:
         queued:
           type: boolean
+          description: >-
+            `false` when the message started a turn and that turn completed.
+            `true` when the message joined a running turn's queue or went to a
+            child agent with `to`. `true` acknowledges only the submission:
+            `userMessage.delivered`, or `agent.run.message.delivered` for a
+            child, reports when the model actually received it.
 
     MessageCompleted:
       title: MessageCompleted
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: |-
+        The successful end of one `message.send` submission. Peen sends it when the turn the message started completes, or at once when the message was queued into a running turn or sent to a child agent. It closes the submission, not the socket.
+
+        It is a live acknowledgement: Peen does not store it, gives it no `metadata.sequence`, and never replays it through `GET /api/v1/session/feed`. It goes to every socket watching the session, not only the sender, so match `triggeredBy` against the frame IDs you sent. `metadata.requestId` is the request ID of the submission, which the stored frames of the turn or queued message also carry. It travels apart from the stored frames, so its order relative to the turn's terminal frame is not guaranteed.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            A random UUID Peen generates for this acknowledgement. It is not
+            stored and is never replayed.
         type:
           type: string
           const: message.completed
+          description: The frame type, `message.completed`.
         data:
           $ref: "#/components/schemas/MessageCompletedData"
         timestamp:
           type: integer
           format: int64
+          description: When Peen sent the frame, in Unix seconds.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            The `id` of the `message.send` frame this frame answers. Match it
+            against the IDs you sent to find the answer to your own message,
+            since other sockets watching the session receive it too.
 
     MessageFailedData:
       title: MessageFailedData
       type: object
       additionalProperties: false
       required: [code, message]
-      description: >
-        `reason` is set only alongside code `HARNESS_CONFIGURATION_INVALID`,
-        one of seven fixed client-safe sentences naming what is wrong with the
-        workspace agent configuration, including a system prompt over
-        PEEN_MAX_SYSTEM_PROMPT_PERCENT of the context window.
+      description: >-
+        The `data` of a `message.failed` frame. Unknown provider, worker, and
+        tool errors never expose their details: they arrive as
+        `INTERNAL_SERVER_ERROR` with a generic message.
       properties:
         code:
           title: MessageFailedCode
           type: string
-          description: >-
-            AGENT_PAUSED is deprecated and no longer sent, because a message to
-            a paused child now resumes it.
+          description: |-
+            Why the submission failed:
+
+            - `VALIDATION_FAILED`: the frame or its settings were refused: a frame that is not valid JSON, a missing, null, all-zero, or non-UUID `id`, malformed or unknown fields, an empty or oversized message or system prompt, refused images, an unknown skill, a `system` mismatch, a session ID that is not a canonical UUIDv4, or a queued message that tried to change the running turn's settings.
+            - `INTERNAL_SERVER_ERROR`: Peen failed for a reason it does not disclose. Nothing about the cause is exposed.
+            - `SESSION_NOT_FOUND`: the session `metadata.sessionId` names does not exist.
+            - `TURN_CANCELLED`: the turn the message started was stopped before it completed.
+            - `TURN_TIMEOUT`: the turn's deadline, from `timeoutSeconds` or `PEEN_TURN_TIMEOUT`, expired.
+            - `OUTPUT_SCHEMA_INVALID`: `outputSchema` is over its byte limit, does not compile, or references an external resource.
+            - `USER_MESSAGE_QUEUE_FULL`: the running turn's queue, or the child's inbox, already holds `PEEN_MAX_QUEUED_USER_MESSAGES` messages.
+            - `SESSION_BUSY`: the message carries `outputSchema` or `timeoutSeconds`, which need a new turn, while the session already has one running.
+            - `AGENT_FINISHED`: the child agent named by `to` has already ended.
+            - `AGENT_NOT_FOUND`: the session has no child agent run with the ID `to` names.
+            - `AGENT_PAUSED`: deprecated and no longer sent, because a message to a paused child now resumes it.
+            - `HARNESS_CONFIGURATION_INVALID`: Peen could not start the turn because the workspace agent configuration is invalid. `reason` says what to fix.
+            - `TURN_ROUND_LIMIT`: the turn used all `PEEN_MAX_TOOL_ROUNDS` model rounds.
+            - `TURN_TOKEN_LIMIT`: the turn billed `PEEN_MAX_TURN_TOKENS` tokens.
           enum:
             - VALIDATION_FAILED
             - INTERNAL_SERVER_ERROR
@@ -438,35 +823,61 @@ components:
             - TURN_TOKEN_LIMIT
         message:
           type: string
+          description: >-
+            A sentence for the sender. For `VALIDATION_FAILED` it is either a
+            specific sentence written for the sender, such as
+            `message.send requires an id` or which image or size limit was
+            refused, or the generic `websocket message rejected`; for
+            `INTERNAL_SERVER_ERROR` it is `websocket message failed`. For
+            `TURN_ROUND_LIMIT` and `TURN_TOKEN_LIMIT` it names the setting that
+            stopped the turn.
         reason:
           type: string
+          description: >-
+            Set only alongside `HARNESS_CONFIGURATION_INVALID`. One of seven
+            fixed sentences naming what is wrong with the workspace agent
+            configuration and how to fix it: an invalid skill directory, invalid
+            instructions or rules, an invalid named-agent document, invalid
+            hooks or event handlers, too many or too large configuration files,
+            unreadable configuration files, or a system prompt over
+            `PEEN_MAX_SYSTEM_PROMPT_PERCENT` of the model's context window.
 
     MessageFailed:
       title: MessageFailed
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
-      description: >
-        A `message.failed` answering a session-routing failure carries no
-        `metadata.sessionId`: it reaches only the client that sent the
-        rejected message, before Peen knows which session it meant.
+      description: |-
+        The failed end of one `message.send` submission. A live acknowledgement: Peen does not store it, gives it no `metadata.sequence`, and never replays it through `GET /api/v1/session/feed`.
+
+        Who receives it depends on where the message failed. A frame that carried no `id`, or that did not decode at all (not valid JSON, an `id` that is not a UUID string, or a field of the wrong type), gets a `message.failed` on the sending socket only, with a null `triggeredBy` and no `metadata.sessionId`, and the connection stays open. A message Peen could not route to a session gets a `message.failed` on the sending socket only, with no `metadata.sessionId`. A message whose `data` failed to decode also reaches only the sending socket, with `metadata.sessionId` set. Every later failure, such as an unknown session, a refused setting, or a turn that failed, was stopped, or timed out, reaches every socket watching the session, so match `triggeredBy` against the frame IDs you sent. A turn that fails after it started also stores its own `turn.failed` or `turn.cancelled` frame, and this acknowledgement's order relative to that frame is not guaranteed.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            A random UUID Peen generates for this acknowledgement. It is not
+            stored and is never replayed.
         type:
           type: string
           const: message.failed
+          description: The frame type, `message.failed`.
         data:
           $ref: "#/components/schemas/MessageFailedData"
         timestamp:
           type: integer
           format: int64
+          description: When Peen sent the frame, in Unix seconds.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            The `id` of the `message.send` frame this frame answers. Match it
+            against the IDs you sent to find the answer to your own message,
+            since other sockets watching the session receive it too. `null`
+            when the failed frame carried no `id`.
 
     # Anthropic Messages-shaped stream blocks. Field names stay snake_case:
     # Peen does not own this format.
@@ -476,10 +887,15 @@ components:
       type: object
       additionalProperties: false
       required: [type]
+      description: >-
+        Opens a block of the model's reply text, in a `content_block_start`
+        frame. Peen opens a text block only when the model writes text in that
+        round, so it never sends an empty one.
       properties:
         type:
           type: string
           const: text
+          description: Always `text`.
         text:
           type: string
           description: Peen never sets this at block start.
@@ -489,10 +905,15 @@ components:
       type: object
       additionalProperties: false
       required: [type]
+      description: >-
+        Opens a block of the model's reasoning, in a `content_block_start`
+        frame. A round's thinking block, when it has one, closes before that
+        round's text block opens.
       properties:
         type:
           type: string
           const: thinking
+          description: Always `thinking`.
         text:
           type: string
           description: Peen never sets this at block start.
@@ -502,14 +923,25 @@ components:
       type: object
       additionalProperties: false
       required: [type, id, name, input]
+      description: >-
+        Opens the block for one tool call the model made, in a
+        `content_block_start` frame. One `input_json_delta` with the call's
+        arguments and a `content_block_stop` follow at once. Peen sends the
+        root `tool.use` frame for the same call right before this block.
       properties:
         type:
           type: string
           const: tool_use
+          description: Always `tool_use`.
         id:
           type: string
+          description: >-
+            The tool call ID, the same as `callId` on the matching `tool.use`
+            and `tool.result` frames. The `tool_result` block that answers this
+            call carries it as `tool_use_id`.
         name:
           type: string
+          description: The name of the tool the model called.
         input:
           title: ContentBlockToolUseStartInput
           type: object
@@ -520,14 +952,19 @@ components:
       type: object
       additionalProperties: false
       required: [type, tool_use_id]
+      description: >-
+        Opens the block for one tool call's result, in a `content_block_start`
+        frame. One `json_partial` delta with the whole result text and a
+        `content_block_stop` follow at once. Peen sends the root `tool.result`
+        frame for the same call right before this block.
       properties:
         type:
           type: string
           const: tool_result
+          description: Always `tool_result`.
         tool_use_id:
           type: string
-        content:
-          type: string
+          description: The `id` of the `tool_use` block this result answers.
         is_error:
           type: boolean
           description: Present only when `true`.
@@ -537,15 +974,30 @@ components:
       type: object
       additionalProperties: false
       required: [type, index, content_block]
+      description: >-
+        The `data` of a `content_block_start` frame, shaped like the Anthropic
+        Messages stream event of the same name. Field names stay snake_case
+        because Peen does not own this format.
       properties:
         type:
           type: string
           const: content_block_start
+          description: Always `content_block_start`, the same as the frame's `type`.
         index:
           type: integer
           minimum: 0
+          description: >-
+            The block's index within the turn. Indexes start at 0 for each turn
+            and never repeat inside it, so key blocks by `metadata.requestId`
+            and `index`. After a round's thinking and text blocks, the round's
+            tool calls take the next indexes in call order, and their result
+            blocks take the indexes after those, so a result block's index is
+            known before the result arrives.
         content_block:
           title: ContentBlock
+          description: >-
+            The block being opened. `type` selects the shape: `text`,
+            `thinking`, `tool_use`, or `tool_result`.
           discriminator: type
           oneOf:
             - $ref: "#/components/schemas/ContentBlockTextStart"
@@ -558,88 +1010,151 @@ components:
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        Opens content block `data.index` of the model's reply. Peen emits it as
+        the model streams. Text and thinking blocks open on their first
+        fragment; tool blocks open when the call starts and when its result
+        arrives. Deltas for the block follow, and a `content_block_stop` with
+        the same index closes it. When a turn resumes after an interruption,
+        Peen first closes any block the interruption left open. Peen stores the
+        frame before it sends it, gives it a `metadata.sequence`, and sends it
+        to every socket that is not filtered and to every socket filtered to
+        its session. `GET /api/v1/session/feed` replays it with the same `id`,
+        `timestamp`, and data.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored record this frame renders. It is the same live
+            and on replay through `GET /api/v1/session/feed`, so you can use it
+            to skip a frame you already applied.
         type:
           type: string
           const: content_block_start
+          description: >-
+            The frame type, `content_block_start`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/ContentBlockStartData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the record, in Unix seconds. It is the same live
+            and on replay, so it does not tell you which path delivered the
+            frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Correlate stored
+            frames through `metadata.requestId` instead.
 
     TextDelta:
       title: TextDelta
       type: object
       additionalProperties: false
       required: [type, text]
+      description: >-
+        A fragment of the model's reply text, in a `content_block_delta` frame
+        for a `text` block.
       properties:
         type:
           type: string
           const: text_delta
+          description: Always `text_delta`.
         text:
           type: string
+          description: >-
+            The fragment, never empty. Append it to the block's earlier
+            fragments.
 
     ThinkingDelta:
       title: ThinkingDelta
       type: object
       additionalProperties: false
       required: [type, text]
+      description: >-
+        A fragment of the model's reasoning, in a `content_block_delta` frame
+        for a `thinking` block.
       properties:
         type:
           type: string
           const: thinking_delta
+          description: Always `thinking_delta`.
         text:
           type: string
+          description: >-
+            The fragment, never empty. Append it to the block's earlier
+            fragments.
 
     InputJSONDelta:
       title: InputJSONDelta
       type: object
       additionalProperties: false
       required: [type, partial_json]
+      description: >-
+        The arguments of a tool call, in the `content_block_delta` frame of a
+        `tool_use` block. Peen sends the whole arguments document in one delta,
+        so each `tool_use` block has exactly one.
       properties:
         type:
           type: string
           const: input_json_delta
+          description: Always `input_json_delta`.
         partial_json:
           type: string
-          description: Free text. One fragment of a streamed JSON document.
+          description: >-
+            Free text. The tool call's arguments as the JSON text the provider
+            returned. Peen sends the whole document here, though a client that
+            concatenates every `input_json_delta` of a block gets the same
+            result.
 
     JSONPartialDelta:
       title: JSONPartialDelta
       type: object
       additionalProperties: false
       required: [type, text]
+      description: >-
+        The result of a tool call, in the `content_block_delta` frame of a
+        `tool_result` block. Peen sends the whole result in one delta, so each
+        `tool_result` block has exactly one.
       properties:
         type:
           type: string
           const: json_partial
+          description: Always `json_partial`.
         text:
           type: string
-          description: Free text. One fragment of a streamed JSON document.
+          description: >-
+            Free text. The tool's result text, the same as `content` on the
+            matching `tool.result` frame. It is not necessarily JSON.
 
     ContentBlockDeltaData:
       title: ContentBlockDeltaData
       type: object
       additionalProperties: false
       required: [type, index, delta]
+      description: >-
+        The `data` of a `content_block_delta` frame, shaped like the Anthropic
+        Messages stream event of the same name.
       properties:
         type:
           type: string
           const: content_block_delta
+          description: Always `content_block_delta`, the same as the frame's `type`.
         index:
           type: integer
           minimum: 0
+          description: The index of the open block this delta appends to.
         delta:
           title: Delta
+          description: >-
+            The fragment to append. `type` selects the shape: `text_delta`,
+            `thinking_delta`, `input_json_delta`, or `json_partial`.
           discriminator: type
           oneOf:
             - $ref: "#/components/schemas/TextDelta"
@@ -652,59 +1167,108 @@ components:
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        Appends to open content block `data.index`. To render a live reply,
+        fold a turn's deltas in arrival order: append `text_delta` and
+        `thinking_delta` text to their block, and attach each tool block to its
+        call. Peen writes deltas in short batches, so they can arrive in
+        bursts. Peen stores the frame before it sends it, gives it a
+        `metadata.sequence`, and sends it to every socket that is not filtered
+        and to every socket filtered to its session.
+        `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`,
+        and data.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored record this frame renders. It is the same live
+            and on replay through `GET /api/v1/session/feed`, so you can use it
+            to skip a frame you already applied.
         type:
           type: string
           const: content_block_delta
+          description: >-
+            The frame type, `content_block_delta`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/ContentBlockDeltaData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the record, in Unix seconds. It is the same live
+            and on replay, so it does not tell you which path delivered the
+            frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Correlate stored
+            frames through `metadata.requestId` instead.
 
     ContentBlockStopData:
       title: ContentBlockStopData
       type: object
       additionalProperties: false
       required: [type, index]
+      description: The `data` of a `content_block_stop` frame.
       properties:
         type:
           type: string
           const: content_block_stop
+          description: Always `content_block_stop`, the same as the frame's `type`.
         index:
           type: integer
           minimum: 0
+          description: The index of the block that closed.
 
     ContentBlockStop:
       title: ContentBlockStop
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        Closes content block `data.index`. No more deltas arrive for that index
+        in this turn. When the turn ends, its messages are stored and
+        `GET /api/v1/messages` returns the finished reply. Peen stores the
+        frame before it sends it, gives it a `metadata.sequence`, and sends it
+        to every socket that is not filtered and to every socket filtered to
+        its session. `GET /api/v1/session/feed` replays it with the same `id`,
+        `timestamp`, and data.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored record this frame renders. It is the same live
+            and on replay through `GET /api/v1/session/feed`, so you can use it
+            to skip a frame you already applied.
         type:
           type: string
           const: content_block_stop
+          description: >-
+            The frame type, `content_block_stop`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/ContentBlockStopData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the record, in Unix seconds. It is the same live
+            and on replay, so it does not tell you which path delivered the
+            frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Correlate stored
+            frames through `metadata.requestId` instead.
 
     # Root turn and session events.
 
@@ -713,268 +1277,527 @@ components:
       type: object
       additionalProperties: false
       required: [sessionId, model, workspace]
-      description: >
-        `originEventId` and `originEventType` are present only on a turn a
-        session event started.
+      description: >-
+        The `data` of a `turn.started` frame. `originEventId` and
+        `originEventType` are present only on a turn that a session event
+        started.
       properties:
         sessionId:
           type: string
           format: uuid
+          description: The session the turn runs in.
         model:
           type: string
+          description: >-
+            The model the turn runs on, as `provider/model`: the message's
+            `model`, or the deployment default.
         workspace:
           type: string
+          description: >-
+            The session's workspace directory, the canonical path the session
+            was opened with.
         originEventId:
           type: string
           format: uuid
+          description: >-
+            The ID of the session notice whose event handler started this turn.
+            Absent on a turn a message started.
         originEventType:
           type: string
+          description: >-
+            The event type of that notice, such as `ci.build.failed`. Absent on
+            a turn a message started.
 
     TurnStarted:
       title: TurnStarted
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: |-
+        The turn is set up and about to make its first model call. Peen emits it once per turn, after the frames that open the turn and before the first content block.
+
+        The frames of one turn arrive in sequence order, and every frame of the turn carries the turn's `metadata.requestId`. A turn's frames arrive in this order:
+
+        1. `userMessage.created`
+        2. one `skill.injected` per forced skill
+        3. `session.events` when notices were waiting
+        4. `harness.warning` when Peen ignored harness files
+        5. `mcp.status`
+        6. `turn.started`
+        7. the model rounds, each one made of content blocks, `tool.use` and `tool.result` frames, `provider.retry`, `session.events` delivered at tool boundaries, `question.asked` and `question.answered`, and the `userMessage.*` and `skill.injected` frames of queued messages
+        8. exactly one terminal frame, `turn.completed`, `turn.failed`, or `turn.cancelled`
+
+        `agent.run.*` and `notice.created` frames of the same session interleave in the same feed. The `message.completed` or `message.failed` that answers the submission is sent on a separate, unstored path, so do not rely on where it falls relative to the turn's stored frames.
+
+        Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored record this frame renders. It is the same live
+            and on replay through `GET /api/v1/session/feed`, so you can use it
+            to skip a frame you already applied.
         type:
           type: string
           const: turn.started
+          description: The frame type, `turn.started`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/TurnStartedData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the record, in Unix seconds. It is the same live
+            and on replay, so it does not tell you which path delivered the
+            frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Correlate stored
+            frames through `metadata.requestId` instead.
 
     UserMessageCreated:
       title: UserMessageCreated
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        Peen accepted a user message. Every accepted `message.send` produces
+        one, and so does every other turn start, such as a turn an event
+        handler started. It is the first frame of a turn the message starts.
+        For a message that joins a running turn it arrives among that turn's
+        frames, carrying the queued message's own `metadata.requestId`, and
+        `userMessage.queued` follows it. Peen stores the frame before it sends
+        it, gives it a `metadata.sequence`, and sends it to every socket that
+        is not filtered and to every socket filtered to its session.
+        `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`,
+        and data.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored record this frame renders. It is the same live
+            and on replay through `GET /api/v1/session/feed`, so you can use it
+            to skip a frame you already applied.
         type:
           type: string
           const: userMessage.created
+          description: >-
+            The frame type, `userMessage.created`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/UserMessage"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the record, in Unix seconds. It is the same live
+            and on replay, so it does not tell you which path delivered the
+            frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Correlate stored
+            frames through `metadata.requestId` instead.
 
     UserMessageQueued:
       title: UserMessageQueued
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        An accepted message joined the running turn's queue. It follows that
+        message's `userMessage.created` and carries the queued message's own
+        `metadata.requestId`. The message reaches the model when the running
+        turn's current model round ends, after every tool call in that round
+        has finished, and `userMessage.delivered` reports that. Peen stores the
+        frame before it sends it, gives it a `metadata.sequence`, and sends it
+        to every socket that is not filtered and to every socket filtered to
+        its session. `GET /api/v1/session/feed` replays it with the same `id`,
+        `timestamp`, and data.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored record this frame renders. It is the same live
+            and on replay through `GET /api/v1/session/feed`, so you can use it
+            to skip a frame you already applied.
         type:
           type: string
           const: userMessage.queued
+          description: >-
+            The frame type, `userMessage.queued`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/UserMessage"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the record, in Unix seconds. It is the same live
+            and on replay, so it does not tell you which path delivered the
+            frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Correlate stored
+            frames through `metadata.requestId` instead.
 
     UserMessageDelivered:
       title: UserMessageDelivered
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        A queued message reached the model. It carries the queued message's own
+        `metadata.requestId`, so it pairs with that message's
+        `userMessage.queued`. Queued messages are delivered in the order they
+        were sent, one `userMessage.delivered` per message, followed by one
+        `skill.injected` per skill message that came with it. Its `data` has no
+        `images`. A queued message that never got a delivery frame is not
+        necessarily lost: Peen keeps accepted messages until delivery. Peen
+        stores the frame before it sends it, gives it a `metadata.sequence`,
+        and sends it to every socket that is not filtered and to every socket
+        filtered to its session. `GET /api/v1/session/feed` replays it with the
+        same `id`, `timestamp`, and data.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored record this frame renders. It is the same live
+            and on replay through `GET /api/v1/session/feed`, so you can use it
+            to skip a frame you already applied.
         type:
           type: string
           const: userMessage.delivered
+          description: >-
+            The frame type, `userMessage.delivered`. Switch on it to read
+            `data`.
         data:
           $ref: "#/components/schemas/UserMessage"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the record, in Unix seconds. It is the same live
+            and on replay, so it does not tell you which path delivered the
+            frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Correlate stored
+            frames through `metadata.requestId` instead.
 
     SkillInjectedData:
       title: SkillInjectedData
       type: object
       additionalProperties: false
       required: [name, content]
+      description: The `data` of a `skill.injected` frame.
       properties:
         name:
           type: string
+          description: >-
+            The resolved name of the skill, such as `reviewer` or `core:name`
+            for a core skill.
         content:
           type: string
+          description: >-
+            The whole message the model received for the skill: the `<skill>`
+            block with its name, description, directory, and full `SKILL.md`,
+            or the note that the skill is already loaded.
 
     SkillInjected:
       title: SkillInjected
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        A skill message reached the model right after the user message that
+        named it with `:name`, or the note that the skill is already loaded
+        did. At the start of a turn it follows `userMessage.created`. For a
+        queued message it follows that message's `userMessage.delivered` and
+        carries the running turn's `metadata.requestId`. Peen stores the frame
+        before it sends it, gives it a `metadata.sequence`, and sends it to
+        every socket that is not filtered and to every socket filtered to its
+        session. `GET /api/v1/session/feed` replays it with the same `id`,
+        `timestamp`, and data.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored record this frame renders. It is the same live
+            and on replay through `GET /api/v1/session/feed`, so you can use it
+            to skip a frame you already applied.
         type:
           type: string
           const: skill.injected
+          description: The frame type, `skill.injected`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/SkillInjectedData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the record, in Unix seconds. It is the same live
+            and on replay, so it does not tell you which path delivered the
+            frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Correlate stored
+            frames through `metadata.requestId` instead.
 
     ProviderRetryEvent:
       title: ProviderRetryEvent
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        A provider request of the root conversation failed and Peen will retry
+        it after `data.delayMs`. A turn can emit several, one per failed
+        attempt. Peen stores the frame before it sends it, gives it a
+        `metadata.sequence`, and sends it to every socket that is not filtered
+        and to every socket filtered to its session.
+        `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`,
+        and data.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored record this frame renders. It is the same live
+            and on replay through `GET /api/v1/session/feed`, so you can use it
+            to skip a frame you already applied.
         type:
           type: string
           const: provider.retry
+          description: The frame type, `provider.retry`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/ProviderRetry"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the record, in Unix seconds. It is the same live
+            and on replay, so it does not tell you which path delivered the
+            frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Correlate stored
+            frames through `metadata.requestId` instead.
 
     ToolUseEvent:
       title: ToolUseEvent
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        The model of the root conversation started a tool call. Peen emits it
+        before the tool runs, right before the call's `tool_use` content block.
+        A matching `tool.result` with the same `callId` always follows. Peen
+        stores the frame before it sends it, gives it a `metadata.sequence`,
+        and sends it to every socket that is not filtered and to every socket
+        filtered to its session. `GET /api/v1/session/feed` replays it with the
+        same `id`, `timestamp`, and data.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored record this frame renders. It is the same live
+            and on replay through `GET /api/v1/session/feed`, so you can use it
+            to skip a frame you already applied.
         type:
           type: string
           const: tool.use
+          description: The frame type, `tool.use`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/ToolUse"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the record, in Unix seconds. It is the same live
+            and on replay, so it does not tell you which path delivered the
+            frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Correlate stored
+            frames through `metadata.requestId` instead.
 
     ToolResultEvent:
       title: ToolResultEvent
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        A root tool call finished, or was stopped. Peen stores the call's
+        result before it emits this frame, right before the call's `tool_result`
+        content block. Calls in one round can run in parallel, so results can
+        arrive in a different order from their `tool.use` frames. Peen stores
+        the frame before it sends it, gives it a `metadata.sequence`, and sends
+        it to every socket that is not filtered and to every socket filtered to
+        its session. `GET /api/v1/session/feed` replays it with the same `id`,
+        `timestamp`, and data.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored record this frame renders. It is the same live
+            and on replay through `GET /api/v1/session/feed`, so you can use it
+            to skip a frame you already applied.
         type:
           type: string
           const: tool.result
+          description: The frame type, `tool.result`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/ToolResult"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the record, in Unix seconds. It is the same live
+            and on replay, so it does not tell you which path delivered the
+            frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Correlate stored
+            frames through `metadata.requestId` instead.
 
     SessionEventsData:
       title: SessionEventsData
       type: object
       additionalProperties: false
       required: [notices, dropped]
+      description: The `data` of a `session.events` frame.
       properties:
         notices:
           type: array
           minItems: 1
+          description: >-
+            The notices delivered in this batch, oldest first. Peen marks them
+            delivered when it sends this frame.
           items:
             $ref: "#/components/schemas/Notice"
         dropped:
           type: integer
           minimum: 0
+          description: >-
+            Kept for compatibility and always `0`, because Peen delivers every
+            stored notice.
 
     SessionEvents:
       title: SessionEvents
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        Pending session notices were handed to the model as one message. Peen
+        delivers them at the start of a turn, before `turn.started`, and at
+        each tool boundary inside a running turn, right after a tool result. A
+        `turn.failed` or `turn.cancelled` notice is listed here too, though the
+        model does not receive it as event data. Only the root conversation
+        receives session events. Peen stores the frame before it sends it,
+        gives it a `metadata.sequence`, and sends it to every socket that is
+        not filtered and to every socket filtered to its session.
+        `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`,
+        and data.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored record this frame renders. It is the same live
+            and on replay through `GET /api/v1/session/feed`, so you can use it
+            to skip a frame you already applied.
         type:
           type: string
           const: session.events
+          description: The frame type, `session.events`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/SessionEventsData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the record, in Unix seconds. It is the same live
+            and on replay, so it does not tell you which path delivered the
+            frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Correlate stored
+            frames through `metadata.requestId` instead.
 
     HarnessWarningItem:
       title: HarnessWarningItem
       type: object
       additionalProperties: false
       required: [kind, source, reason]
+      description: >-
+        One harness source that Peen ignored, or a skill that names a skill
+        that does not exist.
       properties:
         kind:
           title: HarnessWarningKind
           type: string
           enum: [instruction, rule, skill, agent, event-handler, hook]
+          description: |-
+            What kind of source Peen ignored:
+
+            - `instruction`: an `AGENTS.md` instruction file.
+            - `rule`: a rule file in `.agents/rules`, or the learned rules directory.
+            - `skill`: a skill in `.agents/skills`, or a skill that names a skill that does not exist.
+            - `agent`: a named-agent document in `.agents/agents`.
+            - `event-handler`: an event handler in `.agents/events`.
+            - `hook`: a hook definition in `.agents/hooks.yaml`.
         source:
           type: string
+          description: The path of the file or directory Peen ignored.
         reason:
           type: string
           description: Free text naming what is wrong with this source.
@@ -984,10 +1807,12 @@ components:
       type: object
       additionalProperties: false
       required: [warnings]
+      description: The `data` of a `harness.warning` frame.
       properties:
         warnings:
           type: array
           minItems: 1
+          description: Every source Peen ignored for this turn, at least one.
           items:
             $ref: "#/components/schemas/HarnessWarningItem"
 
@@ -996,29 +1821,53 @@ components:
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        Peen ignored one or more invalid optional harness files and loaded the
+        valid configuration around them. A bad optional file does not stop a
+        turn, but a `:skill-name` reference to a skill Peen ignored still fails
+        the message. Peen emits it at most once per turn, before `mcp.status`
+        and `turn.started`, and only when there is something to report. Peen
+        stores the frame before it sends it, gives it a `metadata.sequence`,
+        and sends it to every socket that is not filtered and to every socket
+        filtered to its session. `GET /api/v1/session/feed` replays it with the
+        same `id`, `timestamp`, and data.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored record this frame renders. It is the same live
+            and on replay through `GET /api/v1/session/feed`, so you can use it
+            to skip a frame you already applied.
         type:
           type: string
           const: harness.warning
+          description: The frame type, `harness.warning`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/HarnessWarningData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the record, in Unix seconds. It is the same live
+            and on replay, so it does not tell you which path delivered the
+            frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Correlate stored
+            frames through `metadata.requestId` instead.
 
     MCPServerStatus:
       title: MCPServerStatus
       type: object
       additionalProperties: false
       required: [name, source, state, tools]
+      description: One configured MCP server as Peen found it at the start of a turn.
       properties:
         name:
           type: string
@@ -1027,26 +1876,44 @@ components:
           title: MCPServerSource
           type: string
           enum: [config, workspace]
-          description: The layer whose .agents/mcp.json defines the server.
+          description: |-
+            The layer whose `.agents/mcp.json` defines the server:
+
+            - `config`: `PEEN_CONFIG_DIR/.agents/mcp.json`, the deployment's configuration directory.
+            - `workspace`: the session workspace's `.agents/mcp.json`, read only when `PEEN_WORKSPACE_MCP` is `true`. A workspace server never replaces a configuration directory server of the same name.
         transport:
           title: MCPServerTransport
           type: string
           enum: [stdio, http]
+          description: |-
+            How Peen reaches the server. Absent when a whole `mcp.json` file was refused.
+
+            - `stdio`: a local process Peen starts and talks to over standard input and output.
+            - `http`: a remote server reached over Streamable HTTP.
         state:
           title: MCPServerState
           type: string
           enum: [ready, failed]
+          description: |-
+            Whether the server started:
+
+            - `ready`: the server started and its tools are available to the model.
+            - `failed`: the server, or its whole `mcp.json` file, could not be used. `error` says why.
         tools:
           type: array
-          description: The exposed tool names, mcp__<server>__<tool>.
+          description: >-
+            The names of the server's tools as the model sees them,
+            `mcp__<server>__<tool>`. Empty when the server failed.
           items:
             type: string
         error:
           type: string
-          description: Why the server failed.
+          description: Why the server failed. Absent when `state` is `ready`.
         warnings:
           type: array
-          description: Problems that did not stop the server.
+          description: >-
+            Problems that did not stop the server, such as an allowlisted tool
+            the server does not offer. Absent when there are none.
           items:
             type: string
 
@@ -1055,9 +1922,13 @@ components:
       type: object
       additionalProperties: false
       required: [servers]
+      description: The `data` of an `mcp.status` frame.
       properties:
         servers:
           type: array
+          description: >-
+            Every configured MCP server, in configuration order. Empty when the
+            session has no MCP servers configured.
           items:
             $ref: "#/components/schemas/MCPServerStatus"
 
@@ -1066,88 +1937,169 @@ components:
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        The session's MCP servers at the start of a turn. Peen emits it on
+        every turn, after any `harness.warning` and before `turn.started`,
+        re-reading the `mcp.json` files first, so a client always sees the
+        current state. A session with no MCP servers configured gets an empty
+        `servers` list. `GET /api/v1/session/mcp` returns the latest one. Peen
+        stores the frame before it sends it, gives it a `metadata.sequence`,
+        and sends it to every socket that is not filtered and to every socket
+        filtered to its session. `GET /api/v1/session/feed` replays it with the
+        same `id`, `timestamp`, and data.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored record this frame renders. It is the same live
+            and on replay through `GET /api/v1/session/feed`, so you can use it
+            to skip a frame you already applied.
         type:
           type: string
           const: mcp.status
+          description: The frame type, `mcp.status`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/MCPStatusData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the record, in Unix seconds. It is the same live
+            and on replay, so it does not tell you which path delivered the
+            frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Correlate stored
+            frames through `metadata.requestId` instead.
 
     QuestionAskedEvent:
       title: QuestionAskedEvent
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        The root conversation asked you a question with the `ask` tool and is
+        waiting. Send your answer as the next `message.send`: it joins the
+        running turn's queue and reaches the waiting model. A
+        `question.answered` frame follows when the ask ends. A child agent's
+        questions arrive as `agent.run.question` instead. Peen stores the frame
+        before it sends it, gives it a `metadata.sequence`, and sends it to
+        every socket that is not filtered and to every socket filtered to its
+        session. `GET /api/v1/session/feed` replays it with the same `id`,
+        `timestamp`, and data.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored record this frame renders. It is the same live
+            and on replay through `GET /api/v1/session/feed`, so you can use it
+            to skip a frame you already applied.
         type:
           type: string
           const: question.asked
+          description: The frame type, `question.asked`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/QuestionAsked"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the record, in Unix seconds. It is the same live
+            and on replay, so it does not tell you which path delivered the
+            frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Correlate stored
+            frames through `metadata.requestId` instead.
 
     QuestionAnsweredEvent:
       title: QuestionAnsweredEvent
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        The root conversation's `ask` ended, because a message reached it or
+        because it timed out. It follows the matching `question.asked`. Peen
+        stores the frame before it sends it, gives it a `metadata.sequence`,
+        and sends it to every socket that is not filtered and to every socket
+        filtered to its session. `GET /api/v1/session/feed` replays it with the
+        same `id`, `timestamp`, and data.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored record this frame renders. It is the same live
+            and on replay through `GET /api/v1/session/feed`, so you can use it
+            to skip a frame you already applied.
         type:
           type: string
           const: question.answered
+          description: >-
+            The frame type, `question.answered`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/QuestionAnswered"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the record, in Unix seconds. It is the same live
+            and on replay, so it does not tell you which path delivered the
+            frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Correlate stored
+            frames through `metadata.requestId` instead.
 
     TurnCompletedData:
       title: TurnCompletedData
       type: object
       additionalProperties: false
       required: [model, text]
+      description: >-
+        The `data` of a `turn.completed` frame. `GET /api/v1/session/turns`
+        returns the same `output` and `outputError` with the stored turn.
       properties:
         output:
-          description: The validated JSON answer when outputSchema was given.
+          description: >-
+            The validated JSON value of the final answer. Present only when the
+            message carried `outputSchema` and an attempt passed validation.
         outputError:
           type: string
-          description: Why every structured output attempt failed.
+          description: >-
+            Why no structured output attempt passed validation, or why the
+            attempts stopped, such as reaching the turn token budget. Present
+            only when the message carried `outputSchema` and no attempt passed.
+            The turn still completes.
         model:
           type: string
+          description: The model the turn ran on, as `provider/model`.
         text:
           type: string
+          description: >-
+            The model's final reply text. It can be empty, for example when the
+            reply hit the output token limit while the model was still
+            reasoning.
         finishReason:
           type: string
-          description: >
+          description: >-
             Why the model stopped its final reply, as the provider reported
             it, such as `stop`, or `length` when the reply reached the output
             token limit and was cut off. Absent when the provider reported no
@@ -1158,118 +2110,221 @@ components:
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        The turn finished. It is the turn's last frame. Its messages are
+        stored, and `GET /api/v1/messages` returns them. A message that started
+        the turn then gets `message.completed` with `queued: false`. Peen
+        stores the frame before it sends it, gives it a `metadata.sequence`,
+        and sends it to every socket that is not filtered and to every socket
+        filtered to its session. `GET /api/v1/session/feed` replays it with the
+        same `id`, `timestamp`, and data.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored record this frame renders. It is the same live
+            and on replay through `GET /api/v1/session/feed`, so you can use it
+            to skip a frame you already applied.
         type:
           type: string
           const: turn.completed
+          description: The frame type, `turn.completed`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/TurnCompletedData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the record, in Unix seconds. It is the same live
+            and on replay, so it does not tell you which path delivered the
+            frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Correlate stored
+            frames through `metadata.requestId` instead.
 
     TurnFailedData:
       title: TurnFailedData
       type: object
       additionalProperties: false
       required: [reason]
+      description: The `data` of a `turn.failed` frame.
       properties:
         reason:
           type: string
           const: agentRun
+          description: Always `agentRun`.
         error:
           type: string
           maxLength: 2048
           description: >-
-            The error the turn ended with, without source locations. Absent
-            when the turn failed before Peen recorded one.
+            The error the turn ended with, without source locations, cut to
+            2048 bytes. A turn whose worker or controller stopped before it
+            ended reads `the worker or controller stopped mid-turn`. Absent
+            when the turn failed before Peen recorded an error.
 
     TurnFailed:
       title: TurnFailed
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        The turn ended with an error, or its worker or controller stopped
+        before it ended. It is the turn's last frame. Every tool call still
+        running first gets a `tool.result` with `isError` set, so every
+        `tool.use` has a result. Peen stores a `turn.failed` session notice in
+        the same transaction, so a `notice.created` frame for it follows nearby
+        in the feed. A message that started the turn gets `message.failed`.
+        Peen stores the frame before it sends it, gives it a
+        `metadata.sequence`, and sends it to every socket that is not filtered
+        and to every socket filtered to its session.
+        `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`,
+        and data.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored record this frame renders. It is the same live
+            and on replay through `GET /api/v1/session/feed`, so you can use it
+            to skip a frame you already applied.
         type:
           type: string
           const: turn.failed
+          description: The frame type, `turn.failed`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/TurnFailedData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the record, in Unix seconds. It is the same live
+            and on replay, so it does not tell you which path delivered the
+            frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Correlate stored
+            frames through `metadata.requestId` instead.
 
     TurnCancelledData:
       title: TurnCancelledData
       type: object
       additionalProperties: false
       required: [reason]
+      description: The `data` of a `turn.cancelled` frame.
       properties:
         reason:
           type: string
           enum: [cancelled, timeout]
+          description: |-
+            Why the turn was stopped:
+
+            - `cancelled`: something asked for the turn to stop, such as `POST /api/v1/session/cancel`, the browser Stop control, or shutting the controller down. The submission fails with `TURN_CANCELLED`.
+            - `timeout`: the turn's deadline expired, from `timeoutSeconds` or `PEEN_TURN_TIMEOUT`. The submission fails with `TURN_TIMEOUT`.
 
     TurnCancelled:
       title: TurnCancelled
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        The turn was stopped before it finished. It is the turn's last frame.
+        Every tool call still running first gets a `tool.result` with `isError`
+        set, and Peen stores a `turn.cancelled` session notice in the same
+        transaction, so a `notice.created` frame for it follows nearby in the
+        feed. A Stop leaves pending input stored until something explicitly
+        continues the session. Peen stores the frame before it sends it, gives
+        it a `metadata.sequence`, and sends it to every socket that is not
+        filtered and to every socket filtered to its session.
+        `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`,
+        and data.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored record this frame renders. It is the same live
+            and on replay through `GET /api/v1/session/feed`, so you can use it
+            to skip a frame you already applied.
         type:
           type: string
           const: turn.cancelled
+          description: The frame type, `turn.cancelled`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/TurnCancelledData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the record, in Unix seconds. It is the same live
+            and on replay, so it does not tell you which path delivered the
+            frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Correlate stored
+            frames through `metadata.requestId` instead.
 
     NoticeCreated:
       title: NoticeCreated
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        Peen recorded a session notice. Every recorded notice produces one when
+        it is stored, whatever its `delivery` mode and whether or not it has
+        reached the model yet. It belongs to no turn and carries no
+        `metadata.requestId`. When the notice later reaches the model, it
+        appears again inside a `session.events` frame. Peen stores the frame
+        before it sends it, gives it a `metadata.sequence`, and sends it to
+        every socket that is not filtered and to every socket filtered to its
+        session. `GET /api/v1/session/feed` replays it with the same `id`,
+        `timestamp`, and data.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored record this frame renders. It is the same live
+            and on replay through `GET /api/v1/session/feed`, so you can use it
+            to skip a frame you already applied.
         type:
           type: string
           const: notice.created
+          description: The frame type, `notice.created`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/SessionNotice"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the record, in Unix seconds. It is the same live
+            and on replay, so it does not tell you which path delivered the
+            frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Correlate stored
+            frames through `metadata.requestId` instead.
 
     # agent.run.* steps. Every envelope's data wraps the step in the running
     # child's identity: agentRunId, parentTurnId, and, for a grandchild,
@@ -1281,44 +2336,86 @@ components:
       additionalProperties: false
       required:
         [agentRunId, parentTurnId, name, definition, depth, model, workspace]
+      description: >-
+        The `event` of an `agent.run.started` frame: who the new child is and
+        where it runs. It repeats the identity fields of the frame's `data`.
       properties:
         agentRunId:
           type: string
           format: uuid
+          description: The new child agent run's ID.
         parentTurnId:
           type: string
           format: uuid
+          description: >-
+            The root turn the run descends from, the same as the frame's
+            `data.parentTurnId`.
         parentAgentRunId:
           type: string
           format: uuid
+          description: >-
+            The agent run that launched this one. Absent when the session's
+            root conversation launched it.
         name:
           type: string
+          description: >-
+            The agent's name: the stored agent's name as the agent catalogue
+            lists it, such as `reviewer` or `core:general-purpose`, or the
+            `name` of an inline definition.
         definition:
           title: AgentRunDefinition
           type: string
           enum: [stored, ad-hoc]
+          description: |-
+            Where the child's instructions came from:
+
+            - `stored`: the child is an agent from the workspace's agent catalogue, named with `launchAgent`'s `agent`.
+            - `ad-hoc`: the child was defined inline with `launchAgent`'s `agentDefinition`. Its instructions are never written to disk.
         depth:
           type: integer
+          description: >-
+            How deeply the run is nested. A child of the root conversation has
+            depth 1 and its own children depth 2. `PEEN_MAX_CHILD_AGENT_DEPTH`
+            (5 by default) caps it.
         model:
           type: string
+          description: >-
+            The model the child runs on, in the `provider/model` form that
+            `GET /api/v1/models` lists as `name`.
         workspace:
           type: string
+          description: The directory the child's tool calls start in.
 
     AgentRunStartedData:
       title: AgentRunStartedData
       type: object
       additionalProperties: false
       required: [agentRunId, parentTurnId, event]
+      description: >-
+        The `data` of an `agent.run.started` frame. `event` is an
+        `AgentRunStartedEvent` describing the new child.
       properties:
         agentRunId:
           type: string
           format: uuid
+          description: >-
+            The child agent run this step belongs to. Group a run's frames by
+            this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run
+            record.
         parentTurnId:
           type: string
           format: uuid
+          description: >-
+            The root turn the run descends from: the turn in which the root
+            conversation launched this run, or launched its top-level ancestor.
+            Every run in one tree shares it, and a run can keep going after
+            that turn ends.
         parentAgentRunId:
           type: string
           format: uuid
+          description: >-
+            The agent run that launched this one. Absent when the session's
+            root conversation launched it.
         event:
           $ref: "#/components/schemas/AgentRunStartedEvent"
 
@@ -1327,39 +2424,77 @@ components:
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        A child agent run started. Sent once per run, after Peen records the
+        run and its task and before the child's first model request, so it is
+        the first frame of every run. Peen stores the frame before it sends it,
+        gives it a `metadata.sequence`, and sends it to every socket that is
+        not filtered and to every socket filtered to its session.
+        `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`,
+        and data. Its `metadata` carries `sessionId` and `sequence` but never
+        `requestId`.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored child event this frame renders. It is the same
+            live and on replay through `GET /api/v1/session/feed`, so you can
+            use it to skip a frame you already applied.
         type:
           type: string
           const: agent.run.started
+          description: >-
+            The frame type, `agent.run.started`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/AgentRunStartedData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the child event, in Unix seconds. It is the same
+            live and on replay, so it does not tell you which path delivered
+            the frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Group a child run's
+            frames by `data.agentRunId` instead.
 
     AgentRunTextDeltaData:
       title: AgentRunTextDeltaData
       type: object
       additionalProperties: false
       required: [agentRunId, parentTurnId, event]
+      description: >-
+        The `data` of an `agent.run.text.delta` frame. `event` is `{text}`, one
+        fragment of the child's reply text.
       properties:
         agentRunId:
           type: string
           format: uuid
+          description: >-
+            The child agent run this step belongs to. Group a run's frames by
+            this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run
+            record.
         parentTurnId:
           type: string
           format: uuid
+          description: >-
+            The root turn the run descends from: the turn in which the root
+            conversation launched this run, or launched its top-level ancestor.
+            Every run in one tree shares it, and a run can keep going after
+            that turn ends.
         parentAgentRunId:
           type: string
           format: uuid
+          description: >-
+            The agent run that launched this one. Absent when the session's
+            root conversation launched it.
         event:
           $ref: "#/components/schemas/TextPayload"
 
@@ -1368,39 +2503,80 @@ components:
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        One fragment of a child's reply text as the model streams it. Append
+        the fragments of a run in sequence order to show the reply live. Every
+        fragment is stored as its own record. A model round's fragments precede
+        that round's `agent.run.assistant.message`, which holds the assembled
+        reply; use that frame as the final text. Peen stores the frame before
+        it sends it, gives it a `metadata.sequence`, and sends it to every
+        socket that is not filtered and to every socket filtered to its
+        session. `GET /api/v1/session/feed` replays it with the same `id`,
+        `timestamp`, and data. Its `metadata` carries `sessionId` and
+        `sequence` but never `requestId`.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored child event this frame renders. It is the same
+            live and on replay through `GET /api/v1/session/feed`, so you can
+            use it to skip a frame you already applied.
         type:
           type: string
           const: agent.run.text.delta
+          description: >-
+            The frame type, `agent.run.text.delta`. Switch on it to read
+            `data`.
         data:
           $ref: "#/components/schemas/AgentRunTextDeltaData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the child event, in Unix seconds. It is the same
+            live and on replay, so it does not tell you which path delivered
+            the frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Group a child run's
+            frames by `data.agentRunId` instead.
 
     AgentRunThinkingDeltaData:
       title: AgentRunThinkingDeltaData
       type: object
       additionalProperties: false
       required: [agentRunId, parentTurnId, event]
+      description: >-
+        The `data` of an `agent.run.thinking.delta` frame. `event` is `{text}`,
+        one fragment of the child's reasoning.
       properties:
         agentRunId:
           type: string
           format: uuid
+          description: >-
+            The child agent run this step belongs to. Group a run's frames by
+            this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run
+            record.
         parentTurnId:
           type: string
           format: uuid
+          description: >-
+            The root turn the run descends from: the turn in which the root
+            conversation launched this run, or launched its top-level ancestor.
+            Every run in one tree shares it, and a run can keep going after
+            that turn ends.
         parentAgentRunId:
           type: string
           format: uuid
+          description: >-
+            The agent run that launched this one. Absent when the session's
+            root conversation launched it.
         event:
           $ref: "#/components/schemas/TextPayload"
 
@@ -1409,39 +2585,79 @@ components:
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        One fragment of a child's reasoning, sent only for models that stream
+        readable reasoning. A model round's fragments precede that round's
+        `agent.run.assistant.message`, whose `reasoning` holds the whole text.
+        Peen stores the frame before it sends it, gives it a
+        `metadata.sequence`, and sends it to every socket that is not filtered
+        and to every socket filtered to its session.
+        `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`,
+        and data. Its `metadata` carries `sessionId` and `sequence` but never
+        `requestId`.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored child event this frame renders. It is the same
+            live and on replay through `GET /api/v1/session/feed`, so you can
+            use it to skip a frame you already applied.
         type:
           type: string
           const: agent.run.thinking.delta
+          description: >-
+            The frame type, `agent.run.thinking.delta`. Switch on it to read
+            `data`.
         data:
           $ref: "#/components/schemas/AgentRunThinkingDeltaData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the child event, in Unix seconds. It is the same
+            live and on replay, so it does not tell you which path delivered
+            the frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Group a child run's
+            frames by `data.agentRunId` instead.
 
     AgentRunToolUseData:
       title: AgentRunToolUseData
       type: object
       additionalProperties: false
       required: [agentRunId, parentTurnId, event]
+      description: >-
+        The `data` of an `agent.run.tool.use` frame. `event` is
+        `{callId, name, arguments}`: the tool call the child's model asked for.
       properties:
         agentRunId:
           type: string
           format: uuid
+          description: >-
+            The child agent run this step belongs to. Group a run's frames by
+            this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run
+            record.
         parentTurnId:
           type: string
           format: uuid
+          description: >-
+            The root turn the run descends from: the turn in which the root
+            conversation launched this run, or launched its top-level ancestor.
+            Every run in one tree shares it, and a run can keep going after
+            that turn ends.
         parentAgentRunId:
           type: string
           format: uuid
+          description: >-
+            The agent run that launched this one. Absent when the session's
+            root conversation launched it.
         event:
           $ref: "#/components/schemas/ToolUse"
 
@@ -1450,39 +2666,79 @@ components:
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        A child's tool call is about to run. Sent once per call, after the
+        `agent.run.assistant.message` that requested it and before the call's
+        `agent.run.tool.result`. `event.callId` equals the `id` of the matching
+        entry in that assistant message's `toolCalls`. Peen stores the frame
+        before it sends it, gives it a `metadata.sequence`, and sends it to
+        every socket that is not filtered and to every socket filtered to its
+        session. `GET /api/v1/session/feed` replays it with the same `id`,
+        `timestamp`, and data. Its `metadata` carries `sessionId` and
+        `sequence` but never `requestId`.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored child event this frame renders. It is the same
+            live and on replay through `GET /api/v1/session/feed`, so you can
+            use it to skip a frame you already applied.
         type:
           type: string
           const: agent.run.tool.use
+          description: >-
+            The frame type, `agent.run.tool.use`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/AgentRunToolUseData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the child event, in Unix seconds. It is the same
+            live and on replay, so it does not tell you which path delivered
+            the frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Group a child run's
+            frames by `data.agentRunId` instead.
 
     AgentRunToolResultData:
       title: AgentRunToolResultData
       type: object
       additionalProperties: false
       required: [agentRunId, parentTurnId, event]
+      description: >-
+        The `data` of an `agent.run.tool.result` frame. `event` is
+        `{callId, name, content, isError}`: the result the child's model
+        receives for one tool call.
       properties:
         agentRunId:
           type: string
           format: uuid
+          description: >-
+            The child agent run this step belongs to. Group a run's frames by
+            this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run
+            record.
         parentTurnId:
           type: string
           format: uuid
+          description: >-
+            The root turn the run descends from: the turn in which the root
+            conversation launched this run, or launched its top-level ancestor.
+            Every run in one tree shares it, and a run can keep going after
+            that turn ends.
         parentAgentRunId:
           type: string
           format: uuid
+          description: >-
+            The agent run that launched this one. Absent when the session's
+            root conversation launched it.
         event:
           $ref: "#/components/schemas/ToolResult"
 
@@ -1491,60 +2747,105 @@ components:
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        A child's tool call finished. Sent once for every
+        `agent.run.tool.use`, matched by `event.callId`. When a child is
+        stopped while a call runs, Peen closes that call with `isError` set and
+        the text "The tool call was stopped before it returned a result. Its
+        effect is unknown." before the run's `agent.run.cancelled`. Peen stores
+        the frame before it sends it, gives it a `metadata.sequence`, and sends
+        it to every socket that is not filtered and to every socket filtered to
+        its session. `GET /api/v1/session/feed` replays it with the same `id`,
+        `timestamp`, and data. Its `metadata` carries `sessionId` and
+        `sequence` but never `requestId`.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored child event this frame renders. It is the same
+            live and on replay through `GET /api/v1/session/feed`, so you can
+            use it to skip a frame you already applied.
         type:
           type: string
           const: agent.run.tool.result
+          description: >-
+            The frame type, `agent.run.tool.result`. Switch on it to read
+            `data`.
         data:
           $ref: "#/components/schemas/AgentRunToolResultData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the child event, in Unix seconds. It is the same
+            live and on replay, so it does not tell you which path delivered
+            the frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Group a child run's
+            frames by `data.agentRunId` instead.
 
     Part:
       title: Part
       type: object
       additionalProperties: false
       required: [type]
-      description: >
-        One piece of a child's assistant message content. `image`, `audio`,
-        and `file` are open: their shape is the provider-neutral media
-        source Peen's model layer builds, not a Peen-owned contract.
+      description: >-
+        One part of a child's assistant message content, in order. A child's
+        reply holds only `text` parts; `image`, `audio`, and `file` exist for
+        parity with the model layer's content format and are open objects that
+        Peen does not define as a contract.
       properties:
         type:
           title: PartType
           type: string
           enum: [text, image, audio, file]
+          description: |-
+            Which kind of part this is, and so which other property is set:
+
+            - `text`: a run of text, in `text`.
+            - `image`: an image, in `image`.
+            - `audio`: an audio clip, in `audio`.
+            - `file`: a file, in `file`.
         text:
           type: string
+          description: The text of a `text` part. Absent on other parts.
         image:
           title: PartImage
           type: object
+          description: The media source of an `image` part. Open.
         audio:
           title: PartAudio
           type: object
+          description: The media source of an `audio` part. Open.
         file:
           title: PartFile
           type: object
+          description: The media source of a `file` part. Open.
 
     AgentRunToolCall:
       title: AgentRunToolCall
       type: object
       additionalProperties: false
       required: [id, name, arguments]
+      description: >-
+        One tool call a child's assistant message requested, inside `toolCalls`
+        of an `agent.run.assistant.message` frame.
       properties:
         id:
           type: string
+          description: >-
+            The call ID the provider assigned. The run's `agent.run.tool.use`
+            and `agent.run.tool.result` for this call carry it as `callId`.
         name:
           type: string
+          description: The name of the tool the model called.
         arguments:
           title: AgentRunToolCallArguments
           type: [object, 'null']
@@ -1557,43 +2858,78 @@ components:
       type: object
       additionalProperties: false
       required: [role, content, toolCalls]
-      description: >
-        `providerReasoning` is set only when the provider returned
-        reasoning Peen cannot parse into `reasoning`.
+      description: >-
+        The `event` of an `agent.run.assistant.message` frame: one complete
+        reply from the child's model for one model round, with its text,
+        reasoning, and requested tool calls.
       properties:
         role:
           type: string
+          description: Always `assistant`.
         content:
           type: array
+          description: >-
+            The reply's content parts, in order. An empty array when the reply
+            had no text, for example when it only called tools.
           items:
             $ref: "#/components/schemas/Part"
         toolCalls:
           type: array
+          description: >-
+            The tool calls the reply requested, in order. An empty array when it
+            requested none.
           items:
             $ref: "#/components/schemas/AgentRunToolCall"
         reasoning:
           type: string
+          description: >-
+            The reasoning text the model streamed in readable form, the same
+            text as the round's `agent.run.thinking.delta` fragments joined.
+            Absent when there was none.
         providerReasoning:
           title: AgentRunAssistantMessageProviderReasoning
           type: object
+          description: >-
+            The provider's own reasoning record for this reply, such as signed
+            or encrypted reasoning blocks, kept as an opaque JSON object so it
+            can be sent back to the same provider on later requests. Its shape
+            belongs to the provider. Absent when the provider returned none.
         origin:
           type: string
+          description: >-
+            Where the message came from in the model layer. A reply from a
+            model round is `turn`. Absent when unset.
 
     AgentRunAssistantMessageData:
       title: AgentRunAssistantMessageData
       type: object
       additionalProperties: false
       required: [agentRunId, parentTurnId, event]
+      description: >-
+        The `data` of an `agent.run.assistant.message` frame. `event` is an
+        `AgentRunAssistantMessageEvent`.
       properties:
         agentRunId:
           type: string
           format: uuid
+          description: >-
+            The child agent run this step belongs to. Group a run's frames by
+            this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run
+            record.
         parentTurnId:
           type: string
           format: uuid
+          description: >-
+            The root turn the run descends from: the turn in which the root
+            conversation launched this run, or launched its top-level ancestor.
+            Every run in one tree shares it, and a run can keep going after
+            that turn ends.
         parentAgentRunId:
           type: string
           format: uuid
+          description: >-
+            The agent run that launched this one. Absent when the session's
+            root conversation launched it.
         event:
           $ref: "#/components/schemas/AgentRunAssistantMessageEvent"
 
@@ -1602,60 +2938,118 @@ components:
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        A child's model finished one reply. Sent once per model round, after
+        that round's text and thinking fragments and before the
+        `agent.run.tool.use` frames for the calls it requested. The same reply
+        is stored in the child's transcript. Peen stores the frame before it
+        sends it, gives it a `metadata.sequence`, and sends it to every socket
+        that is not filtered and to every socket filtered to its session.
+        `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`,
+        and data. Its `metadata` carries `sessionId` and `sequence` but never
+        `requestId`.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored child event this frame renders. It is the same
+            live and on replay through `GET /api/v1/session/feed`, so you can
+            use it to skip a frame you already applied.
         type:
           type: string
           const: agent.run.assistant.message
+          description: >-
+            The frame type, `agent.run.assistant.message`. Switch on it to read
+            `data`.
         data:
           $ref: "#/components/schemas/AgentRunAssistantMessageData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the child event, in Unix seconds. It is the same
+            live and on replay, so it does not tell you which path delivered
+            the frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Group a child run's
+            frames by `data.agentRunId` instead.
 
     AgentRunMessageInjectedEvent:
       title: AgentRunMessageInjectedEvent
       type: object
       additionalProperties: false
       required: [type, content, phase, tool, callId, round]
+      description: >-
+        The `event` of an `agent.run.message.injected` frame: a message Peen
+        added to the child's conversation around one tool call, such as context
+        a tool hook returned.
       properties:
         type:
           title: AgentRunMessageInjectedType
           type: string
           enum: [user, assistant]
+          description: |-
+            The role the added message takes in the conversation:
+
+            - `user`: the message is added as a user message.
+            - `assistant`: the message is added as an assistant message.
         content:
           type: string
+          description: The added message's text, exactly as the model receives it.
         phase:
           type: string
+          description: >-
+            The point in the tool call at which the message was added:
+            `pre_run`, `on_success`, `on_error`, or `post_run`.
         tool:
           type: string
+          description: The name of the tool whose call the message belongs to.
         callId:
           type: string
+          description: >-
+            The ID of that tool call, matching `callId` on its
+            `agent.run.tool.use` and `agent.run.tool.result`.
         round:
           type: integer
+          description: The model round of that tool call, counted from 0.
 
     AgentRunMessageInjectedData:
       title: AgentRunMessageInjectedData
       type: object
       additionalProperties: false
       required: [agentRunId, parentTurnId, event]
+      description: >-
+        The `data` of an `agent.run.message.injected` frame. `event` is an
+        `AgentRunMessageInjectedEvent`.
       properties:
         agentRunId:
           type: string
           format: uuid
+          description: >-
+            The child agent run this step belongs to. Group a run's frames by
+            this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run
+            record.
         parentTurnId:
           type: string
           format: uuid
+          description: >-
+            The root turn the run descends from: the turn in which the root
+            conversation launched this run, or launched its top-level ancestor.
+            Every run in one tree shares it, and a run can keep going after
+            that turn ends.
         parentAgentRunId:
           type: string
           format: uuid
+          description: >-
+            The agent run that launched this one. Absent when the session's
+            root conversation launched it.
         event:
           $ref: "#/components/schemas/AgentRunMessageInjectedEvent"
 
@@ -1664,39 +3058,79 @@ components:
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        Peen added a message to a child's conversation around one of its tool
+        calls. Sent after that call's `agent.run.tool.result`. The message is
+        stored in the child's transcript. Peen stores the frame before it sends
+        it, gives it a `metadata.sequence`, and sends it to every socket that
+        is not filtered and to every socket filtered to its session.
+        `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`,
+        and data. Its `metadata` carries `sessionId` and `sequence` but never
+        `requestId`.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored child event this frame renders. It is the same
+            live and on replay through `GET /api/v1/session/feed`, so you can
+            use it to skip a frame you already applied.
         type:
           type: string
           const: agent.run.message.injected
+          description: >-
+            The frame type, `agent.run.message.injected`. Switch on it to read
+            `data`.
         data:
           $ref: "#/components/schemas/AgentRunMessageInjectedData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the child event, in Unix seconds. It is the same
+            live and on replay, so it does not tell you which path delivered
+            the frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Group a child run's
+            frames by `data.agentRunId` instead.
 
     AgentRunProviderRetryData:
       title: AgentRunProviderRetryData
       type: object
       additionalProperties: false
       required: [agentRunId, parentTurnId, event]
+      description: >-
+        The `data` of an `agent.run.provider.retry` frame. `event` is
+        `{attempt, reason, status, delayMs}`: the attempt that failed and how
+        long Peen waits before the next one.
       properties:
         agentRunId:
           type: string
           format: uuid
+          description: >-
+            The child agent run this step belongs to. Group a run's frames by
+            this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run
+            record.
         parentTurnId:
           type: string
           format: uuid
+          description: >-
+            The root turn the run descends from: the turn in which the root
+            conversation launched this run, or launched its top-level ancestor.
+            Every run in one tree shares it, and a run can keep going after
+            that turn ends.
         parentAgentRunId:
           type: string
           format: uuid
+          description: >-
+            The agent run that launched this one. Absent when the session's
+            root conversation launched it.
         event:
           $ref: "#/components/schemas/ProviderRetry"
 
@@ -1705,39 +3139,80 @@ components:
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        A child's model request failed with an error worth retrying, and Peen
+        will retry it after `event.delayMs`. Sent before the wait, once per
+        failed attempt that is retried; a final failed attempt that is not
+        retried sends no frame. Peen stores the frame before it sends it, gives
+        it a `metadata.sequence`, and sends it to every socket that is not
+        filtered and to every socket filtered to its session.
+        `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`,
+        and data. Its `metadata` carries `sessionId` and `sequence` but never
+        `requestId`.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored child event this frame renders. It is the same
+            live and on replay through `GET /api/v1/session/feed`, so you can
+            use it to skip a frame you already applied.
         type:
           type: string
           const: agent.run.provider.retry
+          description: >-
+            The frame type, `agent.run.provider.retry`. Switch on it to read
+            `data`.
         data:
           $ref: "#/components/schemas/AgentRunProviderRetryData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the child event, in Unix seconds. It is the same
+            live and on replay, so it does not tell you which path delivered
+            the frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Group a child run's
+            frames by `data.agentRunId` instead.
 
     AgentRunMessageQueuedData:
       title: AgentRunMessageQueuedData
       type: object
       additionalProperties: false
       required: [agentRunId, parentTurnId, event]
+      description: >-
+        The `data` of an `agent.run.message.queued` frame. `event` is
+        `{message, acceptanceId?}`: the message as the child will read it, and
+        the ID that links it to its later delivered or undelivered frame.
       properties:
         agentRunId:
           type: string
           format: uuid
+          description: >-
+            The child agent run this step belongs to. Group a run's frames by
+            this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run
+            record.
         parentTurnId:
           type: string
           format: uuid
+          description: >-
+            The root turn the run descends from: the turn in which the root
+            conversation launched this run, or launched its top-level ancestor.
+            Every run in one tree shares it, and a run can keep going after
+            that turn ends.
         parentAgentRunId:
           type: string
           format: uuid
+          description: >-
+            The agent run that launched this one. Absent when the session's
+            root conversation launched it.
         event:
           $ref: "#/components/schemas/AgentRunInboxMessage"
 
@@ -1746,39 +3221,84 @@ components:
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        A message was accepted into a running or paused child's inbox: a
+        `message.send` with `to`, another agent's `sendMessage`, a child's
+        report or question to a parent that is itself a child, a session notice
+        Peen copies to running children, or the resume note Peen queues ahead
+        of a message that resumes a paused child. The child reads it after its
+        current tool call, and `agent.run.message.delivered` or
+        `agent.run.message.undelivered` with the same `acceptanceId` follows.
+        Peen stores the frame before it sends it, gives it a
+        `metadata.sequence`, and sends it to every socket that is not filtered
+        and to every socket filtered to its session.
+        `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`,
+        and data. Its `metadata` carries `sessionId` and `sequence` but never
+        `requestId`.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored child event this frame renders. It is the same
+            live and on replay through `GET /api/v1/session/feed`, so you can
+            use it to skip a frame you already applied.
         type:
           type: string
           const: agent.run.message.queued
+          description: >-
+            The frame type, `agent.run.message.queued`. Switch on it to read
+            `data`.
         data:
           $ref: "#/components/schemas/AgentRunMessageQueuedData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the child event, in Unix seconds. It is the same
+            live and on replay, so it does not tell you which path delivered
+            the frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Group a child run's
+            frames by `data.agentRunId` instead.
 
     AgentRunMessageDeliveredData:
       title: AgentRunMessageDeliveredData
       type: object
       additionalProperties: false
       required: [agentRunId, parentTurnId, event]
+      description: >-
+        The `data` of an `agent.run.message.delivered` frame. `event` is
+        `{message, acceptanceId?}`, with the same `acceptanceId` as the
+        message's `agent.run.message.queued` frame.
       properties:
         agentRunId:
           type: string
           format: uuid
+          description: >-
+            The child agent run this step belongs to. Group a run's frames by
+            this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run
+            record.
         parentTurnId:
           type: string
           format: uuid
+          description: >-
+            The root turn the run descends from: the turn in which the root
+            conversation launched this run, or launched its top-level ancestor.
+            Every run in one tree shares it, and a run can keep going after
+            that turn ends.
         parentAgentRunId:
           type: string
           format: uuid
+          description: >-
+            The agent run that launched this one. Absent when the session's
+            root conversation launched it.
         event:
           $ref: "#/components/schemas/AgentRunInboxMessage"
 
@@ -1787,39 +3307,80 @@ components:
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        A queued message reached the child's model. Sent when the model takes
+        the message at the start of a model round, after the message is stored
+        in the child's transcript. Follows the message's
+        `agent.run.message.queued`. Peen stores the frame before it sends it,
+        gives it a `metadata.sequence`, and sends it to every socket that is
+        not filtered and to every socket filtered to its session.
+        `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`,
+        and data. Its `metadata` carries `sessionId` and `sequence` but never
+        `requestId`.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored child event this frame renders. It is the same
+            live and on replay through `GET /api/v1/session/feed`, so you can
+            use it to skip a frame you already applied.
         type:
           type: string
           const: agent.run.message.delivered
+          description: >-
+            The frame type, `agent.run.message.delivered`. Switch on it to read
+            `data`.
         data:
           $ref: "#/components/schemas/AgentRunMessageDeliveredData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the child event, in Unix seconds. It is the same
+            live and on replay, so it does not tell you which path delivered
+            the frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Group a child run's
+            frames by `data.agentRunId` instead.
 
     AgentRunMessageUndeliveredData:
       title: AgentRunMessageUndeliveredData
       type: object
       additionalProperties: false
       required: [agentRunId, parentTurnId, event]
+      description: >-
+        The `data` of an `agent.run.message.undelivered` frame. `event` is
+        `{message, acceptanceId?}`, with the same `acceptanceId` as the
+        message's `agent.run.message.queued` frame.
       properties:
         agentRunId:
           type: string
           format: uuid
+          description: >-
+            The child agent run this step belongs to. Group a run's frames by
+            this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run
+            record.
         parentTurnId:
           type: string
           format: uuid
+          description: >-
+            The root turn the run descends from: the turn in which the root
+            conversation launched this run, or launched its top-level ancestor.
+            Every run in one tree shares it, and a run can keep going after
+            that turn ends.
         parentAgentRunId:
           type: string
           format: uuid
+          description: >-
+            The agent run that launched this one. Absent when the session's
+            root conversation launched it.
         event:
           $ref: "#/components/schemas/AgentRunInboxMessage"
 
@@ -1828,39 +3389,79 @@ components:
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        The child ended before reading a queued message. Sent once per message
+        still unread when the child ends, whether it completed, failed, or was
+        cancelled, before the run's terminal frame. Peen stores the frame
+        before it sends it, gives it a `metadata.sequence`, and sends it to
+        every socket that is not filtered and to every socket filtered to its
+        session. `GET /api/v1/session/feed` replays it with the same `id`,
+        `timestamp`, and data. Its `metadata` carries `sessionId` and
+        `sequence` but never `requestId`.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored child event this frame renders. It is the same
+            live and on replay through `GET /api/v1/session/feed`, so you can
+            use it to skip a frame you already applied.
         type:
           type: string
           const: agent.run.message.undelivered
+          description: >-
+            The frame type, `agent.run.message.undelivered`. Switch on it to
+            read `data`.
         data:
           $ref: "#/components/schemas/AgentRunMessageUndeliveredData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the child event, in Unix seconds. It is the same
+            live and on replay, so it does not tell you which path delivered
+            the frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Group a child run's
+            frames by `data.agentRunId` instead.
 
     AgentRunQuestionData:
       title: AgentRunQuestionData
       type: object
       additionalProperties: false
       required: [agentRunId, parentTurnId, event]
+      description: >-
+        The `data` of an `agent.run.question` frame. `event` is
+        `{question, callId?}`: the question text and the ID of the child's
+        `ask` call.
       properties:
         agentRunId:
           type: string
           format: uuid
+          description: >-
+            The child agent run this step belongs to. Group a run's frames by
+            this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run
+            record.
         parentTurnId:
           type: string
           format: uuid
+          description: >-
+            The root turn the run descends from: the turn in which the root
+            conversation launched this run, or launched its top-level ancestor.
+            Every run in one tree shares it, and a run can keep going after
+            that turn ends.
         parentAgentRunId:
           type: string
           format: uuid
+          description: >-
+            The agent run that launched this one. Absent when the session's
+            root conversation launched it.
         event:
           $ref: "#/components/schemas/QuestionAsked"
 
@@ -1869,39 +3470,80 @@ components:
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        The child asked its parent a question with `ask` and now waits for a
+        message. Sent after the `ask` call's `agent.run.tool.use`, when Peen
+        hands the question to the parent. Answer it with a `message.send` whose
+        `to` is the run's ID, or the parent answers with `sendMessage`. The run
+        reports `waiting` until the matching `agent.run.answer`. Peen stores
+        the frame before it sends it, gives it a `metadata.sequence`, and sends
+        it to every socket that is not filtered and to every socket filtered to
+        its session. `GET /api/v1/session/feed` replays it with the same `id`,
+        `timestamp`, and data. Its `metadata` carries `sessionId` and
+        `sequence` but never `requestId`.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored child event this frame renders. It is the same
+            live and on replay through `GET /api/v1/session/feed`, so you can
+            use it to skip a frame you already applied.
         type:
           type: string
           const: agent.run.question
+          description: >-
+            The frame type, `agent.run.question`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/AgentRunQuestionData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the child event, in Unix seconds. It is the same
+            live and on replay, so it does not tell you which path delivered
+            the frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Group a child run's
+            frames by `data.agentRunId` instead.
 
     AgentRunAnswerData:
       title: AgentRunAnswerData
       type: object
       additionalProperties: false
       required: [agentRunId, parentTurnId, event]
+      description: >-
+        The `data` of an `agent.run.answer` frame. `event` is
+        `{answered, callId?}`, with the same `callId` as the question it
+        closes.
       properties:
         agentRunId:
           type: string
           format: uuid
+          description: >-
+            The child agent run this step belongs to. Group a run's frames by
+            this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run
+            record.
         parentTurnId:
           type: string
           format: uuid
+          description: >-
+            The root turn the run descends from: the turn in which the root
+            conversation launched this run, or launched its top-level ancestor.
+            Every run in one tree shares it, and a run can keep going after
+            that turn ends.
         parentAgentRunId:
           type: string
           format: uuid
+          description: >-
+            The agent run that launched this one. Absent when the session's
+            root conversation launched it.
         event:
           $ref: "#/components/schemas/QuestionAnswered"
 
@@ -1910,60 +3552,116 @@ components:
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        The child's `ask` ended: a message answered it, or it timed out
+        (`answered: false`). Sent after the matching `agent.run.question` and
+        before the `ask` call's `agent.run.tool.result`. Peen stores the frame
+        before it sends it, gives it a `metadata.sequence`, and sends it to
+        every socket that is not filtered and to every socket filtered to its
+        session. `GET /api/v1/session/feed` replays it with the same `id`,
+        `timestamp`, and data. Its `metadata` carries `sessionId` and
+        `sequence` but never `requestId`.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored child event this frame renders. It is the same
+            live and on replay through `GET /api/v1/session/feed`, so you can
+            use it to skip a frame you already applied.
         type:
           type: string
           const: agent.run.answer
+          description: The frame type, `agent.run.answer`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/AgentRunAnswerData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the child event, in Unix seconds. It is the same
+            live and on replay, so it does not tell you which path delivered
+            the frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Group a child run's
+            frames by `data.agentRunId` instead.
 
     AgentRunTerminalEvent:
       title: AgentRunTerminalEvent
       type: object
       additionalProperties: false
       required: [agentRunId, state]
+      description: >-
+        The `event` of an `agent.run.completed`, `agent.run.failed`, or
+        `agent.run.cancelled` frame: how the child run ended.
       properties:
         agentRunId:
           type: string
           format: uuid
+          description: >-
+            The run that ended, the same as the frame's `data.agentRunId`.
         state:
           title: AgentRunTerminalState
           type: string
           enum: [completed, failed, cancelled]
+          description: |-
+            How the run ended. It always matches the frame type.
+
+            - `completed`: the child gave its final answer. `GET /api/v1/session/agents/{agentRunId}` returns it as `responseText`.
+            - `failed`: the child stopped on an error, such as a provider failure or a round or token limit.
+            - `cancelled`: something stopped the child: `stopAgent`, `POST /api/v1/session/agents/{agentRunId}/cancel`, the Stop control, the cancellation of an ancestor run, or the turn deadline.
         failureClassification:
           title: AgentRunFailureClassification
           type: string
-          enum: [agentRun, cancelled]
+          enum: [agentRun, cancelled, interrupted]
+          description: |-
+            Why the run did not complete. Absent for a completed run.
+
+            - `agentRun`: the run failed.
+            - `cancelled`: the run was stopped, including a run that a restart had interrupted before it was cancelled.
+            - `interrupted`: appears only in `agent.run.cancelled` events stored before v0.52.0, for a run that a restart interrupted before it was cancelled. Treat it as `cancelled`. Peen no longer sends it.
         failureDetail:
           type: string
-          description: Free text.
+          description: >-
+            Free text. The error the run ended with, written for people and not
+            a stable contract. Absent for a completed run.
 
     AgentRunCompletedData:
       title: AgentRunCompletedData
       type: object
       additionalProperties: false
       required: [agentRunId, parentTurnId, event]
+      description: >-
+        The `data` of an `agent.run.completed` frame. `event` is an
+        `AgentRunTerminalEvent` with `state` `completed`.
       properties:
         agentRunId:
           type: string
           format: uuid
+          description: >-
+            The child agent run this step belongs to. Group a run's frames by
+            this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run
+            record.
         parentTurnId:
           type: string
           format: uuid
+          description: >-
+            The root turn the run descends from: the turn in which the root
+            conversation launched this run, or launched its top-level ancestor.
+            Every run in one tree shares it, and a run can keep going after
+            that turn ends.
         parentAgentRunId:
           type: string
           format: uuid
+          description: >-
+            The agent run that launched this one. Absent when the session's
+            root conversation launched it.
         event:
           $ref: "#/components/schemas/AgentRunTerminalEvent"
 
@@ -1972,39 +3670,78 @@ components:
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        The child run gave its final answer and ended. Always the run's last
+        frame: Peen stores nothing for a run after its terminal frame. A child
+        of the root conversation also reports through an `agent.finished`
+        notice, sent as its own `notice.created` frame. Peen stores the frame
+        before it sends it, gives it a `metadata.sequence`, and sends it to
+        every socket that is not filtered and to every socket filtered to its
+        session. `GET /api/v1/session/feed` replays it with the same `id`,
+        `timestamp`, and data. Its `metadata` carries `sessionId` and
+        `sequence` but never `requestId`.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored child event this frame renders. It is the same
+            live and on replay through `GET /api/v1/session/feed`, so you can
+            use it to skip a frame you already applied.
         type:
           type: string
           const: agent.run.completed
+          description: >-
+            The frame type, `agent.run.completed`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/AgentRunCompletedData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the child event, in Unix seconds. It is the same
+            live and on replay, so it does not tell you which path delivered
+            the frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Group a child run's
+            frames by `data.agentRunId` instead.
 
     AgentRunFailedData:
       title: AgentRunFailedData
       type: object
       additionalProperties: false
       required: [agentRunId, parentTurnId, event]
+      description: >-
+        The `data` of an `agent.run.failed` frame. `event` is an
+        `AgentRunTerminalEvent` with `state` `failed`.
       properties:
         agentRunId:
           type: string
           format: uuid
+          description: >-
+            The child agent run this step belongs to. Group a run's frames by
+            this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run
+            record.
         parentTurnId:
           type: string
           format: uuid
+          description: >-
+            The root turn the run descends from: the turn in which the root
+            conversation launched this run, or launched its top-level ancestor.
+            Every run in one tree shares it, and a run can keep going after
+            that turn ends.
         parentAgentRunId:
           type: string
           format: uuid
+          description: >-
+            The agent run that launched this one. Absent when the session's
+            root conversation launched it.
         event:
           $ref: "#/components/schemas/AgentRunTerminalEvent"
 
@@ -2013,39 +3750,76 @@ components:
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        The child run stopped on an error. Always the run's last frame. A child
+        of the root conversation also reports through an `agent.failed`
+        notice. Peen stores the frame before it sends it, gives it a
+        `metadata.sequence`, and sends it to every socket that is not filtered
+        and to every socket filtered to its session.
+        `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`,
+        and data. Its `metadata` carries `sessionId` and `sequence` but never
+        `requestId`.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored child event this frame renders. It is the same
+            live and on replay through `GET /api/v1/session/feed`, so you can
+            use it to skip a frame you already applied.
         type:
           type: string
           const: agent.run.failed
+          description: The frame type, `agent.run.failed`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/AgentRunFailedData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the child event, in Unix seconds. It is the same
+            live and on replay, so it does not tell you which path delivered
+            the frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Group a child run's
+            frames by `data.agentRunId` instead.
 
     AgentRunCancelledData:
       title: AgentRunCancelledData
       type: object
       additionalProperties: false
       required: [agentRunId, parentTurnId, event]
+      description: >-
+        The `data` of an `agent.run.cancelled` frame. `event` is an
+        `AgentRunTerminalEvent` with `state` `cancelled`.
       properties:
         agentRunId:
           type: string
           format: uuid
+          description: >-
+            The child agent run this step belongs to. Group a run's frames by
+            this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run
+            record.
         parentTurnId:
           type: string
           format: uuid
+          description: >-
+            The root turn the run descends from: the turn in which the root
+            conversation launched this run, or launched its top-level ancestor.
+            Every run in one tree shares it, and a run can keep going after
+            that turn ends.
         parentAgentRunId:
           type: string
           format: uuid
+          description: >-
+            The agent run that launched this one. Absent when the session's
+            root conversation launched it.
         event:
           $ref: "#/components/schemas/AgentRunTerminalEvent"
 
@@ -2054,26 +3828,58 @@ components:
       type: object
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
+      description: >-
+        The child run was stopped. Always the run's last frame; any tool call
+        it left running is closed first by an `agent.run.tool.result` with
+        `isError` set. A child of the root conversation also reports through an
+        `agent.failed` notice with `state` `cancelled`. Peen stores the frame
+        before it sends it, gives it a `metadata.sequence`, and sends it to
+        every socket that is not filtered and to every socket filtered to its
+        session. `GET /api/v1/session/feed` replays it with the same `id`,
+        `timestamp`, and data. Its `metadata` carries `sessionId` and
+        `sequence` but never `requestId`.
       properties:
         id:
           type: string
           format: uuid
+          description: >-
+            The ID of the stored child event this frame renders. It is the same
+            live and on replay through `GET /api/v1/session/feed`, so you can
+            use it to skip a frame you already applied.
         type:
           type: string
           const: agent.run.cancelled
+          description: >-
+            The frame type, `agent.run.cancelled`. Switch on it to read `data`.
         data:
           $ref: "#/components/schemas/AgentRunCancelledData"
         timestamp:
           type: integer
           format: int64
+          description: >-
+            When Peen stored the child event, in Unix seconds. It is the same
+            live and on replay, so it does not tell you which path delivered
+            the frame.
         metadata:
           $ref: "#/components/schemas/Metadata"
         triggeredBy:
           type: [string, "null"]
           format: uuid
+          description: >-
+            Always `null` on a stored frame, because Peen renders it from the
+            stored record the same way live and on replay. Group a child run's
+            frames by `data.agentRunId` instead.
 
     ServerEvent:
       title: ServerEvent
+      description: >-
+        Any frame the server sends, selected by `type`. `message.completed` and
+        `message.failed` are unsequenced acknowledgements of one client frame.
+        Every other type is a sequenced feed frame with `metadata.sequence`:
+        the model's reply as `content_block_*` blocks, Peen's protocol events
+        for a root turn, `agent.run.*` steps of child agent runs, and
+        `notice.created`. A client should skip a `type` it does not know and
+        still advance its cursor past that frame's sequence.
       discriminator: type
       oneOf:
         - $ref: "#/components/schemas/MessageCompleted"

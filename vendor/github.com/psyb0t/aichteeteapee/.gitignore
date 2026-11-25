@@ -6,7 +6,6 @@
 .python-version
 .nvmrc
 pyrightconfig.json
-AGENTS.md
 CODEX.local.md
 .agent_notes/
 .agent_knowledge/
@@ -27,7 +26,6 @@ htmlcov/
 __pycache__
 http/server/.test/uploads
 *.out
-CLAUDE.md
 .test*
 .research_files
 .refactor/
@@ -39,5 +37,13 @@ ANUSTIMES.md
 coverage-percent.txt
 sec.sarif
 git-update.sh
+git-update.sh.debot
 
 .testing/
+*.local.json
+CLAUDE.local.md
+coverage.txt
+.discuss/
+/website/.docusaurus/
+/website/build/
+/website/node_modules/

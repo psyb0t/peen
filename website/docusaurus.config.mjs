@@ -1,5 +1,9 @@
 const repository = "https://github.com/psyb0t/peen";
 const baseUrl = "/peen/";
+// docs_prepare.py copies api/api.yml here; the plugin writes one page per
+// operation into .content/api.
+const apiSpec = ".assets/reference/api.yml";
+const apiDocsDirectory = "api/";
 
 export default {
   title: "peen",
@@ -24,12 +28,31 @@ export default {
         path: ".content",
         routeBasePath: "/",
         sidebarPath: "./sidebars.mjs",
-        editUrl: ({ docPath }) => repository + "/edit/main/docs/" + docPath,
+        docItemComponent: "@theme/ApiItem",
+        editUrl: ({ docPath }) => docPath.startsWith(apiDocsDirectory)
+          ? undefined
+          : repository + "/edit/main/docs/" + docPath,
+      },
+    }],
+  ],
+  plugins: [
+    ["docusaurus-plugin-openapi-docs", {
+      id: "api",
+      docsPluginId: "classic",
+      config: {
+        peen: {
+          specPath: apiSpec,
+          outputDir: ".content/" + apiDocsDirectory,
+          showInfoPage: false,
+          hideSendButton: true,
+          sidebarOptions: { groupPathsBy: "tag" },
+        },
       },
     }],
   ],
   themes: [
     "@docusaurus/theme-mermaid",
+    "docusaurus-theme-openapi-docs",
     ["@easyops-cn/docusaurus-search-local", {
       docsDir: ".content",
       docsRouteBasePath: "/",
@@ -49,5 +72,6 @@ export default {
     },
     colorMode: { defaultMode: "dark" },
     mermaid: { theme: { light: "neutral", dark: "dark" } },
+    api: { schemaExpansion: { enabled: true, default: 1 } },
   },
 };

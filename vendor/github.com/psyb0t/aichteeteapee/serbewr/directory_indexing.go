@@ -2,7 +2,9 @@ package serbewr
 
 import (
 	"encoding/json"
+	"errors"
 	"html/template"
+	"io/fs"
 	"net/http"
 	"os"
 	"path"
@@ -118,19 +120,25 @@ const directoryListingHTMLTemplate = `<!DOCTYPE html>
 func (s *Server) handleDirectoryRequest(
 	w http.ResponseWriter,
 	r *http.Request,
-	fullPath string,
+	root fs.FS,
+	name string,
 	staticConfig StaticRouteConfig,
 ) {
-	// Try to serve index.html from the directory first
-	indexPath := filepath.Join(fullPath, aichteeteapee.FileNameIndexHTML)
-	if _, err := os.Stat(indexPath); err == nil {
-		// index.html exists, serve it directly
-		http.ServeFile(w, r, indexPath)
+	indexPath := path.Join(name, aichteeteapee.FileNameIndexHTML)
+
+	info, err := fs.Stat(root, indexPath)
+	if err == nil && info.Mode().IsRegular() {
+		http.ServeFileFS(w, r, root, indexPath)
 
 		return
 	}
 
-	// No index.html found - check if directory indexing is enabled
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		writeStaticPathError(w, err)
+
+		return
+	}
+
 	if staticConfig.DirectoryIndexingType == DirectoryIndexingTypeNone {
 		// Directory listing disabled, return forbidden
 		aichteeteapee.WriteJSON(
@@ -143,18 +151,19 @@ func (s *Server) handleDirectoryRequest(
 	}
 
 	// Directory indexing is enabled - generate listing
-	s.generateDirectoryListing(w, r, fullPath, staticConfig)
+	s.generateDirectoryListing(w, r, root, name, staticConfig)
 }
 
 // generateDirectoryListing creates and serves a directory listing.
 func (s *Server) generateDirectoryListing(
 	w http.ResponseWriter,
 	r *http.Request,
-	fullPath string,
+	root fs.FS,
+	name string,
 	staticConfig StaticRouteConfig,
 ) {
 	// Read directory contents
-	entries, err := os.ReadDir(fullPath)
+	entries, err := fs.ReadDir(root, name)
 	if err != nil {
 		s.logger.Error("failed to read directory for listing", "error", err)
 		aichteeteapee.WriteJSON(

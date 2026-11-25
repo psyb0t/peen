@@ -120,6 +120,17 @@ func (s *Store) recordChildReportEvent(
 		return ctxerrors.Wrap(err, "encode child report identity")
 	}
 
-	return s.appendExecutionEvent(ctx, tx, parent,
-		ExecutionEventTypeInboxQueued, encoded)
+	if err := s.appendExecutionEvent(ctx, tx, parent,
+		ExecutionEventTypeInboxQueued, encoded); err != nil {
+		return ctxerrors.Wrap(err, "save child report history")
+	}
+
+	// A finished parent never reads its inbox again and has already sent
+	// its terminal event, after which its run takes no more steps.
+	if isExecutionTerminal(parent.State) {
+		return nil
+	}
+
+	return s.recordChildInboxRunEvent(ctx, tx, parent,
+		EventTypeAgentRunMessageQueued, message)
 }

@@ -1,10 +1,11 @@
 package config
 
 import (
+	"maps"
 	"net"
-	"net/http"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -24,9 +25,8 @@ const (
 
 // MCPServerPolicy permits only explicitly configured HTTP authorities.
 type MCPServerPolicy struct {
-	hosts       map[string]struct{}
-	origins     map[string]struct{}
-	nonLoopback bool
+	hosts   map[string]struct{}
+	origins map[string]struct{}
 }
 
 func (c Config) MCPServerPolicy() (MCPServerPolicy, error) {
@@ -71,11 +71,6 @@ func (p *MCPServerPolicy) addHosts(value string) error {
 		}
 
 		p.hosts[normalized] = struct{}{}
-
-		address, err := netip.ParseAddr(normalized)
-		if normalized != "localhost" && (err != nil || !address.IsLoopback()) {
-			p.nonLoopback = true
-		}
 	}
 
 	return nil
@@ -130,9 +125,15 @@ func (p MCPServerPolicy) AllowsOrigin(origin string) bool {
 	return allowed
 }
 
-// HasNonLoopbackHosts lets HTTP retain SDK defaults when possible.
-func (p MCPServerPolicy) HasNonLoopbackHosts() bool {
-	return p.nonLoopback
+// Hosts returns the allowed hosts in sorted order: lowercase DNS names and
+// canonical IP addresses, without brackets or ports.
+func (p MCPServerPolicy) Hosts() []string {
+	return slices.Sorted(maps.Keys(p.hosts))
+}
+
+// Origins returns the allowed browser origins, normalized, in sorted order.
+func (p MCPServerPolicy) Origins() []string {
+	return slices.Sorted(maps.Keys(p.origins))
 }
 
 func mcpHostname(value string) (string, bool) {
@@ -232,20 +233,4 @@ func validMCPPort(value string) bool {
 	port, err := strconv.Atoi(value)
 
 	return err == nil && port > 0 && port <= maximumTCPPort
-}
-
-// CrossOriginProtection configures the standard wrapper recommended by the SDK.
-func (p MCPServerPolicy) CrossOriginProtection() (
-	*http.CrossOriginProtection, error,
-) {
-	protection := http.NewCrossOriginProtection()
-
-	for origin := range p.origins {
-		if err := protection.AddTrustedOrigin(origin); err != nil {
-			return nil, ctxerrors.Wrap(err,
-				"configure MCP cross-origin protection")
-		}
-	}
-
-	return protection, nil
 }

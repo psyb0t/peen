@@ -24,8 +24,6 @@ const (
 	learnedTestScopedBody      = "---\npaths: [\"**/*.sql\"]\n---\nUse bound parameters."
 	learnedTestMessage         = "save what you learned"
 	learnedTestFinalAnswer     = "saved two learned rules"
-	learnedTestListPath        = apiBasePath + "/session/learned"
-	learnedTestFilePath        = apiBasePath + "/session/learned/file"
 )
 
 // A user can list what the agent learned in a workspace, read it, and delete

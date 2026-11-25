@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 
+	"github.com/psyb0t/aichteeteapee"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/peen/internal/pkg/control"
 	"github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/internal/pkg/session"
 )
@@ -92,18 +94,42 @@ func (s *Server) ReconfigureSession(
 }
 
 // reconfigureSessionFailure maps a reconfiguration failure onto its response.
-// An agent space the deployment does not offer is a refusal, and a session with
-// a turn in flight is a conflict rather than a bad request: the same call
-// succeeds once it is idle.
+// An agent space the deployment does not offer is a refusal, and so is any
+// move of the system session. A session with a turn in flight is a conflict
+// rather than a bad request: the same call succeeds once it is idle. Naming
+// the agent space the workspace already runs in is a conflict that changes
+// nothing.
 //
 //nolint:ireturn // Generated strict handler response interface.
 func reconfigureSessionFailure(
 	err error,
 ) (api.ReconfigureSessionResponseObject, error) {
+	if errors.Is(err, control.ErrSystemSessionAgentSpace) {
+		return api.ReconfigureSession403JSONResponse{
+			ErrorForbiddenJSONResponse: api.ErrorForbiddenJSONResponse(
+				api.Error{
+					Code:    ErrorCodeAgentSpaceNotAllowed,
+					Message: systemSessionAgentSpaceMessage,
+				},
+			),
+		}, nil
+	}
+
 	if errors.Is(err, commerr.ErrPermissionDenied) {
 		return api.ReconfigureSession403JSONResponse{
 			ErrorForbiddenJSONResponse: api.ErrorForbiddenJSONResponse(
 				agentSpaceNotAllowedError(),
+			),
+		}, nil
+	}
+
+	if errors.Is(err, session.ErrAgentSpaceUnchanged) {
+		return api.ReconfigureSession409JSONResponse{
+			ErrorConflictJSONResponse: api.ErrorConflictJSONResponse(
+				api.Error{
+					Code:    aichteeteapee.ErrorCodeConflict,
+					Message: agentSpaceUnchangedMessage,
+				},
 			),
 		}, nil
 	}

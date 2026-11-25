@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
@@ -25,7 +26,7 @@ func (s *Server) ListSessionJobs(
 		if errors.Is(err, commerr.ErrNotFound) {
 			return api.ListSessionJobs404JSONResponse{
 				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-					notFoundError(),
+					sessionNotFoundError(),
 				),
 			}, nil
 		}
@@ -52,7 +53,7 @@ func (s *Server) ListSessionJobs(
 
 // ReadSessionJobOutput returns a bounded window of one job's output.
 //
-//nolint:ireturn // Generated strict handler response interface.
+//nolint:dupl,ireturn // Each operation has its own generated response types.
 func (s *Server) ReadSessionJobOutput(
 	ctx context.Context,
 	request api.ReadSessionJobOutputRequestObject,
@@ -65,10 +66,14 @@ func (s *Server) ReadSessionJobOutput(
 	)
 	if err != nil {
 		if errors.Is(err, commerr.ErrNotFound) {
+			body, lookupErr := s.missingRecordError(ctx,
+				request.Params.XSessionID, jobNotFoundMessage)
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+
 			return api.ReadSessionJobOutput404JSONResponse{
-				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-					notFoundError(),
-				),
+				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(body),
 			}, nil
 		}
 
@@ -95,7 +100,7 @@ func (s *Server) ReadSessionJobOutput(
 // ListSessionJobSignalRequests returns the durable signal-request history for
 // one process job.
 //
-//nolint:ireturn // Generated strict handler response interface.
+//nolint:dupl,ireturn // Each operation has its own generated response types.
 func (s *Server) ListSessionJobSignalRequests(
 	ctx context.Context,
 	request api.ListSessionJobSignalRequestsRequestObject,
@@ -108,10 +113,14 @@ func (s *Server) ListSessionJobSignalRequests(
 	)
 	if err != nil {
 		if errors.Is(err, commerr.ErrNotFound) {
+			body, lookupErr := s.missingRecordError(ctx,
+				request.Params.XSessionID, jobNotFoundMessage)
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+
 			return api.ListSessionJobSignalRequests404JSONResponse{
-				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-					notFoundError(),
-				),
+				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(body),
 			}, nil
 		}
 
@@ -157,7 +166,7 @@ func (s *Server) SignalSessionJob(
 		string(request.Body.Signal),
 	)
 	if err != nil {
-		return signalSessionJobFailure(err)
+		return s.signalSessionJobFailure(ctx, request.Params.XSessionID, err)
 	}
 
 	result := routed
@@ -172,7 +181,8 @@ func (s *Server) SignalSessionJob(
 			*request.Body,
 		)
 		if err != nil {
-			return signalSessionJobFailure(err)
+			return s.signalSessionJobFailure(ctx, request.Params.XSessionID,
+				err)
 		}
 	}
 
@@ -186,15 +196,21 @@ func (s *Server) SignalSessionJob(
 }
 
 //nolint:ireturn // Generated strict handler response interface.
-func signalSessionJobFailure(
+func (s *Server) signalSessionJobFailure(
+	ctx context.Context,
+	sessionID uuid.UUID,
 	err error,
 ) (api.SignalSessionJobResponseObject, error) {
 	switch {
 	case errors.Is(err, commerr.ErrNotFound):
+		body, lookupErr := s.missingRecordError(ctx, sessionID,
+			jobNotFoundMessage)
+		if lookupErr != nil {
+			return nil, lookupErr
+		}
+
 		return api.SignalSessionJob404JSONResponse{
-			ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-				notFoundError(),
-			),
+			ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(body),
 		}, nil
 	case errors.Is(err, commerr.ErrValidationFailed):
 		return signalSessionJobBadRequest(clientMessage(err)), nil

@@ -72,6 +72,7 @@ func TestRuntimeRunPersistsTranscriptEventsAndSnapshots(t *testing.T) {
 		t,
 		[]string{
 			EventTypeUserMessageCreated,
+			EventTypeMCPStatus,
 			eventTypeTurnStarted,
 			eventTypeTurnCompleted,
 		},
@@ -180,6 +181,7 @@ func TestRuntimeContinuesAfterIgnoringInvalidOptionalHarnessSource(t *testing.T)
 	assert.Equal(t, []string{
 		EventTypeUserMessageCreated,
 		EventTypeHarnessWarning,
+		EventTypeMCPStatus,
 		EventTypeTurnStarted,
 		EventTypeTurnCompleted,
 	}, harnessEventTypes(events))

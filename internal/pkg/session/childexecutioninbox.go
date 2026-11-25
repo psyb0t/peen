@@ -27,7 +27,10 @@ func (s *Store) AcceptChildExecutionMessage(
 
 	var result *ExecutionInboxAcceptance
 
-	err = s.query.Transaction(func(tx *repositories.Query) error {
+	err = s.feedTransaction(ctx, func(
+		ctx context.Context,
+		tx *repositories.Query,
+	) error {
 		var acceptErr error
 
 		result, acceptErr = s.acceptChildInboxMessage(ctx, tx, sessionID,
@@ -225,6 +228,11 @@ func (s *Store) recordChildInboxAcceptance(
 		return ctxerrors.Wrap(err, "encode child inbox acceptance identity")
 	}
 
-	return s.appendExecutionEvent(ctx, tx, execution,
-		ExecutionEventTypeInboxQueued, encoded)
+	if err := s.appendExecutionEvent(ctx, tx, execution,
+		ExecutionEventTypeInboxQueued, encoded); err != nil {
+		return ctxerrors.Wrap(err, "record child inbox acceptance history")
+	}
+
+	return s.recordChildInboxRunEvent(ctx, tx, execution,
+		EventTypeAgentRunMessageQueued, message)
 }

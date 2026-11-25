@@ -205,6 +205,55 @@ func TestRegistryReconfigureSessionRefusesAnUndefinedAgentSpace(t *testing.T) {
 	assert.Empty(t, page.Items)
 }
 
+// Naming the agent space the workspace already runs in is a conflict that
+// records no decision and leaves the session where it is.
+func TestRegistryReconfigureSessionRefusesTheCurrentAgentSpace(t *testing.T) {
+	fixture := newReconfigureFixture(t)
+
+	_, err := fixture.registry.ReconfigureSession(
+		t.Context(),
+		fixture.sessionID,
+		api.ReconfigureSessionRequest{
+			AgentSpace: worker.AgentSpaceControl,
+			Reason:     "stay where it is",
+		},
+	)
+	require.ErrorIs(t, err, session.ErrAgentSpaceUnchanged)
+	require.ErrorIs(t, err, commerr.ErrConflict)
+
+	stored, err := fixture.store.Get(t.Context(), fixture.sessionID)
+	require.NoError(t, err)
+	assert.Equal(t, worker.AgentSpaceControl, stored.AgentSpace)
+
+	page, err := fixture.registry.ListAgentSpaceDecisions(
+		t.Context(),
+		fixture.sessionID,
+		api.ListSessionAgentSpaceDecisionsParams{},
+	)
+	require.NoError(t, err)
+	assert.Empty(t, page.Items)
+}
+
+// The system session never moves, whichever agent space a request names, and
+// the refusal says so rather than calling the agent space unavailable.
+func TestRegistryReconfigureSessionRefusesTheSystemSession(t *testing.T) {
+	fixture := newWorkspaceFileFixture(t)
+
+	system, err := fixture.registry.OpenSystemSession(t.Context())
+	require.NoError(t, err)
+
+	_, err = fixture.registry.ReconfigureSession(
+		t.Context(),
+		system.Session.Id,
+		api.ReconfigureSessionRequest{
+			AgentSpace: worker.AgentSpaceControl,
+			Reason:     "an offered agent space",
+		},
+	)
+	require.ErrorIs(t, err, control.ErrSystemSessionAgentSpace)
+	require.ErrorIs(t, err, commerr.ErrPermissionDenied)
+}
+
 // The history reports every change newest first, with the reason given.
 func TestRegistryListAgentSpaceDecisionsReportsTheHistory(t *testing.T) {
 	fixture := newReconfigureFixture(t)

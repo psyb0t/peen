@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/google/uuid"
@@ -242,6 +243,15 @@ func (s *Store) ReconfigureAgentSpace(
 			First()
 		if err != nil {
 			return ctxerrors.Wrap(err, "find session for reconfiguration")
+		}
+
+		// Every session of a workspace shares one agent space, so the
+		// addressed session's space is the workspace's.
+		if stored.AgentSpace == toAgentSpace {
+			return ctxerrors.Wrap(
+				errors.Join(commerr.ErrConflict, ErrAgentSpaceUnchanged),
+				"reconfigure to the current agent space",
+			)
 		}
 
 		sessions, err := workspaceSessions(ctx, tx, stored)

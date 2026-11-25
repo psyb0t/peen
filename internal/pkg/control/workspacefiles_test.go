@@ -133,6 +133,106 @@ func TestRegistryWorkspaceFileRejectsSymlinkEscape(t *testing.T) {
 	require.ErrorIs(t, err, commerr.ErrPermissionDenied)
 }
 
+func TestRegistryWorkspaceFileRefusalsNameThePath(t *testing.T) {
+	f := newWorkspaceFileFixture(t)
+	outside := filepath.Join(f.root, "outside.txt")
+	require.NoError(t, os.WriteFile(outside, []byte("outside"), 0o600))
+	require.NoError(t, os.Symlink(outside, filepath.Join(f.workspace, "link")))
+
+	_, err := f.registry.ReadWorkspaceFile(t.Context(), f.sessionID, "../x")
+	require.ErrorIs(t, err, control.ErrWorkspacePathRefused)
+	_, err = f.registry.ReadWorkspaceFile(t.Context(), f.sessionID, "link")
+	require.ErrorIs(t, err, control.ErrWorkspacePathRefused)
+
+	system, err := f.registry.OpenSystemSession(t.Context())
+	require.NoError(t, err)
+	_, err = f.registry.ListWorkspaceFiles(t.Context(), system.Session.Id, "")
+	require.ErrorIs(t, err, commerr.ErrPermissionDenied)
+	assert.NotErrorIs(t, err, control.ErrWorkspacePathRefused)
+
+	// A clean path the operating system will not open is refused, but not
+	// as a malformed path.
+	locked := filepath.Join(f.workspace, "locked")
+	require.NoError(t, os.Mkdir(locked, 0))
+	t.Cleanup(func() {
+		//nolint:gosec // A directory needs the execute bit to be removed.
+		require.NoError(t, os.Chmod(locked, 0o700))
+	})
+	_, err = f.registry.ListWorkspaceFiles(t.Context(), f.sessionID, "locked")
+	require.ErrorIs(t, err, commerr.ErrPermissionDenied)
+	assert.NotErrorIs(t, err, control.ErrWorkspacePathRefused)
+}
+
+func TestRegistryWorkspaceFileListsEscapingSymlinkWithoutFollowing(
+	t *testing.T,
+) {
+	f := newWorkspaceFileFixture(t)
+	outsideDirectory := filepath.Join(f.root, "outside")
+	require.NoError(t, os.Mkdir(outsideDirectory, 0o750))
+	outside := filepath.Join(outsideDirectory, "secret.txt")
+	require.NoError(t, os.WriteFile(outside, make([]byte, 100), 0o600))
+	// An unreadable target proves the listing never opens it.
+	require.NoError(t, os.Chmod(outside, 0))
+	t.Cleanup(func() { require.NoError(t, os.Chmod(outside, 0o600)) })
+	require.NoError(t, os.Symlink(outside,
+		filepath.Join(f.workspace, "absolute")))
+	relativeTarget := "../outside/secret.txt"
+	require.NoError(t, os.Symlink(relativeTarget,
+		filepath.Join(f.workspace, "relative")))
+	require.NoError(t, os.WriteFile(filepath.Join(f.workspace, "plain.txt"),
+		[]byte("ok"), 0o600))
+
+	listing, err := f.registry.ListWorkspaceFiles(t.Context(), f.sessionID, "")
+	require.NoError(t, err)
+
+	byName := map[string]control.WorkspaceFileEntry{}
+	for _, entry := range listing.Entries {
+		byName[entry.Name] = entry
+	}
+
+	require.Len(t, byName, 3)
+	assert.EqualValues(t, "symlink", byName["absolute"].Type)
+	assert.EqualValues(t, len(outside), byName["absolute"].Size)
+	assert.EqualValues(t, "symlink", byName["relative"].Type)
+	assert.EqualValues(t, len(relativeTarget), byName["relative"].Size)
+	assert.EqualValues(t, "file", byName["plain.txt"].Type)
+	assert.EqualValues(t, 2, byName["plain.txt"].Size)
+
+	for _, name := range []string{"absolute", "relative"} {
+		_, err = f.registry.ListWorkspaceFiles(t.Context(), f.sessionID, name)
+		require.ErrorIs(t, err, control.ErrWorkspacePathRefused)
+		_, err = f.registry.ReadWorkspaceFile(t.Context(), f.sessionID, name)
+		require.ErrorIs(t, err, control.ErrWorkspacePathRefused)
+	}
+}
+
+func TestRegistryWorkspaceFilePathThroughFileIsNotFound(t *testing.T) {
+	f := newWorkspaceFileFixture(t)
+	require.NoError(t, os.WriteFile(filepath.Join(f.workspace, "README.md"),
+		[]byte("readme"), 0o600))
+	content := base64.StdEncoding.EncodeToString([]byte("x"))
+
+	_, err := f.registry.ListWorkspaceFiles(t.Context(), f.sessionID,
+		"README.md/x")
+	require.ErrorIs(t, err, commerr.ErrNotFound)
+	_, err = f.registry.ReadWorkspaceFile(t.Context(), f.sessionID,
+		"README.md/x")
+	require.ErrorIs(t, err, commerr.ErrNotFound)
+	_, err = f.registry.WriteWorkspaceFile(t.Context(), f.sessionID,
+		"README.md/x", content, false)
+	require.ErrorIs(t, err, commerr.ErrNotFound)
+	_, err = f.registry.WriteWorkspaceFile(t.Context(), f.sessionID,
+		"README.md/x/y", content, true)
+	require.ErrorIs(t, err, commerr.ErrNotFound)
+	err = f.registry.DeleteWorkspaceFile(t.Context(), f.sessionID,
+		"README.md/x")
+	require.ErrorIs(t, err, commerr.ErrNotFound)
+
+	unchanged, err := os.ReadFile(filepath.Join(f.workspace, "README.md"))
+	require.NoError(t, err)
+	assert.Equal(t, "readme", string(unchanged))
+}
+
 func TestRegistryWorkspaceFileFollowsInternalRelativeSymlink(t *testing.T) {
 	f := newWorkspaceFileFixture(t)
 	target := filepath.Join(f.workspace, "target.txt")

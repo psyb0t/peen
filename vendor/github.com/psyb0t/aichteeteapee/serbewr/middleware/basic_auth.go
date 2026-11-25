@@ -148,6 +148,12 @@ func BasicAuth(opts ...BasicAuthOption) Middleware {
 			ctx := context.WithValue(
 				r.Context(), aichteeteapee.ContextKeyUser, user,
 			)
+			if user != "" {
+				ctx = context.WithValue(
+					ctx, principalKey{}, Principal{Subject: user},
+				)
+			}
+
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

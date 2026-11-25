@@ -12,7 +12,8 @@
 | `docs/architecture.md` | Controller, workers, one turn, durable state, terms and identifiers. |
 | `docs/harness.md`, `rules.md`, `skills.md`, `agents.md`, `hooks.md`, `events.md` | The harness formats users write. |
 | `docs/tools.md` | Every tool the agent can call. |
-| `docs/http-api.md`, `websocket-api.md` | The REST and WebSocket contract, next to `api/api.yml` and `api/asyncapi.yaml`. |
+| `docs/http-api.md` | The rules every REST operation shares and the entry to the REST reference. Each operation's own detail lives in `api/api.yml`, which the site renders as one page per operation. |
+| `docs/websocket-api.md` | The WebSocket contract, next to `api/asyncapi.yaml`. |
 | `docs/troubleshooting.md` | Startup refusals, `peen doctor` failures, and API error codes. |
 | `docs/where-it-runs.md` | The control space and agent space combinations and what the agent can reach in each. |
 | `docs/openai-api.md`, `mcp-server.md`, `cron.md`, `telegram.md` | The optional controller entry points that start turns: the OpenAI Chat Completions API, the MCP control server, scheduled turns, and the Telegram bot. |
@@ -38,8 +39,9 @@ Commands in docs are run as written, so check that each one you add or change wo
 GitHub Pages publishes the site at <https://psyb0t.github.io/peen/>. Docusaurus builds it from `docs/`. [`.github/workflows/docs.yml`](https://github.com/psyb0t/peen/blob/main/.github/workflows/docs.yml) runs `make docs-build` on pushes to `main`, pull requests, and manual dispatch, and the reusable Pages workflow deploys `website/build` from `main` only. Keep `docs/` flat, because a page's file name is its URL, and renaming one breaks every inbound link.
 
 - `docs/` holds every page. `website/` holds only the Docusaurus project: `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `docusaurus.config.mjs`, `sidebars.mjs`, and the theme in `src/`. Do not write pages there.
-- `make docs-build` runs `scripts/make/docs.sh build` in the dev image. It copies `website/` to a scratch directory, runs `scripts/make/docs_prepare.py`, installs the locked packages with `--frozen-lockfile --ignore-scripts`, builds, and copies the result to the gitignored `website/build`. A broken link or anchor fails the build. Run it after changing `docs/`.
-- `docs_prepare.py` copies `docs/*.md` into the Docusaurus content, builds the sidebar from `parent` and `nav_order`, and writes `llms.txt` from `docs/llms.txt` plus one line per page. It refuses a page with no front matter, an unknown front matter key, a missing `title`, `description`, or `nav_order`, a description shorter than 50 or longer than 170 characters, a title or description another page already uses, a `parent` that matches no page title, Liquid or Jekyll syntax, or anything but exactly one `#` heading. The refusal names the file.
+- `make docs-build` runs `scripts/make/docs.sh build` in the dev image. It copies `website/` to a scratch directory, runs `scripts/make/docs_prepare.py`, installs the locked packages with `--frozen-lockfile --ignore-scripts`, builds, checks the full site links with `scripts/make/docs_check_site_links.py`, and copies the result to the gitignored `website/build`. A broken link or anchor fails the build. Run it after changing `docs/` or `api/api.yml`.
+- The REST reference is generated. `docusaurus-plugin-openapi-docs` turns `api/api.yml` into one page per operation under `/api/`, grouped by tag, and `website/sidebars.mjs` nests them under the REST API page. `website/src/theme/ApiExplorer` shows each operation's `x-codeSamples` curl example in place of the plugin's in-browser request editor. Fix reference text in `api/api.yml`, never in generated pages.
+- `docs_prepare.py` copies `docs/*.md` into the Docusaurus content, copies `api/api.yml` to the site's `reference/api.yml` download, builds the sidebar from `parent` and `nav_order`, and writes `llms.txt` from `docs/llms.txt` plus one line per page. It refuses a page with no front matter, an unknown front matter key, a missing `title`, `description`, or `nav_order`, a description shorter than 50 or longer than 170 characters, a title or description another page already uses, a `parent` that matches no page title, Liquid or Jekyll syntax, or anything but exactly one `#` heading. The refusal names the file.
 - Pages are plain CommonMark that also reads correctly on GitHub, not MDX: no JSX, imports, or `{}` expressions. `has_children`, `seo`, `sitemap`, Liquid tags, and `{% raw %}` wrappers are gone, and the build refuses them. A GitHub Actions expression such as `${{ secrets.X }}` needs no wrapping.
 
 Front matter:
@@ -53,6 +55,7 @@ Pages and links:
 - A page has one `#` heading.
 - Link another page with its relative `.md` path. Link a file outside `docs/` with its full `https://github.com/psyb0t/peen/blob/main/...` URL, or `tree/main/...` for a directory, because the site does not contain it. When a page names a repository path, link the first mention.
 - `README.md` links to the site with full `https://psyb0t.github.io/peen/...` URLs, because Docker Hub shows it too and relative links die there.
+- Link a REST reference page with its full URL, such as `https://psyb0t.github.io/peen/api/list-session-feed/`, because the page exists only on the site. Its slug is the operation's `operationId` in kebab case. Docusaurus does not check full URLs, so `docs_check_site_links.py` resolves every `https://psyb0t.github.io/peen/...` link in `docs/`, `README.md`, and the published skill against the build, including its `#anchor`.
 
 ## Markdown format
 

@@ -97,6 +97,10 @@ func (s *Store) finishExecutionChild(
 		return ctxerrors.Wrap(err, "save execution child terminal record")
 	}
 
+	if err := s.recordUndeliveredChildInbox(ctx, tx, execution); err != nil {
+		return ctxerrors.Wrap(err, "report finished child unread inbox")
+	}
+
 	event, err := s.recordExecutionChildTerminal(ctx, tx, run)
 	if err != nil {
 		return ctxerrors.Wrap(err, "record child terminal event")

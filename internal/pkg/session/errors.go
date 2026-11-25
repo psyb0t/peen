@@ -81,6 +81,12 @@ var (
 	// recorded after the run ended. It is always joined with
 	// commerr.ErrConflict.
 	ErrAgentRunFinished = errors.New("agent has finished")
+	// ErrAgentSpaceUnchanged refuses a reconfiguration that names the agent
+	// space the workspace already runs in, so nothing is recorded and no
+	// worker is stopped. It is always joined with commerr.ErrConflict.
+	ErrAgentSpaceUnchanged = errors.New(
+		"the workspace already runs in this agent space",
+	)
 	// ErrAgentRunNotFound reports a message sent to an agent run the session
 	// never had. It is always joined with commerr.ErrNotFound.
 	ErrAgentRunNotFound = errors.New("agent run not found")

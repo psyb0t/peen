@@ -4,6 +4,7 @@ package api_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"path"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/psyb0t/aichteeteapee"
+	dabluveees "github.com/psyb0t/aichteeteapee/serbewr/dabluvee-es"
 	"github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/tests/testinfra"
 	"github.com/stretchr/testify/assert"
@@ -317,4 +319,96 @@ func TestAPIWebSocketCarriesTheTurnReasoningEffort(t *testing.T) {
 		failure := awaitAPIWebSocketFailure(t, connection)
 		assert.Equal(t, aichteeteapee.ErrorCodeValidationFailed, failure.Code)
 	})
+}
+
+// A message.send without an id starts nothing. The sender gets a
+// VALIDATION_FAILED message.failed that names no frame, and the connection
+// stays open for the next message.
+func TestAPIWebSocketRejectsAMessageWithoutAnID(t *testing.T) {
+	sessionID := openAPIWorkspaceSession(t)
+	connection := dialAPIWebSocket(t, &sessionID)
+	t.Cleanup(func() { require.NoError(t, connection.Close()) })
+	head := getSession(t, sessionID).FeedSequence
+
+	require.NoError(t, connection.WriteMessage(websocket.TextMessage, []byte(
+		`{"type":"message.send","metadata":{"sessionId":"`+
+			sessionID.String()+`"},"data":{"message":"hello"}}`,
+	)))
+
+	require.NoError(t, connection.SetReadDeadline(
+		time.Now().Add(apiTestWebSocketReadTimeout)))
+
+	received := dabluveees.Event{}
+	require.NoError(t, connection.ReadJSON(&received))
+	assertValidServerFrame(t, received)
+	require.Equal(t, apiTestWebSocketMessageFailed, string(received.Type))
+	assert.Nil(t, received.TriggeredBy)
+
+	failure := apiTestWebSocketFailure{}
+	require.NoError(t, json.Unmarshal(received.Data, &failure))
+	assert.Equal(t, aichteeteapee.ErrorCodeValidationFailed, failure.Code)
+
+	assert.Equal(t, head, getSession(t, sessionID).FeedSequence,
+		"the refused frame stores nothing")
+
+	require.NoError(t, writeAPIWebSocketSessionMessage(t, connection,
+		sessionID, map[string]string{"message": "hello"}))
+	awaitAPIWebSocketCompletion(t, connection, false)
+}
+
+// A frame that does not decode as an event, such as invalid JSON or an id
+// that is not a UUID, gets a VALIDATION_FAILED message.failed that names no
+// frame and no session and quotes none of the frame. The connection stays
+// open, and the next valid message.send on it runs.
+func TestAPIWebSocketAnswersUndecodableFramesAndStaysOpen(t *testing.T) {
+	const marker = "frame-marker-text"
+
+	sessionID := openAPIWorkspaceSession(t)
+	for _, tc := range []struct {
+		name  string
+		frame string
+	}{
+		{name: "invalid json", frame: `{"type":"message.send",` + marker},
+		{
+			name: "id not a uuid",
+			frame: `{"id":"` + marker + `","type":"message.send",` +
+				`"metadata":{"sessionId":"` + sessionID.String() + `"},` +
+				`"data":{"message":"hello"}}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			connection := dialAPIWebSocket(t, &sessionID)
+			t.Cleanup(func() { require.NoError(t, connection.Close()) })
+			head := getSession(t, sessionID).FeedSequence
+
+			require.NoError(t, connection.WriteMessage(websocket.TextMessage,
+				[]byte(tc.frame)))
+			require.NoError(t, connection.SetReadDeadline(
+				time.Now().Add(apiTestWebSocketReadTimeout)))
+
+			_, raw, err := connection.ReadMessage()
+			require.NoError(t, err)
+			assert.NotContains(t, string(raw), marker)
+
+			received := dabluveees.Event{}
+			require.NoError(t, json.Unmarshal(raw, &received))
+			assertValidServerFrame(t, received)
+			require.Equal(t, apiTestWebSocketMessageFailed,
+				string(received.Type))
+			assert.Nil(t, received.TriggeredBy)
+			_, hasSession := received.Metadata.Get("sessionId")
+			assert.False(t, hasSession)
+
+			failure := apiTestWebSocketFailure{}
+			require.NoError(t, json.Unmarshal(received.Data, &failure))
+			assert.Equal(t, aichteeteapee.ErrorCodeValidationFailed,
+				failure.Code)
+			assert.Equal(t, head, getSession(t, sessionID).FeedSequence,
+				"the refused frame stores nothing")
+
+			require.NoError(t, writeAPIWebSocketSessionMessage(t, connection,
+				sessionID, map[string]string{"message": "hello"}))
+			awaitAPIWebSocketCompletion(t, connection, false)
+		})
+	}
 }

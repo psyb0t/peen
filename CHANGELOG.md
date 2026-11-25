@@ -2,6 +2,37 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.52.0 (2026-11-25)
+
+Publishes a REST API reference on the documentation site, generated from `api/api.yml`, describes every WebSocket frame in `api/asyncapi.yaml`, and makes REST and WebSocket error codes and frame shapes match what Peen sends. A client that branches on `NOT_FOUND` for an unknown session must also accept `SESSION_NOT_FOUND`, a client that reads child agent tool calls must read `id`, `name`, and `arguments`, and every `message.send` needs an `id`.
+
+- Breaking: every REST operation that takes `X-Session-ID` answers an unknown session with `404 SESSION_NOT_FOUND`. Session events, notices, jobs, and workspace files used to answer `NOT_FOUND`. A missing job, agent run, compaction, model run, snapshot, learned file, or workspace path in an existing session answers `404 NOT_FOUND` with a message naming the missing record, instead of "session not found".
+- Breaking: `GET /api/v1/session/agents/{agentRunId}/messages` returns each tool call with the keys `id`, `name`, and `arguments`, the same shape as the session transcript. It used to return `ID`, `Name`, and `Arguments`.
+- Breaking: `POST /api/v1/session/reconfigure` naming the agent space the workspace already uses answers `409 CONFLICT` and changes nothing. It used to record a decision and stop every worker of the workspace.
+- Breaking: removes `details` from the REST error body and `parentToolCallId` from stored protocol events in `api/api.yml` and the generated Go client. The server never sent either.
+- Breaking: a `message.send` WebSocket frame without an `id` fails with `message.failed` `VALIDATION_FAILED` on the sending socket and starts nothing. It used to run and answer with an all-zero UUID.
+- Breaking: removes `content` from the `tool_result` `content_block_start` frame in `api/asyncapi.yaml` and the generated types. Peen never sent it.
+- Fixes `agent.run.message.queued`, `agent.run.message.delivered`, and `agent.run.message.undelivered` never being sent for child runs in session workers. They now report every message a child accepts, reads, or leaves unread when it ends, with an `acceptanceId` linking the three.
+- Fixes a WebSocket frame that does not decode, because it is not valid JSON, its `id` is not a UUID, or a field has the wrong type, closing the connection with no explanation. The sending socket gets `message.failed` with `VALIDATION_FAILED` and `triggeredBy: null`, and the connection stays open.
+- Changes the `421` and `403` refusals of the MCP control server at `/mcp/v1` from plain text to the `{"code", "message"}` envelope, with codes `MISDIRECTED_REQUEST` and `FORBIDDEN`. The Host and Origin allowlists, bearer authentication, and long-running tool calls behave as before.
+- Updates aichteeteapee to v1.18.0, whose MCP route now runs the control server's Host, Origin, cross-site, write deadline, and cancellation handling.
+- Keeps the root `.gitattributes` exactly as Servicepack ships it. The binary rule for the benchmark PDF and the whitespace exception for a benchmark fixture moved to `bench/.gitattributes`.
+- Fixes `question.asked` and `question.answered` missing `callId` when the root conversation asked outside a workflow.
+- Fixes `agent.run.cancelled` carrying `failureClassification: "interrupted"` for a child a restart had interrupted before it was cancelled, a value the frame schema rejected, so the control surface dropped the run's final frame. The frame and the stored run now say `cancelled`, and the schema still accepts `interrupted` for events stored before this release.
+- Adds descriptions for every schema and property in `api/asyncapi.yaml`, including when each frame is sent, whether the feed replays it, and how it orders against the other frames of a turn.
+- Fixes `GET /api/v1/session/agents` answering `500` for a `parentAgentRunId` that is neither a UUID nor `root`. It answers `400 VALIDATION_FAILED`.
+- Fixes workspace file paths that run through a regular file, such as `README.md/notes`, answering `500`. They answer `404 NOT_FOUND`.
+- Fixes a workspace directory listing failing with `403` when one entry is a symbolic link pointing outside the workspace. The listing shows that entry as `type: symlink` without following it.
+- Fixes `GET /api/v1/session/mcp` reporting servers that are no longer configured. Every turn now emits `mcp.status`, with an empty `servers` list when no MCP server is configured, so each turn adds one more stored event and feed frame.
+- Adds `agentRunId` to job records, naming the child agent run that started the job. It is absent for jobs the root conversation started.
+- Changes the `403` messages for a malformed workspace file path and for reconfiguring the system session to say what is wrong.
+- Adds the [REST reference](https://psyb0t.github.io/peen/http-api/) to the documentation site: one page per operation, grouped by area, with every parameter, field, response, and error, and a curl example. The OpenAPI file can be downloaded from the site.
+- Changes `api/api.yml` to describe every operation, parameter, schema, and property, including units, defaults, limits, enum values, ordering, and which error each operation returns when, and tags each operation by area. The Go client in `pkg/http/api/client` carries the same text as doc comments.
+- Changes 22 response fields in `api/api.yml` from nullable to optional, because the server leaves them out when unset and never sends `null`. Only `FeedFrame.requestId`, `MCPStatusReport.reportedAt`, and `ModelCall.responseMessage` stay nullable. The spec now also lists the `406` every operation answers when `Accept` rules out JSON.
+- Fixes the declared bounds of `limit` on `GET /api/v1/session/jobs/{jobId}/output` to 1 to 200 with a default of 50, the values the server already enforced. A larger value still fails with `400 VALIDATION_FAILED`.
+- Removes six unused `WebSocket*` schemas and the unused `SessionIDOptional` parameter from `api/api.yml`. They described an outdated copy of the WebSocket contract, which stays in `api/asyncapi.yaml`.
+- Changes the REST API page to the rules every operation shares, with the per-operation detail moved into the reference. Links to the old per-endpoint sections now open the matching reference pages.
+
 ## v0.51.0 (2026-11-24)
 
 Adds structured answers, whole-turn deadlines, workspace file access, and optional OpenAI, MCP, scheduled-turn and Telegram entry points. The four integrations are off by default. A workspace can now hold several sessions, one per entry point, and they all share one agent space. Before upgrading, back up and reset the session and workflow databases with the steps in [durable state and mounts](https://psyb0t.github.io/peen/deployment/#durable-state-and-mounts), and stop sending a different `agentSpace` when reopening a workspace.

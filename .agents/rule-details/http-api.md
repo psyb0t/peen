@@ -8,18 +8,21 @@ Transition: today the spec is still the hand-written `api/api.yml`, generated wi
 
 ## Changing an endpoint
 
-1. Edit the domain file in `cmd/apigen/` (until the move lands, `api/api.yml`): path, parameters, schemas, every response status, and the error responses. A value shared between the spec and Go code, such as a page size limit, goes in `x-constants:` through `AddConstant`, never as a literal in both places.
+1. Edit the domain file in `cmd/apigen/` (until the move lands, `api/api.yml`): path, parameters, schemas, every response status, and the error responses. A value shared between the spec and Go code, such as a page size limit, goes in `x-constants:` through `AddConstant`, never as a literal in both places. The spec is the public REST reference on the documentation site, so it carries the documentation:
+   - every operation has one tag from the top-level `tags:` list, a `summary`, a `description` that says what it does, its ordering and paging, and which error status and code it returns when, and an `x-codeSamples` curl example in the shape the other operations use;
+   - every parameter, request body, response, schema, and property has a `description` with its meaning, units, defaults and limits, when it is absent, and what each enum value means;
+   - never put `description` or any other key beside a `$ref`, because kin-openapi refuses sibling keys. Describe the referenced schema instead.
 2. Run `make generate`. CI regenerates and fails on any diff, so commit the generated files with their source.
 3. Implement or update the method on `*server.Server`. `var _ api.StrictServerInterface = (*Server)(nil)` in `server.go` keeps it honest.
 4. Add or update handler tests in `internal/pkg/http/server/` and black-box coverage in `tests/api/`.
-5. Update `docs/http-api.md`, the web client if it calls the endpoint, and the CHANGELOG.
+5. Update the web client if it calls the endpoint, and the CHANGELOG. `docs/http-api.md` holds only the rules every operation shares, so update it only when one of those changes. Run `make docs-build`, which renders the spec and fails on a broken page or link.
 
 Never edit `api.gen.go` or `client.gen.go`, and never add a route outside the spec. Keep handler files grouped by area: `sessions.go`, `jobs.go`, `agentruns.go`, `workspaces.go`.
 
 ## Handlers
 
 - A handler returns the generated response object for each documented status, such as `api.ListMessages404JSONResponse`. Do not write to the `http.ResponseWriter` from a strict handler.
-- Errors use the aichteeteapee envelope `{"code", "message"}` through the generated `api.Error` type. Use the `aichteeteapee.ErrorCode*` constants. A Peen-specific code goes in `errorcodes.go`, documented in `api/api.yml` and `docs/http-api.md`.
+- Errors use the aichteeteapee envelope `{"code", "message"}` through the generated `api.Error` type. Use the `aichteeteapee.ErrorCode*` constants. A Peen-specific code goes in `errorcodes.go`, documented in `api/api.yml` and in the error code table in `docs/troubleshooting.md`.
 - Client-visible messages never include an error's source location or internal detail. `clientMessage` strips the ctxerrors location. Unexpected failures answer 500 with the generic message and log the cause.
 - Pass the request context down. Get the logger with `ctxscope.GetLogger(ctx)`.
 

@@ -205,7 +205,7 @@ A lifecycle event such as `sessionStart` has no tool, so its block has no `<tool
 
 | Field | Required | Meaning |
 | --- | --- | --- |
-| `eventType` | yes | The name of the session event, chosen by you, such as `repo.file.changed`. It becomes the event's `type` once published, and it is the file name a handler matches: `.agents/events/repo.file.changed.md`. It has 1 to 8 lowercase dotted parts, each starting with a letter and holding only letters and digits, up to 128 characters. It must not start with `job.` or `agent.`, which are reserved for Peen. It is not the action's `type`, which is always `emitEvent` here. |
+| `eventType` | yes | The name of the session event, chosen by you, such as `repo.file.changed`. It becomes the event's `type` once published, and it is the file name a handler matches: `.agents/events/repo.file.changed.md`. It has 1 to 8 lowercase dotted parts, each starting with a letter and holding only letters and digits, up to 128 characters. It must not start with `job.`, `agent.`, or `turn.`, which are reserved for Peen. It is not the action's `type`, which is always `emitEvent` here. |
 | `summary` | no | One line the model reads, such as "A Go file changed." Empty is allowed. |
 | `data` | no | A YAML mapping, delivered to the model as JSON. |
 | `delivery` | no | `queue` or `wake`. It decides whether the event wakes an idle session only when the handler for this type sets no `delivery` of its own. See [waking an idle session](events.md#waking-an-idle-session). |

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -289,164 +290,94 @@ func (s *Server) setupStaticRoute(
 	)
 }
 
-// createSecureStaticHandler creates a static file handler with configurable
-// directory listing.
+// createSecureStaticHandler serves files through a filesystem rooted at Dir.
 func (s *Server) createSecureStaticHandler(
 	staticConfig StaticRouteConfig,
 ) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fullPath, ok := s.validateAndBuildPath(
-			w, r, staticConfig.Dir, staticConfig.Path,
-		)
-		if !ok {
+		name := strings.TrimPrefix(r.URL.Path, staticConfig.Path)
+
+		name = strings.Trim(name, "/")
+		if name == "" {
+			name = "."
+		}
+
+		if !fs.ValidPath(name) {
+			writeStaticPathError(w, fs.ErrPermission)
+
 			return
 		}
 
-		handled := s.checkFileAccess(w, r, fullPath, staticConfig)
-		if !handled {
+		root, err := os.OpenRoot(staticConfig.Dir)
+		if err != nil {
+			writeStaticPathError(w, err)
+
 			return
 		}
 
-		// If we get here, it's a regular file (not a directory), serve it
-		http.ServeFile(w, r, fullPath)
+		defer func() {
+			if err := root.Close(); err != nil {
+				s.logger.Error("close static directory", "error", err)
+			}
+		}()
+
+		s.serveStaticPath(w, r, root.FS(), name, staticConfig)
 	})
 }
 
-// validateAndBuildPath validates the request path and builds the full
-// file path.
-func (s *Server) validateAndBuildPath(
+func (s *Server) serveStaticPath(
 	w http.ResponseWriter,
 	r *http.Request,
-	staticDir, staticPath string,
-) (string, bool) {
-	// Remove the static path prefix
-	relativePath := strings.TrimPrefix(r.URL.Path, staticPath)
-	if relativePath == "" {
-		relativePath = "."
-	}
+	root fs.FS,
+	name string,
+	config StaticRouteConfig,
+) {
+	key := filepath.Join(config.Dir, filepath.FromSlash(name))
 
-	// Security: prevent directory traversal. Clean is only one layer here: the
-	// ".." prefix/segment check right below, plus the symlink-resolved base-dir
-	// containment further down, do the real containment. So this is not the
-	// Clean-as-the-only-sanitizer misuse the rule warns about.
-	// nosemgrep
-	cleanPath := filepath.Clean(relativePath)
-	if strings.HasPrefix(cleanPath, "..") ||
-		strings.Contains(cleanPath, ".."+string(filepath.Separator)) {
-		aichteeteapee.WriteJSON(
-			w,
-			http.StatusForbidden,
-			aichteeteapee.ErrorResponsePathTraversalDenied,
-		)
+	cached, exists, isDir := s.fileCache.get(key)
+	if !cached {
+		info, err := fs.Stat(root, name)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				s.fileCache.set(key, false, false)
+			}
 
-		return "", false
-	}
+			writeStaticPathError(w, err)
 
-	// Build the full file path using proper path joining
-	fullPath := filepath.Join(staticDir, cleanPath)
-
-	// Resolve symlinks to prevent symlink-based traversal bypasses.
-	// Resolve staticDir first; fall back to original value if it fails.
-	resolvedDir, err := filepath.EvalSymlinks(staticDir)
-	if err != nil {
-		resolvedDir = staticDir
-	}
-
-	// Resolve fullPath; if it fails (e.g. file doesn't exist yet), skip the
-	// symlink check — the file-existence check downstream will return 404.
-	resolvedFull, err := filepath.EvalSymlinks(fullPath)
-	if err == nil {
-		if !strings.HasPrefix(resolvedFull, resolvedDir) {
-			aichteeteapee.WriteJSON(
-				w,
-				http.StatusForbidden,
-				aichteeteapee.ErrorResponsePathTraversalDenied,
-			)
-
-			return "", false
+			return
 		}
+
+		exists, isDir = true, info.IsDir()
+		s.fileCache.set(key, exists, isDir)
 	}
 
-	return fullPath, true
-}
-
-// checkFileAccess checks file existence and permissions using cache
-// Returns true if it's a regular file that should be served by the caller
-// Returns false if the request was handled (error, directory, etc) or should
-// not continue.
-func (s *Server) checkFileAccess(
-	w http.ResponseWriter,
-	r *http.Request,
-	fullPath string,
-	staticConfig StaticRouteConfig,
-) bool {
-	cached, exists, isDir := s.fileCache.get(fullPath)
-	if cached {
-		return s.handleCachedResult(w, r, fullPath, exists, isDir, staticConfig)
-	}
-
-	return s.handleCacheMiss(w, r, fullPath, staticConfig)
-}
-
-// handleCachedResult processes cached file information
-// Returns true only if it's a regular file that should be served by the caller.
-func (s *Server) handleCachedResult(
-	w http.ResponseWriter,
-	r *http.Request,
-	fullPath string,
-	exists, isDir bool,
-	staticConfig StaticRouteConfig,
-) bool {
 	if !exists {
-		aichteeteapee.WriteJSON(
-			w,
-			http.StatusNotFound,
-			aichteeteapee.ErrorResponseFileNotFound,
-		)
+		writeStaticPathError(w, fs.ErrNotExist)
 
-		return false
+		return
 	}
 
 	if isDir {
-		s.handleDirectoryRequest(w, r, fullPath, staticConfig)
+		s.handleDirectoryRequest(w, r, root, name, config)
 
-		return false // Directory handled, don't continue
+		return
 	}
 
-	return true // Regular file, should be served by caller
+	http.ServeFileFS(w, r, root, name)
 }
 
-// handleCacheMiss processes filesystem lookup and caches the result.
-func (s *Server) handleCacheMiss(
-	w http.ResponseWriter,
-	r *http.Request,
-	fullPath string,
-	staticConfig StaticRouteConfig,
-) bool {
-	info, err := os.Stat(fullPath)
-	if err != nil {
-		// File doesn't exist - cache this result
-		s.fileCache.set(fullPath, false, false)
+func writeStaticPathError(w http.ResponseWriter, err error) {
+	if errors.Is(err, fs.ErrNotExist) {
 		aichteeteapee.WriteJSON(
-			w,
-			http.StatusNotFound,
-			aichteeteapee.ErrorResponseFileNotFound,
+			w, http.StatusNotFound, aichteeteapee.ErrorResponseFileNotFound,
 		)
 
-		return false
+		return
 	}
 
-	// File exists - cache this result
-	isDir := info.IsDir()
-	s.fileCache.set(fullPath, true, isDir)
-
-	if isDir {
-		s.handleDirectoryRequest(w, r, fullPath, staticConfig)
-
-		return false // Directory handled, don't continue
-	}
-
-	return true // Regular file, should be served by caller
+	aichteeteapee.WriteJSON(
+		w, http.StatusForbidden, aichteeteapee.ErrorResponsePathTraversalDenied,
+	)
 }
 
 // validateTLSConfig validates TLS configuration when TLS is enabled.

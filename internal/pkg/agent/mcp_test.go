@@ -8,6 +8,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/psyb0t/elelem"
+	"github.com/psyb0t/elelem/elelemtest"
+	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -189,4 +191,28 @@ func TestMCPToolsWithoutAManager(t *testing.T) {
 	t.Parallel()
 
 	assert.Nil(t, (&Runtime{}).mcpTools(nil))
+}
+
+// A turn with no MCP configuration still records an mcp.status event with an
+// empty server list, so the latest report never names servers that are no
+// longer configured.
+func TestTurnWithoutMCPRecordsAnEmptyStatus(t *testing.T) {
+	ctx := context.Background()
+	fixture := newRuntimeFixture(t,
+		elelemtest.NewScriptedDriver(elelemtest.Text("done")))
+
+	result, err := fixture.runtime.Run(ctx, TurnRequest{
+		Message:   "no MCP here",
+		Workspace: fixture.workspace,
+	})
+	require.NoError(t, err)
+
+	page, err := fixture.store.ListEvents(ctx, result.SessionID,
+		session.ListEventsOptions{
+			Limit:      session.MaximumPageLimit,
+			EventTypes: []string{EventTypeMCPStatus},
+		})
+	require.NoError(t, err)
+	require.Len(t, page.Items, 1)
+	assert.JSONEq(t, `{"servers":[]}`, page.Items[0].PayloadJSON)
 }

@@ -3,7 +3,7 @@
   "private": true,
   "packageManager": "pnpm@10.28.1",
   "scripts": {
-    "build": "docusaurus build"
+    "build": "docusaurus clean-api-docs peen && docusaurus gen-api-docs peen && docusaurus build"
   },
   "dependencies": {
     "@docusaurus/core": "3.10.2",
@@ -12,6 +12,8 @@
     "@docusaurus/theme-mermaid": "3.10.2",
     "@easyops-cn/docusaurus-search-local": "0.55.3",
     "@mdx-js/react": "3.1.1",
+    "docusaurus-plugin-openapi-docs": "5.2.0",
+    "docusaurus-theme-openapi-docs": "5.2.0",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   }

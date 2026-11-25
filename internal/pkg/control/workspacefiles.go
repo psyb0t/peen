@@ -93,7 +93,10 @@ func listWorkspaceEntries(
 
 		entryPath := path.Join(cleanPath, dirEntry.Name())
 
-		info, err := inspectWorkspacePath(root, entryPath, true)
+		// The directory itself already resolved inside the workspace, so the
+		// entry's own metadata is enough. A symbolic link is reported as one
+		// and never followed, wherever it points.
+		info, err := root.Lstat(entryPath)
 		if err != nil {
 			return nil, workspaceFileError(err, "inspect workspace entry")
 		}
@@ -483,8 +486,8 @@ func validateWorkspaceFilePath(value string, allowRoot bool) (string, error) {
 	if value == "" || strings.ContainsRune(value, '\x00') ||
 		path.IsAbs(value) || path.Clean(value) != value ||
 		!fs.ValidPath(value) || value == "." {
-		return "", ctxerrors.Wrap(commerr.ErrPermissionDenied,
-			"workspace path is outside the workspace")
+		return "", ctxerrors.Wrap(workspacePathRefused(),
+			"validate workspace path")
 	}
 
 	return value, nil
@@ -527,6 +530,10 @@ func fileType(mode fs.FileMode) api.WorkspaceFileType {
 	return api.WorkspaceFileTypeFile
 }
 
+func workspacePathRefused() error {
+	return errors.Join(commerr.ErrPermissionDenied, ErrWorkspacePathRefused)
+}
+
 func workspaceFileNotRegular() error {
 	return ctxerrors.Wrap(commerr.ErrValidationFailed,
 		"workspace path is not a regular file")
@@ -539,13 +546,17 @@ func workspaceFileTooLarge() error {
 
 func workspaceFileError(err error, operation string) error {
 	switch {
-	case errors.Is(err, fs.ErrNotExist):
+	// A path that runs through a regular file, such as README.md/x, names
+	// nothing that exists.
+	case errors.Is(err, fs.ErrNotExist), errors.Is(err, syscall.ENOTDIR):
 		return ctxerrors.Wrap(commerr.ErrNotFound, operation)
-	case errors.Is(err, fs.ErrPermission), errors.Is(err, syscall.EPERM),
-		errors.Is(err, syscall.EACCES), errors.Is(err, syscall.EXDEV),
+	// The operating system refused access to a path inside the workspace.
+	// The path itself is fine, so this is not a path refusal.
+	case errors.Is(err, syscall.EPERM), errors.Is(err, syscall.EACCES):
+		return ctxerrors.Wrap(commerr.ErrPermissionDenied, operation)
+	case errors.Is(err, fs.ErrPermission), errors.Is(err, syscall.EXDEV),
 		errors.Is(err, fs.ErrInvalid):
-		return ctxerrors.Wrap(commerr.ErrPermissionDenied,
-			"workspace path is outside the workspace")
+		return ctxerrors.Wrap(workspacePathRefused(), operation)
 	case errors.Is(err, syscall.ENOTEMPTY), errors.Is(err, syscall.EEXIST):
 		return ctxerrors.Wrap(commerr.ErrInvalidState,
 			"workspace directory is not empty")

@@ -32,3 +32,17 @@ func assertErrorCode(
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
 	assert.Equal(t, want, response.Code)
 }
+
+func assertErrorEnvelope(
+	t *testing.T,
+	recorder *httptest.ResponseRecorder,
+	wantCode aichteeteapee.ErrorCode,
+	wantMessage string,
+) {
+	t.Helper()
+
+	response := api.Error{}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	assert.Equal(t, wantCode, response.Code)
+	assert.Equal(t, wantMessage, response.Message)
+}

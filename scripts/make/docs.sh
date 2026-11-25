@@ -69,6 +69,8 @@ build)
 	corepack pnpm install --frozen-lockfile --ignore-scripts
 	log INFO "building the documentation site"
 	corepack pnpm run build
+	log INFO "checking full site links against the build"
+	python3 -I "${repository_root}/scripts/make/docs_check_site_links.py" "${temporary_root}/build"
 	rm -rf "${source_root}/build"
 	cp -r "${temporary_root}/build" "${source_root}/build"
 	log INFO "documentation site built directory=website/build"

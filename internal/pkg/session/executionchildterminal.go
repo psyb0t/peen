@@ -24,23 +24,6 @@ func (s *Store) recordExecutionChildTerminal(
 	tx *repositories.Query,
 	run *models.AgentRun,
 ) (*models.AgentRunEvent, error) {
-	if run.EventCount == math.MaxInt64 {
-		return nil, ctxerrors.Wrap(commerr.ErrInvalidState,
-			"child terminal event counter is exhausted")
-	}
-
-	sequence, err := nextAgentRunEventSequence(ctx, tx, run.ID)
-	if err != nil {
-		return nil, ctxerrors.Wrap(err,
-			"allocate child terminal event sequence")
-	}
-
-	feedSequence, err := s.allocateFeedSequences(ctx, tx, run.SessionID, 1)
-	if err != nil {
-		return nil, ctxerrors.Wrap(err,
-			"allocate child terminal event feed sequence")
-	}
-
 	payload, err := json.Marshal(executionChildTerminalPayload{
 		AgentRunID: run.ID, State: run.State,
 		FailureClass:  run.FailureClassification,
@@ -59,13 +42,45 @@ func (s *Store) recordExecutionChildTerminal(
 		kind = EventTypeAgentRunCancelled
 	}
 
+	event, err := s.appendExecutionChildEvent(ctx, tx, run, kind, payload)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "save child terminal event")
+	}
+
+	return event, nil
+}
+
+// appendExecutionChildEvent stores one agent.run.* event for run in tx and
+// gives it the session's next feed sequence. tx must be a feed transaction.
+func (s *Store) appendExecutionChildEvent(
+	ctx context.Context,
+	tx *repositories.Query,
+	run *models.AgentRun,
+	kind string,
+	payload []byte,
+) (*models.AgentRunEvent, error) {
+	if run.EventCount == math.MaxInt64 {
+		return nil, ctxerrors.Wrap(commerr.ErrInvalidState,
+			"child event counter is exhausted")
+	}
+
+	sequence, err := nextAgentRunEventSequence(ctx, tx, run.ID)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "allocate child event sequence")
+	}
+
+	feedSequence, err := s.allocateFeedSequences(ctx, tx, run.SessionID, 1)
+	if err != nil {
+		return nil, ctxerrors.Wrap(err, "allocate child event feed sequence")
+	}
+
 	event := &models.AgentRunEvent{
 		ID: s.newID(), SessionID: run.SessionID, AgentRunID: run.ID,
 		Sequence: sequence, FeedSequence: feedSequence, EventType: kind,
 		PayloadJSON: string(payload), CreatedAt: s.now(),
 	}
 	if err := tx.AgentRunEvent.WithContext(ctx).Create(event); err != nil {
-		return nil, ctxerrors.Wrap(err, "save child terminal event")
+		return nil, ctxerrors.Wrap(err, "save child event")
 	}
 
 	repository := tx.AgentRun
@@ -74,7 +89,7 @@ func (s *Store) recordExecutionChildTerminal(
 		repository.ID.Eq(run.ID), repository.SessionID.Eq(run.SessionID),
 	).UpdateSimple(repository.EventCount.Add(1))
 	if err != nil {
-		return nil, ctxerrors.Wrap(err, "count child terminal event")
+		return nil, ctxerrors.Wrap(err, "count child event")
 	}
 
 	return event, nil

@@ -781,11 +781,12 @@ func (d *launchAgentDeps) askUser(
 	}
 
 	turn := d.userMessages.turn
+	callID := parentToolCallIDFromContext(ctx)
 
 	if err := turn.emit(
 		ctx,
 		EventTypeQuestionAsked,
-		agentQuestionPayload{Question: question},
+		agentQuestionPayload{Question: question, CallID: callID},
 	); err != nil {
 		return askOutput{}, ctxerrors.Wrap(err, "record root question")
 	}
@@ -806,7 +807,7 @@ func (d *launchAgentDeps) askUser(
 	if err := turn.emit(
 		context.WithoutCancel(ctx),
 		EventTypeQuestionAnswered,
-		agentAnswerPayload{Answered: answered},
+		agentAnswerPayload{Answered: answered, CallID: callID},
 	); err != nil {
 		return askOutput{}, ctxerrors.Wrap(err, "record root answer")
 	}

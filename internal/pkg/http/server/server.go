@@ -289,16 +289,19 @@ func (s *Server) configureWebSocketHub() {
 		s.handleWebSocketMessage,
 	)
 
-	options := []wshub.UpgradeHandlerOption{
-		wshub.WithUpgradeHandlerSubprotocols(webSocketSubprotocol),
+	clientOptions := []wshub.ClientOption{
+		wshub.WithInvalidEventHandler(s.handleInvalidWebSocketFrame),
 	}
 	if s.deps.WebSocketReadLimit > 0 {
-		options = append(options, wshub.WithUpgradeHandlerClientOptions(
-			wshub.WithReadLimit(s.deps.WebSocketReadLimit),
-		))
+		clientOptions = append(clientOptions,
+			wshub.WithReadLimit(s.deps.WebSocketReadLimit))
 	}
 
-	s.webSocketUpgradeHandler = wshub.UpgradeHandler(s.webSocketHub, options...)
+	s.webSocketUpgradeHandler = wshub.UpgradeHandler(
+		s.webSocketHub,
+		wshub.WithUpgradeHandlerSubprotocols(webSocketSubprotocol),
+		wshub.WithUpgradeHandlerClientOptions(clientOptions...),
+	)
 }
 
 func (s *Server) newAPIHandler() http.Handler {

@@ -924,962 +924,1857 @@ func (e ListSessionModelRunsParamsState) Valid() bool {
 	}
 }
 
-// AgentRun defines model for AgentRun.
+// AgentRun One child agent run: a separate agent conversation that an agent in the session started with the `launchAgent` tool. The record is written before the child does any work and is updated as it runs and when it ends. Returned by `GET /session/agents` and `GET /session/agents/{agentRunId}`.
 type AgentRun struct {
-	AgentRunId            openapi_types.UUID  `json:"agentRunId"`
-	AllowedTools          []interface{}       `json:"allowedTools"`
-	CancelRequested       bool                `json:"cancelRequested"`
-	CompletionTokenCount  int64               `json:"completionTokenCount"`
-	Definition            AgentRunDefinition  `json:"definition"`
-	Depth                 int64               `json:"depth"`
-	EndedAt               *time.Time          `json:"endedAt,omitempty"`
-	EventCount            int64               `json:"eventCount"`
-	FailureClassification string              `json:"failureClassification"`
-	FailureDetail         string              `json:"failureDetail"`
-	FinishReason          string              `json:"finishReason"`
-	Instructions          string              `json:"instructions"`
-	Model                 string              `json:"model"`
-	ModelReference        string              `json:"modelReference"`
-	Name                  string              `json:"name"`
-	ParentAgentRunId      *openapi_types.UUID `json:"parentAgentRunId,omitempty"`
-	ParentToolCallId      *string             `json:"parentToolCallId,omitempty"`
-	ParentTurnId          openapi_types.UUID  `json:"parentTurnId"`
+	// AgentRunId The run's ID. Agents and clients use it to address the child, for example as the `to` of a message.
+	AgentRunId openapi_types.UUID `json:"agentRunId"`
 
-	// Paused True while the run is running but its work is paused by a Stop, a crash, or a failure. A message to the run resumes it.
-	Paused           *bool `json:"paused,omitempty"`
+	// AllowedTools The tool names the agent definition limits the child to. An empty array means the child may use every tool.
+	AllowedTools []interface{} `json:"allowedTools"`
+
+	// CancelRequested True once a cancellation was requested for the run, through `POST /session/agents/{agentRunId}/cancel`, the `stopAgent` tool, or the control surface.
+	CancelRequested bool `json:"cancelRequested"`
+
+	// CompletionTokenCount The completion tokens the provider reported for the run. 0 until the run ends.
+	CompletionTokenCount int64 `json:"completionTokenCount"`
+
+	// Definition Where the child's instructions came from.
+	//
+	// - `stored`: an agent file under `.agents/agents/` in a harness layer, or a core agent.
+	// - `ad-hoc`: a one-off definition the launching agent passed inline to `launchAgent`, which is never written to disk.
+	Definition AgentRunDefinition `json:"definition"`
+
+	// Depth How deep the run sits below the root conversation. A child of the root has depth 1, its children depth 2, and so on, up to the deployment's maximum child agent depth.
+	Depth int64 `json:"depth"`
+
+	// EndedAt When the run ended, in RFC 3339 format. Absent while it is `running`.
+	EndedAt *time.Time `json:"endedAt,omitempty"`
+
+	// EventCount How many events the run has stored, which is also the `sequence` of its latest event.
+	EventCount int64 `json:"eventCount"`
+
+	// FailureClassification Why the run did not complete: `agentRun` when it failed, `cancelled` when it was stopped, or `interrupted` when a restart cut it off. Empty for a run that is running or completed.
+	FailureClassification string `json:"failureClassification"`
+
+	// FailureDetail The error text for a failed, cancelled, or interrupted run. Empty otherwise.
+	FailureDetail string `json:"failureDetail"`
+
+	// FinishReason The finish reason the provider reported for the final model response, such as `stop`. Empty until the run ends.
+	FinishReason string `json:"finishReason"`
+
+	// Instructions The child's agent instructions: the body of the stored agent file, or the inline definition's instructions.
+	Instructions string `json:"instructions"`
+
+	// Model The provider's model ID for `modelReference`.
+	Model string `json:"model"`
+
+	// ModelReference The qualified model reference the child runs on, in `provider/model` form. A child always uses the model of the turn that launched it.
+	ModelReference string `json:"modelReference"`
+
+	// Name The agent's name: the stored agent's name, or the name given in an inline definition.
+	Name string `json:"name"`
+
+	// ParentAgentRunId The agent run that launched this child. Absent when the session's root conversation launched it.
+	ParentAgentRunId *openapi_types.UUID `json:"parentAgentRunId,omitempty"`
+
+	// ParentToolCallId The ID of the `launchAgent` tool call that started this run. Absent when none was recorded.
+	ParentToolCallId *string `json:"parentToolCallId,omitempty"`
+
+	// ParentTurnId The session turn during which the run was launched. A child can keep running after that turn ends.
+	ParentTurnId openapi_types.UUID `json:"parentTurnId"`
+
+	// Paused True while the run is `running` but its work is paused by a Stop, a crash, or a failure. A message to the run resumes it. Absent when the run is not paused.
+	Paused *bool `json:"paused,omitempty"`
+
+	// PromptTokenCount The prompt tokens the provider reported for the run. 0 until the run ends.
 	PromptTokenCount int64 `json:"promptTokenCount"`
 
-	// Question The question a waiting run asked. Absent otherwise.
-	Question         *string            `json:"question,omitempty"`
-	RequestId        openapi_types.UUID `json:"requestId"`
-	ResponseMessages []interface{}      `json:"responseMessages"`
-	ResponseText     string             `json:"responseText"`
-	ResponseThinking string             `json:"responseThinking"`
-	SessionId        openapi_types.UUID `json:"sessionId"`
-	StartedAt        time.Time          `json:"startedAt"`
-	State            AgentRunState      `json:"state"`
-	SystemPrompt     string             `json:"systemPrompt"`
-	Task             string             `json:"task"`
+	// Question The question a waiting run asked. Absent when `waiting` is false.
+	Question *string `json:"question,omitempty"`
 
-	// Waiting True while the run is running and waits for an answer to the question it asked.
+	// RequestId The request ID of the turn that launched the run.
+	RequestId openapi_types.UUID `json:"requestId"`
+
+	// ResponseMessages The model messages recorded when the run ended. An empty array until then.
+	ResponseMessages []interface{} `json:"responseMessages"`
+
+	// ResponseText The child's whole final answer. Empty until the run ends, and empty when it did not complete.
+	ResponseText string `json:"responseText"`
+
+	// ResponseThinking The reasoning text the model returned with the final answer, when the provider reports it. Empty otherwise.
+	ResponseThinking string `json:"responseThinking"`
+
+	// SessionId The session the run belongs to.
+	SessionId openapi_types.UUID `json:"sessionId"`
+
+	// StartedAt When the run started, in RFC 3339 format.
+	StartedAt time.Time `json:"startedAt"`
+
+	// State The stored state of the run.
+	//
+	// - `running`: the child is working, waiting on a question, or paused.
+	// - `completed`: it gave its final answer.
+	// - `failed`: it ended with an error.
+	// - `cancelled`: it was stopped.
+	// - `interrupted`: the controller restarted while the run was still marked running; the run stays readable and can be resumed, which returns it to `running`.
+	State AgentRunState `json:"state"`
+
+	// SystemPrompt The full system prompt the child runs with. It is updated when a `changeDirectory` call resolves a new harness.
+	SystemPrompt string `json:"systemPrompt"`
+
+	// Task The task text the launching agent gave the child.
+	Task string `json:"task"`
+
+	// Waiting True while the run is `running` and waits for an answer to a question it asked with the `ask` tool. Computed when you read the run, from its `agent.run.question` and `agent.run.answer` events.
 	Waiting bool `json:"waiting"`
 
-	// WorkerGenerationId Worker generation currently running, or last to run, this child agent.
+	// WorkerGenerationId The worker generation currently running this child, or the last one that ran it. Absent when none was recorded.
 	WorkerGenerationId *string `json:"workerGenerationId,omitempty"`
 
-	// Workspace Current directory checkpointed by the child agent.
+	// Workspace The child's current directory, updated each time it changes directory with `changeDirectory`. It starts as the launching agent's current directory.
 	Workspace string `json:"workspace"`
 }
 
-// AgentRunDefinition defines model for AgentRun.Definition.
+// AgentRunDefinition Where the child's instructions came from.
+//
+// - `stored`: an agent file under `.agents/agents/` in a harness layer, or a core agent.
+// - `ad-hoc`: a one-off definition the launching agent passed inline to `launchAgent`, which is never written to disk.
 type AgentRunDefinition string
 
-// AgentRunState defines model for AgentRun.State.
+// AgentRunState The stored state of the run.
+//
+// - `running`: the child is working, waiting on a question, or paused.
+// - `completed`: it gave its final answer.
+// - `failed`: it ended with an error.
+// - `cancelled`: it was stopped.
+// - `interrupted`: the controller restarted while the run was still marked running; the run stays readable and can be resumed, which returns it to `running`.
 type AgentRunState string
 
-// AgentRunCancelResponse defines model for AgentRunCancelResponse.
+// AgentRunCancelResponse The outcome of a cancellation request for one child agent run. Returned by `POST /session/agents/{agentRunId}/cancel`.
 type AgentRunCancelResponse struct {
+	// AgentRunId The run the request named.
 	AgentRunId openapi_types.UUID `json:"agentRunId"`
 
-	// CancelRequested True when this request found a running agent and signalled it. Cancelling an unknown, completed, or already cancelled run is not an error and reports false with the current state.
-	CancelRequested bool                        `json:"cancelRequested"`
-	State           AgentRunCancelResponseState `json:"state"`
+	// CancelRequested True when this request recorded the cancellation of a `running` or `interrupted` run. False when the run had already ended or a cancellation was already recorded; that is not an error, and `state` reports the current state. An unknown run returns `404` instead.
+	CancelRequested bool `json:"cancelRequested"`
+
+	// State The run's state after the request, with the same values as `AgentRun.state`. `cancelled` when the cancellation took effect at once. `running` while the worker is still stopping the child; follow its events or read the run to see it end.
+	State AgentRunCancelResponseState `json:"state"`
 }
 
-// AgentRunCancelResponseState defines model for AgentRunCancelResponse.State.
+// AgentRunCancelResponseState The run's state after the request, with the same values as `AgentRun.state`. `cancelled` when the cancellation took effect at once. `running` while the worker is still stopping the child; follow its events or read the run to see it end.
 type AgentRunCancelResponseState string
 
-// AgentRunCompaction One immutable summary covering a completed prefix of one child agent run's transcript. directFromSequence and directToSequence name only the messages this row covered itself; fromSequence and toSequence span the whole superseded lineage.
+// AgentRunCompaction One immutable summary covering a completed prefix of one child agent run's transcript. `directFromSequence` and `directToSequence` name only the messages this row covered itself; `fromSequence` and `toSequence` span the whole superseded lineage. Returned by the child compaction endpoints.
 type AgentRunCompaction struct {
-	AgentRunId         openapi_types.UUID `json:"agentRunId"`
-	CreatedAt          time.Time          `json:"createdAt"`
-	DirectFromSequence int64              `json:"directFromSequence"`
-	DirectToSequence   int64              `json:"directToSequence"`
-	FromMessageId      openapi_types.UUID `json:"fromMessageId"`
-	FromSequence       int64              `json:"fromSequence"`
-	Id                 openapi_types.UUID `json:"id"`
-	InputTokenCount    int64              `json:"inputTokenCount"`
-	Model              string             `json:"model"`
+	// AgentRunId The child agent run whose transcript the compaction summarizes.
+	AgentRunId openapi_types.UUID `json:"agentRunId"`
 
-	// ParentCompactionId The direct predecessor this compaction supersedes, or null for the first compaction in the chain.
-	ParentCompactionId *openapi_types.UUID `json:"parentCompactionId,omitempty"`
-	PromptHash         string              `json:"promptHash"`
-	SessionId          openapi_types.UUID  `json:"sessionId"`
-	SourceMessageCount int64               `json:"sourceMessageCount"`
-	Summary            string              `json:"summary"`
-	SummaryTokenCount  int64               `json:"summaryTokenCount"`
-	ToMessageId        openapi_types.UUID  `json:"toMessageId"`
-	ToSequence         int64               `json:"toSequence"`
-}
-
-// AgentRunCompactionPage defines model for AgentRunCompactionPage.
-type AgentRunCompactionPage struct {
-	Compactions []AgentRunCompaction `json:"compactions"`
-	HasMore     bool                 `json:"hasMore"`
-	Limit       int32                `json:"limit"`
-	Offset      int32                `json:"offset"`
-}
-
-// AgentRunEvent defines model for AgentRunEvent.
-type AgentRunEvent struct {
+	// CreatedAt When the compaction was stored, in RFC 3339 format.
 	CreatedAt time.Time `json:"createdAt"`
 
-	// Payload Child step data. Queued, delivered and undelivered message events carry message and an optional acceptanceId UUID linking the same accepted message. Question and answer events carry an optional callId linking the ask tool call. Older stored events omit these IDs.
-	Payload  *map[string]interface{} `json:"payload,omitempty"`
-	Sequence int64                   `json:"sequence"`
-	Type     string                  `json:"type"`
+	// DirectFromSequence The `sequence` of the first raw message this compaction covered itself.
+	DirectFromSequence int64 `json:"directFromSequence"`
+
+	// DirectToSequence The `sequence` of the last raw message this compaction covered itself.
+	DirectToSequence int64 `json:"directToSequence"`
+
+	// FromMessageId The first child message of the whole lineage this summary covers, including what earlier summaries covered.
+	FromMessageId openapi_types.UUID `json:"fromMessageId"`
+
+	// FromSequence The `sequence` of the first message of the whole covered lineage.
+	FromSequence int64 `json:"fromSequence"`
+
+	// Id The compaction's ID.
+	Id openapi_types.UUID `json:"id"`
+
+	// InputTokenCount The prompt tokens the provider reported for the summarizing call.
+	InputTokenCount int64 `json:"inputTokenCount"`
+
+	// Model The model ID that wrote the summary.
+	Model string `json:"model"`
+
+	// ParentCompactionId The earlier compaction this one supersedes. Absent for the first compaction in the chain.
+	ParentCompactionId *openapi_types.UUID `json:"parentCompactionId,omitempty"`
+
+	// PromptHash The hex SHA-256 of the compaction instructions that produced the summary, so you can tell which instructions were used after the file changes.
+	PromptHash string `json:"promptHash"`
+
+	// SessionId The session the run belongs to.
+	SessionId openapi_types.UUID `json:"sessionId"`
+
+	// SourceMessageCount How many messages the summary covers, including those its predecessors covered.
+	SourceMessageCount int64 `json:"sourceMessageCount"`
+
+	// Summary The summary text that replaces the covered messages in the child's context.
+	Summary string `json:"summary"`
+
+	// SummaryTokenCount The completion tokens the provider reported for the summary.
+	SummaryTokenCount int64 `json:"summaryTokenCount"`
+
+	// ToMessageId The last child message this summary covers.
+	ToMessageId openapi_types.UUID `json:"toMessageId"`
+
+	// ToSequence The `sequence` of the last covered message. Messages after it stay raw.
+	ToSequence int64 `json:"toSequence"`
 }
 
-// AgentRunEventPage defines model for AgentRunEventPage.
+// AgentRunCompactionPage One page of a child agent run's compaction records, newest first. Returned by `GET /session/agents/{agentRunId}/compactions`.
+type AgentRunCompactionPage struct {
+	// Compactions The compaction records on this page, newest first.
+	Compactions []AgentRunCompaction `json:"compactions"`
+
+	// HasMore True when more records follow this page. Request the next page with `offset` increased by `limit`.
+	HasMore bool `json:"hasMore"`
+
+	// Limit The page size the server used.
+	Limit int32 `json:"limit"`
+
+	// Offset The number of records skipped before this page.
+	Offset int32 `json:"offset"`
+}
+
+// AgentRunEvent One stored step of a child agent run, such as `agent.run.text.delta` or `agent.run.tool.use`. The same step reaches connected WebSocket clients live as an `agent.run.*` frame.
+type AgentRunEvent struct {
+	// CreatedAt When the event was recorded, in RFC 3339 format.
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Payload Child step data. Queued, delivered and undelivered message events carry `message` and an optional `acceptanceId` UUID linking the same accepted message. Question and answer events carry an optional `callId` linking the `ask` tool call. Older stored events omit these IDs. Absent when the event has no data.
+	Payload *map[string]interface{} `json:"payload,omitempty"`
+
+	// Sequence The event's position in this run's own event stream, starting at 1. It is separate from the session feed sequence.
+	Sequence int64 `json:"sequence"`
+
+	// Type The event type: `agent.run.started`, `agent.run.text.delta`, `agent.run.thinking.delta`, `agent.run.tool.use`, `agent.run.tool.result`, `agent.run.assistant.message`, `agent.run.message.injected`, `agent.run.message.queued`, `agent.run.message.delivered`, `agent.run.message.undelivered`, `agent.run.question`, `agent.run.answer`, `agent.run.provider.retry`, or one of the terminal types `agent.run.completed`, `agent.run.failed`, and `agent.run.cancelled`.
+	Type string `json:"type"`
+}
+
+// AgentRunEventPage One page of a child agent run's events in ascending `sequence` order, with a cursor to continue from. Returned by `GET /session/agents/{agentRunId}/events`.
 type AgentRunEventPage struct {
+	// AgentRunId The run the events belong to.
 	AgentRunId openapi_types.UUID `json:"agentRunId"`
-	Events     []AgentRunEvent    `json:"events"`
-	HasMore    bool               `json:"hasMore"`
 
-	// NextCursor Pass back as cursor to continue from here.
-	NextCursor int64                  `json:"nextCursor"`
-	State      AgentRunEventPageState `json:"state"`
+	// Events The events on this page, oldest first.
+	Events []AgentRunEvent `json:"events"`
+
+	// HasMore True when more events already exist after this page. False does not mean the run has ended; check `state`.
+	HasMore bool `json:"hasMore"`
+
+	// NextCursor Pass this back as `cursor` to continue after this page. It is the `sequence` of the last event returned, or the `cursor` you sent when the page is empty.
+	NextCursor int64 `json:"nextCursor"`
+
+	// State The run's stored state when the page was read, with the same values as `AgentRun.state`. A run waiting on a question reports `running`.
+	State AgentRunEventPageState `json:"state"`
 }
 
-// AgentRunEventPageState defines model for AgentRunEventPage.State.
+// AgentRunEventPageState The run's stored state when the page was read, with the same values as `AgentRun.state`. A run waiting on a question reports `running`.
 type AgentRunEventPageState string
 
-// AgentRunMessage One prompt-visible record in a child agent run's own transcript. It carries no turn: a child belongs to its agent run, not to a session turn's message sequence.
+// AgentRunMessage One prompt-visible record in a child agent run's own transcript. It carries no turn: a child belongs to its agent run, not to a session turn's message sequence. Returned by `GET /session/agents/{agentRunId}/messages`.
 type AgentRunMessage struct {
+	// AgentRunId The child agent run whose transcript holds the message.
 	AgentRunId openapi_types.UUID `json:"agentRunId"`
 
-	// CompactionId The child compaction that directly covered this message, or null while it is still raw.
+	// CompactionId The child compaction that directly covered this message. Absent while the message is still raw.
 	CompactionId *openapi_types.UUID `json:"compactionId,omitempty"`
-	Content      string              `json:"content"`
-	CreatedAt    time.Time           `json:"createdAt"`
-	Id           openapi_types.UUID  `json:"id"`
+
+	// Content The message text. For a received message, a `<message>` block that names the sender.
+	Content string `json:"content"`
+
+	// CreatedAt When the message was stored, in RFC 3339 format.
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Id The message's ID.
+	Id openapi_types.UUID `json:"id"`
 
 	// Images The images the message carries, without their bytes, such as an image the child's readFile read. Absent when it has none.
-	Images     *[]MessageImageInfo       `json:"images,omitempty"`
-	Incomplete bool                      `json:"incomplete"`
-	IsError    bool                      `json:"isError"`
-	Model      *string                   `json:"model,omitempty"`
-	Role       AgentRunMessageRole       `json:"role"`
-	Sequence   int64                     `json:"sequence"`
-	SessionId  openapi_types.UUID        `json:"sessionId"`
-	Thinking   *string                   `json:"thinking,omitempty"`
-	ToolCallId *string                   `json:"toolCallId,omitempty"`
-	ToolCalls  *[]map[string]interface{} `json:"toolCalls,omitempty"`
+	Images *[]MessageImageInfo `json:"images,omitempty"`
+
+	// Incomplete True when the run was interrupted by a restart before it finished. Peen clears the flag when the run resumes.
+	Incomplete bool `json:"incomplete"`
+
+	// IsError True when a tool result reports an error.
+	IsError bool `json:"isError"`
+
+	// Model The qualified model reference that produced an assistant message, in `provider/model` form. Absent on other messages.
+	Model *string `json:"model,omitempty"`
+
+	// Role Who the message is from.
+	//
+	// - `user`: the task, or a message the child received from another agent, from you, or an injected image.
+	// - `assistant`: a model reply.
+	// - `tool`: a tool result.
+	Role AgentRunMessageRole `json:"role"`
+
+	// Sequence The message's position in the child's transcript, starting at 1.
+	Sequence int64 `json:"sequence"`
+
+	// SessionId The session the run belongs to.
+	SessionId openapi_types.UUID `json:"sessionId"`
+
+	// Thinking The reasoning text the model returned with an assistant message. Absent when there is none.
+	Thinking *string `json:"thinking,omitempty"`
+
+	// ToolCallId The ID of the tool call a `tool` message answers. Absent on other messages.
+	ToolCallId *string `json:"toolCallId,omitempty"`
+
+	// ToolCalls The tool calls an assistant message made, in the same shape as a session message's `toolCalls`. An empty array when it made none.
+	ToolCalls *[]MessageToolCall `json:"toolCalls,omitempty"`
 }
 
-// AgentRunMessageRole defines model for AgentRunMessage.Role.
+// AgentRunMessageRole Who the message is from.
+//
+// - `user`: the task, or a message the child received from another agent, from you, or an injected image.
+// - `assistant`: a model reply.
+// - `tool`: a tool result.
 type AgentRunMessageRole string
 
-// AgentRunMessagePage defines model for AgentRunMessagePage.
+// AgentRunMessagePage One page of a child agent run's transcript, oldest first. Returned by `GET /session/agents/{agentRunId}/messages`.
 type AgentRunMessagePage struct {
-	HasMore  bool              `json:"hasMore"`
-	Limit    int32             `json:"limit"`
+	// HasMore True when more messages follow this page. Request the next page with `offset` increased by `limit`.
+	HasMore bool `json:"hasMore"`
+
+	// Limit The page size the server used.
+	Limit int32 `json:"limit"`
+
+	// Messages The messages on this page, in `sequence` order.
 	Messages []AgentRunMessage `json:"messages"`
-	Offset   int32             `json:"offset"`
+
+	// Offset The number of messages skipped before this page.
+	Offset int32 `json:"offset"`
 }
 
-// AgentRunPage defines model for AgentRunPage.
+// AgentRunPage One page of a session's child agent runs, newest first. Returned by `GET /session/agents`.
 type AgentRunPage struct {
-	Agents  []AgentRun `json:"agents"`
-	HasMore bool       `json:"hasMore"`
-	Limit   int32      `json:"limit"`
-	Offset  int32      `json:"offset"`
+	// Agents The runs on this page, newest first.
+	Agents []AgentRun `json:"agents"`
+
+	// HasMore True when more runs follow this page. Request the next page with `offset` increased by `limit`.
+	HasMore bool `json:"hasMore"`
+
+	// Limit The page size the server used.
+	Limit int32 `json:"limit"`
+
+	// Offset The number of runs skipped before this page.
+	Offset int32 `json:"offset"`
 }
 
-// AgentSpace defines model for AgentSpace.
+// AgentSpace One place a session's agent can run, as listed by `GET /agent-spaces`. Every field comes from deployment configuration; a client only names the space.
 type AgentSpace struct {
-	// CapabilityWarnings One operator-facing sentence for each risky grant this space makes. Empty for a space that grants nothing risky.
+	// CapabilityWarnings One operator-facing sentence for each risky grant this space makes (`docker: full`, `docker: readonly`, `network: host`, `sudo: true`). Empty for a space that grants nothing risky.
 	CapabilityWarnings []string `json:"capabilityWarnings"`
 
-	// Docker How much of the host Docker daemon the space reaches. `full` mounts the controller's Docker socket, which is host root. `readonly` gives the worker a controller-run proxy that answers only read requests (list and inspect containers, images, networks, and volumes, and watch events) with environment values redacted from inspect output. Set only for kind docker.
+	// Docker How much of the host Docker daemon the space reaches. Set only for kind `docker`.
+	//
+	// - `none`: no access.
+	// - `readonly`: the worker gets a controller-run proxy that answers only read requests (list and inspect containers, images, networks, and volumes, and watch events), with environment values redacted from inspect output.
+	// - `full`: the controller's Docker socket is mounted, which is host root.
 	Docker *AgentSpaceDocker `json:"docker,omitempty"`
 
 	// HostRootEquivalent True when this space grants access that is effectively host root, which is `docker: full`.
-	HostRootEquivalent bool           `json:"hostRootEquivalent"`
-	Kind               AgentSpaceKind `json:"kind"`
+	HostRootEquivalent bool `json:"hostRootEquivalent"`
+
+	// Kind Where the agent runs.
+	//
+	// - `control`: where the controller runs. Offered only when the controller cannot reach a Docker daemon.
+	// - `docker`: in its own container, shaped by a Docker profile.
+	Kind AgentSpaceKind `json:"kind"`
 
 	// Name What a client names to pick this agent space: `control` or `docker:<profile>`.
 	Name string `json:"name"`
 
-	// Network The network the space gives its worker. Set only for kind docker.
+	// Network The network the worker container gets. Set only for kind `docker`.
+	//
+	// - `none`: no network.
+	// - `bridge`: Docker's default bridge network.
+	// - `host`: the host's network, so the worker can reach every service the host can.
 	Network *AgentSpaceNetwork `json:"network,omitempty"`
 
-	// Profile The Docker profile behind the space. Set only for kind docker.
-	Profile  *string `json:"profile,omitempty"`
-	Revision int64   `json:"revision"`
+	// Profile The Docker profile behind the space, the part of `name` after `docker:`. Set only for kind `docker`.
+	Profile *string `json:"profile,omitempty"`
 
-	// Sudo True when the agent may run commands as root inside the worker container. Set only for kind docker.
+	// Revision The revision the operator gave this Docker profile in its configuration, `0` when unset and for `control`. Each worker generation records the revision it started under, so a durable record says which definition ran.
+	Revision int64 `json:"revision"`
+
+	// Sudo True when the agent may run commands as root inside the worker container. Set only for kind `docker`.
 	Sudo *bool `json:"sudo,omitempty"`
 }
 
-// AgentSpaceDocker How much of the host Docker daemon the space reaches. `full` mounts the controller's Docker socket, which is host root. `readonly` gives the worker a controller-run proxy that answers only read requests (list and inspect containers, images, networks, and volumes, and watch events) with environment values redacted from inspect output. Set only for kind docker.
+// AgentSpaceDocker How much of the host Docker daemon the space reaches. Set only for kind `docker`.
+//
+// - `none`: no access.
+// - `readonly`: the worker gets a controller-run proxy that answers only read requests (list and inspect containers, images, networks, and volumes, and watch events), with environment values redacted from inspect output.
+// - `full`: the controller's Docker socket is mounted, which is host root.
 type AgentSpaceDocker string
 
-// AgentSpaceKind defines model for AgentSpace.Kind.
+// AgentSpaceKind Where the agent runs.
+//
+// - `control`: where the controller runs. Offered only when the controller cannot reach a Docker daemon.
+// - `docker`: in its own container, shaped by a Docker profile.
 type AgentSpaceKind string
 
-// AgentSpaceNetwork The network the space gives its worker. Set only for kind docker.
+// AgentSpaceNetwork The network the worker container gets. Set only for kind `docker`.
+//
+// - `none`: no network.
+// - `bridge`: Docker's default bridge network.
+// - `host`: the host's network, so the worker can reach every service the host can.
 type AgentSpaceNetwork string
 
-// AgentSpaceList defines model for AgentSpaceList.
+// AgentSpaceList The response of `GET /agent-spaces`: every agent space the deployment offers, sorted by name, and the default.
 type AgentSpaceList struct {
-	// Default The agent space a session opened without naming one uses.
-	Default string       `json:"default"`
-	Items   []AgentSpace `json:"items"`
+	// Default The agent space a workspace's first session gets when `POST /sessions/open` names none. `docker:default` when the controller can reach a Docker daemon, `control` when it cannot, unless `PEEN_DEFAULT_AGENT_SPACE` names another.
+	Default string `json:"default"`
+
+	// Items The offered agent spaces, sorted by `name`.
+	Items []AgentSpace `json:"items"`
 }
 
-// CancelResponse defines model for CancelResponse.
+// CancelResponse The response of `POST /session/cancel`.
 type CancelResponse struct {
+	// CancelRequested True when the call found something to stop: a message waiting to start a turn, a running turn, a running child agent, or an unfinished workflow. False when the session was already idle.
 	CancelRequested bool `json:"cancelRequested"`
 }
 
-// Compaction defines model for Compaction.
+// Compaction One stored summary that replaced a range of the session's messages in what the model receives. A record never changes once written. It appears in `CompactionPage` and as the response of `GET /session/compactions/{compactionId}`.
 type Compaction struct {
-	CreatedAt          time.Time           `json:"createdAt"`
-	FromMessageId      openapi_types.UUID  `json:"fromMessageId"`
-	FromSequence       int64               `json:"fromSequence"`
-	Id                 openapi_types.UUID  `json:"id"`
-	InputTokenCount    int64               `json:"inputTokenCount"`
-	Model              string              `json:"model"`
-	ParentCompactionId *openapi_types.UUID `json:"parentCompactionId,omitempty"`
-	PromptHash         string              `json:"promptHash"`
-	SessionId          openapi_types.UUID  `json:"sessionId"`
-	SourceMessageCount int64               `json:"sourceMessageCount"`
-	Summary            string              `json:"summary"`
-	SummaryTokenCount  int64               `json:"summaryTokenCount"`
-	ToMessageId        openapi_types.UUID  `json:"toMessageId"`
-	ToSequence         int64               `json:"toSequence"`
-}
-
-// CompactionPage defines model for CompactionPage.
-type CompactionPage struct {
-	Compactions []Compaction `json:"compactions"`
-	HasMore     bool         `json:"hasMore"`
-	Limit       int32        `json:"limit"`
-	Offset      int32        `json:"offset"`
-}
-
-// ContextManifestEntry defines model for ContextManifestEntry.
-type ContextManifestEntry struct {
-	Hash     string `json:"hash"`
-	Kind     string `json:"kind"`
-	Name     string `json:"name"`
-	Priority int32  `json:"priority"`
-	Source   string `json:"source"`
-}
-
-// ContextSnapshot defines model for ContextSnapshot.
-type ContextSnapshot struct {
+	// CreatedAt When Peen stored the record, as an RFC 3339 timestamp.
 	CreatedAt time.Time `json:"createdAt"`
-	Hash      string    `json:"hash"`
 
-	// Manifest The layered sources this context was assembled from, in resolution order. It is a list because the harness contributes one entry per file from the filesystem root down to the workspace, and the same name may appear at more than one layer.
-	Manifest        []ContextManifestEntry `json:"manifest"`
-	ResolvedContent string                 `json:"resolvedContent"`
+	// FromMessageId ID of the first stored message the summary covers. For a compaction with a parent, this is where the parent's range started.
+	FromMessageId openapi_types.UUID `json:"fromMessageId"`
+
+	// FromSequence Session message sequence of the first covered message, inclusive.
+	FromSequence int64 `json:"fromSequence"`
+
+	// Id The compaction record's ID. Messages it summarized carry it as their `compactionId`.
+	Id openapi_types.UUID `json:"id"`
+
+	// InputTokenCount Prompt tokens the provider reported for the summarizing request.
+	InputTokenCount int64 `json:"inputTokenCount"`
+
+	// Model The model ID the provider reported for the summarizing request.
+	Model string `json:"model"`
+
+	// ParentCompactionId The earlier compaction this one replaces, when it summarized that compaction's summary plus newer messages. Absent for the first compaction in a lineage.
+	ParentCompactionId *openapi_types.UUID `json:"parentCompactionId,omitempty"`
+
+	// PromptHash Lowercase hex SHA-256 of the compaction instructions used to write the summary, so you can tell which version of the instructions produced it. It does not name a prompt snapshot.
+	PromptHash string `json:"promptHash"`
+
+	// SessionId The session this compaction belongs to.
+	SessionId openapi_types.UUID `json:"sessionId"`
+
+	// SourceMessageCount How many stored messages the summary covers, including those its parent already covered.
+	SourceMessageCount int64 `json:"sourceMessageCount"`
+
+	// Summary The summary text the model receives in place of the covered messages.
+	Summary string `json:"summary"`
+
+	// SummaryTokenCount Completion tokens the provider reported for the summary.
+	SummaryTokenCount int64 `json:"summaryTokenCount"`
+
+	// ToMessageId ID of the last stored message the summary covers.
+	ToMessageId openapi_types.UUID `json:"toMessageId"`
+
+	// ToSequence Session message sequence of the last covered message, inclusive.
+	ToSequence int64 `json:"toSequence"`
 }
 
-// CronJob defines model for CronJob.
+// CompactionPage One page of a session's compaction records, newest first, returned by `GET /session/compactions`.
+type CompactionPage struct {
+	// Compactions The compaction records on this page, ordered by `createdAt` descending.
+	Compactions []Compaction `json:"compactions"`
+
+	// HasMore `true` when at least one more record exists after this page. Request the next page with `offset` increased by `limit`.
+	HasMore bool `json:"hasMore"`
+
+	// Limit The page size the server used.
+	Limit int32 `json:"limit"`
+
+	// Offset The number of records skipped before this page.
+	Offset int32 `json:"offset"`
+}
+
+// ContextManifestEntry One harness source a context snapshot was resolved from, such as an instruction file, a rule, a skill, an agent definition, an event handler or a hook file.
+type ContextManifestEntry struct {
+	// Hash Lowercase hex SHA-256 of the source file's content.
+	Hash string `json:"hash"`
+
+	// Kind What the source is.
+	//
+	// - `instruction`: an instruction file such as `AGENTS.md`.
+	// - `rule`: a rule file.
+	// - `skill`: a skill.
+	// - `agent`: a stored agent definition.
+	// - `event-handler`: a notice handler.
+	// - `hook`: a hook group.
+	Kind string `json:"kind"`
+
+	// Name The source's name within its kind: a rule's path under `rules/` without `.md`, a skill's or agent's name, an event handler's notice type, or a hook's event name. Empty for an instruction file.
+	Name string `json:"name"`
+
+	// Priority The layer the source came from. Built-in instructions are -1, the configuration layer is 0, and the number grows for layers closer to the workspace, so a higher number is more specific. Skills, agents and event handlers report 0.
+	Priority int32 `json:"priority"`
+
+	// Source Where the source came from: the file's path, or an `embedded://` address for a file built into Peen.
+	Source string `json:"source"`
+}
+
+// ContextSnapshot The harness context one or more turns ran with, stored once by hash. It holds the manifest of sources Peen resolved and the content it built from them. Returned by `GET /session/context-snapshots/{contextHash}`.
+type ContextSnapshot struct {
+	// CreatedAt When Peen first stored this snapshot, as an RFC 3339 timestamp. A later turn that produces the same hash reuses the row and leaves this unchanged.
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Hash Lowercase hex SHA-256 that identifies the snapshot, computed over the resolved harness sources and the resolved content. A turn names it in `contextSnapshotHash`.
+	Hash string `json:"hash"`
+
+	// Manifest The harness sources this context was resolved from. Instruction and rule files come first, in resolution order from the built-in files and the configuration layer down to the workspace, followed by skills, agents, event handlers and hooks. The same name can appear at more than one layer, which is why this is a list.
+	Manifest []ContextManifestEntry `json:"manifest"`
+
+	// ResolvedContent The system prompt Peen built from these sources for the turn, including any context pre-user-message hooks added.
+	ResolvedContent string `json:"resolvedContent"`
+}
+
+// CronJob One scheduled job loaded from the operator's cron file at startup, as `GET /cron/jobs` reports it.
 type CronJob struct {
-	LastRun         *CronRun       `json:"lastRun,omitempty"`
-	Name            string         `json:"name"`
-	NextScheduledAt time.Time      `json:"nextScheduledAt"`
-	Schedule        string         `json:"schedule"`
-	Session         CronJobSession `json:"session"`
-	TimeZone        string         `json:"timeZone"`
+	// LastRun One durable record of a scheduled occurrence: when it was due, how it ended, and the session it ran in. Records are kept for jobs that are no longer configured.
+	LastRun *CronRun `json:"lastRun,omitempty"`
+
+	// Name The job's unique name, 1 to 64 ASCII letters, digits, underscores or hyphens. Filter `GET /cron/runs` with it.
+	Name string `json:"name"`
+
+	// NextScheduledAt The next occurrence the scheduler will fire, as an RFC 3339 UTC time.
+	NextScheduledAt time.Time `json:"nextScheduledAt"`
+
+	// Schedule The schedule exactly as written in the cron file, such as `0 9 * * *`, a six-field expression with leading seconds, or a descriptor such as `@daily` or `@every 30m`.
+	Schedule string `json:"schedule"`
+
+	// Session Which session each run uses.
+	//
+	// - `continue`: every run continues the job's one session. Changing the job's definition starts a new one.
+	// - `new`: every run starts its own session with its own history.
+	Session CronJobSession `json:"session"`
+
+	// TimeZone The IANA time zone the schedule is evaluated in, such as `UTC` or `Europe/Berlin`. `UTC` when the cron file leaves it out.
+	TimeZone string `json:"timeZone"`
 }
 
-// CronJobSession defines model for CronJob.Session.
+// CronJobSession Which session each run uses.
+//
+// - `continue`: every run continues the job's one session. Changing the job's definition starts a new one.
+// - `new`: every run starts its own session with its own history.
 type CronJobSession string
 
-// CronJobList defines model for CronJobList.
+// CronJobList All scheduled jobs loaded at startup, sorted by name. Empty while `PEEN_CRON` is off.
 type CronJobList struct {
+	// Items The scheduled jobs, sorted by `name`. Not paged.
 	Items []CronJob `json:"items"`
 }
 
-// CronRun defines model for CronRun.
+// CronRun One durable record of a scheduled occurrence: when it was due, how it ended, and the session it ran in. Records are kept for jobs that are no longer configured.
 type CronRun struct {
-	// Error A safe fixed reason for failure, cancellation or skipping.
-	Error       *string             `json:"error,omitempty"`
-	FinishedAt  *time.Time          `json:"finishedAt,omitempty"`
-	Id          openapi_types.UUID  `json:"id"`
-	JobName     string              `json:"jobName"`
-	ScheduledAt time.Time           `json:"scheduledAt"`
-	SessionId   *openapi_types.UUID `json:"sessionId,omitempty"`
-	StartedAt   *time.Time          `json:"startedAt,omitempty"`
-	State       CronRunState        `json:"state"`
+	// Error A fixed reason for a `failed`, `cancelled` or `skipped` run, one of `scheduled run failed`, `scheduled turn failed`, `scheduled turn cancelled`, `scheduled turn timed out`, `previous run still running`, `controller was offline`, `scheduled turn interrupted`, `workspace unavailable`, `session unavailable`, `workspace agent space conflict` or `scheduled output invalid`. It never holds prompts, provider errors or schemas. Absent on running and completed runs. Treat any other value as an unknown failure.
+	Error *string `json:"error,omitempty"`
+
+	// FinishedAt When the run ended, as an RFC 3339 time. Absent while the run is `running`.
+	FinishedAt *time.Time `json:"finishedAt,omitempty"`
+
+	// Id The run's ID. The scheduled turn uses the same value as its request ID, so the run's turn is the one whose `requestId` matches.
+	Id openapi_types.UUID `json:"id"`
+
+	// JobName The name of the job this run belongs to.
+	JobName string `json:"jobName"`
+
+	// ScheduledAt The occurrence this run was for, as an RFC 3339 UTC time. A job never records two runs for the same occurrence.
+	ScheduledAt time.Time `json:"scheduledAt"`
+
+	// SessionId The session the run's turn used. Pass it as `X-Session-ID` to read the conversation. Absent when no session was opened, such as on most skipped runs or a run whose session could not be prepared.
+	SessionId *openapi_types.UUID `json:"sessionId,omitempty"`
+
+	// StartedAt When Peen began the run, as an RFC 3339 time. Absent on a run skipped because the previous run was still going or the controller was offline.
+	StartedAt *time.Time `json:"startedAt,omitempty"`
+
+	// State The state of a scheduled run. After downtime Peen records one `skipped` run for the latest missed occurrence and does not replay missed work.
+	//
+	// - `running`: the run is in progress.
+	// - `completed`: the turn finished, with valid structured output when the job asked for it.
+	// - `failed`: the run or its turn failed, including a turn that ended without valid structured output; `error` says why.
+	// - `cancelled`: the turn was cancelled or reached its deadline; `error` says which.
+	// - `skipped`: the occurrence did not run because the job's previous run was still going or the controller was offline at the time; `error` says why.
+	State CronRunState `json:"state"`
 }
 
-// CronRunPage defines model for CronRunPage.
+// CronRunPage One page of scheduled runs, newest scheduled occurrence first, as `GET /cron/runs` returns it.
 type CronRunPage struct {
-	HasMore bool      `json:"hasMore"`
-	Items   []CronRun `json:"items"`
-	Limit   int32     `json:"limit"`
-	Offset  int32     `json:"offset"`
+	// HasMore `true` when more runs follow this page. Request the next page with `offset` increased by `limit`.
+	HasMore bool `json:"hasMore"`
+
+	// Items The runs on this page, ordered by `scheduledAt`, newest first.
+	Items []CronRun `json:"items"`
+
+	// Limit The page size used, 50 when the request left `limit` out.
+	Limit int32 `json:"limit"`
+
+	// Offset The number of runs skipped before this page.
+	Offset int32 `json:"offset"`
 }
 
-// CronRunState defines model for CronRunState.
+// CronRunState The state of a scheduled run. After downtime Peen records one `skipped` run for the latest missed occurrence and does not replay missed work.
+//
+// - `running`: the run is in progress.
+// - `completed`: the turn finished, with valid structured output when the job asked for it.
+// - `failed`: the run or its turn failed, including a turn that ended without valid structured output; `error` says why.
+// - `cancelled`: the turn was cancelled or reached its deadline; `error` says which.
+// - `skipped`: the occurrence did not run because the job's previous run was still going or the controller was offline at the time; `error` says why.
 type CronRunState string
 
-// Error defines model for Error.
+// Error The body of every REST error response. The table on the API's front page lists each `code`.
 type Error struct {
-	Code    string                  `json:"code"`
-	Details *map[string]interface{} `json:"details,omitempty"`
-	Message string                  `json:"message"`
+	// Code A stable, machine-readable error code such as `VALIDATION_FAILED` or `SESSION_NOT_FOUND`. Branch on this value.
+	Code string `json:"code"`
+
+	// Message Short, human-readable text safe to show a user. It never contains source paths or credentials, and its wording can change between versions.
+	Message string `json:"message"`
 }
 
-// FeedFrame One sequenced frame of a session's live feed, as it was sent over the WebSocket.
+// FeedFrame One sequenced frame of a session's live feed, as `GET /session/feed` replays it. It carries the same `type`, `data`, and `sequence` the WebSocket frame carried when it was sent live.
 type FeedFrame struct {
+	// CreatedAt When the record was stored, RFC 3339.
 	CreatedAt time.Time `json:"createdAt"`
 
-	// Data The frame's data, exactly as sent live.
+	// Data The frame's data, exactly as sent live. For a protocol event it is the event payload. For an `agent.run.*` frame it is an object with `agentRunId`, `parentTurnId`, `parentAgentRunId` (absent for a child of the root conversation), and `event`, the child's event payload. For `notice.created` it is the notice, in the shape of `SessionNotice`.
 	Data interface{} `json:"data"`
 
-	// Id ID of the stored record, also the live frame's id.
-	Id        openapi_types.UUID  `json:"id"`
+	// Id ID of the stored record (protocol event, child agent run event, or notice), also the live frame's `id`.
+	Id openapi_types.UUID `json:"id"`
+
+	// RequestId The request ID of the turn that produced a root protocol event. Null for child agent steps and notices.
 	RequestId *openapi_types.UUID `json:"requestId"`
 
-	// Sequence Position in the session feed. Consecutive, starting at 1.
-	Sequence  int64              `json:"sequence"`
+	// Sequence Position in the session feed. Consecutive across all frame kinds, starting at 1.
+	Sequence int64 `json:"sequence"`
+
+	// SessionId The session the frame belongs to.
 	SessionId openapi_types.UUID `json:"sessionId"`
-	Type      string             `json:"type"`
+
+	// Type The frame type: a protocol event type such as `tool.use`, an `agent.run.*` type for a child agent step, or `notice.created` for a notice.
+	Type string `json:"type"`
 }
 
-// FeedPage defines model for FeedPage.
+// FeedPage One page of `GET /session/feed`, oldest first.
 type FeedPage struct {
+	// HasMore True when more frames follow this page.
 	HasMore bool `json:"hasMore"`
 
 	// Head The session's newest feed sequence when the page was read.
-	Head  int64       `json:"head"`
-	Items []FeedFrame `json:"items"`
-	Limit int32       `json:"limit"`
+	Head int64 `json:"head"`
 
-	// NextCursor Pass back as cursor to continue from here.
+	// Items Frames with a sequence greater than the requested `cursor`, oldest first.
+	Items []FeedFrame `json:"items"`
+
+	// Limit The page size this response used: the requested `limit`, or 100 when none was sent.
+	Limit int32 `json:"limit"`
+
+	// NextCursor Pass back as `cursor` to continue. It is the sequence of the last frame in `items`, or the `cursor` sent when the page is empty.
 	NextCursor int64 `json:"nextCursor"`
 }
 
-// Job defines model for Job.
+// Job One shell command the agent started with `runCommand`, recorded before it produced output and kept after it ended. It appears in `JobPage` and in `JobSignalRecordPage`.
 type Job struct {
-	Command   string     `json:"command"`
-	Directory string     `json:"directory"`
-	EndedAt   *time.Time `json:"endedAt,omitempty"`
+	// AgentRunId The child agent run whose `runCommand` call started the job, as listed by `GET /session/agents`. Absent for a job the session's root conversation started.
+	AgentRunId *openapi_types.UUID `json:"agentRunId,omitempty"`
 
-	// ExitCode Exit status once known, or -1 while it is not.
+	// Command The shell command line the job runs.
+	Command string `json:"command"`
+
+	// Directory The directory the command runs in.
+	Directory string `json:"directory"`
+
+	// EndedAt When the job reached a terminal state, as an RFC 3339 timestamp. Absent while the job is running.
+	EndedAt *time.Time `json:"endedAt,omitempty"`
+
+	// ExitCode The process's exit status once known. It is -1 while the job runs and stays -1 when the status is not known, which is always the case for `signalled`, `failed` and `interrupted`.
 	ExitCode int64 `json:"exitCode"`
 
-	// FailureDetail Empty unless Peen recorded a terminal failure detail.
-	FailureDetail string             `json:"failureDetail"`
-	JobId         openapi_types.UUID `json:"jobId"`
+	// FailureDetail Why the job failed or was interrupted. Empty unless Peen recorded a terminal failure detail.
+	FailureDetail string `json:"failureDetail"`
 
-	// Pid Operating-system process ID of the job's shell.
+	// JobId The job's ID. Use it in the job's output, signals and signal endpoints.
+	JobId openapi_types.UUID `json:"jobId"`
+
+	// Pid Operating-system process ID of the job's shell, as the worker that ran it sees it. In a Docker worker it is a process ID inside the container.
 	Pid int64 `json:"pid"`
 
 	// Purpose Why the agent said it was running this command.
-	Purpose   string             `json:"purpose"`
-	SessionId openapi_types.UUID `json:"sessionId"`
-	StartedAt time.Time          `json:"startedAt"`
-	State     JobState           `json:"state"`
+	Purpose string `json:"purpose"`
 
-	// ToolCallId The tool call that started this job.
+	// SessionId The session that started the job.
+	SessionId openapi_types.UUID `json:"sessionId"`
+
+	// StartedAt When the job started, as an RFC 3339 timestamp.
+	StartedAt time.Time `json:"startedAt"`
+
+	// State The job's lifecycle state.
+	//
+	// - `running`: the process is still running.
+	// - `exited`: the process ended on its own. `exitCode` holds its status, 0 for success.
+	// - `signalled`: the process ended because of a signal, usually from a stop or kill request.
+	// - `failed`: Peen could not run or supervise the process to its end, for example because storing its output failed; `failureDetail` says why.
+	// - `interrupted`: Peen or its worker stopped while the process was running, so it could not be followed further.
+	State JobState `json:"state"`
+
+	// ToolCallId The `runCommand` tool call that started this job. Absent when none was recorded.
 	ToolCallId *string `json:"toolCallId,omitempty"`
 
-	// TurnId The durable turn that launched this process.
+	// TurnId The turn during which the job was started.
 	TurnId openapi_types.UUID `json:"turnId"`
 
-	// WorkerGenerationId Worker generation that launched this process.
+	// WorkerGenerationId The worker generation that ran this job, as listed by `GET /session/workers`. Absent when none was recorded.
 	WorkerGenerationId *string `json:"workerGenerationId,omitempty"`
 }
 
-// JobState defines model for Job.State.
+// JobState The job's lifecycle state.
+//
+// - `running`: the process is still running.
+// - `exited`: the process ended on its own. `exitCode` holds its status, 0 for success.
+// - `signalled`: the process ended because of a signal, usually from a stop or kill request.
+// - `failed`: Peen could not run or supervise the process to its end, for example because storing its output failed; `failureDetail` says why.
+// - `interrupted`: Peen or its worker stopped while the process was running, so it could not be followed further.
 type JobState string
 
-// JobOutput defines model for JobOutput.
+// JobOutput One window of a job's stored output, returned by `GET /session/jobs/{jobId}/output`. Pass `nextCursor` back as `cursor` to continue.
 type JobOutput struct {
-	HasMore bool               `json:"hasMore"`
-	JobId   openapi_types.UUID `json:"jobId"`
+	// HasMore `true` when more stored lines match the request after this window. A running job can still add lines when this is `false`.
+	HasMore bool `json:"hasMore"`
 
-	// Lines Ordered immutable stdout and stderr records from SQLite.
+	// JobId The job this output belongs to.
+	JobId openapi_types.UUID `json:"jobId"`
+
+	// Lines The output lines with a `sequence` greater than the requested `cursor`, oldest first, filtered to the requested stream. Stored lines never change.
 	Lines []JobOutputLine `json:"lines"`
 
-	// NextCursor Pass back as cursor to continue from this durable sequence.
-	NextCursor int64          `json:"nextCursor"`
-	State      JobOutputState `json:"state"`
+	// NextCursor The `sequence` of the last line in this window, or the requested `cursor` when the window is empty. Pass it back as `cursor` to read the lines after it.
+	NextCursor int64 `json:"nextCursor"`
+
+	// State The job's state when this window was read, with the same values as `Job.state`. Keep reading while it is `running` or `hasMore` is `true`.
+	State JobOutputState `json:"state"`
 }
 
-// JobOutputState defines model for JobOutput.State.
+// JobOutputState The job's state when this window was read, with the same values as `Job.state`. Keep reading while it is `running` or `hasMore` is `true`.
 type JobOutputState string
 
-// JobOutputLine defines model for JobOutputLine.
+// JobOutputLine One line a job wrote to stdout or stderr, stored in the order Peen read it. It appears in `JobOutput.lines`.
 type JobOutputLine struct {
-	Content   string              `json:"content"`
-	CreatedAt time.Time           `json:"createdAt"`
-	Id        openapi_types.UUID  `json:"id"`
-	JobId     openapi_types.UUID  `json:"jobId"`
-	Sequence  int64               `json:"sequence"`
-	SessionId openapi_types.UUID  `json:"sessionId"`
-	Stream    JobOutputLineStream `json:"stream"`
+	// Content The line's text, without its trailing newline.
+	Content string `json:"content"`
+
+	// CreatedAt When Peen read the line from the process, as an RFC 3339 timestamp.
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Id The stored line's ID.
+	Id openapi_types.UUID `json:"id"`
+
+	// JobId The job that wrote the line.
+	JobId openapi_types.UUID `json:"jobId"`
+
+	// Sequence The line's position in the job's output, counting from 1. stdout and stderr share one counter per job, so sorting by it restores the order Peen saw lines in across both streams.
+	Sequence int64 `json:"sequence"`
+
+	// SessionId The session that owns the job.
+	SessionId openapi_types.UUID `json:"sessionId"`
+
+	// Stream Which stream the line came from, `stdout` or `stderr`.
+	Stream JobOutputLineStream `json:"stream"`
 }
 
-// JobOutputLineStream defines model for JobOutputLine.Stream.
+// JobOutputLineStream Which stream the line came from, `stdout` or `stderr`.
 type JobOutputLineStream string
 
-// JobPage defines model for JobPage.
+// JobPage One page of a session's jobs, newest first, returned by `GET /session/jobs`.
 type JobPage struct {
-	HasMore bool  `json:"hasMore"`
-	Jobs    []Job `json:"jobs"`
-	Limit   int32 `json:"limit"`
-	Offset  int32 `json:"offset"`
+	// HasMore `true` when at least one more job exists after this page. Request the next page with `offset` increased by `limit`.
+	HasMore bool `json:"hasMore"`
+
+	// Jobs The jobs on this page, ordered by `startedAt` descending.
+	Jobs []Job `json:"jobs"`
+
+	// Limit The page size the server used.
+	Limit int32 `json:"limit"`
+
+	// Offset The number of jobs skipped before this page.
+	Offset int32 `json:"offset"`
 }
 
-// JobSignalRecord defines model for JobSignalRecord.
+// JobSignalRecord The stored record of one request to stop or kill a job. Peen writes one for every request, whether or not it reached a running process, so it is history, not a command. It appears in `JobSignalRecordPage.signalRequests`.
 type JobSignalRecord struct {
-	Accepted       bool                          `json:"accepted"`
-	Id             openapi_types.UUID            `json:"id"`
-	JobId          openapi_types.UUID            `json:"jobId"`
-	RequestedAt    time.Time                     `json:"requestedAt"`
-	SessionId      openapi_types.UUID            `json:"sessionId"`
-	Signal         JobSignalRecordSignal         `json:"signal"`
+	// Accepted `true` when the job was running and the signal was sent to its process group. `false` when the job had already ended or no worker held it, so nothing changed.
+	Accepted bool `json:"accepted"`
+
+	// Id The record's ID.
+	Id openapi_types.UUID `json:"id"`
+
+	// JobId The job the request named.
+	JobId openapi_types.UUID `json:"jobId"`
+
+	// RequestedAt When Peen recorded the request, as an RFC 3339 timestamp.
+	RequestedAt time.Time `json:"requestedAt"`
+
+	// SessionId The session that owns the job.
+	SessionId openapi_types.UUID `json:"sessionId"`
+
+	// Signal The requested signal.
+	//
+	// - `stop`: asks the process group to end with `SIGTERM` and escalates to `SIGKILL` after a grace period.
+	// - `kill`: sends `SIGKILL` at once.
+	Signal JobSignalRecordSignal `json:"signal"`
+
+	// StateAtRequest The job's state when the request arrived, with the same values as `Job.state`.
 	StateAtRequest JobSignalRecordStateAtRequest `json:"stateAtRequest"`
 }
 
-// JobSignalRecordSignal defines model for JobSignalRecord.Signal.
+// JobSignalRecordSignal The requested signal.
+//
+// - `stop`: asks the process group to end with `SIGTERM` and escalates to `SIGKILL` after a grace period.
+// - `kill`: sends `SIGKILL` at once.
 type JobSignalRecordSignal string
 
-// JobSignalRecordStateAtRequest defines model for JobSignalRecord.StateAtRequest.
+// JobSignalRecordStateAtRequest The job's state when the request arrived, with the same values as `Job.state`.
 type JobSignalRecordStateAtRequest string
 
-// JobSignalRecordPage defines model for JobSignalRecordPage.
+// JobSignalRecordPage One job and a page of its signal history, oldest first, returned by `GET /session/jobs/{jobId}/signals`.
 type JobSignalRecordPage struct {
-	HasMore        bool              `json:"hasMore"`
-	Job            Job               `json:"job"`
-	Limit          int32             `json:"limit"`
-	Offset         int32             `json:"offset"`
+	// HasMore `true` when at least one more request exists after this page. Request the next page with `offset` increased by `limit`.
+	HasMore bool `json:"hasMore"`
+
+	// Job One shell command the agent started with `runCommand`, recorded before it produced output and kept after it ended. It appears in `JobPage` and in `JobSignalRecordPage`.
+	Job Job `json:"job"`
+
+	// Limit The page size the server used.
+	Limit int32 `json:"limit"`
+
+	// Offset The number of requests skipped before this page.
+	Offset int32 `json:"offset"`
+
+	// SignalRequests The signal requests on this page, ordered by `requestedAt` ascending.
 	SignalRequests []JobSignalRecord `json:"signalRequests"`
 }
 
-// JobSignalRequest defines model for JobSignalRequest.
+// JobSignalRequest The body of `POST /session/jobs/{jobId}/signal`, naming the signal to send to the job's process group.
 type JobSignalRequest struct {
-	// Signal stop sends SIGTERM to the process group then escalates to SIGKILL. kill goes straight to SIGKILL.
+	// Signal The signal to send to the job's process group.
+	//
+	// - `stop`: `SIGTERM`, then `SIGKILL` if the process group is still running 10 seconds later.
+	// - `kill`: `SIGKILL` at once.
 	Signal JobSignalRequestSignal `json:"signal"`
 }
 
-// JobSignalRequestSignal stop sends SIGTERM to the process group then escalates to SIGKILL. kill goes straight to SIGKILL.
+// JobSignalRequestSignal The signal to send to the job's process group.
+//
+// - `stop`: `SIGTERM`, then `SIGKILL` if the process group is still running 10 seconds later.
+// - `kill`: `SIGKILL` at once.
 type JobSignalRequestSignal string
 
-// JobSignalResponse defines model for JobSignalResponse.
+// JobSignalResponse The result of `POST /session/jobs/{jobId}/signal`. Peen records the request in the job's signal history either way.
 type JobSignalResponse struct {
+	// JobId The job the request named.
 	JobId openapi_types.UUID `json:"jobId"`
 
-	// Signalled True when this request found a running job and signalled it. Signalling an unknown, exited, or already signalled job is not an error and reports false with the current state.
-	Signalled bool                   `json:"signalled"`
-	State     JobSignalResponseState `json:"state"`
+	// Signalled `true` when this request found the job running and sent the signal. The process may still be ending when the response arrives. Signalling an exited or already signalled job, or one no live worker holds, is not an error and reports `false` with the current state.
+	Signalled bool `json:"signalled"`
+
+	// State The job's state when the request arrived, with the same values as `Job.state`. A successful signal reports `running`, because the process ends after the response. Read the job again to see `signalled`.
+	State JobSignalResponseState `json:"state"`
 }
 
-// JobSignalResponseState defines model for JobSignalResponse.State.
+// JobSignalResponseState The job's state when the request arrived, with the same values as `Job.state`. A successful signal reports `running`, because the process ends after the response. Read the job again to see `signalled`.
 type JobSignalResponseState string
 
-// LearnedFile defines model for LearnedFile.
+// LearnedFile One learned rule, or one learned skill's `SKILL.md`, that an agent saved while auto-evolve was on or that you placed in a learned directory. Returned by `GET /session/learned` and inside `LearnedFileContent`.
 type LearnedFile struct {
-	// AlwaysLoaded True for a rule without paths, globs, or applyTo, which is part of every system prompt and counts against PEEN_MAX_SYSTEM_PROMPT_PERCENT. Always false for a skill.
+	// AlwaysLoaded True for a rule that is part of every system prompt: one without `paths`, `globs`, or `applyTo` frontmatter. Such a rule counts against `PEEN_MAX_SYSTEM_PROMPT_PERCENT`. Always false for a skill, and false for a file over 128 KiB.
 	AlwaysLoaded bool `json:"alwaysLoaded"`
 
-	// EstimatedTokens The file's size in tokens, estimated with the o200k tokenizer.
-	EstimatedTokens int64       `json:"estimatedTokens"`
-	Kind            LearnedKind `json:"kind"`
-	ModifiedAt      time.Time   `json:"modifiedAt"`
+	// EstimatedTokens The file's size in tokens, estimated with the o200k tokenizer. 0 for a file over 128 KiB, which the harness does not load.
+	EstimatedTokens int64 `json:"estimatedTokens"`
 
-	// Name The rule's path under rules/ without .md, or the skill's directory name. A learned rule loads under the name learned/<name>.
+	// Kind Whether a learned file is a rule or a skill.
+	//
+	// - `rule`: a Markdown file under `rules/` in a learned directory, possibly in subdirectories.
+	// - `skill`: a `skills/<name>/` directory whose `SKILL.md` holds the skill.
+	Kind LearnedKind `json:"kind"`
+
+	// ModifiedAt When the file was last modified, in RFC 3339 format.
+	ModifiedAt time.Time `json:"modifiedAt"`
+
+	// Name The rule's path under `rules/` without `.md`, using `/` between directories, such as `go-errors` or `go/errors`, or the skill's directory name. A learned rule loads under the name `learned/<name>`. Pass it as the `name` query parameter to read or delete the file.
 	Name string `json:"name"`
 
-	// Path The rule file, or the skill's SKILL.md, on the controller's host.
+	// Path The absolute path of the rule file, or the skill's `SKILL.md`, on the controller's host.
 	Path string `json:"path"`
 
-	// Scope workspace is the session workspace's .agents/learned, and global is the global learned directory every session reads.
-	Scope     LearnedScope `json:"scope"`
-	SizeBytes int64        `json:"sizeBytes"`
+	// Scope Which learned directory a learned file lives in.
+	//
+	// - `workspace`: `.agents/learned/` in the session's workspace root, which holds what belongs to that project.
+	// - `global`: the deployment's global learned directory, which every session reads (by default `.agents/learned/` in the config directory).
+	Scope LearnedScope `json:"scope"`
+
+	// SizeBytes The file's size in bytes.
+	SizeBytes int64 `json:"sizeBytes"`
 }
 
-// LearnedFileContent defines model for LearnedFileContent.
+// LearnedFileContent One learned file and its text. Returned by `GET /session/learned/file`.
 type LearnedFileContent struct {
-	Content string      `json:"content"`
-	File    LearnedFile `json:"file"`
+	// Content The file's text exactly as stored, including any frontmatter. Empty for a file over 128 KiB.
+	Content string `json:"content"`
+
+	// File One learned rule, or one learned skill's `SKILL.md`, that an agent saved while auto-evolve was on or that you placed in a learned directory. Returned by `GET /session/learned` and inside `LearnedFileContent`.
+	File LearnedFile `json:"file"`
 }
 
-// LearnedFileList defines model for LearnedFileList.
+// LearnedFileList Every learned rule and skill a session loads. Returned by `GET /session/learned`.
 type LearnedFileList struct {
 	// Items Workspace files first, then global ones, each sorted by kind and name.
 	Items []LearnedFile `json:"items"`
 }
 
-// LearnedKind defines model for LearnedKind.
+// LearnedKind Whether a learned file is a rule or a skill.
+//
+// - `rule`: a Markdown file under `rules/` in a learned directory, possibly in subdirectories.
+// - `skill`: a `skills/<name>/` directory whose `SKILL.md` holds the skill.
 type LearnedKind string
 
-// LearnedScope workspace is the session workspace's .agents/learned, and global is the global learned directory every session reads.
+// LearnedScope Which learned directory a learned file lives in.
+//
+// - `workspace`: `.agents/learned/` in the session's workspace root, which holds what belongs to that project.
+// - `global`: the deployment's global learned directory, which every session reads (by default `.agents/learned/` in the config directory).
 type LearnedScope string
 
-// MCPServerStatus defines model for MCPServerStatus.
+// MCPServerStatus One MCP server from an `.agents/mcp.json` file and its state when the worker last started it. A whole `mcp.json` file that could not be read or parsed also appears as one entry, with an empty `name`.
 type MCPServerStatus struct {
-	// Error Why the server failed.
+	// Error Why the server failed. Absent for a ready server.
 	Error *string `json:"error,omitempty"`
 
 	// Name The server name from mcp.json. Empty when a whole mcp.json file was refused.
 	Name string `json:"name"`
 
-	// Source The layer whose .agents/mcp.json defines the server.
+	// Source The layer whose `.agents/mcp.json` defines the server.
+	//
+	// - `config`: the config directory's `.agents/mcp.json`.
+	// - `workspace`: the session workspace's `.agents/mcp.json`, read only when the deployment enables workspace MCP servers.
 	Source MCPServerStatusSource `json:"source"`
-	State  MCPServerStatusState  `json:"state"`
 
-	// Tools The exposed tool names, mcp__<server>__<tool>.
-	Tools     []string                  `json:"tools"`
+	// State The server's state when the worker reported.
+	//
+	// - `ready`: the server started and listed its tools.
+	// - `failed`: its entry was refused, it could not start, or its connection had failed when the worker reported.
+	State MCPServerStatusState `json:"state"`
+
+	// Tools The exposed tool names the agent can call, each `mcp__<server>__<tool>`. Empty for a failed server.
+	Tools []string `json:"tools"`
+
+	// Transport How Peen reaches the server. Absent when a whole file was refused.
+	//
+	// - `stdio`: a server process the worker starts.
+	// - `http`: a Streamable HTTP endpoint.
 	Transport *MCPServerStatusTransport `json:"transport,omitempty"`
 
-	// Warnings Problems that did not stop the server.
+	// Warnings Problems that did not stop the server, such as a name in its `tools` list that the server does not offer. Absent when there are none.
 	Warnings *[]string `json:"warnings,omitempty"`
 }
 
-// MCPServerStatusSource The layer whose .agents/mcp.json defines the server.
+// MCPServerStatusSource The layer whose `.agents/mcp.json` defines the server.
+//
+// - `config`: the config directory's `.agents/mcp.json`.
+// - `workspace`: the session workspace's `.agents/mcp.json`, read only when the deployment enables workspace MCP servers.
 type MCPServerStatusSource string
 
-// MCPServerStatusState defines model for MCPServerStatus.State.
+// MCPServerStatusState The server's state when the worker reported.
+//
+// - `ready`: the server started and listed its tools.
+// - `failed`: its entry was refused, it could not start, or its connection had failed when the worker reported.
 type MCPServerStatusState string
 
-// MCPServerStatusTransport defines model for MCPServerStatus.Transport.
+// MCPServerStatusTransport How Peen reaches the server. Absent when a whole file was refused.
+//
+// - `stdio`: a server process the worker starts.
+// - `http`: a Streamable HTTP endpoint.
 type MCPServerStatusTransport string
 
-// MCPStatusReport defines model for MCPStatusReport.
+// MCPStatusReport The session's MCP servers as the worker last reported them, at the start of a turn. Returned by `GET /session/mcp`.
 type MCPStatusReport struct {
 	// ReportedAt When the worker reported, at the start of a turn. Null before the first report.
-	ReportedAt *time.Time        `json:"reportedAt"`
-	Servers    []MCPServerStatus `json:"servers"`
+	ReportedAt *time.Time `json:"reportedAt"`
+
+	// Servers Every configured server and what happened when the worker started it. Servers that loaded come first, then entries refused while reading `mcp.json`. Empty before the first report and when the latest turn had no MCP configuration.
+	Servers []MCPServerStatus `json:"servers"`
 }
 
-// Message defines model for Message.
+// Message One stored message of a session's root conversation, as `GET /messages` returns it. Optional fields are absent, not null, when they do not apply.
 type Message struct {
+	// CompactionId The compaction that summarized this message, when one did. A later compaction that includes the earlier summary never rewrites it. Absent otherwise.
 	CompactionId *openapi_types.UUID `json:"compactionId,omitempty"`
-	Content      string              `json:"content"`
-	CreatedAt    time.Time           `json:"createdAt"`
-	Id           openapi_types.UUID  `json:"id"`
+
+	// Content The message text.
+	Content string `json:"content"`
+
+	// CreatedAt When the message was stored, RFC 3339.
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Id The message ID.
+	Id openapi_types.UUID `json:"id"`
 
 	// Images The images the message carries, without their bytes, in the order the model sees them after the text. Absent when it has none.
-	Images     *[]MessageImageInfo `json:"images,omitempty"`
-	Incomplete *bool               `json:"incomplete,omitempty"`
+	Images *[]MessageImageInfo `json:"images,omitempty"`
+
+	// Incomplete True when the message was written by a turn that did not complete, for example one that was cancelled or failed. Absent when false.
+	Incomplete *bool `json:"incomplete,omitempty"`
 
 	// Injected True when Peen added this message to the conversation itself, such as a report of session events delivered during a turn or the instructions of an event handler that started a turn, rather than a person or the model writing it.
 	Injected *bool `json:"injected,omitempty"`
 
-	// InjectedKind What an injected message is, when it is more than a generic update. `skill` marks a skill the user invoked with `:name`, delivered as its own message after the message that named it, or the note that the skill was already loaded. `image` marks the message that shows the model an image readFile read, after that tool round. Absent for every other message.
+	// InjectedKind What an injected message is, when it is more than a generic update. Absent for every other message.
+	//
+	// - `skill`: a skill the user invoked with `:name`, delivered as its own message after the message that named it, or the note that the skill was already loaded.
+	// - `image`: the message that shows the model an image readFile read, after that tool round.
 	InjectedKind *MessageInjectedKind `json:"injectedKind,omitempty"`
-	IsError      *bool                `json:"isError,omitempty"`
-	Model        *string              `json:"model,omitempty"`
 
-	// Role `system` is a notice Peen added to the conversation, such as how the previous turn ended and what it was asked. The model receives it as a system message.
-	Role       MessageRole        `json:"role"`
-	Sequence   int64              `json:"sequence"`
-	Thinking   *string            `json:"thinking,omitempty"`
-	ToolCallId *string            `json:"toolCallId,omitempty"`
-	ToolCalls  *[]MessageToolCall `json:"toolCalls,omitempty"`
+	// IsError True when a `tool` message reports a failed tool call. Absent when false.
+	IsError *bool `json:"isError,omitempty"`
+
+	// Model The `connection/model` reference that wrote an assistant message. Absent for other messages.
+	Model *string `json:"model,omitempty"`
+
+	// Role Who wrote the message. The model receives a `system` message as a system message.
+	//
+	// - `system`: a notice Peen added to the conversation, such as how the previous turn ended and what it was asked.
+	// - `user`: a person's message, or an update Peen injected as user input.
+	// - `assistant`: a model response.
+	// - `tool`: a tool result.
+	Role MessageRole `json:"role"`
+
+	// Sequence Position in the session's conversation, starting at 1.
+	Sequence int64 `json:"sequence"`
+
+	// Thinking The model's reasoning text for an assistant message, when the provider returned any. Absent otherwise.
+	Thinking *string `json:"thinking,omitempty"`
+
+	// ToolCallId For a `tool` message, the ID of the tool call this result answers. Absent otherwise.
+	ToolCallId *string `json:"toolCallId,omitempty"`
+
+	// ToolCalls The tool calls an assistant message made, in order. Absent when it made none.
+	ToolCalls *[]MessageToolCall `json:"toolCalls,omitempty"`
 
 	// TurnId The turn that wrote this message. Messages that share it belong to one turn.
-	TurnId    *openapi_types.UUID `json:"turnId,omitempty"`
-	Workspace string              `json:"workspace"`
+	TurnId *openapi_types.UUID `json:"turnId,omitempty"`
+
+	// Workspace The workspace directory the session was in when the message was stored.
+	Workspace string `json:"workspace"`
 }
 
-// MessageInjectedKind What an injected message is, when it is more than a generic update. `skill` marks a skill the user invoked with `:name`, delivered as its own message after the message that named it, or the note that the skill was already loaded. `image` marks the message that shows the model an image readFile read, after that tool round. Absent for every other message.
+// MessageInjectedKind What an injected message is, when it is more than a generic update. Absent for every other message.
+//
+// - `skill`: a skill the user invoked with `:name`, delivered as its own message after the message that named it, or the note that the skill was already loaded.
+// - `image`: the message that shows the model an image readFile read, after that tool round.
 type MessageInjectedKind string
 
-// MessageRole `system` is a notice Peen added to the conversation, such as how the previous turn ended and what it was asked. The model receives it as a system message.
+// MessageRole Who wrote the message. The model receives a `system` message as a system message.
+//
+// - `system`: a notice Peen added to the conversation, such as how the previous turn ended and what it was asked.
+// - `user`: a person's message, or an update Peen injected as user input.
+// - `assistant`: a model response.
+// - `tool`: a tool result.
 type MessageRole string
 
-// MessageImageInfo defines model for MessageImageInfo.
+// MessageImageInfo An image carried by a message, described without its bytes.
 type MessageImageInfo struct {
+	// MediaType The image's media type: `image/png`, `image/jpeg`, `image/gif`, or `image/webp`.
 	MediaType string `json:"mediaType"`
-	SizeBytes int64  `json:"sizeBytes"`
+
+	// SizeBytes The image's decoded size in bytes.
+	SizeBytes int64 `json:"sizeBytes"`
 }
 
-// MessagePage defines model for MessagePage.
+// MessagePage One page of `GET /messages`.
 type MessagePage struct {
-	HasMore bool      `json:"hasMore"`
-	Items   []Message `json:"items"`
-	Limit   int32     `json:"limit"`
-	Offset  int32     `json:"offset"`
+	// HasMore True when more messages follow this page.
+	HasMore bool `json:"hasMore"`
+
+	// Items The messages on this page, in the requested order.
+	Items []Message `json:"items"`
+
+	// Limit The page size this response used.
+	Limit int32 `json:"limit"`
+
+	// Offset The number of messages skipped before this page.
+	Offset int32 `json:"offset"`
 }
 
-// MessageToolCall defines model for MessageToolCall.
+// MessageToolCall One tool call an assistant message made. It appears in `Message.toolCalls` and `AgentRunMessage.toolCalls`.
 type MessageToolCall struct {
+	// Arguments The arguments the model passed, as a JSON object.
 	Arguments map[string]interface{} `json:"arguments"`
-	Id        string                 `json:"id"`
-	Name      string                 `json:"name"`
+
+	// Id The call ID. The `tool` message that answers it carries the same value in `toolCallId`.
+	Id string `json:"id"`
+
+	// Name The tool name.
+	Name string `json:"name"`
 }
 
-// Model defines model for Model.
+// Model One model Peen found on a configured connection at controller startup, as `GET /models` lists it.
 type Model struct {
-	// ConnectionName The configured connection portion of name.
+	// ConnectionName The configured connection part of `name`, before the first `/`.
 	ConnectionName string `json:"connectionName"`
 
-	// ContextWindowTokens The model context window Peen will enforce. For an upstream that publishes no window, this is the deployment context budget.
+	// ContextWindowTokens The context window Peen enforces for this model, in tokens. It comes from the provider driver's model catalog; for a model the catalog does not cover, it is `PEEN_MAX_CONTEXT_TOKENS`.
 	ContextWindowTokens int64 `json:"contextWindowTokens"`
 
 	// ImageInput Whether the model takes images, in message.send and from readFile. An upstream with "imageInput": false makes every one of its models text-only.
 	ImageInput bool `json:"imageInput"`
 
-	// ModelId The raw model identifier the upstream accepted.
+	// ModelId The raw model identifier the upstream accepted, the part of `name` after the first `/`.
 	ModelId string `json:"modelId"`
 
-	// Name Exact connection/model reference accepted by message.send for a one-turn model override.
+	// Name The exact `connection/model` reference a WebSocket `message.send` frame passes as `data.model` to run one turn on this model.
 	Name string `json:"name"`
 }
 
-// ModelCall defines model for ModelCall.
+// ModelCall One provider round within a model run: the exact request Peen sent and the response, usage, retries and costs of that round. It appears in `ModelCallPage.calls`.
 type ModelCall struct {
-	BilledCostAmount        string                   `json:"billedCostAmount"`
-	CacheReadTokens         int64                    `json:"cacheReadTokens"`
-	CacheWriteLongTtlTokens int64                    `json:"cacheWriteLongTtlTokens"`
-	CacheWriteTokens        int64                    `json:"cacheWriteTokens"`
-	CompletedAt             *time.Time               `json:"completedAt,omitempty"`
-	CompletionTokens        int64                    `json:"completionTokens"`
-	CostKnown               bool                     `json:"costKnown"`
-	FailureClassification   string                   `json:"failureClassification"`
-	FailureDetail           string                   `json:"failureDetail"`
-	FinishReason            string                   `json:"finishReason"`
-	Id                      openapi_types.UUID       `json:"id"`
-	ModelRunId              openapi_types.UUID       `json:"modelRunId"`
-	PromptTokens            int64                    `json:"promptTokens"`
-	ReasoningTokens         int64                    `json:"reasoningTokens"`
-	RequestMessages         []interface{}            `json:"requestMessages"`
-	RequestTools            []interface{}            `json:"requestTools"`
-	ResponseCostAmount      string                   `json:"responseCostAmount"`
-	ResponseMessage         *map[string]interface{}  `json:"responseMessage"`
-	ResponseModelId         string                   `json:"responseModelId"`
-	ResponseUsage           map[string]interface{}   `json:"responseUsage"`
-	RetryAttemptCount       int64                    `json:"retryAttemptCount"`
-	RetryAttempts           []map[string]interface{} `json:"retryAttempts"`
-	RetryCostAmount         string                   `json:"retryCostAmount"`
-	Round                   int64                    `json:"round"`
-	SessionId               openapi_types.UUID       `json:"sessionId"`
-	StartedAt               time.Time                `json:"startedAt"`
-	State                   ModelCallState           `json:"state"`
-	TotalAttempts           int64                    `json:"totalAttempts"`
-	TotalTokens             int64                    `json:"totalTokens"`
-	WastedCompletionTokens  int64                    `json:"wastedCompletionTokens"`
-	WastedPromptTokens      int64                    `json:"wastedPromptTokens"`
-	WastedTotalTokens       int64                    `json:"wastedTotalTokens"`
+	// BilledCostAmount `responseCostAmount` plus `retryCostAmount`, as an exact decimal string. Empty when `costKnown` is `false`.
+	BilledCostAmount string `json:"billedCostAmount"`
+
+	// CacheReadTokens Prompt tokens the provider served from its cache.
+	CacheReadTokens int64 `json:"cacheReadTokens"`
+
+	// CacheWriteLongTtlTokens Prompt tokens the provider wrote to its long-lived cache.
+	CacheWriteLongTtlTokens int64 `json:"cacheWriteLongTtlTokens"`
+
+	// CacheWriteTokens Prompt tokens the provider wrote to its cache.
+	CacheWriteTokens int64 `json:"cacheWriteTokens"`
+
+	// CompletedAt When the round ended, as an RFC 3339 timestamp. Absent while it runs.
+	CompletedAt *time.Time `json:"completedAt,omitempty"`
+
+	// CompletionTokens Completion tokens the provider reported for the successful attempt.
+	CompletionTokens int64 `json:"completionTokens"`
+
+	// CostKnown `true` when the model has prices configured, so the cost amounts are filled in. `false` means the cost is unknown, not zero.
+	CostKnown bool `json:"costKnown"`
+
+	// FailureClassification Why the round did not complete: `model` for a provider or model error, `cancelled` for a cancellation or deadline, or `interrupted` when Peen stopped. Empty for a running or completed round.
+	FailureClassification string `json:"failureClassification"`
+
+	// FailureDetail The error text for a round that did not complete. Empty otherwise.
+	FailureDetail string `json:"failureDetail"`
+
+	// FinishReason Why the provider stopped generating, as the provider reported it. Empty until the round ends.
+	FinishReason string `json:"finishReason"`
+
+	// Id The round's ID.
+	Id openapi_types.UUID `json:"id"`
+
+	// ModelRunId The model run this round belongs to.
+	ModelRunId openapi_types.UUID `json:"modelRunId"`
+
+	// PromptTokens Prompt tokens the provider reported for the successful attempt.
+	PromptTokens int64 `json:"promptTokens"`
+
+	// ReasoningTokens Reasoning tokens the provider reported, a part of the completion tokens.
+	ReasoningTokens int64 `json:"reasoningTokens"`
+
+	// RequestMessages The exact messages sent to the provider for this round, the whole conversation so far. Images are base64 encoded.
+	RequestMessages []interface{} `json:"requestMessages"`
+
+	// RequestTools The tool definitions the provider saw for this round. Each has `name`, `description`, `argumentsSchema`, `strictArguments`, and `timeoutMs`.
+	RequestTools []interface{} `json:"requestTools"`
+
+	// ResponseCostAmount Cost of the successful attempt as an exact decimal string, in the currency of the model's prices. Empty when `costKnown` is `false`.
+	ResponseCostAmount string `json:"responseCostAmount"`
+
+	// ResponseMessage The assistant message the provider returned for this round. `null` while the round runs and when it ended before a message arrived.
+	ResponseMessage *map[string]interface{} `json:"responseMessage"`
+
+	// ResponseModelId The model ID the provider reported. Empty until the round ends.
+	ResponseModelId string `json:"responseModelId"`
+
+	// ResponseUsage The provider's usage report for this round, an object with the token counts (`prompt`, `completion`, `total`, `reasoning`, `cacheRead`, `cacheWrite`, `cacheWriteLongTtl`), `model`, `finishReason`, `totalAttempts`, `failedAttempts`, and the wasted token counts. Empty while the round runs.
+	ResponseUsage map[string]interface{} `json:"responseUsage"`
+
+	// RetryAttemptCount How many times the round was tried again after a failure.
+	RetryAttemptCount int64 `json:"retryAttemptCount"`
+
+	// RetryAttempts The failed attempts of this round that Peen retried or gave up on, oldest first. Peen saves each one as it happens.
+	RetryAttempts []map[string]interface{} `json:"retryAttempts"`
+
+	// RetryCostAmount Cost of the failed attempts as an exact decimal string. Empty when `costKnown` is `false`.
+	RetryCostAmount string `json:"retryCostAmount"`
+
+	// Round The round's position within its model run, counting from 0.
+	Round int64 `json:"round"`
+
+	// SessionId The session that made the request.
+	SessionId openapi_types.UUID `json:"sessionId"`
+
+	// StartedAt When Peen stored the request, just before sending it, as an RFC 3339 timestamp.
+	StartedAt time.Time `json:"startedAt"`
+
+	// State The round's lifecycle state.
+	//
+	// - `running`: has not ended.
+	// - `completed`: returned a response.
+	// - `failed`: ended with a provider or model error.
+	// - `cancelled`: was cancelled or ran past its deadline.
+	// - `interrupted`: was still running when Peen stopped.
+	State ModelCallState `json:"state"`
+
+	// TotalAttempts How many attempts the round made, the successful one included. 0 until the round ends.
+	TotalAttempts int64 `json:"totalAttempts"`
+
+	// TotalTokens Total tokens the provider reported for the successful attempt.
+	TotalTokens int64 `json:"totalTokens"`
+
+	// WastedCompletionTokens Completion tokens spent on failed attempts of this round.
+	WastedCompletionTokens int64 `json:"wastedCompletionTokens"`
+
+	// WastedPromptTokens Prompt tokens spent on failed attempts of this round.
+	WastedPromptTokens int64 `json:"wastedPromptTokens"`
+
+	// WastedTotalTokens Total tokens spent on failed attempts of this round.
+	WastedTotalTokens int64 `json:"wastedTotalTokens"`
 }
 
-// ModelCallState defines model for ModelCall.State.
+// ModelCallState The round's lifecycle state.
+//
+// - `running`: has not ended.
+// - `completed`: returned a response.
+// - `failed`: ended with a provider or model error.
+// - `cancelled`: was cancelled or ran past its deadline.
+// - `interrupted`: was still running when Peen stopped.
 type ModelCallState string
 
-// ModelCallPage defines model for ModelCallPage.
+// ModelCallPage One model run and a page of its provider rounds, returned by `GET /session/model-runs/{modelRunId}/calls`.
 type ModelCallPage struct {
-	Calls    []ModelCall `json:"calls"`
-	HasMore  bool        `json:"hasMore"`
-	Limit    int32       `json:"limit"`
-	ModelRun ModelRun    `json:"modelRun"`
-	Offset   int32       `json:"offset"`
+	// Calls The rounds on this page, ordered by `round` ascending.
+	Calls []ModelCall `json:"calls"`
+
+	// HasMore `true` when at least one more round exists after this page. Request the next page with `offset` increased by `limit`.
+	HasMore bool `json:"hasMore"`
+
+	// Limit The page size the server used.
+	Limit int32 `json:"limit"`
+
+	// ModelRun One logical model request Peen made for a turn, a child agent or a compaction, which can span several provider rounds. Peen writes it before provider work starts and finalizes it when the run ends. It appears in `ModelRunPage` and in `ModelCallPage`.
+	ModelRun ModelRun `json:"modelRun"`
+
+	// Offset The number of rounds skipped before this page.
+	Offset int32 `json:"offset"`
 }
 
-// ModelList defines model for ModelList.
+// ModelList The response of `GET /models`.
 type ModelList struct {
-	// Models Models available to this authenticated controller.
+	// Models The discovered models, sorted by `name`. Empty when the controller has no model catalog.
 	Models []Model `json:"models"`
 }
 
-// ModelRun defines model for ModelRun.
+// ModelRun One logical model request Peen made for a turn, a child agent or a compaction, which can span several provider rounds. Peen writes it before provider work starts and finalizes it when the run ends. It appears in `ModelRunPage` and in `ModelCallPage`.
 type ModelRun struct {
-	AgentRunId            *openapi_types.UUID    `json:"agentRunId,omitempty"`
-	BilledCostAmount      string                 `json:"billedCostAmount"`
-	CompletedAt           *time.Time             `json:"completedAt,omitempty"`
-	ConnectionName        string                 `json:"connectionName"`
-	CostKnown             bool                   `json:"costKnown"`
-	FailureClassification string                 `json:"failureClassification"`
-	FailureDetail         string                 `json:"failureDetail"`
-	FinishReason          string                 `json:"finishReason"`
-	Id                    openapi_types.UUID     `json:"id"`
-	ModelReference        string                 `json:"modelReference"`
-	RequestSettings       map[string]interface{} `json:"requestSettings"`
-	RequestedModelId      string                 `json:"requestedModelId"`
-	ResponseCostAmount    string                 `json:"responseCostAmount"`
-	ResponseInjections    []interface{}          `json:"responseInjections"`
-	ResponseMessages      []interface{}          `json:"responseMessages"`
-	ResponseModelId       string                 `json:"responseModelId"`
-	ResponseText          string                 `json:"responseText"`
-	ResponseThinking      string                 `json:"responseThinking"`
-	ResponseUsage         map[string]interface{} `json:"responseUsage"`
-	RetryCostAmount       string                 `json:"retryCostAmount"`
-	SessionId             openapi_types.UUID     `json:"sessionId"`
-	Stage                 ModelRunStage          `json:"stage"`
-	StartedAt             time.Time              `json:"startedAt"`
-	State                 ModelRunState          `json:"state"`
-	TurnId                openapi_types.UUID     `json:"turnId"`
+	// AgentRunId The child agent run that made the request. Set for `child` runs and for compactions of a child agent's conversation. Absent for the root conversation.
+	AgentRunId *openapi_types.UUID `json:"agentRunId,omitempty"`
+
+	// BilledCostAmount `responseCostAmount` plus `retryCostAmount`, as an exact decimal string. Empty when `costKnown` is `false`.
+	BilledCostAmount string `json:"billedCostAmount"`
+
+	// CompletedAt When the run ended, as an RFC 3339 timestamp. Absent while it runs.
+	CompletedAt *time.Time `json:"completedAt,omitempty"`
+
+	// ConnectionName The connection part of `modelReference`, before the first `/`.
+	ConnectionName string `json:"connectionName"`
+
+	// CostKnown `true` when the model has prices configured, so the cost amounts are filled in. `false` means the cost is unknown, not zero.
+	CostKnown bool `json:"costKnown"`
+
+	// FailureClassification Why the run did not complete: `model` for a provider or model error, `cancelled` for a cancellation or deadline, or `interrupted` when Peen stopped. Empty for a running or completed run.
+	FailureClassification string `json:"failureClassification"`
+
+	// FailureDetail The error text for a run that did not complete. Empty otherwise.
+	FailureDetail string `json:"failureDetail"`
+
+	// FinishReason Why the model stopped, as the provider reported it for the last round. Empty until the run returns.
+	FinishReason string `json:"finishReason"`
+
+	// Id The model run's ID. Use it with `GET /session/model-runs/{modelRunId}/calls`.
+	Id openapi_types.UUID `json:"id"`
+
+	// ModelReference The configured model reference the run asked for, in the form `<connection>/<model>`.
+	ModelReference string `json:"modelReference"`
+
+	// RequestSettings The request settings in effect, without endpoint URLs or credentials, such as `model`, `autoToolCalls`, `streaming`, `maxRounds`, `maxContextTokens`, `maxOutputTokens`, `maxConcurrentTools`, `toolTimeoutMs`, `maxToolResultTokens`, `timeoutMs`, and `generationParams`.
+	RequestSettings map[string]interface{} `json:"requestSettings"`
+
+	// RequestedModelId The model part of `modelReference`, after the first `/`.
+	RequestedModelId string `json:"requestedModelId"`
+
+	// ResponseCostAmount Cost of the run's successful attempts as an exact decimal string, in the currency of the model's prices. Empty when `costKnown` is `false`.
+	ResponseCostAmount string `json:"responseCostAmount"`
+
+	// ResponseInjections The messages tool injectors added during the run, in the order they fired. They also appear in `responseMessages`; this list is the audit trail.
+	ResponseInjections []interface{} `json:"responseInjections"`
+
+	// ResponseMessages The full message list the run ended with: the conversation it was given plus every message it added, tool calls and results included. Empty until the run returns.
+	ResponseMessages []interface{} `json:"responseMessages"`
+
+	// ResponseModelId The model ID the provider reported in its response. Empty until the run returns a response.
+	ResponseModelId string `json:"responseModelId"`
+
+	// ResponseText The final text the model returned. Empty until the run completes.
+	ResponseText string `json:"responseText"`
+
+	// ResponseThinking The reasoning text the model returned, when it exposes one. Empty otherwise.
+	ResponseThinking string `json:"responseThinking"`
+
+	// ResponseUsage The usage summed over every round of the run, with the same keys as a round's `responseUsage`. Empty until the run returns.
+	ResponseUsage map[string]interface{} `json:"responseUsage"`
+
+	// RetryCostAmount Cost of the run's failed attempts as an exact decimal string. Empty when `costKnown` is `false`.
+	RetryCostAmount string `json:"retryCostAmount"`
+
+	// SessionId The session that made the request.
+	SessionId openapi_types.UUID `json:"sessionId"`
+
+	// Stage Which kind of work issued the run.
+	//
+	// - `turn`: the root conversation.
+	// - `child`: a child agent.
+	// - `compaction`: a summary of older messages.
+	Stage ModelRunStage `json:"stage"`
+
+	// StartedAt When Peen stored the run, before any provider work, as an RFC 3339 timestamp.
+	StartedAt time.Time `json:"startedAt"`
+
+	// State The run's lifecycle state.
+	//
+	// - `running`: has not ended.
+	// - `completed`: returned a response.
+	// - `failed`: ended with a provider or model error.
+	// - `cancelled`: was cancelled or ran past its deadline.
+	// - `interrupted`: was still running when Peen stopped.
+	State ModelRunState `json:"state"`
+
+	// TurnId The root turn during which the run happened. Child agent and compaction runs carry the turn they ran under.
+	TurnId openapi_types.UUID `json:"turnId"`
 }
 
-// ModelRunStage defines model for ModelRun.Stage.
+// ModelRunStage Which kind of work issued the run.
+//
+// - `turn`: the root conversation.
+// - `child`: a child agent.
+// - `compaction`: a summary of older messages.
 type ModelRunStage string
 
-// ModelRunState defines model for ModelRun.State.
+// ModelRunState The run's lifecycle state.
+//
+// - `running`: has not ended.
+// - `completed`: returned a response.
+// - `failed`: ended with a provider or model error.
+// - `cancelled`: was cancelled or ran past its deadline.
+// - `interrupted`: was still running when Peen stopped.
 type ModelRunState string
 
-// ModelRunPage defines model for ModelRunPage.
+// ModelRunPage One page of a session's model runs, newest first, returned by `GET /session/model-runs`.
 type ModelRunPage struct {
-	HasMore   bool       `json:"hasMore"`
-	Limit     int32      `json:"limit"`
+	// HasMore `true` when at least one more run exists after this page. Request the next page with `offset` increased by `limit`.
+	HasMore bool `json:"hasMore"`
+
+	// Limit The page size the server used.
+	Limit int32 `json:"limit"`
+
+	// ModelRuns The model runs on this page, ordered by `startedAt` descending.
 	ModelRuns []ModelRun `json:"modelRuns"`
-	Offset    int32      `json:"offset"`
+
+	// Offset The number of runs skipped before this page.
+	Offset int32 `json:"offset"`
 }
 
-// OpenSessionRequest defines model for OpenSessionRequest.
+// OpenSessionRequest The body of `POST /sessions/open`.
 type OpenSessionRequest struct {
-	// AgentSpace The agent space to run in, `control` or `docker:<profile>`. Empty takes the deployment default. A name the deployment does not offer is refused with 403. This is the only environment choice a client makes: images, mounts, network, and capabilities come from deployment configuration alone. It applies only when this call creates the session; opening an existing session never changes its agent space.
+	// AgentSpace The agent space to run in, `control` or `docker:<profile>` (see `GET /agent-spaces`). Every session of one workspace shares one agent space. Leave it out to get the workspace's agent space, or the deployment default for a workspace with no session yet. Naming a different agent space than the workspace's returns 409 `AGENT_SPACE_CONFLICT`, and naming one the deployment does not offer returns 403 `AGENT_SPACE_NOT_ALLOWED`. This is the only environment choice a client makes: images, mounts, network, and capabilities come from deployment configuration alone.
 	AgentSpace *string `json:"agentSpace,omitempty"`
 
-	// Workspace Absolute host path of the workspace directory. It is resolved through its symlinks and must fall under a configured workspace root.
+	// Workspace Absolute host path of the workspace directory. It is resolved through its symbolic links and must be an existing directory beneath a configured workspace root (see `GET /workspace-roots`).
 	Workspace string `json:"workspace"`
 }
 
-// OpenedSession defines model for OpenedSession.
+// OpenedSession The response of `POST /sessions/open` and `POST /sessions/system`.
 type OpenedSession struct {
 	// Created True when this call created the session, false when it resumed an existing one.
-	Created bool    `json:"created"`
+	Created bool `json:"created"`
+
+	// Session A durable session: one conversation in one workspace directory, with its counters and the agent space its tools run in. Returned by `GET /session`, `GET /sessions`, and the open operations. Optional fields are absent, not null, when they do not apply.
 	Session Session `json:"session"`
 }
 
-// PromptSnapshot defines model for PromptSnapshot.
+// PromptSnapshot The exact system prompt one or more turns sent to the model, stored once by hash. Returned by `GET /session/prompt-snapshots/{promptHash}`.
 type PromptSnapshot struct {
-	CreatedAt       time.Time `json:"createdAt"`
-	EffectivePrompt string    `json:"effectivePrompt"`
-	Hash            string    `json:"hash"`
+	// CreatedAt When Peen first stored this snapshot, as an RFC 3339 timestamp. A later turn with the same prompt reuses the row and leaves this unchanged.
+	CreatedAt time.Time `json:"createdAt"`
+
+	// EffectivePrompt The full system prompt the model received, including any context pre-user-message hooks added.
+	EffectivePrompt string `json:"effectivePrompt"`
+
+	// Hash Lowercase hex SHA-256 of `effectivePrompt`. A turn names it in `promptSnapshotHash`.
+	Hash string `json:"hash"`
 }
 
-// ReconfigureSessionRequest defines model for ReconfigureSessionRequest.
+// ReconfigureSessionRequest The body of `POST /session/reconfigure`. Both fields are required and no other field is accepted.
 type ReconfigureSessionRequest struct {
-	// AgentSpace The agent space to move this session to, `control` or `docker:<profile>`. A space the deployment does not offer is refused. This is the only environment choice a client makes.
+	// AgentSpace The agent space to move the workspace's sessions to, `control` or `docker:<profile>`. A name the deployment does not offer returns 403 `AGENT_SPACE_NOT_ALLOWED`, and the agent space the workspace already runs in returns 409 `CONFLICT`. This is the only environment choice a client makes.
 	AgentSpace string `json:"agentSpace"`
 
-	// Reason Why the agent space changed, kept in the durable decision history.
+	// Reason Why the agent space changed, kept in each session's decision history. Must contain a non-whitespace character.
 	Reason string `json:"reason"`
 }
 
-// Session defines model for Session.
+// Session A durable session: one conversation in one workspace directory, with its counters and the agent space its tools run in. Returned by `GET /session`, `GET /sessions`, and the open operations. Optional fields are absent, not null, when they do not apply.
 type Session struct {
+	// ActiveTurn True while a turn is running in the session.
 	ActiveTurn bool `json:"activeTurn"`
 
-	// ActiveTurnFeedSequence First feed sequence of the running turn. Set only by GET /session while a turn runs; replay from the sequence before it to rebuild that turn's live view.
+	// ActiveTurnFeedSequence The first feed sequence of the running turn. Set only by `GET /session`, and only while a turn runs and has written at least one frame; absent otherwise. Pass one less than it as `cursor` to `GET /session/feed` to rebuild that turn's live view.
 	ActiveTurnFeedSequence *int64 `json:"activeTurnFeedSequence,omitempty"`
-	Agent                  string `json:"agent"`
 
-	// AgentSpace The agent space this session's tools run in, `control` or `docker:<profile>`.
-	AgentSpace         *string   `json:"agentSpace,omitempty"`
-	CompletedTurnCount int64     `json:"completedTurnCount"`
-	CreatedAt          time.Time `json:"createdAt"`
+	// Agent The root agent that runs the session's turns, such as `core:general-purpose`, or `core:system` for the system session.
+	Agent string `json:"agent"`
 
-	// FeedSequence The session's newest feed sequence.
-	FeedSequence  int64              `json:"feedSequence"`
-	Id            openapi_types.UUID `json:"id"`
-	LastMessageAt *time.Time         `json:"lastMessageAt,omitempty"`
-	MessageCount  int64              `json:"messageCount"`
-	Model         string             `json:"model"`
-	UpdatedAt     time.Time          `json:"updatedAt"`
-	Workspace     string             `json:"workspace"`
+	// AgentSpace The agent space this session's tools run in, `control` or `docker:<profile>`, shared by every session of the workspace. Absent for a session recorded before agent spaces existed, which runs in the deployment default.
+	AgentSpace *string `json:"agentSpace,omitempty"`
+
+	// CompletedTurnCount Number of turns that completed.
+	CompletedTurnCount int64 `json:"completedTurnCount"`
+
+	// CreatedAt When the session was created, RFC 3339.
+	CreatedAt time.Time `json:"createdAt"`
+
+	// FeedSequence The session's newest feed sequence, the `head` that `GET /session/feed` would return now. `0` before anything was sent.
+	FeedSequence int64 `json:"feedSequence"`
+
+	// Id The session ID. Pass it as `X-Session-ID` on REST calls and as `metadata.sessionId` on the WebSocket.
+	Id openapi_types.UUID `json:"id"`
+
+	// LastMessageAt When the newest message was stored, RFC 3339. Absent until the session has a message.
+	LastMessageAt *time.Time `json:"lastMessageAt,omitempty"`
+
+	// MessageCount Number of messages stored in the session's root conversation.
+	MessageCount int64 `json:"messageCount"`
+
+	// Model The `connection/model` reference the session uses by default, set when the session was created.
+	Model string `json:"model"`
+
+	// UpdatedAt When the session record last changed, RFC 3339. `GET /sessions` orders by it.
+	UpdatedAt time.Time `json:"updatedAt"`
+
+	// Workspace The canonical absolute path of the session's workspace directory.
+	Workspace string `json:"workspace"`
 }
 
-// SessionAgentSpaceDecision defines model for SessionAgentSpaceDecision.
+// SessionAgentSpaceDecision One recorded agent space change of one session, made by `POST /session/reconfigure`.
 type SessionAgentSpaceDecision struct {
+	// DecidedAt When the change was recorded, RFC 3339. Every session moved by one call shares this time.
 	DecidedAt time.Time `json:"decidedAt"`
 
 	// FromAgentSpace The agent space the session ran in before this decision. Absent when the session had no recorded agent space.
-	FromAgentSpace *string            `json:"fromAgentSpace,omitempty"`
-	Id             openapi_types.UUID `json:"id"`
-	Reason         string             `json:"reason"`
-	SessionId      openapi_types.UUID `json:"sessionId"`
-	ToAgentSpace   string             `json:"toAgentSpace"`
+	FromAgentSpace *string `json:"fromAgentSpace,omitempty"`
+
+	// Id The decision ID.
+	Id openapi_types.UUID `json:"id"`
+
+	// Reason The reason the caller gave.
+	Reason string `json:"reason"`
+
+	// SessionId The session that moved.
+	SessionId openapi_types.UUID `json:"sessionId"`
+
+	// ToAgentSpace The agent space the session moved to.
+	ToAgentSpace string `json:"toAgentSpace"`
 }
 
-// SessionAgentSpaceDecisionPage defines model for SessionAgentSpaceDecisionPage.
+// SessionAgentSpaceDecisionPage One page of `GET /session/agent-space-decisions`, newest first.
 type SessionAgentSpaceDecisionPage struct {
-	HasMore bool                        `json:"hasMore"`
-	Items   []SessionAgentSpaceDecision `json:"items"`
-	Limit   int32                       `json:"limit"`
-	Offset  int32                       `json:"offset"`
+	// HasMore True when more decisions follow this page.
+	HasMore bool `json:"hasMore"`
+
+	// Items The decisions on this page, newest first.
+	Items []SessionAgentSpaceDecision `json:"items"`
+
+	// Limit The page size this response used.
+	Limit int32 `json:"limit"`
+
+	// Offset The number of decisions skipped before this page.
+	Offset int32 `json:"offset"`
 }
 
-// SessionNotice defines model for SessionNotice.
+// SessionNotice One stored notice: a report waiting for, or already delivered to, a session's model. Returned by `GET /session/notices`, `POST /session/notices`, and as the `data` of a `notice.created` feed frame.
 type SessionNotice struct {
-	CreatedAt time.Time               `json:"createdAt"`
-	Data      *map[string]interface{} `json:"data,omitempty"`
-	Delivery  SessionNoticeDelivery   `json:"delivery"`
-	Id        openapi_types.UUID      `json:"id"`
-	Source    string                  `json:"source"`
-	Summary   string                  `json:"summary"`
-	Type      string                  `json:"type"`
-}
+	// CreatedAt When the notice was stored, RFC 3339.
+	CreatedAt time.Time `json:"createdAt"`
 
-// SessionNoticeDelivery defines model for SessionNotice.Delivery.
-type SessionNoticeDelivery string
-
-// SessionNoticePage defines model for SessionNoticePage.
-type SessionNoticePage struct {
-	HasMore bool            `json:"hasMore"`
-	Limit   int32           `json:"limit"`
-	Notices []SessionNotice `json:"notices"`
-	Offset  int32           `json:"offset"`
-}
-
-// SessionNoticeRequest defines model for SessionNoticeRequest.
-type SessionNoticeRequest struct {
-	// Data Structured payload for programmatic consumers.
+	// Data Structured payload for programmatic consumers. Absent when the notice has none.
 	Data *map[string]interface{} `json:"data,omitempty"`
 
-	// Delivery queue waits for the next turn. wake starts a turn when the session is idle and .agents/events declares a handler for this type.
-	Delivery *SessionNoticeRequestDelivery `json:"delivery,omitempty"`
+	// Delivery The delivery the producer requested. A handler's own `delivery` can override it.
+	//
+	// - `queue`: delivered at the next turn or tool boundary.
+	// - `wake`: may start a turn on an idle session when a handler for the type exists; otherwise queued.
+	Delivery SessionNoticeDelivery `json:"delivery"`
+
+	// Id The notice ID.
+	Id openapi_types.UUID `json:"id"`
+
+	// Source Who reported it: `api` for `POST /session/notices`, or a Peen producer such as `tools.job`, `agent.launchAgent`, or `session.turn`.
+	Source string `json:"source"`
 
 	// Summary The one line describing what happened.
 	Summary string `json:"summary"`
 
-	// Type Dotted lowercase namespaced type. The job., agent., and turn. prefixes are reserved for Peen's own producers and are rejected here.
+	// Type The notice type, a dotted lowercase name such as `job.exited` or `ci.build.failed`.
 	Type string `json:"type"`
 }
 
-// SessionNoticeRequestDelivery queue waits for the next turn. wake starts a turn when the session is idle and .agents/events declares a handler for this type.
-type SessionNoticeRequestDelivery string
+// SessionNoticeDelivery The delivery the producer requested. A handler's own `delivery` can override it.
+//
+// - `queue`: delivered at the next turn or tool boundary.
+// - `wake`: may start a turn on an idle session when a handler for the type exists; otherwise queued.
+type SessionNoticeDelivery string
 
-// SessionPage defines model for SessionPage.
-type SessionPage struct {
-	HasMore bool      `json:"hasMore"`
-	Items   []Session `json:"items"`
-	Limit   int32     `json:"limit"`
-	Offset  int32     `json:"offset"`
+// SessionNoticePage One page of `GET /session/notices`, oldest first.
+type SessionNoticePage struct {
+	// HasMore True when more notices follow this page.
+	HasMore bool `json:"hasMore"`
+
+	// Limit The page size this response used.
+	Limit int32 `json:"limit"`
+
+	// Notices The notices on this page, oldest first.
+	Notices []SessionNotice `json:"notices"`
+
+	// Offset The number of notices skipped before this page.
+	Offset int32 `json:"offset"`
 }
 
-// TranscriptEvent defines model for TranscriptEvent.
-type TranscriptEvent struct {
-	CreatedAt        time.Time              `json:"createdAt"`
-	Id               openapi_types.UUID     `json:"id"`
-	ParentToolCallId *string                `json:"parentToolCallId,omitempty"`
-	Payload          map[string]interface{} `json:"payload"`
-	RequestId        openapi_types.UUID     `json:"requestId"`
-	Sequence         int64                  `json:"sequence"`
-	SessionId        openapi_types.UUID     `json:"sessionId"`
-	TurnId           openapi_types.UUID     `json:"turnId"`
-	Type             string                 `json:"type"`
+// SessionNoticeRequest The body of `POST /session/notices`.
+type SessionNoticeRequest struct {
+	// Data Structured payload for programmatic consumers. Its JSON encoding must not exceed `PEEN_MAX_EVENT_DATA_BYTES` (default 65536 bytes). An empty object is stored as no data.
+	Data *map[string]interface{} `json:"data,omitempty"`
 
-	// WorkerGenerationId Worker generation that produced this event, if started.
+	// Delivery When the model sees the notice. A handler's own `delivery` overrides this value.
+	//
+	// - `queue` (the default): waits for the next turn or tool boundary.
+	// - `wake`: also starts a turn when the session is idle and a handler for this type exists at `.agents/events/<type>.md`. A wake that cannot start (a turn is running, or the hourly wake limit is reached) leaves the notice queued.
+	Delivery *SessionNoticeRequestDelivery `json:"delivery,omitempty"`
+
+	// Summary The one line describing what happened. Must not be empty or longer than `PEEN_MAX_EVENT_SUMMARY_BYTES` (default 4096 bytes).
+	Summary string `json:"summary"`
+
+	// Type Dotted lowercase type: one to eight segments separated by `.`, each a lowercase letter followed by lowercase letters or digits, at most 128 characters in total, such as `ci.build.failed`. The `job.`, `agent.`, and `turn.` prefixes are reserved for Peen's own producers and are rejected here.
+	Type string `json:"type"`
+}
+
+// SessionNoticeRequestDelivery When the model sees the notice. A handler's own `delivery` overrides this value.
+//
+// - `queue` (the default): waits for the next turn or tool boundary.
+// - `wake`: also starts a turn when the session is idle and a handler for this type exists at `.agents/events/<type>.md`. A wake that cannot start (a turn is running, or the hourly wake limit is reached) leaves the notice queued.
+type SessionNoticeRequestDelivery string
+
+// SessionPage One page of `GET /sessions`, newest updated first.
+type SessionPage struct {
+	// HasMore True when more sessions follow this page.
+	HasMore bool `json:"hasMore"`
+
+	// Items The sessions on this page, newest updated first.
+	Items []Session `json:"items"`
+
+	// Limit The page size this response used.
+	Limit int32 `json:"limit"`
+
+	// Offset The number of sessions skipped before this page.
+	Offset int32 `json:"offset"`
+}
+
+// TranscriptEvent One protocol event Peen stored while it ran a session's turn, as `GET /session/events` returns it. Optional fields are absent, not null, when they do not apply.
+type TranscriptEvent struct {
+	// CreatedAt When the event was stored, RFC 3339.
+	CreatedAt time.Time `json:"createdAt"`
+
+	// Id The event ID.
+	Id openapi_types.UUID `json:"id"`
+
+	// Payload The event payload, the same `data` the live frame carried.
+	Payload map[string]interface{} `json:"payload"`
+
+	// RequestId The request ID of the turn that produced the event.
+	RequestId openapi_types.UUID `json:"requestId"`
+
+	// Sequence Position among the session's protocol events, consecutive across turns and starting at 1. It is not the feed sequence.
+	Sequence int64 `json:"sequence"`
+
+	// SessionId The session the event belongs to.
+	SessionId openapi_types.UUID `json:"sessionId"`
+
+	// TurnId The turn that produced the event.
+	TurnId openapi_types.UUID `json:"turnId"`
+
+	// Type The protocol event type, such as `tool.use`. The WebSocket protocol event types table lists every value.
+	Type string `json:"type"`
+
+	// WorkerGenerationId The worker generation that produced the event, as listed by `GET /session/workers`. Absent for events recorded before a worker started.
 	WorkerGenerationId *string `json:"workerGenerationId,omitempty"`
 }
 
-// TranscriptEventPage defines model for TranscriptEventPage.
+// TranscriptEventPage One page of `GET /session/events`.
 type TranscriptEventPage struct {
-	Events  []TranscriptEvent `json:"events"`
-	HasMore bool              `json:"hasMore"`
-	Limit   int32             `json:"limit"`
-	Offset  int32             `json:"offset"`
+	// Events The events on this page, in the requested order.
+	Events []TranscriptEvent `json:"events"`
+
+	// HasMore True when more events follow this page.
+	HasMore bool `json:"hasMore"`
+
+	// Limit The page size this response used.
+	Limit int32 `json:"limit"`
+
+	// Offset The number of events skipped before this page.
+	Offset int32 `json:"offset"`
 }
 
-// Turn defines model for Turn.
+// Turn One run of the agent for a session, from the message that started it until it ends. It appears in `TurnPage`.
 type Turn struct {
-	CancelRequested       bool               `json:"cancelRequested"`
-	CompletedAt           *time.Time         `json:"completedAt,omitempty"`
-	ContextSnapshotHash   *string            `json:"contextSnapshotHash,omitempty"`
-	FailureClassification string             `json:"failureClassification"`
-	Id                    openapi_types.UUID `json:"id"`
+	// CancelRequested True when a Stop was requested for this turn.
+	CancelRequested bool `json:"cancelRequested"`
 
-	// Output The validated JSON answer when outputSchema was given.
+	// CompletedAt When the turn ended, as an RFC 3339 timestamp. Absent while it runs.
+	CompletedAt *time.Time `json:"completedAt,omitempty"`
+
+	// ContextSnapshotHash The hash of the context snapshot the turn ran with. Read it from `GET /session/context-snapshots/{contextHash}`. Absent until the turn ends.
+	ContextSnapshotHash *string `json:"contextSnapshotHash,omitempty"`
+
+	// FailureClassification Why the turn did not complete: `agentRun` for a failed or interrupted turn, `cancelled` for a Stop, or `timeout` for a turn that passed its deadline. Empty for a running or completed turn.
+	FailureClassification string `json:"failureClassification"`
+
+	// Id The turn's ID. Jobs, model runs and events of this turn carry it as `turnId`.
+	Id openapi_types.UUID `json:"id"`
+
+	// Output The JSON value validated against the turn's `outputSchema`. Absent when the turn did not ask for structured output or no attempt passed validation.
 	Output interface{} `json:"output,omitempty"`
 
-	// OutputError Why every structured output attempt failed.
-	OutputError        *string            `json:"outputError,omitempty"`
-	PromptSnapshotHash *string            `json:"promptSnapshotHash,omitempty"`
-	RequestId          openapi_types.UUID `json:"requestId"`
-	SessionId          openapi_types.UUID `json:"sessionId"`
-	StartedAt          time.Time          `json:"startedAt"`
-	State              TurnState          `json:"state"`
-	Workspace          string             `json:"workspace"`
+	// OutputError Why every structured output attempt failed. Absent unless the turn asked for structured output and none passed.
+	OutputError *string `json:"outputError,omitempty"`
+
+	// PromptSnapshotHash The hash of the system prompt the turn ran with. Read it from `GET /session/prompt-snapshots/{promptHash}`. Absent until the turn ends.
+	PromptSnapshotHash *string `json:"promptSnapshotHash,omitempty"`
+
+	// RequestId The request ID of the message that started the turn. Every live frame of the turn carries it.
+	RequestId openapi_types.UUID `json:"requestId"`
+
+	// SessionId The session the turn belongs to.
+	SessionId openapi_types.UUID `json:"sessionId"`
+
+	// StartedAt When the turn started, as an RFC 3339 timestamp.
+	StartedAt time.Time `json:"startedAt"`
+
+	// State The turn's lifecycle state.
+	//
+	// - `running`: the turn has not ended.
+	// - `completed`: the turn finished normally.
+	// - `failed`: the turn ended with an error.
+	// - `cancelled`: a Stop request or the turn's deadline ended the turn.
+	// - `interrupted`: the turn did not reach an end, for example because Peen or its worker stopped while it ran.
+	State TurnState `json:"state"`
+
+	// Workspace The workspace directory the turn ran in.
+	Workspace string `json:"workspace"`
 }
 
-// TurnState defines model for Turn.State.
+// TurnState The turn's lifecycle state.
+//
+// - `running`: the turn has not ended.
+// - `completed`: the turn finished normally.
+// - `failed`: the turn ended with an error.
+// - `cancelled`: a Stop request or the turn's deadline ended the turn.
+// - `interrupted`: the turn did not reach an end, for example because Peen or its worker stopped while it ran.
 type TurnState string
 
-// TurnPage defines model for TurnPage.
+// TurnPage One page of a session's turns, newest first, returned by `GET /session/turns`.
 type TurnPage struct {
-	HasMore bool   `json:"hasMore"`
-	Limit   int32  `json:"limit"`
-	Offset  int32  `json:"offset"`
-	Turns   []Turn `json:"turns"`
+	// HasMore `true` when at least one more turn exists after this page. Request the next page with `offset` increased by `limit`.
+	HasMore bool `json:"hasMore"`
+
+	// Limit The page size the server used.
+	Limit int32 `json:"limit"`
+
+	// Offset The number of turns skipped before this page.
+	Offset int32 `json:"offset"`
+
+	// Turns The turns on this page, ordered by `startedAt` descending.
+	Turns []Turn `json:"turns"`
 }
 
-// WorkerGeneration defines model for WorkerGeneration.
+// WorkerGeneration One worker process or container that ran a session's turns, as `GET /session/workers` lists it. Optional fields are absent, not null, when they do not apply.
 type WorkerGeneration struct {
-	AgentSpace         string `json:"agentSpace"`
-	AgentSpaceRevision int64  `json:"agentSpaceRevision"`
+	// AgentSpace The agent space the generation started in, `control` or `docker:<profile>`.
+	AgentSpace string `json:"agentSpace"`
 
-	// ContainerId Set only for a Docker generation.
-	ContainerId *string    `json:"containerId,omitempty"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	EndedAt     *time.Time `json:"endedAt,omitempty"`
+	// AgentSpaceRevision The agent space's `revision` when the generation started, so the record says which profile definition ran.
+	AgentSpaceRevision int64 `json:"agentSpaceRevision"`
 
-	// FailureDetail Why a generation failed or was replaced. Never carries credentials.
-	FailureDetail *string            `json:"failureDetail,omitempty"`
-	Id            openapi_types.UUID `json:"id"`
+	// ContainerId The Docker container ID. Set only for a Docker generation once its container exists.
+	ContainerId *string `json:"containerId,omitempty"`
 
-	// ImageDigest Immutable image identity for a Docker generation, never a moving tag.
-	ImageDigest *string               `json:"imageDigest,omitempty"`
-	Kind        WorkerGenerationKind  `json:"kind"`
-	SessionId   openapi_types.UUID    `json:"sessionId"`
-	StartedAt   *time.Time            `json:"startedAt,omitempty"`
-	State       WorkerGenerationState `json:"state"`
-	Workspace   string                `json:"workspace"`
+	// CreatedAt When the generation was recorded, RFC 3339.
+	CreatedAt time.Time `json:"createdAt"`
+
+	// EndedAt When the generation reached `stopped` or `failed`, RFC 3339. Absent until then.
+	EndedAt *time.Time `json:"endedAt,omitempty"`
+
+	// FailureDetail Why the generation failed. Set only on a `failed` generation. Never carries credentials.
+	FailureDetail *string `json:"failureDetail,omitempty"`
+
+	// Id The generation ID. Protocol events carry it as `workerGenerationId`.
+	Id openapi_types.UUID `json:"id"`
+
+	// ImageDigest The repository digest of the worker image, such as `example/image@sha256:...`, never a moving tag. Set only for a Docker generation, and only when the daemon reported a repository digest for the image; a locally built image has none.
+	ImageDigest *string `json:"imageDigest,omitempty"`
+
+	// Kind Where the worker ran.
+	//
+	// - `control`: a worker process where the controller runs.
+	// - `docker`: a worker container.
+	Kind WorkerGenerationKind `json:"kind"`
+
+	// SessionId The session the worker served.
+	SessionId openapi_types.UUID `json:"sessionId"`
+
+	// StartedAt When the worker became `ready`, RFC 3339. Absent until then.
+	StartedAt *time.Time `json:"startedAt,omitempty"`
+
+	// State The generation's lifecycle state.
+	//
+	// - `requested`: recorded, nothing launched yet.
+	// - `starting`: the process or container is coming up.
+	// - `ready`: the worker registered and may run turns.
+	// - `stopping`: the worker was asked to finish and exit.
+	// - `stopped`: it ended as asked.
+	// - `failed`: it ended without being asked to, or never became ready.
+	State WorkerGenerationState `json:"state"`
+
+	// Workspace The workspace directory the worker was started for.
+	Workspace string `json:"workspace"`
 }
 
-// WorkerGenerationKind defines model for WorkerGeneration.Kind.
+// WorkerGenerationKind Where the worker ran.
+//
+// - `control`: a worker process where the controller runs.
+// - `docker`: a worker container.
 type WorkerGenerationKind string
 
-// WorkerGenerationState defines model for WorkerGeneration.State.
+// WorkerGenerationState The generation's lifecycle state.
+//
+// - `requested`: recorded, nothing launched yet.
+// - `starting`: the process or container is coming up.
+// - `ready`: the worker registered and may run turns.
+// - `stopping`: the worker was asked to finish and exit.
+// - `stopped`: it ended as asked.
+// - `failed`: it ended without being asked to, or never became ready.
 type WorkerGenerationState string
 
-// WorkerGenerationPage defines model for WorkerGenerationPage.
+// WorkerGenerationPage One page of `GET /session/workers`, newest first.
 type WorkerGenerationPage struct {
-	HasMore bool               `json:"hasMore"`
-	Items   []WorkerGeneration `json:"items"`
-	Limit   int32              `json:"limit"`
-	Offset  int32              `json:"offset"`
+	// HasMore True when more generations follow this page.
+	HasMore bool `json:"hasMore"`
+
+	// Items The generations on this page, newest first.
+	Items []WorkerGeneration `json:"items"`
+
+	// Limit The page size this response used.
+	Limit int32 `json:"limit"`
+
+	// Offset The number of generations skipped before this page.
+	Offset int32 `json:"offset"`
 }
 
-// WorkspaceFileContent defines model for WorkspaceFileContent.
+// WorkspaceFileContent The full content of one regular workspace file, base64 encoded. Returned by `GET /session/files/content`.
 type WorkspaceFileContent struct {
-	// ContentBase64 Base64 bytes bounded by PEEN_MAX_FILE_API_BYTES after decoding.
+	// ContentBase64 The file's bytes in standard base64 with padding. At most `PEEN_MAX_FILE_API_BYTES` bytes, 16 MiB by default, after decoding.
 	ContentBase64 string `json:"contentBase64"`
-	Path          string `json:"path"`
-	Size          int64  `json:"size"`
+
+	// Path The path as the request gave it.
+	Path string `json:"path"`
+
+	// Size The number of bytes in the file, which is the length of `contentBase64` after decoding.
+	Size int64 `json:"size"`
 }
 
-// WorkspaceFileEntry defines model for WorkspaceFileEntry.
+// WorkspaceFileEntry Metadata for one workspace path, read without following symbolic links. It appears as an item of a directory listing and as the response of `PUT /session/files/content`.
 type WorkspaceFileEntry struct {
-	ModifiedAt time.Time         `json:"modifiedAt"`
-	Name       string            `json:"name"`
-	Size       int64             `json:"size"`
-	Type       WorkspaceFileType `json:"type"`
+	// ModifiedAt The entry's last modification time, as an RFC 3339 UTC time.
+	ModifiedAt time.Time `json:"modifiedAt"`
+
+	// Name The entry's base name, without its directory, such as `main.go`.
+	Name string `json:"name"`
+
+	// Size The entry's size in bytes as the filesystem reports it. For a link it is the size of the link itself, and for a directory it is the filesystem's directory size, not the size of its contents.
+	Size int64 `json:"size"`
+
+	// Type The kind of a workspace path, read without following symbolic links.
+	//
+	// - `file`: a regular file, or another non-directory entry such as a pipe or socket.
+	// - `directory`: a directory.
+	// - `symlink`: a symbolic link, reported as the link itself rather than its target.
+	Type WorkspaceFileType `json:"type"`
 }
 
-// WorkspaceFileListing defines model for WorkspaceFileListing.
+// WorkspaceFileListing Metadata for one workspace path and, when it is a directory, its direct entries. Returned by `GET /session/files`.
 type WorkspaceFileListing struct {
-	Entries    []WorkspaceFileEntry `json:"entries"`
-	ModifiedAt time.Time            `json:"modifiedAt"`
-	Path       string               `json:"path"`
-	Size       int64                `json:"size"`
-	Type       WorkspaceFileType    `json:"type"`
+	// Entries The directory's direct entries, sorted by name, including hidden ones. Empty when the path is a file or a symbolic link.
+	Entries []WorkspaceFileEntry `json:"entries"`
+
+	// ModifiedAt The path's last modification time, as an RFC 3339 UTC time.
+	ModifiedAt time.Time `json:"modifiedAt"`
+
+	// Path The path as the request gave it. Empty for the workspace root.
+	Path string `json:"path"`
+
+	// Size The path's size in bytes as the filesystem reports it.
+	Size int64 `json:"size"`
+
+	// Type The kind of a workspace path, read without following symbolic links.
+	//
+	// - `file`: a regular file, or another non-directory entry such as a pipe or socket.
+	// - `directory`: a directory.
+	// - `symlink`: a symbolic link, reported as the link itself rather than its target.
+	Type WorkspaceFileType `json:"type"`
 }
 
-// WorkspaceFileType defines model for WorkspaceFileType.
+// WorkspaceFileType The kind of a workspace path, read without following symbolic links.
+//
+// - `file`: a regular file, or another non-directory entry such as a pipe or socket.
+// - `directory`: a directory.
+// - `symlink`: a symbolic link, reported as the link itself rather than its target.
 type WorkspaceFileType string
 
-// WorkspaceFileWrite defines model for WorkspaceFileWrite.
+// WorkspaceFileWrite The body of `PUT /session/files/content`: the file to create or replace, and its content.
 type WorkspaceFileWrite struct {
-	// ContentBase64 Base64 bytes bounded by PEEN_MAX_FILE_API_BYTES after decoding.
-	ContentBase64     string `json:"contentBase64"`
-	CreateDirectories *bool  `json:"createDirectories,omitempty"`
-	Path              string `json:"path"`
+	// ContentBase64 The new content in standard base64 with padding. URL-safe or unpadded base64 is refused. At most `PEEN_MAX_FILE_API_BYTES` bytes, 16 MiB by default, after decoding. An empty string writes an empty file.
+	ContentBase64 string `json:"contentBase64"`
+
+	// CreateDirectories When `true`, missing parent directories are created with mode `0750`. When `false`, the default, a missing parent answers `404`.
+	CreateDirectories *bool `json:"createDirectories,omitempty"`
+
+	// Path The file's path relative to the workspace, following the rules of `GET /session/files`, such as `notes/todo.md`.
+	Path string `json:"path"`
 }
 
-// WorkspaceRootList defines model for WorkspaceRootList.
+// WorkspaceRootList The response of `GET /workspace-roots`.
 type WorkspaceRootList struct {
-	// Roots Canonical absolute directories the authenticated controller will accept as workspace roots.
+	// Roots Absolute directories, resolved through symbolic links, under which `POST /sessions/open` accepts a workspace. Peen currently supports one root, so the list holds exactly one entry.
 	Roots []string `json:"roots"`
 }
 
@@ -1916,38 +2811,52 @@ type PromptHash = string
 // SessionIDRequired defines model for SessionIDRequired.
 type SessionIDRequired = openapi_types.UUID
 
-// ErrorBadRequest defines model for ErrorBadRequest.
+// ErrorBadRequest The body of every REST error response. The table on the API's front page lists each `code`.
 type ErrorBadRequest = Error
 
-// ErrorConflict defines model for ErrorConflict.
+// ErrorConflict The body of every REST error response. The table on the API's front page lists each `code`.
 type ErrorConflict = Error
 
-// ErrorForbidden defines model for ErrorForbidden.
+// ErrorForbidden The body of every REST error response. The table on the API's front page lists each `code`.
 type ErrorForbidden = Error
 
-// ErrorInternal defines model for ErrorInternal.
+// ErrorInternal The body of every REST error response. The table on the API's front page lists each `code`.
 type ErrorInternal = Error
 
-// ErrorNotFound defines model for ErrorNotFound.
+// ErrorNotAcceptable The body of every REST error response. The table on the API's front page lists each `code`.
+type ErrorNotAcceptable = Error
+
+// ErrorNotFound The body of every REST error response. The table on the API's front page lists each `code`.
 type ErrorNotFound = Error
 
-// ErrorUnauthorized defines model for ErrorUnauthorized.
+// ErrorUnauthorized The body of every REST error response. The table on the API's front page lists each `code`.
 type ErrorUnauthorized = Error
 
 // ListCronRunsParams defines parameters for ListCronRuns.
 type ListCronRunsParams struct {
-	// Job Restrict the page to this configured or historical job name.
-	Job    *string `form:"job,omitempty" json:"job,omitempty"`
-	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+	// Job Return only the runs of the job with this name, 1 to 64 ASCII letters, digits, underscores or hyphens. The name may belong to a job that is no longer configured. Omit it to list every job's runs.
+	Job *string `form:"job,omitempty" json:"job,omitempty"`
+
+	// Limit The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page.
 	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
 // ListMessagesParams defines parameters for ListMessages.
 type ListMessagesParams struct {
-	Limit      *Limit                   `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset     *Offset                  `form:"offset,omitempty" json:"offset,omitempty"`
-	Order      *ListMessagesParamsOrder `form:"order,omitempty" json:"order,omitempty"`
-	XSessionID SessionIDRequired        `json:"X-Session-ID"`
+	// Limit The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page.
+	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// Order The direction of the list by stored sequence. `asc`, the default, returns the oldest items first; `desc` returns the newest first. `offset` counts from the start of the chosen direction.
+	Order *ListMessagesParamsOrder `form:"order,omitempty" json:"order,omitempty"`
+
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ListMessagesParamsOrder defines parameters for ListMessages.
@@ -1955,27 +2864,38 @@ type ListMessagesParamsOrder string
 
 // GetSessionParams defines parameters for GetSession.
 type GetSessionParams struct {
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ListSessionAgentSpaceDecisionsParams defines parameters for ListSessionAgentSpaceDecisions.
 type ListSessionAgentSpaceDecisionsParams struct {
-	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
+	// Limit The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page.
+	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ListSessionAgentRunsParams defines parameters for ListSessionAgentRuns.
 type ListSessionAgentRunsParams struct {
-	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+	// Limit The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page.
 	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
 
-	// State Keep runs in one state. waiting keeps running runs whose question nobody has answered yet.
+	// State Keep only runs in this state. `running`, `completed`, `failed`, `cancelled`, and `interrupted` match the stored state. `waiting` is not a stored state: it keeps the `running` runs that asked a question with the `ask` tool that nobody has answered yet.
 	State *ListSessionAgentRunsParamsState `form:"state,omitempty" json:"state,omitempty"`
 
-	// ParentAgentRunId Keep the direct children of one agent run, or root for the children the root conversation launched.
-	ParentAgentRunId *string           `form:"parentAgentRunId,omitempty" json:"parentAgentRunId,omitempty"`
-	XSessionID       SessionIDRequired `json:"X-Session-ID"`
+	// ParentAgentRunId Keep only the direct children of one agent run. Pass an agent run ID, or `root` for the children the session's root conversation launched. Any other value answers `400 VALIDATION_FAILED`. An agent run ID the session does not have returns an empty page.
+	ParentAgentRunId *string `form:"parentAgentRunId,omitempty" json:"parentAgentRunId,omitempty"`
+
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ListSessionAgentRunsParamsState defines parameters for ListSessionAgentRuns.
@@ -1983,68 +2903,101 @@ type ListSessionAgentRunsParamsState string
 
 // GetSessionAgentRunParams defines parameters for GetSessionAgentRun.
 type GetSessionAgentRunParams struct {
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // CancelSessionAgentRunParams defines parameters for CancelSessionAgentRun.
 type CancelSessionAgentRunParams struct {
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ListSessionAgentRunCompactionsParams defines parameters for ListSessionAgentRunCompactions.
 type ListSessionAgentRunCompactionsParams struct {
-	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
+	// Limit The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page.
+	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // GetSessionAgentRunCompactionParams defines parameters for GetSessionAgentRunCompaction.
 type GetSessionAgentRunCompactionParams struct {
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ListSessionAgentRunEventsParams defines parameters for ListSessionAgentRunEvents.
 type ListSessionAgentRunEventsParams struct {
-	Cursor     *int64            `form:"cursor,omitempty" json:"cursor,omitempty"`
-	Limit      *int32            `form:"limit,omitempty" json:"limit,omitempty"`
+	// Cursor Return only events whose `sequence` is greater than this value. Pass `0` for the first page and the previous page's `nextCursor` after that. Defaults to 0.
+	Cursor *int64 `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Maximum number of events to return, from 1 to 200. Defaults to 100.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ListSessionAgentRunMessagesParams defines parameters for ListSessionAgentRunMessages.
 type ListSessionAgentRunMessagesParams struct {
-	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
+	// Limit The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page.
+	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // CancelSessionParams defines parameters for CancelSession.
 type CancelSessionParams struct {
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ListSessionCompactionsParams defines parameters for ListSessionCompactions.
 type ListSessionCompactionsParams struct {
-	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
+	// Limit The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page.
+	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // GetSessionCompactionParams defines parameters for GetSessionCompaction.
 type GetSessionCompactionParams struct {
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // GetSessionContextSnapshotParams defines parameters for GetSessionContextSnapshot.
 type GetSessionContextSnapshotParams struct {
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ListSessionEventsParams defines parameters for ListSessionEvents.
 type ListSessionEventsParams struct {
-	Limit      *Limit                        `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset     *Offset                       `form:"offset,omitempty" json:"offset,omitempty"`
-	Order      *ListSessionEventsParamsOrder `form:"order,omitempty" json:"order,omitempty"`
-	XSessionID SessionIDRequired             `json:"X-Session-ID"`
+	// Limit The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page.
+	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// Order The direction of the list by stored sequence. `asc`, the default, returns the oldest items first; `desc` returns the newest first. `offset` counts from the start of the chosen direction.
+	Order *ListSessionEventsParamsOrder `form:"order,omitempty" json:"order,omitempty"`
+
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ListSessionEventsParamsOrder defines parameters for ListSessionEvents.
@@ -2052,44 +3005,68 @@ type ListSessionEventsParamsOrder string
 
 // ListSessionFeedParams defines parameters for ListSessionFeed.
 type ListSessionFeedParams struct {
-	// Cursor Return items with a sequence greater than this value.
-	Cursor     *int64            `form:"cursor,omitempty" json:"cursor,omitempty"`
-	Limit      *int32            `form:"limit,omitempty" json:"limit,omitempty"`
+	// Cursor Return frames with a sequence greater than this value. Pass the last sequence you applied, or `0` to start from the beginning. Default `0`.
+	Cursor *int64 `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Maximum number of frames to return, 1 to 200. Default `100`.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // DeleteWorkspaceFileParams defines parameters for DeleteWorkspaceFile.
 type DeleteWorkspaceFileParams struct {
-	// Path Clean relative workspace path.
-	Path       string            `form:"path" json:"path"`
+	// Path The path to delete, relative to the workspace, such as `notes/draft.md`.
+	Path string `form:"path" json:"path"`
+
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ListWorkspaceFilesParams defines parameters for ListWorkspaceFiles.
 type ListWorkspaceFilesParams struct {
-	// Path Clean relative workspace path. Empty lists the workspace root.
-	Path       *string           `form:"path,omitempty" json:"path,omitempty"`
+	// Path The path to inspect, relative to the workspace, such as `src` or `src/main.go`. Omit it or pass an empty value to list the workspace root.
+	Path *string `form:"path,omitempty" json:"path,omitempty"`
+
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ReadWorkspaceFileParams defines parameters for ReadWorkspaceFile.
 type ReadWorkspaceFileParams struct {
-	// Path Clean relative workspace path.
-	Path       string            `form:"path" json:"path"`
+	// Path The file to read, relative to the workspace, such as `src/main.go`.
+	Path string `form:"path" json:"path"`
+
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // WriteWorkspaceFileParams defines parameters for WriteWorkspaceFile.
 type WriteWorkspaceFileParams struct {
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ListSessionJobsParams defines parameters for ListSessionJobs.
 type ListSessionJobsParams struct {
-	Limit      *Limit                      `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset     *Offset                     `form:"offset,omitempty" json:"offset,omitempty"`
-	State      *ListSessionJobsParamsState `form:"state,omitempty" json:"state,omitempty"`
-	XSessionID SessionIDRequired           `json:"X-Session-ID"`
+	// Limit The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page.
+	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// State Keep only jobs in this state. Omit it to list every job.
+	//
+	// - `running`: still running.
+	// - `exited`: ended on its own.
+	// - `signalled`: ended by a signal.
+	// - `failed`: could not be run or supervised to the end.
+	// - `interrupted`: was still running when Peen or its worker stopped.
+	State *ListSessionJobsParamsState `form:"state,omitempty" json:"state,omitempty"`
+
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ListSessionJobsParamsState defines parameters for ListSessionJobs.
@@ -2097,10 +3074,17 @@ type ListSessionJobsParamsState string
 
 // ReadSessionJobOutputParams defines parameters for ReadSessionJobOutput.
 type ReadSessionJobOutputParams struct {
-	Stream     *ReadSessionJobOutputParamsStream `form:"stream,omitempty" json:"stream,omitempty"`
-	Cursor     *int64                            `form:"cursor,omitempty" json:"cursor,omitempty"`
-	Limit      *int32                            `form:"limit,omitempty" json:"limit,omitempty"`
-	XSessionID SessionIDRequired                 `json:"X-Session-ID"`
+	// Stream Which stream to return. `stdout` or `stderr` returns only that stream's lines, and `both`, the default, returns them interleaved in sequence order. With one stream selected, the sequence numbers of the returned lines have gaps where the other stream's lines were.
+	Stream *ReadSessionJobOutputParamsStream `form:"stream,omitempty" json:"stream,omitempty"`
+
+	// Cursor Return only lines whose `sequence` is greater than this value. Start at 0, the default, to read from the first line, then pass the previous response's `nextCursor`.
+	Cursor *int64 `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit The most lines to return in one window, 1 to 200. Defaults to 50.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ReadSessionJobOutputParamsStream defines parameters for ReadSessionJobOutput.
@@ -2108,53 +3092,90 @@ type ReadSessionJobOutputParamsStream string
 
 // SignalSessionJobParams defines parameters for SignalSessionJob.
 type SignalSessionJobParams struct {
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ListSessionJobSignalRequestsParams defines parameters for ListSessionJobSignalRequests.
 type ListSessionJobSignalRequestsParams struct {
-	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
+	// Limit The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page.
+	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ListSessionLearnedFilesParams defines parameters for ListSessionLearnedFiles.
 type ListSessionLearnedFilesParams struct {
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // DeleteSessionLearnedFileParams defines parameters for DeleteSessionLearnedFile.
 type DeleteSessionLearnedFileParams struct {
+	// Scope Which learned directory the file lives in. `workspace` is `.agents/learned/` in the session's workspace; `global` is the global learned directory every session reads, `PEEN_CONFIG_DIR/.agents/learned/` unless `PEEN_LEARNED_DIR` moves it.
 	Scope LearnedScope `form:"scope" json:"scope"`
-	Kind  LearnedKind  `form:"kind" json:"kind"`
 
-	// Name The rule's path under rules/ without .md, such as go-errors or go/errors, or the skill's directory name.
-	Name       LearnedName       `form:"name" json:"name"`
+	// Kind Whether the name refers to a learned `rule`, a Markdown file under `rules/`, or a learned `skill`, a directory under `skills/` that holds a `SKILL.md`.
+	Kind LearnedKind `form:"kind" json:"kind"`
+
+	// Name The learned file's name, as the `name` field of `GET /session/learned` reports it. For a rule it is the path under `rules/` without `.md`, such as `go-errors` or `go/errors`, with at most 8 directory levels. For a skill it is the skill's directory name and cannot contain `/`. A name with an empty, `.` or `..` segment, or a backslash, answers `400`.
+	Name LearnedName `form:"name" json:"name"`
+
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // GetSessionLearnedFileParams defines parameters for GetSessionLearnedFile.
 type GetSessionLearnedFileParams struct {
+	// Scope Which learned directory the file lives in. `workspace` is `.agents/learned/` in the session's workspace; `global` is the global learned directory every session reads, `PEEN_CONFIG_DIR/.agents/learned/` unless `PEEN_LEARNED_DIR` moves it.
 	Scope LearnedScope `form:"scope" json:"scope"`
-	Kind  LearnedKind  `form:"kind" json:"kind"`
 
-	// Name The rule's path under rules/ without .md, such as go-errors or go/errors, or the skill's directory name.
-	Name       LearnedName       `form:"name" json:"name"`
+	// Kind Whether the name refers to a learned `rule`, a Markdown file under `rules/`, or a learned `skill`, a directory under `skills/` that holds a `SKILL.md`.
+	Kind LearnedKind `form:"kind" json:"kind"`
+
+	// Name The learned file's name, as the `name` field of `GET /session/learned` reports it. For a rule it is the path under `rules/` without `.md`, such as `go-errors` or `go/errors`, with at most 8 directory levels. For a skill it is the skill's directory name and cannot contain `/`. A name with an empty, `.` or `..` segment, or a backslash, answers `400`.
+	Name LearnedName `form:"name" json:"name"`
+
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // GetSessionMCPStatusParams defines parameters for GetSessionMCPStatus.
 type GetSessionMCPStatusParams struct {
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ListSessionModelRunsParams defines parameters for ListSessionModelRuns.
 type ListSessionModelRunsParams struct {
-	Limit      *Limit                           `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset     *Offset                          `form:"offset,omitempty" json:"offset,omitempty"`
-	Stage      *ListSessionModelRunsParamsStage `form:"stage,omitempty" json:"stage,omitempty"`
-	State      *ListSessionModelRunsParamsState `form:"state,omitempty" json:"state,omitempty"`
-	XSessionID SessionIDRequired                `json:"X-Session-ID"`
+	// Limit The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page.
+	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// Stage Keep only runs from one kind of work. Omit it to list every stage.
+	//
+	// - `turn`: the root conversation's model work.
+	// - `child`: a child agent's model work.
+	// - `compaction`: a summary of older messages, for the root conversation or a child agent.
+	Stage *ListSessionModelRunsParamsStage `form:"stage,omitempty" json:"stage,omitempty"`
+
+	// State Keep only runs in one state. Omit it to list every state.
+	//
+	// - `running`: has not ended.
+	// - `completed`: returned a response.
+	// - `failed`: ended with a provider or model error.
+	// - `cancelled`: was cancelled or ran past its deadline.
+	// - `interrupted`: was still running when Peen stopped.
+	State *ListSessionModelRunsParamsState `form:"state,omitempty" json:"state,omitempty"`
+
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
+	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ListSessionModelRunsParamsStage defines parameters for ListSessionModelRuns.
@@ -2165,50 +3186,76 @@ type ListSessionModelRunsParamsState string
 
 // ListSessionModelRunCallsParams defines parameters for ListSessionModelRunCalls.
 type ListSessionModelRunCallsParams struct {
-	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
+	// Limit The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page.
+	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ListSessionNoticesParams defines parameters for ListSessionNotices.
 type ListSessionNoticesParams struct {
-	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
+	// Limit The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page.
+	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // PublishSessionNoticeParams defines parameters for PublishSessionNotice.
 type PublishSessionNoticeParams struct {
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // GetSessionPromptSnapshotParams defines parameters for GetSessionPromptSnapshot.
 type GetSessionPromptSnapshotParams struct {
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ReconfigureSessionParams defines parameters for ReconfigureSession.
 type ReconfigureSessionParams struct {
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ListSessionTurnsParams defines parameters for ListSessionTurns.
 type ListSessionTurnsParams struct {
-	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
+	// Limit The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page.
+	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ListSessionWorkersParams defines parameters for ListSessionWorkers.
 type ListSessionWorkersParams struct {
-	Limit      *Limit            `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset     *Offset           `form:"offset,omitempty" json:"offset,omitempty"`
+	// Limit The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page.
+	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
+
+	// XSessionID The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`.
 	XSessionID SessionIDRequired `json:"X-Session-ID"`
 }
 
 // ListSessionsParams defines parameters for ListSessions.
 type ListSessionsParams struct {
-	Limit  *Limit  `form:"limit,omitempty" json:"limit,omitempty"`
+	// Limit The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page.
 	Offset *Offset `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
@@ -2235,19 +3282,19 @@ type ServerInterface interface {
 	// ListCronJobs List configured scheduled jobs
 	// (GET /cron/jobs)
 	ListCronJobs(w http.ResponseWriter, r *http.Request)
-	// ListCronRuns List durable scheduled run history
+	// ListCronRuns List scheduled run history
 	// (GET /cron/runs)
 	ListCronRuns(w http.ResponseWriter, r *http.Request, params ListCronRunsParams)
-	// ListMessages List stored conversation messages
+	// ListMessages List a session's conversation messages
 	// (GET /messages)
 	ListMessages(w http.ResponseWriter, r *http.Request, params ListMessagesParams)
-	// ListModels List models discovered from configured connections
+	// ListModels List the models discovered from configured connections
 	// (GET /models)
 	ListModels(w http.ResponseWriter, r *http.Request)
-	// GetSession Read session details
+	// GetSession Read one session
 	// (GET /session)
 	GetSession(w http.ResponseWriter, r *http.Request, params GetSessionParams)
-	// ListSessionAgentSpaceDecisions List one session's agent space decision history
+	// ListSessionAgentSpaceDecisions List a session's agent space decisions
 	// (GET /session/agent-space-decisions)
 	ListSessionAgentSpaceDecisions(w http.ResponseWriter, r *http.Request, params ListSessionAgentSpaceDecisionsParams)
 	// ListSessionAgentRuns List the child agent runs this session has started
@@ -2271,7 +3318,7 @@ type ServerInterface interface {
 	// ListSessionAgentRunMessages List one child agent run's own durable transcript
 	// (GET /session/agents/{agentRunId}/messages)
 	ListSessionAgentRunMessages(w http.ResponseWriter, r *http.Request, agentRunId AgentRunID, params ListSessionAgentRunMessagesParams)
-	// CancelSession Request cancellation for the active turn
+	// CancelSession Stop the session's running work
 	// (POST /session/cancel)
 	CancelSession(w http.ResponseWriter, r *http.Request, params CancelSessionParams)
 	// ListSessionCompactions List durable compaction records
@@ -2283,7 +3330,7 @@ type ServerInterface interface {
 	// GetSessionContextSnapshot Read a context snapshot referenced by this session
 	// (GET /session/context-snapshots/{contextHash})
 	GetSessionContextSnapshot(w http.ResponseWriter, r *http.Request, contextHash ContextHash, params GetSessionContextSnapshotParams)
-	// ListSessionEvents List durable protocol events
+	// ListSessionEvents List stored protocol events
 	// (GET /session/events)
 	ListSessionEvents(w http.ResponseWriter, r *http.Request, params ListSessionEventsParams)
 	// ListSessionFeed Replay a session's live feed from a sequence
@@ -2295,7 +3342,7 @@ type ServerInterface interface {
 	// ListWorkspaceFiles List a workspace directory or inspect a file
 	// (GET /session/files)
 	ListWorkspaceFiles(w http.ResponseWriter, r *http.Request, params ListWorkspaceFilesParams)
-	// ReadWorkspaceFile Read a bounded workspace file as base64
+	// ReadWorkspaceFile Read a workspace file as base64
 	// (GET /session/files/content)
 	ReadWorkspaceFile(w http.ResponseWriter, r *http.Request, params ReadWorkspaceFileParams)
 	// WriteWorkspaceFile Write a workspace file atomically
@@ -2331,25 +3378,25 @@ type ServerInterface interface {
 	// ListSessionModelRunCalls Read every provider round for one model invocation
 	// (GET /session/model-runs/{modelRunId}/calls)
 	ListSessionModelRunCalls(w http.ResponseWriter, r *http.Request, modelRunId ModelRunID, params ListSessionModelRunCallsParams)
-	// ListSessionNotices List durable outside and worker notices
+	// ListSessionNotices List a session's notices
 	// (GET /session/notices)
 	ListSessionNotices(w http.ResponseWriter, r *http.Request, params ListSessionNoticesParams)
-	// PublishSessionNotice Report a durable notice to the session
+	// PublishSessionNotice Report a notice to a session
 	// (POST /session/notices)
 	PublishSessionNotice(w http.ResponseWriter, r *http.Request, params PublishSessionNoticeParams)
 	// GetSessionPromptSnapshot Read a prompt snapshot referenced by this session
 	// (GET /session/prompt-snapshots/{promptHash})
 	GetSessionPromptSnapshot(w http.ResponseWriter, r *http.Request, promptHash PromptHash, params GetSessionPromptSnapshotParams)
-	// ReconfigureSession Move an idle session to a different agent space
+	// ReconfigureSession Move a workspace's sessions to another agent space
 	// (POST /session/reconfigure)
 	ReconfigureSession(w http.ResponseWriter, r *http.Request, params ReconfigureSessionParams)
 	// ListSessionTurns List durable turns
 	// (GET /session/turns)
 	ListSessionTurns(w http.ResponseWriter, r *http.Request, params ListSessionTurnsParams)
-	// ListSessionWorkers List one session's worker generations
+	// ListSessionWorkers List a session's worker generations
 	// (GET /session/workers)
 	ListSessionWorkers(w http.ResponseWriter, r *http.Request, params ListSessionWorkersParams)
-	// ListSessions List durable workspace sessions
+	// ListSessions List every session
 	// (GET /sessions)
 	ListSessions(w http.ResponseWriter, r *http.Request, params ListSessionsParams)
 	// OpenSession Open or resume the session for a workspace
@@ -2358,7 +3405,7 @@ type ServerInterface interface {
 	// OpenSystemSession Open or resume the system session
 	// (POST /sessions/system)
 	OpenSystemSession(w http.ResponseWriter, r *http.Request)
-	// ListWorkspaceRoots List workspace roots this controller may open
+	// ListWorkspaceRoots List the workspace roots this controller may open
 	// (GET /workspace-roots)
 	ListWorkspaceRoots(w http.ResponseWriter, r *http.Request)
 }
@@ -5146,6 +6193,8 @@ type ErrorForbiddenJSONResponse Error
 
 type ErrorInternalJSONResponse Error
 
+type ErrorNotAcceptableJSONResponse Error
+
 type ErrorNotFoundJSONResponse Error
 
 type ErrorUnauthorizedJSONResponse Error
@@ -5189,6 +6238,20 @@ func (response ListAgentSpaces401JSONResponse) VisitListAgentSpacesResponse(w ht
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListAgentSpaces406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ListAgentSpaces406JSONResponse) VisitListAgentSpacesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -5246,6 +6309,20 @@ func (response ListCronJobs401JSONResponse) VisitListCronJobsResponse(w http.Res
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCronJobs406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ListCronJobs406JSONResponse) VisitListCronJobsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -5318,6 +6395,20 @@ func (response ListCronRuns401JSONResponse) VisitListCronRunsResponse(w http.Res
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListCronRuns406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ListCronRuns406JSONResponse) VisitListCronRunsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -5410,6 +6501,20 @@ func (response ListMessages404JSONResponse) VisitListMessagesResponse(w http.Res
 	return err
 }
 
+type ListMessages406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ListMessages406JSONResponse) VisitListMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListMessages500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response ListMessages500JSONResponse) VisitListMessagesResponse(w http.ResponseWriter) error {
@@ -5463,6 +6568,20 @@ func (response ListModels401JSONResponse) VisitListModelsResponse(w http.Respons
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListModels406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ListModels406JSONResponse) VisitListModelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -5555,6 +6674,20 @@ func (response GetSession404JSONResponse) VisitGetSessionResponse(w http.Respons
 	return err
 }
 
+type GetSession406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response GetSession406JSONResponse) VisitGetSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetSession500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response GetSession500JSONResponse) VisitGetSessionResponse(w http.ResponseWriter) error {
@@ -5643,6 +6776,20 @@ func (response ListSessionAgentSpaceDecisions404JSONResponse) VisitListSessionAg
 	return err
 }
 
+type ListSessionAgentSpaceDecisions406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ListSessionAgentSpaceDecisions406JSONResponse) VisitListSessionAgentSpaceDecisionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListSessionAgentSpaceDecisions500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response ListSessionAgentSpaceDecisions500JSONResponse) VisitListSessionAgentSpaceDecisionsResponse(w http.ResponseWriter) error {
@@ -5727,6 +6874,20 @@ func (response ListSessionAgentRuns404JSONResponse) VisitListSessionAgentRunsRes
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionAgentRuns406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ListSessionAgentRuns406JSONResponse) VisitListSessionAgentRunsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -5820,6 +6981,20 @@ func (response GetSessionAgentRun404JSONResponse) VisitGetSessionAgentRunRespons
 	return err
 }
 
+type GetSessionAgentRun406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response GetSessionAgentRun406JSONResponse) VisitGetSessionAgentRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetSessionAgentRun500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response GetSessionAgentRun500JSONResponse) VisitGetSessionAgentRunResponse(w http.ResponseWriter) error {
@@ -5909,6 +7084,20 @@ func (response CancelSessionAgentRun404JSONResponse) VisitCancelSessionAgentRunR
 	return err
 }
 
+type CancelSessionAgentRun406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response CancelSessionAgentRun406JSONResponse) VisitCancelSessionAgentRunResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CancelSessionAgentRun500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response CancelSessionAgentRun500JSONResponse) VisitCancelSessionAgentRunResponse(w http.ResponseWriter) error {
@@ -5994,6 +7183,20 @@ func (response ListSessionAgentRunCompactions404JSONResponse) VisitListSessionAg
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionAgentRunCompactions406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ListSessionAgentRunCompactions406JSONResponse) VisitListSessionAgentRunCompactionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -6088,6 +7291,20 @@ func (response GetSessionAgentRunCompaction404JSONResponse) VisitGetSessionAgent
 	return err
 }
 
+type GetSessionAgentRunCompaction406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response GetSessionAgentRunCompaction406JSONResponse) VisitGetSessionAgentRunCompactionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetSessionAgentRunCompaction500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response GetSessionAgentRunCompaction500JSONResponse) VisitGetSessionAgentRunCompactionResponse(w http.ResponseWriter) error {
@@ -6173,6 +7390,20 @@ func (response ListSessionAgentRunEvents404JSONResponse) VisitListSessionAgentRu
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionAgentRunEvents406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ListSessionAgentRunEvents406JSONResponse) VisitListSessionAgentRunEventsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -6266,6 +7497,20 @@ func (response ListSessionAgentRunMessages404JSONResponse) VisitListSessionAgent
 	return err
 }
 
+type ListSessionAgentRunMessages406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ListSessionAgentRunMessages406JSONResponse) VisitListSessionAgentRunMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListSessionAgentRunMessages500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response ListSessionAgentRunMessages500JSONResponse) VisitListSessionAgentRunMessagesResponse(w http.ResponseWriter) error {
@@ -6354,6 +7599,20 @@ func (response CancelSession404JSONResponse) VisitCancelSessionResponse(w http.R
 	return err
 }
 
+type CancelSession406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response CancelSession406JSONResponse) VisitCancelSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type CancelSession500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response CancelSession500JSONResponse) VisitCancelSessionResponse(w http.ResponseWriter) error {
@@ -6438,6 +7697,20 @@ func (response ListSessionCompactions404JSONResponse) VisitListSessionCompaction
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionCompactions406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ListSessionCompactions406JSONResponse) VisitListSessionCompactionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -6531,6 +7804,20 @@ func (response GetSessionCompaction404JSONResponse) VisitGetSessionCompactionRes
 	return err
 }
 
+type GetSessionCompaction406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response GetSessionCompaction406JSONResponse) VisitGetSessionCompactionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetSessionCompaction500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response GetSessionCompaction500JSONResponse) VisitGetSessionCompactionResponse(w http.ResponseWriter) error {
@@ -6616,6 +7903,20 @@ func (response GetSessionContextSnapshot404JSONResponse) VisitGetSessionContextS
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionContextSnapshot406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response GetSessionContextSnapshot406JSONResponse) VisitGetSessionContextSnapshotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -6708,6 +8009,20 @@ func (response ListSessionEvents404JSONResponse) VisitListSessionEventsResponse(
 	return err
 }
 
+type ListSessionEvents406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ListSessionEvents406JSONResponse) VisitListSessionEventsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListSessionEvents500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response ListSessionEvents500JSONResponse) VisitListSessionEventsResponse(w http.ResponseWriter) error {
@@ -6792,6 +8107,20 @@ func (response ListSessionFeed404JSONResponse) VisitListSessionFeedResponse(w ht
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionFeed406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ListSessionFeed406JSONResponse) VisitListSessionFeedResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -6886,6 +8215,20 @@ func (response DeleteWorkspaceFile404JSONResponse) VisitDeleteWorkspaceFileRespo
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteWorkspaceFile406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response DeleteWorkspaceFile406JSONResponse) VisitDeleteWorkspaceFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -7006,16 +8349,16 @@ func (response ListWorkspaceFiles404JSONResponse) VisitListWorkspaceFilesRespons
 	return err
 }
 
-type ListWorkspaceFiles409JSONResponse struct{ ErrorConflictJSONResponse }
+type ListWorkspaceFiles406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
 
-func (response ListWorkspaceFiles409JSONResponse) VisitListWorkspaceFilesResponse(w http.ResponseWriter) error {
+func (response ListWorkspaceFiles406JSONResponse) VisitListWorkspaceFilesResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(409)
+	w.WriteHeader(406)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -7122,16 +8465,16 @@ func (response ReadWorkspaceFile404JSONResponse) VisitReadWorkspaceFileResponse(
 	return err
 }
 
-type ReadWorkspaceFile409JSONResponse struct{ ErrorConflictJSONResponse }
+type ReadWorkspaceFile406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
 
-func (response ReadWorkspaceFile409JSONResponse) VisitReadWorkspaceFileResponse(w http.ResponseWriter) error {
+func (response ReadWorkspaceFile406JSONResponse) VisitReadWorkspaceFileResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(409)
+	w.WriteHeader(406)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -7239,16 +8582,16 @@ func (response WriteWorkspaceFile404JSONResponse) VisitWriteWorkspaceFileRespons
 	return err
 }
 
-type WriteWorkspaceFile409JSONResponse struct{ ErrorConflictJSONResponse }
+type WriteWorkspaceFile406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
 
-func (response WriteWorkspaceFile409JSONResponse) VisitWriteWorkspaceFileResponse(w http.ResponseWriter) error {
+func (response WriteWorkspaceFile406JSONResponse) VisitWriteWorkspaceFileResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
 		return err
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(409)
+	w.WriteHeader(406)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -7341,6 +8684,20 @@ func (response ListSessionJobs404JSONResponse) VisitListSessionJobsResponse(w ht
 	return err
 }
 
+type ListSessionJobs406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ListSessionJobs406JSONResponse) VisitListSessionJobsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListSessionJobs500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response ListSessionJobs500JSONResponse) VisitListSessionJobsResponse(w http.ResponseWriter) error {
@@ -7426,6 +8783,20 @@ func (response ReadSessionJobOutput404JSONResponse) VisitReadSessionJobOutputRes
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ReadSessionJobOutput406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ReadSessionJobOutput406JSONResponse) VisitReadSessionJobOutputResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -7520,6 +8891,20 @@ func (response SignalSessionJob404JSONResponse) VisitSignalSessionJobResponse(w 
 	return err
 }
 
+type SignalSessionJob406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response SignalSessionJob406JSONResponse) VisitSignalSessionJobResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type SignalSessionJob500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response SignalSessionJob500JSONResponse) VisitSignalSessionJobResponse(w http.ResponseWriter) error {
@@ -7605,6 +8990,20 @@ func (response ListSessionJobSignalRequests404JSONResponse) VisitListSessionJobS
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionJobSignalRequests406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ListSessionJobSignalRequests406JSONResponse) VisitListSessionJobSignalRequestsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -7697,6 +9096,20 @@ func (response ListSessionLearnedFiles404JSONResponse) VisitListSessionLearnedFi
 	return err
 }
 
+type ListSessionLearnedFiles406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ListSessionLearnedFiles406JSONResponse) VisitListSessionLearnedFilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListSessionLearnedFiles500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response ListSessionLearnedFiles500JSONResponse) VisitListSessionLearnedFilesResponse(w http.ResponseWriter) error {
@@ -7773,6 +9186,20 @@ func (response DeleteSessionLearnedFile404JSONResponse) VisitDeleteSessionLearne
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSessionLearnedFile406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response DeleteSessionLearnedFile406JSONResponse) VisitDeleteSessionLearnedFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -7865,6 +9292,20 @@ func (response GetSessionLearnedFile404JSONResponse) VisitGetSessionLearnedFileR
 	return err
 }
 
+type GetSessionLearnedFile406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response GetSessionLearnedFile406JSONResponse) VisitGetSessionLearnedFileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetSessionLearnedFile500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response GetSessionLearnedFile500JSONResponse) VisitGetSessionLearnedFileResponse(w http.ResponseWriter) error {
@@ -7953,6 +9394,20 @@ func (response GetSessionMCPStatus404JSONResponse) VisitGetSessionMCPStatusRespo
 	return err
 }
 
+type GetSessionMCPStatus406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response GetSessionMCPStatus406JSONResponse) VisitGetSessionMCPStatusResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetSessionMCPStatus500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response GetSessionMCPStatus500JSONResponse) VisitGetSessionMCPStatusResponse(w http.ResponseWriter) error {
@@ -8037,6 +9492,20 @@ func (response ListSessionModelRuns404JSONResponse) VisitListSessionModelRunsRes
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionModelRuns406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ListSessionModelRuns406JSONResponse) VisitListSessionModelRunsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -8130,6 +9599,20 @@ func (response ListSessionModelRunCalls404JSONResponse) VisitListSessionModelRun
 	return err
 }
 
+type ListSessionModelRunCalls406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ListSessionModelRunCalls406JSONResponse) VisitListSessionModelRunCallsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListSessionModelRunCalls500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response ListSessionModelRunCalls500JSONResponse) VisitListSessionModelRunCallsResponse(w http.ResponseWriter) error {
@@ -8214,6 +9697,20 @@ func (response ListSessionNotices404JSONResponse) VisitListSessionNoticesRespons
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessionNotices406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ListSessionNotices406JSONResponse) VisitListSessionNoticesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -8307,6 +9804,20 @@ func (response PublishSessionNotice404JSONResponse) VisitPublishSessionNoticeRes
 	return err
 }
 
+type PublishSessionNotice406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response PublishSessionNotice406JSONResponse) VisitPublishSessionNoticeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type PublishSessionNotice500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response PublishSessionNotice500JSONResponse) VisitPublishSessionNoticeResponse(w http.ResponseWriter) error {
@@ -8392,6 +9903,20 @@ func (response GetSessionPromptSnapshot404JSONResponse) VisitGetSessionPromptSna
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(404)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSessionPromptSnapshot406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response GetSessionPromptSnapshot406JSONResponse) VisitGetSessionPromptSnapshotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -8499,6 +10024,20 @@ func (response ReconfigureSession404JSONResponse) VisitReconfigureSessionRespons
 	return err
 }
 
+type ReconfigureSession406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ReconfigureSession406JSONResponse) VisitReconfigureSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ReconfigureSession409JSONResponse struct{ ErrorConflictJSONResponse }
 
 func (response ReconfigureSession409JSONResponse) VisitReconfigureSessionResponse(w http.ResponseWriter) error {
@@ -8601,6 +10140,20 @@ func (response ListSessionTurns404JSONResponse) VisitListSessionTurnsResponse(w 
 	return err
 }
 
+type ListSessionTurns406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ListSessionTurns406JSONResponse) VisitListSessionTurnsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListSessionTurns500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response ListSessionTurns500JSONResponse) VisitListSessionTurnsResponse(w http.ResponseWriter) error {
@@ -8689,6 +10242,20 @@ func (response ListSessionWorkers404JSONResponse) VisitListSessionWorkersRespons
 	return err
 }
 
+type ListSessionWorkers406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ListSessionWorkers406JSONResponse) VisitListSessionWorkersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListSessionWorkers500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response ListSessionWorkers500JSONResponse) VisitListSessionWorkersResponse(w http.ResponseWriter) error {
@@ -8757,6 +10324,20 @@ func (response ListSessions401JSONResponse) VisitListSessionsResponse(w http.Res
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(401)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSessions406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ListSessions406JSONResponse) VisitListSessionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
 	_, err := buf.WriteTo(w)
 	return err
 }
@@ -8863,6 +10444,20 @@ func (response OpenSession404JSONResponse) VisitOpenSessionResponse(w http.Respo
 	return err
 }
 
+type OpenSession406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response OpenSession406JSONResponse) VisitOpenSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type OpenSession409JSONResponse struct{ ErrorConflictJSONResponse }
 
 func (response OpenSession409JSONResponse) VisitOpenSessionResponse(w http.ResponseWriter) error {
@@ -8950,6 +10545,20 @@ func (response OpenSystemSession403JSONResponse) VisitOpenSystemSessionResponse(
 	return err
 }
 
+type OpenSystemSession406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response OpenSystemSession406JSONResponse) VisitOpenSystemSessionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type OpenSystemSession500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response OpenSystemSession500JSONResponse) VisitOpenSystemSessionResponse(w http.ResponseWriter) error {
@@ -9007,6 +10616,20 @@ func (response ListWorkspaceRoots401JSONResponse) VisitListWorkspaceRootsRespons
 	return err
 }
 
+type ListWorkspaceRoots406JSONResponse struct{ ErrorNotAcceptableJSONResponse }
+
+func (response ListWorkspaceRoots406JSONResponse) VisitListWorkspaceRootsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(406)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListWorkspaceRoots500JSONResponse struct{ ErrorInternalJSONResponse }
 
 func (response ListWorkspaceRoots500JSONResponse) VisitListWorkspaceRootsResponse(w http.ResponseWriter) error {
@@ -9029,19 +10652,19 @@ type StrictServerInterface interface {
 	// ListCronJobs List configured scheduled jobs
 	// (GET /cron/jobs)
 	ListCronJobs(ctx context.Context, request ListCronJobsRequestObject) (ListCronJobsResponseObject, error)
-	// ListCronRuns List durable scheduled run history
+	// ListCronRuns List scheduled run history
 	// (GET /cron/runs)
 	ListCronRuns(ctx context.Context, request ListCronRunsRequestObject) (ListCronRunsResponseObject, error)
-	// ListMessages List stored conversation messages
+	// ListMessages List a session's conversation messages
 	// (GET /messages)
 	ListMessages(ctx context.Context, request ListMessagesRequestObject) (ListMessagesResponseObject, error)
-	// ListModels List models discovered from configured connections
+	// ListModels List the models discovered from configured connections
 	// (GET /models)
 	ListModels(ctx context.Context, request ListModelsRequestObject) (ListModelsResponseObject, error)
-	// GetSession Read session details
+	// GetSession Read one session
 	// (GET /session)
 	GetSession(ctx context.Context, request GetSessionRequestObject) (GetSessionResponseObject, error)
-	// ListSessionAgentSpaceDecisions List one session's agent space decision history
+	// ListSessionAgentSpaceDecisions List a session's agent space decisions
 	// (GET /session/agent-space-decisions)
 	ListSessionAgentSpaceDecisions(ctx context.Context, request ListSessionAgentSpaceDecisionsRequestObject) (ListSessionAgentSpaceDecisionsResponseObject, error)
 	// ListSessionAgentRuns List the child agent runs this session has started
@@ -9065,7 +10688,7 @@ type StrictServerInterface interface {
 	// ListSessionAgentRunMessages List one child agent run's own durable transcript
 	// (GET /session/agents/{agentRunId}/messages)
 	ListSessionAgentRunMessages(ctx context.Context, request ListSessionAgentRunMessagesRequestObject) (ListSessionAgentRunMessagesResponseObject, error)
-	// CancelSession Request cancellation for the active turn
+	// CancelSession Stop the session's running work
 	// (POST /session/cancel)
 	CancelSession(ctx context.Context, request CancelSessionRequestObject) (CancelSessionResponseObject, error)
 	// ListSessionCompactions List durable compaction records
@@ -9077,7 +10700,7 @@ type StrictServerInterface interface {
 	// GetSessionContextSnapshot Read a context snapshot referenced by this session
 	// (GET /session/context-snapshots/{contextHash})
 	GetSessionContextSnapshot(ctx context.Context, request GetSessionContextSnapshotRequestObject) (GetSessionContextSnapshotResponseObject, error)
-	// ListSessionEvents List durable protocol events
+	// ListSessionEvents List stored protocol events
 	// (GET /session/events)
 	ListSessionEvents(ctx context.Context, request ListSessionEventsRequestObject) (ListSessionEventsResponseObject, error)
 	// ListSessionFeed Replay a session's live feed from a sequence
@@ -9089,7 +10712,7 @@ type StrictServerInterface interface {
 	// ListWorkspaceFiles List a workspace directory or inspect a file
 	// (GET /session/files)
 	ListWorkspaceFiles(ctx context.Context, request ListWorkspaceFilesRequestObject) (ListWorkspaceFilesResponseObject, error)
-	// ReadWorkspaceFile Read a bounded workspace file as base64
+	// ReadWorkspaceFile Read a workspace file as base64
 	// (GET /session/files/content)
 	ReadWorkspaceFile(ctx context.Context, request ReadWorkspaceFileRequestObject) (ReadWorkspaceFileResponseObject, error)
 	// WriteWorkspaceFile Write a workspace file atomically
@@ -9125,25 +10748,25 @@ type StrictServerInterface interface {
 	// ListSessionModelRunCalls Read every provider round for one model invocation
 	// (GET /session/model-runs/{modelRunId}/calls)
 	ListSessionModelRunCalls(ctx context.Context, request ListSessionModelRunCallsRequestObject) (ListSessionModelRunCallsResponseObject, error)
-	// ListSessionNotices List durable outside and worker notices
+	// ListSessionNotices List a session's notices
 	// (GET /session/notices)
 	ListSessionNotices(ctx context.Context, request ListSessionNoticesRequestObject) (ListSessionNoticesResponseObject, error)
-	// PublishSessionNotice Report a durable notice to the session
+	// PublishSessionNotice Report a notice to a session
 	// (POST /session/notices)
 	PublishSessionNotice(ctx context.Context, request PublishSessionNoticeRequestObject) (PublishSessionNoticeResponseObject, error)
 	// GetSessionPromptSnapshot Read a prompt snapshot referenced by this session
 	// (GET /session/prompt-snapshots/{promptHash})
 	GetSessionPromptSnapshot(ctx context.Context, request GetSessionPromptSnapshotRequestObject) (GetSessionPromptSnapshotResponseObject, error)
-	// ReconfigureSession Move an idle session to a different agent space
+	// ReconfigureSession Move a workspace's sessions to another agent space
 	// (POST /session/reconfigure)
 	ReconfigureSession(ctx context.Context, request ReconfigureSessionRequestObject) (ReconfigureSessionResponseObject, error)
 	// ListSessionTurns List durable turns
 	// (GET /session/turns)
 	ListSessionTurns(ctx context.Context, request ListSessionTurnsRequestObject) (ListSessionTurnsResponseObject, error)
-	// ListSessionWorkers List one session's worker generations
+	// ListSessionWorkers List a session's worker generations
 	// (GET /session/workers)
 	ListSessionWorkers(ctx context.Context, request ListSessionWorkersRequestObject) (ListSessionWorkersResponseObject, error)
-	// ListSessions List durable workspace sessions
+	// ListSessions List every session
 	// (GET /sessions)
 	ListSessions(ctx context.Context, request ListSessionsRequestObject) (ListSessionsResponseObject, error)
 	// OpenSession Open or resume the session for a workspace
@@ -9152,7 +10775,7 @@ type StrictServerInterface interface {
 	// OpenSystemSession Open or resume the system session
 	// (POST /sessions/system)
 	OpenSystemSession(ctx context.Context, request OpenSystemSessionRequestObject) (OpenSystemSessionResponseObject, error)
-	// ListWorkspaceRoots List workspace roots this controller may open
+	// ListWorkspaceRoots List the workspace roots this controller may open
 	// (GET /workspace-roots)
 	ListWorkspaceRoots(ctx context.Context, request ListWorkspaceRootsRequestObject) (ListWorkspaceRootsResponseObject, error)
 }

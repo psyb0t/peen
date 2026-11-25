@@ -9,3 +9,11 @@ overrides:
   # webpack 5.113 breaks the rspack server build with
   # "require.resolveWeak is not a function".
   webpack: 5.112.2
+auditConfig:
+  ignoreGhsas:
+    # Faker 5.5.3 (helpers.fake code execution) comes in through
+    # docusaurus-plugin-openapi-docs > postman-collection. Faker 10.5.0, the
+    # first patched release, drops faker.address, which postman-collection reads
+    # at load time, so the override breaks the build. The plugin runs only in
+    # the docs build, against the spec in this checkout.
+    - GHSA-qxc2-j82w-r537

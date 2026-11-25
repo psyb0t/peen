@@ -502,6 +502,7 @@ func TestRuntimeRunExecutesUseSkillAndPairsCallID(t *testing.T) {
 		t,
 		[]string{
 			EventTypeUserMessageCreated,
+			EventTypeMCPStatus,
 			EventTypeTurnStarted,
 			EventTypeToolUse,
 			EventTypeToolResult,

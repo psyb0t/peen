@@ -10,7 +10,9 @@ scripts/make/docs.sh passes its scratch copy of it.
 
   - each page keeps the URL its file name gives it, or its `permalink`;
   - `parent` and `nav_order` become .content/sidebar.json;
-  - llms.txt is docs/llms.txt followed by one line per page.
+  - llms.txt is docs/llms.txt followed by one line per page;
+  - api/api.yml becomes .assets/reference/api.yml, which the site offers for
+    download and docusaurus-plugin-openapi-docs turns into the REST reference.
 
 It refuses Liquid or Jekyll syntax, which Docusaurus would print literally, and
 the front matter mistakes docs-and-prose.md forbids. A refusal exits nonzero
@@ -28,6 +30,8 @@ DOCS = ROOT / "docs"
 SITE = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT / "website"
 CONTENT = SITE / ".content"
 ASSETS = SITE / ".assets"
+API_SPEC = ROOT / "api" / "api.yml"
+API_SPEC_ASSET = ASSETS / "reference" / "api.yml"
 SITE_ORIGIN = "https://psyb0t.github.io"
 BASE_URL = "/peen"
 INDEX_PAGE = "index.md"
@@ -168,7 +172,9 @@ def main():
     sidebar = build_sidebar(pages)
     (CONTENT / "sidebar.json").write_text(json.dumps(sidebar, indent=2) + "\n", encoding="utf-8")
     build_llms(pages, slugs)
-    print(f"prepared {len(pages)} pages")
+    API_SPEC_ASSET.parent.mkdir(parents=True)
+    shutil.copyfile(API_SPEC, API_SPEC_ASSET)
+    print(f"prepared {len(pages)} pages and the REST reference spec")
 
 
 if __name__ == "__main__":

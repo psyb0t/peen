@@ -39,13 +39,14 @@ func TestServerSessionJobEndpoints(t *testing.T) {
 	jobID := uuid.New()
 
 	testCases := []struct {
-		name       string
-		method     string
-		path       string
-		body       string
-		runtime    *testRuntime
-		wantStatus int
-		wantCode   aichteeteapee.ErrorCode
+		name        string
+		method      string
+		path        string
+		body        string
+		runtime     *testRuntime
+		wantStatus  int
+		wantCode    aichteeteapee.ErrorCode
+		wantMessage string
 	}{
 		{
 			name:       "lists jobs",
@@ -97,8 +98,9 @@ func TestServerSessionJobEndpoints(t *testing.T) {
 				sessionID: sessionID,
 				jobsErr:   commerr.ErrNotFound,
 			},
-			wantStatus: http.StatusNotFound,
-			wantCode:   aichteeteapee.ErrorCodeNotFound,
+			wantStatus:  http.StatusNotFound,
+			wantCode:    ErrorCodeSessionNotFound,
+			wantMessage: sessionNotFoundMessage,
 		},
 		{
 			name:       "reads job output",
@@ -143,8 +145,22 @@ func TestServerSessionJobEndpoints(t *testing.T) {
 				sessionID: sessionID,
 				jobsErr:   commerr.ErrNotFound,
 			},
-			wantStatus: http.StatusNotFound,
-			wantCode:   aichteeteapee.ErrorCodeNotFound,
+			wantStatus:  http.StatusNotFound,
+			wantCode:    aichteeteapee.ErrorCodeNotFound,
+			wantMessage: jobNotFoundMessage,
+		},
+		{
+			name:   "reads job output for an unknown session",
+			method: http.MethodGet,
+			path:   jobOutputPath(jobID),
+			runtime: &testRuntime{
+				sessionID:  sessionID,
+				jobsErr:    commerr.ErrNotFound,
+				sessionErr: commerr.ErrNotFound,
+			},
+			wantStatus:  http.StatusNotFound,
+			wantCode:    ErrorCodeSessionNotFound,
+			wantMessage: sessionNotFoundMessage,
 		},
 		{
 			name:   "reads signal history for an unknown job",
@@ -154,8 +170,9 @@ func TestServerSessionJobEndpoints(t *testing.T) {
 				sessionID: sessionID,
 				jobsErr:   commerr.ErrNotFound,
 			},
-			wantStatus: http.StatusNotFound,
-			wantCode:   aichteeteapee.ErrorCodeNotFound,
+			wantStatus:  http.StatusNotFound,
+			wantCode:    aichteeteapee.ErrorCodeNotFound,
+			wantMessage: jobNotFoundMessage,
 		},
 		{
 			name:       "signals a job",
@@ -200,8 +217,23 @@ func TestServerSessionJobEndpoints(t *testing.T) {
 				sessionID: sessionID,
 				jobsErr:   commerr.ErrNotFound,
 			},
-			wantStatus: http.StatusNotFound,
-			wantCode:   aichteeteapee.ErrorCodeNotFound,
+			wantStatus:  http.StatusNotFound,
+			wantCode:    aichteeteapee.ErrorCodeNotFound,
+			wantMessage: jobNotFoundMessage,
+		},
+		{
+			name:   "signals a job of an unknown session",
+			method: http.MethodPost,
+			path:   jobSignalPath(jobID),
+			body:   validSignalBody,
+			runtime: &testRuntime{
+				sessionID:  sessionID,
+				jobsErr:    commerr.ErrNotFound,
+				sessionErr: commerr.ErrNotFound,
+			},
+			wantStatus:  http.StatusNotFound,
+			wantCode:    ErrorCodeSessionNotFound,
+			wantMessage: sessionNotFoundMessage,
 		},
 	}
 
@@ -223,6 +255,12 @@ func TestServerSessionJobEndpoints(t *testing.T) {
 			instance.inProcessHandler.ServeHTTP(recorder, request)
 
 			assert.Equal(t, tc.wantStatus, recorder.Code)
+
+			if tc.wantMessage != "" {
+				assertErrorEnvelope(t, recorder, tc.wantCode, tc.wantMessage)
+
+				return
+			}
 
 			if tc.wantCode != "" {
 				assertErrorCode(t, recorder, tc.wantCode)

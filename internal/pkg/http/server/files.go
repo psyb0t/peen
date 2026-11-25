@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 
+	"github.com/google/uuid"
 	"github.com/psyb0t/aichteeteapee"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/peen/internal/pkg/control"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 )
 
@@ -28,7 +30,7 @@ func (s *Server) ListWorkspaceFiles(
 		requestedPath,
 	)
 	if err != nil {
-		return listWorkspaceFilesFailure(err)
+		return s.listWorkspaceFilesFailure(ctx, request.Params.XSessionID, err)
 	}
 
 	return api.ListWorkspaceFiles200JSONResponse{
@@ -53,7 +55,7 @@ func (s *Server) ReadWorkspaceFile(
 		request.Params.Path,
 	)
 	if err != nil {
-		return readWorkspaceFileFailure(err)
+		return s.readWorkspaceFileFailure(ctx, request.Params.XSessionID, err)
 	}
 
 	return api.ReadWorkspaceFile200JSONResponse{
@@ -93,7 +95,7 @@ func (s *Server) WriteWorkspaceFile(
 		createDirectories,
 	)
 	if err != nil {
-		return writeWorkspaceFileFailure(err)
+		return s.writeWorkspaceFileFailure(ctx, request.Params.XSessionID, err)
 	}
 
 	return api.WriteWorkspaceFile200JSONResponse{
@@ -117,7 +119,8 @@ func (s *Server) DeleteWorkspaceFile(
 		request.Params.XSessionID,
 		request.Params.Path,
 	); err != nil {
-		return deleteWorkspaceFileFailure(err)
+		return s.deleteWorkspaceFileFailure(ctx, request.Params.XSessionID,
+			err)
 	}
 
 	return api.DeleteWorkspaceFile204Response{
@@ -129,32 +132,32 @@ func (s *Server) DeleteWorkspaceFile(
 }
 
 //nolint:ireturn // Generated strict handler response interface.
-func listWorkspaceFilesFailure(
+func (s *Server) listWorkspaceFilesFailure(
+	ctx context.Context,
+	sessionID uuid.UUID,
 	err error,
 ) (api.ListWorkspaceFilesResponseObject, error) {
 	switch {
 	case errors.Is(err, commerr.ErrPermissionDenied):
 		return api.ListWorkspaceFiles403JSONResponse{
 			ErrorForbiddenJSONResponse: api.ErrorForbiddenJSONResponse(
-				workspaceNotAllowedError(),
+				workspaceFileRefusedError(err),
 			),
 		}, nil
 	case errors.Is(err, commerr.ErrNotFound):
+		body, lookupErr := s.missingRecordError(ctx, sessionID,
+			workspacePathNotFoundMessage)
+		if lookupErr != nil {
+			return nil, lookupErr
+		}
+
 		return api.ListWorkspaceFiles404JSONResponse{
-			ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-				workspaceFileNotFoundError(),
-			),
+			ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(body),
 		}, nil
 	case errors.Is(err, commerr.ErrValidationFailed):
 		return api.ListWorkspaceFiles400JSONResponse{
 			ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(
 				validationError("workspace file request is invalid"),
-			),
-		}, nil
-	case errors.Is(err, commerr.ErrInvalidState):
-		return api.ListWorkspaceFiles409JSONResponse{
-			ErrorConflictJSONResponse: api.ErrorConflictJSONResponse(
-				workspaceFileConflictError(),
 			),
 		}, nil
 	default:
@@ -163,32 +166,32 @@ func listWorkspaceFilesFailure(
 }
 
 //nolint:ireturn // Generated strict handler response interface.
-func readWorkspaceFileFailure(
+func (s *Server) readWorkspaceFileFailure(
+	ctx context.Context,
+	sessionID uuid.UUID,
 	err error,
 ) (api.ReadWorkspaceFileResponseObject, error) {
 	switch {
 	case errors.Is(err, commerr.ErrPermissionDenied):
 		return api.ReadWorkspaceFile403JSONResponse{
 			ErrorForbiddenJSONResponse: api.ErrorForbiddenJSONResponse(
-				workspaceNotAllowedError(),
+				workspaceFileRefusedError(err),
 			),
 		}, nil
 	case errors.Is(err, commerr.ErrNotFound):
+		body, lookupErr := s.missingRecordError(ctx, sessionID,
+			workspacePathNotFoundMessage)
+		if lookupErr != nil {
+			return nil, lookupErr
+		}
+
 		return api.ReadWorkspaceFile404JSONResponse{
-			ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-				workspaceFileNotFoundError(),
-			),
+			ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(body),
 		}, nil
 	case errors.Is(err, commerr.ErrValidationFailed):
 		return api.ReadWorkspaceFile400JSONResponse{
 			ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(
 				validationError("workspace file request is invalid"),
-			),
-		}, nil
-	case errors.Is(err, commerr.ErrInvalidState):
-		return api.ReadWorkspaceFile409JSONResponse{
-			ErrorConflictJSONResponse: api.ErrorConflictJSONResponse(
-				workspaceFileConflictError(),
 			),
 		}, nil
 	default:
@@ -197,32 +200,32 @@ func readWorkspaceFileFailure(
 }
 
 //nolint:ireturn // Generated strict handler response interface.
-func writeWorkspaceFileFailure(
+func (s *Server) writeWorkspaceFileFailure(
+	ctx context.Context,
+	sessionID uuid.UUID,
 	err error,
 ) (api.WriteWorkspaceFileResponseObject, error) {
 	switch {
 	case errors.Is(err, commerr.ErrPermissionDenied):
 		return api.WriteWorkspaceFile403JSONResponse{
 			ErrorForbiddenJSONResponse: api.ErrorForbiddenJSONResponse(
-				workspaceNotAllowedError(),
+				workspaceFileRefusedError(err),
 			),
 		}, nil
 	case errors.Is(err, commerr.ErrNotFound):
+		body, lookupErr := s.missingRecordError(ctx, sessionID,
+			workspacePathNotFoundMessage)
+		if lookupErr != nil {
+			return nil, lookupErr
+		}
+
 		return api.WriteWorkspaceFile404JSONResponse{
-			ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-				workspaceFileNotFoundError(),
-			),
+			ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(body),
 		}, nil
 	case errors.Is(err, commerr.ErrValidationFailed):
 		return api.WriteWorkspaceFile400JSONResponse{
 			ErrorBadRequestJSONResponse: api.ErrorBadRequestJSONResponse(
 				validationError("workspace file request is invalid"),
-			),
-		}, nil
-	case errors.Is(err, commerr.ErrInvalidState):
-		return api.WriteWorkspaceFile409JSONResponse{
-			ErrorConflictJSONResponse: api.ErrorConflictJSONResponse(
-				workspaceFileConflictError(),
 			),
 		}, nil
 	default:
@@ -231,21 +234,27 @@ func writeWorkspaceFileFailure(
 }
 
 //nolint:ireturn // Generated strict handler response interface.
-func deleteWorkspaceFileFailure(
+func (s *Server) deleteWorkspaceFileFailure(
+	ctx context.Context,
+	sessionID uuid.UUID,
 	err error,
 ) (api.DeleteWorkspaceFileResponseObject, error) {
 	switch {
 	case errors.Is(err, commerr.ErrPermissionDenied):
 		return api.DeleteWorkspaceFile403JSONResponse{
 			ErrorForbiddenJSONResponse: api.ErrorForbiddenJSONResponse(
-				workspaceNotAllowedError(),
+				workspaceFileRefusedError(err),
 			),
 		}, nil
 	case errors.Is(err, commerr.ErrNotFound):
+		body, lookupErr := s.missingRecordError(ctx, sessionID,
+			workspacePathNotFoundMessage)
+		if lookupErr != nil {
+			return nil, lookupErr
+		}
+
 		return api.DeleteWorkspaceFile404JSONResponse{
-			ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-				workspaceFileNotFoundError(),
-			),
+			ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(body),
 		}, nil
 	case errors.Is(err, commerr.ErrValidationFailed):
 		return api.DeleteWorkspaceFile400JSONResponse{
@@ -264,16 +273,23 @@ func deleteWorkspaceFileFailure(
 	}
 }
 
-func workspaceFileNotFoundError() api.Error {
+// workspaceFileRefusedError tells a refused file path apart from a refused
+// session. A path refusal says what a path must look like; a session
+// refusal keeps the workspace wording and names no directory.
+func workspaceFileRefusedError(err error) api.Error {
+	if !errors.Is(err, control.ErrWorkspacePathRefused) {
+		return workspaceNotAllowedError()
+	}
+
 	return api.Error{
-		Code:    aichteeteapee.ErrorCodeNotFound,
-		Message: "workspace path not found",
+		Code:    ErrorCodeWorkspaceNotAllowed,
+		Message: workspacePathRefusedMessage,
 	}
 }
 
 func workspaceFileConflictError() api.Error {
 	return api.Error{
 		Code:    aichteeteapee.ErrorCodeConflict,
-		Message: "workspace directory is not empty",
+		Message: workspaceDirectoryNotEmptyMessage,
 	}
 }

@@ -2,6 +2,52 @@
 
 All notable changes per release. Versions follow [semver](https://semver.org).
 
+## v1.18.0, 2026-11-25
+
+- A WebSocket message that does not decode as an event (malformed JSON, an `id` that is not a UUID, a field of the wrong type) now closes the connection with close code 1007 and the fixed reason `invalid event`. It used to close with an empty close frame, like a dead connection. `wshub.WithInvalidEventHandler` handles such a message instead: the handler can answer the client and keep the connection open, or return an error to close it with 1007. Oversized messages still close with 1009.
+- Add `emseepee.WithAllowedOrigins` (a browser `Origin` allowlist that `WithPublicOrigin` joins, with net/http cross-origin protection), `WithAllowedHosts` (a `Host` allowlist against DNS rebinding that answers `421`), and `WithoutWriteDeadline` for tool calls that stream for hours. A Host allowlist with a public host turns off the SDK's loopback-only Host check. Routes that set none of them behave as before.
+- A tool call's context now ends when its HTTP request ends on every MCP protocol version, not only those with SDK cancellation propagation.
+- Add `ErrorCodeMisdirectedRequest` (`MISDIRECTED_REQUEST`) and `ErrorResponseMisdirectedRequest`. `ErrorCodeFromHTTPStatus(421)` now returns `MISDIRECTED_REQUEST`; it used to fall back to `INTERNAL_SERVER_ERROR`.
+
+## v1.17.0, 2026-11-24
+
+- Add callback-based route authentication and a shared request principal.
+- Mount stateless MCP over Streamable HTTP. The OAuth helper serves discovery metadata, sends bearer challenges, and checks issuer, audience and scopes. Verify JWTs against cached issuer keys, including WorkOS Connect keys.
+
+- Confine static files, directory indexes and listings to the configured static directory.
+
+- Publish worktree and history secret scans under separate categories. CI fails if GitHub cannot process the code-scanning report.
+
+- Build the documentation with Docusaurus. The site keeps its existing guide URLs and includes local search and complete server and MCP setup examples.
+
+- Require Go 1.26.11 and update Gorilla WebSocket and `golang.org/x/net` to address security advisories.
+- Keep `400 Bad Request` for an invalid WebSocket upgrade protocol and use the server's preference order to select a subprotocol.
+- Synchronize WebSocket client shutdown with connection startup.
+
+## v1.16.1, 2026-11-10
+
+- The documentation is now published at https://psyb0t.github.io/aichteeteapee/, and the reference material moved there from the README.
+- A tag no longer reruns the checks. It waits for the default branch run of the same commit to pass, cuts the GitHub release from the tag message, and the badges use that run's coverage.
+- Updated the development image to Go 1.26.10, `ca-certificates` 20261020 and Python 3.14.10.
+- Added Buy Me a Coffee to the funding links. `AGENTS.md` is now the real file with `CLAUDE.md` linking to it, and the project rules for coding agents are committed in `.agents/rules/`.
+
+## v1.16.0, 2026-10-19
+
+- Added `ErrorCodePayloadTooLarge` (`PAYLOAD_TOO_LARGE`) and `ErrorResponsePayloadTooLarge`. `ErrorCodeFromHTTPStatus(413)` now returns `PAYLOAD_TOO_LARGE`; it used to fall back to `INTERNAL_SERVER_ERROR`, so a client could not tell an oversized request from a server failure.
+- Updated Semgrep in the development image to 1.181.0. It accepts the newer pyjwt and urllib3 releases that 1.173.0 held back, and the requirements now hash every published file, so the development image also builds on arm64.
+
+## v1.15.1, 2026-10-16
+
+- Fixed the CI secret scan. CI scans a shallow clone, so the commit-bound fingerprints in `.gitleaksignore` never matched and the two request-id fixtures in `serbewr/middleware/recovery_test.go` failed the job. `.gitleaks.toml` now allows exactly those two values for `generic-api-key` in that file.
+- Pinned `shfmt` to 3.13.1-r3 in the development image, because Alpine removed the earlier revision.
+- `AGENTS.md` is now tracked.
+
+## v1.15.0, 2026-10-12
+
+- Updated the development toolchain to Go 1.26.9 and `golang.org/x/net` to v0.60.0 for security fixes. Fixed the Alpine Python and CA certificate package pins and removed deleted package paths from the security scanner targets.
+- Breaking: removed `echo`, `echo/middleware`, `oapi-codegen/middleware`, and `DefaultEchoListenAddress`. The library no longer provides an Echo server wrapper, Swagger UI, or Echo-specific OpenAPI validation. Echo users must stay on an earlier release or wire those features directly with their chosen framework. The `serbewr` server, its `net/http` middleware, WebSockets, HTTP client, and shared error responses are unchanged.
+- Removed the direct Echo, Echo OpenAPI validator, OpenAPI schema, and Swagger UI dependencies, and regenerated the module checksums and vendor tree.
+
 ## v1.14.0, 2026-09-10
 
 - Added `klhayyent`, a concurrent-safe HTTP client with common method helpers,

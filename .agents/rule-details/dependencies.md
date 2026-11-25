@@ -31,6 +31,7 @@ Peen already uses these. Reach for them before adding something new: Servicepack
 - `website/` is its own pnpm package for the Docusaurus site, separate from `web/`. Edit `website/package.json` by hand with exact versions, never ranges, then run `make docs-lock` to refresh `website/pnpm-lock.yaml`. Commit both together. Never run pnpm on the host.
 - `website/pnpm-workspace.yaml` holds the install policy: `minimumReleaseAge: 10080` holds new releases back for seven days, `ignoreScripts: true` blocks install scripts, and `overrides` pins transitive packages. An override fixes an advisory or a breakage, and a breakage gets a comment with the reason.
 - `webpack` stays pinned to `5.112.2` through an override, because webpack 5.113 breaks the rspack server build with `require.resolveWeak is not a function`. Remove the pin only after `make docs-build` passes without it.
+- `auditConfig.ignoreGhsas` ignores GHSA-qxc2-j82w-r537 in Faker 5.5.3, which `docusaurus-plugin-openapi-docs` pulls in through `postman-collection`. Faker 10.5.0, the first patched release, drops the `faker.address` API that `postman-collection` reads when it loads, so an override breaks the build. The plugin runs only in the docs build, against the spec in the checkout. Drop the ignore when the plugin no longer pulls in a vulnerable Faker.
 - Run `make docs-audit` after a change. It runs `pnpm audit` against the locked packages. Fix a finding with a version bump or an override.
 
 ## Images

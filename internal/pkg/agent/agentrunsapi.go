@@ -265,8 +265,9 @@ func (r *Runtime) GetSessionAgentRun(
 }
 
 // CancelSessionAgentRun cancels one child agent without ending its parent
-// turn. Cancelling an unknown, completed, or already cancelled run reports the
-// current state rather than failing, matching POST /api/v1/session/cancel.
+// turn. Cancelling a completed or already cancelled run reports the current
+// state rather than failing. A run the session never had returns
+// commerr.ErrNotFound.
 func (r *Runtime) CancelSessionAgentRun(
 	ctx context.Context,
 	sessionID uuid.UUID,

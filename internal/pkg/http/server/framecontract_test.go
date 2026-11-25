@@ -158,19 +158,6 @@ type contractFrameCase struct {
 	build     func(t *testing.T) *dabluveees.Event
 }
 
-// contractSkippedEventTypes lists agent.EventTypes() entries this test does
-// not render. The catalogue (ws-frame-catalogue.md section 4.2) confirms the
-// runtime never emits a root text.delta or thinking.delta, so no wsapi
-// variant exists for either and no frame can be built to exercise one.
-//
-//nolint:gochecknoglobals // A fixed lookup table, never reassigned.
-var contractSkippedEventTypes = map[string]string{
-	agent.EventTypeTextDelta: "root text.delta is declared but never " +
-		"emitted (ws-frame-catalogue.md section 4.2)",
-	agent.EventTypeThinkingDelta: "root thinking.delta is declared but " +
-		"never emitted (ws-frame-catalogue.md section 4.2)",
-}
-
 // TestEveryServerFrameTypeValidatesAgainstTheWsapiContract renders one frame
 // of every server frame type Peen emits through the real renderer
 // (feedItemFrame for feed-sourced frames, the completion/failure builders
@@ -206,12 +193,6 @@ func TestEveryServerFrameTypeValidatesAgainstTheWsapiContract(t *testing.T) {
 	}
 
 	for _, eventType := range agent.EventTypes() {
-		if reason, skipped := contractSkippedEventTypes[eventType]; skipped {
-			t.Logf("skipping %q: %s", eventType, reason)
-
-			continue
-		}
-
 		assert.Truef(
 			t,
 			covered[eventType],

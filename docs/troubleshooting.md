@@ -76,14 +76,16 @@ Error responses carry `{"code", "message"}`. These are the codes Peen adds to th
 | Code | Where | Meaning |
 | --- | --- | --- |
 | `INVALID_SESSION_ID` | REST, WebSocket upgrade | The `X-Session-ID` header, or the `sessionId` filter on `GET /ws/v1`, is malformed. |
-| `SESSION_NOT_FOUND` | REST, WebSocket | The session ID is well formed, but no such session exists. |
+| `SESSION_NOT_FOUND` | REST, WebSocket | The session ID is well formed, but no such session exists. Every REST operation that takes `X-Session-ID` answers this for an unknown session. |
+| `NOT_FOUND` | REST | The session exists, but the record the request names inside it does not: a job, agent run, compaction, model run, snapshot, learned file, or workspace path. The message names which. |
+| `CONFLICT` | REST | The request conflicts with current state: a reconfigure that names the agent space the workspace already uses, or deleting a directory that is not empty. |
 | `SESSION_BUSY` | REST, WebSocket | The session already has an active turn. |
 | `TURN_CANCELLED` | WebSocket | The turn ended because its session was cancelled. |
 | `TURN_TIMEOUT` | WebSocket | The turn reached its overall deadline. Increase `timeoutSeconds` or `PEEN_TURN_TIMEOUT`. |
 | `OUTPUT_SCHEMA_INVALID` | WebSocket | The schema cannot compile without external resources or exceeds `PEEN_MAX_OUTPUT_SCHEMA_BYTES`. |
 | `USER_MESSAGE_QUEUE_FULL` | WebSocket | The active turn cannot accept another queued message. |
-| `AGENT_SPACE_NOT_ALLOWED` | REST | The deployment does not offer that agent space. The response never names the ones it does. |
-| `AGENT_SPACE_CONFLICT` | REST, WebSocket | The request named an agent space other than the one its workspace's sessions share. The message names the current one. Leave the agent space out, name that one, or change it with [`POST /api/v1/session/reconfigure`](http-api.md#post-apiv1sessionreconfigure). |
+| `AGENT_SPACE_NOT_ALLOWED` | REST | The deployment does not offer that agent space, and the response never names the ones it does. A reconfigure of the system session also answers this, because the system session's agent space cannot change. |
+| `AGENT_SPACE_CONFLICT` | REST, WebSocket | The request named an agent space other than the one its workspace's sessions share. The message names the current one. Leave the agent space out, name that one, or change it with [`POST /api/v1/session/reconfigure`](https://psyb0t.github.io/peen/api/reconfigure-session/). |
 | `SYSTEM_AGENT_OFF` | REST | A system session was requested while `PEEN_SYSTEM_AGENT` is off. |
 | `WORKSPACE_NOT_ALLOWED` | REST | The workspace falls outside the workspace root, or would expose Peen's own directories, or a file path leaves the workspace. See [workspaces](where-it-runs.md#workspaces-that-would-expose-peens-own-directories). |
 | `WORKSPACE_NOT_FOUND` | REST | The workspace is allowed, but its directory no longer exists. |

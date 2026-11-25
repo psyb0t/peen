@@ -457,6 +457,7 @@ func TestRuntimeEmitsASkillEventForEachSkillMessageAtTurnStart(t *testing.T) {
 			EventTypeUserMessageCreated,
 			EventTypeSkillInjected,
 			EventTypeSkillInjected,
+			EventTypeMCPStatus,
 			eventTypeTurnStarted,
 			eventTypeTurnCompleted,
 		},

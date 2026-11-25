@@ -64,11 +64,11 @@ By default Peen runs in a container and each workspace's agent runs in its own c
 
 Peen starts with no sessions. Open a workspace with `POST /api/v1/sessions/open` and a body of `{"workspace":"<workspace_root>/my-app"}`, using the absolute host path. It returns the session, creating it the first time that directory is opened and resuming it afterwards. Never invent a session ID, because Peen refuses an unknown one and starts no turn.
 
-Send the returned ID as `metadata.sessionId` in a `message.send` WebSocket event, and reuse it to continue the conversation. A normal connection gets live events for every session, so the client builds tabs by filtering event metadata. `?sessionId=<uuid>` only filters what one socket receives; it does not keep a session's work running, and closing every connection for a session does not pause it either. Only `POST /api/v1/session/cancel`, cancelling a child, a turn deadline (`timeoutSeconds` or `PEEN_TURN_TIMEOUT`), stopping the controller, or an embedded `Close` pauses or stops work, along with a failed turn or a crash. A client that reconnects replays whatever it missed from [`GET /api/v1/session/feed`](https://github.com/psyb0t/peen/blob/main/docs/http-api.md#get-apiv1sessionfeed) instead of losing it. Every sent message still needs `metadata.sessionId`.
+Send the returned ID as `metadata.sessionId` in a `message.send` WebSocket event, and reuse it to continue the conversation. A normal connection gets live events for every session, so the client builds tabs by filtering event metadata. `?sessionId=<uuid>` only filters what one socket receives; it does not keep a session's work running, and closing every connection for a session does not pause it either. Only `POST /api/v1/session/cancel`, cancelling a child, a turn deadline (`timeoutSeconds` or `PEEN_TURN_TIMEOUT`), stopping the controller, or an embedded `Close` pauses or stops work, along with a failed turn or a crash. A client that reconnects replays whatever it missed from [`GET /api/v1/session/feed`](https://psyb0t.github.io/peen/api/list-session-feed/) instead of losing it. Every sent message still needs `metadata.sessionId`.
 
 `GET /api/v1/sessions` lists what exists and needs no session header.
 
-Use REST to read stored state and control work. A message for the agent goes over the WebSocket, or through one of the optional entry points below. Send `X-Session-ID` to the session endpoints. For example, list messages with `GET /api/v1/messages` and ask a turn to stop with `POST /api/v1/session/cancel`. The [API reference](https://github.com/psyb0t/peen/blob/main/docs/http-api.md) has every frame and endpoint.
+Use REST to read stored state and control work. A message for the agent goes over the WebSocket, or through one of the optional entry points below. Send `X-Session-ID` to the session endpoints. For example, list messages with `GET /api/v1/messages` and ask a turn to stop with `POST /api/v1/session/cancel`. The [REST API](https://psyb0t.github.io/peen/http-api/) leads to the reference for every endpoint, and the [WebSocket API](https://psyb0t.github.io/peen/websocket-api/) has every frame.
 
 ## Validated answers, deadlines, and other entry points
 
@@ -102,4 +102,5 @@ Peen reads the configuration directory first, then every directory from `/` down
 - [Named agents](https://github.com/psyb0t/peen/blob/main/docs/agents.md)
 - [Session events](https://github.com/psyb0t/peen/blob/main/docs/events.md)
 - [Hooks](https://github.com/psyb0t/peen/blob/main/docs/hooks.md)
-- [API reference](https://github.com/psyb0t/peen/blob/main/docs/http-api.md)
+- [REST API and reference](https://psyb0t.github.io/peen/http-api/)
+- [WebSocket API](https://psyb0t.github.io/peen/websocket-api/)

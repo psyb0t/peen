@@ -40,34 +40,48 @@ export class AmbiguousMessageError extends Error {
 }
 
 /**
- * Connects with the `peen.v1` subprotocol, or `peen.bearer.<base64url token>` to also carry a bearer token in the handshake. An optional `?sessionId=<uuid>` query parameter filters the connection's live frames to one session; without it the connection receives every accepted session's frames.
+ * A controller on the local machine at its default port. `PEEN_HTTP_LISTEN_ADDRESS` sets the address, `:8080` by default. Replace the host with your deployment's and use `wss://` behind TLS. Offer the `peen.v1` subprotocol, and, when `PEEN_API_TOKEN` is set, authenticate with an `Authorization: Bearer` header or the `peen.bearer.<base64url-token>` subprotocol. An optional `?sessionId=<uuid>` filters the socket's frames to one session; without it the socket receives every session's frames.
  */
 export const ServerPeenURL = "ws://127.0.0.1:8080/ws/v1";
 
 /**
  * SocketAddressTemplate is the address of the Socket channel.
+ *
+ * The one WebSocket at `/ws/v1`. Clients send `message.send` frames and receive server frames for every session they watch, or for the one session named by `?sessionId=`.
  */
 export const SocketAddressTemplate = "/ws/v1";
 
 /**
- * The only client-to-server frame. `metadata.sessionId` names the durable session this message runs against; a client with no session to name, such as an embedded single-workspace runtime, may omit it and fall back to the runtime's own session.
+ * The only frame a client sends. Each one submits one user message to the session that `metadata.sessionId` names. Naming the session routes the message but does not authorize it: Peen loads the session before it starts any work, and an unknown session fails with `SESSION_NOT_FOUND`. The first message for an idle session starts a turn. A message that arrives while a turn is running or starting joins that turn's queue, first in, first out, up to `PEEN_MAX_QUEUED_USER_MESSAGES` messages, 16 by default.
+ *
+ * Every accepted message is first stored as a `userMessage.created` frame. The submission ends with one `message.completed` or `message.failed`, whose `triggeredBy` is this frame's `id`. A frame without an `id`, with a null `id`, or with the all-zero UUID gets a `message.failed` with `VALIDATION_FAILED` on this socket only, with a null `triggeredBy` and no `metadata.sessionId`, and starts nothing. A malformed `data` gets a `message.failed` on this socket only. A failure after Peen accepted the frame reaches every socket watching the session. Peen ignores a frame of any other `type` and does not reply to it. A frame that is not valid JSON in this shape, whose `id` is not a UUID string, or that has a field of the wrong type gets a `message.failed` with `VALIDATION_FAILED` on this socket only, with a null `triggeredBy` and no `metadata.sessionId`, and starts nothing; the connection stays open.
  */
 export interface MessageSend {
   /**
+   * A UUID you generate for this frame; use a fresh UUIDv4 for each message. Peen echoes it as `triggeredBy` on the `message.completed` or `message.failed` that answers this frame, and as `sourceEventId` in the message's `userMessage.*` data. Required: a missing or null `id`, the all-zero UUID, or a value that is not a UUID string fails the frame with `VALIDATION_FAILED` and a null `triggeredBy`.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * Always `message.send`.
+   */
   type: "message.send";
   /**
-   * `to` cannot combine with `model`, `reasoningEffort`, or `systemPrompt`: those settings belong to the root conversation, not a running child's inbox.
+   * The `data` of a `message.send` frame. Decoding is strict: an unknown field (`workspace` included), a missing or empty `message`, or a value outside its allowed range fails the message with `VALIDATION_FAILED`. `to` cannot combine with `model`, `reasoningEffort`, `systemPrompt`, `outputSchema`, `timeoutSeconds`, or `system`, because those settings belong to a root turn and not to a running child's inbox. `systemPrompt`, a `MessageSystemPrompt`, sets this turn's instructions.
    */
   data: MessageSendData;
+  /**
+   * Not read by the server. Send `0` or the send time in Unix seconds.
+   */
   timestamp?: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata?: Metadata;
   /**
+   * Not read by the server. Send `null`.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -96,37 +110,52 @@ export function validateMessageSend(
 }
 
 /**
- * `to` cannot combine with `model`, `reasoningEffort`, or `systemPrompt`: those settings belong to the root conversation, not a running child's inbox.
+ * The `data` of a `message.send` frame. Decoding is strict: an unknown field (`workspace` included), a missing or empty `message`, or a value outside its allowed range fails the message with `VALIDATION_FAILED`. `to` cannot combine with `model`, `reasoningEffort`, `systemPrompt`, `outputSchema`, `timeoutSeconds`, or `system`, because those settings belong to a root turn and not to a running child's inbox. `systemPrompt`, a `MessageSystemPrompt`, sets this turn's instructions.
  */
 export interface MessageSendData {
   /**
-   * Set on a message to the system session and on nothing else. The server refuses a mismatch either way, and `system` cannot combine with `to`.
+   * Set it to `true` on a message to the deployment's system session, and leave it out or `false` on every other message. The server fails a mismatch in either direction with `VALIDATION_FAILED`, and `system` cannot combine with `to`.
    */
   system?: boolean;
   /**
-   * At most PEEN_MAX_MESSAGE_BYTES bytes, 262144 by default. The limit is deployment configuration, so the server enforces it, not this schema.
+   * The text the model receives. It must contain at least one character that is not whitespace. At most `PEEN_MAX_MESSAGE_BYTES` bytes, 262144 by default; the limit is deployment configuration, so the server enforces it, not this schema. Write `:skill-name`, or `:core:name` for a core skill, at the start or after a space to hand that skill to the model. An unknown skill name fails the message with `VALIDATION_FAILED`, and Peen stores nothing.
    */
   message: string;
   /**
-   * provider/model, one Peen discovered at startup.
+   * The model for this turn, as the `name` field of `GET /api/v1/models` (`provider/model`). Without it the turn uses `PEEN_DEFAULT_MODEL`. It applies to this turn only. A message queued into a running turn may repeat the running turn's model but cannot change it.
    */
   model?: string;
+  /**
+   * The reasoning level for this turn's model calls. Without it the model uses its own default. Peen fits the level to the model: a model without reasoning levels gets none, and a level outside its range runs at the nearest level it supports. A queued message may repeat the running turn's level but cannot change it.
+   *
+   * - `minimal`: the lowest reasoning level.
+   * - `low`: a low reasoning level.
+   * - `medium`: a medium reasoning level.
+   * - `high`: a high reasoning level.
+   * - `xhigh`: a level above `high`, for models that offer one.
+   * - `max`: the highest level the model offers.
+   */
   reasoningEffort?: MessageSendReasoningEffort;
+  /**
+   * Instructions for the turn this message starts, in `message.send` `data.systemPrompt`. Both fields are required when it is present. It applies to that turn only and does not carry over to the next message. A message queued into a running turn, or sent with `to`, cannot set it and fails with `VALIDATION_FAILED`.
+   */
   systemPrompt?: MessageSystemPrompt;
   /**
-   * JSON Schema for the final validated output. At most PEEN_MAX_OUTPUT_SCHEMA_BYTES bytes, 65536 by default. Cannot combine with to or join an active turn. External references are refused.
+   * A JSON Schema object the turn's final answer must match. After the turn's work, Peen runs a final request without tools, validates the answer, and retries up to `PEEN_OUTPUT_SCHEMA_ATTEMPTS` total attempts, 3 by default. `turn.completed` reports the result in `output` or `outputError`. At most `PEEN_MAX_OUTPUT_SCHEMA_BYTES` bytes, 65536 by default. A schema that is too large, does not compile, or references an external resource fails with `OUTPUT_SCHEMA_INVALID`. Local references inside the schema work. It cannot combine with `to`, and a message that carries it while a turn is running fails with `SESSION_BUSY` instead of joining that turn.
    */
   outputSchema?: Record<string, unknown>;
   /**
-   * Overall turn timeout in seconds. Cannot combine with to or join an active turn.
+   * A deadline for the whole turn, in seconds. Without it `PEEN_TURN_TIMEOUT` applies, which is `0`, no limit, by default. The deadline is absolute and survives recovery, so downtime counts against it. When it expires, Peen stops the turn and its child agents, stores `turn.cancelled` with `reason` `timeout`, and fails the submission with `TURN_TIMEOUT`. It cannot combine with `to`, and a message that carries it while a turn is running fails with `SESSION_BUSY`.
    */
   timeoutSeconds?: number;
   /**
+   * The `agentRunId` of a child agent of this session. The message goes to that child's inbox instead of the root conversation, starts no turn, and is answered at once with `message.completed` `{"queued": true}`. The child reads it after its current tool call, and a child that a Stop, crash, or failure paused resumes to read it. Fails with `AGENT_FINISHED` when the child has ended, `AGENT_NOT_FOUND` when the session has no such run, and `USER_MESSAGE_QUEUE_FULL` when the child's inbox already holds `PEEN_MAX_QUEUED_USER_MESSAGES` messages.
+   *
    * Not enforced by the generated code: format uuid.
    */
   to?: string;
   /**
-   * Images the model sees after the message text, at most PEEN_MAX_IMAGES_PER_MESSAGE, 4 by default, only for a model that accepts image input. A message queued into a running turn or sent to a child agent may carry images too.
+   * Images the model sees after the message text, at most `PEEN_MAX_IMAGES_PER_MESSAGE`, 4 by default. Only a model that accepts image input can take them: a message whose model does not fails with `VALIDATION_FAILED`, and Peen never drops or converts an image to make a message fit. A message queued into a running turn, or sent with `to`, may carry images too. Once a session's history holds images, its turns can only run on models that accept images.
    */
   images?: Array<MessageImage>;
 }
@@ -172,6 +201,16 @@ export function validateMessageSendData(
   }
 }
 
+/**
+ * The reasoning level for this turn's model calls. Without it the model uses its own default. Peen fits the level to the model: a model without reasoning levels gets none, and a level outside its range runs at the nearest level it supports. A queued message may repeat the running turn's level but cannot change it.
+ *
+ * - `minimal`: the lowest reasoning level.
+ * - `low`: a low reasoning level.
+ * - `medium`: a medium reasoning level.
+ * - `high`: a high reasoning level.
+ * - `xhigh`: a level above `high`, for models that offer one.
+ * - `max`: the highest level the model offers.
+ */
 export type MessageSendReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 /** Values of MessageSendReasoningEffort. */
@@ -185,11 +224,20 @@ export function validateMessageSendReasoningEffort(
   rtEnum(path, value, MessageSendReasoningEffortValues);
 }
 
+/**
+ * Instructions for the turn this message starts, in `message.send` `data.systemPrompt`. Both fields are required when it is present. It applies to that turn only and does not carry over to the next message. A message queued into a running turn, or sent with `to`, cannot set it and fails with `VALIDATION_FAILED`.
+ */
 export interface MessageSystemPrompt {
   /**
-   * At most PEEN_MAX_SYSTEM_PROMPT_BYTES bytes, 65536 by default. The limit is deployment configuration, so the server enforces it, not this schema.
+   * The instructions. Must not be empty. At most `PEEN_MAX_SYSTEM_PROMPT_BYTES` bytes, 65536 by default. The limit is deployment configuration, so the server enforces it, not this schema, and fails a longer prompt with `VALIDATION_FAILED`.
    */
   content: string;
+  /**
+   * How `content` combines with Peen's built-in prompt. Either way, the harness instructions, rules, and environment block still follow it.
+   *
+   * - `append`: Peen's built-in system prompt, followed by `content`.
+   * - `replace`: `content` in place of Peen's built-in system prompt.
+   */
   mode: MessageSystemPromptMode;
 }
 
@@ -206,6 +254,12 @@ export function validateMessageSystemPrompt(
   validateMessageSystemPromptMode(object["mode"], path + ".mode");
 }
 
+/**
+ * How `content` combines with Peen's built-in prompt. Either way, the harness instructions, rules, and environment block still follow it.
+ *
+ * - `append`: Peen's built-in system prompt, followed by `content`.
+ * - `replace`: `content` in place of Peen's built-in system prompt.
+ */
 export type MessageSystemPromptMode = "append" | "replace";
 
 /** Values of MessageSystemPromptMode. */
@@ -219,10 +273,21 @@ export function validateMessageSystemPromptMode(
   rtEnum(path, value, MessageSystemPromptModeValues);
 }
 
+/**
+ * One image attached to a `message.send`. Peen stores it with the message in the session database and replays it to the model on later turns.
+ */
 export interface MessageImage {
+  /**
+   * The image format. Peen checks that the decoded bytes are in the format this names and fails the message with `VALIDATION_FAILED` when they are not.
+   *
+   * - `image/png`: PNG image.
+   * - `image/jpeg`: JPEG image.
+   * - `image/gif`: GIF image.
+   * - `image/webp`: WebP image.
+   */
   mediaType: MessageImageMediaType;
   /**
-   * The image bytes, base64-encoded. At most PEEN_MAX_IMAGE_BYTES bytes once decoded, 5242880 by default.
+   * The image bytes, base64-encoded with the standard padded alphabet. At most `PEEN_MAX_IMAGE_BYTES` bytes once decoded, 5242880 by default. Data that is not valid base64, or decodes to more than the limit, fails the message with `VALIDATION_FAILED`.
    */
   data: string;
 }
@@ -240,6 +305,14 @@ export function validateMessageImage(
   rtMinLength(path + ".data", v1, 1);
 }
 
+/**
+ * The image format. Peen checks that the decoded bytes are in the format this names and fails the message with `VALIDATION_FAILED` when they are not.
+ *
+ * - `image/png`: PNG image.
+ * - `image/jpeg`: JPEG image.
+ * - `image/gif`: GIF image.
+ * - `image/webp`: WebP image.
+ */
 export type MessageImageMediaType = "image/png" | "image/jpeg" | "image/gif" | "image/webp";
 
 /** Values of MessageImageMediaType. */
@@ -254,17 +327,24 @@ export function validateMessageImageMediaType(
 }
 
 /**
- * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+ * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
  */
 export interface Metadata {
   /**
+   * The session the frame belongs to, as a canonical lowercase UUIDv4. On `message.send` it routes the message to that session; a value that is not a canonical UUIDv4 string fails the message with `VALIDATION_FAILED`. A client with no session to name, such as an embedded single-workspace runtime, may omit it, and the message then runs against the runtime's own session; a controller has no such session, so it refuses a message without one. Every server frame carries it, except a `message.failed` answering a message Peen could not route or a `message.send` that carried no `id`.
+   *
    * Not enforced by the generated code: format uuid.
    */
   sessionId?: string;
   /**
+   * The ID Peen assigns to one submission. Every frame of a turn carries the turn's request ID, except the `userMessage.*` frames of a message queued into that turn, which carry the queued message's own. `message.completed` and `message.failed` carry the request ID of the submission they answer, so use it to find that submission's stored frames. Absent on `agent.run.*` and `notice.created`. Peen ignores a value sent on `message.send`.
+   *
    * Not enforced by the generated code: format uuid.
    */
   requestId?: string;
+  /**
+   * The frame's position in its session's feed. Sequences count up from 1 with no gaps across every stored frame of the session. Present only on stored frames, never on `message.completed` or `message.failed`. To catch up after a reconnect, pass the last sequence you applied as `cursor` to `GET /api/v1/session/feed`. Peen ignores a value sent on `message.send`.
+   */
   sequence?: number;
 }
 
@@ -287,6 +367,9 @@ export function validateMetadata(
   }
 }
 
+/**
+ * Any frame the server sends, selected by `type`. `message.completed` and `message.failed` are unsequenced acknowledgements of one client frame. Every other type is a sequenced feed frame with `metadata.sequence`: the model's reply as `content_block_*` blocks, Peen's protocol events for a root turn, `agent.run.*` steps of child agent runs, and `notice.created`. A client should skip a `type` it does not know and still advance its cursor past that frame's sequence.
+ */
 export type ServerEvent = MessageCompleted | MessageFailed | ContentBlockStart | ContentBlockDelta | ContentBlockStop | TurnStarted | UserMessageCreated | UserMessageQueued | UserMessageDelivered | SkillInjected | ProviderRetryEvent | ToolUseEvent | ToolResultEvent | SessionEvents | HarnessWarning | McpStatus | QuestionAskedEvent | QuestionAnsweredEvent | TurnCompleted | TurnFailed | TurnCancelled | NoticeCreated | AgentRunStarted | AgentRunTextDelta | AgentRunThinkingDelta | AgentRunToolUse | AgentRunToolResult | AgentRunAssistantMessage | AgentRunMessageInjected | AgentRunProviderRetry | AgentRunMessageQueued | AgentRunMessageDelivered | AgentRunMessageUndelivered | AgentRunQuestion | AgentRunAnswer | AgentRunCompleted | AgentRunFailed | AgentRunCancelled;
 
 /** validateServerEvent throws a ValidationError when value is not a valid ServerEvent. */
@@ -453,19 +536,37 @@ export function validateServerEvent(
   rtFail(path, "unknown \"type\" " + JSON.stringify(discriminator));
 }
 
+/**
+ * The successful end of one `message.send` submission. Peen sends it when the turn the message started completes, or at once when the message was queued into a running turn or sent to a child agent. It closes the submission, not the socket.
+ *
+ * It is a live acknowledgement: Peen does not store it, gives it no `metadata.sequence`, and never replays it through `GET /api/v1/session/feed`. It goes to every socket watching the session, not only the sender, so match `triggeredBy` against the frame IDs you sent. `metadata.requestId` is the request ID of the submission, which the stored frames of the turn or queued message also carry. It travels apart from the stored frames, so its order relative to the turn's terminal frame is not guaranteed.
+ */
 export interface MessageCompleted {
   /**
+   * A random UUID Peen generates for this acknowledgement. It is not stored and is never replayed.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `message.completed`.
+   */
   type: "message.completed";
+  /**
+   * The `data` of a `message.completed` frame.
+   */
   data: MessageCompletedData;
+  /**
+   * When Peen sent the frame, in Unix seconds.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * The `id` of the `message.send` frame this frame answers. Match it against the IDs you sent to find the answer to your own message, since other sockets watching the session receive it too.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -489,7 +590,13 @@ export function validateMessageCompleted(
   }
 }
 
+/**
+ * The `data` of a `message.completed` frame.
+ */
 export interface MessageCompletedData {
+  /**
+   * `false` when the message started a turn and that turn completed. `true` when the message joined a running turn's queue or went to a child agent with `to`. `true` acknowledges only the submission: `userMessage.delivered`, or `agent.run.message.delivered` for a child, reports when the model actually received it.
+   */
   queued: boolean;
 }
 
@@ -505,24 +612,36 @@ export function validateMessageCompletedData(
 }
 
 /**
- * A `message.failed` answering a session-routing failure carries no `metadata.sessionId`: it reaches only the client that sent the rejected message, before Peen knows which session it meant.
+ * The failed end of one `message.send` submission. A live acknowledgement: Peen does not store it, gives it no `metadata.sequence`, and never replays it through `GET /api/v1/session/feed`.
+ *
+ * Who receives it depends on where the message failed. A frame that carried no `id`, or that did not decode at all (not valid JSON, an `id` that is not a UUID string, or a field of the wrong type), gets a `message.failed` on the sending socket only, with a null `triggeredBy` and no `metadata.sessionId`, and the connection stays open. A message Peen could not route to a session gets a `message.failed` on the sending socket only, with no `metadata.sessionId`. A message whose `data` failed to decode also reaches only the sending socket, with `metadata.sessionId` set. Every later failure, such as an unknown session, a refused setting, or a turn that failed, was stopped, or timed out, reaches every socket watching the session, so match `triggeredBy` against the frame IDs you sent. A turn that fails after it started also stores its own `turn.failed` or `turn.cancelled` frame, and this acknowledgement's order relative to that frame is not guaranteed.
  */
 export interface MessageFailed {
   /**
+   * A random UUID Peen generates for this acknowledgement. It is not stored and is never replayed.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `message.failed`.
+   */
   type: "message.failed";
   /**
-   * `reason` is set only alongside code `HARNESS_CONFIGURATION_INVALID`, one of seven fixed client-safe sentences naming what is wrong with the workspace agent configuration, including a system prompt over PEEN_MAX_SYSTEM_PROMPT_PERCENT of the context window.
+   * The `data` of a `message.failed` frame. Unknown provider, worker, and tool errors never expose their details: they arrive as `INTERNAL_SERVER_ERROR` with a generic message.
    */
   data: MessageFailedData;
+  /**
+   * When Peen sent the frame, in Unix seconds.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * The `id` of the `message.send` frame this frame answers. Match it against the IDs you sent to find the answer to your own message, since other sockets watching the session receive it too. `null` when the failed frame carried no `id`.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -547,14 +666,35 @@ export function validateMessageFailed(
 }
 
 /**
- * `reason` is set only alongside code `HARNESS_CONFIGURATION_INVALID`, one of seven fixed client-safe sentences naming what is wrong with the workspace agent configuration, including a system prompt over PEEN_MAX_SYSTEM_PROMPT_PERCENT of the context window.
+ * The `data` of a `message.failed` frame. Unknown provider, worker, and tool errors never expose their details: they arrive as `INTERNAL_SERVER_ERROR` with a generic message.
  */
 export interface MessageFailedData {
   /**
-   * AGENT_PAUSED is deprecated and no longer sent, because a message to a paused child now resumes it.
+   * Why the submission failed:
+   *
+   * - `VALIDATION_FAILED`: the frame or its settings were refused: a frame that is not valid JSON, a missing, null, all-zero, or non-UUID `id`, malformed or unknown fields, an empty or oversized message or system prompt, refused images, an unknown skill, a `system` mismatch, a session ID that is not a canonical UUIDv4, or a queued message that tried to change the running turn's settings.
+   * - `INTERNAL_SERVER_ERROR`: Peen failed for a reason it does not disclose. Nothing about the cause is exposed.
+   * - `SESSION_NOT_FOUND`: the session `metadata.sessionId` names does not exist.
+   * - `TURN_CANCELLED`: the turn the message started was stopped before it completed.
+   * - `TURN_TIMEOUT`: the turn's deadline, from `timeoutSeconds` or `PEEN_TURN_TIMEOUT`, expired.
+   * - `OUTPUT_SCHEMA_INVALID`: `outputSchema` is over its byte limit, does not compile, or references an external resource.
+   * - `USER_MESSAGE_QUEUE_FULL`: the running turn's queue, or the child's inbox, already holds `PEEN_MAX_QUEUED_USER_MESSAGES` messages.
+   * - `SESSION_BUSY`: the message carries `outputSchema` or `timeoutSeconds`, which need a new turn, while the session already has one running.
+   * - `AGENT_FINISHED`: the child agent named by `to` has already ended.
+   * - `AGENT_NOT_FOUND`: the session has no child agent run with the ID `to` names.
+   * - `AGENT_PAUSED`: deprecated and no longer sent, because a message to a paused child now resumes it.
+   * - `HARNESS_CONFIGURATION_INVALID`: Peen could not start the turn because the workspace agent configuration is invalid. `reason` says what to fix.
+   * - `TURN_ROUND_LIMIT`: the turn used all `PEEN_MAX_TOOL_ROUNDS` model rounds.
+   * - `TURN_TOKEN_LIMIT`: the turn billed `PEEN_MAX_TURN_TOKENS` tokens.
    */
   code: MessageFailedCode;
+  /**
+   * A sentence for the sender. For `VALIDATION_FAILED` it is either a specific sentence written for the sender, such as `message.send requires an id` or which image or size limit was refused, or the generic `websocket message rejected`; for `INTERNAL_SERVER_ERROR` it is `websocket message failed`. For `TURN_ROUND_LIMIT` and `TURN_TOKEN_LIMIT` it names the setting that stopped the turn.
+   */
   message: string;
+  /**
+   * Set only alongside `HARNESS_CONFIGURATION_INVALID`. One of seven fixed sentences naming what is wrong with the workspace agent configuration and how to fix it: an invalid skill directory, invalid instructions or rules, an invalid named-agent document, invalid hooks or event handlers, too many or too large configuration files, unreadable configuration files, or a system prompt over `PEEN_MAX_SYSTEM_PROMPT_PERCENT` of the model's context window.
+   */
   reason?: string;
 }
 
@@ -574,7 +714,22 @@ export function validateMessageFailedData(
 }
 
 /**
- * AGENT_PAUSED is deprecated and no longer sent, because a message to a paused child now resumes it.
+ * Why the submission failed:
+ *
+ * - `VALIDATION_FAILED`: the frame or its settings were refused: a frame that is not valid JSON, a missing, null, all-zero, or non-UUID `id`, malformed or unknown fields, an empty or oversized message or system prompt, refused images, an unknown skill, a `system` mismatch, a session ID that is not a canonical UUIDv4, or a queued message that tried to change the running turn's settings.
+ * - `INTERNAL_SERVER_ERROR`: Peen failed for a reason it does not disclose. Nothing about the cause is exposed.
+ * - `SESSION_NOT_FOUND`: the session `metadata.sessionId` names does not exist.
+ * - `TURN_CANCELLED`: the turn the message started was stopped before it completed.
+ * - `TURN_TIMEOUT`: the turn's deadline, from `timeoutSeconds` or `PEEN_TURN_TIMEOUT`, expired.
+ * - `OUTPUT_SCHEMA_INVALID`: `outputSchema` is over its byte limit, does not compile, or references an external resource.
+ * - `USER_MESSAGE_QUEUE_FULL`: the running turn's queue, or the child's inbox, already holds `PEEN_MAX_QUEUED_USER_MESSAGES` messages.
+ * - `SESSION_BUSY`: the message carries `outputSchema` or `timeoutSeconds`, which need a new turn, while the session already has one running.
+ * - `AGENT_FINISHED`: the child agent named by `to` has already ended.
+ * - `AGENT_NOT_FOUND`: the session has no child agent run with the ID `to` names.
+ * - `AGENT_PAUSED`: deprecated and no longer sent, because a message to a paused child now resumes it.
+ * - `HARNESS_CONFIGURATION_INVALID`: Peen could not start the turn because the workspace agent configuration is invalid. `reason` says what to fix.
+ * - `TURN_ROUND_LIMIT`: the turn used all `PEEN_MAX_TOOL_ROUNDS` model rounds.
+ * - `TURN_TOKEN_LIMIT`: the turn billed `PEEN_MAX_TURN_TOKENS` tokens.
  */
 export type MessageFailedCode = "VALIDATION_FAILED" | "INTERNAL_SERVER_ERROR" | "SESSION_NOT_FOUND" | "TURN_CANCELLED" | "TURN_TIMEOUT" | "OUTPUT_SCHEMA_INVALID" | "USER_MESSAGE_QUEUE_FULL" | "SESSION_BUSY" | "AGENT_FINISHED" | "AGENT_NOT_FOUND" | "AGENT_PAUSED" | "HARNESS_CONFIGURATION_INVALID" | "TURN_ROUND_LIMIT" | "TURN_TOKEN_LIMIT";
 
@@ -589,19 +744,35 @@ export function validateMessageFailedCode(
   rtEnum(path, value, MessageFailedCodeValues);
 }
 
+/**
+ * Opens content block `data.index` of the model's reply. Peen emits it as the model streams. Text and thinking blocks open on their first fragment; tool blocks open when the call starts and when its result arrives. Deltas for the block follow, and a `content_block_stop` with the same index closes it. When a turn resumes after an interruption, Peen first closes any block the interruption left open. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
+ */
 export interface ContentBlockStart {
   /**
+   * The ID of the stored record this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `content_block_start`. Switch on it to read `data`.
+   */
   type: "content_block_start";
+  /**
+   * The `data` of a `content_block_start` frame, shaped like the Anthropic Messages stream event of the same name. Field names stay snake_case because Peen does not own this format.
+   */
   data: ContentBlockStartData;
+  /**
+   * When Peen stored the record, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Correlate stored frames through `metadata.requestId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -625,9 +796,21 @@ export function validateContentBlockStart(
   }
 }
 
+/**
+ * The `data` of a `content_block_start` frame, shaped like the Anthropic Messages stream event of the same name. Field names stay snake_case because Peen does not own this format.
+ */
 export interface ContentBlockStartData {
+  /**
+   * Always `content_block_start`, the same as the frame's `type`.
+   */
   type: "content_block_start";
+  /**
+   * The block's index within the turn. Indexes start at 0 for each turn and never repeat inside it, so key blocks by `metadata.requestId` and `index`. After a round's thinking and text blocks, the round's tool calls take the next indexes in call order, and their result blocks take the indexes after those, so a result block's index is known before the result arrives.
+   */
   index: number;
+  /**
+   * The block being opened. `type` selects the shape: `text`, `thinking`, `tool_use`, or `tool_result`.
+   */
   content_block: ContentBlock;
 }
 
@@ -645,6 +828,9 @@ export function validateContentBlockStartData(
   validateContentBlock(object["content_block"], path + ".content_block");
 }
 
+/**
+ * The block being opened. `type` selects the shape: `text`, `thinking`, `tool_use`, or `tool_result`.
+ */
 export type ContentBlock = ContentBlockTextStart | ContentBlockThinkingStart | ContentBlockToolUseStart | ContentBlockToolResultStart;
 
 /** validateContentBlock throws a ValidationError when value is not a valid ContentBlock. */
@@ -675,7 +861,13 @@ export function validateContentBlock(
   rtFail(path, "unknown \"type\" " + JSON.stringify(discriminator));
 }
 
+/**
+ * Opens a block of the model's reply text, in a `content_block_start` frame. Peen opens a text block only when the model writes text in that round, so it never sends an empty one.
+ */
 export interface ContentBlockTextStart {
+  /**
+   * Always `text`.
+   */
   type: "text";
   /**
    * Peen never sets this at block start.
@@ -697,7 +889,13 @@ export function validateContentBlockTextStart(
   }
 }
 
+/**
+ * Opens a block of the model's reasoning, in a `content_block_start` frame. A round's thinking block, when it has one, closes before that round's text block opens.
+ */
 export interface ContentBlockThinkingStart {
+  /**
+   * Always `thinking`.
+   */
   type: "thinking";
   /**
    * Peen never sets this at block start.
@@ -719,9 +917,21 @@ export function validateContentBlockThinkingStart(
   }
 }
 
+/**
+ * Opens the block for one tool call the model made, in a `content_block_start` frame. One `input_json_delta` with the call's arguments and a `content_block_stop` follow at once. Peen sends the root `tool.use` frame for the same call right before this block.
+ */
 export interface ContentBlockToolUseStart {
+  /**
+   * Always `tool_use`.
+   */
   type: "tool_use";
+  /**
+   * The tool call ID, the same as `callId` on the matching `tool.use` and `tool.result` frames. The `tool_result` block that answers this call carries it as `tool_use_id`.
+   */
   id: string;
+  /**
+   * The name of the tool the model called.
+   */
   name: string;
   /**
    * Open. Always `{}` at block start.
@@ -743,10 +953,18 @@ export function validateContentBlockToolUseStart(
   rtObject(object["input"], path + ".input");
 }
 
+/**
+ * Opens the block for one tool call's result, in a `content_block_start` frame. One `json_partial` delta with the whole result text and a `content_block_stop` follow at once. Peen sends the root `tool.result` frame for the same call right before this block.
+ */
 export interface ContentBlockToolResultStart {
+  /**
+   * Always `tool_result`.
+   */
   type: "tool_result";
+  /**
+   * The `id` of the `tool_use` block this result answers.
+   */
   tool_use_id: string;
-  content?: string;
   /**
    * Present only when `true`.
    */
@@ -760,30 +978,43 @@ export function validateContentBlockToolResultStart(
 ): asserts value is ContentBlockToolResultStart {
   const object = rtObject(value, path);
   rtRequire(path, object, ["type", "tool_use_id"]);
-  rtKnownKeys(path, object, ["type", "tool_use_id", "content", "is_error"]);
+  rtKnownKeys(path, object, ["type", "tool_use_id", "is_error"]);
   rtConst(path + ".type", object["type"], "tool_result");
   rtString(object["tool_use_id"], path + ".tool_use_id");
-  if (object["content"] !== undefined) {
-    rtString(object["content"], path + ".content");
-  }
   if (object["is_error"] !== undefined) {
     rtBoolean(object["is_error"], path + ".is_error");
   }
 }
 
+/**
+ * Appends to open content block `data.index`. To render a live reply, fold a turn's deltas in arrival order: append `text_delta` and `thinking_delta` text to their block, and attach each tool block to its call. Peen writes deltas in short batches, so they can arrive in bursts. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
+ */
 export interface ContentBlockDelta {
   /**
+   * The ID of the stored record this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `content_block_delta`. Switch on it to read `data`.
+   */
   type: "content_block_delta";
+  /**
+   * The `data` of a `content_block_delta` frame, shaped like the Anthropic Messages stream event of the same name.
+   */
   data: ContentBlockDeltaData;
+  /**
+   * When Peen stored the record, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Correlate stored frames through `metadata.requestId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -807,9 +1038,21 @@ export function validateContentBlockDelta(
   }
 }
 
+/**
+ * The `data` of a `content_block_delta` frame, shaped like the Anthropic Messages stream event of the same name.
+ */
 export interface ContentBlockDeltaData {
+  /**
+   * Always `content_block_delta`, the same as the frame's `type`.
+   */
   type: "content_block_delta";
+  /**
+   * The index of the open block this delta appends to.
+   */
   index: number;
+  /**
+   * The fragment to append. `type` selects the shape: `text_delta`, `thinking_delta`, `input_json_delta`, or `json_partial`.
+   */
   delta: Delta;
 }
 
@@ -827,6 +1070,9 @@ export function validateContentBlockDeltaData(
   validateDelta(object["delta"], path + ".delta");
 }
 
+/**
+ * The fragment to append. `type` selects the shape: `text_delta`, `thinking_delta`, `input_json_delta`, or `json_partial`.
+ */
 export type Delta = TextDelta | ThinkingDelta | InputJSONDelta | JSONPartialDelta;
 
 /** validateDelta throws a ValidationError when value is not a valid Delta. */
@@ -857,8 +1103,17 @@ export function validateDelta(
   rtFail(path, "unknown \"type\" " + JSON.stringify(discriminator));
 }
 
+/**
+ * A fragment of the model's reply text, in a `content_block_delta` frame for a `text` block.
+ */
 export interface TextDelta {
+  /**
+   * Always `text_delta`.
+   */
   type: "text_delta";
+  /**
+   * The fragment, never empty. Append it to the block's earlier fragments.
+   */
   text: string;
 }
 
@@ -874,8 +1129,17 @@ export function validateTextDelta(
   rtString(object["text"], path + ".text");
 }
 
+/**
+ * A fragment of the model's reasoning, in a `content_block_delta` frame for a `thinking` block.
+ */
 export interface ThinkingDelta {
+  /**
+   * Always `thinking_delta`.
+   */
   type: "thinking_delta";
+  /**
+   * The fragment, never empty. Append it to the block's earlier fragments.
+   */
   text: string;
 }
 
@@ -891,10 +1155,16 @@ export function validateThinkingDelta(
   rtString(object["text"], path + ".text");
 }
 
+/**
+ * The arguments of a tool call, in the `content_block_delta` frame of a `tool_use` block. Peen sends the whole arguments document in one delta, so each `tool_use` block has exactly one.
+ */
 export interface InputJSONDelta {
+  /**
+   * Always `input_json_delta`.
+   */
   type: "input_json_delta";
   /**
-   * Free text. One fragment of a streamed JSON document.
+   * Free text. The tool call's arguments as the JSON text the provider returned. Peen sends the whole document here, though a client that concatenates every `input_json_delta` of a block gets the same result.
    */
   partial_json: string;
 }
@@ -911,10 +1181,16 @@ export function validateInputJSONDelta(
   rtString(object["partial_json"], path + ".partial_json");
 }
 
+/**
+ * The result of a tool call, in the `content_block_delta` frame of a `tool_result` block. Peen sends the whole result in one delta, so each `tool_result` block has exactly one.
+ */
 export interface JSONPartialDelta {
+  /**
+   * Always `json_partial`.
+   */
   type: "json_partial";
   /**
-   * Free text. One fragment of a streamed JSON document.
+   * Free text. The tool's result text, the same as `content` on the matching `tool.result` frame. It is not necessarily JSON.
    */
   text: string;
 }
@@ -931,19 +1207,35 @@ export function validateJSONPartialDelta(
   rtString(object["text"], path + ".text");
 }
 
+/**
+ * Closes content block `data.index`. No more deltas arrive for that index in this turn. When the turn ends, its messages are stored and `GET /api/v1/messages` returns the finished reply. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
+ */
 export interface ContentBlockStop {
   /**
+   * The ID of the stored record this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `content_block_stop`. Switch on it to read `data`.
+   */
   type: "content_block_stop";
+  /**
+   * The `data` of a `content_block_stop` frame.
+   */
   data: ContentBlockStopData;
+  /**
+   * When Peen stored the record, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Correlate stored frames through `metadata.requestId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -967,8 +1259,17 @@ export function validateContentBlockStop(
   }
 }
 
+/**
+ * The `data` of a `content_block_stop` frame.
+ */
 export interface ContentBlockStopData {
+  /**
+   * Always `content_block_stop`, the same as the frame's `type`.
+   */
   type: "content_block_stop";
+  /**
+   * The index of the block that closed.
+   */
   index: number;
 }
 
@@ -985,22 +1286,50 @@ export function validateContentBlockStopData(
   rtMinimum(path + ".index", v2, 0);
 }
 
+/**
+ * The turn is set up and about to make its first model call. Peen emits it once per turn, after the frames that open the turn and before the first content block.
+ *
+ * The frames of one turn arrive in sequence order, and every frame of the turn carries the turn's `metadata.requestId`. A turn's frames arrive in this order:
+ *
+ * 1. `userMessage.created`
+ * 2. one `skill.injected` per forced skill
+ * 3. `session.events` when notices were waiting
+ * 4. `harness.warning` when Peen ignored harness files
+ * 5. `mcp.status`
+ * 6. `turn.started`
+ * 7. the model rounds, each one made of content blocks, `tool.use` and `tool.result` frames, `provider.retry`, `session.events` delivered at tool boundaries, `question.asked` and `question.answered`, and the `userMessage.*` and `skill.injected` frames of queued messages
+ * 8. exactly one terminal frame, `turn.completed`, `turn.failed`, or `turn.cancelled`
+ *
+ * `agent.run.*` and `notice.created` frames of the same session interleave in the same feed. The `message.completed` or `message.failed` that answers the submission is sent on a separate, unstored path, so do not rely on where it falls relative to the turn's stored frames.
+ *
+ * Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
+ */
 export interface TurnStarted {
   /**
+   * The ID of the stored record this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `turn.started`. Switch on it to read `data`.
+   */
   type: "turn.started";
   /**
-   * `originEventId` and `originEventType` are present only on a turn a session event started.
+   * The `data` of a `turn.started` frame. `originEventId` and `originEventType` are present only on a turn that a session event started.
    */
   data: TurnStartedData;
+  /**
+   * When Peen stored the record, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Correlate stored frames through `metadata.requestId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -1025,19 +1354,32 @@ export function validateTurnStarted(
 }
 
 /**
- * `originEventId` and `originEventType` are present only on a turn a session event started.
+ * The `data` of a `turn.started` frame. `originEventId` and `originEventType` are present only on a turn that a session event started.
  */
 export interface TurnStartedData {
   /**
+   * The session the turn runs in.
+   *
    * Not enforced by the generated code: format uuid.
    */
   sessionId: string;
+  /**
+   * The model the turn runs on, as `provider/model`: the message's `model`, or the deployment default.
+   */
   model: string;
+  /**
+   * The session's workspace directory, the canonical path the session was opened with.
+   */
   workspace: string;
   /**
+   * The ID of the session notice whose event handler started this turn. Absent on a turn a message started.
+   *
    * Not enforced by the generated code: format uuid.
    */
   originEventId?: string;
+  /**
+   * The event type of that notice, such as `ci.build.failed`. Absent on a turn a message started.
+   */
   originEventType?: string;
 }
 
@@ -1060,19 +1402,35 @@ export function validateTurnStartedData(
   }
 }
 
+/**
+ * Peen accepted a user message. Every accepted `message.send` produces one, and so does every other turn start, such as a turn an event handler started. It is the first frame of a turn the message starts. For a message that joins a running turn it arrives among that turn's frames, carrying the queued message's own `metadata.requestId`, and `userMessage.queued` follows it. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
+ */
 export interface UserMessageCreated {
   /**
+   * The ID of the stored record this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `userMessage.created`. Switch on it to read `data`.
+   */
   type: "userMessage.created";
+  /**
+   * A user message Peen accepted. It is the `data` of `userMessage.created`, `userMessage.queued`, and `userMessage.delivered`.
+   */
   data: UserMessage;
+  /**
+   * When Peen stored the record, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Correlate stored frames through `metadata.requestId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -1096,14 +1454,22 @@ export function validateUserMessageCreated(
   }
 }
 
+/**
+ * A user message Peen accepted. It is the `data` of `userMessage.created`, `userMessage.queued`, and `userMessage.delivered`.
+ */
 export interface UserMessage {
+  /**
+   * The message text as it was accepted. For a turn a session event started, this is the event handler's instructions.
+   */
   message: string;
   /**
+   * The `id` of the `message.send` frame that carried the message. Absent when no WebSocket frame carried it, such as a turn a session event started.
+   *
    * Not enforced by the generated code: format uuid.
    */
   sourceEventId?: string;
   /**
-   * The images sent with the message, without their bytes.
+   * The images the message carries, without their bytes. Absent when the message has none, and always absent on `userMessage.delivered`.
    */
   images?: Array<UserMessageImage>;
 }
@@ -1128,8 +1494,17 @@ export function validateUserMessage(
   }
 }
 
+/**
+ * One image a user message carries, described without its bytes. It appears in `userMessage.created` and `userMessage.queued`.
+ */
 export interface UserMessageImage {
+  /**
+   * The image's media type, as the `message.send` frame gave it: `image/png`, `image/jpeg`, `image/gif`, or `image/webp`.
+   */
   mediaType: string;
+  /**
+   * The decoded size of the image in bytes.
+   */
   sizeBytes: number;
 }
 
@@ -1145,19 +1520,35 @@ export function validateUserMessageImage(
   rtInteger(object["sizeBytes"], path + ".sizeBytes");
 }
 
+/**
+ * An accepted message joined the running turn's queue. It follows that message's `userMessage.created` and carries the queued message's own `metadata.requestId`. The message reaches the model when the running turn's current model round ends, after every tool call in that round has finished, and `userMessage.delivered` reports that. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
+ */
 export interface UserMessageQueued {
   /**
+   * The ID of the stored record this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `userMessage.queued`. Switch on it to read `data`.
+   */
   type: "userMessage.queued";
+  /**
+   * A user message Peen accepted. It is the `data` of `userMessage.created`, `userMessage.queued`, and `userMessage.delivered`.
+   */
   data: UserMessage;
+  /**
+   * When Peen stored the record, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Correlate stored frames through `metadata.requestId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -1181,19 +1572,35 @@ export function validateUserMessageQueued(
   }
 }
 
+/**
+ * A queued message reached the model. It carries the queued message's own `metadata.requestId`, so it pairs with that message's `userMessage.queued`. Queued messages are delivered in the order they were sent, one `userMessage.delivered` per message, followed by one `skill.injected` per skill message that came with it. Its `data` has no `images`. A queued message that never got a delivery frame is not necessarily lost: Peen keeps accepted messages until delivery. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
+ */
 export interface UserMessageDelivered {
   /**
+   * The ID of the stored record this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `userMessage.delivered`. Switch on it to read `data`.
+   */
   type: "userMessage.delivered";
+  /**
+   * A user message Peen accepted. It is the `data` of `userMessage.created`, `userMessage.queued`, and `userMessage.delivered`.
+   */
   data: UserMessage;
+  /**
+   * When Peen stored the record, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Correlate stored frames through `metadata.requestId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -1217,19 +1624,35 @@ export function validateUserMessageDelivered(
   }
 }
 
+/**
+ * A skill message reached the model right after the user message that named it with `:name`, or the note that the skill is already loaded did. At the start of a turn it follows `userMessage.created`. For a queued message it follows that message's `userMessage.delivered` and carries the running turn's `metadata.requestId`. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
+ */
 export interface SkillInjected {
   /**
+   * The ID of the stored record this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `skill.injected`. Switch on it to read `data`.
+   */
   type: "skill.injected";
+  /**
+   * The `data` of a `skill.injected` frame.
+   */
   data: SkillInjectedData;
+  /**
+   * When Peen stored the record, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Correlate stored frames through `metadata.requestId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -1253,8 +1676,17 @@ export function validateSkillInjected(
   }
 }
 
+/**
+ * The `data` of a `skill.injected` frame.
+ */
 export interface SkillInjectedData {
+  /**
+   * The resolved name of the skill, such as `reviewer` or `core:name` for a core skill.
+   */
   name: string;
+  /**
+   * The whole message the model received for the skill: the `<skill>` block with its name, description, directory, and full `SKILL.md`, or the note that the skill is already loaded.
+   */
   content: string;
 }
 
@@ -1270,19 +1702,35 @@ export function validateSkillInjectedData(
   rtString(object["content"], path + ".content");
 }
 
+/**
+ * A provider request of the root conversation failed and Peen will retry it after `data.delayMs`. A turn can emit several, one per failed attempt. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
+ */
 export interface ProviderRetryEvent {
   /**
+   * The ID of the stored record this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `provider.retry`. Switch on it to read `data`.
+   */
   type: "provider.retry";
+  /**
+   * One failed provider request that Peen is about to retry. It is the `data` of a root `provider.retry` frame and the `event` of a child's `agent.run.provider.retry` frame. Peen sends it before it waits, so `delayMs` is the wait still ahead. Only retryable failures (rate limits, server errors, timeouts, and broken connections) produce it; a failure Peen does not retry ends the turn instead.
+   */
   data: ProviderRetry;
+  /**
+   * When Peen stored the record, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Correlate stored frames through `metadata.requestId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -1306,10 +1754,31 @@ export function validateProviderRetryEvent(
   }
 }
 
+/**
+ * One failed provider request that Peen is about to retry. It is the `data` of a root `provider.retry` frame and the `event` of a child's `agent.run.provider.retry` frame. Peen sends it before it waits, so `delayMs` is the wait still ahead. Only retryable failures (rate limits, server errors, timeouts, and broken connections) produce it; a failure Peen does not retry ends the turn instead.
+ */
 export interface ProviderRetry {
+  /**
+   * The number of the attempt that failed, counting from 1.
+   */
   attempt: number;
+  /**
+   * Why the attempt failed:
+   *
+   * - `""`: the failure was not classified. Peen does not retry such a failure, so a frame rarely carries it.
+   * - `rate_limited`: the provider refused the request for rate limiting (HTTP 429 or the provider's rate limit code).
+   * - `server_error`: the provider reported a server-side error or overload.
+   * - `timeout`: the connection to the provider timed out.
+   * - `transport`: the connection to the provider failed or broke before the provider answered.
+   */
   reason: ProviderRetryReason;
+  /**
+   * The HTTP status the failed attempt returned. `0` when the failure carried no HTTP status, such as a broken connection. A provider that reports an error inside a streamed response can leave this at `200`.
+   */
   status: number;
+  /**
+   * How long Peen waits before the next attempt, in milliseconds.
+   */
   delayMs: number;
 }
 
@@ -1327,6 +1796,15 @@ export function validateProviderRetry(
   rtInteger(object["delayMs"], path + ".delayMs");
 }
 
+/**
+ * Why the attempt failed:
+ *
+ * - `""`: the failure was not classified. Peen does not retry such a failure, so a frame rarely carries it.
+ * - `rate_limited`: the provider refused the request for rate limiting (HTTP 429 or the provider's rate limit code).
+ * - `server_error`: the provider reported a server-side error or overload.
+ * - `timeout`: the connection to the provider timed out.
+ * - `transport`: the connection to the provider failed or broke before the provider answered.
+ */
 export type ProviderRetryReason = "" | "rate_limited" | "server_error" | "timeout" | "transport";
 
 /** Values of ProviderRetryReason. */
@@ -1340,19 +1818,35 @@ export function validateProviderRetryReason(
   rtEnum(path, value, ProviderRetryReasonValues);
 }
 
+/**
+ * The model of the root conversation started a tool call. Peen emits it before the tool runs, right before the call's `tool_use` content block. A matching `tool.result` with the same `callId` always follows. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
+ */
 export interface ToolUseEvent {
   /**
+   * The ID of the stored record this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `tool.use`. Switch on it to read `data`.
+   */
   type: "tool.use";
+  /**
+   * One tool call the model requested. It is the `data` of a root `tool.use` frame and the `event` of a child's `agent.run.tool.use` frame.
+   */
   data: ToolUse;
+  /**
+   * When Peen stored the record, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Correlate stored frames through `metadata.requestId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -1376,8 +1870,17 @@ export function validateToolUseEvent(
   }
 }
 
+/**
+ * One tool call the model requested. It is the `data` of a root `tool.use` frame and the `event` of a child's `agent.run.tool.use` frame.
+ */
 export interface ToolUse {
+  /**
+   * The call ID the model assigned. The matching `tool.result`, the `tool_use` content block's `id`, and the `tool_result` block's `tool_use_id` carry the same value.
+   */
   callId: string;
+  /**
+   * The name of the tool the model called, as the tool catalogue lists it. An MCP tool is named `mcp__<server>__<tool>`.
+   */
   name: string;
   /**
    * Open. The tool's own arguments, shaped by that tool, exactly as the provider returned them; null when the provider sent none.
@@ -1400,19 +1903,35 @@ export function validateToolUse(
   }
 }
 
+/**
+ * A root tool call finished, or was stopped. Peen stores the call's result before it emits this frame, right before the call's `tool_result` content block. Calls in one round can run in parallel, so results can arrive in a different order from their `tool.use` frames. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
+ */
 export interface ToolResultEvent {
   /**
+   * The ID of the stored record this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `tool.result`. Switch on it to read `data`.
+   */
   type: "tool.result";
+  /**
+   * The outcome of one tool call. It is the `data` of a root `tool.result` frame and the `event` of a child's `agent.run.tool.result` frame. Every `tool.use` gets exactly one result, even when its turn is stopped or fails while the call runs.
+   */
   data: ToolResult;
+  /**
+   * When Peen stored the record, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Correlate stored frames through `metadata.requestId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -1436,10 +1955,25 @@ export function validateToolResultEvent(
   }
 }
 
+/**
+ * The outcome of one tool call. It is the `data` of a root `tool.result` frame and the `event` of a child's `agent.run.tool.result` frame. Every `tool.use` gets exactly one result, even when its turn is stopped or fails while the call runs.
+ */
 export interface ToolResult {
+  /**
+   * The call ID of the `tool.use` this result answers.
+   */
   callId: string;
+  /**
+   * The name of the tool that ran.
+   */
   name: string;
+  /**
+   * The result text as Peen hands it to the model. A call still running when its turn or child run was stopped gets the fixed text "The tool call was stopped before it returned a result. Its effect is unknown." with `isError` set.
+   */
   content: string;
+  /**
+   * `true` when the tool reported an error or the call was stopped before it returned, `false` otherwise.
+   */
   isError: boolean;
 }
 
@@ -1457,19 +1991,35 @@ export function validateToolResult(
   rtBoolean(object["isError"], path + ".isError");
 }
 
+/**
+ * Pending session notices were handed to the model as one message. Peen delivers them at the start of a turn, before `turn.started`, and at each tool boundary inside a running turn, right after a tool result. A `turn.failed` or `turn.cancelled` notice is listed here too, though the model does not receive it as event data. Only the root conversation receives session events. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
+ */
 export interface SessionEvents {
   /**
+   * The ID of the stored record this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `session.events`. Switch on it to read `data`.
+   */
   type: "session.events";
+  /**
+   * The `data` of a `session.events` frame.
+   */
   data: SessionEventsData;
+  /**
+   * When Peen stored the record, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Correlate stored frames through `metadata.requestId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -1493,8 +2043,17 @@ export function validateSessionEvents(
   }
 }
 
+/**
+ * The `data` of a `session.events` frame.
+ */
 export interface SessionEventsData {
+  /**
+   * The notices delivered in this batch, oldest first. Peen marks them delivered when it sends this frame.
+   */
   notices: Array<Notice>;
+  /**
+   * Kept for compatibility and always `0`, because Peen delivers every stored notice.
+   */
   dropped: number;
 }
 
@@ -1516,25 +2075,47 @@ export function validateSessionEventsData(
 }
 
 /**
- * One notice as it reaches the model, inside a `session.events` frame's `notices`.
+ * One session event as it reached the model, inside a `session.events` frame's `notices`. It is the same notice `GET /api/v1/session/notices` lists and that a `notice.created` frame announced when it was recorded.
  */
 export interface Notice {
   /**
+   * The notice's ID, the same as on its `notice.created` frame.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
   /**
+   * The session the notice belongs to.
+   *
    * Not enforced by the generated code: format uuid.
    */
   sessionId: string;
+  /**
+   * The event type, a lowercase dotted name such as `job.exited` or `ci.build.failed`, 1 to 8 parts and up to 128 characters. `job.*`, `agent.*`, and `turn.*` are reserved for events Peen publishes itself.
+   */
   type: string;
+  /**
+   * Who published the notice: `tools.job` for background jobs, `agent.launchAgent` for child agents, `session.turn` for turns that ended without completing, `hooks` for hooks, and `api` for `POST /api/v1/session/notices`.
+   */
   source: string;
+  /**
+   * A one-line headline the model reads first. At most `PEEN_MAX_EVENT_SUMMARY_BYTES` bytes, 4096 by default.
+   */
   summary: string;
   /**
-   * Open. Caller-supplied at publication time.
+   * Open. A JSON object whose shape depends on `type`, at most `PEEN_MAX_EVENT_DATA_BYTES` bytes encoded, 65536 by default. Absent when the notice has none.
    */
   data?: Record<string, unknown>;
+  /**
+   * The delivery mode the publisher requested. A handler file for the type can override it.
+   *
+   * - `queue`: the notice waits for the next turn start or tool boundary and never starts a turn by itself.
+   * - `wake`: the notice may start a turn on an idle session when a handler for its type exists and the wake limit allows it; otherwise it is queued.
+   */
   delivery: NoticeDelivery;
+  /**
+   * When Peen stored the notice, RFC 3339.
+   */
   createdAt: string;
 }
 
@@ -1558,6 +2139,12 @@ export function validateNotice(
   rtDateTime(object["createdAt"], path + ".createdAt");
 }
 
+/**
+ * The delivery mode the publisher requested. A handler file for the type can override it.
+ *
+ * - `queue`: the notice waits for the next turn start or tool boundary and never starts a turn by itself.
+ * - `wake`: the notice may start a turn on an idle session when a handler for its type exists and the wake limit allows it; otherwise it is queued.
+ */
 export type NoticeDelivery = "queue" | "wake";
 
 /** Values of NoticeDelivery. */
@@ -1571,19 +2158,35 @@ export function validateNoticeDelivery(
   rtEnum(path, value, NoticeDeliveryValues);
 }
 
+/**
+ * Peen ignored one or more invalid optional harness files and loaded the valid configuration around them. A bad optional file does not stop a turn, but a `:skill-name` reference to a skill Peen ignored still fails the message. Peen emits it at most once per turn, before `mcp.status` and `turn.started`, and only when there is something to report. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
+ */
 export interface HarnessWarning {
   /**
+   * The ID of the stored record this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `harness.warning`. Switch on it to read `data`.
+   */
   type: "harness.warning";
+  /**
+   * The `data` of a `harness.warning` frame.
+   */
   data: HarnessWarningData;
+  /**
+   * When Peen stored the record, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Correlate stored frames through `metadata.requestId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -1607,7 +2210,13 @@ export function validateHarnessWarning(
   }
 }
 
+/**
+ * The `data` of a `harness.warning` frame.
+ */
 export interface HarnessWarningData {
+  /**
+   * Every source Peen ignored for this turn, at least one.
+   */
   warnings: Array<HarnessWarningItem>;
 }
 
@@ -1626,8 +2235,24 @@ export function validateHarnessWarningData(
   }
 }
 
+/**
+ * One harness source that Peen ignored, or a skill that names a skill that does not exist.
+ */
 export interface HarnessWarningItem {
+  /**
+   * What kind of source Peen ignored:
+   *
+   * - `instruction`: an `AGENTS.md` instruction file.
+   * - `rule`: a rule file in `.agents/rules`, or the learned rules directory.
+   * - `skill`: a skill in `.agents/skills`, or a skill that names a skill that does not exist.
+   * - `agent`: a named-agent document in `.agents/agents`.
+   * - `event-handler`: an event handler in `.agents/events`.
+   * - `hook`: a hook definition in `.agents/hooks.yaml`.
+   */
   kind: HarnessWarningKind;
+  /**
+   * The path of the file or directory Peen ignored.
+   */
   source: string;
   /**
    * Free text naming what is wrong with this source.
@@ -1648,6 +2273,16 @@ export function validateHarnessWarningItem(
   rtString(object["reason"], path + ".reason");
 }
 
+/**
+ * What kind of source Peen ignored:
+ *
+ * - `instruction`: an `AGENTS.md` instruction file.
+ * - `rule`: a rule file in `.agents/rules`, or the learned rules directory.
+ * - `skill`: a skill in `.agents/skills`, or a skill that names a skill that does not exist.
+ * - `agent`: a named-agent document in `.agents/agents`.
+ * - `event-handler`: an event handler in `.agents/events`.
+ * - `hook`: a hook definition in `.agents/hooks.yaml`.
+ */
 export type HarnessWarningKind = "instruction" | "rule" | "skill" | "agent" | "event-handler" | "hook";
 
 /** Values of HarnessWarningKind. */
@@ -1661,19 +2296,35 @@ export function validateHarnessWarningKind(
   rtEnum(path, value, HarnessWarningKindValues);
 }
 
+/**
+ * The session's MCP servers at the start of a turn. Peen emits it on every turn, after any `harness.warning` and before `turn.started`, re-reading the `mcp.json` files first, so a client always sees the current state. A session with no MCP servers configured gets an empty `servers` list. `GET /api/v1/session/mcp` returns the latest one. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
+ */
 export interface McpStatus {
   /**
+   * The ID of the stored record this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `mcp.status`. Switch on it to read `data`.
+   */
   type: "mcp.status";
+  /**
+   * The `data` of an `mcp.status` frame.
+   */
   data: McpStatusData;
+  /**
+   * When Peen stored the record, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Correlate stored frames through `metadata.requestId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -1697,7 +2348,13 @@ export function validateMcpStatus(
   }
 }
 
+/**
+ * The `data` of an `mcp.status` frame.
+ */
 export interface McpStatusData {
+  /**
+   * Every configured MCP server, in configuration order. Empty when the session has no MCP servers configured.
+   */
   servers: Array<McpServerStatus>;
 }
 
@@ -1715,27 +2372,45 @@ export function validateMcpStatusData(
   }
 }
 
+/**
+ * One configured MCP server as Peen found it at the start of a turn.
+ */
 export interface McpServerStatus {
   /**
    * The server name from mcp.json. Empty when a whole mcp.json file was refused.
    */
   name: string;
   /**
-   * The layer whose .agents/mcp.json defines the server.
+   * The layer whose `.agents/mcp.json` defines the server:
+   *
+   * - `config`: `PEEN_CONFIG_DIR/.agents/mcp.json`, the deployment's configuration directory.
+   * - `workspace`: the session workspace's `.agents/mcp.json`, read only when `PEEN_WORKSPACE_MCP` is `true`. A workspace server never replaces a configuration directory server of the same name.
    */
   source: McpServerSource;
+  /**
+   * How Peen reaches the server. Absent when a whole `mcp.json` file was refused.
+   *
+   * - `stdio`: a local process Peen starts and talks to over standard input and output.
+   * - `http`: a remote server reached over Streamable HTTP.
+   */
   transport?: McpServerTransport;
+  /**
+   * Whether the server started:
+   *
+   * - `ready`: the server started and its tools are available to the model.
+   * - `failed`: the server, or its whole `mcp.json` file, could not be used. `error` says why.
+   */
   state: McpServerState;
   /**
-   * The exposed tool names, mcp__<server>__<tool>.
+   * The names of the server's tools as the model sees them, `mcp__<server>__<tool>`. Empty when the server failed.
    */
   tools: Array<string>;
   /**
-   * Why the server failed.
+   * Why the server failed. Absent when `state` is `ready`.
    */
   error?: string;
   /**
-   * Problems that did not stop the server.
+   * Problems that did not stop the server, such as an allowlisted tool the server does not offer. Absent when there are none.
    */
   warnings?: Array<string>;
 }
@@ -1770,7 +2445,10 @@ export function validateMcpServerStatus(
 }
 
 /**
- * The layer whose .agents/mcp.json defines the server.
+ * The layer whose `.agents/mcp.json` defines the server:
+ *
+ * - `config`: `PEEN_CONFIG_DIR/.agents/mcp.json`, the deployment's configuration directory.
+ * - `workspace`: the session workspace's `.agents/mcp.json`, read only when `PEEN_WORKSPACE_MCP` is `true`. A workspace server never replaces a configuration directory server of the same name.
  */
 export type McpServerSource = "config" | "workspace";
 
@@ -1785,6 +2463,12 @@ export function validateMcpServerSource(
   rtEnum(path, value, McpServerSourceValues);
 }
 
+/**
+ * How Peen reaches the server. Absent when a whole `mcp.json` file was refused.
+ *
+ * - `stdio`: a local process Peen starts and talks to over standard input and output.
+ * - `http`: a remote server reached over Streamable HTTP.
+ */
 export type McpServerTransport = "stdio" | "http";
 
 /** Values of McpServerTransport. */
@@ -1798,6 +2482,12 @@ export function validateMcpServerTransport(
   rtEnum(path, value, McpServerTransportValues);
 }
 
+/**
+ * Whether the server started:
+ *
+ * - `ready`: the server started and its tools are available to the model.
+ * - `failed`: the server, or its whole `mcp.json` file, could not be used. `error` says why.
+ */
 export type McpServerState = "ready" | "failed";
 
 /** Values of McpServerState. */
@@ -1811,19 +2501,35 @@ export function validateMcpServerState(
   rtEnum(path, value, McpServerStateValues);
 }
 
+/**
+ * The root conversation asked you a question with the `ask` tool and is waiting. Send your answer as the next `message.send`: it joins the running turn's queue and reaches the waiting model. A `question.answered` frame follows when the ask ends. A child agent's questions arrive as `agent.run.question` instead. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
+ */
 export interface QuestionAskedEvent {
   /**
+   * The ID of the stored record this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `question.asked`. Switch on it to read `data`.
+   */
   type: "question.asked";
+  /**
+   * A question an agent asked with the `ask` tool. It is the `data` of a root `question.asked` frame and the `event` of a child's `agent.run.question` frame. The agent waits until a message reaches it or the ask times out. For the root conversation, your next message is the answer.
+   */
   data: QuestionAsked;
+  /**
+   * When Peen stored the record, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Correlate stored frames through `metadata.requestId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -1847,8 +2553,17 @@ export function validateQuestionAskedEvent(
   }
 }
 
+/**
+ * A question an agent asked with the `ask` tool. It is the `data` of a root `question.asked` frame and the `event` of a child's `agent.run.question` frame. The agent waits until a message reaches it or the ask times out. For the root conversation, your next message is the answer.
+ */
 export interface QuestionAsked {
+  /**
+   * The question text.
+   */
   question: string;
+  /**
+   * The call ID of the `ask` tool call, matching its `tool.use` and the later answer frame. Present on every frame Peen sends now; absent only on frames stored before Peen recorded it.
+   */
   callId?: string;
 }
 
@@ -1866,19 +2581,35 @@ export function validateQuestionAsked(
   }
 }
 
+/**
+ * The root conversation's `ask` ended, because a message reached it or because it timed out. It follows the matching `question.asked`. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
+ */
 export interface QuestionAnsweredEvent {
   /**
+   * The ID of the stored record this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `question.answered`. Switch on it to read `data`.
+   */
   type: "question.answered";
+  /**
+   * The end of an `ask` call. It is the `data` of a root `question.answered` frame and the `event` of a child's `agent.run.answer` frame. It carries no answer text: the answer is the message that reached the agent.
+   */
   data: QuestionAnswered;
+  /**
+   * When Peen stored the record, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Correlate stored frames through `metadata.requestId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -1902,8 +2633,17 @@ export function validateQuestionAnsweredEvent(
   }
 }
 
+/**
+ * The end of an `ask` call. It is the `data` of a root `question.answered` frame and the `event` of a child's `agent.run.answer` frame. It carries no answer text: the answer is the message that reached the agent.
+ */
 export interface QuestionAnswered {
+  /**
+   * `true` when a message reached the agent before the ask timed out, `false` when it timed out.
+   */
   answered: boolean;
+  /**
+   * The call ID of the `ask` tool call this ends, matching the `question.asked` or `agent.run.question` frame. Present on every frame Peen sends now; absent only on frames stored before Peen recorded it.
+   */
   callId?: string;
 }
 
@@ -1921,19 +2661,35 @@ export function validateQuestionAnswered(
   }
 }
 
+/**
+ * The turn finished. It is the turn's last frame. Its messages are stored, and `GET /api/v1/messages` returns them. A message that started the turn then gets `message.completed` with `queued: false`. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
+ */
 export interface TurnCompleted {
   /**
+   * The ID of the stored record this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `turn.completed`. Switch on it to read `data`.
+   */
   type: "turn.completed";
+  /**
+   * The `data` of a `turn.completed` frame. `GET /api/v1/session/turns` returns the same `output` and `outputError` with the stored turn.
+   */
   data: TurnCompletedData;
+  /**
+   * When Peen stored the record, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Correlate stored frames through `metadata.requestId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -1957,16 +2713,25 @@ export function validateTurnCompleted(
   }
 }
 
+/**
+ * The `data` of a `turn.completed` frame. `GET /api/v1/session/turns` returns the same `output` and `outputError` with the stored turn.
+ */
 export interface TurnCompletedData {
   /**
-   * The validated JSON answer when outputSchema was given.
+   * The validated JSON value of the final answer. Present only when the message carried `outputSchema` and an attempt passed validation.
    */
   output?: unknown;
   /**
-   * Why every structured output attempt failed.
+   * Why no structured output attempt passed validation, or why the attempts stopped, such as reaching the turn token budget. Present only when the message carried `outputSchema` and no attempt passed. The turn still completes.
    */
   outputError?: string;
+  /**
+   * The model the turn ran on, as `provider/model`.
+   */
   model: string;
+  /**
+   * The model's final reply text. It can be empty, for example when the reply hit the output token limit while the model was still reasoning.
+   */
   text: string;
   /**
    * Why the model stopped its final reply, as the provider reported it, such as `stop`, or `length` when the reply reached the output token limit and was cut off. Absent when the provider reported no reason.
@@ -1992,19 +2757,35 @@ export function validateTurnCompletedData(
   }
 }
 
+/**
+ * The turn ended with an error, or its worker or controller stopped before it ended. It is the turn's last frame. Every tool call still running first gets a `tool.result` with `isError` set, so every `tool.use` has a result. Peen stores a `turn.failed` session notice in the same transaction, so a `notice.created` frame for it follows nearby in the feed. A message that started the turn gets `message.failed`. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
+ */
 export interface TurnFailed {
   /**
+   * The ID of the stored record this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `turn.failed`. Switch on it to read `data`.
+   */
   type: "turn.failed";
+  /**
+   * The `data` of a `turn.failed` frame.
+   */
   data: TurnFailedData;
+  /**
+   * When Peen stored the record, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Correlate stored frames through `metadata.requestId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -2028,10 +2809,16 @@ export function validateTurnFailed(
   }
 }
 
+/**
+ * The `data` of a `turn.failed` frame.
+ */
 export interface TurnFailedData {
+  /**
+   * Always `agentRun`.
+   */
   reason: "agentRun";
   /**
-   * The error the turn ended with, without source locations. Absent when the turn failed before Peen recorded one.
+   * The error the turn ended with, without source locations, cut to 2048 bytes. A turn whose worker or controller stopped before it ended reads `the worker or controller stopped mid-turn`. Absent when the turn failed before Peen recorded an error.
    */
   error?: string;
 }
@@ -2051,19 +2838,35 @@ export function validateTurnFailedData(
   }
 }
 
+/**
+ * The turn was stopped before it finished. It is the turn's last frame. Every tool call still running first gets a `tool.result` with `isError` set, and Peen stores a `turn.cancelled` session notice in the same transaction, so a `notice.created` frame for it follows nearby in the feed. A Stop leaves pending input stored until something explicitly continues the session. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
+ */
 export interface TurnCancelled {
   /**
+   * The ID of the stored record this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `turn.cancelled`. Switch on it to read `data`.
+   */
   type: "turn.cancelled";
+  /**
+   * The `data` of a `turn.cancelled` frame.
+   */
   data: TurnCancelledData;
+  /**
+   * When Peen stored the record, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Correlate stored frames through `metadata.requestId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -2087,7 +2890,16 @@ export function validateTurnCancelled(
   }
 }
 
+/**
+ * The `data` of a `turn.cancelled` frame.
+ */
 export interface TurnCancelledData {
+  /**
+   * Why the turn was stopped:
+   *
+   * - `cancelled`: something asked for the turn to stop, such as `POST /api/v1/session/cancel`, the browser Stop control, or shutting the controller down. The submission fails with `TURN_CANCELLED`.
+   * - `timeout`: the turn's deadline expired, from `timeoutSeconds` or `PEEN_TURN_TIMEOUT`. The submission fails with `TURN_TIMEOUT`.
+   */
   reason: TurnCancelledDataReason;
 }
 
@@ -2102,6 +2914,12 @@ export function validateTurnCancelledData(
   validateTurnCancelledDataReason(object["reason"], path + ".reason");
 }
 
+/**
+ * Why the turn was stopped:
+ *
+ * - `cancelled`: something asked for the turn to stop, such as `POST /api/v1/session/cancel`, the browser Stop control, or shutting the controller down. The submission fails with `TURN_CANCELLED`.
+ * - `timeout`: the turn's deadline expired, from `timeoutSeconds` or `PEEN_TURN_TIMEOUT`. The submission fails with `TURN_TIMEOUT`.
+ */
 export type TurnCancelledDataReason = "cancelled" | "timeout";
 
 /** Values of TurnCancelledDataReason. */
@@ -2115,22 +2933,35 @@ export function validateTurnCancelledDataReason(
   rtEnum(path, value, TurnCancelledDataReasonValues);
 }
 
+/**
+ * Peen recorded a session notice. Every recorded notice produces one when it is stored, whatever its `delivery` mode and whether or not it has reached the model yet. It belongs to no turn and carries no `metadata.requestId`. When the notice later reaches the model, it appears again inside a `session.events` frame. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
+ */
 export interface NoticeCreated {
   /**
+   * The ID of the stored record this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `notice.created`. Switch on it to read `data`.
+   */
   type: "notice.created";
   /**
-   * A `notice.created` frame's data. Carries no `sessionId`.
+   * A session notice as Peen recorded it. It is the `data` of a `notice.created` frame, the same shape `GET /api/v1/session/notices` returns. It carries no `sessionId`; the frame's `metadata.sessionId` names the session.
    */
   data: SessionNotice;
+  /**
+   * When Peen stored the record, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Correlate stored frames through `metadata.requestId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -2155,21 +2986,41 @@ export function validateNoticeCreated(
 }
 
 /**
- * A `notice.created` frame's data. Carries no `sessionId`.
+ * A session notice as Peen recorded it. It is the `data` of a `notice.created` frame, the same shape `GET /api/v1/session/notices` returns. It carries no `sessionId`; the frame's `metadata.sessionId` names the session.
  */
 export interface SessionNotice {
   /**
+   * The notice's ID. The same notice later appears with this ID in a `session.events` frame when it reaches the model.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The event type, a lowercase dotted name such as `job.exited` or `ci.build.failed`, 1 to 8 parts and up to 128 characters. `job.*`, `agent.*`, and `turn.*` are reserved for events Peen publishes itself.
+   */
   type: string;
+  /**
+   * Who published the notice: `tools.job` for background jobs, `agent.launchAgent` for child agents, `session.turn` for turns that ended without completing, `hooks` for hooks, and `api` for `POST /api/v1/session/notices`.
+   */
   source: string;
+  /**
+   * A one-line headline the model reads first. At most `PEEN_MAX_EVENT_SUMMARY_BYTES` bytes, 4096 by default.
+   */
   summary: string;
   /**
-   * Open. Caller-supplied at publication time.
+   * Open. A JSON object whose shape depends on `type`, at most `PEEN_MAX_EVENT_DATA_BYTES` bytes encoded, 65536 by default. Absent when the notice has none.
    */
   data?: Record<string, unknown>;
+  /**
+   * The delivery mode the publisher requested. A handler file for the type can override it.
+   *
+   * - `queue`: the notice waits for the next turn start or tool boundary and never starts a turn by itself.
+   * - `wake`: the notice may start a turn on an idle session when a handler for its type exists and the wake limit allows it; otherwise it is queued.
+   */
   delivery: SessionNoticeDelivery;
+  /**
+   * When Peen stored the notice, RFC 3339.
+   */
   createdAt: string;
 }
 
@@ -2192,6 +3043,12 @@ export function validateSessionNotice(
   rtDateTime(object["createdAt"], path + ".createdAt");
 }
 
+/**
+ * The delivery mode the publisher requested. A handler file for the type can override it.
+ *
+ * - `queue`: the notice waits for the next turn start or tool boundary and never starts a turn by itself.
+ * - `wake`: the notice may start a turn on an idle session when a handler for its type exists and the wake limit allows it; otherwise it is queued.
+ */
 export type SessionNoticeDelivery = "queue" | "wake";
 
 /** Values of SessionNoticeDelivery. */
@@ -2205,19 +3062,35 @@ export function validateSessionNoticeDelivery(
   rtEnum(path, value, SessionNoticeDeliveryValues);
 }
 
+/**
+ * A child agent run started. Sent once per run, after Peen records the run and its task and before the child's first model request, so it is the first frame of every run. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data. Its `metadata` carries `sessionId` and `sequence` but never `requestId`.
+ */
 export interface AgentRunStarted {
   /**
+   * The ID of the stored child event this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `agent.run.started`. Switch on it to read `data`.
+   */
   type: "agent.run.started";
+  /**
+   * The `data` of an `agent.run.started` frame. `event` is an `AgentRunStartedEvent` describing the new child.
+   */
   data: AgentRunStartedData;
+  /**
+   * When Peen stored the child event, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Group a child run's frames by `data.agentRunId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -2241,19 +3114,31 @@ export function validateAgentRunStarted(
   }
 }
 
+/**
+ * The `data` of an `agent.run.started` frame. `event` is an `AgentRunStartedEvent` describing the new child.
+ */
 export interface AgentRunStartedData {
   /**
+   * The child agent run this step belongs to. Group a run's frames by this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run record.
+   *
    * Not enforced by the generated code: format uuid.
    */
   agentRunId: string;
   /**
+   * The root turn the run descends from: the turn in which the root conversation launched this run, or launched its top-level ancestor. Every run in one tree shares it, and a run can keep going after that turn ends.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentTurnId: string;
   /**
+   * The agent run that launched this one. Absent when the session's root conversation launched it.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentAgentRunId?: string;
+  /**
+   * The `event` of an `agent.run.started` frame: who the new child is and where it runs. It repeats the identity fields of the frame's `data`.
+   */
   event: AgentRunStartedEvent;
 }
 
@@ -2273,23 +3158,50 @@ export function validateAgentRunStartedData(
   validateAgentRunStartedEvent(object["event"], path + ".event");
 }
 
+/**
+ * The `event` of an `agent.run.started` frame: who the new child is and where it runs. It repeats the identity fields of the frame's `data`.
+ */
 export interface AgentRunStartedEvent {
   /**
+   * The new child agent run's ID.
+   *
    * Not enforced by the generated code: format uuid.
    */
   agentRunId: string;
   /**
+   * The root turn the run descends from, the same as the frame's `data.parentTurnId`.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentTurnId: string;
   /**
+   * The agent run that launched this one. Absent when the session's root conversation launched it.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentAgentRunId?: string;
+  /**
+   * The agent's name: the stored agent's name as the agent catalogue lists it, such as `reviewer` or `core:general-purpose`, or the `name` of an inline definition.
+   */
   name: string;
+  /**
+   * Where the child's instructions came from:
+   *
+   * - `stored`: the child is an agent from the workspace's agent catalogue, named with `launchAgent`'s `agent`.
+   * - `ad-hoc`: the child was defined inline with `launchAgent`'s `agentDefinition`. Its instructions are never written to disk.
+   */
   definition: AgentRunDefinition;
+  /**
+   * How deeply the run is nested. A child of the root conversation has depth 1 and its own children depth 2. `PEEN_MAX_CHILD_AGENT_DEPTH` (5 by default) caps it.
+   */
   depth: number;
+  /**
+   * The model the child runs on, in the `provider/model` form that `GET /api/v1/models` lists as `name`.
+   */
   model: string;
+  /**
+   * The directory the child's tool calls start in.
+   */
   workspace: string;
 }
 
@@ -2313,6 +3225,12 @@ export function validateAgentRunStartedEvent(
   rtString(object["workspace"], path + ".workspace");
 }
 
+/**
+ * Where the child's instructions came from:
+ *
+ * - `stored`: the child is an agent from the workspace's agent catalogue, named with `launchAgent`'s `agent`.
+ * - `ad-hoc`: the child was defined inline with `launchAgent`'s `agentDefinition`. Its instructions are never written to disk.
+ */
 export type AgentRunDefinition = "stored" | "ad-hoc";
 
 /** Values of AgentRunDefinition. */
@@ -2326,19 +3244,35 @@ export function validateAgentRunDefinition(
   rtEnum(path, value, AgentRunDefinitionValues);
 }
 
+/**
+ * One fragment of a child's reply text as the model streams it. Append the fragments of a run in sequence order to show the reply live. Every fragment is stored as its own record. A model round's fragments precede that round's `agent.run.assistant.message`, which holds the assembled reply; use that frame as the final text. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data. Its `metadata` carries `sessionId` and `sequence` but never `requestId`.
+ */
 export interface AgentRunTextDelta {
   /**
+   * The ID of the stored child event this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `agent.run.text.delta`. Switch on it to read `data`.
+   */
   type: "agent.run.text.delta";
+  /**
+   * The `data` of an `agent.run.text.delta` frame. `event` is `{text}`, one fragment of the child's reply text.
+   */
   data: AgentRunTextDeltaData;
+  /**
+   * When Peen stored the child event, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Group a child run's frames by `data.agentRunId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -2362,19 +3296,31 @@ export function validateAgentRunTextDelta(
   }
 }
 
+/**
+ * The `data` of an `agent.run.text.delta` frame. `event` is `{text}`, one fragment of the child's reply text.
+ */
 export interface AgentRunTextDeltaData {
   /**
+   * The child agent run this step belongs to. Group a run's frames by this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run record.
+   *
    * Not enforced by the generated code: format uuid.
    */
   agentRunId: string;
   /**
+   * The root turn the run descends from: the turn in which the root conversation launched this run, or launched its top-level ancestor. Every run in one tree shares it, and a run can keep going after that turn ends.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentTurnId: string;
   /**
+   * The agent run that launched this one. Absent when the session's root conversation launched it.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentAgentRunId?: string;
+  /**
+   * One streamed fragment of a child agent's reply. It is the `event` of `agent.run.text.delta` and `agent.run.thinking.delta`.
+   */
   event: TextPayload;
 }
 
@@ -2394,7 +3340,13 @@ export function validateAgentRunTextDeltaData(
   validateTextPayload(object["event"], path + ".event");
 }
 
+/**
+ * One streamed fragment of a child agent's reply. It is the `event` of `agent.run.text.delta` and `agent.run.thinking.delta`.
+ */
 export interface TextPayload {
+  /**
+   * The fragment. Append it to the run's earlier fragments of the same kind, in sequence order.
+   */
   text: string;
 }
 
@@ -2409,19 +3361,35 @@ export function validateTextPayload(
   rtString(object["text"], path + ".text");
 }
 
+/**
+ * One fragment of a child's reasoning, sent only for models that stream readable reasoning. A model round's fragments precede that round's `agent.run.assistant.message`, whose `reasoning` holds the whole text. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data. Its `metadata` carries `sessionId` and `sequence` but never `requestId`.
+ */
 export interface AgentRunThinkingDelta {
   /**
+   * The ID of the stored child event this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `agent.run.thinking.delta`. Switch on it to read `data`.
+   */
   type: "agent.run.thinking.delta";
+  /**
+   * The `data` of an `agent.run.thinking.delta` frame. `event` is `{text}`, one fragment of the child's reasoning.
+   */
   data: AgentRunThinkingDeltaData;
+  /**
+   * When Peen stored the child event, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Group a child run's frames by `data.agentRunId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -2445,19 +3413,31 @@ export function validateAgentRunThinkingDelta(
   }
 }
 
+/**
+ * The `data` of an `agent.run.thinking.delta` frame. `event` is `{text}`, one fragment of the child's reasoning.
+ */
 export interface AgentRunThinkingDeltaData {
   /**
+   * The child agent run this step belongs to. Group a run's frames by this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run record.
+   *
    * Not enforced by the generated code: format uuid.
    */
   agentRunId: string;
   /**
+   * The root turn the run descends from: the turn in which the root conversation launched this run, or launched its top-level ancestor. Every run in one tree shares it, and a run can keep going after that turn ends.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentTurnId: string;
   /**
+   * The agent run that launched this one. Absent when the session's root conversation launched it.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentAgentRunId?: string;
+  /**
+   * One streamed fragment of a child agent's reply. It is the `event` of `agent.run.text.delta` and `agent.run.thinking.delta`.
+   */
   event: TextPayload;
 }
 
@@ -2477,19 +3457,35 @@ export function validateAgentRunThinkingDeltaData(
   validateTextPayload(object["event"], path + ".event");
 }
 
+/**
+ * A child's tool call is about to run. Sent once per call, after the `agent.run.assistant.message` that requested it and before the call's `agent.run.tool.result`. `event.callId` equals the `id` of the matching entry in that assistant message's `toolCalls`. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data. Its `metadata` carries `sessionId` and `sequence` but never `requestId`.
+ */
 export interface AgentRunToolUse {
   /**
+   * The ID of the stored child event this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `agent.run.tool.use`. Switch on it to read `data`.
+   */
   type: "agent.run.tool.use";
+  /**
+   * The `data` of an `agent.run.tool.use` frame. `event` is `{callId, name, arguments}`: the tool call the child's model asked for.
+   */
   data: AgentRunToolUseData;
+  /**
+   * When Peen stored the child event, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Group a child run's frames by `data.agentRunId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -2513,19 +3509,31 @@ export function validateAgentRunToolUse(
   }
 }
 
+/**
+ * The `data` of an `agent.run.tool.use` frame. `event` is `{callId, name, arguments}`: the tool call the child's model asked for.
+ */
 export interface AgentRunToolUseData {
   /**
+   * The child agent run this step belongs to. Group a run's frames by this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run record.
+   *
    * Not enforced by the generated code: format uuid.
    */
   agentRunId: string;
   /**
+   * The root turn the run descends from: the turn in which the root conversation launched this run, or launched its top-level ancestor. Every run in one tree shares it, and a run can keep going after that turn ends.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentTurnId: string;
   /**
+   * The agent run that launched this one. Absent when the session's root conversation launched it.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentAgentRunId?: string;
+  /**
+   * One tool call the model requested. It is the `data` of a root `tool.use` frame and the `event` of a child's `agent.run.tool.use` frame.
+   */
   event: ToolUse;
 }
 
@@ -2545,19 +3553,35 @@ export function validateAgentRunToolUseData(
   validateToolUse(object["event"], path + ".event");
 }
 
+/**
+ * A child's tool call finished. Sent once for every `agent.run.tool.use`, matched by `event.callId`. When a child is stopped while a call runs, Peen closes that call with `isError` set and the text "The tool call was stopped before it returned a result. Its effect is unknown." before the run's `agent.run.cancelled`. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data. Its `metadata` carries `sessionId` and `sequence` but never `requestId`.
+ */
 export interface AgentRunToolResult {
   /**
+   * The ID of the stored child event this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `agent.run.tool.result`. Switch on it to read `data`.
+   */
   type: "agent.run.tool.result";
+  /**
+   * The `data` of an `agent.run.tool.result` frame. `event` is `{callId, name, content, isError}`: the result the child's model receives for one tool call.
+   */
   data: AgentRunToolResultData;
+  /**
+   * When Peen stored the child event, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Group a child run's frames by `data.agentRunId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -2581,19 +3605,31 @@ export function validateAgentRunToolResult(
   }
 }
 
+/**
+ * The `data` of an `agent.run.tool.result` frame. `event` is `{callId, name, content, isError}`: the result the child's model receives for one tool call.
+ */
 export interface AgentRunToolResultData {
   /**
+   * The child agent run this step belongs to. Group a run's frames by this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run record.
+   *
    * Not enforced by the generated code: format uuid.
    */
   agentRunId: string;
   /**
+   * The root turn the run descends from: the turn in which the root conversation launched this run, or launched its top-level ancestor. Every run in one tree shares it, and a run can keep going after that turn ends.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentTurnId: string;
   /**
+   * The agent run that launched this one. Absent when the session's root conversation launched it.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentAgentRunId?: string;
+  /**
+   * The outcome of one tool call. It is the `data` of a root `tool.result` frame and the `event` of a child's `agent.run.tool.result` frame. Every `tool.use` gets exactly one result, even when its turn is stopped or fails while the call runs.
+   */
   event: ToolResult;
 }
 
@@ -2613,19 +3649,35 @@ export function validateAgentRunToolResultData(
   validateToolResult(object["event"], path + ".event");
 }
 
+/**
+ * A child's model finished one reply. Sent once per model round, after that round's text and thinking fragments and before the `agent.run.tool.use` frames for the calls it requested. The same reply is stored in the child's transcript. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data. Its `metadata` carries `sessionId` and `sequence` but never `requestId`.
+ */
 export interface AgentRunAssistantMessage {
   /**
+   * The ID of the stored child event this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `agent.run.assistant.message`. Switch on it to read `data`.
+   */
   type: "agent.run.assistant.message";
+  /**
+   * The `data` of an `agent.run.assistant.message` frame. `event` is an `AgentRunAssistantMessageEvent`.
+   */
   data: AgentRunAssistantMessageData;
+  /**
+   * When Peen stored the child event, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Group a child run's frames by `data.agentRunId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -2649,21 +3701,30 @@ export function validateAgentRunAssistantMessage(
   }
 }
 
+/**
+ * The `data` of an `agent.run.assistant.message` frame. `event` is an `AgentRunAssistantMessageEvent`.
+ */
 export interface AgentRunAssistantMessageData {
   /**
+   * The child agent run this step belongs to. Group a run's frames by this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run record.
+   *
    * Not enforced by the generated code: format uuid.
    */
   agentRunId: string;
   /**
+   * The root turn the run descends from: the turn in which the root conversation launched this run, or launched its top-level ancestor. Every run in one tree shares it, and a run can keep going after that turn ends.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentTurnId: string;
   /**
+   * The agent run that launched this one. Absent when the session's root conversation launched it.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentAgentRunId?: string;
   /**
-   * `providerReasoning` is set only when the provider returned reasoning Peen cannot parse into `reasoning`.
+   * The `event` of an `agent.run.assistant.message` frame: one complete reply from the child's model for one model round, with its text, reasoning, and requested tool calls.
    */
   event: AgentRunAssistantMessageEvent;
 }
@@ -2685,14 +3746,32 @@ export function validateAgentRunAssistantMessageData(
 }
 
 /**
- * `providerReasoning` is set only when the provider returned reasoning Peen cannot parse into `reasoning`.
+ * The `event` of an `agent.run.assistant.message` frame: one complete reply from the child's model for one model round, with its text, reasoning, and requested tool calls.
  */
 export interface AgentRunAssistantMessageEvent {
+  /**
+   * Always `assistant`.
+   */
   role: string;
+  /**
+   * The reply's content parts, in order. An empty array when the reply had no text, for example when it only called tools.
+   */
   content: Array<Part>;
+  /**
+   * The tool calls the reply requested, in order. An empty array when it requested none.
+   */
   toolCalls: Array<AgentRunToolCall>;
+  /**
+   * The reasoning text the model streamed in readable form, the same text as the round's `agent.run.thinking.delta` fragments joined. Absent when there was none.
+   */
   reasoning?: string;
+  /**
+   * The provider's own reasoning record for this reply, such as signed or encrypted reasoning blocks, kept as an opaque JSON object so it can be sent back to the same provider on later requests. Its shape belongs to the provider. Absent when the provider returned none.
+   */
   providerReasoning?: Record<string, unknown>;
+  /**
+   * Where the message came from in the model layer. A reply from a model round is `turn`. Absent when unset.
+   */
   origin?: string;
 }
 
@@ -2725,13 +3804,33 @@ export function validateAgentRunAssistantMessageEvent(
 }
 
 /**
- * One piece of a child's assistant message content. `image`, `audio`, and `file` are open: their shape is the provider-neutral media source Peen's model layer builds, not a Peen-owned contract.
+ * One part of a child's assistant message content, in order. A child's reply holds only `text` parts; `image`, `audio`, and `file` exist for parity with the model layer's content format and are open objects that Peen does not define as a contract.
  */
 export interface Part {
+  /**
+   * Which kind of part this is, and so which other property is set:
+   *
+   * - `text`: a run of text, in `text`.
+   * - `image`: an image, in `image`.
+   * - `audio`: an audio clip, in `audio`.
+   * - `file`: a file, in `file`.
+   */
   type: PartType;
+  /**
+   * The text of a `text` part. Absent on other parts.
+   */
   text?: string;
+  /**
+   * The media source of an `image` part. Open.
+   */
   image?: Record<string, unknown>;
+  /**
+   * The media source of an `audio` part. Open.
+   */
   audio?: Record<string, unknown>;
+  /**
+   * The media source of a `file` part. Open.
+   */
   file?: Record<string, unknown>;
 }
 
@@ -2758,6 +3857,14 @@ export function validatePart(
   }
 }
 
+/**
+ * Which kind of part this is, and so which other property is set:
+ *
+ * - `text`: a run of text, in `text`.
+ * - `image`: an image, in `image`.
+ * - `audio`: an audio clip, in `audio`.
+ * - `file`: a file, in `file`.
+ */
 export type PartType = "text" | "image" | "audio" | "file";
 
 /** Values of PartType. */
@@ -2771,8 +3878,17 @@ export function validatePartType(
   rtEnum(path, value, PartTypeValues);
 }
 
+/**
+ * One tool call a child's assistant message requested, inside `toolCalls` of an `agent.run.assistant.message` frame.
+ */
 export interface AgentRunToolCall {
+  /**
+   * The call ID the provider assigned. The run's `agent.run.tool.use` and `agent.run.tool.result` for this call carry it as `callId`.
+   */
   id: string;
+  /**
+   * The name of the tool the model called.
+   */
   name: string;
   /**
    * Open. The tool's own arguments, shaped by that tool, exactly as the provider returned them; null when the provider sent none.
@@ -2795,19 +3911,35 @@ export function validateAgentRunToolCall(
   }
 }
 
+/**
+ * Peen added a message to a child's conversation around one of its tool calls. Sent after that call's `agent.run.tool.result`. The message is stored in the child's transcript. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data. Its `metadata` carries `sessionId` and `sequence` but never `requestId`.
+ */
 export interface AgentRunMessageInjected {
   /**
+   * The ID of the stored child event this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `agent.run.message.injected`. Switch on it to read `data`.
+   */
   type: "agent.run.message.injected";
+  /**
+   * The `data` of an `agent.run.message.injected` frame. `event` is an `AgentRunMessageInjectedEvent`.
+   */
   data: AgentRunMessageInjectedData;
+  /**
+   * When Peen stored the child event, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Group a child run's frames by `data.agentRunId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -2831,19 +3963,31 @@ export function validateAgentRunMessageInjected(
   }
 }
 
+/**
+ * The `data` of an `agent.run.message.injected` frame. `event` is an `AgentRunMessageInjectedEvent`.
+ */
 export interface AgentRunMessageInjectedData {
   /**
+   * The child agent run this step belongs to. Group a run's frames by this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run record.
+   *
    * Not enforced by the generated code: format uuid.
    */
   agentRunId: string;
   /**
+   * The root turn the run descends from: the turn in which the root conversation launched this run, or launched its top-level ancestor. Every run in one tree shares it, and a run can keep going after that turn ends.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentTurnId: string;
   /**
+   * The agent run that launched this one. Absent when the session's root conversation launched it.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentAgentRunId?: string;
+  /**
+   * The `event` of an `agent.run.message.injected` frame: a message Peen added to the child's conversation around one tool call, such as context a tool hook returned.
+   */
   event: AgentRunMessageInjectedEvent;
 }
 
@@ -2863,12 +4007,36 @@ export function validateAgentRunMessageInjectedData(
   validateAgentRunMessageInjectedEvent(object["event"], path + ".event");
 }
 
+/**
+ * The `event` of an `agent.run.message.injected` frame: a message Peen added to the child's conversation around one tool call, such as context a tool hook returned.
+ */
 export interface AgentRunMessageInjectedEvent {
+  /**
+   * The role the added message takes in the conversation:
+   *
+   * - `user`: the message is added as a user message.
+   * - `assistant`: the message is added as an assistant message.
+   */
   type: AgentRunMessageInjectedType;
+  /**
+   * The added message's text, exactly as the model receives it.
+   */
   content: string;
+  /**
+   * The point in the tool call at which the message was added: `pre_run`, `on_success`, `on_error`, or `post_run`.
+   */
   phase: string;
+  /**
+   * The name of the tool whose call the message belongs to.
+   */
   tool: string;
+  /**
+   * The ID of that tool call, matching `callId` on its `agent.run.tool.use` and `agent.run.tool.result`.
+   */
   callId: string;
+  /**
+   * The model round of that tool call, counted from 0.
+   */
   round: number;
 }
 
@@ -2888,6 +4056,12 @@ export function validateAgentRunMessageInjectedEvent(
   rtInteger(object["round"], path + ".round");
 }
 
+/**
+ * The role the added message takes in the conversation:
+ *
+ * - `user`: the message is added as a user message.
+ * - `assistant`: the message is added as an assistant message.
+ */
 export type AgentRunMessageInjectedType = "user" | "assistant";
 
 /** Values of AgentRunMessageInjectedType. */
@@ -2901,19 +4075,35 @@ export function validateAgentRunMessageInjectedType(
   rtEnum(path, value, AgentRunMessageInjectedTypeValues);
 }
 
+/**
+ * A child's model request failed with an error worth retrying, and Peen will retry it after `event.delayMs`. Sent before the wait, once per failed attempt that is retried; a final failed attempt that is not retried sends no frame. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data. Its `metadata` carries `sessionId` and `sequence` but never `requestId`.
+ */
 export interface AgentRunProviderRetry {
   /**
+   * The ID of the stored child event this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `agent.run.provider.retry`. Switch on it to read `data`.
+   */
   type: "agent.run.provider.retry";
+  /**
+   * The `data` of an `agent.run.provider.retry` frame. `event` is `{attempt, reason, status, delayMs}`: the attempt that failed and how long Peen waits before the next one.
+   */
   data: AgentRunProviderRetryData;
+  /**
+   * When Peen stored the child event, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Group a child run's frames by `data.agentRunId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -2937,19 +4127,31 @@ export function validateAgentRunProviderRetry(
   }
 }
 
+/**
+ * The `data` of an `agent.run.provider.retry` frame. `event` is `{attempt, reason, status, delayMs}`: the attempt that failed and how long Peen waits before the next one.
+ */
 export interface AgentRunProviderRetryData {
   /**
+   * The child agent run this step belongs to. Group a run's frames by this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run record.
+   *
    * Not enforced by the generated code: format uuid.
    */
   agentRunId: string;
   /**
+   * The root turn the run descends from: the turn in which the root conversation launched this run, or launched its top-level ancestor. Every run in one tree shares it, and a run can keep going after that turn ends.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentTurnId: string;
   /**
+   * The agent run that launched this one. Absent when the session's root conversation launched it.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentAgentRunId?: string;
+  /**
+   * One failed provider request that Peen is about to retry. It is the `data` of a root `provider.retry` frame and the `event` of a child's `agent.run.provider.retry` frame. Peen sends it before it waits, so `delayMs` is the wait still ahead. Only retryable failures (rate limits, server errors, timeouts, and broken connections) produce it; a failure Peen does not retry ends the turn instead.
+   */
   event: ProviderRetry;
 }
 
@@ -2969,19 +4171,35 @@ export function validateAgentRunProviderRetryData(
   validateProviderRetry(object["event"], path + ".event");
 }
 
+/**
+ * A message was accepted into a running or paused child's inbox: a `message.send` with `to`, another agent's `sendMessage`, a child's report or question to a parent that is itself a child, a session notice Peen copies to running children, or the resume note Peen queues ahead of a message that resumes a paused child. The child reads it after its current tool call, and `agent.run.message.delivered` or `agent.run.message.undelivered` with the same `acceptanceId` follows. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data. Its `metadata` carries `sessionId` and `sequence` but never `requestId`.
+ */
 export interface AgentRunMessageQueued {
   /**
+   * The ID of the stored child event this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `agent.run.message.queued`. Switch on it to read `data`.
+   */
   type: "agent.run.message.queued";
+  /**
+   * The `data` of an `agent.run.message.queued` frame. `event` is `{message, acceptanceId?}`: the message as the child will read it, and the ID that links it to its later delivered or undelivered frame.
+   */
   data: AgentRunMessageQueuedData;
+  /**
+   * When Peen stored the child event, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Group a child run's frames by `data.agentRunId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -3005,19 +4223,31 @@ export function validateAgentRunMessageQueued(
   }
 }
 
+/**
+ * The `data` of an `agent.run.message.queued` frame. `event` is `{message, acceptanceId?}`: the message as the child will read it, and the ID that links it to its later delivered or undelivered frame.
+ */
 export interface AgentRunMessageQueuedData {
   /**
+   * The child agent run this step belongs to. Group a run's frames by this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run record.
+   *
    * Not enforced by the generated code: format uuid.
    */
   agentRunId: string;
   /**
+   * The root turn the run descends from: the turn in which the root conversation launched this run, or launched its top-level ancestor. Every run in one tree shares it, and a run can keep going after that turn ends.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentTurnId: string;
   /**
+   * The agent run that launched this one. Absent when the session's root conversation launched it.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentAgentRunId?: string;
+  /**
+   * A message accepted into a child agent's inbox: from the user through `message.send` with `to`, from another agent, or from Peen itself, such as a child's report to its parent, a session notice copied to running children, or the note that resumes a paused child. It is the `event` of `agent.run.message.queued`, `agent.run.message.delivered`, and `agent.run.message.undelivered`.
+   */
   event: AgentRunInboxMessage;
 }
 
@@ -3037,9 +4267,17 @@ export function validateAgentRunMessageQueuedData(
   validateAgentRunInboxMessage(object["event"], path + ".event");
 }
 
+/**
+ * A message accepted into a child agent's inbox: from the user through `message.send` with `to`, from another agent, or from Peen itself, such as a child's report to its parent, a session notice copied to running children, or the note that resumes a paused child. It is the `event` of `agent.run.message.queued`, `agent.run.message.delivered`, and `agent.run.message.undelivered`.
+ */
 export interface AgentRunInboxMessage {
+  /**
+   * The message as the child reads it. A message from the user or another agent is wrapped in the `<message>` block that names its sender.
+   */
   message: string;
   /**
+   * Links one message's queued step to its delivered or undelivered step. Absent on events stored before Peen recorded it.
+   *
    * Not enforced by the generated code: format uuid.
    */
   acceptanceId?: string;
@@ -3059,19 +4297,35 @@ export function validateAgentRunInboxMessage(
   }
 }
 
+/**
+ * A queued message reached the child's model. Sent when the model takes the message at the start of a model round, after the message is stored in the child's transcript. Follows the message's `agent.run.message.queued`. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data. Its `metadata` carries `sessionId` and `sequence` but never `requestId`.
+ */
 export interface AgentRunMessageDelivered {
   /**
+   * The ID of the stored child event this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `agent.run.message.delivered`. Switch on it to read `data`.
+   */
   type: "agent.run.message.delivered";
+  /**
+   * The `data` of an `agent.run.message.delivered` frame. `event` is `{message, acceptanceId?}`, with the same `acceptanceId` as the message's `agent.run.message.queued` frame.
+   */
   data: AgentRunMessageDeliveredData;
+  /**
+   * When Peen stored the child event, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Group a child run's frames by `data.agentRunId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -3095,19 +4349,31 @@ export function validateAgentRunMessageDelivered(
   }
 }
 
+/**
+ * The `data` of an `agent.run.message.delivered` frame. `event` is `{message, acceptanceId?}`, with the same `acceptanceId` as the message's `agent.run.message.queued` frame.
+ */
 export interface AgentRunMessageDeliveredData {
   /**
+   * The child agent run this step belongs to. Group a run's frames by this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run record.
+   *
    * Not enforced by the generated code: format uuid.
    */
   agentRunId: string;
   /**
+   * The root turn the run descends from: the turn in which the root conversation launched this run, or launched its top-level ancestor. Every run in one tree shares it, and a run can keep going after that turn ends.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentTurnId: string;
   /**
+   * The agent run that launched this one. Absent when the session's root conversation launched it.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentAgentRunId?: string;
+  /**
+   * A message accepted into a child agent's inbox: from the user through `message.send` with `to`, from another agent, or from Peen itself, such as a child's report to its parent, a session notice copied to running children, or the note that resumes a paused child. It is the `event` of `agent.run.message.queued`, `agent.run.message.delivered`, and `agent.run.message.undelivered`.
+   */
   event: AgentRunInboxMessage;
 }
 
@@ -3127,19 +4393,35 @@ export function validateAgentRunMessageDeliveredData(
   validateAgentRunInboxMessage(object["event"], path + ".event");
 }
 
+/**
+ * The child ended before reading a queued message. Sent once per message still unread when the child ends, whether it completed, failed, or was cancelled, before the run's terminal frame. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data. Its `metadata` carries `sessionId` and `sequence` but never `requestId`.
+ */
 export interface AgentRunMessageUndelivered {
   /**
+   * The ID of the stored child event this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `agent.run.message.undelivered`. Switch on it to read `data`.
+   */
   type: "agent.run.message.undelivered";
+  /**
+   * The `data` of an `agent.run.message.undelivered` frame. `event` is `{message, acceptanceId?}`, with the same `acceptanceId` as the message's `agent.run.message.queued` frame.
+   */
   data: AgentRunMessageUndeliveredData;
+  /**
+   * When Peen stored the child event, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Group a child run's frames by `data.agentRunId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -3163,19 +4445,31 @@ export function validateAgentRunMessageUndelivered(
   }
 }
 
+/**
+ * The `data` of an `agent.run.message.undelivered` frame. `event` is `{message, acceptanceId?}`, with the same `acceptanceId` as the message's `agent.run.message.queued` frame.
+ */
 export interface AgentRunMessageUndeliveredData {
   /**
+   * The child agent run this step belongs to. Group a run's frames by this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run record.
+   *
    * Not enforced by the generated code: format uuid.
    */
   agentRunId: string;
   /**
+   * The root turn the run descends from: the turn in which the root conversation launched this run, or launched its top-level ancestor. Every run in one tree shares it, and a run can keep going after that turn ends.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentTurnId: string;
   /**
+   * The agent run that launched this one. Absent when the session's root conversation launched it.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentAgentRunId?: string;
+  /**
+   * A message accepted into a child agent's inbox: from the user through `message.send` with `to`, from another agent, or from Peen itself, such as a child's report to its parent, a session notice copied to running children, or the note that resumes a paused child. It is the `event` of `agent.run.message.queued`, `agent.run.message.delivered`, and `agent.run.message.undelivered`.
+   */
   event: AgentRunInboxMessage;
 }
 
@@ -3195,19 +4489,35 @@ export function validateAgentRunMessageUndeliveredData(
   validateAgentRunInboxMessage(object["event"], path + ".event");
 }
 
+/**
+ * The child asked its parent a question with `ask` and now waits for a message. Sent after the `ask` call's `agent.run.tool.use`, when Peen hands the question to the parent. Answer it with a `message.send` whose `to` is the run's ID, or the parent answers with `sendMessage`. The run reports `waiting` until the matching `agent.run.answer`. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data. Its `metadata` carries `sessionId` and `sequence` but never `requestId`.
+ */
 export interface AgentRunQuestion {
   /**
+   * The ID of the stored child event this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `agent.run.question`. Switch on it to read `data`.
+   */
   type: "agent.run.question";
+  /**
+   * The `data` of an `agent.run.question` frame. `event` is `{question, callId?}`: the question text and the ID of the child's `ask` call.
+   */
   data: AgentRunQuestionData;
+  /**
+   * When Peen stored the child event, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Group a child run's frames by `data.agentRunId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -3231,19 +4541,31 @@ export function validateAgentRunQuestion(
   }
 }
 
+/**
+ * The `data` of an `agent.run.question` frame. `event` is `{question, callId?}`: the question text and the ID of the child's `ask` call.
+ */
 export interface AgentRunQuestionData {
   /**
+   * The child agent run this step belongs to. Group a run's frames by this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run record.
+   *
    * Not enforced by the generated code: format uuid.
    */
   agentRunId: string;
   /**
+   * The root turn the run descends from: the turn in which the root conversation launched this run, or launched its top-level ancestor. Every run in one tree shares it, and a run can keep going after that turn ends.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentTurnId: string;
   /**
+   * The agent run that launched this one. Absent when the session's root conversation launched it.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentAgentRunId?: string;
+  /**
+   * A question an agent asked with the `ask` tool. It is the `data` of a root `question.asked` frame and the `event` of a child's `agent.run.question` frame. The agent waits until a message reaches it or the ask times out. For the root conversation, your next message is the answer.
+   */
   event: QuestionAsked;
 }
 
@@ -3263,19 +4585,35 @@ export function validateAgentRunQuestionData(
   validateQuestionAsked(object["event"], path + ".event");
 }
 
+/**
+ * The child's `ask` ended: a message answered it, or it timed out (`answered: false`). Sent after the matching `agent.run.question` and before the `ask` call's `agent.run.tool.result`. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data. Its `metadata` carries `sessionId` and `sequence` but never `requestId`.
+ */
 export interface AgentRunAnswer {
   /**
+   * The ID of the stored child event this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `agent.run.answer`. Switch on it to read `data`.
+   */
   type: "agent.run.answer";
+  /**
+   * The `data` of an `agent.run.answer` frame. `event` is `{answered, callId?}`, with the same `callId` as the question it closes.
+   */
   data: AgentRunAnswerData;
+  /**
+   * When Peen stored the child event, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Group a child run's frames by `data.agentRunId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -3299,19 +4637,31 @@ export function validateAgentRunAnswer(
   }
 }
 
+/**
+ * The `data` of an `agent.run.answer` frame. `event` is `{answered, callId?}`, with the same `callId` as the question it closes.
+ */
 export interface AgentRunAnswerData {
   /**
+   * The child agent run this step belongs to. Group a run's frames by this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run record.
+   *
    * Not enforced by the generated code: format uuid.
    */
   agentRunId: string;
   /**
+   * The root turn the run descends from: the turn in which the root conversation launched this run, or launched its top-level ancestor. Every run in one tree shares it, and a run can keep going after that turn ends.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentTurnId: string;
   /**
+   * The agent run that launched this one. Absent when the session's root conversation launched it.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentAgentRunId?: string;
+  /**
+   * The end of an `ask` call. It is the `data` of a root `question.answered` frame and the `event` of a child's `agent.run.answer` frame. It carries no answer text: the answer is the message that reached the agent.
+   */
   event: QuestionAnswered;
 }
 
@@ -3331,19 +4681,35 @@ export function validateAgentRunAnswerData(
   validateQuestionAnswered(object["event"], path + ".event");
 }
 
+/**
+ * The child run gave its final answer and ended. Always the run's last frame: Peen stores nothing for a run after its terminal frame. A child of the root conversation also reports through an `agent.finished` notice, sent as its own `notice.created` frame. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data. Its `metadata` carries `sessionId` and `sequence` but never `requestId`.
+ */
 export interface AgentRunCompleted {
   /**
+   * The ID of the stored child event this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `agent.run.completed`. Switch on it to read `data`.
+   */
   type: "agent.run.completed";
+  /**
+   * The `data` of an `agent.run.completed` frame. `event` is an `AgentRunTerminalEvent` with `state` `completed`.
+   */
   data: AgentRunCompletedData;
+  /**
+   * When Peen stored the child event, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Group a child run's frames by `data.agentRunId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -3367,19 +4733,31 @@ export function validateAgentRunCompleted(
   }
 }
 
+/**
+ * The `data` of an `agent.run.completed` frame. `event` is an `AgentRunTerminalEvent` with `state` `completed`.
+ */
 export interface AgentRunCompletedData {
   /**
+   * The child agent run this step belongs to. Group a run's frames by this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run record.
+   *
    * Not enforced by the generated code: format uuid.
    */
   agentRunId: string;
   /**
+   * The root turn the run descends from: the turn in which the root conversation launched this run, or launched its top-level ancestor. Every run in one tree shares it, and a run can keep going after that turn ends.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentTurnId: string;
   /**
+   * The agent run that launched this one. Absent when the session's root conversation launched it.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentAgentRunId?: string;
+  /**
+   * The `event` of an `agent.run.completed`, `agent.run.failed`, or `agent.run.cancelled` frame: how the child run ended.
+   */
   event: AgentRunTerminalEvent;
 }
 
@@ -3399,15 +4777,34 @@ export function validateAgentRunCompletedData(
   validateAgentRunTerminalEvent(object["event"], path + ".event");
 }
 
+/**
+ * The `event` of an `agent.run.completed`, `agent.run.failed`, or `agent.run.cancelled` frame: how the child run ended.
+ */
 export interface AgentRunTerminalEvent {
   /**
+   * The run that ended, the same as the frame's `data.agentRunId`.
+   *
    * Not enforced by the generated code: format uuid.
    */
   agentRunId: string;
+  /**
+   * How the run ended. It always matches the frame type.
+   *
+   * - `completed`: the child gave its final answer. `GET /api/v1/session/agents/{agentRunId}` returns it as `responseText`.
+   * - `failed`: the child stopped on an error, such as a provider failure or a round or token limit.
+   * - `cancelled`: something stopped the child: `stopAgent`, `POST /api/v1/session/agents/{agentRunId}/cancel`, the Stop control, the cancellation of an ancestor run, or the turn deadline.
+   */
   state: AgentRunTerminalState;
+  /**
+   * Why the run did not complete. Absent for a completed run.
+   *
+   * - `agentRun`: the run failed.
+   * - `cancelled`: the run was stopped, including a run that a restart had interrupted before it was cancelled.
+   * - `interrupted`: appears only in `agent.run.cancelled` events stored before v0.52.0, for a run that a restart interrupted before it was cancelled. Treat it as `cancelled`. Peen no longer sends it.
+   */
   failureClassification?: AgentRunFailureClassification;
   /**
-   * Free text.
+   * Free text. The error the run ended with, written for people and not a stable contract. Absent for a completed run.
    */
   failureDetail?: string;
 }
@@ -3430,6 +4827,13 @@ export function validateAgentRunTerminalEvent(
   }
 }
 
+/**
+ * How the run ended. It always matches the frame type.
+ *
+ * - `completed`: the child gave its final answer. `GET /api/v1/session/agents/{agentRunId}` returns it as `responseText`.
+ * - `failed`: the child stopped on an error, such as a provider failure or a round or token limit.
+ * - `cancelled`: something stopped the child: `stopAgent`, `POST /api/v1/session/agents/{agentRunId}/cancel`, the Stop control, the cancellation of an ancestor run, or the turn deadline.
+ */
 export type AgentRunTerminalState = "completed" | "failed" | "cancelled";
 
 /** Values of AgentRunTerminalState. */
@@ -3443,10 +4847,17 @@ export function validateAgentRunTerminalState(
   rtEnum(path, value, AgentRunTerminalStateValues);
 }
 
-export type AgentRunFailureClassification = "agentRun" | "cancelled";
+/**
+ * Why the run did not complete. Absent for a completed run.
+ *
+ * - `agentRun`: the run failed.
+ * - `cancelled`: the run was stopped, including a run that a restart had interrupted before it was cancelled.
+ * - `interrupted`: appears only in `agent.run.cancelled` events stored before v0.52.0, for a run that a restart interrupted before it was cancelled. Treat it as `cancelled`. Peen no longer sends it.
+ */
+export type AgentRunFailureClassification = "agentRun" | "cancelled" | "interrupted";
 
 /** Values of AgentRunFailureClassification. */
-export const AgentRunFailureClassificationValues = ["agentRun", "cancelled"] as const;
+export const AgentRunFailureClassificationValues = ["agentRun", "cancelled", "interrupted"] as const;
 
 /** validateAgentRunFailureClassification throws a ValidationError when value is not a valid AgentRunFailureClassification. */
 export function validateAgentRunFailureClassification(
@@ -3456,19 +4867,35 @@ export function validateAgentRunFailureClassification(
   rtEnum(path, value, AgentRunFailureClassificationValues);
 }
 
+/**
+ * The child run stopped on an error. Always the run's last frame. A child of the root conversation also reports through an `agent.failed` notice. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data. Its `metadata` carries `sessionId` and `sequence` but never `requestId`.
+ */
 export interface AgentRunFailed {
   /**
+   * The ID of the stored child event this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `agent.run.failed`. Switch on it to read `data`.
+   */
   type: "agent.run.failed";
+  /**
+   * The `data` of an `agent.run.failed` frame. `event` is an `AgentRunTerminalEvent` with `state` `failed`.
+   */
   data: AgentRunFailedData;
+  /**
+   * When Peen stored the child event, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Group a child run's frames by `data.agentRunId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -3492,19 +4919,31 @@ export function validateAgentRunFailed(
   }
 }
 
+/**
+ * The `data` of an `agent.run.failed` frame. `event` is an `AgentRunTerminalEvent` with `state` `failed`.
+ */
 export interface AgentRunFailedData {
   /**
+   * The child agent run this step belongs to. Group a run's frames by this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run record.
+   *
    * Not enforced by the generated code: format uuid.
    */
   agentRunId: string;
   /**
+   * The root turn the run descends from: the turn in which the root conversation launched this run, or launched its top-level ancestor. Every run in one tree shares it, and a run can keep going after that turn ends.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentTurnId: string;
   /**
+   * The agent run that launched this one. Absent when the session's root conversation launched it.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentAgentRunId?: string;
+  /**
+   * The `event` of an `agent.run.completed`, `agent.run.failed`, or `agent.run.cancelled` frame: how the child run ended.
+   */
   event: AgentRunTerminalEvent;
 }
 
@@ -3524,19 +4963,35 @@ export function validateAgentRunFailedData(
   validateAgentRunTerminalEvent(object["event"], path + ".event");
 }
 
+/**
+ * The child run was stopped. Always the run's last frame; any tool call it left running is closed first by an `agent.run.tool.result` with `isError` set. A child of the root conversation also reports through an `agent.failed` notice with `state` `cancelled`. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data. Its `metadata` carries `sessionId` and `sequence` but never `requestId`.
+ */
 export interface AgentRunCancelled {
   /**
+   * The ID of the stored child event this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
+   *
    * Not enforced by the generated code: format uuid.
    */
   id: string;
+  /**
+   * The frame type, `agent.run.cancelled`. Switch on it to read `data`.
+   */
   type: "agent.run.cancelled";
+  /**
+   * The `data` of an `agent.run.cancelled` frame. `event` is an `AgentRunTerminalEvent` with `state` `cancelled`.
+   */
   data: AgentRunCancelledData;
+  /**
+   * When Peen stored the child event, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
+   */
   timestamp: number;
   /**
-   * Routing and cursor information carried alongside every frame. Not every field is present on every frame: a session-routing `message.failed` sent only to its sender carries no `sessionId`, and only a sequenced feed frame carries `sequence`.
+   * Routing and cursor information carried in every frame's `metadata`. On `message.send` only `sessionId` is read. On server frames, which fields are present depends on the frame: see each property.
    */
   metadata: Metadata;
   /**
+   * Always `null` on a stored frame, because Peen renders it from the stored record the same way live and on replay. Group a child run's frames by `data.agentRunId` instead.
+   *
    * Not enforced by the generated code: format uuid.
    */
   triggeredBy?: string | null;
@@ -3560,19 +5015,31 @@ export function validateAgentRunCancelled(
   }
 }
 
+/**
+ * The `data` of an `agent.run.cancelled` frame. `event` is an `AgentRunTerminalEvent` with `state` `cancelled`.
+ */
 export interface AgentRunCancelledData {
   /**
+   * The child agent run this step belongs to. Group a run's frames by this ID; `GET /api/v1/session/agents/{agentRunId}` returns the run record.
+   *
    * Not enforced by the generated code: format uuid.
    */
   agentRunId: string;
   /**
+   * The root turn the run descends from: the turn in which the root conversation launched this run, or launched its top-level ancestor. Every run in one tree shares it, and a run can keep going after that turn ends.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentTurnId: string;
   /**
+   * The agent run that launched this one. Absent when the session's root conversation launched it.
+   *
    * Not enforced by the generated code: format uuid.
    */
   parentAgentRunId?: string;
+  /**
+   * The `event` of an `agent.run.completed`, `agent.run.failed`, or `agent.run.cancelled` frame: how the child run ended.
+   */
   event: AgentRunTerminalEvent;
 }
 
@@ -3593,11 +5060,13 @@ export function validateAgentRunCancelledData(
 }
 
 /**
+ * Send a message to a session, its running turn, or one of its child agents.
  * Payload: MessageSend.
  */
 export const MessageSocketMessageSend = "socket_messageSend";
 
 /**
+ * A frame the server sends: a sequenced session frame or an acknowledgement.
  * Payload: ServerEvent.
  */
 export const MessageSocketServerEvent = "socket_serverEvent";
@@ -3631,6 +5100,7 @@ export function decodeReceivedMessage(data: string): ReceivedMessage {
 /** Handler receives incoming messages. Implement only the methods you need. */
 export interface Handler {
   /**
+   * A frame the server sends: a sequenced session frame or an acknowledgement.
    * Payload: ServerEvent.
    */
   handleSocketServerEvent?(payload: ServerEvent): void | Promise<void>;
@@ -3678,6 +5148,7 @@ export class Client {
 
   /**
    * sendMessage checks payload and sends it as a MessageSocketMessageSend message.
+   * Send `message.send` frames. Each must carry a unique `id` and name its session in `metadata.sessionId`. Peen accepts a session's messages in arrival order: the first starts a turn and later ones join its queue until it ends. Watch for the `message.completed` or `message.failed` frame whose `triggeredBy` equals the frame's `id`.
    */
   async sendMessage(payload: MessageSend): Promise<void> {
     validateMessageSend(payload, MessageSocketMessageSend);

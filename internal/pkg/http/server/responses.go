@@ -7,6 +7,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/aichteeteapee"
+	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/internal/pkg/publicerror"
@@ -109,21 +111,46 @@ func clientMessage(err error) string {
 	return publicerror.Message(err)
 }
 
-func notFoundError() api.Error {
+// recordNotFoundError reports a record missing inside an existing session.
+// message names what is missing and never echoes client input.
+func recordNotFoundError(message string) api.Error {
 	return api.Error{
 		Code:    aichteeteapee.ErrorCodeNotFound,
-		Message: "session not found",
+		Message: message,
 	}
 }
 
 // sessionNotFoundError reports a well-formed X-Session-ID that names no
-// durable session. Only used where a session ID is the sole identifier an
+// durable session. Used directly where a session ID is the sole identifier an
 // operation resolves, so an ErrNotFound there can only mean this.
 func sessionNotFoundError() api.Error {
 	return api.Error{
 		Code:    ErrorCodeSessionNotFound,
-		Message: "session not found",
+		Message: sessionNotFoundMessage,
 	}
+}
+
+// missingRecordError answers an ErrNotFound from an operation that resolves
+// a record inside the X-Session-ID session. The stores report a missing
+// session and a missing record the same way, so the session is looked up
+// again to tell the client which of the two it named. message names the
+// record, such as "job not found".
+func (s *Server) missingRecordError(
+	ctx context.Context,
+	sessionID uuid.UUID,
+	message string,
+) (api.Error, error) {
+	_, err := s.deps.Runtime.Session(ctx, sessionID)
+	if err == nil {
+		return recordNotFoundError(message), nil
+	}
+
+	if errors.Is(err, commerr.ErrNotFound) {
+		return sessionNotFoundError(), nil
+	}
+
+	return api.Error{}, ctxerrors.Wrap(err,
+		"look up the session of a missing record")
 }
 
 func sessionBusyError(message string) api.Error {

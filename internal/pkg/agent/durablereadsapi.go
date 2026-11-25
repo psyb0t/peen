@@ -769,9 +769,6 @@ func transcriptEventToAPI(stored *models.Event) (api.TranscriptEvent, error) {
 		TurnId:    stored.TurnID,
 		Type:      stored.EventType,
 	}
-	if stored.ParentToolCallID != "" {
-		converted.ParentToolCallId = &stored.ParentToolCallID
-	}
 
 	if stored.WorkerGenerationID != "" {
 		converted.WorkerGenerationId = &stored.WorkerGenerationID

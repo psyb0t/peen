@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/google/uuid"
@@ -87,6 +88,8 @@ func TestRuntimeReplaysJobsFromSQLiteWithoutALiveRegistry(t *testing.T) {
 	assert.Equal(t, "call-1", *jobs.Jobs[0].ToolCallId)
 	require.NotNil(t, jobs.Jobs[0].WorkerGenerationId)
 	assert.Equal(t, workerGenerationID, *jobs.Jobs[0].WorkerGenerationId)
+	assert.Nil(t, jobs.Jobs[0].AgentRunId,
+		"a job the root conversation started names no agent run")
 
 	output, err := fixture.runtime.ReadSessionJobOutput(
 		ctx,
@@ -158,6 +161,29 @@ func TestRuntimeReplaysJobsFromSQLiteWithoutALiveRegistry(t *testing.T) {
 	require.Len(t, signals.SignalRequests, 2)
 	assert.False(t, signals.SignalRequests[1].Accepted)
 	assert.Equal(t, api.JobSignalRecordSignalKill, signals.SignalRequests[1].Signal)
+}
+
+// A job a child agent started names that agent run, so a client can tell
+// which child ran the command.
+func TestJobModelToAPIReportsTheChildAgentRun(t *testing.T) {
+	t.Parallel()
+
+	agentRunID := uuid.New()
+	converted, err := jobModelToAPI(&models.Job{
+		ID:         uuid.New(),
+		SessionID:  uuid.New(),
+		TurnID:     uuid.New(),
+		AgentRunID: &agentRunID,
+		State:      models.JobStateRunning,
+		ExitCode:   -1,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, converted.AgentRunId)
+	assert.Equal(t, agentRunID, *converted.AgentRunId)
+
+	encoded, err := json.Marshal(converted)
+	require.NoError(t, err)
+	assert.Contains(t, string(encoded), `"agentRunId":"`+agentRunID.String())
 }
 
 func outputLineSequences(lines []api.JobOutputLine) []int64 {

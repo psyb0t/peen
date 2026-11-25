@@ -86,6 +86,7 @@ const (
 	invalidBearerTokenMessage            = "invalid bearer token"
 	webSocketMessageRejectedMessage      = "websocket message rejected"
 	webSocketMessageFailedMessage        = "websocket message failed"
+	webSocketMessageMissingIDMessage     = "message.send requires an id"
 	webSocketAgentFinishedMessage        = "the agent has finished"
 	webSocketAgentNotFoundMessage        = "this session has no such agent run"
 	webSocketHarnessConfigurationMessage = "Peen could not start this turn because the workspace agent configuration is invalid."                 //nolint:lll // Client-safe text must remain one sentence.
@@ -97,6 +98,19 @@ const (
 	webSocketUnreadableHarnessReason     = "Check that the workspace agent configuration files are readable."                                     //nolint:lll // Client-safe text must remain one sentence.
 	webSocketPromptBudgetReason          = "Shorten the rules and instructions that load on every turn, or raise PEEN_MAX_SYSTEM_PROMPT_PERCENT." //nolint:lll // Client-safe text must remain one sentence.
 	unsupportedResponseMessage           = "unsupported response representation"
+	sessionNotFoundMessage               = "session not found"
+	jobNotFoundMessage                   = "job not found"
+	agentRunNotFoundMessage              = "agent run not found"
+	compactionNotFoundMessage            = "compaction not found"
+	modelRunNotFoundMessage              = "model run not found"
+	contextSnapshotNotFoundMessage       = "context snapshot not found"
+	promptSnapshotNotFoundMessage        = "prompt snapshot not found"
+	learnedFileNotFoundMessage           = "learned file not found"
+	workspacePathNotFoundMessage         = "workspace path not found"
+	workspaceDirectoryNotEmptyMessage    = "workspace directory is not empty"
+	workspacePathRefusedMessage          = "path must be a clean relative path inside the workspace" //nolint:lll // Client-safe text must remain one sentence.
+	agentSpaceUnchangedMessage           = "the workspace already runs in this agent space"          //nolint:lll // Client-safe text must remain one sentence.
+	systemSessionAgentSpaceMessage       = "the system session's agent space cannot be changed"      //nolint:lll // Client-safe text must remain one sentence.
 	staleAPIPathMessage                  = "no such path"
 	httpRequestRejectedLogMessage        = "HTTP request rejected"
 	httpRequestFailedLogMessage          = "HTTP request failed"

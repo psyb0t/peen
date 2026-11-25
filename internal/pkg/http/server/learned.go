@@ -62,10 +62,14 @@ func (s *Server) GetSessionLearnedFile(
 	if err != nil {
 		switch {
 		case errors.Is(err, commerr.ErrNotFound):
+			body, lookupErr := s.missingRecordError(ctx,
+				request.Params.XSessionID, learnedFileNotFoundMessage)
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+
 			return api.GetSessionLearnedFile404JSONResponse{
-				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-					notFoundError(),
-				),
+				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(body),
 			}, nil
 		case errors.Is(err, commerr.ErrValidationFailed):
 			return api.GetSessionLearnedFile400JSONResponse{
@@ -106,10 +110,14 @@ func (s *Server) DeleteSessionLearnedFile(
 	if err != nil {
 		switch {
 		case errors.Is(err, commerr.ErrNotFound):
+			body, lookupErr := s.missingRecordError(ctx,
+				request.Params.XSessionID, learnedFileNotFoundMessage)
+			if lookupErr != nil {
+				return nil, lookupErr
+			}
+
 			return api.DeleteSessionLearnedFile404JSONResponse{
-				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(
-					notFoundError(),
-				),
+				ErrorNotFoundJSONResponse: api.ErrorNotFoundJSONResponse(body),
 			}, nil
 		case errors.Is(err, commerr.ErrValidationFailed):
 			return api.DeleteSessionLearnedFile400JSONResponse{

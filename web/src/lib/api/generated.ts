@@ -13,7 +13,10 @@ export interface paths {
 		};
 		/**
 		 * List configured scheduled jobs
-		 * @description Returns startup-loaded jobs with their next occurrence and last run.
+		 * @description Returns every scheduled job Peen loaded from the operator's cron file at startup, sorted by name, each with its next scheduled occurrence and its most recent run. Takes no session header and no paging; the list is the whole configuration.
+		 *
+		 *     - While `PEEN_CRON` is off, the list is empty. Past runs stay readable through `GET /cron/runs`.
+		 *     - Jobs change only when Peen restarts with an edited cron file. The API cannot add, change or trigger a job.
 		 */
 		get: operations["listCronJobs"];
 		put?: never;
@@ -31,7 +34,14 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** List durable scheduled run history */
+		/**
+		 * List scheduled run history
+		 * @description Returns the durable history of scheduled runs, newest scheduled occurrence first, for every job or for one job. Each run records when it was due, how it ended, and the session it ran in. Takes no session header.
+		 *
+		 *     - History includes jobs that are no longer configured, and it stays readable while `PEEN_CRON` is off.
+		 *     - Pages with `limit` and `offset`. A `job` value that does not match the name pattern answers `400 VALIDATION_FAILED`; a valid name with no runs returns an empty page.
+		 *     - Open a run's conversation with its `sessionId` as `X-Session-ID` on `GET /messages`.
+		 */
 		get: operations["listCronRuns"];
 		put?: never;
 		post?: never;
@@ -48,7 +58,14 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** List stored conversation messages */
+		/**
+		 * List a session's conversation messages
+		 * @description Lists the stored conversation messages of the session named by `X-Session-ID`, ordered by `sequence`. `order` is `asc` (oldest first, the default) or `desc`. Page with `limit` and `offset`.
+		 *
+		 *     This is the root conversation only. A child agent's transcript is read with `GET /session/agents/{agentRunId}/messages`, and Peen's internal harness records, such as context changes and resolved prompts, are not messages and never appear here. Image bytes are never returned; `images` lists each image's media type and size.
+		 *
+		 *     Returns 404 `SESSION_NOT_FOUND` when the session does not exist, and 400 for a malformed `X-Session-ID` or an out-of-range `limit`, `offset`, or `order`.
+		 */
 		get: operations["listMessages"];
 		put?: never;
 		post?: never;
@@ -66,8 +83,12 @@ export interface paths {
 			cookie?: never;
 		};
 		/**
-		 * List durable workspace sessions
-		 * @description Lists every session this control surface holds. It takes no session header because it is how a client discovers which sessions exist.
+		 * List every session
+		 * @description Lists every session this controller holds, newest updated first (ties broken by session ID, descending). This includes every session of every workspace and the system session when one exists. It takes no `X-Session-ID` header, because it is how a client discovers which sessions exist.
+		 *
+		 *     Each item has the same shape as `GET /session`, except that `activeTurnFeedSequence` is never set here. Page with `limit` and `offset`; `hasMore` is true when at least one more session follows this page.
+		 *
+		 *     Returns 400 `VALIDATION_FAILED` for a `limit` or `offset` outside its range.
 		 */
 		get: operations["listSessions"];
 		put?: never;
@@ -89,7 +110,22 @@ export interface paths {
 		put?: never;
 		/**
 		 * Open or resume the session for a workspace
-		 * @description Resolves a workspace path to its one durable session, creating that session the first time the directory is opened. This is the only operation that creates a session, so a control surface starts with none and a client must name the workspace it wants. Opening the same directory again, by any of its names, resumes the existing session. A path outside every configured workspace root is refused with 403 WORKSPACE_NOT_ALLOWED, and so is a workspace that is, contains, or sits inside the controller's state directory, or is or contains its configuration directory, and an agent space the deployment does not offer is refused with 403 AGENT_SPACE_NOT_ALLOWED. Neither creates a session. A path beneath a configured root whose directory does not exist returns 404 WORKSPACE_NOT_FOUND. Every session of one workspace shares one agent space. A request that names no agent space gets the workspace's, or the default when the workspace has no session yet, and a request that names a different agent space than the workspace's is refused with 409 AGENT_SPACE_CONFLICT, whose message names the workspace's current agent space.
+		 * @description Resolves a workspace directory to its session and returns it, creating the session the first time the directory is opened. This is the only REST operation that creates a session, so a controller starts with none and a client must name the workspace it wants. It takes no `X-Session-ID` header; use the returned `session.id` as `X-Session-ID` on later REST calls and as `metadata.sessionId` on the WebSocket. The response also carries it in the `X-Session-ID` response header.
+		 *
+		 *     The path is resolved through its symbolic links, so opening the same directory again by any of its names resumes the same session. A workspace can hold more than one session: scheduled turns, the Telegram bot, and the OpenAI API create further sessions of a workspace for their own conversations. This operation always opens the workspace's main session and never one of those.
+		 *
+		 *     Every session of one workspace shares one agent space:
+		 *
+		 *     - For a workspace with no session yet, `agentSpace` picks the agent space. Leaving it out gives the deployment default (`default` in `GET /agent-spaces`).
+		 *     - For a workspace that already has sessions, leaving `agentSpace` out or naming the agent space they use opens the session. Naming a different one returns 409 `AGENT_SPACE_CONFLICT`, whose message names the workspace's current agent space. Use `POST /session/reconfigure` to move the workspace on purpose.
+		 *
+		 *     Errors, none of which creates a session:
+		 *
+		 *     - 400 `VALIDATION_FAILED`: the body is missing or malformed, `workspace` is empty, or the path is not a directory.
+		 *     - 403 `AGENT_SPACE_NOT_ALLOWED`: `agentSpace` names an agent space the deployment does not offer. This is checked first, even when the workspace already has a session.
+		 *     - 403 `WORKSPACE_NOT_ALLOWED`: the path is outside every configured workspace root (before or after resolving symbolic links), or the workspace is, contains, or sits inside the controller's state directory, or is or contains its configuration directory. The message never names a root.
+		 *     - 404 `WORKSPACE_NOT_FOUND`: the path is beneath a configured root but the directory does not exist.
+		 *     - 409 `AGENT_SPACE_CONFLICT`: see above.
 		 */
 		post: operations["openSession"];
 		delete?: never;
@@ -109,7 +145,11 @@ export interface paths {
 		put?: never;
 		/**
 		 * Open or resume the system session
-		 * @description Returns the deployment's one system session, creating it the first time, and starts no turn. Send it messages over the WebSocket with `system` set. While `PEEN_SYSTEM_AGENT` is off this answers 403 SYSTEM_AGENT_OFF and creates nothing.
+		 * @description Returns the deployment's one system session, creating it the first time, and starts no turn. The system session runs the system agent in the `control` agent space, in a directory under the controller's state directory that no client can open with `POST /sessions/open`. It takes no request body and no `X-Session-ID` header; the response carries the session ID in its body and in the `X-Session-ID` response header.
+		 *
+		 *     Send the system session messages over the WebSocket with `system` set. Its agent space cannot be changed with `POST /session/reconfigure`.
+		 *
+		 *     While `PEEN_SYSTEM_AGENT` is off this returns 403 `SYSTEM_AGENT_OFF` and creates nothing.
 		 */
 		post: operations["openSystemSession"];
 		delete?: never;
@@ -127,7 +167,12 @@ export interface paths {
 		};
 		/**
 		 * List the agent spaces a client may name
-		 * @description Lists the agent spaces a session may run in: `control`, where the agent runs where Peen runs, which is listed only when the controller cannot reach a Docker daemon, and one `docker:<profile>` space for each Docker profile, including the built-in `default`. A client names an agent space when it opens a workspace and never sends an image, mount, network setting, or capability. Each Docker space reports its grants (`docker`, `network`, `sudo`), and a space that grants host root or other risky access carries capability warnings.
+		 * @description Lists the agent spaces a session may run in, sorted by name, and the default a session gets when it is opened without naming one. It takes no `X-Session-ID` header, because a client reads it before it has a session.
+		 *
+		 *     - `control` runs the agent where the controller runs. It is listed only when the controller cannot reach a Docker daemon.
+		 *     - `docker:<profile>` runs the agent in its own container, one space per Docker profile the operator configured, plus the built-in `default` profile (no Docker access, bridge network, no sudo) unless the operator redefines it.
+		 *
+		 *     A client names an agent space when it opens a workspace or reconfigures a session, and never sends an image, mount, network setting, or capability: the operator's configuration decides what each name means. Each Docker space reports its grants (`docker`, `network`, `sudo`), and `capabilityWarnings` carries one sentence for each risky grant.
 		 */
 		get: operations["listAgentSpaces"];
 		put?: never;
@@ -146,8 +191,12 @@ export interface paths {
 			cookie?: never;
 		};
 		/**
-		 * List workspace roots this controller may open
-		 * @description Lists the operator-configured workspace roots available to this authenticated control surface. A client selects one of these roots when it opens its first session instead of guessing a host path. This is the deliberate, authenticated disclosure of the controller's workspace boundary; rejected workspace opens still disclose no roots.
+		 * List the workspace roots this controller may open
+		 * @description Lists the workspace roots configured for this controller, so a client can offer a valid directory before it opens its first session instead of guessing a host path. It takes no `X-Session-ID` header.
+		 *
+		 *     Peen currently supports one root: `PEEN_WORKSPACE_ROOT`, or the controller's working directory when that is unset, resolved through its symbolic links. `POST /sessions/open` accepts any existing directory beneath it, apart from the controller's own state and configuration directories.
+		 *
+		 *     This is the deliberate, authenticated disclosure of the controller's workspace boundary. A refused `POST /sessions/open` never names a root.
 		 */
 		get: operations["listWorkspaceRoots"];
 		put?: never;
@@ -166,8 +215,10 @@ export interface paths {
 			cookie?: never;
 		};
 		/**
-		 * List models discovered from configured connections
-		 * @description Lists the non-secret model metadata Peen confirmed at controller startup. A model's name is the exact connection/model reference a WebSocket message.send frame may use for its one-turn model override.
+		 * List the models discovered from configured connections
+		 * @description Lists the models Peen found on its configured connections at controller startup, sorted by `name`. It takes no `X-Session-ID` header, never makes a provider call, and never returns provider credentials.
+		 *
+		 *     Pass a model's `name` as `data.model` in a WebSocket `message.send` frame to run that one turn on it. The list is empty when the controller has no model catalog.
 		 */
 		get: operations["listModels"];
 		put?: never;
@@ -186,8 +237,12 @@ export interface paths {
 			cookie?: never;
 		};
 		/**
-		 * List one session's worker generations
-		 * @description Returns the durable worker generations for one session, newest first. A generation records the worker process that ran a set of turns, the agent space revision it started under, and for a Docker generation its container and repository image digest when one is available.
+		 * List a session's worker generations
+		 * @description Lists the worker generations of the session named by `X-Session-ID`, newest first (by creation time, then ID). A generation is one worker process or container that ran the session's turns. It records the agent space and the agent space revision it started under, its lifecycle state, and for a Docker generation its container ID and image digest. A new generation starts when a session's next turn needs a worker and none is running, for example after `POST /session/reconfigure` stopped the previous one.
+		 *
+		 *     Page with `limit` and `offset`.
+		 *
+		 *     Returns 404 `SESSION_NOT_FOUND` when the session does not exist, and 400 for a malformed `X-Session-ID` or an out-of-range `limit` or `offset`.
 		 */
 		get: operations["listSessionWorkers"];
 		put?: never;
@@ -208,8 +263,18 @@ export interface paths {
 		get?: never;
 		put?: never;
 		/**
-		 * Move an idle session to a different agent space
-		 * @description Changes the agent space a session's tools run in, for that session and every other session of its workspace together, because the sessions of one workspace share one agent space. It records a decision for each session with the caller's reason and returns the named session's. The named agent space must be one the deployment offers; an undefined name is refused with 403. While any session of the workspace has a turn in flight the change is refused with 409 SESSION_BUSY, because changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. On success each session's current worker is stopped, so its next turn starts a new generation in the new agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
+		 * Move a workspace's sessions to another agent space
+		 * @description Changes the agent space of the session named by `X-Session-ID` and of every other session of the same workspace, because the sessions of one workspace share one agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
+		 *
+		 *     On success Peen records one decision per session, each with the caller's `reason`, and stops each session's current worker, so each session's next turn starts a new worker generation in the new agent space. The response is the decision for the session the call named; the others appear in each session's `GET /session/agent-space-decisions`.
+		 *
+		 *     Errors, none of which changes anything:
+		 *
+		 *     - 400 `VALIDATION_FAILED`: the body is missing, has an unknown field, leaves out `agentSpace` or `reason`, or `reason` is only whitespace.
+		 *     - 403 `AGENT_SPACE_NOT_ALLOWED`: the session is the system session, which always stays in `control`, whatever `agentSpace` names (message `the system session's agent space cannot be changed`); or `agentSpace` names an agent space the deployment does not offer.
+		 *     - 404 `SESSION_NOT_FOUND`: the session does not exist.
+		 *     - 409 `CONFLICT`: `agentSpace` names the agent space the workspace already runs in. Peen records no decision and stops no worker.
+		 *     - 409 `SESSION_BUSY`: any session of the workspace has a turn in flight. Changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. Retry once the turns end.
 		 */
 		post: operations["reconfigureSession"];
 		delete?: never;
@@ -226,8 +291,12 @@ export interface paths {
 			cookie?: never;
 		};
 		/**
-		 * List one session's agent space decision history
-		 * @description Returns the durable record of every agent space change made to one session, newest first. Each entry names the agent space the session moved from, the agent space it moved to, and the reason the caller gave.
+		 * List a session's agent space decisions
+		 * @description Lists every agent space change recorded for the session named by `X-Session-ID`, newest first (by decision time, then ID). Each entry names the agent space the session moved from, the one it moved to, and the reason the caller gave. A `POST /session/reconfigure` on any session of the workspace adds one entry to each of the workspace's sessions.
+		 *
+		 *     Page with `limit` and `offset`.
+		 *
+		 *     Returns 404 `SESSION_NOT_FOUND` when the session does not exist, and 400 for a malformed `X-Session-ID` or an out-of-range `limit` or `offset`.
 		 */
 		get: operations["listSessionAgentSpaceDecisions"];
 		put?: never;
@@ -245,7 +314,14 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** Read session details */
+		/**
+		 * Read one session
+		 * @description Reads the session named by `X-Session-ID`: its counters, its agent, model, workspace, and agent space, whether a turn is running, and its newest feed sequence.
+		 *
+		 *     This is the only operation that sets `activeTurnFeedSequence`, the first feed sequence of the running turn. A client that connects while a turn runs can call `GET /session/feed` with `cursor` set to one less than that value to rebuild the turn's live view, then follow the WebSocket.
+		 *
+		 *     Returns 404 `SESSION_NOT_FOUND` when the session does not exist, and 400 `INVALID_SESSION_ID` for a malformed header.
+		 */
 		get: operations["getSession"];
 		put?: never;
 		post?: never;
@@ -264,7 +340,14 @@ export interface paths {
 		};
 		get?: never;
 		put?: never;
-		/** Request cancellation for the active turn */
+		/**
+		 * Stop the session's running work
+		 * @description Stops the work of the session named by `X-Session-ID` without deleting anything. It cancels a message still waiting to start a turn, interrupts the running turn in the session's worker, pauses unfinished workflows, and cancels every child agent still running, including children of turns that already ended. It takes no request body.
+		 *
+		 *     Peen records the stop before it interrupts the worker, and the call returns without waiting for the work to wind down. A request accepted before the stop cannot start afterward, and reconnecting does not resume paused work. A foreground `runCommand` kills its process group; background jobs already handed back keep running.
+		 *
+		 *     It answers 202 whether or not anything was running, so repeating it is safe. Returns 404 `SESSION_NOT_FOUND` when the session does not exist.
+		 */
 		post: operations["cancelSession"];
 		delete?: never;
 		options?: never;
@@ -279,7 +362,14 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** List durable protocol events */
+		/**
+		 * List stored protocol events
+		 * @description Lists the protocol events Peen stored while it ran the session's turns, such as `tool.use`, ordered by their per-session `sequence`. `order` is `asc` (oldest first, the default) or `desc`. Page with `limit` and `offset`.
+		 *
+		 *     These are records of what happened, not a queue: listing never consumes or changes them. The WebSocket protocol event types table lists every `type`. To replay exactly what a live client saw, including child agent steps and notices, use `GET /session/feed` instead.
+		 *
+		 *     Returns 404 `SESSION_NOT_FOUND` when the session does not exist, and 400 for a malformed `X-Session-ID` or an out-of-range `limit`, `offset`, or `order`.
+		 */
 		get: operations["listSessionEvents"];
 		put?: never;
 		post?: never;
@@ -298,7 +388,11 @@ export interface paths {
 		};
 		/**
 		 * Replay a session's live feed from a sequence
-		 * @description Returns the session's sequenced live frames after `cursor`, oldest first: root protocol events, child agent run steps, and notices. Each item has the same type, data and sequence its live WebSocket frame carried, so a client that reconnects passes the last sequence it applied and continues without a gap or a duplicate. A cursor at or past the head returns an empty page.
+		 * @description Returns the session's sequenced live frames with a sequence greater than `cursor`, oldest first. The feed merges three kinds of frame: root protocol events, child agent run steps (`agent.run.*`), and notices (`notice.created`). Each item has the same `type`, `data`, and `sequence` its live WebSocket frame carried, and `id` is the stored record's ID, so a client that reconnects passes the last sequence it applied as `cursor` and continues without a gap or a duplicate.
+		 *
+		 *     Continue with `nextCursor` while `hasMore` is true. A cursor at or past the head returns an empty page with `nextCursor` equal to the `cursor` sent. `message.completed` and `message.failed` never appear here, because they are unsequenced acknowledgements of one request.
+		 *
+		 *     Returns 404 `SESSION_NOT_FOUND` when the session does not exist, and 400 for a malformed `X-Session-ID`, a negative `cursor`, or a `limit` outside 1 to 200.
 		 */
 		get: operations["listSessionFeed"];
 		put?: never;
@@ -316,10 +410,28 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** List durable outside and worker notices */
+		/**
+		 * List a session's notices
+		 * @description Lists every notice recorded for the session named by `X-Session-ID`, oldest first, whether or not it has been delivered to the model yet. Notices come from Peen's own producers (for example `tools.job` for process jobs, `agent.launchAgent` for child agents, `session.turn` for how a turn ended) and from outside callers through `POST /session/notices` (source `api`). Listing never consumes them. Page with `limit` and `offset`.
+		 *
+		 *     Returns 404 `SESSION_NOT_FOUND` when the session does not exist, and 400 for a malformed `X-Session-ID` or an out-of-range `limit` or `offset`.
+		 */
 		get: operations["listSessionNotices"];
 		put?: never;
-		/** Report a durable notice to the session */
+		/**
+		 * Report a notice to a session
+		 * @description Records a notice from outside Peen, such as a webhook, a CI run, or an operator, against the session named by `X-Session-ID`. The notice is stored with source `api`, sent to live clients as a `notice.created` feed frame, and delivered to the model as quoted, untrusted data, never merged into the system prompt. This is the only REST operation that can start a turn.
+		 *
+		 *     `delivery` decides when the model sees it:
+		 *
+		 *     - `queue` (the default) delivers it at the session's next turn or tool boundary.
+		 *     - `wake` also starts a turn when the session is idle and a handler for the notice's `type` exists at `.agents/events/<type>.md` in a harness layer. A handler that sets its own `delivery` overrides the notice's. A wake is refused, and the notice stays queued, while a turn runs or after the session reached its hourly wake limit.
+		 *
+		 *     Errors:
+		 *
+		 *     - 400 `VALIDATION_FAILED`: the body is missing or malformed; `type` is not one to eight dot-separated lowercase segments (each a letter followed by letters or digits) of at most 128 characters; `type` starts with a reserved prefix (`job.`, `agent.`, `turn.`); `summary` is empty or longer than `PEEN_MAX_EVENT_SUMMARY_BYTES` (default 4096 bytes); or `data` encodes to more than `PEEN_MAX_EVENT_DATA_BYTES` (default 65536 bytes).
+		 *     - 404 `SESSION_NOT_FOUND`: the session does not exist.
+		 */
 		post: operations["publishSessionNotice"];
 		delete?: never;
 		options?: never;
@@ -334,7 +446,15 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** List the commands this session has started */
+		/**
+		 * List the commands this session has started
+		 * @description Lists the session's process jobs, newest first. A job is one shell command the agent started with the `runCommand` tool, in the foreground or the background. Peen records it before the process produces output and keeps the record after the process ends, after the worker stops and after Peen restarts. A job started in one turn stays listed, readable and signallable from later turns.
+		 *
+		 *     - Ordering: by `startedAt` descending, then `jobId` descending.
+		 *     - Paging: `limit` (1 to 200, default 50) and `offset` (default 0). `hasMore` is `true` when at least one more job exists after this page.
+		 *     - Filter: `state` keeps jobs in one state.
+		 *     - Errors: `400 VALIDATION_FAILED` for a `limit`, `offset` or `state` outside the allowed values. `404 SESSION_NOT_FOUND` when no session has the `X-Session-ID` ID.
+		 */
 		get: operations["listSessionJobs"];
 		put?: never;
 		post?: never;
@@ -351,7 +471,16 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** Read a bounded window of one job's output */
+		/**
+		 * Read a bounded window of one job's output
+		 * @description Reads a window of one job's stdout and stderr lines from the database without waiting for the job to finish. Peen stores every line before any client can see it, so a running job's output grows as you read it, and the same lines stay readable after the job ends or Peen restarts.
+		 *
+		 *     Each line carries a `sequence` number. stdout and stderr share one counter per job, starting at 1, so the sequence keeps the order Peen saw the lines in across both streams.
+		 *
+		 *     - Cursor: the response holds lines whose `sequence` is greater than `cursor`, oldest first. Pass `nextCursor` back as `cursor` to read the next window. To follow a running job, repeat the call until `state` is no longer `running` and `hasMore` is `false`.
+		 *     - Window size: `limit` lines at most, 1 to 200, default 50.
+		 *     - Errors: `400 VALIDATION_FAILED` for an unknown `stream`, a negative `cursor`, or a `limit` outside 1 to 200. `404 SESSION_NOT_FOUND` when the session does not exist, and `404 NOT_FOUND` (`job not found`) when it has no job with this ID.
+		 */
 		get: operations["readSessionJobOutput"];
 		put?: never;
 		post?: never;
@@ -368,7 +497,16 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** List the durable signal-request history for one job */
+		/**
+		 * List the durable signal-request history for one job
+		 * @description Lists every request to stop or kill one job, oldest first, together with the job's own record. Peen records a request whether or not it reached a running process, so the history shows requests that arrived after the job had already ended. The history stays readable after the job ends and after Peen restarts.
+		 *
+		 *     Requests come from `POST /session/jobs/{jobId}/signal`, from the agent's own job tools, and from Peen itself when it stops a foreground command whose turn was cancelled.
+		 *
+		 *     - Ordering: by `requestedAt` ascending, then `id` ascending.
+		 *     - Paging: `limit` (1 to 200, default 50) and `offset` (default 0). `hasMore` is `true` when at least one more request exists after this page.
+		 *     - Errors: `400 VALIDATION_FAILED` for a `limit` or `offset` outside the allowed values. `404 SESSION_NOT_FOUND` when the session does not exist, and `404 NOT_FOUND` (`job not found`) when it has no job with this ID.
+		 */
 		get: operations["listSessionJobSignalRequests"];
 		put?: never;
 		post?: never;
@@ -387,7 +525,16 @@ export interface paths {
 		};
 		get?: never;
 		put?: never;
-		/** Stop one running job */
+		/**
+		 * Stop one running job
+		 * @description Asks Peen to stop one job's process group. The job's process runs under the session's worker, so Peen sends the request to that worker. `stop` sends `SIGTERM`, then `SIGKILL` if the process group is still running 10 seconds later. `kill` sends `SIGKILL` at once.
+		 *
+		 *     The call returns `202` as soon as the request is recorded and the signal is dispatched. It does not wait for the process to exit. Read the job from `GET /session/jobs` or its output endpoint to see the final state, normally `signalled`.
+		 *
+		 *     Every call adds a record to the job's signal history (`GET /session/jobs/{jobId}/signals`). A request for a job that is not running, or whose worker is gone, is not an error: Peen records it as not accepted, changes nothing, and returns `signalled: false` with the job's current state.
+		 *
+		 *     - Errors: `400 VALIDATION_FAILED` when the body is missing, `signal` is missing or not `stop` or `kill`, or the body has another field. `404 SESSION_NOT_FOUND` when the session does not exist, and `404 NOT_FOUND` (`job not found`) when it has no job with this ID.
+		 */
 		post: operations["signalSessionJob"];
 		delete?: never;
 		options?: never;
@@ -402,7 +549,15 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** List the child agent runs this session has started */
+		/**
+		 * List the child agent runs this session has started
+		 * @description Lists the session's child agent runs, newest first (by `startedAt`, then ID). A child agent run starts when an agent in the session calls the `launchAgent` tool, either with a stored agent definition or with an inline one. Each entry is the whole stored run record, the same object `GET /session/agents/{agentRunId}` returns, including the derived `waiting`, `question`, and `paused` fields.
+		 *
+		 *     - Select the session with the `X-Session-ID` header.
+		 *     - Paging uses `limit` (1 to 200, default 50) and `offset` (default 0). `hasMore` is true when more runs follow this page.
+		 *     - A session that never launched a child returns an empty `agents` array, not an error.
+		 *     - Returns `404` with code `SESSION_NOT_FOUND` when the session does not exist, and `400` with code `VALIDATION_FAILED` when a query parameter or the header fails validation, including a `parentAgentRunId` that is neither an agent run ID nor `root`.
+		 */
 		get: operations["listSessionAgentRuns"];
 		put?: never;
 		post?: never;
@@ -419,7 +574,14 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** List durable turns */
+		/**
+		 * List durable turns
+		 * @description Lists the session's stored turns, newest first. A turn is one run of the agent in response to a message, from the moment Peen accepts it until it completes, fails, is cancelled or is interrupted. Each turn names the context and prompt snapshots it ran with, which you can read from `GET /session/context-snapshots/{contextHash}` and `GET /session/prompt-snapshots/{promptHash}`.
+		 *
+		 *     - Ordering: by `startedAt` descending, then `id` descending.
+		 *     - Paging: `limit` (1 to 200, default 50) and `offset` (default 0). `hasMore` is `true` when at least one more turn exists after this page.
+		 *     - Errors: `400 VALIDATION_FAILED` for a `limit` or `offset` outside the allowed values. `404 SESSION_NOT_FOUND` when no session has the `X-Session-ID` ID.
+		 */
 		get: operations["listSessionTurns"];
 		put?: never;
 		post?: never;
@@ -436,7 +598,16 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** List durable compaction records */
+		/**
+		 * List durable compaction records
+		 * @description Lists the session's compaction records, newest first. When a conversation grows close to the model's context limit, Peen asks a model to summarize the oldest messages and sends the summary in their place from then on. Each compaction record holds that summary and the exact range of stored messages it replaced. A record never changes once written.
+		 *
+		 *     A later compaction summarizes the current summary plus the next messages, so its range starts where the earlier one started, and `parentCompactionId` points at the record it replaces. Follow the parent links to rebuild the whole lineage. Messages keep the `compactionId` of the compaction that first summarized them. Child agents keep their own compactions, under `GET /session/agents/{agentRunId}/compactions`, not here.
+		 *
+		 *     - Ordering: by `createdAt` descending, then `id` descending.
+		 *     - Paging: `limit` (1 to 200, default 50) and `offset` (default 0). `hasMore` is `true` when at least one more record exists after this page.
+		 *     - Errors: `400 VALIDATION_FAILED` for a `limit` or `offset` outside the allowed values. `404 SESSION_NOT_FOUND` when no session has the `X-Session-ID` ID.
+		 */
 		get: operations["listSessionCompactions"];
 		put?: never;
 		post?: never;
@@ -453,7 +624,12 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** Read one durable compaction record */
+		/**
+		 * Read one durable compaction record
+		 * @description Reads one of the session's compaction records by ID. The record includes the message range it covers and its optional `parentCompactionId`, so you can read any point in the lineage without inferring it from message order.
+		 *
+		 *     - Errors: `404 SESSION_NOT_FOUND` when the session does not exist, and `404 NOT_FOUND` (`compaction not found`) when it has no compaction with this ID. A compaction of another session answers the same as an unknown one.
+		 */
 		get: operations["getSessionCompaction"];
 		put?: never;
 		post?: never;
@@ -470,7 +646,17 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** List complete durable model invocations */
+		/**
+		 * List complete durable model invocations
+		 * @description Lists the session's model runs, newest first. A model run is one logical request Peen made to a model: a root turn's conversation with the model, a child agent's, or a compaction summary. One run can take several provider rounds, one per model call in a tool loop, and each round is listed by `GET /session/model-runs/{modelRunId}/calls`. Peen writes the run before any provider work starts and finalizes it when the run ends.
+		 *
+		 *     A run records the model it asked for and the model that answered, the settings in effect without secrets, the final text and thinking, the response messages, the summed usage, the cost amounts when the model has prices, and failure details.
+		 *
+		 *     - Ordering: by `startedAt` descending, then `id` descending.
+		 *     - Paging: `limit` (1 to 200, default 50) and `offset` (default 0). `hasMore` is `true` when at least one more run exists after this page.
+		 *     - Filters: `stage` and `state`, which combine.
+		 *     - Errors: `400 VALIDATION_FAILED` for a `limit`, `offset`, `stage` or `state` outside the allowed values. `404 SESSION_NOT_FOUND` when no session has the `X-Session-ID` ID.
+		 */
 		get: operations["listSessionModelRuns"];
 		put?: never;
 		post?: never;
@@ -487,7 +673,16 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** Read every provider round for one model invocation */
+		/**
+		 * Read every provider round for one model invocation
+		 * @description Lists the provider rounds of one model run, with the run itself. A round is one request to the provider: Peen stores the exact messages and the tool definitions the provider saw before the request is sent, then the response message, usage, retries and costs when the round ends.
+		 *
+		 *     Request messages repeat the whole conversation each round, and images in them are returned base64 encoded, so a page can be large. Treat the content as sensitive: it holds everything the agent read and sent.
+		 *
+		 *     - Ordering: by `round` ascending, then `id` ascending.
+		 *     - Paging: `limit` (1 to 200, default 50) and `offset` (default 0). `hasMore` is `true` when at least one more round exists after this page.
+		 *     - Errors: `400 VALIDATION_FAILED` for a `limit` or `offset` outside the allowed values. `404 SESSION_NOT_FOUND` when the session does not exist, and `404 NOT_FOUND` (`model run not found`) when it has no model run with this ID. A model run of another session answers the same as an unknown one.
+		 */
 		get: operations["listSessionModelRunCalls"];
 		put?: never;
 		post?: never;
@@ -504,7 +699,14 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** Read a context snapshot referenced by this session */
+		/**
+		 * Read a context snapshot referenced by this session
+		 * @description Reads the context snapshot a turn's `contextSnapshotHash` names: the harness sources the turn resolved, as a manifest, and the content Peen built from them. Snapshots are stored once by hash and shared by every session that produced the same content.
+		 *
+		 *     You can read a snapshot only through a session that has a turn naming it. Pass the hash from one of this session's turns in `GET /session/turns`.
+		 *
+		 *     - Errors: `404 SESSION_NOT_FOUND` when the session does not exist, and `404 NOT_FOUND`, with a message naming the snapshot, when none of its turns names this hash or no snapshot has it. A hash that only another session's turns name answers the same as an unknown one.
+		 */
 		get: operations["getSessionContextSnapshot"];
 		put?: never;
 		post?: never;
@@ -521,7 +723,14 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** Read a prompt snapshot referenced by this session */
+		/**
+		 * Read a prompt snapshot referenced by this session
+		 * @description Reads the prompt snapshot a turn's `promptSnapshotHash` names: the exact system prompt the model received for that turn. Snapshots are stored once by hash and shared by every session that produced the same prompt.
+		 *
+		 *     You can read a snapshot only through a session that has a turn naming it. Pass the hash from one of this session's turns in `GET /session/turns`. A compaction's `promptHash` is a different hash and does not name a prompt snapshot.
+		 *
+		 *     - Errors: `404 SESSION_NOT_FOUND` when the session does not exist, and `404 NOT_FOUND`, with a message naming the snapshot, when none of its turns names this hash or no snapshot has it. A hash that only another session's turns name answers the same as an unknown one.
+		 */
 		get: operations["getSessionPromptSnapshot"];
 		put?: never;
 		post?: never;
@@ -538,7 +747,15 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** Read one durable child agent run */
+		/**
+		 * Read one durable child agent run
+		 * @description Returns every stored detail of one child agent run: its parent turn and tool call, depth, task, instructions, allowed tools, system prompt, model, state, final answer, token counts, failure details, and start and end times. `waiting`, `question`, and `paused` are computed when you read the run.
+		 *
+		 *     `responseText` holds the whole final answer, even when the `agent.finished` session event that reported it to the root conversation was cut to fit the event size limit.
+		 *
+		 *     - Select the session with the `X-Session-ID` header.
+		 *     - Returns `404` with code `SESSION_NOT_FOUND` when the session does not exist, and `404` with code `NOT_FOUND` (`agent run not found`) when the run does not belong to it. A run ID from another session answers the same as an unknown one.
+		 */
 		get: operations["getSessionAgentRun"];
 		put?: never;
 		post?: never;
@@ -555,7 +772,15 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** Follow what one child agent run is doing */
+		/**
+		 * Follow what one child agent run is doing
+		 * @description Returns one child agent run's stored events in order, read from the database, so the answer is complete even after a restart. These are the same `agent.run.*` steps connected WebSocket clients receive live, such as `agent.run.started`, `agent.run.text.delta`, `agent.run.tool.use`, `agent.run.tool.result`, `agent.run.question`, and the terminal `agent.run.completed`, `agent.run.failed`, or `agent.run.cancelled`. They are not part of `GET /session/events`, which lists only root-turn events.
+		 *
+		 *     Each run numbers its events from 1. To follow a run, start with `cursor=0`, then pass each page's `nextCursor` back as `cursor`. Poll again while `hasMore` is true or the run's `state` is still `running`.
+		 *
+		 *     - Select the session with the `X-Session-ID` header.
+		 *     - Returns `404` with code `SESSION_NOT_FOUND` when the session does not exist, `404` with code `NOT_FOUND` (`agent run not found`) when the run does not belong to it, and `400` with code `VALIDATION_FAILED` for an out-of-range `cursor` or `limit`.
+		 */
 		get: operations["listSessionAgentRunEvents"];
 		put?: never;
 		post?: never;
@@ -574,7 +799,13 @@ export interface paths {
 		};
 		/**
 		 * List one child agent run's own durable transcript
-		 * @description A child agent runs a separate model context, so its transcript is stored apart from the session transcript and is never absorbed by a parent-session compaction.
+		 * @description Lists one child agent run's own transcript, oldest first (by `sequence`). A child agent runs in a separate model context, so its transcript is stored apart from the session transcript, never appears under `GET /messages`, and is never absorbed by a session compaction.
+		 *
+		 *     The first record is the task the launching agent gave the child, as a user message in a `<message>` block that names the sender. The rest are the child's assistant messages, tool results, and the messages it received from other agents or from you. A child transcript never contains `system` messages.
+		 *
+		 *     - Select the session with the `X-Session-ID` header.
+		 *     - Paging uses `limit` (1 to 200, default 50) and `offset` (default 0). `hasMore` is true when more messages follow this page.
+		 *     - Returns `404` with code `SESSION_NOT_FOUND` when the session does not exist, `404` with code `NOT_FOUND` (`agent run not found`) when the run does not belong to it, and `400` with code `VALIDATION_FAILED` for invalid paging values.
 		 */
 		get: operations["listSessionAgentRunMessages"];
 		put?: never;
@@ -592,7 +823,16 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** List one child agent run's compaction lineage */
+		/**
+		 * List one child agent run's compaction lineage
+		 * @description Lists one child agent run's compaction records, newest first (by `createdAt`, then ID). A child compaction summarizes a prefix of the child's own transcript. It never covers a session message and never replaces a session compaction, so this list and `GET /session/compactions` describe separate lineages.
+		 *
+		 *     A later compaction summarizes the earlier summary plus newer raw messages and points at the earlier record through `parentCompactionId`. The earlier record stays unchanged.
+		 *
+		 *     - Select the session with the `X-Session-ID` header.
+		 *     - Paging uses `limit` (1 to 200, default 50) and `offset` (default 0). `hasMore` is true when more records follow this page.
+		 *     - Returns `404` with code `SESSION_NOT_FOUND` when the session does not exist, `404` with code `NOT_FOUND` (`agent run not found`) when the run does not belong to it, and `400` with code `VALIDATION_FAILED` for invalid paging values.
+		 */
 		get: operations["listSessionAgentRunCompactions"];
 		put?: never;
 		post?: never;
@@ -609,7 +849,13 @@ export interface paths {
 			path?: never;
 			cookie?: never;
 		};
-		/** Read one immutable child compaction record */
+		/**
+		 * Read one immutable child compaction record
+		 * @description Returns one child compaction record. The record must belong to both the session and the agent run in the path.
+		 *
+		 *     - Select the session with the `X-Session-ID` header.
+		 *     - Returns `404` with code `SESSION_NOT_FOUND` when the session does not exist, and `404` with code `NOT_FOUND` (`compaction not found`) when the run does not belong to it or the compaction belongs to another session or another run. A caller cannot use this to probe for records it does not own.
+		 */
 		get: operations["getSessionAgentRunCompaction"];
 		put?: never;
 		post?: never;
@@ -628,7 +874,16 @@ export interface paths {
 		};
 		get?: never;
 		put?: never;
-		/** Cancel one child agent run without ending its parent turn */
+		/**
+		 * Cancel one child agent run without ending its parent turn
+		 * @description Cancels one child agent run and the unfinished children it launched. The parent turn and the rest of the session keep running. The request has no body.
+		 *
+		 *     Peen records the cancellation in the database first, then asks the session's live worker to stop the child. A child that runs as a session-worker workflow is settled as `cancelled` in the same step, so the response often already reports `cancelled`. Otherwise the run stays `running` until the worker stops it, and its events end with `agent.run.cancelled`. Repeating the request is safe: it changes nothing in the database, reports `cancelRequested: false` with the current state, and retries delivery to the worker. A session with no live worker records the cancellation, and a replacement worker applies it before starting work.
+		 *
+		 *     - Select the session with the `X-Session-ID` header.
+		 *     - A run that already ended (`completed`, `failed`, or `cancelled`) is not an error: the response reports `cancelRequested: false` and its current state.
+		 *     - Returns `404` with code `SESSION_NOT_FOUND` when the session does not exist, and `404` with code `NOT_FOUND` (`agent run not found`) when the run does not belong to it.
+		 */
 		post: operations["cancelSessionAgentRun"];
 		delete?: never;
 		options?: never;
@@ -645,7 +900,13 @@ export interface paths {
 		};
 		/**
 		 * Report the session's MCP servers
-		 * @description Returns the MCP servers the session's worker last reported: which started, the tools each offers, and why one failed. The worker reports at the start of every turn, so the answer is what the most recent turn saw, and reportedAt says when that was. A session that has not run a turn with MCP configured has no report yet and answers an empty server list with a null reportedAt.
+		 * @description Returns the MCP servers the session's worker last reported: which ones started, the tools each offers, and why one failed. MCP servers are configured in `.agents/mcp.json` in the config directory and, when the deployment allows workspace servers, in the session workspace.
+		 *
+		 *     At the start of every turn the worker reloads `mcp.json`, starts the configured servers, and records an `mcp.status` session event. A turn with no MCP configuration records an empty server list, so once `mcp.json` is removed the next turn's report is empty. This endpoint returns the servers from the most recent such event, and `reportedAt` says when it was recorded. A server that stopped after that turn started still shows as `ready` until the next turn reports.
+		 *
+		 *     - Select the session with the `X-Session-ID` header.
+		 *     - A session that has not run a turn yet returns an empty `servers` array and a null `reportedAt`.
+		 *     - Returns `404` with code `SESSION_NOT_FOUND` when the session does not exist.
 		 */
 		get: operations["getSessionMCPStatus"];
 		put?: never;
@@ -665,7 +926,14 @@ export interface paths {
 		};
 		/**
 		 * List the learned rules and skills this session loads
-		 * @description Lists every rule under .agents/learned/rules and every skill under .agents/learned/skills in the session's workspace and in the global learned directory, so a user can review what an auto-evolving agent saved. Each rule says whether it loads on every turn and its estimated token count. Symbolic links are left out. The list is bounded by the harness file limits, so it has no pages.
+		 * @description Lists the learned rules and skills the session loads, so you can review what an auto-evolving agent saved. Learned files live in two learned directories: `.agents/learned/` in the session's workspace (scope `workspace`), and the deployment's global learned directory that every session reads (scope `global`). Each holds rules under `rules/` and skills under `skills/<name>/SKILL.md`.
+		 *
+		 *     Workspace files come first, then global ones, each group sorted by kind (`rule` before `skill`) and then by name. Each rule says whether it loads on every turn and its estimated token count.
+		 *
+		 *     - Select the session with the `X-Session-ID` header.
+		 *     - Only regular files count. Symbolic links are left out, rule files must end in `.md`, and rule directories nested deeper than 8 levels are not read, matching what the harness loads.
+		 *     - A learned directory that does not exist lists nothing. The list is not paged.
+		 *     - Returns `404` with code `SESSION_NOT_FOUND` when the session does not exist.
 		 */
 		get: operations["listSessionLearnedFiles"];
 		put?: never;
@@ -685,14 +953,25 @@ export interface paths {
 		};
 		/**
 		 * Read one learned rule or skill
-		 * @description Returns a learned rule's file, or a learned skill's SKILL.md, as the agent saved it.
+		 * @description Returns one learned rule's file, or one learned skill's `SKILL.md`, as the agent saved it, with the same metadata the list returns. Name the file with `scope`, `kind`, and `name`.
+		 *
+		 *     A file larger than 128 KiB, which the harness skips, comes back with empty `content` and an `estimatedTokens` of 0.
+		 *
+		 *     - Select the session with the `X-Session-ID` header.
+		 *     - Returns `400` with code `VALIDATION_FAILED` when `name` has an empty, `.`, or `..` segment, contains a backslash, or is nested too deep (a skill name is one segment; a rule name is at most 9).
+		 *     - Returns `404` with code `SESSION_NOT_FOUND` when the session does not exist, and `404` with code `NOT_FOUND` (`learned file not found`) when the deployment has no global learned directory (for `scope=global`), or the file does not exist, is not a regular file, or resolves outside its learned directory through a symbolic link.
 		 */
 		get: operations["getSessionLearnedFile"];
 		put?: never;
 		post?: never;
 		/**
 		 * Delete one learned rule or skill
-		 * @description Removes a learned rule's file, or a learned skill's whole directory. The next turn, child launch, or changeDirectory call no longer loads it. Only files under a learned directory can be deleted this way.
+		 * @description Deletes one learned rule's file, or one learned skill's whole directory (`skills/<name>/` with everything in it). The deletion is immediate and cannot be undone. The next turn and the next `changeDirectory` call resolve the harness without it; a conversation that already resolved it keeps what it loaded until then. Only files under a learned directory can be deleted this way.
+		 *
+		 *     - Select the session with the `X-Session-ID` header.
+		 *     - Returns `204` with no body on success.
+		 *     - Returns `400` with code `VALIDATION_FAILED` when `name` has an empty, `.`, or `..` segment, contains a backslash, or is nested too deep.
+		 *     - Returns `404` with code `SESSION_NOT_FOUND` when the session does not exist, and `404` with code `NOT_FOUND` (`learned file not found`) when the deployment has no global learned directory (for `scope=global`), or the file does not exist, is not a regular file, or resolves outside its learned directory through a symbolic link.
 		 */
 		delete: operations["deleteSessionLearnedFile"];
 		options?: never;
@@ -709,14 +988,28 @@ export interface paths {
 		};
 		/**
 		 * List a workspace directory or inspect a file
-		 * @description Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+		 * @description Returns metadata for one path in the session's workspace directory and, when the path is a directory, its direct entries sorted by name. Hidden files are included. The listing is not recursive and not paged. A file path returns its own metadata with an empty `entries` list.
+		 *
+		 *     Path rules, shared by every workspace file operation:
+		 *
+		 *     - `path` is relative to the workspace and uses `/` separators. It must already be clean: no leading `/`, no `.` or `..` segment, no empty segment or trailing `/`, no NUL byte. A path that breaks these rules answers `403 WORKSPACE_NOT_ALLOWED` with the message `path must be a clean relative path inside the workspace`.
+		 *     - Symbolic links are followed while they stay inside the workspace. Naming a path that goes through a link with an absolute target, or one that resolves outside the workspace, answers the same `403`.
+		 *     - Entries are reported without following links: a link is `symlink`, with the size of the link itself, wherever it points. A directory that contains a link leading outside the workspace still lists, with that entry as `symlink`; its target is never read or returned. A listed path that is a link to a directory reports `symlink` and no entries.
+		 *     - A path that runs through a regular file, such as `README.md/x`, does not exist and answers `404 NOT_FOUND`.
+		 *     - The operations work on the workspace directory itself, the one the agent works in, whether or not a turn is running. They never address the system session, which answers `403 WORKSPACE_NOT_ALLOWED`.
+		 *
+		 *     Errors: `404 SESSION_NOT_FOUND` when the session does not exist, `404 NOT_FOUND` (`workspace path not found`) when the path does not exist, `403` as above, `400` for a malformed request.
 		 */
 		get: operations["listWorkspaceFiles"];
 		put?: never;
 		post?: never;
 		/**
 		 * Delete a file or empty workspace directory
-		 * @description Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+		 * @description Deletes one file, symbolic link or empty directory in the session's workspace and answers `204` with no body. A symbolic link is removed itself; its target is left alone, and a link whose target no longer exists can still be removed. Nothing is deleted recursively.
+		 *
+		 *     - A directory that still has entries answers `409 CONFLICT`.
+		 *     - The path follows the rules of `GET /session/files`. The workspace root cannot be deleted: an empty path or `.` answers `403 WORKSPACE_NOT_ALLOWED`.
+		 *     - A session that does not exist answers `404 SESSION_NOT_FOUND`, and a path that does not exist answers `404 NOT_FOUND`.
 		 */
 		delete: operations["deleteWorkspaceFile"];
 		options?: never;
@@ -732,13 +1025,26 @@ export interface paths {
 			cookie?: never;
 		};
 		/**
-		 * Read a bounded workspace file as base64
-		 * @description Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+		 * Read a workspace file as base64
+		 * @description Returns the full bytes of one regular file in the session's workspace, base64 encoded, so text and binary files read the same way. A symbolic link inside the workspace is followed to its target.
+		 *
+		 *     - The file can be at most `PEEN_MAX_FILE_API_BYTES` bytes, 16 MiB by default. A larger file answers `400 VALIDATION_FAILED`; there is no partial or ranged read.
+		 *     - A directory, device, socket or pipe answers `400 VALIDATION_FAILED`.
+		 *     - The path follows the rules of `GET /session/files`. A session that does not exist answers `404 SESSION_NOT_FOUND`, and a path that does not exist answers `404 NOT_FOUND`.
 		 */
 		get: operations["readWorkspaceFile"];
 		/**
 		 * Write a workspace file atomically
-		 * @description Paths stay inside the regular session workspace. Absolute paths, traversal and symbolic links that escape it are refused.
+		 * @description Creates or replaces one regular file in the session's workspace with the decoded bytes, and returns the written file's metadata. Peen writes a temporary file in the same directory and renames it into place, so a reader sees either the old content or the new content, never a partial file.
+		 *
+		 *     - A new file gets mode `0640`. Replacing a file also sets `0640`; its earlier permissions are not kept.
+		 *     - When the path is a symbolic link to a regular file inside the workspace, the link's target is replaced.
+		 *     - A path that is an existing directory or another non-regular file answers `400 VALIDATION_FAILED`.
+		 *     - A missing parent directory answers `404 NOT_FOUND` unless `createDirectories` is `true`, which creates the missing parents with mode `0750`. A parent path that runs through a regular file answers `404 NOT_FOUND` either way.
+		 *     - A session that does not exist answers `404 SESSION_NOT_FOUND`.
+		 *     - Decoded content can be at most `PEEN_MAX_FILE_API_BYTES` bytes, 16 MiB by default. Larger content, or content that is not valid base64, answers `400 VALIDATION_FAILED`. The request body limit for this operation is the base64 length of that maximum plus 64 KiB.
+		 *     - There is no conditional write: the last write wins.
+		 *     - The path follows the rules of `GET /session/files`.
 		 */
 		put: operations["writeWorkspaceFile"];
 		post?: never;
@@ -752,28 +1058,51 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
 	schemas: {
+		/** @description One stored message of a session's root conversation, as `GET /messages` returns it. Optional fields are absent, not null, when they do not apply. */
 		Message: {
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The message ID.
+			 */
 			id: string;
-			/** Format: int64 */
+			/**
+			 * Format: int64
+			 * @description Position in the session's conversation, starting at 1.
+			 */
 			sequence: number;
 			/**
-			 * @description `system` is a notice Peen added to the conversation, such as how the previous turn ended and what it was asked. The model receives it as a system message.
+			 * @description Who wrote the message. The model receives a `system` message as a system message.
+			 *
+			 *     - `system`: a notice Peen added to the conversation, such as how the previous turn ended and what it was asked.
+			 *     - `user`: a person's message, or an update Peen injected as user input.
+			 *     - `assistant`: a model response.
+			 *     - `tool`: a tool result.
 			 * @enum {string}
 			 */
 			role: "system" | "user" | "assistant" | "tool";
+			/** @description The message text. */
 			content: string;
+			/** @description The workspace directory the session was in when the message was stored. */
 			workspace: string;
-			model?: string | null;
-			thinking?: string | null;
-			toolCalls?: components["schemas"]["MessageToolCall"][] | null;
-			toolCallId?: string | null;
+			/** @description The `connection/model` reference that wrote an assistant message. Absent for other messages. */
+			model?: string;
+			/** @description The model's reasoning text for an assistant message, when the provider returned any. Absent otherwise. */
+			thinking?: string;
+			/** @description The tool calls an assistant message made, in order. Absent when it made none. */
+			toolCalls?: components["schemas"]["MessageToolCall"][];
+			/** @description For a `tool` message, the ID of the tool call this result answers. Absent otherwise. */
+			toolCallId?: string;
+			/** @description True when a `tool` message reports a failed tool call. Absent when false. */
 			isError?: boolean;
+			/** @description True when the message was written by a turn that did not complete, for example one that was cancelled or failed. Absent when false. */
 			incomplete?: boolean;
 			/** @description True when Peen added this message to the conversation itself, such as a report of session events delivered during a turn or the instructions of an event handler that started a turn, rather than a person or the model writing it. */
 			injected?: boolean;
 			/**
-			 * @description What an injected message is, when it is more than a generic update. `skill` marks a skill the user invoked with `:name`, delivered as its own message after the message that named it, or the note that the skill was already loaded. `image` marks the message that shows the model an image readFile read, after that tool round. Absent for every other message.
+			 * @description What an injected message is, when it is more than a generic update. Absent for every other message.
+			 *
+			 *     - `skill`: a skill the user invoked with `:name`, delivered as its own message after the message that named it, or the note that the skill was already loaded.
+			 *     - `image`: the message that shows the model an image readFile read, after that tool round.
 			 * @enum {string}
 			 */
 			injectedKind?: "skill" | "image";
@@ -784,118 +1113,199 @@ export interface components {
 			 * @description The turn that wrote this message. Messages that share it belong to one turn.
 			 */
 			turnId?: string;
-			/** Format: uuid */
-			compactionId?: string | null;
-			/** Format: date-time */
+			/**
+			 * Format: uuid
+			 * @description The compaction that summarized this message, when one did. A later compaction that includes the earlier summary never rewrites it. Absent otherwise.
+			 */
+			compactionId?: string;
+			/**
+			 * Format: date-time
+			 * @description When the message was stored, RFC 3339.
+			 */
 			createdAt: string;
 		};
+		/** @description One tool call an assistant message made. It appears in `Message.toolCalls` and `AgentRunMessage.toolCalls`. */
 		MessageToolCall: {
+			/** @description The call ID. The `tool` message that answers it carries the same value in `toolCallId`. */
 			id: string;
+			/** @description The tool name. */
 			name: string;
+			/** @description The arguments the model passed, as a JSON object. */
 			arguments: {
 				[key: string]: unknown;
 			};
 		};
+		/** @description One page of `GET /messages`. */
 		MessagePage: {
+			/** @description The messages on this page, in the requested order. */
 			items: components["schemas"]["Message"][];
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The page size this response used.
+			 */
 			limit: number;
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The number of messages skipped before this page.
+			 */
 			offset: number;
+			/** @description True when more messages follow this page. */
 			hasMore: boolean;
 		};
+		/** @description A durable session: one conversation in one workspace directory, with its counters and the agent space its tools run in. Returned by `GET /session`, `GET /sessions`, and the open operations. Optional fields are absent, not null, when they do not apply. */
 		Session: {
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The session ID. Pass it as `X-Session-ID` on REST calls and as `metadata.sessionId` on the WebSocket.
+			 */
 			id: string;
-			/** Format: date-time */
+			/**
+			 * Format: date-time
+			 * @description When the session was created, RFC 3339.
+			 */
 			createdAt: string;
-			/** Format: date-time */
+			/**
+			 * Format: date-time
+			 * @description When the session record last changed, RFC 3339. `GET /sessions` orders by it.
+			 */
 			updatedAt: string;
-			/** Format: date-time */
-			lastMessageAt?: string | null;
-			/** Format: int64 */
+			/**
+			 * Format: date-time
+			 * @description When the newest message was stored, RFC 3339. Absent until the session has a message.
+			 */
+			lastMessageAt?: string;
+			/**
+			 * Format: int64
+			 * @description Number of messages stored in the session's root conversation.
+			 */
 			messageCount: number;
-			/** Format: int64 */
+			/**
+			 * Format: int64
+			 * @description Number of turns that completed.
+			 */
 			completedTurnCount: number;
+			/** @description True while a turn is running in the session. */
 			activeTurn: boolean;
 			/**
 			 * Format: int64
-			 * @description The session's newest feed sequence.
+			 * @description The session's newest feed sequence, the `head` that `GET /session/feed` would return now. `0` before anything was sent.
 			 */
 			feedSequence: number;
 			/**
 			 * Format: int64
-			 * @description First feed sequence of the running turn. Set only by GET /session while a turn runs; replay from the sequence before it to rebuild that turn's live view.
+			 * @description The first feed sequence of the running turn. Set only by `GET /session`, and only while a turn runs and has written at least one frame; absent otherwise. Pass one less than it as `cursor` to `GET /session/feed` to rebuild that turn's live view.
 			 */
-			activeTurnFeedSequence?: number | null;
+			activeTurnFeedSequence?: number;
+			/** @description The root agent that runs the session's turns, such as `core:general-purpose`, or `core:system` for the system session. */
 			agent: string;
+			/** @description The `connection/model` reference the session uses by default, set when the session was created. */
 			model: string;
+			/** @description The canonical absolute path of the session's workspace directory. */
 			workspace: string;
-			/** @description The agent space this session's tools run in, `control` or `docker:<profile>`. */
+			/** @description The agent space this session's tools run in, `control` or `docker:<profile>`, shared by every session of the workspace. Absent for a session recorded before agent spaces existed, which runs in the deployment default. */
 			agentSpace?: string;
 		};
+		/** @description One place a session's agent can run, as listed by `GET /agent-spaces`. Every field comes from deployment configuration; a client only names the space. */
 		AgentSpace: {
 			/** @description What a client names to pick this agent space: `control` or `docker:<profile>`. */
 			name: string;
-			/** @enum {string} */
+			/**
+			 * @description Where the agent runs.
+			 *
+			 *     - `control`: where the controller runs. Offered only when the controller cannot reach a Docker daemon.
+			 *     - `docker`: in its own container, shaped by a Docker profile.
+			 * @enum {string}
+			 */
 			kind: "control" | "docker";
-			/** @description The Docker profile behind the space. Set only for kind docker. */
+			/** @description The Docker profile behind the space, the part of `name` after `docker:`. Set only for kind `docker`. */
 			profile?: string;
-			/** Format: int64 */
+			/**
+			 * Format: int64
+			 * @description The revision the operator gave this Docker profile in its configuration, `0` when unset and for `control`. Each worker generation records the revision it started under, so a durable record says which definition ran.
+			 */
 			revision: number;
 			/**
-			 * @description How much of the host Docker daemon the space reaches. `full` mounts the controller's Docker socket, which is host root. `readonly` gives the worker a controller-run proxy that answers only read requests (list and inspect containers, images, networks, and volumes, and watch events) with environment values redacted from inspect output. Set only for kind docker.
+			 * @description How much of the host Docker daemon the space reaches. Set only for kind `docker`.
+			 *
+			 *     - `none`: no access.
+			 *     - `readonly`: the worker gets a controller-run proxy that answers only read requests (list and inspect containers, images, networks, and volumes, and watch events), with environment values redacted from inspect output.
+			 *     - `full`: the controller's Docker socket is mounted, which is host root.
 			 * @enum {string}
 			 */
 			docker?: "none" | "readonly" | "full";
 			/**
-			 * @description The network the space gives its worker. Set only for kind docker.
+			 * @description The network the worker container gets. Set only for kind `docker`.
+			 *
+			 *     - `none`: no network.
+			 *     - `bridge`: Docker's default bridge network.
+			 *     - `host`: the host's network, so the worker can reach every service the host can.
 			 * @enum {string}
 			 */
 			network?: "none" | "bridge" | "host";
-			/** @description True when the agent may run commands as root inside the worker container. Set only for kind docker. */
+			/** @description True when the agent may run commands as root inside the worker container. Set only for kind `docker`. */
 			sudo?: boolean;
 			/** @description True when this space grants access that is effectively host root, which is `docker: full`. */
 			hostRootEquivalent: boolean;
-			/** @description One operator-facing sentence for each risky grant this space makes. Empty for a space that grants nothing risky. */
+			/** @description One operator-facing sentence for each risky grant this space makes (`docker: full`, `docker: readonly`, `network: host`, `sudo: true`). Empty for a space that grants nothing risky. */
 			capabilityWarnings: string[];
 		};
+		/** @description The response of `GET /agent-spaces`: every agent space the deployment offers, sorted by name, and the default. */
 		AgentSpaceList: {
+			/** @description The offered agent spaces, sorted by `name`. */
 			items: components["schemas"]["AgentSpace"][];
-			/** @description The agent space a session opened without naming one uses. */
+			/** @description The agent space a workspace's first session gets when `POST /sessions/open` names none. `docker:default` when the controller can reach a Docker daemon, `control` when it cannot, unless `PEEN_DEFAULT_AGENT_SPACE` names another. */
 			default: string;
 		};
 		/**
-		 * @description workspace is the session workspace's .agents/learned, and global is the global learned directory every session reads.
+		 * @description Which learned directory a learned file lives in.
+		 *
+		 *     - `workspace`: `.agents/learned/` in the session's workspace root, which holds what belongs to that project.
+		 *     - `global`: the deployment's global learned directory, which every session reads (by default `.agents/learned/` in the config directory).
 		 * @enum {string}
 		 */
 		LearnedScope: "workspace" | "global";
-		/** @enum {string} */
+		/**
+		 * @description Whether a learned file is a rule or a skill.
+		 *
+		 *     - `rule`: a Markdown file under `rules/` in a learned directory, possibly in subdirectories.
+		 *     - `skill`: a `skills/<name>/` directory whose `SKILL.md` holds the skill.
+		 * @enum {string}
+		 */
 		LearnedKind: "rule" | "skill";
+		/** @description One learned rule, or one learned skill's `SKILL.md`, that an agent saved while auto-evolve was on or that you placed in a learned directory. Returned by `GET /session/learned` and inside `LearnedFileContent`. */
 		LearnedFile: {
 			scope: components["schemas"]["LearnedScope"];
 			kind: components["schemas"]["LearnedKind"];
-			/** @description The rule's path under rules/ without .md, or the skill's directory name. A learned rule loads under the name learned/<name>. */
+			/** @description The rule's path under `rules/` without `.md`, using `/` between directories, such as `go-errors` or `go/errors`, or the skill's directory name. A learned rule loads under the name `learned/<name>`. Pass it as the `name` query parameter to read or delete the file. */
 			name: string;
-			/** @description The rule file, or the skill's SKILL.md, on the controller's host. */
+			/** @description The absolute path of the rule file, or the skill's `SKILL.md`, on the controller's host. */
 			path: string;
-			/** Format: int64 */
+			/**
+			 * Format: int64
+			 * @description The file's size in bytes.
+			 */
 			sizeBytes: number;
-			/** Format: date-time */
+			/**
+			 * Format: date-time
+			 * @description When the file was last modified, in RFC 3339 format.
+			 */
 			modifiedAt: string;
-			/** @description True for a rule without paths, globs, or applyTo, which is part of every system prompt and counts against PEEN_MAX_SYSTEM_PROMPT_PERCENT. Always false for a skill. */
+			/** @description True for a rule that is part of every system prompt: one without `paths`, `globs`, or `applyTo` frontmatter. Such a rule counts against `PEEN_MAX_SYSTEM_PROMPT_PERCENT`. Always false for a skill, and false for a file over 128 KiB. */
 			alwaysLoaded: boolean;
 			/**
 			 * Format: int64
-			 * @description The file's size in tokens, estimated with the o200k tokenizer.
+			 * @description The file's size in tokens, estimated with the o200k tokenizer. 0 for a file over 128 KiB, which the harness does not load.
 			 */
 			estimatedTokens: number;
 		};
+		/** @description Every learned rule and skill a session loads. Returned by `GET /session/learned`. */
 		LearnedFileList: {
 			/** @description Workspace files first, then global ones, each sorted by kind and name. */
 			items: components["schemas"]["LearnedFile"][];
 		};
+		/** @description The session's MCP servers as the worker last reported them, at the start of a turn. Returned by `GET /session/mcp`. */
 		MCPStatusReport: {
+			/** @description Every configured server and what happened when the worker started it. Servers that loaded come first, then entries refused while reading `mcp.json`. Empty before the first report and when the latest turn had no MCP configuration. */
 			servers: components["schemas"]["MCPServerStatus"][];
 			/**
 			 * Format: date-time
@@ -903,294 +1313,430 @@ export interface components {
 			 */
 			reportedAt: string | null;
 		};
+		/** @description One MCP server from an `.agents/mcp.json` file and its state when the worker last started it. A whole `mcp.json` file that could not be read or parsed also appears as one entry, with an empty `name`. */
 		MCPServerStatus: {
 			/** @description The server name from mcp.json. Empty when a whole mcp.json file was refused. */
 			name: string;
 			/**
-			 * @description The layer whose .agents/mcp.json defines the server.
+			 * @description The layer whose `.agents/mcp.json` defines the server.
+			 *
+			 *     - `config`: the config directory's `.agents/mcp.json`.
+			 *     - `workspace`: the session workspace's `.agents/mcp.json`, read only when the deployment enables workspace MCP servers.
 			 * @enum {string}
 			 */
 			source: "config" | "workspace";
-			/** @enum {string} */
+			/**
+			 * @description How Peen reaches the server. Absent when a whole file was refused.
+			 *
+			 *     - `stdio`: a server process the worker starts.
+			 *     - `http`: a Streamable HTTP endpoint.
+			 * @enum {string}
+			 */
 			transport?: "stdio" | "http";
-			/** @enum {string} */
+			/**
+			 * @description The server's state when the worker reported.
+			 *
+			 *     - `ready`: the server started and listed its tools.
+			 *     - `failed`: its entry was refused, it could not start, or its connection had failed when the worker reported.
+			 * @enum {string}
+			 */
 			state: "ready" | "failed";
-			/** @description The exposed tool names, mcp__<server>__<tool>. */
+			/** @description The exposed tool names the agent can call, each `mcp__<server>__<tool>`. Empty for a failed server. */
 			tools: string[];
-			/** @description Why the server failed. */
+			/** @description Why the server failed. Absent for a ready server. */
 			error?: string;
-			/** @description Problems that did not stop the server. */
+			/** @description Problems that did not stop the server, such as a name in its `tools` list that the server does not offer. Absent when there are none. */
 			warnings?: string[];
 		};
+		/** @description One learned file and its text. Returned by `GET /session/learned/file`. */
 		LearnedFileContent: {
 			file: components["schemas"]["LearnedFile"];
+			/** @description The file's text exactly as stored, including any frontmatter. Empty for a file over 128 KiB. */
 			content: string;
 		};
-		/** @enum {string} */
+		/**
+		 * @description The kind of a workspace path, read without following symbolic links.
+		 *
+		 *     - `file`: a regular file, or another non-directory entry such as a pipe or socket.
+		 *     - `directory`: a directory.
+		 *     - `symlink`: a symbolic link, reported as the link itself rather than its target.
+		 * @enum {string}
+		 */
 		WorkspaceFileType: "file" | "directory" | "symlink";
+		/** @description Metadata for one workspace path, read without following symbolic links. It appears as an item of a directory listing and as the response of `PUT /session/files/content`. */
 		WorkspaceFileEntry: {
+			/** @description The entry's base name, without its directory, such as `main.go`. */
 			name: string;
 			type: components["schemas"]["WorkspaceFileType"];
-			/** Format: int64 */
+			/**
+			 * Format: int64
+			 * @description The entry's size in bytes as the filesystem reports it. For a link it is the size of the link itself, and for a directory it is the filesystem's directory size, not the size of its contents.
+			 */
 			size: number;
-			/** Format: date-time */
+			/**
+			 * Format: date-time
+			 * @description The entry's last modification time, as an RFC 3339 UTC time.
+			 */
 			modifiedAt: string;
 		};
+		/** @description Metadata for one workspace path and, when it is a directory, its direct entries. Returned by `GET /session/files`. */
 		WorkspaceFileListing: {
+			/** @description The path as the request gave it. Empty for the workspace root. */
 			path: string;
 			type: components["schemas"]["WorkspaceFileType"];
-			/** Format: int64 */
+			/**
+			 * Format: int64
+			 * @description The path's size in bytes as the filesystem reports it.
+			 */
 			size: number;
-			/** Format: date-time */
+			/**
+			 * Format: date-time
+			 * @description The path's last modification time, as an RFC 3339 UTC time.
+			 */
 			modifiedAt: string;
+			/** @description The directory's direct entries, sorted by name, including hidden ones. Empty when the path is a file or a symbolic link. */
 			entries: components["schemas"]["WorkspaceFileEntry"][];
 		};
+		/** @description The full content of one regular workspace file, base64 encoded. Returned by `GET /session/files/content`. */
 		WorkspaceFileContent: {
+			/** @description The path as the request gave it. */
 			path: string;
-			/** Format: int64 */
+			/**
+			 * Format: int64
+			 * @description The number of bytes in the file, which is the length of `contentBase64` after decoding.
+			 */
 			size: number;
-			/** @description Base64 bytes bounded by PEEN_MAX_FILE_API_BYTES after decoding. */
+			/** @description The file's bytes in standard base64 with padding. At most `PEEN_MAX_FILE_API_BYTES` bytes, 16 MiB by default, after decoding. */
 			contentBase64: string;
 		};
+		/** @description The body of `PUT /session/files/content`: the file to create or replace, and its content. */
 		WorkspaceFileWrite: {
+			/** @description The file's path relative to the workspace, following the rules of `GET /session/files`, such as `notes/todo.md`. */
 			path: string;
-			/** @description Base64 bytes bounded by PEEN_MAX_FILE_API_BYTES after decoding. */
+			/** @description The new content in standard base64 with padding. URL-safe or unpadded base64 is refused. At most `PEEN_MAX_FILE_API_BYTES` bytes, 16 MiB by default, after decoding. An empty string writes an empty file. */
 			contentBase64: string;
-			/** @default false */
+			/**
+			 * @description When `true`, missing parent directories are created with mode `0750`. When `false`, the default, a missing parent answers `404`.
+			 * @default false
+			 */
 			createDirectories: boolean;
 		};
+		/** @description The response of `GET /workspace-roots`. */
 		WorkspaceRootList: {
-			/** @description Canonical absolute directories the authenticated controller will accept as workspace roots. */
+			/** @description Absolute directories, resolved through symbolic links, under which `POST /sessions/open` accepts a workspace. Peen currently supports one root, so the list holds exactly one entry. */
 			roots: string[];
 		};
+		/** @description An image carried by a message, described without its bytes. */
 		MessageImageInfo: {
+			/** @description The image's media type: `image/png`, `image/jpeg`, `image/gif`, or `image/webp`. */
 			mediaType: string;
-			/** Format: int64 */
+			/**
+			 * Format: int64
+			 * @description The image's decoded size in bytes.
+			 */
 			sizeBytes: number;
 		};
+		/** @description One model Peen found on a configured connection at controller startup, as `GET /models` lists it. */
 		Model: {
-			/** @description Exact connection/model reference accepted by message.send for a one-turn model override. */
+			/** @description The exact `connection/model` reference a WebSocket `message.send` frame passes as `data.model` to run one turn on this model. */
 			name: string;
-			/** @description The configured connection portion of name. */
+			/** @description The configured connection part of `name`, before the first `/`. */
 			connectionName: string;
-			/** @description The raw model identifier the upstream accepted. */
+			/** @description The raw model identifier the upstream accepted, the part of `name` after the first `/`. */
 			modelId: string;
 			/**
 			 * Format: int64
-			 * @description The model context window Peen will enforce. For an upstream that publishes no window, this is the deployment context budget.
+			 * @description The context window Peen enforces for this model, in tokens. It comes from the provider driver's model catalog; for a model the catalog does not cover, it is `PEEN_MAX_CONTEXT_TOKENS`.
 			 */
 			contextWindowTokens: number;
 			/** @description Whether the model takes images, in message.send and from readFile. An upstream with "imageInput": false makes every one of its models text-only. */
 			imageInput: boolean;
 		};
+		/** @description The response of `GET /models`. */
 		ModelList: {
-			/** @description Models available to this authenticated controller. */
+			/** @description The discovered models, sorted by `name`. Empty when the controller has no model catalog. */
 			models: components["schemas"]["Model"][];
 		};
-		WebSocketMessageSystemPrompt: {
-			content: string;
-			/** @enum {string} */
-			mode: "append" | "replace";
-		};
-		WebSocketMessageSendData: {
-			message: string;
-			/** @description Exact model name returned by GET /models, for this turn only. */
-			model?: string;
-			/**
-			 * @description Reasoning level for this turn only. When omitted, the model's own default applies. A message queued into an active turn cannot set it.
-			 * @enum {string}
-			 */
-			reasoningEffort?: "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
-			systemPrompt?: components["schemas"]["WebSocketMessageSystemPrompt"];
+		/** @description One worker process or container that ran a session's turns, as `GET /session/workers` lists it. Optional fields are absent, not null, when they do not apply. */
+		WorkerGeneration: {
 			/**
 			 * Format: uuid
-			 * @description A child agent run ID. The message goes to that child, which reads it after its current tool call, and starts no turn. A paused child resumes and first reads why it was paused. It completes as queued and cannot carry model, reasoningEffort, or systemPrompt. A finished child fails it with AGENT_FINISHED, an unknown one with AGENT_NOT_FOUND, and a child with a full inbox with USER_MESSAGE_QUEUE_FULL.
+			 * @description The generation ID. Protocol events carry it as `workerGenerationId`.
 			 */
-			to?: string;
-		};
-		WebSocketMessageMetadata: {
-			/** Format: uuid */
+			id: string;
+			/**
+			 * Format: uuid
+			 * @description The session the worker served.
+			 */
 			sessionId: string;
-		};
-		WebSocketServerMetadata: {
-			/** Format: uuid */
-			sessionId?: string;
-			/** Format: uuid */
-			requestId?: string;
+			/**
+			 * @description Where the worker ran.
+			 *
+			 *     - `control`: a worker process where the controller runs.
+			 *     - `docker`: a worker container.
+			 * @enum {string}
+			 */
+			kind: "control" | "docker";
+			/** @description The agent space the generation started in, `control` or `docker:<profile>`. */
+			agentSpace: string;
 			/**
 			 * Format: int64
-			 * @description The frame's position in the session feed. Absent on message.completed and message.failed, which acknowledge one request and are not replayed.
+			 * @description The agent space's `revision` when the generation started, so the record says which profile definition ran.
 			 */
-			sequence?: number;
-		};
-		/** @description The only client-to-server WebSocket command. sessionId is routing metadata, not a permission grant. The server persists accepted work and broadcasts its resulting session events to all global sockets. */
-		WebSocketMessageSendEvent: {
-			/** Format: uuid */
-			id: string;
-			/** @constant */
-			type: "message.send";
-			data: components["schemas"]["WebSocketMessageSendData"];
-			/** Format: int64 */
-			timestamp: number;
-			metadata: components["schemas"]["WebSocketMessageMetadata"];
-			triggeredBy: null;
-		};
-		/** @description One Dabluvee event emitted by Peen. data is intentionally unknown at the envelope level because each native agent event type has its own payload. Clients preserve and render it without guessing its shape. */
-		WebSocketServerEvent: {
-			/** Format: uuid */
-			id: string;
-			type: string;
-			data: unknown;
-			/** Format: int64 */
-			timestamp: number;
-			metadata: components["schemas"]["WebSocketServerMetadata"];
-			/** Format: uuid */
-			triggeredBy: string | null;
-		};
-		WorkerGeneration: {
-			/** Format: uuid */
-			id: string;
-			/** Format: uuid */
-			sessionId: string;
-			/** @enum {string} */
-			kind: "control" | "docker";
-			agentSpace: string;
-			/** Format: int64 */
 			agentSpaceRevision: number;
-			/** @enum {string} */
+			/**
+			 * @description The generation's lifecycle state.
+			 *
+			 *     - `requested`: recorded, nothing launched yet.
+			 *     - `starting`: the process or container is coming up.
+			 *     - `ready`: the worker registered and may run turns.
+			 *     - `stopping`: the worker was asked to finish and exit.
+			 *     - `stopped`: it ended as asked.
+			 *     - `failed`: it ended without being asked to, or never became ready.
+			 * @enum {string}
+			 */
 			state: "requested" | "starting" | "ready" | "stopping" | "stopped" | "failed";
+			/** @description The workspace directory the worker was started for. */
 			workspace: string;
-			/** @description Set only for a Docker generation. */
+			/** @description The Docker container ID. Set only for a Docker generation once its container exists. */
 			containerId?: string;
-			/** @description Immutable image identity for a Docker generation, never a moving tag. */
+			/** @description The repository digest of the worker image, such as `example/image@sha256:...`, never a moving tag. Set only for a Docker generation, and only when the daemon reported a repository digest for the image; a locally built image has none. */
 			imageDigest?: string;
-			/** @description Why a generation failed or was replaced. Never carries credentials. */
+			/** @description Why the generation failed. Set only on a `failed` generation. Never carries credentials. */
 			failureDetail?: string;
-			/** Format: date-time */
+			/**
+			 * Format: date-time
+			 * @description When the generation was recorded, RFC 3339.
+			 */
 			createdAt: string;
-			/** Format: date-time */
-			startedAt?: string | null;
-			/** Format: date-time */
-			endedAt?: string | null;
+			/**
+			 * Format: date-time
+			 * @description When the worker became `ready`, RFC 3339. Absent until then.
+			 */
+			startedAt?: string;
+			/**
+			 * Format: date-time
+			 * @description When the generation reached `stopped` or `failed`, RFC 3339. Absent until then.
+			 */
+			endedAt?: string;
 		};
+		/** @description The body of `POST /session/reconfigure`. Both fields are required and no other field is accepted. */
 		ReconfigureSessionRequest: {
-			/** @description The agent space to move this session to, `control` or `docker:<profile>`. A space the deployment does not offer is refused. This is the only environment choice a client makes. */
+			/** @description The agent space to move the workspace's sessions to, `control` or `docker:<profile>`. A name the deployment does not offer returns 403 `AGENT_SPACE_NOT_ALLOWED`, and the agent space the workspace already runs in returns 409 `CONFLICT`. This is the only environment choice a client makes. */
 			agentSpace: string;
-			/** @description Why the agent space changed, kept in the durable decision history. */
+			/** @description Why the agent space changed, kept in each session's decision history. Must contain a non-whitespace character. */
 			reason: string;
 		};
+		/** @description One recorded agent space change of one session, made by `POST /session/reconfigure`. */
 		SessionAgentSpaceDecision: {
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The decision ID.
+			 */
 			id: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The session that moved.
+			 */
 			sessionId: string;
 			/** @description The agent space the session ran in before this decision. Absent when the session had no recorded agent space. */
 			fromAgentSpace?: string;
+			/** @description The agent space the session moved to. */
 			toAgentSpace: string;
+			/** @description The reason the caller gave. */
 			reason: string;
-			/** Format: date-time */
+			/**
+			 * Format: date-time
+			 * @description When the change was recorded, RFC 3339. Every session moved by one call shares this time.
+			 */
 			decidedAt: string;
 		};
+		/** @description One page of `GET /session/agent-space-decisions`, newest first. */
 		SessionAgentSpaceDecisionPage: {
+			/** @description The decisions on this page, newest first. */
 			items: components["schemas"]["SessionAgentSpaceDecision"][];
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The page size this response used.
+			 */
 			limit: number;
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The number of decisions skipped before this page.
+			 */
 			offset: number;
+			/** @description True when more decisions follow this page. */
 			hasMore: boolean;
 		};
+		/** @description One page of `GET /session/workers`, newest first. */
 		WorkerGenerationPage: {
+			/** @description The generations on this page, newest first. */
 			items: components["schemas"]["WorkerGeneration"][];
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The page size this response used.
+			 */
 			limit: number;
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The number of generations skipped before this page.
+			 */
 			offset: number;
+			/** @description True when more generations follow this page. */
 			hasMore: boolean;
 		};
+		/** @description One page of `GET /sessions`, newest updated first. */
 		SessionPage: {
+			/** @description The sessions on this page, newest updated first. */
 			items: components["schemas"]["Session"][];
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The page size this response used.
+			 */
 			limit: number;
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The number of sessions skipped before this page.
+			 */
 			offset: number;
+			/** @description True when more sessions follow this page. */
 			hasMore: boolean;
 		};
+		/** @description The body of `POST /sessions/open`. */
 		OpenSessionRequest: {
-			/** @description Absolute host path of the workspace directory. It is resolved through its symlinks and must fall under a configured workspace root. */
+			/** @description Absolute host path of the workspace directory. It is resolved through its symbolic links and must be an existing directory beneath a configured workspace root (see `GET /workspace-roots`). */
 			workspace: string;
-			/** @description The agent space to run in, `control` or `docker:<profile>`. Empty takes the deployment default. A name the deployment does not offer is refused with 403. This is the only environment choice a client makes: images, mounts, network, and capabilities come from deployment configuration alone. It applies only when this call creates the session; opening an existing session never changes its agent space. */
+			/** @description The agent space to run in, `control` or `docker:<profile>` (see `GET /agent-spaces`). Every session of one workspace shares one agent space. Leave it out to get the workspace's agent space, or the deployment default for a workspace with no session yet. Naming a different agent space than the workspace's returns 409 `AGENT_SPACE_CONFLICT`, and naming one the deployment does not offer returns 403 `AGENT_SPACE_NOT_ALLOWED`. This is the only environment choice a client makes: images, mounts, network, and capabilities come from deployment configuration alone. */
 			agentSpace?: string;
 		};
+		/** @description The response of `POST /sessions/open` and `POST /sessions/system`. */
 		OpenedSession: {
 			session: components["schemas"]["Session"];
 			/** @description True when this call created the session, false when it resumed an existing one. */
 			created: boolean;
 		};
+		/** @description The response of `POST /session/cancel`. */
 		CancelResponse: {
+			/** @description True when the call found something to stop: a message waiting to start a turn, a running turn, a running child agent, or an unfinished workflow. False when the session was already idle. */
 			cancelRequested: boolean;
 		};
+		/** @description One run of the agent for a session, from the message that started it until it ends. It appears in `TurnPage`. */
 		Turn: {
-			/** @description The validated JSON answer when outputSchema was given. */
+			/** @description The JSON value validated against the turn's `outputSchema`. Absent when the turn did not ask for structured output or no attempt passed validation. */
 			output?: unknown;
-			/** @description Why every structured output attempt failed. */
+			/** @description Why every structured output attempt failed. Absent unless the turn asked for structured output and none passed. */
 			outputError?: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The turn's ID. Jobs, model runs and events of this turn carry it as `turnId`.
+			 */
 			id: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The session the turn belongs to.
+			 */
 			sessionId: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The request ID of the message that started the turn. Every live frame of the turn carries it.
+			 */
 			requestId: string;
+			/** @description The workspace directory the turn ran in. */
 			workspace: string;
-			/** @enum {string} */
+			/**
+			 * @description The turn's lifecycle state.
+			 *
+			 *     - `running`: the turn has not ended.
+			 *     - `completed`: the turn finished normally.
+			 *     - `failed`: the turn ended with an error.
+			 *     - `cancelled`: a Stop request or the turn's deadline ended the turn.
+			 *     - `interrupted`: the turn did not reach an end, for example because Peen or its worker stopped while it ran.
+			 * @enum {string}
+			 */
 			state: "running" | "completed" | "failed" | "cancelled" | "interrupted";
+			/** @description True when a Stop was requested for this turn. */
 			cancelRequested: boolean;
-			/** Format: date-time */
+			/**
+			 * Format: date-time
+			 * @description When the turn started, as an RFC 3339 timestamp.
+			 */
 			startedAt: string;
-			/** Format: date-time */
-			completedAt?: string | null;
+			/**
+			 * Format: date-time
+			 * @description When the turn ended, as an RFC 3339 timestamp. Absent while it runs.
+			 */
+			completedAt?: string;
+			/** @description Why the turn did not complete: `agentRun` for a failed or interrupted turn, `cancelled` for a Stop, or `timeout` for a turn that passed its deadline. Empty for a running or completed turn. */
 			failureClassification: string;
-			contextSnapshotHash?: string | null;
-			promptSnapshotHash?: string | null;
+			/** @description The hash of the context snapshot the turn ran with. Read it from `GET /session/context-snapshots/{contextHash}`. Absent until the turn ends. */
+			contextSnapshotHash?: string;
+			/** @description The hash of the system prompt the turn ran with. Read it from `GET /session/prompt-snapshots/{promptHash}`. Absent until the turn ends. */
+			promptSnapshotHash?: string;
 		};
+		/** @description One page of a session's turns, newest first, returned by `GET /session/turns`. */
 		TurnPage: {
+			/** @description The turns on this page, ordered by `startedAt` descending. */
 			turns: components["schemas"]["Turn"][];
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The page size the server used.
+			 */
 			limit: number;
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The number of turns skipped before this page.
+			 */
 			offset: number;
+			/** @description `true` when at least one more turn exists after this page. Request the next page with `offset` increased by `limit`. */
 			hasMore: boolean;
 		};
-		/** @description One sequenced frame of a session's live feed, as it was sent over the WebSocket. */
+		/** @description One sequenced frame of a session's live feed, as `GET /session/feed` replays it. It carries the same `type`, `data`, and `sequence` the WebSocket frame carried when it was sent live. */
 		FeedFrame: {
 			/**
 			 * Format: int64
-			 * @description Position in the session feed. Consecutive, starting at 1.
+			 * @description Position in the session feed. Consecutive across all frame kinds, starting at 1.
 			 */
 			sequence: number;
 			/**
 			 * Format: uuid
-			 * @description ID of the stored record, also the live frame's id.
+			 * @description ID of the stored record (protocol event, child agent run event, or notice), also the live frame's `id`.
 			 */
 			id: string;
+			/** @description The frame type: a protocol event type such as `tool.use`, an `agent.run.*` type for a child agent step, or `notice.created` for a notice. */
 			type: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The session the frame belongs to.
+			 */
 			sessionId: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The request ID of the turn that produced a root protocol event. Null for child agent steps and notices.
+			 */
 			requestId: string | null;
-			/** @description The frame's data, exactly as sent live. */
+			/** @description The frame's data, exactly as sent live. For a protocol event it is the event payload. For an `agent.run.*` frame it is an object with `agentRunId`, `parentTurnId`, `parentAgentRunId` (absent for a child of the root conversation), and `event`, the child's event payload. For `notice.created` it is the notice, in the shape of `SessionNotice`. */
 			data: unknown;
-			/** Format: date-time */
+			/**
+			 * Format: date-time
+			 * @description When the record was stored, RFC 3339.
+			 */
 			createdAt: string;
 		};
+		/** @description One page of `GET /session/feed`, oldest first. */
 		FeedPage: {
+			/** @description Frames with a sequence greater than the requested `cursor`, oldest first. */
 			items: components["schemas"]["FeedFrame"][];
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The page size this response used: the requested `limit`, or 100 when none was sent.
+			 */
 			limit: number;
 			/**
 			 * Format: int64
-			 * @description Pass back as cursor to continue from here.
+			 * @description Pass back as `cursor` to continue. It is the sequence of the last frame in `items`, or the `cursor` sent when the page is empty.
 			 */
 			nextCursor: number;
+			/** @description True when more frames follow this page. */
 			hasMore: boolean;
 			/**
 			 * Format: int64
@@ -1198,584 +1744,1208 @@ export interface components {
 			 */
 			head: number;
 		};
+		/** @description One protocol event Peen stored while it ran a session's turn, as `GET /session/events` returns it. Optional fields are absent, not null, when they do not apply. */
 		TranscriptEvent: {
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The event ID.
+			 */
 			id: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The session the event belongs to.
+			 */
 			sessionId: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The turn that produced the event.
+			 */
 			turnId: string;
-			/** Format: int64 */
+			/**
+			 * Format: int64
+			 * @description Position among the session's protocol events, consecutive across turns and starting at 1. It is not the feed sequence.
+			 */
 			sequence: number;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The request ID of the turn that produced the event.
+			 */
 			requestId: string;
+			/** @description The protocol event type, such as `tool.use`. The WebSocket protocol event types table lists every value. */
 			type: string;
+			/** @description The event payload, the same `data` the live frame carried. */
 			payload: {
 				[key: string]: unknown;
 			};
-			parentToolCallId?: string | null;
-			/** @description Worker generation that produced this event, if started. */
-			workerGenerationId?: string | null;
-			/** Format: date-time */
+			/** @description The worker generation that produced the event, as listed by `GET /session/workers`. Absent for events recorded before a worker started. */
+			workerGenerationId?: string;
+			/**
+			 * Format: date-time
+			 * @description When the event was stored, RFC 3339.
+			 */
 			createdAt: string;
 		};
+		/** @description One page of `GET /session/events`. */
 		TranscriptEventPage: {
+			/** @description The events on this page, in the requested order. */
 			events: components["schemas"]["TranscriptEvent"][];
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The page size this response used.
+			 */
 			limit: number;
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The number of events skipped before this page.
+			 */
 			offset: number;
+			/** @description True when more events follow this page. */
 			hasMore: boolean;
 		};
-		/** @description One prompt-visible record in a child agent run's own transcript. It carries no turn: a child belongs to its agent run, not to a session turn's message sequence. */
+		/** @description One prompt-visible record in a child agent run's own transcript. It carries no turn: a child belongs to its agent run, not to a session turn's message sequence. Returned by `GET /session/agents/{agentRunId}/messages`. */
 		AgentRunMessage: {
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The message's ID.
+			 */
 			id: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The session the run belongs to.
+			 */
 			sessionId: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The child agent run whose transcript holds the message.
+			 */
 			agentRunId: string;
-			/** Format: int64 */
+			/**
+			 * Format: int64
+			 * @description The message's position in the child's transcript, starting at 1.
+			 */
 			sequence: number;
-			/** @enum {string} */
+			/**
+			 * @description Who the message is from.
+			 *
+			 *     - `user`: the task, or a message the child received from another agent, from you, or an injected image.
+			 *     - `assistant`: a model reply.
+			 *     - `tool`: a tool result.
+			 * @enum {string}
+			 */
 			role: "user" | "assistant" | "tool";
+			/** @description The message text. For a received message, a `<message>` block that names the sender. */
 			content: string;
+			/** @description The qualified model reference that produced an assistant message, in `provider/model` form. Absent on other messages. */
 			model?: string;
+			/** @description The reasoning text the model returned with an assistant message. Absent when there is none. */
 			thinking?: string;
-			toolCalls?: {
-				[key: string]: unknown;
-			}[];
+			/** @description The tool calls an assistant message made, in the same shape as a session message's `toolCalls`. An empty array when it made none. */
+			toolCalls?: components["schemas"]["MessageToolCall"][];
+			/** @description The ID of the tool call a `tool` message answers. Absent on other messages. */
 			toolCallId?: string;
 			/**
 			 * Format: uuid
-			 * @description The child compaction that directly covered this message, or null while it is still raw.
+			 * @description The child compaction that directly covered this message. Absent while the message is still raw.
 			 */
-			compactionId?: string | null;
+			compactionId?: string;
+			/** @description True when a tool result reports an error. */
 			isError: boolean;
+			/** @description True when the run was interrupted by a restart before it finished. Peen clears the flag when the run resumes. */
 			incomplete: boolean;
-			/** Format: date-time */
+			/**
+			 * Format: date-time
+			 * @description When the message was stored, in RFC 3339 format.
+			 */
 			createdAt: string;
 			/** @description The images the message carries, without their bytes, such as an image the child's readFile read. Absent when it has none. */
 			images?: components["schemas"]["MessageImageInfo"][];
 		};
+		/** @description One page of a child agent run's transcript, oldest first. Returned by `GET /session/agents/{agentRunId}/messages`. */
 		AgentRunMessagePage: {
+			/** @description The messages on this page, in `sequence` order. */
 			messages: components["schemas"]["AgentRunMessage"][];
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The page size the server used.
+			 */
 			limit: number;
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The number of messages skipped before this page.
+			 */
 			offset: number;
+			/** @description True when more messages follow this page. Request the next page with `offset` increased by `limit`. */
 			hasMore: boolean;
 		};
-		/** @description One immutable summary covering a completed prefix of one child agent run's transcript. directFromSequence and directToSequence name only the messages this row covered itself; fromSequence and toSequence span the whole superseded lineage. */
+		/** @description One immutable summary covering a completed prefix of one child agent run's transcript. `directFromSequence` and `directToSequence` name only the messages this row covered itself; `fromSequence` and `toSequence` span the whole superseded lineage. Returned by the child compaction endpoints. */
 		AgentRunCompaction: {
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The compaction's ID.
+			 */
 			id: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The session the run belongs to.
+			 */
 			sessionId: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The child agent run whose transcript the compaction summarizes.
+			 */
 			agentRunId: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The first child message of the whole lineage this summary covers, including what earlier summaries covered.
+			 */
 			fromMessageId: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The last child message this summary covers.
+			 */
 			toMessageId: string;
-			/** Format: int64 */
+			/**
+			 * Format: int64
+			 * @description The `sequence` of the first message of the whole covered lineage.
+			 */
 			fromSequence: number;
-			/** Format: int64 */
+			/**
+			 * Format: int64
+			 * @description The `sequence` of the last covered message. Messages after it stay raw.
+			 */
 			toSequence: number;
-			/** Format: int64 */
+			/**
+			 * Format: int64
+			 * @description The `sequence` of the first raw message this compaction covered itself.
+			 */
 			directFromSequence: number;
-			/** Format: int64 */
+			/**
+			 * Format: int64
+			 * @description The `sequence` of the last raw message this compaction covered itself.
+			 */
 			directToSequence: number;
+			/** @description The summary text that replaces the covered messages in the child's context. */
 			summary: string;
-			/** Format: int64 */
+			/**
+			 * Format: int64
+			 * @description How many messages the summary covers, including those its predecessors covered.
+			 */
 			sourceMessageCount: number;
-			/** Format: int64 */
+			/**
+			 * Format: int64
+			 * @description The prompt tokens the provider reported for the summarizing call.
+			 */
 			inputTokenCount: number;
-			/** Format: int64 */
+			/**
+			 * Format: int64
+			 * @description The completion tokens the provider reported for the summary.
+			 */
 			summaryTokenCount: number;
+			/** @description The model ID that wrote the summary. */
 			model: string;
+			/** @description The hex SHA-256 of the compaction instructions that produced the summary, so you can tell which instructions were used after the file changes. */
 			promptHash: string;
-			/** Format: date-time */
+			/**
+			 * Format: date-time
+			 * @description When the compaction was stored, in RFC 3339 format.
+			 */
 			createdAt: string;
 			/**
 			 * Format: uuid
-			 * @description The direct predecessor this compaction supersedes, or null for the first compaction in the chain.
+			 * @description The earlier compaction this one supersedes. Absent for the first compaction in the chain.
 			 */
-			parentCompactionId?: string | null;
+			parentCompactionId?: string;
 		};
+		/** @description One page of a child agent run's compaction records, newest first. Returned by `GET /session/agents/{agentRunId}/compactions`. */
 		AgentRunCompactionPage: {
+			/** @description The compaction records on this page, newest first. */
 			compactions: components["schemas"]["AgentRunCompaction"][];
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The page size the server used.
+			 */
 			limit: number;
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The number of records skipped before this page.
+			 */
 			offset: number;
+			/** @description True when more records follow this page. Request the next page with `offset` increased by `limit`. */
 			hasMore: boolean;
 		};
+		/** @description One stored summary that replaced a range of the session's messages in what the model receives. A record never changes once written. It appears in `CompactionPage` and as the response of `GET /session/compactions/{compactionId}`. */
 		Compaction: {
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The compaction record's ID. Messages it summarized carry it as their `compactionId`.
+			 */
 			id: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The session this compaction belongs to.
+			 */
 			sessionId: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description ID of the first stored message the summary covers. For a compaction with a parent, this is where the parent's range started.
+			 */
 			fromMessageId: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description ID of the last stored message the summary covers.
+			 */
 			toMessageId: string;
-			/** Format: int64 */
+			/**
+			 * Format: int64
+			 * @description Session message sequence of the first covered message, inclusive.
+			 */
 			fromSequence: number;
-			/** Format: int64 */
+			/**
+			 * Format: int64
+			 * @description Session message sequence of the last covered message, inclusive.
+			 */
 			toSequence: number;
+			/** @description The summary text the model receives in place of the covered messages. */
 			summary: string;
-			/** Format: int64 */
+			/**
+			 * Format: int64
+			 * @description How many stored messages the summary covers, including those its parent already covered.
+			 */
 			sourceMessageCount: number;
-			/** Format: int64 */
+			/**
+			 * Format: int64
+			 * @description Prompt tokens the provider reported for the summarizing request.
+			 */
 			inputTokenCount: number;
-			/** Format: int64 */
+			/**
+			 * Format: int64
+			 * @description Completion tokens the provider reported for the summary.
+			 */
 			summaryTokenCount: number;
+			/** @description The model ID the provider reported for the summarizing request. */
 			model: string;
+			/** @description Lowercase hex SHA-256 of the compaction instructions used to write the summary, so you can tell which version of the instructions produced it. It does not name a prompt snapshot. */
 			promptHash: string;
-			/** Format: date-time */
+			/**
+			 * Format: date-time
+			 * @description When Peen stored the record, as an RFC 3339 timestamp.
+			 */
 			createdAt: string;
-			/** Format: uuid */
-			parentCompactionId?: string | null;
+			/**
+			 * Format: uuid
+			 * @description The earlier compaction this one replaces, when it summarized that compaction's summary plus newer messages. Absent for the first compaction in a lineage.
+			 */
+			parentCompactionId?: string;
 		};
+		/** @description One page of a session's compaction records, newest first, returned by `GET /session/compactions`. */
 		CompactionPage: {
+			/** @description The compaction records on this page, ordered by `createdAt` descending. */
 			compactions: components["schemas"]["Compaction"][];
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The page size the server used.
+			 */
 			limit: number;
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The number of records skipped before this page.
+			 */
 			offset: number;
+			/** @description `true` when at least one more record exists after this page. Request the next page with `offset` increased by `limit`. */
 			hasMore: boolean;
 		};
+		/** @description One logical model request Peen made for a turn, a child agent or a compaction, which can span several provider rounds. Peen writes it before provider work starts and finalizes it when the run ends. It appears in `ModelRunPage` and in `ModelCallPage`. */
 		ModelRun: {
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The model run's ID. Use it with `GET /session/model-runs/{modelRunId}/calls`.
+			 */
 			id: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The session that made the request.
+			 */
 			sessionId: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The root turn during which the run happened. Child agent and compaction runs carry the turn they ran under.
+			 */
 			turnId: string;
-			/** Format: uuid */
-			agentRunId?: string | null;
-			/** @enum {string} */
+			/**
+			 * Format: uuid
+			 * @description The child agent run that made the request. Set for `child` runs and for compactions of a child agent's conversation. Absent for the root conversation.
+			 */
+			agentRunId?: string;
+			/**
+			 * @description Which kind of work issued the run.
+			 *
+			 *     - `turn`: the root conversation.
+			 *     - `child`: a child agent.
+			 *     - `compaction`: a summary of older messages.
+			 * @enum {string}
+			 */
 			stage: "turn" | "child" | "compaction";
+			/** @description The configured model reference the run asked for, in the form `<connection>/<model>`. */
 			modelReference: string;
+			/** @description The connection part of `modelReference`, before the first `/`. */
 			connectionName: string;
+			/** @description The model part of `modelReference`, after the first `/`. */
 			requestedModelId: string;
+			/** @description The model ID the provider reported in its response. Empty until the run returns a response. */
 			responseModelId: string;
+			/** @description The request settings in effect, without endpoint URLs or credentials, such as `model`, `autoToolCalls`, `streaming`, `maxRounds`, `maxContextTokens`, `maxOutputTokens`, `maxConcurrentTools`, `toolTimeoutMs`, `maxToolResultTokens`, `timeoutMs`, and `generationParams`. */
 			requestSettings: {
 				[key: string]: unknown;
 			};
-			/** @enum {string} */
-			state: "running" | "completed" | "failed" | "cancelled" | "interrupted";
-			responseText: string;
-			responseThinking: string;
-			responseMessages: unknown[];
-			responseInjections: unknown[];
-			responseUsage: {
-				[key: string]: unknown;
-			};
-			responseCostAmount: string;
-			retryCostAmount: string;
-			billedCostAmount: string;
-			costKnown: boolean;
-			finishReason: string;
-			failureClassification: string;
-			failureDetail: string;
-			/** Format: date-time */
-			startedAt: string;
-			/** Format: date-time */
-			completedAt?: string | null;
-		};
-		ModelRunPage: {
-			modelRuns: components["schemas"]["ModelRun"][];
-			/** Format: int32 */
-			limit: number;
-			/** Format: int32 */
-			offset: number;
-			hasMore: boolean;
-		};
-		ModelCall: {
-			/** Format: uuid */
-			id: string;
-			/** Format: uuid */
-			sessionId: string;
-			/** Format: uuid */
-			modelRunId: string;
-			/** Format: int64 */
-			round: number;
-			requestMessages: unknown[];
-			requestTools: unknown[];
-			/** @enum {string} */
-			state: "running" | "completed" | "failed" | "cancelled" | "interrupted";
-			responseMessage: {
-				[key: string]: unknown;
-			} | null;
-			responseUsage: {
-				[key: string]: unknown;
-			};
-			retryAttempts: {
-				[key: string]: unknown;
-			}[];
-			/** Format: int64 */
-			retryAttemptCount: number;
-			/** Format: int64 */
-			promptTokens: number;
-			/** Format: int64 */
-			completionTokens: number;
-			/** Format: int64 */
-			totalTokens: number;
-			/** Format: int64 */
-			reasoningTokens: number;
-			/** Format: int64 */
-			cacheReadTokens: number;
-			/** Format: int64 */
-			cacheWriteTokens: number;
-			/** Format: int64 */
-			cacheWriteLongTtlTokens: number;
-			/** Format: int64 */
-			wastedPromptTokens: number;
-			/** Format: int64 */
-			wastedCompletionTokens: number;
-			/** Format: int64 */
-			wastedTotalTokens: number;
-			/** Format: int64 */
-			totalAttempts: number;
-			responseModelId: string;
-			finishReason: string;
-			responseCostAmount: string;
-			retryCostAmount: string;
-			billedCostAmount: string;
-			costKnown: boolean;
-			failureClassification: string;
-			failureDetail: string;
-			/** Format: date-time */
-			startedAt: string;
-			/** Format: date-time */
-			completedAt?: string | null;
-		};
-		ModelCallPage: {
-			modelRun: components["schemas"]["ModelRun"];
-			calls: components["schemas"]["ModelCall"][];
-			/** Format: int32 */
-			limit: number;
-			/** Format: int32 */
-			offset: number;
-			hasMore: boolean;
-		};
-		ContextSnapshot: {
-			hash: string;
-			/** @description The layered sources this context was assembled from, in resolution order. It is a list because the harness contributes one entry per file from the filesystem root down to the workspace, and the same name may appear at more than one layer. */
-			manifest: components["schemas"]["ContextManifestEntry"][];
-			resolvedContent: string;
-			/** Format: date-time */
-			createdAt: string;
-		};
-		ContextManifestEntry: {
-			kind: string;
-			name: string;
-			source: string;
-			/** Format: int32 */
-			priority: number;
-			hash: string;
-		};
-		PromptSnapshot: {
-			hash: string;
-			effectivePrompt: string;
-			/** Format: date-time */
-			createdAt: string;
-		};
-		AgentRun: {
-			/** Format: uuid */
-			agentRunId: string;
-			/** @description True while the run is running and waits for an answer to the question it asked. */
-			waiting: boolean;
-			/** @description True while the run is running but its work is paused by a Stop, a crash, or a failure. A message to the run resumes it. */
-			paused?: boolean;
-			/** @description The question a waiting run asked. Absent otherwise. */
-			question?: string | null;
-			/** Format: uuid */
-			sessionId: string;
-			/** Format: uuid */
-			parentTurnId: string;
-			/** Format: uuid */
-			parentAgentRunId?: string | null;
-			/** @description Worker generation currently running, or last to run, this child agent. */
-			workerGenerationId?: string | null;
-			name: string;
-			/** @enum {string} */
-			definition: "stored" | "ad-hoc";
-			parentToolCallId?: string | null;
-			/** Format: uuid */
-			requestId: string;
-			/** Format: int64 */
-			depth: number;
-			/** @description Current directory checkpointed by the child agent. */
-			workspace: string;
-			modelReference: string;
-			model: string;
-			task: string;
-			instructions: string;
-			allowedTools: unknown[];
-			systemPrompt: string;
-			/** Format: int64 */
-			eventCount: number;
-			cancelRequested: boolean;
-			/** @enum {string} */
-			state: "running" | "completed" | "failed" | "cancelled" | "interrupted";
-			responseText: string;
-			responseThinking: string;
-			responseMessages: unknown[];
-			finishReason: string;
-			/** Format: int64 */
-			promptTokenCount: number;
-			/** Format: int64 */
-			completionTokenCount: number;
-			failureClassification: string;
-			failureDetail: string;
-			/** Format: date-time */
-			startedAt: string;
-			/** Format: date-time */
-			endedAt?: string | null;
-		};
-		AgentRunPage: {
-			agents: components["schemas"]["AgentRun"][];
-			/** Format: int32 */
-			limit: number;
-			/** Format: int32 */
-			offset: number;
-			hasMore: boolean;
-		};
-		AgentRunEvent: {
-			/** Format: int64 */
-			sequence: number;
-			type: string;
-			/** @description Child step data. Queued, delivered and undelivered message events carry message and an optional acceptanceId UUID linking the same accepted message. Question and answer events carry an optional callId linking the ask tool call. Older stored events omit these IDs. */
-			payload?: {
-				[key: string]: unknown;
-			};
-			/** Format: date-time */
-			createdAt: string;
-		};
-		AgentRunEventPage: {
-			/** Format: uuid */
-			agentRunId: string;
-			/** @enum {string} */
-			state: "running" | "completed" | "failed" | "cancelled" | "interrupted";
-			events: components["schemas"]["AgentRunEvent"][];
 			/**
-			 * Format: int64
-			 * @description Pass back as cursor to continue from here.
+			 * @description The run's lifecycle state.
+			 *
+			 *     - `running`: has not ended.
+			 *     - `completed`: returned a response.
+			 *     - `failed`: ended with a provider or model error.
+			 *     - `cancelled`: was cancelled or ran past its deadline.
+			 *     - `interrupted`: was still running when Peen stopped.
+			 * @enum {string}
 			 */
-			nextCursor: number;
+			state: "running" | "completed" | "failed" | "cancelled" | "interrupted";
+			/** @description The final text the model returned. Empty until the run completes. */
+			responseText: string;
+			/** @description The reasoning text the model returned, when it exposes one. Empty otherwise. */
+			responseThinking: string;
+			/** @description The full message list the run ended with: the conversation it was given plus every message it added, tool calls and results included. Empty until the run returns. */
+			responseMessages: unknown[];
+			/** @description The messages tool injectors added during the run, in the order they fired. They also appear in `responseMessages`; this list is the audit trail. */
+			responseInjections: unknown[];
+			/** @description The usage summed over every round of the run, with the same keys as a round's `responseUsage`. Empty until the run returns. */
+			responseUsage: {
+				[key: string]: unknown;
+			};
+			/** @description Cost of the run's successful attempts as an exact decimal string, in the currency of the model's prices. Empty when `costKnown` is `false`. */
+			responseCostAmount: string;
+			/** @description Cost of the run's failed attempts as an exact decimal string. Empty when `costKnown` is `false`. */
+			retryCostAmount: string;
+			/** @description `responseCostAmount` plus `retryCostAmount`, as an exact decimal string. Empty when `costKnown` is `false`. */
+			billedCostAmount: string;
+			/** @description `true` when the model has prices configured, so the cost amounts are filled in. `false` means the cost is unknown, not zero. */
+			costKnown: boolean;
+			/** @description Why the model stopped, as the provider reported it for the last round. Empty until the run returns. */
+			finishReason: string;
+			/** @description Why the run did not complete: `model` for a provider or model error, `cancelled` for a cancellation or deadline, or `interrupted` when Peen stopped. Empty for a running or completed run. */
+			failureClassification: string;
+			/** @description The error text for a run that did not complete. Empty otherwise. */
+			failureDetail: string;
+			/**
+			 * Format: date-time
+			 * @description When Peen stored the run, before any provider work, as an RFC 3339 timestamp.
+			 */
+			startedAt: string;
+			/**
+			 * Format: date-time
+			 * @description When the run ended, as an RFC 3339 timestamp. Absent while it runs.
+			 */
+			completedAt?: string;
+		};
+		/** @description One page of a session's model runs, newest first, returned by `GET /session/model-runs`. */
+		ModelRunPage: {
+			/** @description The model runs on this page, ordered by `startedAt` descending. */
+			modelRuns: components["schemas"]["ModelRun"][];
+			/**
+			 * Format: int32
+			 * @description The page size the server used.
+			 */
+			limit: number;
+			/**
+			 * Format: int32
+			 * @description The number of runs skipped before this page.
+			 */
+			offset: number;
+			/** @description `true` when at least one more run exists after this page. Request the next page with `offset` increased by `limit`. */
 			hasMore: boolean;
 		};
-		AgentRunCancelResponse: {
-			/** Format: uuid */
-			agentRunId: string;
-			/** @description True when this request found a running agent and signalled it. Cancelling an unknown, completed, or already cancelled run is not an error and reports false with the current state. */
-			cancelRequested: boolean;
-			/** @enum {string} */
-			state: "running" | "completed" | "failed" | "cancelled" | "interrupted";
-		};
-		Job: {
-			/** Format: uuid */
-			jobId: string;
-			/** Format: uuid */
+		/** @description One provider round within a model run: the exact request Peen sent and the response, usage, retries and costs of that round. It appears in `ModelCallPage.calls`. */
+		ModelCall: {
+			/**
+			 * Format: uuid
+			 * @description The round's ID.
+			 */
+			id: string;
+			/**
+			 * Format: uuid
+			 * @description The session that made the request.
+			 */
 			sessionId: string;
 			/**
 			 * Format: uuid
-			 * @description The durable turn that launched this process.
+			 * @description The model run this round belongs to.
+			 */
+			modelRunId: string;
+			/**
+			 * Format: int64
+			 * @description The round's position within its model run, counting from 0.
+			 */
+			round: number;
+			/** @description The exact messages sent to the provider for this round, the whole conversation so far. Images are base64 encoded. */
+			requestMessages: unknown[];
+			/** @description The tool definitions the provider saw for this round. Each has `name`, `description`, `argumentsSchema`, `strictArguments`, and `timeoutMs`. */
+			requestTools: unknown[];
+			/**
+			 * @description The round's lifecycle state.
+			 *
+			 *     - `running`: has not ended.
+			 *     - `completed`: returned a response.
+			 *     - `failed`: ended with a provider or model error.
+			 *     - `cancelled`: was cancelled or ran past its deadline.
+			 *     - `interrupted`: was still running when Peen stopped.
+			 * @enum {string}
+			 */
+			state: "running" | "completed" | "failed" | "cancelled" | "interrupted";
+			/** @description The assistant message the provider returned for this round. `null` while the round runs and when it ended before a message arrived. */
+			responseMessage: {
+				[key: string]: unknown;
+			} | null;
+			/** @description The provider's usage report for this round, an object with the token counts (`prompt`, `completion`, `total`, `reasoning`, `cacheRead`, `cacheWrite`, `cacheWriteLongTtl`), `model`, `finishReason`, `totalAttempts`, `failedAttempts`, and the wasted token counts. Empty while the round runs. */
+			responseUsage: {
+				[key: string]: unknown;
+			};
+			/** @description The failed attempts of this round that Peen retried or gave up on, oldest first. Peen saves each one as it happens. */
+			retryAttempts: {
+				[key: string]: unknown;
+			}[];
+			/**
+			 * Format: int64
+			 * @description How many times the round was tried again after a failure.
+			 */
+			retryAttemptCount: number;
+			/**
+			 * Format: int64
+			 * @description Prompt tokens the provider reported for the successful attempt.
+			 */
+			promptTokens: number;
+			/**
+			 * Format: int64
+			 * @description Completion tokens the provider reported for the successful attempt.
+			 */
+			completionTokens: number;
+			/**
+			 * Format: int64
+			 * @description Total tokens the provider reported for the successful attempt.
+			 */
+			totalTokens: number;
+			/**
+			 * Format: int64
+			 * @description Reasoning tokens the provider reported, a part of the completion tokens.
+			 */
+			reasoningTokens: number;
+			/**
+			 * Format: int64
+			 * @description Prompt tokens the provider served from its cache.
+			 */
+			cacheReadTokens: number;
+			/**
+			 * Format: int64
+			 * @description Prompt tokens the provider wrote to its cache.
+			 */
+			cacheWriteTokens: number;
+			/**
+			 * Format: int64
+			 * @description Prompt tokens the provider wrote to its long-lived cache.
+			 */
+			cacheWriteLongTtlTokens: number;
+			/**
+			 * Format: int64
+			 * @description Prompt tokens spent on failed attempts of this round.
+			 */
+			wastedPromptTokens: number;
+			/**
+			 * Format: int64
+			 * @description Completion tokens spent on failed attempts of this round.
+			 */
+			wastedCompletionTokens: number;
+			/**
+			 * Format: int64
+			 * @description Total tokens spent on failed attempts of this round.
+			 */
+			wastedTotalTokens: number;
+			/**
+			 * Format: int64
+			 * @description How many attempts the round made, the successful one included. 0 until the round ends.
+			 */
+			totalAttempts: number;
+			/** @description The model ID the provider reported. Empty until the round ends. */
+			responseModelId: string;
+			/** @description Why the provider stopped generating, as the provider reported it. Empty until the round ends. */
+			finishReason: string;
+			/** @description Cost of the successful attempt as an exact decimal string, in the currency of the model's prices. Empty when `costKnown` is `false`. */
+			responseCostAmount: string;
+			/** @description Cost of the failed attempts as an exact decimal string. Empty when `costKnown` is `false`. */
+			retryCostAmount: string;
+			/** @description `responseCostAmount` plus `retryCostAmount`, as an exact decimal string. Empty when `costKnown` is `false`. */
+			billedCostAmount: string;
+			/** @description `true` when the model has prices configured, so the cost amounts are filled in. `false` means the cost is unknown, not zero. */
+			costKnown: boolean;
+			/** @description Why the round did not complete: `model` for a provider or model error, `cancelled` for a cancellation or deadline, or `interrupted` when Peen stopped. Empty for a running or completed round. */
+			failureClassification: string;
+			/** @description The error text for a round that did not complete. Empty otherwise. */
+			failureDetail: string;
+			/**
+			 * Format: date-time
+			 * @description When Peen stored the request, just before sending it, as an RFC 3339 timestamp.
+			 */
+			startedAt: string;
+			/**
+			 * Format: date-time
+			 * @description When the round ended, as an RFC 3339 timestamp. Absent while it runs.
+			 */
+			completedAt?: string;
+		};
+		/** @description One model run and a page of its provider rounds, returned by `GET /session/model-runs/{modelRunId}/calls`. */
+		ModelCallPage: {
+			modelRun: components["schemas"]["ModelRun"];
+			/** @description The rounds on this page, ordered by `round` ascending. */
+			calls: components["schemas"]["ModelCall"][];
+			/**
+			 * Format: int32
+			 * @description The page size the server used.
+			 */
+			limit: number;
+			/**
+			 * Format: int32
+			 * @description The number of rounds skipped before this page.
+			 */
+			offset: number;
+			/** @description `true` when at least one more round exists after this page. Request the next page with `offset` increased by `limit`. */
+			hasMore: boolean;
+		};
+		/** @description The harness context one or more turns ran with, stored once by hash. It holds the manifest of sources Peen resolved and the content it built from them. Returned by `GET /session/context-snapshots/{contextHash}`. */
+		ContextSnapshot: {
+			/** @description Lowercase hex SHA-256 that identifies the snapshot, computed over the resolved harness sources and the resolved content. A turn names it in `contextSnapshotHash`. */
+			hash: string;
+			/** @description The harness sources this context was resolved from. Instruction and rule files come first, in resolution order from the built-in files and the configuration layer down to the workspace, followed by skills, agents, event handlers and hooks. The same name can appear at more than one layer, which is why this is a list. */
+			manifest: components["schemas"]["ContextManifestEntry"][];
+			/** @description The system prompt Peen built from these sources for the turn, including any context pre-user-message hooks added. */
+			resolvedContent: string;
+			/**
+			 * Format: date-time
+			 * @description When Peen first stored this snapshot, as an RFC 3339 timestamp. A later turn that produces the same hash reuses the row and leaves this unchanged.
+			 */
+			createdAt: string;
+		};
+		/** @description One harness source a context snapshot was resolved from, such as an instruction file, a rule, a skill, an agent definition, an event handler or a hook file. */
+		ContextManifestEntry: {
+			/**
+			 * @description What the source is.
+			 *
+			 *     - `instruction`: an instruction file such as `AGENTS.md`.
+			 *     - `rule`: a rule file.
+			 *     - `skill`: a skill.
+			 *     - `agent`: a stored agent definition.
+			 *     - `event-handler`: a notice handler.
+			 *     - `hook`: a hook group.
+			 */
+			kind: string;
+			/** @description The source's name within its kind: a rule's path under `rules/` without `.md`, a skill's or agent's name, an event handler's notice type, or a hook's event name. Empty for an instruction file. */
+			name: string;
+			/** @description Where the source came from: the file's path, or an `embedded://` address for a file built into Peen. */
+			source: string;
+			/**
+			 * Format: int32
+			 * @description The layer the source came from. Built-in instructions are -1, the configuration layer is 0, and the number grows for layers closer to the workspace, so a higher number is more specific. Skills, agents and event handlers report 0.
+			 */
+			priority: number;
+			/** @description Lowercase hex SHA-256 of the source file's content. */
+			hash: string;
+		};
+		/** @description The exact system prompt one or more turns sent to the model, stored once by hash. Returned by `GET /session/prompt-snapshots/{promptHash}`. */
+		PromptSnapshot: {
+			/** @description Lowercase hex SHA-256 of `effectivePrompt`. A turn names it in `promptSnapshotHash`. */
+			hash: string;
+			/** @description The full system prompt the model received, including any context pre-user-message hooks added. */
+			effectivePrompt: string;
+			/**
+			 * Format: date-time
+			 * @description When Peen first stored this snapshot, as an RFC 3339 timestamp. A later turn with the same prompt reuses the row and leaves this unchanged.
+			 */
+			createdAt: string;
+		};
+		/** @description One child agent run: a separate agent conversation that an agent in the session started with the `launchAgent` tool. The record is written before the child does any work and is updated as it runs and when it ends. Returned by `GET /session/agents` and `GET /session/agents/{agentRunId}`. */
+		AgentRun: {
+			/**
+			 * Format: uuid
+			 * @description The run's ID. Agents and clients use it to address the child, for example as the `to` of a message.
+			 */
+			agentRunId: string;
+			/** @description True while the run is `running` and waits for an answer to a question it asked with the `ask` tool. Computed when you read the run, from its `agent.run.question` and `agent.run.answer` events. */
+			waiting: boolean;
+			/** @description True while the run is `running` but its work is paused by a Stop, a crash, or a failure. A message to the run resumes it. Absent when the run is not paused. */
+			paused?: boolean;
+			/** @description The question a waiting run asked. Absent when `waiting` is false. */
+			question?: string;
+			/**
+			 * Format: uuid
+			 * @description The session the run belongs to.
+			 */
+			sessionId: string;
+			/**
+			 * Format: uuid
+			 * @description The session turn during which the run was launched. A child can keep running after that turn ends.
+			 */
+			parentTurnId: string;
+			/**
+			 * Format: uuid
+			 * @description The agent run that launched this child. Absent when the session's root conversation launched it.
+			 */
+			parentAgentRunId?: string;
+			/** @description The worker generation currently running this child, or the last one that ran it. Absent when none was recorded. */
+			workerGenerationId?: string;
+			/** @description The agent's name: the stored agent's name, or the name given in an inline definition. */
+			name: string;
+			/**
+			 * @description Where the child's instructions came from.
+			 *
+			 *     - `stored`: an agent file under `.agents/agents/` in a harness layer, or a core agent.
+			 *     - `ad-hoc`: a one-off definition the launching agent passed inline to `launchAgent`, which is never written to disk.
+			 * @enum {string}
+			 */
+			definition: "stored" | "ad-hoc";
+			/** @description The ID of the `launchAgent` tool call that started this run. Absent when none was recorded. */
+			parentToolCallId?: string;
+			/**
+			 * Format: uuid
+			 * @description The request ID of the turn that launched the run.
+			 */
+			requestId: string;
+			/**
+			 * Format: int64
+			 * @description How deep the run sits below the root conversation. A child of the root has depth 1, its children depth 2, and so on, up to the deployment's maximum child agent depth.
+			 */
+			depth: number;
+			/** @description The child's current directory, updated each time it changes directory with `changeDirectory`. It starts as the launching agent's current directory. */
+			workspace: string;
+			/** @description The qualified model reference the child runs on, in `provider/model` form. A child always uses the model of the turn that launched it. */
+			modelReference: string;
+			/** @description The provider's model ID for `modelReference`. */
+			model: string;
+			/** @description The task text the launching agent gave the child. */
+			task: string;
+			/** @description The child's agent instructions: the body of the stored agent file, or the inline definition's instructions. */
+			instructions: string;
+			/** @description The tool names the agent definition limits the child to. An empty array means the child may use every tool. */
+			allowedTools: unknown[];
+			/** @description The full system prompt the child runs with. It is updated when a `changeDirectory` call resolves a new harness. */
+			systemPrompt: string;
+			/**
+			 * Format: int64
+			 * @description How many events the run has stored, which is also the `sequence` of its latest event.
+			 */
+			eventCount: number;
+			/** @description True once a cancellation was requested for the run, through `POST /session/agents/{agentRunId}/cancel`, the `stopAgent` tool, or the control surface. */
+			cancelRequested: boolean;
+			/**
+			 * @description The stored state of the run.
+			 *
+			 *     - `running`: the child is working, waiting on a question, or paused.
+			 *     - `completed`: it gave its final answer.
+			 *     - `failed`: it ended with an error.
+			 *     - `cancelled`: it was stopped.
+			 *     - `interrupted`: the controller restarted while the run was still marked running; the run stays readable and can be resumed, which returns it to `running`.
+			 * @enum {string}
+			 */
+			state: "running" | "completed" | "failed" | "cancelled" | "interrupted";
+			/** @description The child's whole final answer. Empty until the run ends, and empty when it did not complete. */
+			responseText: string;
+			/** @description The reasoning text the model returned with the final answer, when the provider reports it. Empty otherwise. */
+			responseThinking: string;
+			/** @description The model messages recorded when the run ended. An empty array until then. */
+			responseMessages: unknown[];
+			/** @description The finish reason the provider reported for the final model response, such as `stop`. Empty until the run ends. */
+			finishReason: string;
+			/**
+			 * Format: int64
+			 * @description The prompt tokens the provider reported for the run. 0 until the run ends.
+			 */
+			promptTokenCount: number;
+			/**
+			 * Format: int64
+			 * @description The completion tokens the provider reported for the run. 0 until the run ends.
+			 */
+			completionTokenCount: number;
+			/** @description Why the run did not complete: `agentRun` when it failed, `cancelled` when it was stopped, or `interrupted` when a restart cut it off. Empty for a run that is running or completed. */
+			failureClassification: string;
+			/** @description The error text for a failed, cancelled, or interrupted run. Empty otherwise. */
+			failureDetail: string;
+			/**
+			 * Format: date-time
+			 * @description When the run started, in RFC 3339 format.
+			 */
+			startedAt: string;
+			/**
+			 * Format: date-time
+			 * @description When the run ended, in RFC 3339 format. Absent while it is `running`.
+			 */
+			endedAt?: string;
+		};
+		/** @description One page of a session's child agent runs, newest first. Returned by `GET /session/agents`. */
+		AgentRunPage: {
+			/** @description The runs on this page, newest first. */
+			agents: components["schemas"]["AgentRun"][];
+			/**
+			 * Format: int32
+			 * @description The page size the server used.
+			 */
+			limit: number;
+			/**
+			 * Format: int32
+			 * @description The number of runs skipped before this page.
+			 */
+			offset: number;
+			/** @description True when more runs follow this page. Request the next page with `offset` increased by `limit`. */
+			hasMore: boolean;
+		};
+		/** @description One stored step of a child agent run, such as `agent.run.text.delta` or `agent.run.tool.use`. The same step reaches connected WebSocket clients live as an `agent.run.*` frame. */
+		AgentRunEvent: {
+			/**
+			 * Format: int64
+			 * @description The event's position in this run's own event stream, starting at 1. It is separate from the session feed sequence.
+			 */
+			sequence: number;
+			/** @description The event type: `agent.run.started`, `agent.run.text.delta`, `agent.run.thinking.delta`, `agent.run.tool.use`, `agent.run.tool.result`, `agent.run.assistant.message`, `agent.run.message.injected`, `agent.run.message.queued`, `agent.run.message.delivered`, `agent.run.message.undelivered`, `agent.run.question`, `agent.run.answer`, `agent.run.provider.retry`, or one of the terminal types `agent.run.completed`, `agent.run.failed`, and `agent.run.cancelled`. */
+			type: string;
+			/** @description Child step data. Queued, delivered and undelivered message events carry `message` and an optional `acceptanceId` UUID linking the same accepted message. Question and answer events carry an optional `callId` linking the `ask` tool call. Older stored events omit these IDs. Absent when the event has no data. */
+			payload?: {
+				[key: string]: unknown;
+			};
+			/**
+			 * Format: date-time
+			 * @description When the event was recorded, in RFC 3339 format.
+			 */
+			createdAt: string;
+		};
+		/** @description One page of a child agent run's events in ascending `sequence` order, with a cursor to continue from. Returned by `GET /session/agents/{agentRunId}/events`. */
+		AgentRunEventPage: {
+			/**
+			 * Format: uuid
+			 * @description The run the events belong to.
+			 */
+			agentRunId: string;
+			/**
+			 * @description The run's stored state when the page was read, with the same values as `AgentRun.state`. A run waiting on a question reports `running`.
+			 * @enum {string}
+			 */
+			state: "running" | "completed" | "failed" | "cancelled" | "interrupted";
+			/** @description The events on this page, oldest first. */
+			events: components["schemas"]["AgentRunEvent"][];
+			/**
+			 * Format: int64
+			 * @description Pass this back as `cursor` to continue after this page. It is the `sequence` of the last event returned, or the `cursor` you sent when the page is empty.
+			 */
+			nextCursor: number;
+			/** @description True when more events already exist after this page. False does not mean the run has ended; check `state`. */
+			hasMore: boolean;
+		};
+		/** @description The outcome of a cancellation request for one child agent run. Returned by `POST /session/agents/{agentRunId}/cancel`. */
+		AgentRunCancelResponse: {
+			/**
+			 * Format: uuid
+			 * @description The run the request named.
+			 */
+			agentRunId: string;
+			/** @description True when this request recorded the cancellation of a `running` or `interrupted` run. False when the run had already ended or a cancellation was already recorded; that is not an error, and `state` reports the current state. An unknown run returns `404` instead. */
+			cancelRequested: boolean;
+			/**
+			 * @description The run's state after the request, with the same values as `AgentRun.state`. `cancelled` when the cancellation took effect at once. `running` while the worker is still stopping the child; follow its events or read the run to see it end.
+			 * @enum {string}
+			 */
+			state: "running" | "completed" | "failed" | "cancelled" | "interrupted";
+		};
+		/** @description One shell command the agent started with `runCommand`, recorded before it produced output and kept after it ended. It appears in `JobPage` and in `JobSignalRecordPage`. */
+		Job: {
+			/**
+			 * Format: uuid
+			 * @description The job's ID. Use it in the job's output, signals and signal endpoints.
+			 */
+			jobId: string;
+			/**
+			 * Format: uuid
+			 * @description The session that started the job.
+			 */
+			sessionId: string;
+			/**
+			 * Format: uuid
+			 * @description The turn during which the job was started.
 			 */
 			turnId: string;
 			/**
+			 * Format: uuid
+			 * @description The child agent run whose `runCommand` call started the job, as listed by `GET /session/agents`. Absent for a job the session's root conversation started.
+			 */
+			agentRunId?: string;
+			/**
 			 * Format: int64
-			 * @description Operating-system process ID of the job's shell.
+			 * @description Operating-system process ID of the job's shell, as the worker that ran it sees it. In a Docker worker it is a process ID inside the container.
 			 */
 			pid: number;
 			/** @description Why the agent said it was running this command. */
 			purpose: string;
+			/** @description The shell command line the job runs. */
 			command: string;
+			/** @description The directory the command runs in. */
 			directory: string;
-			/** @description The tool call that started this job. */
+			/** @description The `runCommand` tool call that started this job. Absent when none was recorded. */
 			toolCallId?: string;
-			/** @description Worker generation that launched this process. */
-			workerGenerationId?: string | null;
-			/** @enum {string} */
+			/** @description The worker generation that ran this job, as listed by `GET /session/workers`. Absent when none was recorded. */
+			workerGenerationId?: string;
+			/**
+			 * @description The job's lifecycle state.
+			 *
+			 *     - `running`: the process is still running.
+			 *     - `exited`: the process ended on its own. `exitCode` holds its status, 0 for success.
+			 *     - `signalled`: the process ended because of a signal, usually from a stop or kill request.
+			 *     - `failed`: Peen could not run or supervise the process to its end, for example because storing its output failed; `failureDetail` says why.
+			 *     - `interrupted`: Peen or its worker stopped while the process was running, so it could not be followed further.
+			 * @enum {string}
+			 */
 			state: "running" | "exited" | "signalled" | "failed" | "interrupted";
-			/** Format: date-time */
+			/**
+			 * Format: date-time
+			 * @description When the job started, as an RFC 3339 timestamp.
+			 */
 			startedAt: string;
-			/** Format: date-time */
+			/**
+			 * Format: date-time
+			 * @description When the job reached a terminal state, as an RFC 3339 timestamp. Absent while the job is running.
+			 */
 			endedAt?: string;
 			/**
 			 * Format: int64
-			 * @description Exit status once known, or -1 while it is not.
+			 * @description The process's exit status once known. It is -1 while the job runs and stays -1 when the status is not known, which is always the case for `signalled`, `failed` and `interrupted`.
 			 */
 			exitCode: number;
-			/** @description Empty unless Peen recorded a terminal failure detail. */
+			/** @description Why the job failed or was interrupted. Empty unless Peen recorded a terminal failure detail. */
 			failureDetail: string;
 		};
+		/** @description One page of a session's jobs, newest first, returned by `GET /session/jobs`. */
 		JobPage: {
+			/** @description The jobs on this page, ordered by `startedAt` descending. */
 			jobs: components["schemas"]["Job"][];
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The page size the server used.
+			 */
 			limit: number;
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The number of jobs skipped before this page.
+			 */
 			offset: number;
+			/** @description `true` when at least one more job exists after this page. Request the next page with `offset` increased by `limit`. */
 			hasMore: boolean;
 		};
+		/** @description One line a job wrote to stdout or stderr, stored in the order Peen read it. It appears in `JobOutput.lines`. */
 		JobOutputLine: {
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The stored line's ID.
+			 */
 			id: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The session that owns the job.
+			 */
 			sessionId: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The job that wrote the line.
+			 */
 			jobId: string;
-			/** Format: int64 */
+			/**
+			 * Format: int64
+			 * @description The line's position in the job's output, counting from 1. stdout and stderr share one counter per job, so sorting by it restores the order Peen saw lines in across both streams.
+			 */
 			sequence: number;
-			/** @enum {string} */
+			/**
+			 * @description Which stream the line came from, `stdout` or `stderr`.
+			 * @enum {string}
+			 */
 			stream: "stdout" | "stderr";
+			/** @description The line's text, without its trailing newline. */
 			content: string;
-			/** Format: date-time */
+			/**
+			 * Format: date-time
+			 * @description When Peen read the line from the process, as an RFC 3339 timestamp.
+			 */
 			createdAt: string;
 		};
+		/** @description One window of a job's stored output, returned by `GET /session/jobs/{jobId}/output`. Pass `nextCursor` back as `cursor` to continue. */
 		JobOutput: {
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The job this output belongs to.
+			 */
 			jobId: string;
-			/** @enum {string} */
+			/**
+			 * @description The job's state when this window was read, with the same values as `Job.state`. Keep reading while it is `running` or `hasMore` is `true`.
+			 * @enum {string}
+			 */
 			state: "running" | "exited" | "signalled" | "failed" | "interrupted";
-			/** @description Ordered immutable stdout and stderr records from SQLite. */
+			/** @description The output lines with a `sequence` greater than the requested `cursor`, oldest first, filtered to the requested stream. Stored lines never change. */
 			lines: components["schemas"]["JobOutputLine"][];
 			/**
 			 * Format: int64
-			 * @description Pass back as cursor to continue from this durable sequence.
+			 * @description The `sequence` of the last line in this window, or the requested `cursor` when the window is empty. Pass it back as `cursor` to read the lines after it.
 			 */
 			nextCursor: number;
+			/** @description `true` when more stored lines match the request after this window. A running job can still add lines when this is `false`. */
 			hasMore: boolean;
 		};
+		/** @description The body of `POST /session/jobs/{jobId}/signal`, naming the signal to send to the job's process group. */
 		JobSignalRequest: {
 			/**
-			 * @description stop sends SIGTERM to the process group then escalates to SIGKILL. kill goes straight to SIGKILL.
+			 * @description The signal to send to the job's process group.
+			 *
+			 *     - `stop`: `SIGTERM`, then `SIGKILL` if the process group is still running 10 seconds later.
+			 *     - `kill`: `SIGKILL` at once.
 			 * @enum {string}
 			 */
 			signal: "stop" | "kill";
 		};
+		/** @description The stored record of one request to stop or kill a job. Peen writes one for every request, whether or not it reached a running process, so it is history, not a command. It appears in `JobSignalRecordPage.signalRequests`. */
 		JobSignalRecord: {
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The record's ID.
+			 */
 			id: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The session that owns the job.
+			 */
 			sessionId: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The job the request named.
+			 */
 			jobId: string;
-			/** @enum {string} */
+			/**
+			 * @description The requested signal.
+			 *
+			 *     - `stop`: asks the process group to end with `SIGTERM` and escalates to `SIGKILL` after a grace period.
+			 *     - `kill`: sends `SIGKILL` at once.
+			 * @enum {string}
+			 */
 			signal: "stop" | "kill";
+			/** @description `true` when the job was running and the signal was sent to its process group. `false` when the job had already ended or no worker held it, so nothing changed. */
 			accepted: boolean;
-			/** @enum {string} */
+			/**
+			 * @description The job's state when the request arrived, with the same values as `Job.state`.
+			 * @enum {string}
+			 */
 			stateAtRequest: "running" | "exited" | "signalled" | "failed" | "interrupted";
-			/** Format: date-time */
+			/**
+			 * Format: date-time
+			 * @description When Peen recorded the request, as an RFC 3339 timestamp.
+			 */
 			requestedAt: string;
 		};
+		/** @description One job and a page of its signal history, oldest first, returned by `GET /session/jobs/{jobId}/signals`. */
 		JobSignalRecordPage: {
 			job: components["schemas"]["Job"];
+			/** @description The signal requests on this page, ordered by `requestedAt` ascending. */
 			signalRequests: components["schemas"]["JobSignalRecord"][];
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The page size the server used.
+			 */
 			limit: number;
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The number of requests skipped before this page.
+			 */
 			offset: number;
+			/** @description `true` when at least one more request exists after this page. Request the next page with `offset` increased by `limit`. */
 			hasMore: boolean;
 		};
+		/** @description The result of `POST /session/jobs/{jobId}/signal`. Peen records the request in the job's signal history either way. */
 		JobSignalResponse: {
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The job the request named.
+			 */
 			jobId: string;
-			/** @description True when this request found a running job and signalled it. Signalling an unknown, exited, or already signalled job is not an error and reports false with the current state. */
+			/** @description `true` when this request found the job running and sent the signal. The process may still be ending when the response arrives. Signalling an exited or already signalled job, or one no live worker holds, is not an error and reports `false` with the current state. */
 			signalled: boolean;
-			/** @enum {string} */
+			/**
+			 * @description The job's state when the request arrived, with the same values as `Job.state`. A successful signal reports `running`, because the process ends after the response. Read the job again to see `signalled`.
+			 * @enum {string}
+			 */
 			state: "running" | "exited" | "signalled" | "failed" | "interrupted";
 		};
+		/** @description The body of `POST /session/notices`. */
 		SessionNoticeRequest: {
-			/** @description Dotted lowercase namespaced type. The job., agent., and turn. prefixes are reserved for Peen's own producers and are rejected here. */
+			/** @description Dotted lowercase type: one to eight segments separated by `.`, each a lowercase letter followed by lowercase letters or digits, at most 128 characters in total, such as `ci.build.failed`. The `job.`, `agent.`, and `turn.` prefixes are reserved for Peen's own producers and are rejected here. */
 			type: string;
-			/** @description The one line describing what happened. */
+			/** @description The one line describing what happened. Must not be empty or longer than `PEEN_MAX_EVENT_SUMMARY_BYTES` (default 4096 bytes). */
 			summary: string;
-			/** @description Structured payload for programmatic consumers. */
+			/** @description Structured payload for programmatic consumers. Its JSON encoding must not exceed `PEEN_MAX_EVENT_DATA_BYTES` (default 65536 bytes). An empty object is stored as no data. */
 			data?: {
 				[key: string]: unknown;
 			};
 			/**
-			 * @description queue waits for the next turn. wake starts a turn when the session is idle and .agents/events declares a handler for this type.
+			 * @description When the model sees the notice. A handler's own `delivery` overrides this value.
+			 *
+			 *     - `queue` (the default): waits for the next turn or tool boundary.
+			 *     - `wake`: also starts a turn when the session is idle and a handler for this type exists at `.agents/events/<type>.md`. A wake that cannot start (a turn is running, or the hourly wake limit is reached) leaves the notice queued.
 			 * @default queue
 			 * @enum {string}
 			 */
 			delivery: "queue" | "wake";
 		};
+		/** @description One stored notice: a report waiting for, or already delivered to, a session's model. Returned by `GET /session/notices`, `POST /session/notices`, and as the `data` of a `notice.created` feed frame. */
 		SessionNotice: {
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The notice ID.
+			 */
 			id: string;
+			/** @description The notice type, a dotted lowercase name such as `job.exited` or `ci.build.failed`. */
 			type: string;
+			/** @description Who reported it: `api` for `POST /session/notices`, or a Peen producer such as `tools.job`, `agent.launchAgent`, or `session.turn`. */
 			source: string;
+			/** @description The one line describing what happened. */
 			summary: string;
+			/** @description Structured payload for programmatic consumers. Absent when the notice has none. */
 			data?: {
 				[key: string]: unknown;
 			};
-			/** @enum {string} */
+			/**
+			 * @description The delivery the producer requested. A handler's own `delivery` can override it.
+			 *
+			 *     - `queue`: delivered at the next turn or tool boundary.
+			 *     - `wake`: may start a turn on an idle session when a handler for the type exists; otherwise queued.
+			 * @enum {string}
+			 */
 			delivery: "queue" | "wake";
-			/** Format: date-time */
+			/**
+			 * Format: date-time
+			 * @description When the notice was stored, RFC 3339.
+			 */
 			createdAt: string;
 		};
+		/** @description One page of `GET /session/notices`, oldest first. */
 		SessionNoticePage: {
+			/** @description The notices on this page, oldest first. */
 			notices: components["schemas"]["SessionNotice"][];
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The page size this response used.
+			 */
 			limit: number;
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The number of notices skipped before this page.
+			 */
 			offset: number;
+			/** @description True when more notices follow this page. */
 			hasMore: boolean;
 		};
-		/** @enum {string} */
+		/**
+		 * @description The state of a scheduled run. After downtime Peen records one `skipped` run for the latest missed occurrence and does not replay missed work.
+		 *
+		 *     - `running`: the run is in progress.
+		 *     - `completed`: the turn finished, with valid structured output when the job asked for it.
+		 *     - `failed`: the run or its turn failed, including a turn that ended without valid structured output; `error` says why.
+		 *     - `cancelled`: the turn was cancelled or reached its deadline; `error` says which.
+		 *     - `skipped`: the occurrence did not run because the job's previous run was still going or the controller was offline at the time; `error` says why.
+		 * @enum {string}
+		 */
 		CronRunState: "running" | "completed" | "failed" | "cancelled" | "skipped";
+		/** @description One durable record of a scheduled occurrence: when it was due, how it ended, and the session it ran in. Records are kept for jobs that are no longer configured. */
 		CronRun: {
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The run's ID. The scheduled turn uses the same value as its request ID, so the run's turn is the one whose `requestId` matches.
+			 */
 			id: string;
+			/** @description The name of the job this run belongs to. */
 			jobName: string;
-			/** Format: date-time */
+			/**
+			 * Format: date-time
+			 * @description The occurrence this run was for, as an RFC 3339 UTC time. A job never records two runs for the same occurrence.
+			 */
 			scheduledAt: string;
-			/** Format: date-time */
+			/**
+			 * Format: date-time
+			 * @description When Peen began the run, as an RFC 3339 time. Absent on a run skipped because the previous run was still going or the controller was offline.
+			 */
 			startedAt?: string;
-			/** Format: date-time */
+			/**
+			 * Format: date-time
+			 * @description When the run ended, as an RFC 3339 time. Absent while the run is `running`.
+			 */
 			finishedAt?: string;
-			/** Format: uuid */
+			/**
+			 * Format: uuid
+			 * @description The session the run's turn used. Pass it as `X-Session-ID` to read the conversation. Absent when no session was opened, such as on most skipped runs or a run whose session could not be prepared.
+			 */
 			sessionId?: string;
 			state: components["schemas"]["CronRunState"];
-			/** @description A safe fixed reason for failure, cancellation or skipping. */
+			/** @description A fixed reason for a `failed`, `cancelled` or `skipped` run, one of `scheduled run failed`, `scheduled turn failed`, `scheduled turn cancelled`, `scheduled turn timed out`, `previous run still running`, `controller was offline`, `scheduled turn interrupted`, `workspace unavailable`, `session unavailable`, `workspace agent space conflict` or `scheduled output invalid`. It never holds prompts, provider errors or schemas. Absent on running and completed runs. Treat any other value as an unknown failure. */
 			error?: string;
 		};
+		/** @description One page of scheduled runs, newest scheduled occurrence first, as `GET /cron/runs` returns it. */
 		CronRunPage: {
+			/** @description The runs on this page, ordered by `scheduledAt`, newest first. */
 			items: components["schemas"]["CronRun"][];
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The page size used, 50 when the request left `limit` out.
+			 */
 			limit: number;
-			/** Format: int32 */
+			/**
+			 * Format: int32
+			 * @description The number of runs skipped before this page.
+			 */
 			offset: number;
+			/** @description `true` when more runs follow this page. Request the next page with `offset` increased by `limit`. */
 			hasMore: boolean;
 		};
+		/** @description One scheduled job loaded from the operator's cron file at startup, as `GET /cron/jobs` reports it. */
 		CronJob: {
+			/** @description The job's unique name, 1 to 64 ASCII letters, digits, underscores or hyphens. Filter `GET /cron/runs` with it. */
 			name: string;
+			/** @description The schedule exactly as written in the cron file, such as `0 9 * * *`, a six-field expression with leading seconds, or a descriptor such as `@daily` or `@every 30m`. */
 			schedule: string;
+			/** @description The IANA time zone the schedule is evaluated in, such as `UTC` or `Europe/Berlin`. `UTC` when the cron file leaves it out. */
 			timeZone: string;
-			/** @enum {string} */
+			/**
+			 * @description Which session each run uses.
+			 *
+			 *     - `continue`: every run continues the job's one session. Changing the job's definition starts a new one.
+			 *     - `new`: every run starts its own session with its own history.
+			 * @enum {string}
+			 */
 			session: "continue" | "new";
-			/** Format: date-time */
+			/**
+			 * Format: date-time
+			 * @description The next occurrence the scheduler will fire, as an RFC 3339 UTC time.
+			 */
 			nextScheduledAt: string;
 			lastRun?: components["schemas"]["CronRun"];
 		};
+		/** @description All scheduled jobs loaded at startup, sorted by name. Empty while `PEEN_CRON` is off. */
 		CronJobList: {
+			/** @description The scheduled jobs, sorted by `name`. Not paged. */
 			items: components["schemas"]["CronJob"][];
 		};
+		/** @description The body of every REST error response. The table on the API's front page lists each `code`. */
 		Error: {
+			/** @description A stable, machine-readable error code such as `VALIDATION_FAILED` or `SESSION_NOT_FOUND`. Branch on this value. */
 			code: string;
+			/** @description Short, human-readable text safe to show a user. It never contains source paths or credentials, and its wording can change between versions. */
 			message: string;
-			details?: {
-				[key: string]: unknown;
-			};
 		};
 	};
 	responses: {
-		/** @description Invalid request */
+		/** @description The request is invalid. `code` is `VALIDATION_FAILED` for a bad parameter, body field, page bound, base64 value or file size, or a body that is not one JSON value or exceeds the body limit, and `INVALID_SESSION_ID` for a malformed `X-Session-ID` header. */
 		ErrorBadRequest: {
 			headers: {
 				[name: string]: unknown;
@@ -1784,7 +2954,7 @@ export interface components {
 				"application/json": components["schemas"]["Error"];
 			};
 		};
-		/** @description Authentication failed */
+		/** @description `PEEN_API_TOKEN` is set and the request's bearer token is missing or wrong. `code` is `UNAUTHORIZED`. A deployment with no token never returns this. */
 		ErrorUnauthorized: {
 			headers: {
 				[name: string]: unknown;
@@ -1793,7 +2963,16 @@ export interface components {
 				"application/json": components["schemas"]["Error"];
 			};
 		};
-		/** @description The request names a resource the deployment does not allow */
+		/** @description The request's `Accept` header allows neither `application/json` nor `*\/*`, and every response is JSON. `code` is `BAD_REQUEST` and `message` is `unsupported response representation`. Omit `Accept` or send `application/json`. */
+		ErrorNotAcceptable: {
+			headers: {
+				[name: string]: unknown;
+			};
+			content: {
+				"application/json": components["schemas"]["Error"];
+			};
+		};
+		/** @description The deployment does not allow what the request names. `code` is `WORKSPACE_NOT_ALLOWED` for a workspace outside every workspace root, a workspace file path that is not a clean relative path inside the workspace, or a file operation on the system session; `AGENT_SPACE_NOT_ALLOWED` for an agent space the deployment does not offer or a move of the system session; and `SYSTEM_AGENT_OFF` for a system session while `PEEN_SYSTEM_AGENT` is off. */
 		ErrorForbidden: {
 			headers: {
 				[name: string]: unknown;
@@ -1802,7 +2981,7 @@ export interface components {
 				"application/json": components["schemas"]["Error"];
 			};
 		};
-		/** @description Requested resource not found */
+		/** @description The session, or the record the request names inside it, does not exist. `code` is `SESSION_NOT_FOUND` when no session has the `X-Session-ID` ID, on every operation. It is `NOT_FOUND` when the session exists but the record the request names inside it does not, and the message names what is missing, such as `job not found`. It is `WORKSPACE_NOT_FOUND` when an opened workspace directory no longer exists. */
 		ErrorNotFound: {
 			headers: {
 				[name: string]: unknown;
@@ -1811,7 +2990,7 @@ export interface components {
 				"application/json": components["schemas"]["Error"];
 			};
 		};
-		/** @description The request conflicts with current state, such as a session with a turn in flight or an agent space other than the workspace's */
+		/** @description The request conflicts with the current state. `code` is `SESSION_BUSY` when the session has an active turn, `AGENT_SPACE_CONFLICT` when the request names an agent space other than the one the workspace's sessions share (the message names the current one), and `CONFLICT` when a workspace directory to delete is not empty or a reconfiguration names the agent space the workspace already runs in. */
 		ErrorConflict: {
 			headers: {
 				[name: string]: unknown;
@@ -1820,7 +2999,7 @@ export interface components {
 				"application/json": components["schemas"]["Error"];
 			};
 		};
-		/** @description Internal server error */
+		/** @description An unexpected server failure. `code` is `INTERNAL_SERVER_ERROR` and `message` is `internal server error`. The controller log has the details under the response's `X-Request-ID`. */
 		ErrorInternal: {
 			headers: {
 				[name: string]: unknown;
@@ -1831,27 +3010,38 @@ export interface components {
 		};
 	};
 	parameters: {
-		SessionIDOptional: string;
+		/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 		SessionIDRequired: string;
+		/** @description Which learned directory the file lives in. `workspace` is `.agents/learned/` in the session's workspace; `global` is the global learned directory every session reads, `PEEN_CONFIG_DIR/.agents/learned/` unless `PEEN_LEARNED_DIR` moves it. */
 		LearnedScope: components["schemas"]["LearnedScope"];
+		/** @description Whether the name refers to a learned `rule`, a Markdown file under `rules/`, or a learned `skill`, a directory under `skills/` that holds a `SKILL.md`. */
 		LearnedKind: components["schemas"]["LearnedKind"];
-		/** @description The rule's path under rules/ without .md, such as go-errors or go/errors, or the skill's directory name. */
+		/** @description The learned file's name, as the `name` field of `GET /session/learned` reports it. For a rule it is the path under `rules/` without `.md`, such as `go-errors` or `go/errors`, with at most 8 directory levels. For a skill it is the skill's directory name and cannot contain `/`. A name with an empty, `.` or `..` segment, or a backslash, answers `400`. */
 		LearnedName: string;
+		/** @description The child agent run's ID, the `agentRunId` of an item from `GET /session/agents`. A run that belongs to another session answers `404`. */
 		AgentRunID: string;
+		/** @description The compaction's ID, the `id` of an item from the matching compaction list, or a message's `compactionId`. A compaction outside the session, or outside the named agent run, answers `404`. */
 		CompactionID: string;
+		/** @description The model run's ID, the `id` of an item from `GET /session/model-runs`. A model run that belongs to another session answers `404`. */
 		ModelRunID: string;
+		/** @description A context snapshot hash, the `contextSnapshotHash` of a turn from `GET /session/turns`. A hash that no turn of this session references answers `404`, even when another session uses it. */
 		ContextHash: string;
+		/** @description A prompt snapshot hash, the `promptSnapshotHash` of a turn from `GET /session/turns`. A hash that no turn of this session references answers `404`, even when another session uses it. */
 		PromptHash: string;
+		/** @description The process job's ID, the `jobId` of an item from `GET /session/jobs`. A job that belongs to another session answers `404`. */
 		JobID: string;
+		/** @description The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`. */
 		Limit: number;
+		/** @description How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page. */
 		Offset: number;
+		/** @description The direction of the list by stored sequence. `asc`, the default, returns the oldest items first; `desc` returns the newest first. `offset` counts from the start of the chosen direction. */
 		Order: "asc" | "desc";
 	};
 	requestBodies: never;
 	headers: {
-		/** @description Created or resumed session UUID. */
+		/** @description The session this response belongs to. For session-scoped requests it echoes the `X-Session-ID` request header; for `POST /sessions/open` and `POST /sessions/system` it is the session that was opened or created. */
 		SessionID: string;
-		/** @description Request correlation UUID. */
+		/** @description The request's correlation ID. When the request carried an `X-Request-ID` header holding a UUID, Peen echoes it; otherwise Peen generates a new UUID. The controller log records the same value for this request. */
 		RequestID: string;
 	};
 	pathItems: never;
@@ -1867,7 +3057,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Configured cron jobs */
+			/** @description The scheduled jobs loaded at startup, sorted by name. */
 			200: {
 				headers: {
 					"X-Request-ID": components["headers"]["RequestID"];
@@ -1878,15 +3068,18 @@ export interface operations {
 				};
 			};
 			401: components["responses"]["ErrorUnauthorized"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
 	listCronRuns: {
 		parameters: {
 			query?: {
-				/** @description Restrict the page to this configured or historical job name. */
+				/** @description Return only the runs of the job with this name, 1 to 64 ASCII letters, digits, underscores or hyphens. The name may belong to a job that is no longer configured. Omit it to list every job's runs. */
 				job?: string;
+				/** @description The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`. */
 				limit?: components["parameters"]["Limit"];
+				/** @description How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page. */
 				offset?: components["parameters"]["Offset"];
 			};
 			header?: never;
@@ -1895,7 +3088,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Scheduled runs, newest scheduled occurrence first */
+			/** @description One page of scheduled runs, newest scheduled occurrence first. */
 			200: {
 				headers: {
 					"X-Request-ID": components["headers"]["RequestID"];
@@ -1907,17 +3100,22 @@ export interface operations {
 			};
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
 	listMessages: {
 		parameters: {
 			query?: {
+				/** @description The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`. */
 				limit?: components["parameters"]["Limit"];
+				/** @description How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page. */
 				offset?: components["parameters"]["Offset"];
+				/** @description The direction of the list by stored sequence. `asc`, the default, returns the oldest items first; `desc` returns the newest first. `offset` counts from the start of the chosen direction. */
 				order?: components["parameters"]["Order"];
 			};
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path?: never;
@@ -1925,7 +3123,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Message page */
+			/** @description Page of messages. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -1939,13 +3137,16 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
 	listSessions: {
 		parameters: {
 			query?: {
+				/** @description The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`. */
 				limit?: components["parameters"]["Limit"];
+				/** @description How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page. */
 				offset?: components["parameters"]["Offset"];
 			};
 			header?: never;
@@ -1954,7 +3155,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Session page */
+			/** @description Page of sessions, newest updated first. */
 			200: {
 				headers: {
 					"X-Request-ID": components["headers"]["RequestID"];
@@ -1966,6 +3167,7 @@ export interface operations {
 			};
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
@@ -1976,13 +3178,14 @@ export interface operations {
 			path?: never;
 			cookie?: never;
 		};
+		/** @description The workspace to open and, optionally, the agent space to run it in. */
 		requestBody: {
 			content: {
 				"application/json": components["schemas"]["OpenSessionRequest"];
 			};
 		};
 		responses: {
-			/** @description Session opened or resumed */
+			/** @description The session, and whether this call created it. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -1997,6 +3200,7 @@ export interface operations {
 			401: components["responses"]["ErrorUnauthorized"];
 			403: components["responses"]["ErrorForbidden"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			409: components["responses"]["ErrorConflict"];
 			500: components["responses"]["ErrorInternal"];
 		};
@@ -2010,7 +3214,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description System session opened or resumed */
+			/** @description The system session, and whether this call created it. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2023,6 +3227,7 @@ export interface operations {
 			};
 			401: components["responses"]["ErrorUnauthorized"];
 			403: components["responses"]["ErrorForbidden"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
@@ -2035,7 +3240,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Agent space list */
+			/** @description The offered agent spaces and the deployment default. */
 			200: {
 				headers: {
 					"X-Request-ID": components["headers"]["RequestID"];
@@ -2046,6 +3251,7 @@ export interface operations {
 				};
 			};
 			401: components["responses"]["ErrorUnauthorized"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
@@ -2058,7 +3264,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Configured workspace root list */
+			/** @description The configured workspace roots. */
 			200: {
 				headers: {
 					"X-Request-ID": components["headers"]["RequestID"];
@@ -2069,6 +3275,7 @@ export interface operations {
 				};
 			};
 			401: components["responses"]["ErrorUnauthorized"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
@@ -2081,7 +3288,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Discovered model list */
+			/** @description The discovered models. */
 			200: {
 				headers: {
 					"X-Request-ID": components["headers"]["RequestID"];
@@ -2092,16 +3299,20 @@ export interface operations {
 				};
 			};
 			401: components["responses"]["ErrorUnauthorized"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
 	listSessionWorkers: {
 		parameters: {
 			query?: {
+				/** @description The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`. */
 				limit?: components["parameters"]["Limit"];
+				/** @description How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page. */
 				offset?: components["parameters"]["Offset"];
 			};
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path?: never;
@@ -2109,7 +3320,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Worker generation page */
+			/** @description Page of worker generations, newest first. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2123,6 +3334,7 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
@@ -2130,18 +3342,20 @@ export interface operations {
 		parameters: {
 			query?: never;
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path?: never;
 			cookie?: never;
 		};
+		/** @description The agent space to move to and the reason, kept in the decision history. */
 		requestBody: {
 			content: {
 				"application/json": components["schemas"]["ReconfigureSessionRequest"];
 			};
 		};
 		responses: {
-			/** @description Agent space changed */
+			/** @description The agent space decision recorded for the named session. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2156,6 +3370,7 @@ export interface operations {
 			401: components["responses"]["ErrorUnauthorized"];
 			403: components["responses"]["ErrorForbidden"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			409: components["responses"]["ErrorConflict"];
 			500: components["responses"]["ErrorInternal"];
 		};
@@ -2163,10 +3378,13 @@ export interface operations {
 	listSessionAgentSpaceDecisions: {
 		parameters: {
 			query?: {
+				/** @description The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`. */
 				limit?: components["parameters"]["Limit"];
+				/** @description How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page. */
 				offset?: components["parameters"]["Offset"];
 			};
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path?: never;
@@ -2174,7 +3392,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Agent space decision page */
+			/** @description Page of agent space decisions, newest first. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2188,6 +3406,7 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
@@ -2195,6 +3414,7 @@ export interface operations {
 		parameters: {
 			query?: never;
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path?: never;
@@ -2202,7 +3422,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Session details */
+			/** @description The session. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2216,6 +3436,7 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
@@ -2223,6 +3444,7 @@ export interface operations {
 		parameters: {
 			query?: never;
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path?: never;
@@ -2230,7 +3452,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Cancellation request accepted */
+			/** @description The stop was recorded. `cancelRequested` says whether anything was running to stop. */
 			202: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2244,17 +3466,22 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
 	listSessionEvents: {
 		parameters: {
 			query?: {
+				/** @description The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`. */
 				limit?: components["parameters"]["Limit"];
+				/** @description How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page. */
 				offset?: components["parameters"]["Offset"];
+				/** @description The direction of the list by stored sequence. `asc`, the default, returns the oldest items first; `desc` returns the newest first. `offset` counts from the start of the chosen direction. */
 				order?: components["parameters"]["Order"];
 			};
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path?: never;
@@ -2262,7 +3489,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Durable protocol event page */
+			/** @description Page of protocol events. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2276,17 +3503,20 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
 	listSessionFeed: {
 		parameters: {
 			query?: {
-				/** @description Return items with a sequence greater than this value. */
+				/** @description Return frames with a sequence greater than this value. Pass the last sequence you applied, or `0` to start from the beginning. Default `0`. */
 				cursor?: number;
+				/** @description Maximum number of frames to return, 1 to 200. Default `100`. */
 				limit?: number;
 			};
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path?: never;
@@ -2294,7 +3524,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Feed page */
+			/** @description Page of feed frames, oldest first. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2308,16 +3538,20 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
 	listSessionNotices: {
 		parameters: {
 			query?: {
+				/** @description The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`. */
 				limit?: components["parameters"]["Limit"];
+				/** @description How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page. */
 				offset?: components["parameters"]["Offset"];
 			};
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path?: never;
@@ -2325,7 +3559,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Notice page */
+			/** @description Page of notices, oldest first. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2339,6 +3573,7 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
@@ -2346,18 +3581,20 @@ export interface operations {
 		parameters: {
 			query?: never;
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path?: never;
 			cookie?: never;
 		};
+		/** @description The notice to record. */
 		requestBody: {
 			content: {
 				"application/json": components["schemas"]["SessionNoticeRequest"];
 			};
 		};
 		responses: {
-			/** @description Notice accepted */
+			/** @description The notice was recorded. The body is the stored notice. */
 			202: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2371,17 +3608,30 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
 	listSessionJobs: {
 		parameters: {
 			query?: {
+				/** @description The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`. */
 				limit?: components["parameters"]["Limit"];
+				/** @description How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page. */
 				offset?: components["parameters"]["Offset"];
+				/**
+				 * @description Keep only jobs in this state. Omit it to list every job.
+				 *
+				 *     - `running`: still running.
+				 *     - `exited`: ended on its own.
+				 *     - `signalled`: ended by a signal.
+				 *     - `failed`: could not be run or supervised to the end.
+				 *     - `interrupted`: was still running when Peen or its worker stopped.
+				 */
 				state?: "running" | "exited" | "signalled" | "failed" | "interrupted";
 			};
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path?: never;
@@ -2389,7 +3639,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Process jobs */
+			/** @description One page of the session's jobs, newest first. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2403,27 +3653,33 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
 	readSessionJobOutput: {
 		parameters: {
 			query?: {
+				/** @description Which stream to return. `stdout` or `stderr` returns only that stream's lines, and `both`, the default, returns them interleaved in sequence order. With one stream selected, the sequence numbers of the returned lines have gaps where the other stream's lines were. */
 				stream?: "stdout" | "stderr" | "both";
+				/** @description Return only lines whose `sequence` is greater than this value. Start at 0, the default, to read from the first line, then pass the previous response's `nextCursor`. */
 				cursor?: number;
+				/** @description The most lines to return in one window, 1 to 200. Defaults to 50. */
 				limit?: number;
 			};
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path: {
+				/** @description The process job's ID, the `jobId` of an item from `GET /session/jobs`. A job that belongs to another session answers `404`. */
 				jobId: components["parameters"]["JobID"];
 			};
 			cookie?: never;
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Job output window */
+			/** @description A window of the job's output, with the job's current state and the cursor to continue from. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2437,26 +3693,31 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
 	listSessionJobSignalRequests: {
 		parameters: {
 			query?: {
+				/** @description The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`. */
 				limit?: components["parameters"]["Limit"];
+				/** @description How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page. */
 				offset?: components["parameters"]["Offset"];
 			};
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path: {
+				/** @description The process job's ID, the `jobId` of an item from `GET /session/jobs`. A job that belongs to another session answers `404`. */
 				jobId: components["parameters"]["JobID"];
 			};
 			cookie?: never;
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Job signal-request page */
+			/** @description The job and one page of its signal requests, oldest first. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2470,6 +3731,7 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
@@ -2477,20 +3739,23 @@ export interface operations {
 		parameters: {
 			query?: never;
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path: {
+				/** @description The process job's ID, the `jobId` of an item from `GET /session/jobs`. A job that belongs to another session answers `404`. */
 				jobId: components["parameters"]["JobID"];
 			};
 			cookie?: never;
 		};
+		/** @description The signal to send. `stop` asks the process group to end and escalates to a kill after the grace period, and `kill` ends it at once. */
 		requestBody: {
 			content: {
 				"application/json": components["schemas"]["JobSignalRequest"];
 			};
 		};
 		responses: {
-			/** @description Signal accepted */
+			/** @description The request was recorded. `signalled` says whether it reached a running process. */
 			202: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2504,21 +3769,25 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
 	listSessionAgentRuns: {
 		parameters: {
 			query?: {
+				/** @description The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`. */
 				limit?: components["parameters"]["Limit"];
+				/** @description How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page. */
 				offset?: components["parameters"]["Offset"];
-				/** @description Keep runs in one state. waiting keeps running runs whose question nobody has answered yet. */
+				/** @description Keep only runs in this state. `running`, `completed`, `failed`, `cancelled`, and `interrupted` match the stored state. `waiting` is not a stored state: it keeps the `running` runs that asked a question with the `ask` tool that nobody has answered yet. */
 				state?:
 					"running" | "waiting" | "completed" | "failed" | "cancelled" | "interrupted";
-				/** @description Keep the direct children of one agent run, or root for the children the root conversation launched. */
+				/** @description Keep only the direct children of one agent run. Pass an agent run ID, or `root` for the children the session's root conversation launched. Any other value answers `400 VALIDATION_FAILED`. An agent run ID the session does not have returns an empty page. */
 				parentAgentRunId?: string;
 			};
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path?: never;
@@ -2526,7 +3795,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Agent runs */
+			/** @description One page of the session's child agent runs, newest first. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2540,16 +3809,20 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
 	listSessionTurns: {
 		parameters: {
 			query?: {
+				/** @description The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`. */
 				limit?: components["parameters"]["Limit"];
+				/** @description How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page. */
 				offset?: components["parameters"]["Offset"];
 			};
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path?: never;
@@ -2557,7 +3830,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Turn page */
+			/** @description One page of the session's turns, newest first. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2571,16 +3844,20 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
 	listSessionCompactions: {
 		parameters: {
 			query?: {
+				/** @description The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`. */
 				limit?: components["parameters"]["Limit"];
+				/** @description How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page. */
 				offset?: components["parameters"]["Offset"];
 			};
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path?: never;
@@ -2588,7 +3865,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Compaction page */
+			/** @description One page of the session's compaction records, newest first. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2602,6 +3879,7 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
@@ -2609,16 +3887,18 @@ export interface operations {
 		parameters: {
 			query?: never;
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path: {
+				/** @description The compaction's ID, the `id` of an item from the matching compaction list, or a message's `compactionId`. A compaction outside the session, or outside the named agent run, answers `404`. */
 				compactionId: components["parameters"]["CompactionID"];
 			};
 			cookie?: never;
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Compaction record */
+			/** @description The compaction record. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2632,18 +3912,38 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
 	listSessionModelRuns: {
 		parameters: {
 			query?: {
+				/** @description The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`. */
 				limit?: components["parameters"]["Limit"];
+				/** @description How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page. */
 				offset?: components["parameters"]["Offset"];
+				/**
+				 * @description Keep only runs from one kind of work. Omit it to list every stage.
+				 *
+				 *     - `turn`: the root conversation's model work.
+				 *     - `child`: a child agent's model work.
+				 *     - `compaction`: a summary of older messages, for the root conversation or a child agent.
+				 */
 				stage?: "turn" | "child" | "compaction";
+				/**
+				 * @description Keep only runs in one state. Omit it to list every state.
+				 *
+				 *     - `running`: has not ended.
+				 *     - `completed`: returned a response.
+				 *     - `failed`: ended with a provider or model error.
+				 *     - `cancelled`: was cancelled or ran past its deadline.
+				 *     - `interrupted`: was still running when Peen stopped.
+				 */
 				state?: "running" | "completed" | "failed" | "cancelled" | "interrupted";
 			};
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path?: never;
@@ -2651,7 +3951,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Model invocation page */
+			/** @description One page of the session's model runs, newest first. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2665,26 +3965,31 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
 	listSessionModelRunCalls: {
 		parameters: {
 			query?: {
+				/** @description The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`. */
 				limit?: components["parameters"]["Limit"];
+				/** @description How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page. */
 				offset?: components["parameters"]["Offset"];
 			};
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path: {
+				/** @description The model run's ID, the `id` of an item from `GET /session/model-runs`. A model run that belongs to another session answers `404`. */
 				modelRunId: components["parameters"]["ModelRunID"];
 			};
 			cookie?: never;
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Provider round page */
+			/** @description The model run and one page of its provider rounds, in round order. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2698,6 +4003,7 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
@@ -2705,16 +4011,18 @@ export interface operations {
 		parameters: {
 			query?: never;
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path: {
+				/** @description A context snapshot hash, the `contextSnapshotHash` of a turn from `GET /session/turns`. A hash that no turn of this session references answers `404`, even when another session uses it. */
 				contextHash: components["parameters"]["ContextHash"];
 			};
 			cookie?: never;
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Context snapshot */
+			/** @description The context snapshot. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2728,6 +4036,7 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
@@ -2735,16 +4044,18 @@ export interface operations {
 		parameters: {
 			query?: never;
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path: {
+				/** @description A prompt snapshot hash, the `promptSnapshotHash` of a turn from `GET /session/turns`. A hash that no turn of this session references answers `404`, even when another session uses it. */
 				promptHash: components["parameters"]["PromptHash"];
 			};
 			cookie?: never;
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Prompt snapshot */
+			/** @description The prompt snapshot. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2758,6 +4069,7 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
@@ -2765,16 +4077,18 @@ export interface operations {
 		parameters: {
 			query?: never;
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path: {
+				/** @description The child agent run's ID, the `agentRunId` of an item from `GET /session/agents`. A run that belongs to another session answers `404`. */
 				agentRunId: components["parameters"]["AgentRunID"];
 			};
 			cookie?: never;
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Child agent run */
+			/** @description The child agent run. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2788,26 +4102,31 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
 	listSessionAgentRunEvents: {
 		parameters: {
 			query?: {
+				/** @description Return only events whose `sequence` is greater than this value. Pass `0` for the first page and the previous page's `nextCursor` after that. Defaults to 0. */
 				cursor?: number;
+				/** @description Maximum number of events to return, from 1 to 200. Defaults to 100. */
 				limit?: number;
 			};
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path: {
+				/** @description The child agent run's ID, the `agentRunId` of an item from `GET /session/agents`. A run that belongs to another session answers `404`. */
 				agentRunId: components["parameters"]["AgentRunID"];
 			};
 			cookie?: never;
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Agent run events */
+			/** @description One page of the run's events, oldest first, with the cursor to continue from. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2821,26 +4140,31 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
 	listSessionAgentRunMessages: {
 		parameters: {
 			query?: {
+				/** @description The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`. */
 				limit?: components["parameters"]["Limit"];
+				/** @description How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page. */
 				offset?: components["parameters"]["Offset"];
 			};
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path: {
+				/** @description The child agent run's ID, the `agentRunId` of an item from `GET /session/agents`. A run that belongs to another session answers `404`. */
 				agentRunId: components["parameters"]["AgentRunID"];
 			};
 			cookie?: never;
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Agent run message page */
+			/** @description One page of the child's transcript, oldest first. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2854,26 +4178,31 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
 	listSessionAgentRunCompactions: {
 		parameters: {
 			query?: {
+				/** @description The largest number of items to return, from 1 to 200. Defaults to 50. A value outside that range answers `400 VALIDATION_FAILED`. */
 				limit?: components["parameters"]["Limit"];
+				/** @description How many items of the ordered list to skip before the page starts. Defaults to 0. To read the next page, add the previous page's `limit` to its `offset`. An offset past the end returns an empty page. */
 				offset?: components["parameters"]["Offset"];
 			};
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path: {
+				/** @description The child agent run's ID, the `agentRunId` of an item from `GET /session/agents`. A run that belongs to another session answers `404`. */
 				agentRunId: components["parameters"]["AgentRunID"];
 			};
 			cookie?: never;
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Agent run compaction page */
+			/** @description One page of the child's compaction records, newest first. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2887,6 +4216,7 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
@@ -2894,17 +4224,20 @@ export interface operations {
 		parameters: {
 			query?: never;
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path: {
+				/** @description The child agent run's ID, the `agentRunId` of an item from `GET /session/agents`. A run that belongs to another session answers `404`. */
 				agentRunId: components["parameters"]["AgentRunID"];
+				/** @description The compaction's ID, the `id` of an item from the matching compaction list, or a message's `compactionId`. A compaction outside the session, or outside the named agent run, answers `404`. */
 				compactionId: components["parameters"]["CompactionID"];
 			};
 			cookie?: never;
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Agent run compaction record */
+			/** @description The child compaction record. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2918,6 +4251,7 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
@@ -2925,9 +4259,11 @@ export interface operations {
 		parameters: {
 			query?: never;
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path: {
+				/** @description The child agent run's ID, the `agentRunId` of an item from `GET /session/agents`. A run that belongs to another session answers `404`. */
 				agentRunId: components["parameters"]["AgentRunID"];
 			};
 			cookie?: never;
@@ -2948,6 +4284,7 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
@@ -2955,6 +4292,7 @@ export interface operations {
 		parameters: {
 			query?: never;
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path?: never;
@@ -2962,7 +4300,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description MCP server status */
+			/** @description The MCP servers from the most recent report. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -2976,6 +4314,7 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
@@ -2983,6 +4322,7 @@ export interface operations {
 		parameters: {
 			query?: never;
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path?: never;
@@ -2990,7 +4330,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Learned file list */
+			/** @description Every learned rule and skill the session loads, workspace files first. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -3004,18 +4344,22 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
 	getSessionLearnedFile: {
 		parameters: {
 			query: {
+				/** @description Which learned directory the file lives in. `workspace` is `.agents/learned/` in the session's workspace; `global` is the global learned directory every session reads, `PEEN_CONFIG_DIR/.agents/learned/` unless `PEEN_LEARNED_DIR` moves it. */
 				scope: components["parameters"]["LearnedScope"];
+				/** @description Whether the name refers to a learned `rule`, a Markdown file under `rules/`, or a learned `skill`, a directory under `skills/` that holds a `SKILL.md`. */
 				kind: components["parameters"]["LearnedKind"];
-				/** @description The rule's path under rules/ without .md, such as go-errors or go/errors, or the skill's directory name. */
+				/** @description The learned file's name, as the `name` field of `GET /session/learned` reports it. For a rule it is the path under `rules/` without `.md`, such as `go-errors` or `go/errors`, with at most 8 directory levels. For a skill it is the skill's directory name and cannot contain `/`. A name with an empty, `.` or `..` segment, or a backslash, answers `400`. */
 				name: components["parameters"]["LearnedName"];
 			};
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path?: never;
@@ -3023,7 +4367,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Learned file content */
+			/** @description The learned file's metadata and text. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -3037,18 +4381,22 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
 	deleteSessionLearnedFile: {
 		parameters: {
 			query: {
+				/** @description Which learned directory the file lives in. `workspace` is `.agents/learned/` in the session's workspace; `global` is the global learned directory every session reads, `PEEN_CONFIG_DIR/.agents/learned/` unless `PEEN_LEARNED_DIR` moves it. */
 				scope: components["parameters"]["LearnedScope"];
+				/** @description Whether the name refers to a learned `rule`, a Markdown file under `rules/`, or a learned `skill`, a directory under `skills/` that holds a `SKILL.md`. */
 				kind: components["parameters"]["LearnedKind"];
-				/** @description The rule's path under rules/ without .md, such as go-errors or go/errors, or the skill's directory name. */
+				/** @description The learned file's name, as the `name` field of `GET /session/learned` reports it. For a rule it is the path under `rules/` without `.md`, such as `go-errors` or `go/errors`, with at most 8 directory levels. For a skill it is the skill's directory name and cannot contain `/`. A name with an empty, `.` or `..` segment, or a backslash, answers `400`. */
 				name: components["parameters"]["LearnedName"];
 			};
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path?: never;
@@ -3056,7 +4404,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Learned file deleted */
+			/** @description Learned file deleted. The response has no body. */
 			204: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -3068,16 +4416,18 @@ export interface operations {
 			400: components["responses"]["ErrorBadRequest"];
 			401: components["responses"]["ErrorUnauthorized"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
 	listWorkspaceFiles: {
 		parameters: {
 			query?: {
-				/** @description Clean relative workspace path. Empty lists the workspace root. */
+				/** @description The path to inspect, relative to the workspace, such as `src` or `src/main.go`. Omit it or pass an empty value to list the workspace root. */
 				path?: string;
 			};
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path?: never;
@@ -3085,7 +4435,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description List a workspace directory or inspect a file */
+			/** @description Metadata for the path and, for a directory, its direct entries sorted by name. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -3100,17 +4450,18 @@ export interface operations {
 			401: components["responses"]["ErrorUnauthorized"];
 			403: components["responses"]["ErrorForbidden"];
 			404: components["responses"]["ErrorNotFound"];
-			409: components["responses"]["ErrorConflict"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
 	deleteWorkspaceFile: {
 		parameters: {
 			query: {
-				/** @description Clean relative workspace path. */
+				/** @description The path to delete, relative to the workspace, such as `notes/draft.md`. */
 				path: string;
 			};
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path?: never;
@@ -3118,7 +4469,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Delete a file or empty workspace directory */
+			/** @description The path was deleted. */
 			204: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -3131,6 +4482,7 @@ export interface operations {
 			401: components["responses"]["ErrorUnauthorized"];
 			403: components["responses"]["ErrorForbidden"];
 			404: components["responses"]["ErrorNotFound"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			409: components["responses"]["ErrorConflict"];
 			500: components["responses"]["ErrorInternal"];
 		};
@@ -3138,10 +4490,11 @@ export interface operations {
 	readWorkspaceFile: {
 		parameters: {
 			query: {
-				/** @description Clean relative workspace path. */
+				/** @description The file to read, relative to the workspace, such as `src/main.go`. */
 				path: string;
 			};
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path?: never;
@@ -3149,7 +4502,7 @@ export interface operations {
 		};
 		requestBody?: never;
 		responses: {
-			/** @description Read a bounded workspace file as base64 */
+			/** @description The file's bytes, base64 encoded. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -3164,7 +4517,7 @@ export interface operations {
 			401: components["responses"]["ErrorUnauthorized"];
 			403: components["responses"]["ErrorForbidden"];
 			404: components["responses"]["ErrorNotFound"];
-			409: components["responses"]["ErrorConflict"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};
@@ -3172,18 +4525,20 @@ export interface operations {
 		parameters: {
 			query?: never;
 			header: {
+				/** @description The session to act on, as a UUID from `POST /sessions/open`, `GET /sessions` or `POST /sessions/system`. A missing header answers `400 VALIDATION_FAILED`, a malformed value `400 INVALID_SESSION_ID`, and an unknown session `404`. */
 				"X-Session-ID": components["parameters"]["SessionIDRequired"];
 			};
 			path?: never;
 			cookie?: never;
 		};
+		/** @description The file to write: its workspace-relative path, its base64 content, and whether to create missing parent directories. */
 		requestBody: {
 			content: {
 				"application/json": components["schemas"]["WorkspaceFileWrite"];
 			};
 		};
 		responses: {
-			/** @description Write a workspace file atomically */
+			/** @description The file was written. The body is its metadata after the write. */
 			200: {
 				headers: {
 					"X-Session-ID": components["headers"]["SessionID"];
@@ -3198,7 +4553,7 @@ export interface operations {
 			401: components["responses"]["ErrorUnauthorized"];
 			403: components["responses"]["ErrorForbidden"];
 			404: components["responses"]["ErrorNotFound"];
-			409: components["responses"]["ErrorConflict"];
+			406: components["responses"]["ErrorNotAcceptable"];
 			500: components["responses"]["ErrorInternal"];
 		};
 	};

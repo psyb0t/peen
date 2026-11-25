@@ -263,6 +263,7 @@ func TestRuntimeQueuesUserMessageAtActiveTurnRoundBoundary(t *testing.T) {
 		t,
 		[]string{
 			EventTypeUserMessageCreated,
+			EventTypeMCPStatus,
 			EventTypeTurnStarted,
 			EventTypeToolUse,
 			EventTypeUserMessageCreated,
@@ -625,6 +626,7 @@ func TestRuntimeQueuedSkillReferenceDeliversTheSkillMessageWithTheUserMessage(
 		t,
 		[]string{
 			EventTypeUserMessageCreated,
+			EventTypeMCPStatus,
 			EventTypeTurnStarted,
 			EventTypeToolUse,
 			EventTypeUserMessageCreated,
