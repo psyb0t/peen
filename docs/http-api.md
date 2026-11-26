@@ -20,7 +20,7 @@ Every operation is mounted under `/api/v1`. `Authorization: Bearer <token>` is r
 
 Every response carries an `X-Request-ID` header. Operations under `/api/v1/session` and `/api/v1/messages` name their session with the `X-Session-ID` request header, and their successful responses echo it, as does `POST /api/v1/sessions/open`. [Terms](architecture.md#terms) explains how the session ID, request ID, turn ID, and `X-Request-ID` differ.
 
-Every session of one workspace shares one agent space. [Opening a session](https://psyb0t.github.io/peen/api/open-session/) with a different agent space returns `409 AGENT_SPACE_CONFLICT`, and [reconfiguring](https://psyb0t.github.io/peen/api/reconfigure-session/) moves every session of the workspace together. [Where it runs](where-it-runs.md) explains agent spaces.
+[Opening a workspace session](https://psyb0t.github.io/peen/api/open-session/) with a different agent space returns 409 AGENT_SPACE_CONFLICT. Use [reconfigure](https://psyb0t.github.io/peen/api/reconfigure-session/) to move the session. [Where it runs](where-it-runs.md) explains agent spaces.
 
 Lists page with `limit` (1 to 200, default 50) and `offset` (default 0), and report `hasMore`. The [feed](https://psyb0t.github.io/peen/api/list-session-feed/), [job output](https://psyb0t.github.io/peen/api/read-session-job-output/), and [child agent events](https://psyb0t.github.io/peen/api/list-session-agent-run-events/) page with a `cursor` and return `nextCursor` instead, so a client that reconnects continues without a gap or a duplicate.
 

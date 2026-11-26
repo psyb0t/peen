@@ -35,7 +35,7 @@ func TestSchedulerReconcilesUnadmittedAndTerminalRuns(t *testing.T) {
 			now := f.clock.Now()
 			run := models.CronRun{ID: uuid.New(), JobName: f.job().Name, ScheduledAt: now, StartedAt: &now, State: models.CronRunStateRunning}
 			if tc.attach {
-				opened, openErr := f.sessions.OpenFresh(t.Context(), f.workspace, "control")
+				opened, openErr := f.sessions.Open(t.Context(), f.workspace, "control")
 				require.NoError(t, openErr)
 				run.SessionID = &opened.Session.ID
 				if tc.admit {
@@ -66,7 +66,7 @@ func TestSchedulerWatchesAnAlreadyRunningTurn(t *testing.T) {
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(func() { cancel(); s.Close() })
-	opened, err := f.sessions.OpenFresh(t.Context(), f.workspace, "control")
+	opened, err := f.sessions.Open(t.Context(), f.workspace, "control")
 	require.NoError(t, err)
 	now := f.clock.Now()
 	run := models.CronRun{ID: uuid.New(), JobName: f.job().Name, ScheduledAt: now, StartedAt: &now, SessionID: &opened.Session.ID, State: models.CronRunStateRunning}

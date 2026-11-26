@@ -1,15 +1,10 @@
 package models
 
-import (
-	"time"
+import "time"
 
-	"github.com/google/uuid"
-)
-
-// CronJob remembers a job's durable schedule baseline and continuation.
+// CronJob remembers a job's durable schedule baseline.
 type CronJob struct {
 	JobName         string `gorm:"primaryKey"`
-	SessionID       *uuid.UUID
 	NextScheduledAt time.Time
 	DefinitionHash  string
 }

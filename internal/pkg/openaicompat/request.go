@@ -79,7 +79,8 @@ func (h handler) mapRequest(
 		return request, problem
 	}
 
-	message, problem := h.mapMessages(input.Messages, request.Fresh)
+	message, problem := h.mapMessages(input.Messages,
+		request.SessionID == uuid.Nil)
 	if problem != nil {
 		return request, problem
 	}
@@ -134,7 +135,6 @@ func (h handler) selectSession(
 		return request, nil
 	}
 
-	request.Fresh = true
 	request.Workspace = r.Header.Get(headerWorkspace)
 
 	if request.Workspace == "" {

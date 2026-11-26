@@ -2,6 +2,14 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.53.0 (2026-11-26)
+
+Each workspace directory has one session. Cron and OpenAI requests by workspace use the same conversation you open in the browser. Telegram uses the session for its chat directory.
+
+- Breaking: removes the `session` field from `cron.yaml` jobs and `GET /api/v1/cron/jobs`. Remove the field from existing job definitions. A scheduled run skips its tick when the workspace session is busy.
+- Breaking: removes `/new` from Telegram. Send a message to continue the chat directory's session.
+- Breaking: changes the SQLite schema. Set `PEEN_STATE_DIR` to a fresh state directory before starting this build.
+
 ## v0.52.0 (2026-11-25)
 
 Publishes a REST API reference on the documentation site, generated from `api/api.yml`, describes every WebSocket frame in `api/asyncapi.yaml`, and makes REST and WebSocket error codes and frame shapes match what Peen sends. A client that branches on `NOT_FOUND` for an unknown session must also accept `SESSION_NOT_FOUND`, a client that reads child agent tool calls must read `id`, `name`, and `arguments`, and every `message.send` needs an `id`.

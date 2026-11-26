@@ -69,7 +69,6 @@ func TestNewCompletionMapsHistorySettingsAndUsage(t *testing.T) {
 func assertMappedRequest(t *testing.T, captured control.ConversationRequest) {
 	t.Helper()
 
-	assert.True(t, captured.Fresh)
 	assert.Equal(t, testWorkspace, captured.Workspace)
 	assert.Equal(t, uuid.Nil, captured.SessionID)
 	require.NotNil(t, captured.Message.Model)
@@ -116,7 +115,6 @@ func TestContinuationOnlyUsesLastUserMessage(t *testing.T) {
 		request control.ConversationRequest,
 	) (*control.ConversationResult, error) {
 		assert.Equal(t, id, request.SessionID)
-		assert.False(t, request.Fresh)
 		assert.Empty(t, request.Workspace)
 		assert.Equal(t, "Continue", request.Message.Message)
 		assert.Nil(t, request.Message.SystemPrompt)

@@ -37,10 +37,11 @@ func TestAPIOpenAICompletionsAndContinuation(t *testing.T) {
 		`{"messages":[{"role":"system","content":"Ignored"},{"role":"user","content":"Continue briefly"}]}`, sessionID)
 	require.Equal(t, http.StatusOK, continued.StatusCode, string(continued.Body))
 	assert.Equal(t, sessionID, nextID)
-	fresh, freshID := openAIRequest(t, variant,
+	reopened, reopenedID := openAIRequest(t, variant,
 		`{"messages":[{"role":"user","content":"Another question"}]}`, "")
-	require.Equal(t, http.StatusOK, fresh.StatusCode, string(fresh.Body))
-	assert.NotEqual(t, sessionID, freshID)
+	require.Equal(t, http.StatusOK, reopened.StatusCode, string(reopened.Body))
+	assert.Equal(t, sessionID, reopenedID)
+	assert.Equal(t, openVariantSession(t, variant).String(), sessionID)
 	stream, streamID := openAIRequest(t, variant,
 		`{"stream":true,"messages":[{"role":"user","content":"Stream a brief answer"}]}`, sessionID)
 	require.Equal(t, http.StatusOK, stream.StatusCode, string(stream.Body))

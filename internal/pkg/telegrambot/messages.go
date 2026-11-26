@@ -24,7 +24,7 @@ func (e *Engine) handleMessage(
 		return e.sendText(ctx, message.Chat.ID, helpText)
 	}
 
-	chat, err := e.chat(ctx, message.Chat.ID, command == commandNew)
+	chat, err := e.chat(ctx, message.Chat.ID)
 	if err != nil {
 		return err
 	}
@@ -106,7 +106,7 @@ func (e *Engine) messageSession(
 }
 
 func (e *Engine) chat(
-	ctx context.Context, id int64, fresh bool,
+	ctx context.Context, id int64,
 ) (*models.TelegramChat, error) {
 	workspace, err := e.chatWorkspace(id)
 	if err != nil {
@@ -118,12 +118,7 @@ func (e *Engine) chat(
 		return nil, ctxerrors.Wrap(err, "load chat conversation")
 	}
 
-	if chat == nil {
-		chat = &models.TelegramChat{ChatID: id}
-		fresh = true
-	}
-
-	if !fresh {
+	if chat != nil {
 		if err := e.validateChat(ctx, chat.SessionID, workspace); err != nil {
 			return nil, err
 		}
@@ -131,13 +126,13 @@ func (e *Engine) chat(
 		return chat, nil
 	}
 
-	opened, err := e.options.Sessions.OpenFresh(ctx, workspace,
+	opened, err := e.options.Sessions.Open(ctx, workspace,
 		e.options.AgentSpace)
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "open Telegram chat session")
 	}
 
-	chat.SessionID = opened.Session.ID
+	chat = &models.TelegramChat{ChatID: id, SessionID: opened.Session.ID}
 	if err := e.options.Store.SaveChat(ctx, chat); err != nil {
 		return nil, ctxerrors.Wrap(err, "persist chat conversation")
 	}

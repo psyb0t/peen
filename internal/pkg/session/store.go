@@ -111,43 +111,6 @@ func (s *Store) OpenWorkspaceIdentity(
 	return result, nil
 }
 
-// CreateWorkspaceSession creates independent history in a real workspace,
-// in the agent space that workspace's sessions already share.
-// This controller operation is deliberately absent from worker Storage RPC.
-func (s *Store) CreateWorkspaceSession(
-	ctx context.Context,
-	workspace string,
-	options OpenSessionOptions,
-) (*OpenSessionResult, error) {
-	canonical, err := canonicalWorkspace(workspace)
-	if err != nil {
-		return nil, ctxerrors.Wrap(err, "resolve fresh session workspace")
-	}
-
-	created := s.newWorkspaceSession(canonical, options)
-	created.WorkspaceSlot = created.ID.String()
-
-	err = s.query.Transaction(func(tx *repositories.Query) error {
-		agentSpace, err := workspaceAgentSpaceFor(ctx, tx, canonical, options)
-		if err != nil {
-			return err
-		}
-
-		created.AgentSpace = agentSpace
-
-		if err := tx.Session.WithContext(ctx).Create(created); err != nil {
-			return ctxerrors.Wrap(err, "create fresh workspace session")
-		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, ctxerrors.Wrap(err, "create fresh workspace session")
-	}
-
-	return &OpenSessionResult{Session: created, Created: true}, nil
-}
-
 func (s *Store) newWorkspaceSession(
 	workspace string,
 	options OpenSessionOptions,
@@ -401,7 +364,7 @@ func findWorkspaceSession(
 	session := tx.Session
 
 	result, err := session.WithContext(ctx).
-		Where(session.Workspace.Eq(workspace), session.WorkspaceSlot.Eq("")).
+		Where(session.Workspace.Eq(workspace)).
 		First()
 	if err != nil {
 		return nil, ctxerrors.Wrap(err, "query workspace session")

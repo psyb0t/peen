@@ -63,15 +63,7 @@ func agentSpaceToAPI(space worker.AgentSpace) api.AgentSpace {
 	return converted
 }
 
-// ReconfigureSession moves an idle session, and every other session of its
-// workspace, to a different agent space.
-//
-// The agent space must be one the deployment offers and differ from the one
-// the workspace already runs in, no session of the workspace may have a turn
-// in flight, and the change is recorded for each
-// session with the caller's reason. Each session's current worker is stopped,
-// so its next turn starts a new generation in the new agent space rather than
-// continuing in the old environment. The returned decision is sessionID's.
+// ReconfigureSession moves an idle session and stops its current worker.
 func (r *Registry) ReconfigureSession(
 	ctx context.Context,
 	sessionID uuid.UUID,
@@ -103,7 +95,7 @@ func (r *Registry) ReconfigureSession(
 		)
 	}
 
-	decisions, err := r.store.ReconfigureAgentSpace(
+	decision, err := r.store.ReconfigureAgentSpace(
 		ctx,
 		sessionID,
 		agentSpace.Name,
@@ -116,11 +108,9 @@ func (r *Registry) ReconfigureSession(
 		)
 	}
 
-	for _, decision := range decisions {
-		r.stopReconfiguredWorker(ctx, decision)
-	}
+	r.stopReconfiguredWorker(ctx, decision)
 
-	return agentSpaceDecisionToAPI(decisions[0]), nil
+	return agentSpaceDecisionToAPI(decision), nil
 }
 
 // stopReconfiguredWorker stops one moved session's worker. Stopping it is what

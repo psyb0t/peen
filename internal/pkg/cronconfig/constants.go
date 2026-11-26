@@ -18,7 +18,6 @@ const (
 	defaultMaximumMessage   = 262144
 	defaultMaximumSchema    = 65536
 	defaultTimeZone         = "UTC"
-	defaultSessionMode      = SessionContinue
 	yamlMappingPairWidth    = 2
 	cronIntervalFieldCount  = 2
 	yamlStringTag           = "!!str"
@@ -31,15 +30,7 @@ const (
 	jobFieldTimeout         = "timeout"
 	jobFieldWorkspace       = "workspace"
 	jobFieldAgentSpace      = "agentSpace"
-	jobFieldSession         = "session"
 	jobFieldOutputSchema    = "outputSchema"
 	jobFieldTelegramChatID  = "telegramChatId"
 	cronJobsField           = "jobs"
-)
-
-const (
-	// SessionContinue keeps an existing session when a job runs.
-	SessionContinue = "continue"
-	// SessionNew creates a new session when a job runs.
-	SessionNew = "new"
 )

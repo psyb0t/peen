@@ -98,15 +98,16 @@ func (s *Scheduler) execute(
 		ctxscope.Attr("job_name", job.Name))
 	ctxscope.GetLogger(ctx).Info("scheduled run started")
 
-	sessionID, err := s.prepareSession(ctx, job)
+	opened, err := s.options.Sessions.Open(ctx, job.Workspace, job.AgentSpace)
 	if err != nil {
 		s.finish(ctx, run, models.CronRunStateFailed, sessionFailure(err))
 
 		return
 	}
 
-	err = s.options.Store.AttachSession(ctx, run.ID, sessionID)
-	if err != nil {
+	sessionID := opened.Session.ID
+	if err := s.options.Store.AttachSession(ctx, run.ID,
+		sessionID); err != nil {
 		s.finish(ctx, run, models.CronRunStateFailed,
 			cronstore.ErrorRunFailed)
 
@@ -157,90 +158,6 @@ func scheduledMessage(
 	return message
 }
 
-func (s *Scheduler) prepareSession(
-	ctx context.Context,
-	job cronconfig.Job,
-) (uuid.UUID, error) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
-	if s.closed || ctx.Err() != nil {
-		return uuid.Nil, ctxerrors.Wrap(commerr.ErrCancelled,
-			"scheduler is stopping")
-	}
-
-	for index := range s.jobs {
-		stored := &s.jobs[index]
-		if stored.definition.Name != job.Name {
-			continue
-		}
-
-		return s.openSession(ctx, job, stored)
-	}
-
-	return uuid.Nil, ctxerrors.Wrap(commerr.ErrNotFound, "scheduled job")
-}
-
-func (s *Scheduler) openSession(
-	ctx context.Context,
-	job cronconfig.Job,
-	stored *jobState,
-) (uuid.UUID, error) {
-	if job.Session == cronconfig.SessionContinue &&
-		stored.record.SessionID != nil {
-		id := *stored.record.SessionID
-		if err := s.validateSession(ctx, job, id); err != nil {
-			return uuid.Nil, err
-		}
-
-		return id, nil
-	}
-
-	opened, err := s.options.Sessions.OpenFresh(ctx,
-		job.Workspace, job.AgentSpace)
-	if err != nil {
-		return uuid.Nil, ctxerrors.Wrap(err, "open scheduled session")
-	}
-
-	if job.Session == cronconfig.SessionContinue {
-		stored.record.SessionID = &opened.Session.ID
-		if err := s.options.Store.SaveJob(ctx,
-			&stored.record); err != nil {
-			return uuid.Nil, ctxerrors.Wrap(err, "save job continuation")
-		}
-	}
-
-	return opened.Session.ID, nil
-}
-
-func (s *Scheduler) validateSession(
-	ctx context.Context,
-	job cronconfig.Job,
-	id uuid.UUID,
-) error {
-	if err := s.options.Sessions.ValidateWorkspaceSession(ctx, id); err != nil {
-		return ctxerrors.Wrap(err, "validate scheduled session policy")
-	}
-
-	stored, err := s.options.Turns.Get(ctx, id)
-	if err != nil {
-		return ctxerrors.Wrap(err, "read scheduled session")
-	}
-
-	if stored.Workspace != job.Workspace {
-		return ctxerrors.Wrap(commerr.ErrPermissionDenied,
-			"scheduled session no longer matches its definition")
-	}
-
-	if job.AgentSpace != "" && stored.AgentSpace != job.AgentSpace {
-		return ctxerrors.Wrap(&session.AgentSpaceConflictError{
-			Current: stored.AgentSpace, Requested: job.AgentSpace,
-		}, "scheduled session agent space")
-	}
-
-	return nil
-}
-
 // sessionFailure is the fixed reason a run records when its session cannot
 // be prepared.
 func sessionFailure(err error) string {
@@ -260,7 +177,7 @@ func (s *Scheduler) resultState(
 ) (models.CronRunState, string) {
 	if errors.Is(runErr, session.ErrSessionBusy) ||
 		errors.Is(runErr, commerr.ErrLockHeld) {
-		return models.CronRunStateSkipped, cronstore.ErrorPreviousRunning
+		return models.CronRunStateSkipped, cronstore.ErrorWorkspaceBusy
 	}
 
 	if result != nil && runErr == nil {

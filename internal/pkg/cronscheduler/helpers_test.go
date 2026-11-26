@@ -108,8 +108,8 @@ func (f *schedulerFixture) job() cronconfig.Job {
 	return cronconfig.Job{
 		Name: "nightlyReport", ScheduleText: "@every 1s",
 		Schedule: cron.Every(time.Second), TimeZone: "UTC", Workspace: f.workspace,
-		AgentSpace: "control", Session: cronconfig.SessionContinue,
-		Message: "Run {jobName} at {scheduledAt}",
+		AgentSpace: "control",
+		Message:    "Run {jobName} at {scheduledAt}",
 	}
 }
 

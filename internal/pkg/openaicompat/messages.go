@@ -11,7 +11,7 @@ import (
 
 func (h handler) mapMessages(
 	messages []message,
-	fresh bool,
+	includeHistory bool,
 ) (agent.MessageRequest, *responseError) {
 	request := agent.MessageRequest{}
 	messages = developerAsSystem(messages)
@@ -24,7 +24,7 @@ func (h handler) mapMessages(
 
 	start := 0
 
-	if !fresh {
+	if !includeHistory {
 		start = len(messages) - 1
 	}
 

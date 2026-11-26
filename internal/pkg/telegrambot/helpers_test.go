@@ -84,6 +84,7 @@ type botFixture struct {
 	workspace string
 	seen      chan control.ConversationRequest
 	block     bool
+	runErr    error
 }
 
 func newBotFixture(t *testing.T) *botFixture {
@@ -137,6 +138,9 @@ func (f *botFixture) Run(ctx context.Context,
 		<-ctx.Done()
 
 		return nil, ctx.Err()
+	}
+	if f.runErr != nil {
+		return nil, f.runErr
 	}
 
 	return &control.ConversationResult{

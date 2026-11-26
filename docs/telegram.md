@@ -22,15 +22,14 @@ Peen ignores a message from a chat or user outside the allowlists, and from any 
 
 Each chat gets its own directory under `PEEN_TELEGRAM_WORKSPACE`, named `chat_<chat id>` with the sign kept, such as `chat_123456789` for a user or `chat_-1001234567890` for a group. Each chat directory is its own workspace and runs in `PEEN_TELEGRAM_AGENT_SPACE`, or the deployment default. A chat directory must be a real directory, not a symlink. The workspace and private-directory policy is checked again whenever a session or file is used. If a chat's workspace is later moved to another agent space, the bot refuses that chat with "chat session no longer matches its configuration" until `PEEN_TELEGRAM_AGENT_SPACE` names the new space.
 
-The first message opens a fresh session in the chat's directory, and `/new` opens another one. The bot runs through the same workers as other controller clients and never reaches the system session.
+The bot uses the session for the chat's directory. Open that directory in the web app to see and continue the same conversation.
 
 ## Messages and commands
 
-Text starts a turn in the chat's session. Only one request runs per chat; another message receives a busy reply. Answers are plain text, split at line boundaries when possible into at most 4096 Unicode characters. Updates queued while Peen was down are discarded at startup.
+Text starts a turn in the chat's session. A second request receives a busy reply while the chat or the target workspace session has a running turn. Answers are plain text, split at line boundaries when possible into at most 4096 Unicode characters. Updates queued while Peen was down are discarded at startup.
 
 | Command | Behavior |
 | --- | --- |
-| `/new` | Starts fresh session history, keeping the chat's model, effort and prompt settings. |
 | `/model [id]` | Lists configured models or selects one for later turns. |
 | `/effort [level]` | Lists or selects a supported reasoning effort. |
 | `/system <text>` | Sets text appended to Peen's base system prompt for this chat's later turns, up to `PEEN_MAX_SYSTEM_PROMPT_BYTES`. The base prompt stays. |

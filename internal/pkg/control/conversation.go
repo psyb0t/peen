@@ -25,7 +25,6 @@ type ConversationRequest struct {
 	SessionID  uuid.UUID
 	Workspace  string
 	AgentSpace string
-	Fresh      bool
 	Message    agent.MessageRequest
 	OnEvent    func(session.FeedItem) error
 }
@@ -150,12 +149,8 @@ func (c *Conversation) resolve(
 	}
 
 	if input.SessionID == uuid.Nil {
-		open := c.registry.Open
-		if input.Fresh {
-			open = c.registry.OpenFresh
-		}
-
-		opened, err := open(ctx, input.Workspace, input.AgentSpace)
+		opened, err := c.registry.Open(ctx,
+			input.Workspace, input.AgentSpace)
 		if err != nil {
 			return nil, ctxerrors.Wrap(err, "open conversation workspace")
 		}
@@ -171,7 +166,7 @@ func validateConversationRequest(input ConversationRequest) error {
 		input.Message.System || input.Message.To != nil ||
 		input.Message.Origin != nil ||
 		(input.SessionID != uuid.Nil &&
-			(input.AgentSpace != "" || input.Fresh)) {
+			input.AgentSpace != "") {
 		return ctxerrors.Wrap(commerr.ErrValidationFailed,
 			"conversation requires one regular session or workspace")
 	}

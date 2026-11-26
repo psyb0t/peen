@@ -14,12 +14,11 @@ jobs:
     schedule: "0 9 * * *"
     timeZone: UTC
     workspace: /srv/work/reports
-    session: continue
     message: "Review the workspace for {jobName} at {scheduledAt}."
     timeout: 30m
 ```
 
-The workspace must already exist under `PEEN_WORKSPACE_ROOT` and pass the same private-directory checks as an API-opened session. Each scheduled turn runs in a regular session of that workspace, never the system session. Scheduled sessions have their own history, separate from the workspace's [canonical session](architecture.md#sessions-and-entry-points), and run in the workspace's one agent space, which every session of that workspace shares.
+The workspace must already exist under `PEEN_WORKSPACE_ROOT` and pass the same private-directory checks as an API-opened session. Scheduled work starts a turn in the same conversation you open by path in the browser. Every job for that directory uses that session and its agent space.
 
 ## Job fields
 
@@ -30,7 +29,6 @@ The workspace must already exist under `PEEN_WORKSPACE_ROOT` and pass the same p
 | `timeZone` | IANA timezone, default `UTC`. Set it here rather than embedding `TZ=` or `CRON_TZ=` in the schedule. |
 | `workspace` | Absolute directory under the workspace root. |
 | `agentSpace` | Optional configured agent space. Left out, the job runs in the workspace's agent space, or the controller's default when the workspace has no session yet. Set, it must match the workspace's agent space and every other job's `agentSpace` for the same workspace, or startup stops and names the jobs, the workspace and the agent spaces. |
-| `session` | `continue` reuses one session for this job, the default. `new` creates separate history on every run. Changing a job definition resets its continuation. |
 | `message` | Nonempty prompt within `PEEN_MAX_MESSAGE_BYTES`, including expansion. `{jobName}` becomes the name; `{scheduledAt}` becomes the scheduled UTC RFC 3339 timestamp. |
 | `model` | Optional configured model ID. |
 | `reasoningEffort` | Optional `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. |
@@ -42,9 +40,9 @@ The configuration is bounded to 1 MiB and 256 jobs. Unknown fields, duplicate na
 
 ## Runs and history
 
-A still-running job records its next tick as `skipped`. On restart Peen records one `skipped` row for the latest missed occurrence and does not replay missed work. The stored schedule baseline and unique occurrence index prevent a tick from firing twice. Calendar schedules follow the named timezone, including daylight saving changes.
+A still-running job records its next tick as `skipped`. A run also skips if the workspace session already has an active turn. On restart Peen records one `skipped` row for the latest missed occurrence and does not replay missed work. The stored schedule baseline and unique occurrence index prevent a tick from firing twice. Calendar schedules follow the named timezone, including daylight saving changes.
 
-A run in progress is `running`. Runs end as `completed`, `failed` or `cancelled`; overlap and downtime use `skipped`. A turn that finishes without valid structured output keeps its completed turn and `outputError`, while its scheduled run is `failed`. If the workspace's agent space was changed after startup so that it no longer matches the job, the run is recorded as `failed`. History keeps a fixed `error` reason without copying prompts, provider errors or schemas: `scheduled run failed`, `scheduled turn failed`, `scheduled turn cancelled`, `scheduled turn timed out`, `previous run still running`, `controller was offline`, `scheduled turn interrupted`, `workspace unavailable`, `session unavailable`, `workspace agent space conflict` or `scheduled output invalid`. Treat any other value as an unknown failure. Shutdown stops new dispatch and uses the normal turn shutdown and crash recovery lifecycle.
+A run in progress is `running`. Runs end as `completed`, `failed` or `cancelled`; overlap and downtime use `skipped`. A turn that finishes without valid structured output keeps its completed turn and `outputError`, while its scheduled run is `failed`. If the workspace's agent space was changed after startup so that it no longer matches the job, the run is recorded as `failed`. History keeps a fixed `error` reason without copying prompts, provider errors or schemas: `scheduled run failed`, `scheduled turn failed`, `scheduled turn cancelled`, `scheduled turn timed out`, `previous run still running`, `workspace session is busy`, `controller was offline`, `scheduled turn interrupted`, `workspace unavailable`, `session unavailable`, `workspace agent space conflict` or `scheduled output invalid`. Treat any other value as an unknown failure. Shutdown stops new dispatch and uses the normal turn shutdown and crash recovery lifecycle.
 
 Read jobs and history through the [HTTP API](http-api.md#scheduled-turns); history stays readable while scheduling is off. Each run's `sessionId` opens the conversation it produced, at `http://127.0.0.1:8080/?session=<sessionId>` in the control surface or through `GET /api/v1/messages` with `X-Session-ID`. The controller log records a `scheduled run started` and a `scheduled run finished` line for each run.
 

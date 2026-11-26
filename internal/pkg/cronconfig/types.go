@@ -23,7 +23,6 @@ type Job struct {
 	TimeZone        string
 	Workspace       string
 	AgentSpace      string
-	Session         string
 	Message         string
 	Model           string
 	ReasoningEffort string

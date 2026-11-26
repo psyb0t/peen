@@ -47,26 +47,26 @@ func TestConversationReportsRoundAndTokenLimits(t *testing.T) {
 	}
 }
 
-func TestFreshRegistrySessionsKeepWorkspaceAndAgentSpacePolicy(t *testing.T) {
+func TestRegistryReusesWorkspaceSessionAndChecksPolicy(t *testing.T) {
 	fixture := newRoutingFixture(t)
 	for range 2 {
-		fresh, err := fixture.registry.OpenFresh(t.Context(), fixture.launcher.workspace, "")
+		opened, err := fixture.registry.Open(t.Context(), fixture.launcher.workspace, "")
 		require.NoError(t, err)
-		assert.True(t, fresh.Created)
-		assert.NotEqual(t, fixture.sessionID, fresh.Session.ID)
-		assert.Equal(t, fixture.launcher.workspace, fresh.Session.Workspace)
+		assert.False(t, opened.Created)
+		assert.Equal(t, fixture.sessionID, opened.Session.ID)
+		assert.Equal(t, fixture.launcher.workspace, opened.Session.Workspace)
 	}
 	canonical, err := fixture.registry.Open(t.Context(), fixture.launcher.workspace, "")
 	require.NoError(t, err)
 	assert.Equal(t, fixture.sessionID, canonical.Session.ID)
-	_, err = fixture.registry.OpenFresh(t.Context(), canonicalTempDir(t), "")
+	_, err = fixture.registry.Open(t.Context(), canonicalTempDir(t), "")
 	require.ErrorIs(t, err, commerr.ErrPermissionDenied)
-	_, err = fixture.registry.OpenFresh(t.Context(), fixture.launcher.workspace, "missing")
+	_, err = fixture.registry.Open(t.Context(), fixture.launcher.workspace, "missing")
 	require.Error(t, err)
 	conversation, err := control.NewConversation(fixture.registry, fixture.router, fixture.feed)
 	require.NoError(t, err)
 	_, err = conversation.Run(t.Context(), control.ConversationRequest{
-		SessionID: fixture.sessionID, Fresh: true,
+		SessionID: fixture.sessionID, AgentSpace: "control",
 		Message: agent.MessageRequest{Message: routedMessage},
 	})
 	require.ErrorIs(t, err, commerr.ErrValidationFailed)

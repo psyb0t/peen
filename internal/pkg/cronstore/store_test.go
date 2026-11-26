@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/db"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
@@ -13,16 +12,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestJobContinuationSurvivesReopen(t *testing.T) {
+func TestJobScheduleBaselineSurvivesReopen(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
 	handle, err := db.Open(t.Context(), db.Config{Directory: directory})
 	require.NoError(t, err)
 	store, err := New(handle)
 	require.NoError(t, err)
-	id := testSession(t, handle)
 	job := testJob("nightlyReport")
-	job.SessionID = &id
 	require.NoError(t, store.SaveJob(t.Context(), job))
 	require.NoError(t, handle.Close())
 	reopened, err := db.Open(t.Context(), db.Config{Directory: directory})
@@ -32,16 +29,12 @@ func TestJobContinuationSurvivesReopen(t *testing.T) {
 	require.NoError(t, err)
 	stored, err := resumed.GetJob(t.Context(), job.JobName)
 	require.NoError(t, err)
-	require.NotNil(t, stored.SessionID)
-	assert.Equal(t, id, *stored.SessionID)
 	assert.True(t, job.NextScheduledAt.Equal(stored.NextScheduledAt))
-	stored.SessionID = nil
 	stored.DefinitionHash = strings.Repeat("b", 64)
 	stored.NextScheduledAt = stored.NextScheduledAt.Add(time.Hour)
 	require.NoError(t, resumed.SaveJob(t.Context(), stored))
 	reset, err := resumed.GetJob(t.Context(), job.JobName)
 	require.NoError(t, err)
-	assert.Nil(t, reset.SessionID)
 	assert.Equal(t, stored.DefinitionHash, reset.DefinitionHash)
 	assert.True(t, stored.NextScheduledAt.Equal(reset.NextScheduledAt))
 }
@@ -64,11 +57,6 @@ func TestMissingAndInvalidInputs(t *testing.T) {
 	}
 	job := testJob("test")
 	job.DefinitionHash = strings.Repeat("z", 64)
-	require.ErrorIs(t, store.SaveJob(t.Context(), job),
-		commerr.ErrValidationFailed)
-	job = testJob("test")
-	id := uuid.Nil
-	job.SessionID = &id
 	require.ErrorIs(t, store.SaveJob(t.Context(), job),
 		commerr.ErrValidationFailed)
 }

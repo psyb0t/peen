@@ -57,9 +57,9 @@ Controller integrations use the same workspace policy and worker routing. An int
 
 Every entry point is a door into the same app: the WebSocket and REST API, the [OpenAI API](openai-api.md), the [MCP control server](mcp-server.md), [scheduled turns](cron.md), and the [Telegram bot](telegram.md). Each has its own key, which [Security](security.md#entry-points) lists, and all of them reach sessions through the same registry, workspace policy and workers.
 
-A session is one conversation in one workspace directory, with its own history, turns and worker. A workspace can hold several sessions. Its canonical session is the one `POST /api/v1/sessions/open` creates the first time and returns on every later open; `peen`, the control surface, and an MCP `sendMessage` that names a workspace all use it. The other doors open fresh sessions beside it in the same directory: an OpenAI request without `X-Peen-Session-ID`, each scheduled job (one session it continues, or a new one per run), and each Telegram chat and its `/new`. Fresh sessions share the workspace's files but not its history. A regular session is any session except the system session, and every door except a WebSocket `message.send` with `system` set reaches only regular sessions.
+Each workspace directory has one session, with one conversation history and one worker. The CLI, control surface, REST and WebSocket clients, MCP, OpenAI API, and cron use that same session when they target the same workspace. Telegram normally uses the session for its chat directory. A reply to a scheduled notification uses the scheduled job's workspace session. The system session is separate and only a WebSocket request with the explicit system flag can start a turn in it.
 
-All sessions of one workspace run in the workspace's one agent space. The first session sets it, a later open that names a different one is refused with `AGENT_SPACE_CONFLICT`, and a reconfigure moves every session of the workspace together. [Where it runs](where-it-runs.md#choosing-an-agent-space-for-a-workspace) has the details.
+The workspace session has one agent space. The first opener sets it. A later open that names a different one returns AGENT_SPACE_CONFLICT. Reconfigure the session to move it. [Where it runs](where-it-runs.md#choosing-an-agent-space-for-a-workspace) has the details.
 
 ## One turn
 
@@ -220,9 +220,7 @@ Several words in these docs name different things on different pages. This is wh
 | protocol event | A stored record of one step of a turn, such as `turn.started` or `tool.use`. `GET /api/v1/session/events` lists them, and each one also goes out live as a WebSocket frame. | [Protocol event types](websocket-api.md#protocol-event-types) |
 | WebSocket frame | One JSON message on the WebSocket, in either direction: a client's `message.send`, a protocol event, or a `message.completed` or `message.failed` reply. | [WebSocket](websocket-api.md) |
 | upstream | One entry in `PEEN_UPSTREAMS`. The docs also call it a provider, and the API calls its name `connectionName`. All three mean the same configured entry. A qualified model name is `<upstream name>/<model ID>`, such as `zai/glm-5.3`. | [Providers](configuration.md#providers) |
-| agent space | The place a workspace's agent runs: `control`, next to Peen, or `docker:<profile>`, in its own container. Every session of one workspace shares it. A Docker profile is one entry in `PEEN_DOCKER_PROFILES`. | [Where it runs](where-it-runs.md) |
-| canonical session | The session `POST /api/v1/sessions/open` creates for a workspace and returns on every later open. | [Sessions and entry points](#sessions-and-entry-points) |
-| fresh session | A further session in a workspace that already has one, opened by the OpenAI API, a scheduled job, or a Telegram chat. It has its own history and shares the workspace's files and agent space. | [Sessions and entry points](#sessions-and-entry-points) |
+| agent space | The place a workspace's agent runs: `control`, next to Peen, or `docker:<profile>`, in its own container. A Docker profile is one entry in `PEEN_DOCKER_PROFILES`. | [Where it runs](where-it-runs.md) |
 | regular session | Any session except the system session. The file API and every integration reach only regular sessions. | [Sessions and entry points](#sessions-and-entry-points) |
 | control space | Where Peen itself runs when you install it with the installer: `host` or `docker`. | [Where it runs](where-it-runs.md#the-four-combinations) |
 | worker generation | One run of a session's worker process. A session gets a new generation each time Peen starts its worker. | [Workers](https://psyb0t.github.io/peen/api/list-session-workers/) |
@@ -237,7 +235,7 @@ The field name `type` also means different things. On a hook action it is the ac
 
 | Identifier | What it names | Who creates it | Where you see it |
 | --- | --- | --- | --- |
-| session ID | One session, which is one conversation in a workspace. | Peen, when `POST /api/v1/sessions/open` first opens a workspace, or when an entry point opens a fresh session. | `X-Session-ID`, frame `metadata.sessionId`, hook stdin `sessionId`. |
+| session ID | One session, which is one conversation in a workspace. | Peen, when any entry point first opens the workspace. | `X-Session-ID`, frame `metadata.sessionId`, hook stdin `sessionId`. |
 | request ID | One accepted `message.send`, or one turn an event woke. | Peen, when it accepts the frame or starts the woken turn. | Frame `metadata.requestId`, turn records, hook stdin `requestId`. Every frame of one turn shares it. A queued message keeps its own. |
 | turn ID | One stored turn. | Peen, when the turn starts. | `GET /api/v1/session/turns`, `turnId` on stored messages, protocol events, and jobs, hook stdin `turnId`. |
 | call ID | One tool call inside a turn. | The model provider. | `callId` on `tool.use` and `tool.result`, `id` and `tool_use_id` on content blocks, `toolCallId` on stored messages, hook stdin `callId`. |

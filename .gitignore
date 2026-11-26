@@ -1,6 +1,7 @@
 # Codex / agent scratch, never commit. The root AGENTS.md (with CLAUDE.md
 # linking to it) is tracked agent guidance.
 CODEX.local.md
+CLAUDE.local.md
 .research_files/
 .agent_notes/
 .agent_knowledge/

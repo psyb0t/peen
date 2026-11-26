@@ -48,7 +48,6 @@ func TestParseAcceptsFiveSixFieldsAndDescriptors(t *testing.T) {
 			require.Len(t, jobs, 1)
 			assert.Equal(t, scheduleText, jobs[0].ScheduleText)
 			assert.Equal(t, "UTC", jobs[0].TimeZone)
-			assert.Equal(t, SessionContinue, jobs[0].Session)
 			assert.NotNil(t, jobs[0].Schedule)
 		})
 	}
@@ -112,7 +111,6 @@ func TestParseAcceptsValidatedJobOptions(t *testing.T) {
 
 	data := []byte(cronYAML("@daily", `    timeZone: Europe/Paris
     agentSpace: docker:default
-    session: new
     model: provider/model
     reasoningEffort: high
     timeout: 30m
@@ -131,7 +129,6 @@ func TestParseAcceptsValidatedJobOptions(t *testing.T) {
 	job := jobs[0]
 	assert.Equal(t, "Europe/Paris", job.TimeZone)
 	assert.Equal(t, "docker:default", job.AgentSpace)
-	assert.Equal(t, SessionNew, job.Session)
 	assert.Equal(t, "provider/model", job.Model)
 	assert.Equal(t, "high", job.ReasoningEffort)
 	assert.Equal(t, 30*time.Minute, job.Timeout)
@@ -266,6 +263,7 @@ func TestParseRejectsInvalidJobFields(t *testing.T) {
 		option func(*Options)
 		field  string
 	}{
+		{name: "removed session setting", extra: "    session: new\n", field: "session"},
 		{name: "unknown model", extra: "    model: missing/model\n", field: "model"},
 		{name: "invalid effort", extra: "    reasoningEffort: unlimited\n", field: "reasoningEffort"},
 		{name: "negative timeout", extra: "    timeout: -1s\n", field: "timeout"},

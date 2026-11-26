@@ -90,7 +90,7 @@ func TestSchedulerBusyAndExpandedMessageLimit(t *testing.T) {
 			require.NoError(t, err)
 			if busy {
 				assert.Equal(t, models.CronRunStateSkipped, row.State)
-				assert.Equal(t, cronstore.ErrorPreviousRunning, row.Error)
+				assert.Equal(t, cronstore.ErrorWorkspaceBusy, row.Error)
 			} else {
 				assert.Equal(t, models.CronRunStateFailed, row.State)
 				assert.Empty(t, f.seen)

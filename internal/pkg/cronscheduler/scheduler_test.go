@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors/commerr"
-	"github.com/psyb0t/peen/internal/pkg/cronconfig"
 	"github.com/psyb0t/peen/internal/pkg/cronstore"
 	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/http/api"
@@ -37,7 +36,7 @@ func TestSchedulerContinuationAndSettings(t *testing.T) {
 			id = input.SessionID
 		}
 		assert.Equal(t, id, input.SessionID)
-		assert.NotEqual(t, canonical.Session.ID, id)
+		assert.Equal(t, canonical.Session.ID, id)
 		assert.NotEqual(t, uuid.Nil, input.RequestID)
 		assert.Contains(t, input.Message.Message, job.Name)
 		assert.NotContains(t, input.Message.Message, "{scheduledAt}")
@@ -54,40 +53,6 @@ func TestSchedulerContinuationAndSettings(t *testing.T) {
 	require.Len(t, jobs.Items, 1)
 	require.NotNil(t, jobs.Items[0].LastRun)
 	assert.True(t, jobs.Items[0].NextScheduledAt.After(f.clock.Now()))
-}
-
-func TestSchedulerFreshHistoryAndDefinitionReset(t *testing.T) {
-	t.Parallel()
-	f := newSchedulerFixture(t)
-	job := f.job()
-	job.Session = cronconfig.SessionNew
-	s, err := New(t.Context(), f.options(job))
-	require.NoError(t, err)
-	ids := make([]uuid.UUID, 0, 2)
-	for range 2 {
-		f.clock.advance(time.Second)
-		require.NoError(t, s.step(t.Context()))
-		waitIdle(t, s)
-		ids = append(ids, nextInput(t, f).SessionID)
-	}
-	s.Close()
-	assert.NotEqual(t, ids[0], ids[1])
-	job.Session = cronconfig.SessionContinue
-	s, err = New(t.Context(), f.options(job))
-	require.NoError(t, err)
-	f.clock.advance(time.Second)
-	require.NoError(t, s.step(t.Context()))
-	waitIdle(t, s)
-	previous := nextInput(t, f).SessionID
-	s.Close()
-	job.Message = "Changed prompt"
-	s, err = New(t.Context(), f.options(job))
-	require.NoError(t, err)
-	t.Cleanup(s.Close)
-	f.clock.advance(time.Second)
-	require.NoError(t, s.step(t.Context()))
-	waitIdle(t, s)
-	assert.NotEqual(t, previous, nextInput(t, f).SessionID)
 }
 
 func TestSchedulerOverlapAndLatestDowntimeTick(t *testing.T) {

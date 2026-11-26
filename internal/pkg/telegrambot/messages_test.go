@@ -10,12 +10,13 @@ import (
 	"unicode/utf8"
 
 	"github.com/psyb0t/peen/internal/pkg/agent"
+	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/telegram"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestTelegramChatSettingsAndFreshHistory(t *testing.T) {
+func TestTelegramChatSettingsAndSharedHistory(t *testing.T) {
 	t.Parallel()
 	f := newBotFixture(t)
 	runUpdate(t, f, chatUpdate("/model example/model"))
@@ -31,11 +32,14 @@ func TestTelegramChatSettingsAndFreshHistory(t *testing.T) {
 	require.NotNil(t, first.Message.SystemPrompt)
 	assert.Equal(t, agent.PromptModeAppend, first.Message.SystemPrompt.Mode)
 	assert.Equal(t, "Be concise", first.Message.SystemPrompt.Content)
-	runUpdate(t, f, chatUpdate("/new"))
 	runUpdate(t, f, chatUpdate("/system reset"))
 	runUpdate(t, f, chatUpdate("Again"))
 	second := receivedRequest(t, f)
-	assert.NotEqual(t, first.SessionID, second.SessionID)
+	assert.Equal(t, first.SessionID, second.SessionID)
+	opened, err := f.registry.Open(t.Context(),
+		filepath.Join(f.workspace, "chat_-123"), "")
+	require.NoError(t, err)
+	assert.Equal(t, first.SessionID, opened.Session.ID)
 	assert.Nil(t, second.Message.SystemPrompt)
 	runUpdate(t, f, chatUpdate("/model missing/model"))
 	chat, err := f.store.Chat(t.Context(), -123)
@@ -72,6 +76,15 @@ func TestTelegramAllowlistsAndBusyCancellation(t *testing.T) {
 	assert.Empty(t, f.seen)
 	require.Len(t, f.client.messages, 4)
 	assert.Equal(t, replyCancelled, f.client.messages[3].Text)
+}
+
+func TestTelegramReportsBusyWorkspace(t *testing.T) {
+	t.Parallel()
+	f := newBotFixture(t)
+	f.runErr = session.ErrSessionBusy
+	runUpdate(t, f, chatUpdate("Explain"))
+	require.Len(t, f.client.messages, 1)
+	assert.Equal(t, replyWorkspaceBusy, f.client.messages[0].Text)
 }
 
 func TestTelegramUploadsAndFetchUseWorkspaceConfinement(t *testing.T) {

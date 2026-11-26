@@ -24,7 +24,6 @@ func TestAPICronRunsThroughARegularWorkerAndListsHistory(t *testing.T) {
     schedule: "* * * * * *"
     timeZone: UTC
     workspace: /workspace
-    session: continue
     message: "Explain briefly"
     timeout: 15s
 `
@@ -56,6 +55,7 @@ func TestAPICronRunsThroughARegularWorkerAndListsHistory(t *testing.T) {
 	}, 30*time.Second, 100*time.Millisecond)
 	require.NotNil(t, completed.SessionId)
 	assert.NotEqual(t, uuid.Nil, *completed.SessionId)
+	assert.Equal(t, openVariantSession(t, variant), *completed.SessionId)
 	assert.NotNil(t, completed.StartedAt)
 	assert.NotNil(t, completed.FinishedAt)
 	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet,

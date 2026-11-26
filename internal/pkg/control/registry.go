@@ -102,33 +102,13 @@ func NewRegistry(options RegistryOptions) (*Registry, error) {
 // The policy check runs before the store is touched, so a path outside every
 // configured root is refused without creating a row. Opening the same directory
 // again, by any of its names, resumes the existing session rather than making a
-// second one. Every session of a workspace shares one agent space: an empty
-// agentSpaceName takes it, and a different name is refused with
+// second one. An empty agentSpaceName takes the session's existing space, and
+// a different name is refused with
 // session.AgentSpaceConflictError.
 func (r *Registry) Open(
 	ctx context.Context,
 	requested string,
 	agentSpaceName string,
-) (OpenResult, error) {
-	return r.openWorkspace(ctx, requested, agentSpaceName, false)
-}
-
-// OpenFresh creates independent history under the same workspace and agent
-// space policy as Open, in the agent space the workspace's sessions share. It
-// never replaces the workspace's canonical session.
-func (r *Registry) OpenFresh(
-	ctx context.Context,
-	requested string,
-	agentSpaceName string,
-) (OpenResult, error) {
-	return r.openWorkspace(ctx, requested, agentSpaceName, true)
-}
-
-func (r *Registry) openWorkspace(
-	ctx context.Context,
-	requested string,
-	agentSpaceName string,
-	fresh bool,
 ) (OpenResult, error) {
 	if err := r.checkRequestedAgentSpace(ctx, agentSpaceName); err != nil {
 		return OpenResult{}, err
@@ -147,20 +127,12 @@ func (r *Registry) openWorkspace(
 		return OpenResult{}, ctxerrors.Wrap(err, "resolve requested workspace")
 	}
 
-	open := r.store.OpenWorkspace
-	if fresh {
-		open = r.store.CreateWorkspaceSession
-	}
-
-	opened, err := open(
+	opened, err := r.store.OpenWorkspace(
 		ctx,
 		canonical,
 		session.OpenSessionOptions{
-			RootAgent: r.rootAgent,
-			ModelID:   r.defaultModel,
-			// Every session of a workspace shares one agent space. A name
-			// that differs from the workspace's is refused, and opening never
-			// changes the agent space a workspace already runs in.
+			RootAgent:         r.rootAgent,
+			ModelID:           r.defaultModel,
 			AgentSpace:        agentSpaceName,
 			DefaultAgentSpace: r.agentSpaces.Default(),
 		},
@@ -216,9 +188,7 @@ func (r *Registry) checkRequestedAgentSpace(
 	return nil
 }
 
-// WorkspaceAgentSpace reports the agent space a requested workspace's sessions
-// share, after the same policy check Open applies. found is false while the
-// workspace has no session.
+// WorkspaceAgentSpace reports the existing session's agent space, if any.
 func (r *Registry) WorkspaceAgentSpace(
 	ctx context.Context,
 	requested string,

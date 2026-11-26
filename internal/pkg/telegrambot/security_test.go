@@ -13,16 +13,15 @@ import (
 func TestTelegramStoredSystemSessionIsRefused(t *testing.T) {
 	t.Parallel()
 	f := newBotFixture(t)
-	chat, err := f.engine.chat(t.Context(), -123, false)
+	chat, err := f.engine.chat(t.Context(), -123)
 	require.NoError(t, err)
-	stored, err := f.turns.Get(t.Context(), chat.SessionID)
-	require.NoError(t, err)
-	system, err := f.turns.OpenWorkspace(t.Context(), stored.Workspace,
+	system, err := f.turns.OpenWorkspace(t.Context(), t.TempDir(),
 		session.OpenSessionOptions{
 			RootAgent: harness.SystemAgentName,
 			ModelID:   "example/model", AgentSpace: "control",
 		})
 	require.NoError(t, err)
+	assert.Equal(t, harness.SystemAgentName, system.Session.RootAgent)
 	chat.SessionID = system.Session.ID
 	require.NoError(t, f.store.SaveChat(t.Context(), chat))
 	runUpdate(t, f, chatUpdate("Forbidden"))

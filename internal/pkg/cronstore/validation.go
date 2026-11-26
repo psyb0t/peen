@@ -35,8 +35,7 @@ func validNameCharacter(value rune) bool {
 
 func validateJob(job *models.CronJob) error {
 	if job == nil || job.NextScheduledAt.IsZero() ||
-		len(job.DefinitionHash) != definitionHashBytes ||
-		!validSession(job.SessionID) {
+		len(job.DefinitionHash) != definitionHashBytes {
 		return invalidInput()
 	}
 
@@ -105,7 +104,8 @@ func validError(value string) bool {
 	return len(value) <= maxErrorBytes && slices.Contains([]string{
 		"", ErrorRunFailed, ErrorTurnFailed, ErrorTurnCancelled,
 		ErrorTurnTimeout,
-		ErrorPreviousRunning, ErrorControllerOffline, ErrorInterrupted,
+		ErrorPreviousRunning, ErrorWorkspaceBusy, ErrorControllerOffline,
+		ErrorInterrupted,
 		ErrorWorkspaceUnavailable, ErrorSessionUnavailable, ErrorOutputInvalid,
 		ErrorAgentSpaceConflict,
 	}, value)

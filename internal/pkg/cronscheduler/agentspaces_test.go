@@ -72,34 +72,26 @@ func TestSchedulerJobWithoutAgentSpaceFollowsItsWorkspace(t *testing.T) {
 
 func TestSchedulerRecordsAFireTimeAgentSpaceConflict(t *testing.T) {
 	t.Parallel()
-	for _, mode := range []string{
-		cronconfig.SessionNew, cronconfig.SessionContinue,
-	} {
-		t.Run(mode, func(t *testing.T) {
-			t.Parallel()
-			f := newSchedulerFixture(t)
-			job := f.job()
-			job.Session = mode
-			s, err := New(t.Context(), f.options(job))
-			require.NoError(t, err)
-			t.Cleanup(s.Close)
-			f.clock.advance(time.Second)
-			require.NoError(t, s.step(t.Context()))
-			waitIdle(t, s)
-			first := nextInput(t, f)
-			_, err = f.sessions.ReconfigureSession(t.Context(),
-				first.SessionID, api.ReconfigureSessionRequest{
-					AgentSpace: sandboxSpace, Reason: "isolate the workspace",
-				})
-			require.NoError(t, err)
-			f.clock.advance(time.Second)
-			require.NoError(t, s.step(t.Context()))
-			waitIdle(t, s)
-			assert.Empty(t, f.seen)
-			row, err := f.store.LastRun(t.Context(), job.Name)
-			require.NoError(t, err)
-			assert.Equal(t, models.CronRunStateFailed, row.State)
-			assert.Equal(t, cronstore.ErrorAgentSpaceConflict, row.Error)
+	f := newSchedulerFixture(t)
+	job := f.job()
+	s, err := New(t.Context(), f.options(job))
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+	f.clock.advance(time.Second)
+	require.NoError(t, s.step(t.Context()))
+	waitIdle(t, s)
+	first := nextInput(t, f)
+	_, err = f.sessions.ReconfigureSession(t.Context(),
+		first.SessionID, api.ReconfigureSessionRequest{
+			AgentSpace: sandboxSpace, Reason: "isolate the workspace",
 		})
-	}
+	require.NoError(t, err)
+	f.clock.advance(time.Second)
+	require.NoError(t, s.step(t.Context()))
+	waitIdle(t, s)
+	assert.Empty(t, f.seen)
+	row, err := f.store.LastRun(t.Context(), job.Name)
+	require.NoError(t, err)
+	assert.Equal(t, models.CronRunStateFailed, row.State)
+	assert.Equal(t, cronstore.ErrorAgentSpaceConflict, row.Error)
 }

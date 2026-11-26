@@ -19,7 +19,6 @@ type Session struct {
 	RootAgent             string
 	ModelID               string
 	Workspace             string
-	WorkspaceSlot         string
 	StopRevision          int64
 	FeedSequence          int64
 

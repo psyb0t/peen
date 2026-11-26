@@ -105,7 +105,7 @@ var (
 )
 
 // AgentSpaceConflictError refuses a request that names an agent space other
-// than the one its workspace's sessions already share. It matches
+// than the workspace session already uses. It matches
 // commerr.ErrConflict. Its text names both agent spaces, holds no source
 // location or path, and is written for the client that sent the request.
 type AgentSpaceConflictError struct {

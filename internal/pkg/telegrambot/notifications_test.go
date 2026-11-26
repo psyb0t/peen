@@ -17,7 +17,7 @@ import (
 func TestTelegramCronRepliesUseSavedChatMessagePair(t *testing.T) {
 	t.Parallel()
 	f := newBotFixture(t)
-	opened, err := f.registry.OpenFresh(t.Context(), f.workspace, "control")
+	opened, err := f.registry.Open(t.Context(), f.workspace, "control")
 	require.NoError(t, err)
 	cron, err := cronstore.New(f.handle)
 	require.NoError(t, err)

@@ -50,10 +50,9 @@ type OpenSessionOptions struct {
 	RootAgent string
 	ModelID   string
 
-	// AgentSpace is the agent space the caller asks for. Every session of one
-	// workspace shares one agent space: empty takes the workspace's, the same
-	// name is accepted, and another name is refused with an
-	// AgentSpaceConflictError. Opening never changes an agent space.
+	// AgentSpace selects the space for a new workspace session. An existing
+	// session accepts an empty name or its own, otherwise it returns an
+	// AgentSpaceConflictError.
 	AgentSpace string
 
 	// DefaultAgentSpace is the agent space a workspace's first session takes

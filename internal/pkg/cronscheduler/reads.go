@@ -21,7 +21,6 @@ func (s *Scheduler) ListCronJobs(ctx context.Context) (api.CronJobList, error) {
 		item := api.CronJob{
 			Name: job.definition.Name, Schedule: job.definition.ScheduleText,
 			TimeZone:        job.definition.TimeZone,
-			Session:         api.CronJobSession(job.definition.Session),
 			NextScheduledAt: job.record.NextScheduledAt.UTC(),
 		}
 

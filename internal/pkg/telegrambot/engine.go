@@ -2,6 +2,7 @@ package telegrambot
 
 import (
 	"context"
+	"errors"
 	"maps"
 	"math"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
+	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/telegram"
 )
 
@@ -224,10 +226,16 @@ func (e *Engine) process(
 	}()
 
 	if err := e.handleMessage(ctx, message); err != nil && ctx.Err() == nil {
-		ctxscope.GetLogger(ctx).Warn("Telegram request failed",
-			"reason", "requestFailed")
+		reply := replyFailed
+		if errors.Is(err, session.ErrSessionBusy) ||
+			errors.Is(err, commerr.ErrLockHeld) {
+			reply = replyWorkspaceBusy
+		} else {
+			ctxscope.GetLogger(ctx).Warn("Telegram request failed",
+				"reason", "requestFailed")
+		}
 
-		if err := e.sendText(ctx, message.Chat.ID, replyFailed); err != nil {
+		if err := e.sendText(ctx, message.Chat.ID, reply); err != nil {
 			ctxscope.GetLogger(ctx).Warn("Telegram failure reply failed",
 				"reason", "replyFailed", "err", err)
 		}

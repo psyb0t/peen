@@ -29,7 +29,6 @@ func newCronJob(db *gorm.DB, opts ...gen.DOOption) cronJob {
 	tableName := _cronJob.cronJobDo.TableName()
 	_cronJob.ALL = field.NewAsterisk(tableName)
 	_cronJob.JobName = field.NewString(tableName, "job_name")
-	_cronJob.SessionID = field.NewField(tableName, "session_id")
 	_cronJob.NextScheduledAt = field.NewTime(tableName, "next_scheduled_at")
 	_cronJob.DefinitionHash = field.NewString(tableName, "definition_hash")
 
@@ -43,7 +42,6 @@ type cronJob struct {
 
 	ALL             field.Asterisk
 	JobName         field.String
-	SessionID       field.Field
 	NextScheduledAt field.Time
 	DefinitionHash  field.String
 
@@ -63,7 +61,6 @@ func (c cronJob) As(alias string) *cronJob {
 func (c *cronJob) updateTableName(table string) *cronJob {
 	c.ALL = field.NewAsterisk(table)
 	c.JobName = field.NewString(table, "job_name")
-	c.SessionID = field.NewField(table, "session_id")
 	c.NextScheduledAt = field.NewTime(table, "next_scheduled_at")
 	c.DefinitionHash = field.NewString(table, "definition_hash")
 
@@ -82,9 +79,8 @@ func (c *cronJob) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (c *cronJob) fillFieldMap() {
-	c.fieldMap = make(map[string]field.Expr, 4)
+	c.fieldMap = make(map[string]field.Expr, 3)
 	c.fieldMap["job_name"] = c.JobName
-	c.fieldMap["session_id"] = c.SessionID
 	c.fieldMap["next_scheduled_at"] = c.NextScheduledAt
 	c.fieldMap["definition_hash"] = c.DefinitionHash
 }

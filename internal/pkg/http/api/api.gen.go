@@ -198,24 +198,6 @@ func (e AgentSpaceNetwork) Valid() bool {
 	}
 }
 
-// Defines values for CronJobSession.
-const (
-	CronJobSessionContinue CronJobSession = "continue"
-	CronJobSessionNew      CronJobSession = "new"
-)
-
-// Valid indicates whether the value is a known member of the CronJobSession enum.
-func (e CronJobSession) Valid() bool {
-	switch e {
-	case CronJobSessionContinue:
-		return true
-	case CronJobSessionNew:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for CronRunState.
 const (
 	CronRunStateCancelled CronRunState = "cancelled"
@@ -1449,21 +1431,9 @@ type CronJob struct {
 	// Schedule The schedule exactly as written in the cron file, such as `0 9 * * *`, a six-field expression with leading seconds, or a descriptor such as `@daily` or `@every 30m`.
 	Schedule string `json:"schedule"`
 
-	// Session Which session each run uses.
-	//
-	// - `continue`: every run continues the job's one session. Changing the job's definition starts a new one.
-	// - `new`: every run starts its own session with its own history.
-	Session CronJobSession `json:"session"`
-
 	// TimeZone The IANA time zone the schedule is evaluated in, such as `UTC` or `Europe/Berlin`. `UTC` when the cron file leaves it out.
 	TimeZone string `json:"timeZone"`
 }
-
-// CronJobSession Which session each run uses.
-//
-// - `continue`: every run continues the job's one session. Changing the job's definition starts a new one.
-// - `new`: every run starts its own session with its own history.
-type CronJobSession string
 
 // CronJobList All scheduled jobs loaded at startup, sorted by name. Empty while `PEEN_CRON` is off.
 type CronJobList struct {
@@ -2298,7 +2268,7 @@ type ModelRunPage struct {
 
 // OpenSessionRequest The body of `POST /sessions/open`.
 type OpenSessionRequest struct {
-	// AgentSpace The agent space to run in, `control` or `docker:<profile>` (see `GET /agent-spaces`). Every session of one workspace shares one agent space. Leave it out to get the workspace's agent space, or the deployment default for a workspace with no session yet. Naming a different agent space than the workspace's returns 409 `AGENT_SPACE_CONFLICT`, and naming one the deployment does not offer returns 403 `AGENT_SPACE_NOT_ALLOWED`. This is the only environment choice a client makes: images, mounts, network, and capabilities come from deployment configuration alone.
+	// AgentSpace The agent space to run in, `control` or `docker:<profile>` (see `GET /agent-spaces`). Leave it out to get the workspace's agent space, or the deployment default for a workspace with no session yet. Naming a different agent space than the workspace's returns 409 `AGENT_SPACE_CONFLICT`, and naming one the deployment does not offer returns 403 `AGENT_SPACE_NOT_ALLOWED`. This is the only environment choice a client makes: images, mounts, network, and capabilities come from deployment configuration alone.
 	AgentSpace *string `json:"agentSpace,omitempty"`
 
 	// Workspace Absolute host path of the workspace directory. It is resolved through its symbolic links and must be an existing directory beneath a configured workspace root (see `GET /workspace-roots`).
@@ -2328,7 +2298,7 @@ type PromptSnapshot struct {
 
 // ReconfigureSessionRequest The body of `POST /session/reconfigure`. Both fields are required and no other field is accepted.
 type ReconfigureSessionRequest struct {
-	// AgentSpace The agent space to move the workspace's sessions to, `control` or `docker:<profile>`. A name the deployment does not offer returns 403 `AGENT_SPACE_NOT_ALLOWED`, and the agent space the workspace already runs in returns 409 `CONFLICT`. This is the only environment choice a client makes.
+	// AgentSpace The agent space to move the workspace session to, `control` or `docker:<profile>`. A name the deployment does not offer returns 403 `AGENT_SPACE_NOT_ALLOWED`, and the agent space the workspace already runs in returns 409 `CONFLICT`. This is the only environment choice a client makes.
 	AgentSpace string `json:"agentSpace"`
 
 	// Reason Why the agent space changed, kept in each session's decision history. Must contain a non-whitespace character.
@@ -2346,7 +2316,7 @@ type Session struct {
 	// Agent The root agent that runs the session's turns, such as `core:general-purpose`, or `core:system` for the system session.
 	Agent string `json:"agent"`
 
-	// AgentSpace The agent space this session's tools run in, `control` or `docker:<profile>`, shared by every session of the workspace. Absent for a session recorded before agent spaces existed, which runs in the deployment default.
+	// AgentSpace The agent space this session's tools run in, `control` or `docker:<profile>`. Absent for a session recorded before agent spaces existed, which runs in the deployment default.
 	AgentSpace *string `json:"agentSpace,omitempty"`
 
 	// CompletedTurnCount Number of turns that completed.
@@ -2379,7 +2349,7 @@ type Session struct {
 
 // SessionAgentSpaceDecision One recorded agent space change of one session, made by `POST /session/reconfigure`.
 type SessionAgentSpaceDecision struct {
-	// DecidedAt When the change was recorded, RFC 3339. Every session moved by one call shares this time.
+	// DecidedAt When the change was recorded, RFC 3339.
 	DecidedAt time.Time `json:"decidedAt"`
 
 	// FromAgentSpace The agent space the session ran in before this decision. Absent when the session had no recorded agent space.
@@ -3387,7 +3357,7 @@ type ServerInterface interface {
 	// GetSessionPromptSnapshot Read a prompt snapshot referenced by this session
 	// (GET /session/prompt-snapshots/{promptHash})
 	GetSessionPromptSnapshot(w http.ResponseWriter, r *http.Request, promptHash PromptHash, params GetSessionPromptSnapshotParams)
-	// ReconfigureSession Move a workspace's sessions to another agent space
+	// ReconfigureSession Move a workspace session to another agent space
 	// (POST /session/reconfigure)
 	ReconfigureSession(w http.ResponseWriter, r *http.Request, params ReconfigureSessionParams)
 	// ListSessionTurns List durable turns
@@ -10757,7 +10727,7 @@ type StrictServerInterface interface {
 	// GetSessionPromptSnapshot Read a prompt snapshot referenced by this session
 	// (GET /session/prompt-snapshots/{promptHash})
 	GetSessionPromptSnapshot(ctx context.Context, request GetSessionPromptSnapshotRequestObject) (GetSessionPromptSnapshotResponseObject, error)
-	// ReconfigureSession Move a workspace's sessions to another agent space
+	// ReconfigureSession Move a workspace session to another agent space
 	// (POST /session/reconfigure)
 	ReconfigureSession(ctx context.Context, request ReconfigureSessionRequestObject) (ReconfigureSessionResponseObject, error)
 	// ListSessionTurns List durable turns

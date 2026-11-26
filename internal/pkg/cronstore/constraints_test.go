@@ -39,10 +39,6 @@ func TestSchemaConstraints(t *testing.T) {
 		})
 	}
 	job := testJob("nightlyReport")
-	id := uuid.New()
-	job.SessionID = &id
-	require.Error(t, query.CronJob.WithContext(t.Context()).Create(job))
-	job.SessionID = nil
 	job.DefinitionHash = "short"
 	require.Error(t, query.CronJob.WithContext(t.Context()).Create(job))
 }

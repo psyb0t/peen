@@ -13,7 +13,7 @@ import (
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
 )
 
-// Store owns typed queries for cron history and continuation metadata.
+// Store owns typed queries for cron history and schedule baselines.
 type Store struct {
 	query *repositories.Query
 }
@@ -44,8 +44,7 @@ func (s *Store) GetJob(
 	return job, nil
 }
 
-// SaveJob writes every field, including a cleared continuation session. The
-// scheduler resets the baseline and session when its definition hash changes.
+// SaveJob writes the schedule baseline and definition hash.
 func (s *Store) SaveJob(ctx context.Context, job *models.CronJob) error {
 	if err := validateJob(job); err != nil {
 		return err

@@ -6,12 +6,10 @@ import (
 
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
-	"github.com/psyb0t/peen/internal/pkg/db/models"
 	"github.com/psyb0t/peen/internal/pkg/db/repositories"
 )
 
-// WorkspaceAgentSpace reports the agent space the sessions of one canonical
-// workspace share. found is false while the workspace has no session yet.
+// WorkspaceAgentSpace reports the agent space for a workspace session.
 func (s *Store) WorkspaceAgentSpace(
 	ctx context.Context,
 	canonicalWorkspace string,
@@ -20,9 +18,7 @@ func (s *Store) WorkspaceAgentSpace(
 }
 
 // workspaceAgentSpaceFor decides the agent space a new session of workspace
-// takes. A workspace with sessions keeps their agent space: a request naming
-// none or the same one gets it, and a request naming another is refused. A
-// workspace without sessions takes the requested agent space, or the default.
+// takes. An existing session keeps its space and refuses a different one.
 func workspaceAgentSpaceFor(
 	ctx context.Context,
 	tx *repositories.Query,
@@ -55,8 +51,7 @@ func workspaceAgentSpaceFor(
 	)
 }
 
-// currentWorkspaceAgentSpace reads the canonical session's agent space, or
-// the oldest fresh session's when the canonical one does not exist yet.
+// currentWorkspaceAgentSpace reads the workspace session's agent space.
 func currentWorkspaceAgentSpace(
 	ctx context.Context,
 	tx *repositories.Query,
@@ -66,7 +61,6 @@ func currentWorkspaceAgentSpace(
 
 	stored, err := session.WithContext(ctx).
 		Where(session.Workspace.Eq(workspace)).
-		Order(session.WorkspaceSlot, session.CreatedAt, session.ID).
 		First()
 	if err == nil {
 		return stored.AgentSpace, true, nil
@@ -78,28 +72,4 @@ func currentWorkspaceAgentSpace(
 	}
 
 	return "", false, err
-}
-
-// workspaceSessions lists every session sharing stored's workspace, stored
-// included. A session with no workspace stands alone.
-func workspaceSessions(
-	ctx context.Context,
-	tx *repositories.Query,
-	stored *models.Session,
-) ([]*models.Session, error) {
-	if stored.Workspace == "" {
-		return []*models.Session{stored}, nil
-	}
-
-	session := tx.Session
-
-	siblings, err := session.WithContext(ctx).
-		Where(session.Workspace.Eq(stored.Workspace)).
-		Order(session.WorkspaceSlot, session.CreatedAt, session.ID).
-		Find()
-	if err != nil {
-		return nil, ctxerrors.Wrap(err, "list workspace sessions")
-	}
-
-	return siblings, nil
 }

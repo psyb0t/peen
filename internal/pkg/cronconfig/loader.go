@@ -28,7 +28,6 @@ type rawJob struct {
 	TimeZone        string `yaml:"timeZone"`
 	Workspace       string `yaml:"workspace"`
 	AgentSpace      string `yaml:"agentSpace"`
-	Session         string `yaml:"session"`
 	Message         string `yaml:"message"`
 	Model           string `yaml:"model"`
 	ReasoningEffort string `yaml:"reasoningEffort"`
@@ -452,7 +451,7 @@ func validateKnownJobFields(name string, fields map[string]*yaml.Node) error {
 func knownJobField(field string) bool {
 	switch field {
 	case jobFieldName, jobFieldSchedule, jobFieldTimeZone,
-		jobFieldWorkspace, jobFieldAgentSpace, jobFieldSession,
+		jobFieldWorkspace, jobFieldAgentSpace,
 		jobFieldMessage, jobFieldModel, jobFieldReasoningEffort,
 		jobFieldTimeout, jobFieldOutputSchema, jobFieldTelegramChatID:
 		return true
@@ -464,7 +463,7 @@ func knownJobField(field string) bool {
 func validateJobFieldTypes(name string, fields map[string]*yaml.Node) error {
 	for _, field := range []string{
 		jobFieldName, jobFieldSchedule, jobFieldTimeZone,
-		jobFieldWorkspace, jobFieldAgentSpace, jobFieldSession,
+		jobFieldWorkspace, jobFieldAgentSpace,
 		jobFieldMessage, jobFieldModel, jobFieldReasoningEffort,
 		jobFieldTimeout,
 	} {
@@ -538,11 +537,6 @@ func resolveJob(
 		return Job{}, err
 	}
 
-	sessionMode, err := resolveSessionMode(name, raw.Session)
-	if err != nil {
-		return Job{}, err
-	}
-
 	timeZone, err := resolveJobTimeZone(name, raw.TimeZone)
 	if err != nil {
 		return Job{}, err
@@ -574,7 +568,6 @@ func resolveJob(
 		TimeZone:        timeZone,
 		Workspace:       raw.Workspace,
 		AgentSpace:      raw.AgentSpace,
-		Session:         sessionMode,
 		Message:         raw.Message,
 		Model:           raw.Model,
 		ReasoningEffort: raw.ReasoningEffort,
@@ -582,18 +575,6 @@ func resolveJob(
 		OutputSchema:    schema,
 		TelegramChatID:  raw.TelegramChatID,
 	}, nil
-}
-
-func resolveSessionMode(name, session string) (string, error) {
-	if session == "" {
-		session = defaultSessionMode
-	}
-
-	if session != SessionContinue && session != SessionNew {
-		return "", jobFieldError(name, jobFieldSession, "is invalid")
-	}
-
-	return session, nil
 }
 
 func resolveJobTimeZone(name, timeZone string) (string, error) {

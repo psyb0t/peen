@@ -19,8 +19,6 @@ func (e *Engine) command(
 	command, argument string,
 ) error {
 	switch command {
-	case commandNew:
-		return e.sendText(ctx, message.Chat.ID, replyNew)
 	case commandModel:
 		return e.modelCommand(ctx, chat, argument)
 	case commandEffort:

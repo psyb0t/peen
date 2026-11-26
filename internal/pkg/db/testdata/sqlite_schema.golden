@@ -171,12 +171,10 @@ table context_snapshots
   constraint origin=pk (hash)
 table cron_jobs
   column 0 job_name TEXT notnull=1 default=NULL pk=1
-  column 1 session_id TEXT notnull=0 default=NULL pk=0
-  column 2 next_scheduled_at DATETIME notnull=1 default=NULL pk=0
-  column 3 definition_hash TEXT notnull=1 default=NULL pk=0
+  column 1 next_scheduled_at DATETIME notnull=1 default=NULL pk=0
+  column 2 definition_hash TEXT notnull=1 default=NULL pk=0
   CHECK (length(definition_hash) = 64)
   CHECK (length(job_name) BETWEEN 1 AND 64)
-  foreign key (session_id) -> sessions(id) update=NO ACTION delete=NO ACTION
   constraint origin=pk (job_name)
 table cron_runs
   column 0 id TEXT notnull=1 default=NULL pk=1
@@ -603,14 +601,13 @@ table sessions
   column 11 agent_space TEXT notnull=1 default='' pk=0
   column 12 stop_revision INTEGER notnull=1 default=0 pk=0
   column 13 feed_sequence INTEGER notnull=1 default=0 pk=0
-  column 14 workspace_slot TEXT notnull=1 default='' pk=0
   CHECK (completed_turn_count >= 0)
   CHECK (feed_sequence >= 0)
   CHECK (last_completed_sequence >= 0)
   CHECK (message_count >= 0)
   CHECK (stop_revision >= 0)
   constraint origin=pk (id)
-  index CREATE UNIQUE INDEX sessions_workspace_unique_index ON sessions (workspace,workspace_slot) WHERE workspace <> ''
+  index CREATE UNIQUE INDEX sessions_workspace_unique_index ON sessions (workspace) WHERE workspace <> ''
 table telegram_chats
   column 0 chat_id INTEGER notnull=1 default=NULL pk=1
   column 1 session_id TEXT notnull=1 default=NULL pk=0

@@ -13,6 +13,7 @@ const (
 	ErrorTurnCancelled        = "scheduled turn cancelled"
 	ErrorTurnTimeout          = "scheduled turn timed out"
 	ErrorPreviousRunning      = "previous run still running"
+	ErrorWorkspaceBusy        = "workspace session is busy"
 	ErrorControllerOffline    = "controller was offline"
 	ErrorInterrupted          = "scheduled turn interrupted"
 	ErrorWorkspaceUnavailable = "workspace unavailable"

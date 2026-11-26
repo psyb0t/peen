@@ -29,7 +29,7 @@ type Runner interface {
 }
 
 type Sessions interface {
-	OpenFresh(context.Context, string, string) (control.OpenResult, error)
+	Open(context.Context, string, string) (control.OpenResult, error)
 	ResolveWorkspace(string) (string, error)
 	ValidateWorkspaceSession(context.Context, uuid.UUID) error
 	ReadWorkspaceFile(context.Context, uuid.UUID, string) (

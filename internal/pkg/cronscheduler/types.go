@@ -21,14 +21,13 @@ type Runner interface {
 }
 
 type Sessions interface {
-	OpenFresh(context.Context, string, string) (control.OpenResult, error)
+	Open(context.Context, string, string) (control.OpenResult, error)
 	ResolveWorkspace(string) (string, error)
 	WorkspaceAgentSpace(context.Context, string) (string, bool, error)
 	ValidateWorkspaceSession(context.Context, uuid.UUID) error
 }
 
 type Turns interface {
-	Get(context.Context, uuid.UUID) (*models.Session, error)
 	GetTurnByRequest(context.Context, uuid.UUID, uuid.UUID) (
 		*models.Turn, error,
 	)

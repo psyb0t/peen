@@ -43,7 +43,6 @@ func TestSendMessageMapping(t *testing.T) {
 	request := <-requests
 	assert.Equal(t, "/workspace", request.Workspace)
 	assert.Equal(t, "default", request.AgentSpace)
-	assert.False(t, request.Fresh)
 	assert.False(t, request.Message.System)
 	assert.Nil(t, request.Message.To)
 	assert.Nil(t, request.Message.Origin)

@@ -198,24 +198,6 @@ func (e AgentSpaceNetwork) Valid() bool {
 	}
 }
 
-// Defines values for CronJobSession.
-const (
-	CronJobSessionContinue CronJobSession = "continue"
-	CronJobSessionNew      CronJobSession = "new"
-)
-
-// Valid indicates whether the value is a known member of the CronJobSession enum.
-func (e CronJobSession) Valid() bool {
-	switch e {
-	case CronJobSessionContinue:
-		return true
-	case CronJobSessionNew:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for CronRunState.
 const (
 	CronRunStateCancelled CronRunState = "cancelled"
@@ -1449,21 +1431,9 @@ type CronJob struct {
 	// Schedule The schedule exactly as written in the cron file, such as `0 9 * * *`, a six-field expression with leading seconds, or a descriptor such as `@daily` or `@every 30m`.
 	Schedule string `json:"schedule"`
 
-	// Session Which session each run uses.
-	//
-	// - `continue`: every run continues the job's one session. Changing the job's definition starts a new one.
-	// - `new`: every run starts its own session with its own history.
-	Session CronJobSession `json:"session"`
-
 	// TimeZone The IANA time zone the schedule is evaluated in, such as `UTC` or `Europe/Berlin`. `UTC` when the cron file leaves it out.
 	TimeZone string `json:"timeZone"`
 }
-
-// CronJobSession Which session each run uses.
-//
-// - `continue`: every run continues the job's one session. Changing the job's definition starts a new one.
-// - `new`: every run starts its own session with its own history.
-type CronJobSession string
 
 // CronJobList All scheduled jobs loaded at startup, sorted by name. Empty while `PEEN_CRON` is off.
 type CronJobList struct {
@@ -2298,7 +2268,7 @@ type ModelRunPage struct {
 
 // OpenSessionRequest The body of `POST /sessions/open`.
 type OpenSessionRequest struct {
-	// AgentSpace The agent space to run in, `control` or `docker:<profile>` (see `GET /agent-spaces`). Every session of one workspace shares one agent space. Leave it out to get the workspace's agent space, or the deployment default for a workspace with no session yet. Naming a different agent space than the workspace's returns 409 `AGENT_SPACE_CONFLICT`, and naming one the deployment does not offer returns 403 `AGENT_SPACE_NOT_ALLOWED`. This is the only environment choice a client makes: images, mounts, network, and capabilities come from deployment configuration alone.
+	// AgentSpace The agent space to run in, `control` or `docker:<profile>` (see `GET /agent-spaces`). Leave it out to get the workspace's agent space, or the deployment default for a workspace with no session yet. Naming a different agent space than the workspace's returns 409 `AGENT_SPACE_CONFLICT`, and naming one the deployment does not offer returns 403 `AGENT_SPACE_NOT_ALLOWED`. This is the only environment choice a client makes: images, mounts, network, and capabilities come from deployment configuration alone.
 	AgentSpace *string `json:"agentSpace,omitempty"`
 
 	// Workspace Absolute host path of the workspace directory. It is resolved through its symbolic links and must be an existing directory beneath a configured workspace root (see `GET /workspace-roots`).
@@ -2328,7 +2298,7 @@ type PromptSnapshot struct {
 
 // ReconfigureSessionRequest The body of `POST /session/reconfigure`. Both fields are required and no other field is accepted.
 type ReconfigureSessionRequest struct {
-	// AgentSpace The agent space to move the workspace's sessions to, `control` or `docker:<profile>`. A name the deployment does not offer returns 403 `AGENT_SPACE_NOT_ALLOWED`, and the agent space the workspace already runs in returns 409 `CONFLICT`. This is the only environment choice a client makes.
+	// AgentSpace The agent space to move the workspace session to, `control` or `docker:<profile>`. A name the deployment does not offer returns 403 `AGENT_SPACE_NOT_ALLOWED`, and the agent space the workspace already runs in returns 409 `CONFLICT`. This is the only environment choice a client makes.
 	AgentSpace string `json:"agentSpace"`
 
 	// Reason Why the agent space changed, kept in each session's decision history. Must contain a non-whitespace character.
@@ -2346,7 +2316,7 @@ type Session struct {
 	// Agent The root agent that runs the session's turns, such as `core:general-purpose`, or `core:system` for the system session.
 	Agent string `json:"agent"`
 
-	// AgentSpace The agent space this session's tools run in, `control` or `docker:<profile>`, shared by every session of the workspace. Absent for a session recorded before agent spaces existed, which runs in the deployment default.
+	// AgentSpace The agent space this session's tools run in, `control` or `docker:<profile>`. Absent for a session recorded before agent spaces existed, which runs in the deployment default.
 	AgentSpace *string `json:"agentSpace,omitempty"`
 
 	// CompletedTurnCount Number of turns that completed.
@@ -2379,7 +2349,7 @@ type Session struct {
 
 // SessionAgentSpaceDecision One recorded agent space change of one session, made by `POST /session/reconfigure`.
 type SessionAgentSpaceDecision struct {
-	// DecidedAt When the change was recorded, RFC 3339. Every session moved by one call shares this time.
+	// DecidedAt When the change was recorded, RFC 3339.
 	DecidedAt time.Time `json:"decidedAt"`
 
 	// FromAgentSpace The agent space the session ran in before this decision. Absent when the session had no recorded agent space.
@@ -3414,7 +3384,7 @@ type ClientInterface interface {
 
 	// ListSessionAgentSpaceDecisions List a session's agent space decisions
 	//
-	// Lists every agent space change recorded for the session named by `X-Session-ID`, newest first (by decision time, then ID). Each entry names the agent space the session moved from, the one it moved to, and the reason the caller gave. A `POST /session/reconfigure` on any session of the workspace adds one entry to each of the workspace's sessions.
+	// Lists every agent space change recorded for the session named by `X-Session-ID`, newest first (by decision time, then ID). Each entry names the agent space the session moved from, the one it moved to, and the reason the caller gave. A successful `POST /session/reconfigure` adds one entry.
 	//
 	// Page with `limit` and `offset`.
 	//
@@ -3854,11 +3824,11 @@ type ClientInterface interface {
 	// Corresponds with GET /session/prompt-snapshots/{promptHash} (the `GetSessionPromptSnapshot` operationId).
 	GetSessionPromptSnapshot(ctx context.Context, promptHash PromptHash, params *GetSessionPromptSnapshotParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReconfigureSessionWithBody Move a workspace's sessions to another agent space
+	// ReconfigureSessionWithBody Move a workspace session to another agent space
 	//
-	// Changes the agent space of the session named by `X-Session-ID` and of every other session of the same workspace, because the sessions of one workspace share one agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
+	// Changes the agent space of the session named by `X-Session-ID`. The client names only an agent space and never sends an image, mount, network setting, or capability.
 	//
-	// On success Peen records one decision per session, each with the caller's `reason`, and stops each session's current worker, so each session's next turn starts a new worker generation in the new agent space. The response is the decision for the session the call named; the others appear in each session's `GET /session/agent-space-decisions`.
+	// On success Peen records the decision with the caller's `reason` and stops the worker. The next turn starts a new worker in the new agent space. The decision also appears in `GET /session/agent-space-decisions`.
 	//
 	// Errors, none of which changes anything:
 	//
@@ -3866,18 +3836,18 @@ type ClientInterface interface {
 	// - 403 `AGENT_SPACE_NOT_ALLOWED`: the session is the system session, which always stays in `control`, whatever `agentSpace` names (message `the system session's agent space cannot be changed`); or `agentSpace` names an agent space the deployment does not offer.
 	// - 404 `SESSION_NOT_FOUND`: the session does not exist.
 	// - 409 `CONFLICT`: `agentSpace` names the agent space the workspace already runs in. Peen records no decision and stops no worker.
-	// - 409 `SESSION_BUSY`: any session of the workspace has a turn in flight. Changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. Retry once the turns end.
+	// - 409 `SESSION_BUSY`: the session has a turn in flight. Changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. Retry once the turns end.
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with POST /session/reconfigure (the `ReconfigureSession` operationId).
 	ReconfigureSessionWithBody(ctx context.Context, params *ReconfigureSessionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReconfigureSession Move a workspace's sessions to another agent space
+	// ReconfigureSession Move a workspace session to another agent space
 	//
-	// Changes the agent space of the session named by `X-Session-ID` and of every other session of the same workspace, because the sessions of one workspace share one agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
+	// Changes the agent space of the session named by `X-Session-ID`. The client names only an agent space and never sends an image, mount, network setting, or capability.
 	//
-	// On success Peen records one decision per session, each with the caller's `reason`, and stops each session's current worker, so each session's next turn starts a new worker generation in the new agent space. The response is the decision for the session the call named; the others appear in each session's `GET /session/agent-space-decisions`.
+	// On success Peen records the decision with the caller's `reason` and stops the worker. The next turn starts a new worker in the new agent space. The decision also appears in `GET /session/agent-space-decisions`.
 	//
 	// Errors, none of which changes anything:
 	//
@@ -3885,7 +3855,7 @@ type ClientInterface interface {
 	// - 403 `AGENT_SPACE_NOT_ALLOWED`: the session is the system session, which always stays in `control`, whatever `agentSpace` names (message `the system session's agent space cannot be changed`); or `agentSpace` names an agent space the deployment does not offer.
 	// - 404 `SESSION_NOT_FOUND`: the session does not exist.
 	// - 409 `CONFLICT`: `agentSpace` names the agent space the workspace already runs in. Peen records no decision and stops no worker.
-	// - 409 `SESSION_BUSY`: any session of the workspace has a turn in flight. Changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. Retry once the turns end.
+	// - 409 `SESSION_BUSY`: the session has a turn in flight. Changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. Retry once the turns end.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -3916,7 +3886,7 @@ type ClientInterface interface {
 
 	// ListSessions List every session
 	//
-	// Lists every session this controller holds, newest updated first (ties broken by session ID, descending). This includes every session of every workspace and the system session when one exists. It takes no `X-Session-ID` header, because it is how a client discovers which sessions exist.
+	// Lists every session this controller holds, newest updated first (ties broken by session ID, descending). This includes one session for each opened workspace and the system session when one exists. It takes no `X-Session-ID` header, because it is how a client discovers which sessions exist.
 	//
 	// Each item has the same shape as `GET /session`, except that `activeTurnFeedSequence` is never set here. Page with `limit` and `offset`; `hasMore` is true when at least one more session follows this page.
 	//
@@ -3929,12 +3899,12 @@ type ClientInterface interface {
 	//
 	// Resolves a workspace directory to its session and returns it, creating the session the first time the directory is opened. This is the only REST operation that creates a session, so a controller starts with none and a client must name the workspace it wants. It takes no `X-Session-ID` header; use the returned `session.id` as `X-Session-ID` on later REST calls and as `metadata.sessionId` on the WebSocket. The response also carries it in the `X-Session-ID` response header.
 	//
-	// The path is resolved through its symbolic links, so opening the same directory again by any of its names resumes the same session. A workspace can hold more than one session: scheduled turns, the Telegram bot, and the OpenAI API create further sessions of a workspace for their own conversations. This operation always opens the workspace's main session and never one of those.
+	// The path is resolved through its symbolic links, so opening the same directory again by any of its names resumes the same session. All entry points targeting that directory use its session.
 	//
-	// Every session of one workspace shares one agent space:
+	// Each workspace session has one agent space.
 	//
 	// - For a workspace with no session yet, `agentSpace` picks the agent space. Leaving it out gives the deployment default (`default` in `GET /agent-spaces`).
-	// - For a workspace that already has sessions, leaving `agentSpace` out or naming the agent space they use opens the session. Naming a different one returns 409 `AGENT_SPACE_CONFLICT`, whose message names the workspace's current agent space. Use `POST /session/reconfigure` to move the workspace on purpose.
+	// - For a workspace with a session, leaving `agentSpace` out or naming its current space reuses the session. Naming a different one returns 409 `AGENT_SPACE_CONFLICT`, whose message names the workspace's current agent space. Use `POST /session/reconfigure` to move the workspace on purpose.
 	//
 	// Errors, none of which creates a session:
 	//
@@ -3953,12 +3923,12 @@ type ClientInterface interface {
 	//
 	// Resolves a workspace directory to its session and returns it, creating the session the first time the directory is opened. This is the only REST operation that creates a session, so a controller starts with none and a client must name the workspace it wants. It takes no `X-Session-ID` header; use the returned `session.id` as `X-Session-ID` on later REST calls and as `metadata.sessionId` on the WebSocket. The response also carries it in the `X-Session-ID` response header.
 	//
-	// The path is resolved through its symbolic links, so opening the same directory again by any of its names resumes the same session. A workspace can hold more than one session: scheduled turns, the Telegram bot, and the OpenAI API create further sessions of a workspace for their own conversations. This operation always opens the workspace's main session and never one of those.
+	// The path is resolved through its symbolic links, so opening the same directory again by any of its names resumes the same session. All entry points targeting that directory use its session.
 	//
-	// Every session of one workspace shares one agent space:
+	// Each workspace session has one agent space.
 	//
 	// - For a workspace with no session yet, `agentSpace` picks the agent space. Leaving it out gives the deployment default (`default` in `GET /agent-spaces`).
-	// - For a workspace that already has sessions, leaving `agentSpace` out or naming the agent space they use opens the session. Naming a different one returns 409 `AGENT_SPACE_CONFLICT`, whose message names the workspace's current agent space. Use `POST /session/reconfigure` to move the workspace on purpose.
+	// - For a workspace with a session, leaving `agentSpace` out or naming its current space reuses the session. Naming a different one returns 409 `AGENT_SPACE_CONFLICT`, whose message names the workspace's current agent space. Use `POST /session/reconfigure` to move the workspace on purpose.
 	//
 	// Errors, none of which creates a session:
 	//
@@ -4122,7 +4092,7 @@ func (c *Client) GetSession(ctx context.Context, params *GetSessionParams, reqEd
 
 // ListSessionAgentSpaceDecisions List a session's agent space decisions
 //
-// Lists every agent space change recorded for the session named by `X-Session-ID`, newest first (by decision time, then ID). Each entry names the agent space the session moved from, the one it moved to, and the reason the caller gave. A `POST /session/reconfigure` on any session of the workspace adds one entry to each of the workspace's sessions.
+// Lists every agent space change recorded for the session named by `X-Session-ID`, newest first (by decision time, then ID). Each entry names the agent space the session moved from, the one it moved to, and the reason the caller gave. A successful `POST /session/reconfigure` adds one entry.
 //
 // Page with `limit` and `offset`.
 //
@@ -4902,11 +4872,11 @@ func (c *Client) GetSessionPromptSnapshot(ctx context.Context, promptHash Prompt
 	return c.Client.Do(req)
 }
 
-// ReconfigureSessionWithBody Move a workspace's sessions to another agent space
+// ReconfigureSessionWithBody Move a workspace session to another agent space
 //
-// Changes the agent space of the session named by `X-Session-ID` and of every other session of the same workspace, because the sessions of one workspace share one agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
+// Changes the agent space of the session named by `X-Session-ID`. The client names only an agent space and never sends an image, mount, network setting, or capability.
 //
-// On success Peen records one decision per session, each with the caller's `reason`, and stops each session's current worker, so each session's next turn starts a new worker generation in the new agent space. The response is the decision for the session the call named; the others appear in each session's `GET /session/agent-space-decisions`.
+// On success Peen records the decision with the caller's `reason` and stops the worker. The next turn starts a new worker in the new agent space. The decision also appears in `GET /session/agent-space-decisions`.
 //
 // Errors, none of which changes anything:
 //
@@ -4914,7 +4884,7 @@ func (c *Client) GetSessionPromptSnapshot(ctx context.Context, promptHash Prompt
 // - 403 `AGENT_SPACE_NOT_ALLOWED`: the session is the system session, which always stays in `control`, whatever `agentSpace` names (message `the system session's agent space cannot be changed`); or `agentSpace` names an agent space the deployment does not offer.
 // - 404 `SESSION_NOT_FOUND`: the session does not exist.
 // - 409 `CONFLICT`: `agentSpace` names the agent space the workspace already runs in. Peen records no decision and stops no worker.
-// - 409 `SESSION_BUSY`: any session of the workspace has a turn in flight. Changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. Retry once the turns end.
+// - 409 `SESSION_BUSY`: the session has a turn in flight. Changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. Retry once the turns end.
 //
 // Takes any type of body and a specified content type.
 //
@@ -4931,11 +4901,11 @@ func (c *Client) ReconfigureSessionWithBody(ctx context.Context, params *Reconfi
 	return c.Client.Do(req)
 }
 
-// ReconfigureSession Move a workspace's sessions to another agent space
+// ReconfigureSession Move a workspace session to another agent space
 //
-// Changes the agent space of the session named by `X-Session-ID` and of every other session of the same workspace, because the sessions of one workspace share one agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
+// Changes the agent space of the session named by `X-Session-ID`. The client names only an agent space and never sends an image, mount, network setting, or capability.
 //
-// On success Peen records one decision per session, each with the caller's `reason`, and stops each session's current worker, so each session's next turn starts a new worker generation in the new agent space. The response is the decision for the session the call named; the others appear in each session's `GET /session/agent-space-decisions`.
+// On success Peen records the decision with the caller's `reason` and stops the worker. The next turn starts a new worker in the new agent space. The decision also appears in `GET /session/agent-space-decisions`.
 //
 // Errors, none of which changes anything:
 //
@@ -4943,7 +4913,7 @@ func (c *Client) ReconfigureSessionWithBody(ctx context.Context, params *Reconfi
 // - 403 `AGENT_SPACE_NOT_ALLOWED`: the session is the system session, which always stays in `control`, whatever `agentSpace` names (message `the system session's agent space cannot be changed`); or `agentSpace` names an agent space the deployment does not offer.
 // - 404 `SESSION_NOT_FOUND`: the session does not exist.
 // - 409 `CONFLICT`: `agentSpace` names the agent space the workspace already runs in. Peen records no decision and stops no worker.
-// - 409 `SESSION_BUSY`: any session of the workspace has a turn in flight. Changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. Retry once the turns end.
+// - 409 `SESSION_BUSY`: the session has a turn in flight. Changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. Retry once the turns end.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -5004,7 +4974,7 @@ func (c *Client) ListSessionWorkers(ctx context.Context, params *ListSessionWork
 
 // ListSessions List every session
 //
-// Lists every session this controller holds, newest updated first (ties broken by session ID, descending). This includes every session of every workspace and the system session when one exists. It takes no `X-Session-ID` header, because it is how a client discovers which sessions exist.
+// Lists every session this controller holds, newest updated first (ties broken by session ID, descending). This includes one session for each opened workspace and the system session when one exists. It takes no `X-Session-ID` header, because it is how a client discovers which sessions exist.
 //
 // Each item has the same shape as `GET /session`, except that `activeTurnFeedSequence` is never set here. Page with `limit` and `offset`; `hasMore` is true when at least one more session follows this page.
 //
@@ -5027,12 +4997,12 @@ func (c *Client) ListSessions(ctx context.Context, params *ListSessionsParams, r
 //
 // Resolves a workspace directory to its session and returns it, creating the session the first time the directory is opened. This is the only REST operation that creates a session, so a controller starts with none and a client must name the workspace it wants. It takes no `X-Session-ID` header; use the returned `session.id` as `X-Session-ID` on later REST calls and as `metadata.sessionId` on the WebSocket. The response also carries it in the `X-Session-ID` response header.
 //
-// The path is resolved through its symbolic links, so opening the same directory again by any of its names resumes the same session. A workspace can hold more than one session: scheduled turns, the Telegram bot, and the OpenAI API create further sessions of a workspace for their own conversations. This operation always opens the workspace's main session and never one of those.
+// The path is resolved through its symbolic links, so opening the same directory again by any of its names resumes the same session. All entry points targeting that directory use its session.
 //
-// Every session of one workspace shares one agent space:
+// Each workspace session has one agent space.
 //
 // - For a workspace with no session yet, `agentSpace` picks the agent space. Leaving it out gives the deployment default (`default` in `GET /agent-spaces`).
-// - For a workspace that already has sessions, leaving `agentSpace` out or naming the agent space they use opens the session. Naming a different one returns 409 `AGENT_SPACE_CONFLICT`, whose message names the workspace's current agent space. Use `POST /session/reconfigure` to move the workspace on purpose.
+// - For a workspace with a session, leaving `agentSpace` out or naming its current space reuses the session. Naming a different one returns 409 `AGENT_SPACE_CONFLICT`, whose message names the workspace's current agent space. Use `POST /session/reconfigure` to move the workspace on purpose.
 //
 // Errors, none of which creates a session:
 //
@@ -5061,12 +5031,12 @@ func (c *Client) OpenSessionWithBody(ctx context.Context, contentType string, bo
 //
 // Resolves a workspace directory to its session and returns it, creating the session the first time the directory is opened. This is the only REST operation that creates a session, so a controller starts with none and a client must name the workspace it wants. It takes no `X-Session-ID` header; use the returned `session.id` as `X-Session-ID` on later REST calls and as `metadata.sessionId` on the WebSocket. The response also carries it in the `X-Session-ID` response header.
 //
-// The path is resolved through its symbolic links, so opening the same directory again by any of its names resumes the same session. A workspace can hold more than one session: scheduled turns, the Telegram bot, and the OpenAI API create further sessions of a workspace for their own conversations. This operation always opens the workspace's main session and never one of those.
+// The path is resolved through its symbolic links, so opening the same directory again by any of its names resumes the same session. All entry points targeting that directory use its session.
 //
-// Every session of one workspace shares one agent space:
+// Each workspace session has one agent space.
 //
 // - For a workspace with no session yet, `agentSpace` picks the agent space. Leaving it out gives the deployment default (`default` in `GET /agent-spaces`).
-// - For a workspace that already has sessions, leaving `agentSpace` out or naming the agent space they use opens the session. Naming a different one returns 409 `AGENT_SPACE_CONFLICT`, whose message names the workspace's current agent space. Use `POST /session/reconfigure` to move the workspace on purpose.
+// - For a workspace with a session, leaving `agentSpace` out or naming its current space reuses the session. Naming a different one returns 409 `AGENT_SPACE_CONFLICT`, whose message names the workspace's current agent space. Use `POST /session/reconfigure` to move the workspace on purpose.
 //
 // Errors, none of which creates a session:
 //
@@ -8074,7 +8044,7 @@ type ClientWithResponsesInterface interface {
 
 	// ListSessionAgentSpaceDecisionsWithResponse List a session's agent space decisions
 	//
-	// Lists every agent space change recorded for the session named by `X-Session-ID`, newest first (by decision time, then ID). Each entry names the agent space the session moved from, the one it moved to, and the reason the caller gave. A `POST /session/reconfigure` on any session of the workspace adds one entry to each of the workspace's sessions.
+	// Lists every agent space change recorded for the session named by `X-Session-ID`, newest first (by decision time, then ID). Each entry names the agent space the session moved from, the one it moved to, and the reason the caller gave. A successful `POST /session/reconfigure` adds one entry.
 	//
 	// Page with `limit` and `offset`.
 	//
@@ -8570,11 +8540,11 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /session/prompt-snapshots/{promptHash} (the `GetSessionPromptSnapshot` operationId).
 	GetSessionPromptSnapshotWithResponse(ctx context.Context, promptHash PromptHash, params *GetSessionPromptSnapshotParams, reqEditors ...RequestEditorFn) (*GetSessionPromptSnapshotResponse, error)
 
-	// ReconfigureSessionWithBodyWithResponse Move a workspace's sessions to another agent space
+	// ReconfigureSessionWithBodyWithResponse Move a workspace session to another agent space
 	//
-	// Changes the agent space of the session named by `X-Session-ID` and of every other session of the same workspace, because the sessions of one workspace share one agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
+	// Changes the agent space of the session named by `X-Session-ID`. The client names only an agent space and never sends an image, mount, network setting, or capability.
 	//
-	// On success Peen records one decision per session, each with the caller's `reason`, and stops each session's current worker, so each session's next turn starts a new worker generation in the new agent space. The response is the decision for the session the call named; the others appear in each session's `GET /session/agent-space-decisions`.
+	// On success Peen records the decision with the caller's `reason` and stops the worker. The next turn starts a new worker in the new agent space. The decision also appears in `GET /session/agent-space-decisions`.
 	//
 	// Errors, none of which changes anything:
 	//
@@ -8582,18 +8552,18 @@ type ClientWithResponsesInterface interface {
 	// - 403 `AGENT_SPACE_NOT_ALLOWED`: the session is the system session, which always stays in `control`, whatever `agentSpace` names (message `the system session's agent space cannot be changed`); or `agentSpace` names an agent space the deployment does not offer.
 	// - 404 `SESSION_NOT_FOUND`: the session does not exist.
 	// - 409 `CONFLICT`: `agentSpace` names the agent space the workspace already runs in. Peen records no decision and stops no worker.
-	// - 409 `SESSION_BUSY`: any session of the workspace has a turn in flight. Changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. Retry once the turns end.
+	// - 409 `SESSION_BUSY`: the session has a turn in flight. Changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. Retry once the turns end.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /session/reconfigure (the `ReconfigureSession` operationId).
 	ReconfigureSessionWithBodyWithResponse(ctx context.Context, params *ReconfigureSessionParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReconfigureSessionResponse, error)
 
-	// ReconfigureSessionWithResponse Move a workspace's sessions to another agent space
+	// ReconfigureSessionWithResponse Move a workspace session to another agent space
 	//
-	// Changes the agent space of the session named by `X-Session-ID` and of every other session of the same workspace, because the sessions of one workspace share one agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
+	// Changes the agent space of the session named by `X-Session-ID`. The client names only an agent space and never sends an image, mount, network setting, or capability.
 	//
-	// On success Peen records one decision per session, each with the caller's `reason`, and stops each session's current worker, so each session's next turn starts a new worker generation in the new agent space. The response is the decision for the session the call named; the others appear in each session's `GET /session/agent-space-decisions`.
+	// On success Peen records the decision with the caller's `reason` and stops the worker. The next turn starts a new worker in the new agent space. The decision also appears in `GET /session/agent-space-decisions`.
 	//
 	// Errors, none of which changes anything:
 	//
@@ -8601,7 +8571,7 @@ type ClientWithResponsesInterface interface {
 	// - 403 `AGENT_SPACE_NOT_ALLOWED`: the session is the system session, which always stays in `control`, whatever `agentSpace` names (message `the system session's agent space cannot be changed`); or `agentSpace` names an agent space the deployment does not offer.
 	// - 404 `SESSION_NOT_FOUND`: the session does not exist.
 	// - 409 `CONFLICT`: `agentSpace` names the agent space the workspace already runs in. Peen records no decision and stops no worker.
-	// - 409 `SESSION_BUSY`: any session of the workspace has a turn in flight. Changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. Retry once the turns end.
+	// - 409 `SESSION_BUSY`: the session has a turn in flight. Changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. Retry once the turns end.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -8636,7 +8606,7 @@ type ClientWithResponsesInterface interface {
 
 	// ListSessionsWithResponse List every session
 	//
-	// Lists every session this controller holds, newest updated first (ties broken by session ID, descending). This includes every session of every workspace and the system session when one exists. It takes no `X-Session-ID` header, because it is how a client discovers which sessions exist.
+	// Lists every session this controller holds, newest updated first (ties broken by session ID, descending). This includes one session for each opened workspace and the system session when one exists. It takes no `X-Session-ID` header, because it is how a client discovers which sessions exist.
 	//
 	// Each item has the same shape as `GET /session`, except that `activeTurnFeedSequence` is never set here. Page with `limit` and `offset`; `hasMore` is true when at least one more session follows this page.
 	//
@@ -8651,12 +8621,12 @@ type ClientWithResponsesInterface interface {
 	//
 	// Resolves a workspace directory to its session and returns it, creating the session the first time the directory is opened. This is the only REST operation that creates a session, so a controller starts with none and a client must name the workspace it wants. It takes no `X-Session-ID` header; use the returned `session.id` as `X-Session-ID` on later REST calls and as `metadata.sessionId` on the WebSocket. The response also carries it in the `X-Session-ID` response header.
 	//
-	// The path is resolved through its symbolic links, so opening the same directory again by any of its names resumes the same session. A workspace can hold more than one session: scheduled turns, the Telegram bot, and the OpenAI API create further sessions of a workspace for their own conversations. This operation always opens the workspace's main session and never one of those.
+	// The path is resolved through its symbolic links, so opening the same directory again by any of its names resumes the same session. All entry points targeting that directory use its session.
 	//
-	// Every session of one workspace shares one agent space:
+	// Each workspace session has one agent space.
 	//
 	// - For a workspace with no session yet, `agentSpace` picks the agent space. Leaving it out gives the deployment default (`default` in `GET /agent-spaces`).
-	// - For a workspace that already has sessions, leaving `agentSpace` out or naming the agent space they use opens the session. Naming a different one returns 409 `AGENT_SPACE_CONFLICT`, whose message names the workspace's current agent space. Use `POST /session/reconfigure` to move the workspace on purpose.
+	// - For a workspace with a session, leaving `agentSpace` out or naming its current space reuses the session. Naming a different one returns 409 `AGENT_SPACE_CONFLICT`, whose message names the workspace's current agent space. Use `POST /session/reconfigure` to move the workspace on purpose.
 	//
 	// Errors, none of which creates a session:
 	//
@@ -8675,12 +8645,12 @@ type ClientWithResponsesInterface interface {
 	//
 	// Resolves a workspace directory to its session and returns it, creating the session the first time the directory is opened. This is the only REST operation that creates a session, so a controller starts with none and a client must name the workspace it wants. It takes no `X-Session-ID` header; use the returned `session.id` as `X-Session-ID` on later REST calls and as `metadata.sessionId` on the WebSocket. The response also carries it in the `X-Session-ID` response header.
 	//
-	// The path is resolved through its symbolic links, so opening the same directory again by any of its names resumes the same session. A workspace can hold more than one session: scheduled turns, the Telegram bot, and the OpenAI API create further sessions of a workspace for their own conversations. This operation always opens the workspace's main session and never one of those.
+	// The path is resolved through its symbolic links, so opening the same directory again by any of its names resumes the same session. All entry points targeting that directory use its session.
 	//
-	// Every session of one workspace shares one agent space:
+	// Each workspace session has one agent space.
 	//
 	// - For a workspace with no session yet, `agentSpace` picks the agent space. Leaving it out gives the deployment default (`default` in `GET /agent-spaces`).
-	// - For a workspace that already has sessions, leaving `agentSpace` out or naming the agent space they use opens the session. Naming a different one returns 409 `AGENT_SPACE_CONFLICT`, whose message names the workspace's current agent space. Use `POST /session/reconfigure` to move the workspace on purpose.
+	// - For a workspace with a session, leaving `agentSpace` out or naming its current space reuses the session. Naming a different one returns 409 `AGENT_SPACE_CONFLICT`, whose message names the workspace's current agent space. Use `POST /session/reconfigure` to move the workspace on purpose.
 	//
 	// Errors, none of which creates a session:
 	//
@@ -12498,7 +12468,7 @@ func (c *ClientWithResponses) GetSessionWithResponse(ctx context.Context, params
 
 // ListSessionAgentSpaceDecisionsWithResponse List a session's agent space decisions
 //
-// Lists every agent space change recorded for the session named by `X-Session-ID`, newest first (by decision time, then ID). Each entry names the agent space the session moved from, the one it moved to, and the reason the caller gave. A `POST /session/reconfigure` on any session of the workspace adds one entry to each of the workspace's sessions.
+// Lists every agent space change recorded for the session named by `X-Session-ID`, newest first (by decision time, then ID). Each entry names the agent space the session moved from, the one it moved to, and the reason the caller gave. A successful `POST /session/reconfigure` adds one entry.
 //
 // Page with `limit` and `offset`.
 //
@@ -13198,11 +13168,11 @@ func (c *ClientWithResponses) GetSessionPromptSnapshotWithResponse(ctx context.C
 	return ParseGetSessionPromptSnapshotResponse(rsp)
 }
 
-// ReconfigureSessionWithBodyWithResponse Move a workspace's sessions to another agent space
+// ReconfigureSessionWithBodyWithResponse Move a workspace session to another agent space
 //
-// Changes the agent space of the session named by `X-Session-ID` and of every other session of the same workspace, because the sessions of one workspace share one agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
+// Changes the agent space of the session named by `X-Session-ID`. The client names only an agent space and never sends an image, mount, network setting, or capability.
 //
-// On success Peen records one decision per session, each with the caller's `reason`, and stops each session's current worker, so each session's next turn starts a new worker generation in the new agent space. The response is the decision for the session the call named; the others appear in each session's `GET /session/agent-space-decisions`.
+// On success Peen records the decision with the caller's `reason` and stops the worker. The next turn starts a new worker in the new agent space. The decision also appears in `GET /session/agent-space-decisions`.
 //
 // Errors, none of which changes anything:
 //
@@ -13210,7 +13180,7 @@ func (c *ClientWithResponses) GetSessionPromptSnapshotWithResponse(ctx context.C
 // - 403 `AGENT_SPACE_NOT_ALLOWED`: the session is the system session, which always stays in `control`, whatever `agentSpace` names (message `the system session's agent space cannot be changed`); or `agentSpace` names an agent space the deployment does not offer.
 // - 404 `SESSION_NOT_FOUND`: the session does not exist.
 // - 409 `CONFLICT`: `agentSpace` names the agent space the workspace already runs in. Peen records no decision and stops no worker.
-// - 409 `SESSION_BUSY`: any session of the workspace has a turn in flight. Changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. Retry once the turns end.
+// - 409 `SESSION_BUSY`: the session has a turn in flight. Changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. Retry once the turns end.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -13223,11 +13193,11 @@ func (c *ClientWithResponses) ReconfigureSessionWithBodyWithResponse(ctx context
 	return ParseReconfigureSessionResponse(rsp)
 }
 
-// ReconfigureSessionWithResponse Move a workspace's sessions to another agent space
+// ReconfigureSessionWithResponse Move a workspace session to another agent space
 //
-// Changes the agent space of the session named by `X-Session-ID` and of every other session of the same workspace, because the sessions of one workspace share one agent space. The client names only an agent space and never sends an image, mount, network setting, or capability.
+// Changes the agent space of the session named by `X-Session-ID`. The client names only an agent space and never sends an image, mount, network setting, or capability.
 //
-// On success Peen records one decision per session, each with the caller's `reason`, and stops each session's current worker, so each session's next turn starts a new worker generation in the new agent space. The response is the decision for the session the call named; the others appear in each session's `GET /session/agent-space-decisions`.
+// On success Peen records the decision with the caller's `reason` and stops the worker. The next turn starts a new worker in the new agent space. The decision also appears in `GET /session/agent-space-decisions`.
 //
 // Errors, none of which changes anything:
 //
@@ -13235,7 +13205,7 @@ func (c *ClientWithResponses) ReconfigureSessionWithBodyWithResponse(ctx context
 // - 403 `AGENT_SPACE_NOT_ALLOWED`: the session is the system session, which always stays in `control`, whatever `agentSpace` names (message `the system session's agent space cannot be changed`); or `agentSpace` names an agent space the deployment does not offer.
 // - 404 `SESSION_NOT_FOUND`: the session does not exist.
 // - 409 `CONFLICT`: `agentSpace` names the agent space the workspace already runs in. Peen records no decision and stops no worker.
-// - 409 `SESSION_BUSY`: any session of the workspace has a turn in flight. Changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. Retry once the turns end.
+// - 409 `SESSION_BUSY`: the session has a turn in flight. Changing the environment under running work would attribute that turn's tool calls to an agent space that did not run them. Retry once the turns end.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -13288,7 +13258,7 @@ func (c *ClientWithResponses) ListSessionWorkersWithResponse(ctx context.Context
 
 // ListSessionsWithResponse List every session
 //
-// Lists every session this controller holds, newest updated first (ties broken by session ID, descending). This includes every session of every workspace and the system session when one exists. It takes no `X-Session-ID` header, because it is how a client discovers which sessions exist.
+// Lists every session this controller holds, newest updated first (ties broken by session ID, descending). This includes one session for each opened workspace and the system session when one exists. It takes no `X-Session-ID` header, because it is how a client discovers which sessions exist.
 //
 // Each item has the same shape as `GET /session`, except that `activeTurnFeedSequence` is never set here. Page with `limit` and `offset`; `hasMore` is true when at least one more session follows this page.
 //
@@ -13309,12 +13279,12 @@ func (c *ClientWithResponses) ListSessionsWithResponse(ctx context.Context, para
 //
 // Resolves a workspace directory to its session and returns it, creating the session the first time the directory is opened. This is the only REST operation that creates a session, so a controller starts with none and a client must name the workspace it wants. It takes no `X-Session-ID` header; use the returned `session.id` as `X-Session-ID` on later REST calls and as `metadata.sessionId` on the WebSocket. The response also carries it in the `X-Session-ID` response header.
 //
-// The path is resolved through its symbolic links, so opening the same directory again by any of its names resumes the same session. A workspace can hold more than one session: scheduled turns, the Telegram bot, and the OpenAI API create further sessions of a workspace for their own conversations. This operation always opens the workspace's main session and never one of those.
+// The path is resolved through its symbolic links, so opening the same directory again by any of its names resumes the same session. All entry points targeting that directory use its session.
 //
-// Every session of one workspace shares one agent space:
+// Each workspace session has one agent space.
 //
 // - For a workspace with no session yet, `agentSpace` picks the agent space. Leaving it out gives the deployment default (`default` in `GET /agent-spaces`).
-// - For a workspace that already has sessions, leaving `agentSpace` out or naming the agent space they use opens the session. Naming a different one returns 409 `AGENT_SPACE_CONFLICT`, whose message names the workspace's current agent space. Use `POST /session/reconfigure` to move the workspace on purpose.
+// - For a workspace with a session, leaving `agentSpace` out or naming its current space reuses the session. Naming a different one returns 409 `AGENT_SPACE_CONFLICT`, whose message names the workspace's current agent space. Use `POST /session/reconfigure` to move the workspace on purpose.
 //
 // Errors, none of which creates a session:
 //
@@ -13339,12 +13309,12 @@ func (c *ClientWithResponses) OpenSessionWithBodyWithResponse(ctx context.Contex
 //
 // Resolves a workspace directory to its session and returns it, creating the session the first time the directory is opened. This is the only REST operation that creates a session, so a controller starts with none and a client must name the workspace it wants. It takes no `X-Session-ID` header; use the returned `session.id` as `X-Session-ID` on later REST calls and as `metadata.sessionId` on the WebSocket. The response also carries it in the `X-Session-ID` response header.
 //
-// The path is resolved through its symbolic links, so opening the same directory again by any of its names resumes the same session. A workspace can hold more than one session: scheduled turns, the Telegram bot, and the OpenAI API create further sessions of a workspace for their own conversations. This operation always opens the workspace's main session and never one of those.
+// The path is resolved through its symbolic links, so opening the same directory again by any of its names resumes the same session. All entry points targeting that directory use its session.
 //
-// Every session of one workspace shares one agent space:
+// Each workspace session has one agent space.
 //
 // - For a workspace with no session yet, `agentSpace` picks the agent space. Leaving it out gives the deployment default (`default` in `GET /agent-spaces`).
-// - For a workspace that already has sessions, leaving `agentSpace` out or naming the agent space they use opens the session. Naming a different one returns 409 `AGENT_SPACE_CONFLICT`, whose message names the workspace's current agent space. Use `POST /session/reconfigure` to move the workspace on purpose.
+// - For a workspace with a session, leaving `agentSpace` out or naming its current space reuses the session. Naming a different one returns 409 `AGENT_SPACE_CONFLICT`, whose message names the workspace's current agent space. Use `POST /session/reconfigure` to move the workspace on purpose.
 //
 // Errors, none of which creates a session:
 //

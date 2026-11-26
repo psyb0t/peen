@@ -121,7 +121,7 @@ func (s *Scheduler) scheduleBaseline(
 func definitionHash(job cronconfig.Job) (string, error) {
 	encoded, err := json.Marshal([]any{
 		job.Name, job.ScheduleText, job.TimeZone, job.Workspace,
-		job.AgentSpace, job.Session, job.Message, job.Model,
+		job.AgentSpace, job.Message, job.Model,
 		job.ReasoningEffort, job.Timeout, job.OutputSchema,
 		job.TelegramChatID,
 	})
