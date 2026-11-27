@@ -1,22 +1,34 @@
 ---
 name: peen
-description: Configure and operate Peen, the durable coding-agent backend. Use when setting up a provider and Docker workspace, sending work over WebSocket, adding project harness rules, or inspecting and controlling durable sessions.
+description: Install and operate Peen, the durable coding-agent backend. Use when setting up a model provider and Docker workspace, sending work over WebSocket, adding project harness rules, or inspecting and controlling durable sessions. Setup downloads an installer from GitHub, runs it after you read it, writes Peen's configuration under ~/.config/peen, and can pull and run the psyb0t/peen image with Docker.
 homepage: https://github.com/psyb0t/peen
 user-invocable: true
 permissions:
+  network:
+    - "raw.githubusercontent.com and github.com over HTTPS: download the installer and the peen command, and look up the newest release"
+    - "Docker Hub: pull the psyb0t/peen image during setup"
+    - "127.0.0.1:8080: the REST API and WebSocket of the user's own Peen controller"
+    - "the model provider URLs the user lists in PEEN_UPSTREAMS: Peen sends prompts and tool output there"
+    - "api.telegram.org, only when the operator turns on the Telegram bot (PEEN_TELEGRAM): messages and replies for allowed chats"
   filesystem:
     read:
       - "README.md"
       - "docs/**"
       - ".env.example"
+      - "peen-install.sh"
     write:
-      - ".env"
+      - "peen-install.sh"
+      - "~/.config/peen/**"
+      - "~/.local/bin/peen"
+      - "/usr/local/bin/peen (only for the optional system-wide install)"
       - "AGENTS.md"
       - ".agents/**"
   shell:
-    - "peen *"
-    - "docker run *"
     - "curl *"
+    - "bash peen-install.sh *"
+    - "sudo bash peen-install.sh --system (optional system-wide install)"
+    - "peen *"
+    - "docker run psyb0t/peen *"
 metadata:
   openclaw:
     emoji: "🧰"
@@ -33,7 +45,9 @@ Peen is a durable coding-agent backend. It works in a real project directory, st
 
 Treat a Peen workspace as direct shell and filesystem access for the model. Open only a project the operator is willing to let the agent change. The installer's default gives each workspace's agent its own container that sees that project and Peen's configuration directory read-only. The controller itself gets the host Docker socket in that setup, which is host root for Peen but not for the agent. Do not give an agent the Docker socket, an SSH directory, or a directory with credentials unless the operator asks for that. Tool output is stored in the transcript and sent to connected clients, so do not let the agent read or print secrets.
 
-Keep provider credentials in `.env` or a deployment secret store. Set a real `PEEN_API_TOKEN` and use `wss://` before exposing Peen beyond a trusted local network.
+Keep provider credentials in Peen's configuration file (`peen config edit` opens it) or a deployment secret store, and never print them. Set a real `PEEN_API_TOKEN` and use `wss://` before exposing Peen beyond a trusted local network.
+
+Data leaves the machine in these ways. Setup downloads the installer and the `peen` command from `raw.githubusercontent.com` and `github.com` and pulls the image from Docker Hub. Peen sends prompts and tool output to the model provider URLs in `PEEN_UPSTREAMS`, so list only providers the operator trusts. The API examples call the user's own controller at `127.0.0.1:8080`, so change the address only to a Peen the user runs. When the operator turns on the Telegram bot, chat messages and replies go through `api.telegram.org`.
 
 ## When to use
 
@@ -49,16 +63,20 @@ Keep provider credentials in `.env` or a deployment secret store. Set a real `PE
 
 ## Start Peen
 
-Install the `peen` command, configure one provider, then open a project. Delete the provider entries you do not use, together with their key variables. `PEEN_UPSTREAMS` is raw JSON for Docker, so do not source `.env` in Bash.
+Install the `peen` command, configure one provider, then open a project. Download the installer to a file and read all of it before you run it, because it installs a command and runs setup, which pulls the Peen image with Docker. Delete the provider entries you do not use, together with their key variables. `PEEN_UPSTREAMS` is raw JSON for Docker, so do not source the configuration file in Bash.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/psyb0t/peen/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/psyb0t/peen/main/install.sh -o peen-install.sh
+cat peen-install.sh
+bash peen-install.sh
 peen config edit
 cd ~/work/my-app
 peen
 ```
 
-By default Peen runs in a container and each workspace's agent runs in its own container. `--control-space host` and `--agent-space control` change that, and [where it runs](https://github.com/psyb0t/peen/blob/main/docs/where-it-runs.md) says what the agent can touch in each of the four combinations. The configuration lives in `~/.config/peen`. It holds `.env`, the `config/` directory with the trusted base harness, which every Docker worker reads read-only, and the `state/` directory with SQLite, logs, and worker sockets, which no Docker worker receives. The workspace root is the home directory unless the installer got `--workspace-root`. Peen refuses a workspace that contains its state or configuration directory, or sits inside the state directory. `peen` prints a link to the session it opened. `peen status`, `peen logs`, `peen doctor`, `peen stop`, and `peen upgrade` manage the controller. [Setup](references/setup.md) also points to the manual `docker run` route.
+The default install puts the command in `~/.local/bin/peen` and the configuration in `~/.config/peen`, for the current user only. The optional system-wide install runs `sudo bash peen-install.sh --system`. It puts the command in `/usr/local/bin/peen` and sets Peen up for the user who ran sudo.
+
+By default Peen runs in a container and each workspace's agent runs in its own container. `--control-space host` and `--agent-space control` change that, and [where it runs](https://github.com/psyb0t/peen/blob/main/docs/where-it-runs.md) says what the agent can touch in each of the four combinations. The configuration lives in `~/.config/peen`. It holds the `.env` file, the `config/` directory with the trusted base harness, which every Docker worker reads read-only, and the `state/` directory with SQLite, logs, and worker sockets, which no Docker worker receives. The workspace root is the home directory unless the installer got `--workspace-root`. Peen refuses a workspace that contains its state or configuration directory, or sits inside the state directory. `peen` prints a link to the session it opened. `peen status`, `peen logs`, `peen doctor`, `peen stop`, and `peen upgrade` manage the controller. [Setup](references/setup.md) also points to the manual `docker run` route.
 
 ## Send and follow work
 
@@ -68,7 +86,7 @@ Send the returned ID as `metadata.sessionId` in a `message.send` WebSocket event
 
 `GET /api/v1/sessions` lists what exists and needs no session header.
 
-Use REST to read stored state and control work. A message for the agent goes over the WebSocket, or through one of the optional entry points below. Send `X-Session-ID` to the session endpoints. For example, list messages with `GET /api/v1/messages` and ask a turn to stop with `POST /api/v1/session/cancel`. The [REST API](https://psyb0t.github.io/peen/http-api/) leads to the reference for every endpoint, and the [WebSocket API](https://psyb0t.github.io/peen/websocket-api/) has every frame.
+Use REST to read saved session data and control work. A message for the agent goes over the WebSocket, or through one of the optional entry points below. Send `X-Session-ID` to the session endpoints. For example, list messages with `GET /api/v1/messages` and ask a turn to stop with `POST /api/v1/session/cancel`. The [REST API](https://psyb0t.github.io/peen/http-api/) leads to the reference for every endpoint, and the [WebSocket API](https://psyb0t.github.io/peen/websocket-api/) has every frame.
 
 ## Validated answers, deadlines, and other entry points
 

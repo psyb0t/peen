@@ -2,14 +2,9 @@
 
 ## Install with the peen command
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/psyb0t/peen/main/install.sh | bash
-peen config edit
-cd ~/work/my-app
-peen
-```
+Download the installer, read it, and run it as [Start Peen](../SKILL.md#start-peen) shows. Then run `peen config edit`, `cd` into a project, and run `peen`.
 
-The installer pins the newest release and writes `~/.config/peen`. Its defaults run Peen in a container with the host Docker socket and give each workspace's agent its own container. Pass flags after `bash -s --`, such as `--control-space host`, `--agent-space control`, or `--workspace-root DIR`. `peen` starts the controller when needed, opens the session for the current directory, and prints its link. [Deployment](https://github.com/psyb0t/peen/blob/main/docs/deployment.md#install) lists every flag and command, and [where it runs](https://github.com/psyb0t/peen/blob/main/docs/where-it-runs.md) explains the combinations.
+The installer pins the newest release and writes `~/.config/peen`. Its defaults run Peen in a container with the host Docker socket and give each workspace's agent its own container. Pass flags after the file name, such as `bash peen-install.sh --control-space host`, `--agent-space control`, or `--workspace-root DIR`. `peen` starts the controller when needed, opens the session for the current directory, and prints its link. [Deployment](https://github.com/psyb0t/peen/blob/main/docs/deployment.md#install) lists every flag and command, and [where it runs](https://github.com/psyb0t/peen/blob/main/docs/where-it-runs.md) explains the combinations.
 
 ## Configure a provider
 

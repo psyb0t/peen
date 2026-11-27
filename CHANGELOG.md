@@ -2,6 +2,14 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.54.1 (2026-11-27)
+
+The agent skill states what setup does and where data goes, and the published copy on ClawHub names an exact image and installer.
+
+- Changes the skill's setup to download the installer to a file, read it, then run it, with the system-wide install as an optional `sudo` variant. It lists the network hosts, the files the installer writes under `~/.config/peen` and `~/.local/bin`, and the `docker run psyb0t/peen` command it may run.
+- Adds where data goes to the skill: GitHub and Docker Hub during setup, the model providers in `PEEN_UPSTREAMS`, the user's own controller at `127.0.0.1:8080`, and `api.telegram.org` only when the Telegram bot is on.
+- Pins the skill on ClawHub publish. The release workflow rewrites `psyb0t/peen` to the release tag and digest, and the raw install URL to the release tag, in the published copy only.
+
 ## v0.54.0 (2026-11-27)
 
 Peen supports MCP fully on both sides. The agent gets each MCP server's instructions in its system prompt, reads its resources with `listMcpResources` and `readMcpResource`, and uses its prompts with `listMcpPrompts` and `getMcpPrompt`, a user invokes a server's prompt with a message that starts with `/mcp:<server>:<prompt>`, and a server's questions for the user arrive as `question.asked` frames. The MCP control server at `/mcp/v1` gains instructions, `peen://` resources, argument completion, and progress on `sendMessage`. Peen never offers roots, sampling, or logging, which MCP 2026-07-28 deprecates. Regenerate WebSocket clients built from `api/asyncapi.yaml` before they read an `mcp.status` frame from this version, and send a message that starts with `/mcp:` only to invoke a prompt.

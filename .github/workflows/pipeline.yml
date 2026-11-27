@@ -138,5 +138,7 @@ jobs:
     with:
       skill_names: '["peen"]'
       plugin_names: "[]"
+      pin_images: '["psyb0t/peen"]'
+      pin_source_urls: true
     secrets:
       clawhub_token: ${{ secrets.CLAWHUB_TOKEN }}
