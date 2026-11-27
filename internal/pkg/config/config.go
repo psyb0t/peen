@@ -174,10 +174,13 @@ type Config struct {
 	// variables mcp.json may hand to a server through envFrom or
 	// bearerTokenEnv: workers receive them and the agent's commands never
 	// do. MCPStartTimeout bounds starting one server and listing its tools.
-	MCP             bool          `default:"true"  env:"PEEN_MCP"`
-	WorkspaceMCP    bool          `default:"false" env:"PEEN_WORKSPACE_MCP"`
-	MCPEnv          string        `env:"PEEN_MCP_ENV"`
-	MCPStartTimeout time.Duration `default:"30s"   env:"PEEN_MCP_START_TIMEOUT"` //nolint:lll // Immutable env tag.
+	// MCPMaxInstructionsBytes bounds each server's instructions in the
+	// system prompt; zero leaves them out.
+	MCP                     bool          `default:"true"  env:"PEEN_MCP"`
+	WorkspaceMCP            bool          `default:"false" env:"PEEN_WORKSPACE_MCP"` //nolint:lll // Immutable env tag.
+	MCPEnv                  string        `env:"PEEN_MCP_ENV"`
+	MCPStartTimeout         time.Duration `default:"30s"   env:"PEEN_MCP_START_TIMEOUT"`          //nolint:lll // Immutable env tag.
+	MCPMaxInstructionsBytes int           `default:"4096"  env:"PEEN_MCP_MAX_INSTRUCTIONS_BYTES"` //nolint:lll // Immutable env tag.
 
 	UpstreamsJSON   string `env:"PEEN_UPSTREAMS,required"`
 	DefaultModel    string `env:"PEEN_DEFAULT_MODEL,required"`

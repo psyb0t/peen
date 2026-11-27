@@ -7,7 +7,7 @@
 Enforce a stricter format than `gofmt`, while being backwards compatible.
 That is, `gofumpt` is happy with a subset of the formats that `gofmt` is happy with.
 
-The tool is a fork of `gofmt` as of Go 1.25.0, and requires Go 1.24 or later.
+The tool is a fork of `gofmt` as of Go 1.27.0, and requires Go 1.26 or later.
 It can be used as a drop-in replacement to format your Go code,
 and running `gofmt` after `gofumpt` should produce no changes.
 For example:
@@ -15,7 +15,7 @@ For example:
 	gofumpt -l -w .
 
 Some of the Go source files in this repository belong to the Go project.
-The project includes copies of `go/printer` and `go/doc/comment` as of Go 1.25.0
+The project includes copies of `go/printer` and `go/doc/comment` as of Go 1.27.0
 to ensure consistent formatting independent of what Go version is being used.
 The [added formatting rules](#Added-rules) are implemented in the `format` package.
 
@@ -29,9 +29,18 @@ unless directories or files within them are given as explicit arguments.
 Finally, note that the `-r` rewrite flag is removed in favor of `gofmt -r`,
 and the `-s` flag is hidden as it is always enabled.
 
+### Sponsoring
+
+If this project saves you or your company time, consider
+[sponsoring me on GitHub](https://github.com/sponsors/mvdan).
+Monthly tiers include benefits like your logo on a README,
+prioritized issues, or direct support in your company's chat app.
+One-time tiers offer a call about one of my projects
+or a Go consulting or mentorship session.
+
 ### Added rules
 
-**No empty lines following an assignment operator**
+**No newline after a simple assignment's operator**
 
 <details><summary><i>Example</i></summary>
 
@@ -438,6 +447,27 @@ type ZeroFields struct {
 
 </details>
 
+**Definitely useless parentheses should be removed**
+
+<details><summary><i>Example</i></summary>
+
+```go
+type C chan (int)
+
+var _ = f((3))
+```
+
+```go
+type C chan int
+
+var _ = f(3)
+```
+
+Parentheses around binary or unary expressions, as well as around types
+which require them (such as `chan (<-chan T)`), are kept as is.
+
+</details>
+
 ### Extra rules behind `-extra`
 
 **Adjacent parameters with the same type should be grouped together**
@@ -468,6 +498,28 @@ func Foo() (err error) {
 func Foo() (err error) {
 	return err
 }
+```
+
+</details>
+
+**Multi-line function calls with the opening parenthesis at the end of a line
+should place the closing parenthesis at the start of a line**
+
+<details><summary><i>Example</i></summary>
+
+```go
+result := compute(
+	a,
+	b,
+	c)
+```
+
+```go
+result := compute(
+	a,
+	b,
+	c,
+)
 ```
 
 </details>
@@ -627,6 +679,18 @@ well might be proposed for `gofmt` itself.
 The tool is also compatible with `gofmt` and is aimed to be stable, so you can
 rely on it for your code as long as you pin a version of it.
 
+### Updating with `go/format` and `cmd/gofmt`
+
+`internal/govendor` contains frozen copies of `go/format` and its dependencies
+at a specific Go version, so that installing a specific version of `gofumpt`
+results in exactly the same formatting behavior regardless of the Go version.
+
+As this tool is a fork of `cmd/gofmt`, the `gofmt.go`, `internal.go`,
+`format/rewrite.go`, and `format/simplify.go` are inherited from upstream.
+These include some modifications where necessary, and are updated manually.
+Note that two live under the `format` package as we want to expose
+syntax simplification via the Go API.
+
 ### Frequently Asked Questions
 
 > Why attempt to replace `gofmt` instead of building on top of it?
@@ -685,7 +749,7 @@ package p
 $ gofumpt f.go
 package p
 
-//gofumpt:diagnose v0.1.1-0.20211103104632-bdfa3b02e50a -lang=go1.16
+//gofumpt:diagnose version: v0.11.0 (go1.27.0) flags: -lang=go1 -modpath=
 ```
 
 ### License

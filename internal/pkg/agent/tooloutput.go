@@ -74,6 +74,10 @@ var toolOutputSources = map[string]string{
 	toolNameReadExecution:            toolOutputSourceTranscript,
 	toolNameReadMetrics:              toolOutputSourceTranscript,
 	toolNameResolveExecutionActivity: toolOutputSourceTranscript,
+	toolNameListMCPResources:         toolOutputSourceMCP,
+	toolNameReadMCPResource:          toolOutputSourceMCP,
+	toolNameListMCPPrompts:           toolOutputSourceMCP,
+	toolNameGetMCPPrompt:             toolOutputSourceMCP,
 }
 
 // toolOutputTagEscaper keeps tool output from opening or closing a wrapper of
@@ -94,6 +98,10 @@ var toolOutputNoticeTools = map[string]bool{
 	toolNameWebFetch:         true,
 	toolNameSearchExecutions: true,
 	toolNameReadExecution:    true,
+	toolNameListMCPResources: true,
+	toolNameReadMCPResource:  true,
+	toolNameListMCPPrompts:   true,
+	toolNameGetMCPPrompt:     true,
 }
 
 func toolOutputNeedsNotice(tool string, isError bool) bool {

@@ -89,4 +89,13 @@ These tools work on what Peen kept after a stop or a crash. [Recovery after a cr
 
 ## MCP and custom tools
 
-[MCP tool servers](mcp.md) add their tools next to these. An embedded runtime can add Go handlers with [Options.Tools](embedding.md#extension-points).
+[MCP tool servers](mcp.md) add their tools next to these, and these four tools while a running server offers resources or prompts:
+
+| Tool | What it does |
+| --- | --- |
+| `listMcpResources` | Lists the resources and resource templates of one MCP server or of all of them, a page at a time. Present while a running server offers resources. See [Resources](mcp.md#resources). |
+| `readMcpResource` | Reads one resource from an MCP server by URI: text as text, images as images, other binary contents described by type and size. |
+| `listMcpPrompts` | Lists the prompts of one MCP server or of all of them, with their arguments. Present while a running server offers prompts. See [Prompts](mcp.md#prompts). |
+| `getMcpPrompt` | Fills in one MCP prompt from its arguments and returns its messages in an `<mcpPrompt>` block. |
+
+Their results are `<toolOutput>` blocks with the notice that the text came from an MCP server. An embedded runtime can add Go handlers with [Options.Tools](embedding.md#extension-points).

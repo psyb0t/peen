@@ -374,21 +374,28 @@ components:
       additionalProperties: false
       required: [question]
       description: >-
-        A question an agent asked with the `ask` tool. It is the `data` of a
-        root `question.asked` frame and the `event` of a child's
-        `agent.run.question` frame. The agent waits until a message reaches it
-        or the ask times out. For the root conversation, your next message is
-        the answer.
+        A question an agent asked with the `ask` tool, or a question an MCP
+        server asked the user while one of its calls ran. It is the `data` of
+        a root `question.asked` frame and the `event` of a child's
+        `agent.run.question` frame. The agent or server waits until a message
+        reaches it or the question times out. For the root conversation, your
+        next message is the answer. An MCP server's question names the server
+        and quotes its text, lists the fields it asks for, and takes a JSON
+        object, the bare value of a one-field form, `decline`, or `cancel`.
       properties:
         question:
           type: string
-          description: The question text.
+          description: >-
+            The question text. For an MCP server's question, the part between
+            the `---` lines is the server's own text, at most 4096 bytes.
         callId:
           type: string
           description: >-
-            The call ID of the `ask` tool call, matching its `tool.use` and the
-            later answer frame. Present on every frame Peen sends now; absent
-            only on frames stored before Peen recorded it.
+            The call ID of the `ask` tool call, or of the MCP tool call the
+            server's question belongs to, matching its `tool.use` and the
+            later answer frame. Absent on frames stored before Peen recorded
+            it, and on an MCP server question that arrives outside the call's
+            own request, from a server on a protocol before 2026-07-28.
 
     QuestionAnswered:
       title: QuestionAnswered
@@ -1916,6 +1923,106 @@ components:
             the server does not offer. Absent when there are none.
           items:
             type: string
+        protocolVersion:
+          type: string
+          description: >-
+            The MCP protocol version the connection speaks, such as
+            `2026-07-28`, or `2025-11-25` for a server that predates it. At
+            most 128 bytes. Absent for a failed server.
+        serverInfo:
+          title: MCPServerInfo
+          type: object
+          additionalProperties: false
+          required: [name]
+          description: >-
+            What the server says it is. The server writes every field, each cut
+            to 128 bytes. Absent when the server gave no name.
+          properties:
+            name:
+              type: string
+              description: The server implementation's name.
+            title:
+              type: string
+              description: The server's display name. Absent when it gave none.
+            version:
+              type: string
+              description: The server's version. Absent when it gave none.
+        features:
+          type: array
+          description: |-
+            The MCP capabilities the server advertised, whether or not its mcp.json entry turns them off. Absent for a failed server.
+
+            - `tools`: tools the agent can call.
+            - `resources`: resources and resource templates, which the agent reads with `listMcpResources` and `readMcpResource`.
+            - `resourceSubscribe`: change notifications for single resources. Peen does not subscribe.
+            - `prompts`: prompts a user invokes with `/mcp:<server>:<prompt>` and the agent reads with `listMcpPrompts` and `getMcpPrompt`.
+            - `completions`: argument completion for prompts and resource templates. Peen does not use it.
+          items:
+            title: MCPServerFeature
+            type: string
+            enum: [tools, resources, resourceSubscribe, prompts, completions]
+        instructionsBytes:
+          type: integer
+          minimum: 0
+          description: >-
+            The size in bytes of the instructions the server sent, after the
+            `PEEN_MCP_MAX_INSTRUCTIONS_BYTES` cut when that limit is above
+            zero. Absent when the server sent none or failed.
+        instructionsIncluded:
+          type: boolean
+          description: >-
+            Whether the server's instructions reach the agent's system prompt.
+            They do when the server sent some, its mcp.json entry does not set
+            `instructions` to false, and `PEEN_MCP_MAX_INSTRUCTIONS_BYTES` is
+            above zero. Absent when false.
+        instructionsCut:
+          type: boolean
+          description: >-
+            Whether the server's instructions were longer than
+            `PEEN_MCP_MAX_INSTRUCTIONS_BYTES` and only their start is kept.
+            Absent when false.
+        prompts:
+          type: array
+          description: >-
+            The prompts the server offers, which a user invokes with a message
+            that starts with `/mcp:<server>:<prompt>`. At most the first 50 of
+            the server's first page. Absent when the server offers none, its
+            mcp.json entry sets `prompts` to false, or it failed.
+          items:
+            title: MCPPrompt
+            type: object
+            additionalProperties: false
+            required: [name, arguments]
+            description: One prompt an MCP server offers. The server writes every field.
+            properties:
+              name:
+                type: string
+                description: The prompt name to put after `/mcp:<server>:`.
+              title:
+                type: string
+                description: The prompt's display name, cut to 256 bytes. Absent when it gave none.
+              description:
+                type: string
+                description: What the prompt does, cut to 256 bytes. Absent when it gave none.
+              arguments:
+                type: array
+                description: The arguments the prompt takes, each passed as `name=value`. Empty when it takes none.
+                items:
+                  title: MCPPromptArgument
+                  type: object
+                  additionalProperties: false
+                  required: [name, required]
+                  description: One argument an MCP prompt takes.
+                  properties:
+                    name:
+                      type: string
+                      description: The argument name.
+                    description:
+                      type: string
+                      description: What the argument holds, cut to 256 bytes. Absent when the server gave none.
+                    required:
+                      type: boolean
+                      description: Whether the prompt needs the argument.
 
     MCPStatusData:
       title: MCPStatusData
@@ -1984,9 +2091,11 @@ components:
       additionalProperties: false
       required: [id, type, data, timestamp, metadata]
       description: >-
-        The root conversation asked you a question with the `ask` tool and is
-        waiting. Send your answer as the next `message.send`: it joins the
-        running turn's queue and reaches the waiting model. A
+        The root conversation asked you a question with the `ask` tool, or an
+        MCP server asked one while its call ran, and is waiting. Send your
+        answer as the next `message.send`: it joins the running turn's queue
+        and reaches the waiting model, and for an MCP server's question also
+        goes back to the server. A
         `question.answered` frame follows when the ask ends. A child agent's
         questions arrive as `agent.run.question` instead. Peen stores the frame
         before it sends it, gives it a `metadata.sequence`, and sends it to

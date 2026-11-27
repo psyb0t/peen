@@ -36,6 +36,7 @@ Startup names the variable and the value it rejected, and `peen start` prints th
 | A cron job's agent space conflicts with its workspace, naming the job, the workspace, and both agent spaces | The job's `agentSpace` differs from the space the workspace session already uses. | Give the job the workspace's agent space, or leave `agentSpace` out, or move the workspace with `POST /api/v1/session/reconfigure`. |
 | `PEEN_OPENAI_WORKSPACE must be absolute` | The OpenAI fallback workspace is a relative path. | Use an absolute path inside the workspace root. |
 | `PEEN_MCP_SERVER_ALLOWED_HOSTS is invalid` or `PEEN_MCP_SERVER_ALLOWED_ORIGINS is invalid` | A wildcard, a port in a host, or an origin that is not an exact HTTP or HTTPS origin. | See [MCP control server](mcp-server.md#connect). |
+| `PEEN_MCP_MAX_INSTRUCTIONS_BYTES is negative` | The MCP instructions limit is below zero. | Use `0` to leave MCP server instructions out, or a positive byte count. See [Instructions](mcp.md#instructions). |
 
 ## The controller does not answer
 

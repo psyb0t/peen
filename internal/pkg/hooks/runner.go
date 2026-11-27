@@ -596,7 +596,8 @@ func (r Runner) publishCommandEvents(
 	return nil
 }
 
-//nolint:nonamedreturns // The deferred lifecycle log needs the final outcome.
+// publishEvent uses named results because the deferred lifecycle log needs
+// the final outcome.
 func (r Runner) publishEvent(
 	ctx context.Context,
 	event emittedEvent,

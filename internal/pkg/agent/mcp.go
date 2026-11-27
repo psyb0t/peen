@@ -23,6 +23,12 @@ const (
 	mcpDescriptionMaxBytes = 2048
 	//nolint:lll // One model-facing note.
 	mcpDescriptionCutNote = "\n<note kind=\"descriptionCut\">The server's description was longer than 2048 bytes; this is its start.</note>"
+
+	// mcpElicitationNote follows the result of a call during which an MCP
+	// server asked the user a question, because the user's reply joins the
+	// conversation like any message sent while a turn runs.
+	//nolint:lll // One model-facing note.
+	mcpElicitationNote = "<note kind=\"mcpElicitation\">While this call ran, an MCP server asked the user a question. The user's reply also reaches you as a user message after this result; it answers the server, not you.</note>"
 )
 
 // capMCPDescription cuts a description longer than mcpDescriptionMaxBytes at
@@ -43,7 +49,8 @@ type mcpStatusPayload struct {
 }
 
 // mcpTools are the tools of every connected MCP server, wrapped so their
-// images reach the model the way readFile's do.
+// images reach the model the way readFile's do, followed by the resource
+// and prompt tools when a server offers either.
 func (r *Runtime) mcpTools(onPostRun elelem.MessageInjector) []elelem.Tool {
 	if !r.mcp.Configured() {
 		return nil
@@ -59,18 +66,17 @@ func (r *Runtime) mcpTools(onPostRun elelem.MessageInjector) []elelem.Tool {
 		registered = append(registered, tool)
 	}
 
-	return registered
+	registered = append(registered, r.mcpResourceTools(onPostRun)...)
+
+	return append(registered, r.mcpPromptTools(onPostRun)...)
 }
 
 // emitMCPStatus records the session's MCP servers at the start of every
 // turn, so a client can see which servers run and why one failed. A turn
 // with no MCP configuration records an empty list, so the latest report
-// never describes servers that are no longer configured.
+// never describes servers that are no longer configured. The servers were
+// refreshed before the turn's system prompt was built.
 func (p *preparedTurn) emitMCPStatus(ctx context.Context, r *Runtime) error {
-	// Refresh first: a session that had no mcp.json when its worker started
-	// may have one now.
-	r.mcp.Refresh(ctx)
-
 	servers := []mcptools.Status{}
 	if r.mcp.Configured() {
 		servers = r.mcp.Status(ctx)
@@ -97,6 +103,9 @@ func (r *Runtime) mcpToolHandler(
 		ctx context.Context,
 		input elelem.ToolInput,
 	) (elelem.ToolResult, error) {
+		ctx = contextWithParentToolCallID(ctx, input.CallID)
+		asked := r.mcpElicitations.Load()
+
 		result, err := call(ctx, input)
 		if err != nil {
 			if isTurnEndingError(err) {
@@ -106,21 +115,40 @@ func (r *Runtime) mcpToolHandler(
 			return elelem.NewToolErrorResult(toolErrorMessage(err)), nil
 		}
 
-		shown, notes := r.mcpResultImages(ctx, name, result.Images)
-		result.Images = nil
-
-		if len(notes) > 0 {
-			result.Content = strings.Join(
-				append([]string{result.Content}, notes...), mcpNoteSeparator,
-			)
-		}
-
-		if len(shown) == 0 || result.IsError {
-			return result, nil
-		}
-
-		return withToolImages(result, shown)
+		return r.mcpShowResult(ctx, name, result, asked)
 	}
+}
+
+// mcpShowResult describes the images the model cannot see, attaches the ones
+// it can, and notes a question the server asked the user while the call ran.
+// asked is the elicitation count read before the call.
+func (r *Runtime) mcpShowResult(
+	ctx context.Context,
+	name string,
+	result elelem.ToolResult,
+	asked int64,
+) (elelem.ToolResult, error) {
+	shown, notes := r.mcpResultImages(ctx, name, result.Images)
+	result.Images = nil
+	// Resource links ride in elelem's metadata. The text already names each
+	// link, and a tool result's metadata carries Peen's own keys only.
+	result.Metadata = nil
+
+	if r.mcpElicitations.Load() != asked {
+		notes = append(notes, mcpElicitationNote)
+	}
+
+	if len(notes) > 0 {
+		result.Content = strings.Join(
+			append([]string{result.Content}, notes...), mcpNoteSeparator,
+		)
+	}
+
+	if len(shown) == 0 || result.IsError {
+		return result, nil
+	}
+
+	return withToolImages(result, shown)
 }
 
 // mcpResultImages picks the images a result shows the model, at most

@@ -13,7 +13,7 @@ import (
 // server that ran and stopped restarts. A server that never started is tried
 // again only when the configuration changes, so a server that cannot start
 // does not cost every turn its start timeout. Every running server lists its
-// tools again, which picks up a server's own tool changes.
+// tools and prompts again, which picks up a server's own changes.
 func (m *Manager) Refresh(ctx context.Context) {
 	if m == nil {
 		return
@@ -112,5 +112,7 @@ func (m *Manager) refreshServers(ctx context.Context) {
 				"err", err,
 			)
 		}
+
+		server.listPrompts(ctx, m.options.StartTimeout)
 	}
 }

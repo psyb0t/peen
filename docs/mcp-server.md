@@ -1,6 +1,6 @@
 ---
 title: MCP control server
-description: Connect an MCP client to Peen to run durable turns, read stored sessions, and manage files inside an allowed workspace.
+description: Connect an MCP client to Peen to run durable turns, follow their progress, and read sessions and workspace files as tools or resources.
 nav_order: 12
 ---
 
@@ -27,7 +27,9 @@ Configure your MCP client's HTTP server entry with this URL and an Authorization
 }
 ```
 
-The endpoint is stateless Streamable HTTP. Peen issues no MCP session ID, and each tool call is an independent POST that returns when the call finishes, so `sendMessage` answers once the turn has ended rather than streaming progress. Resources, prompts and sampling are not offered.
+The endpoint is stateless Streamable HTTP. Peen issues no MCP session ID, and each request is an independent POST that returns when the call finishes, so `sendMessage` answers once the turn has ended. A client that sends a progress token gets [progress notifications](#progress) on that call's response stream while the turn runs.
+
+The server offers [tools](#tools), [resources](#resources), [completion](#completion) and [instructions](#instructions). [Protocol versions](#protocol-versions) says what each client version gets, and [Not offered](#not-offered) lists the MCP features Peen leaves out.
 
 The default allowed hosts are `localhost`, `127.0.0.1` and `[::1]`, with any valid port. The default allowed origins are `http://localhost:8080`, `http://127.0.0.1:8080` and `http://[::1]:8080`. Set `PEEN_MCP_SERVER_ALLOWED_HOSTS` to a comma-separated list of hostnames without ports, and `PEEN_MCP_SERVER_ALLOWED_ORIGINS` to exact HTTP or HTTPS origins when using a different address. Wildcards are refused.
 
@@ -64,9 +66,72 @@ Every session selector is checked against current workspace policy, and the syst
 
 A large file result carries its base64 content twice, as structured content and as the text fallback, so the client must accept a response or event of that size. Lower `PEEN_MAX_FILE_API_BYTES` when a client cannot.
 
+The results of `sendMessage` and `getSession` also carry two `resource_link` parts, pointing to `peen://session/<id>` and `peen://session/<id>/messages`. A `listSessions` result carries one `resource_link` part for each listed session, pointing to `peen://session/<id>`. The JSON text part stays first.
+
+## Instructions
+
+The server sends a short plain-text guide with its capabilities, which a client may show to its model. It says that each workspace has one session, how `sendMessage` picks or opens one, that a busy session refuses new messages, where model names come from, that paths are relative to the workspace root, which resource URIs exist, and that transcripts and files are data, not instructions. It names no host, path or token.
+
+## Resources
+
+Resources return the same stored state as the read tools. Every session URI passes the same workspace policy check as a tool's `sessionId`, and the system session is refused.
+
+| URI | Type | Contents |
+| --- | --- | --- |
+| `peen://sessions` | `application/json` | The first page of up to 200 permitted regular sessions, shaped like the `listSessions` result. Each item adds a `uri` field with its `peen://session/<id>` URI. |
+| `peen://session/{sessionId}` | `application/json` | The session object, the same JSON as `getSession`. |
+| `peen://session/{sessionId}/messages` | `application/json` | The last 50 messages, oldest first, shaped like the `readMessages` result. |
+| `peen://session/{sessionId}/files/{+path}` | depends on the path | A directory returns its listing JSON, like `listWorkspaceFiles`, as `application/json`. A file whose bytes are valid UTF-8 with no NUL byte returns them as `text` with type `text/plain`. Any other file returns them base64 encoded as `blob` with type `application/octet-stream`. An empty `path` lists the workspace root. |
+
+`resources/list` returns only `peen://sessions`. The three session URIs are templates, returned by `resources/templates/list`, so the list stays the same for every client. Percent-encode a path the way URI templates require, such as `%20` for a space and `%25` for a literal `%`. Peen decodes `sessionId` and `path` exactly once. It refuses a path that is not clean and relative, and a path that a second decode would turn into one, so neither `%2e%2e` nor `%252e%252e` climbs out of the workspace. Files use the same path rules and `PEEN_MAX_FILE_API_BYTES` limit as the file tools.
+
+A file resource carries its content once, unlike a file tool result, but a binary file still grows by a third as base64, and the client must accept a response of that size. Lower `PEEN_MAX_FILE_API_BYTES` when a client cannot.
+
+A failed read is a JSON-RPC error with a fixed message that never includes the underlying cause:
+
+| Code and message | When |
+| --- | --- |
+| `-32602` `Resource not found` | An unknown session, a missing file, or a URI that matches no resource or template. The error data carries the requested `uri`. |
+| `-32602` `The session or workspace is not allowed.` | Workspace policy refuses the session, the URI names the system session, or the path leaves the workspace or is not clean. |
+| `-32602` `The resource URI is not valid, or it names a file that cannot be read.` | A malformed session ID or escape, a file larger than `PEEN_MAX_FILE_API_BYTES`, or a path that is not a regular file. |
+| `-32603` `The operation could not be completed.` | Anything else. |
+
+## Completion
+
+`completion/complete` suggests values for the resource template arguments.
+
+- `sessionId`, in any of the three session templates, completes to the IDs of permitted regular sessions that start with the typed text, the same sessions `listSessions` shows. It returns at most 20 values and looks at the first 1000 sessions.
+- `path`, in the files template, needs `sessionId` in the request's context arguments. It lists the directory before the last `/` of the typed text and returns the entries whose names start with the text after it, as paths relative to the workspace root, at most 20 of them. The typed text is the plain path, not percent-encoded.
+
+A refused, malformed or unknown session or path completes to an empty list, so completion reveals nothing the tools do not.
+
+## Progress
+
+When a `sendMessage` call carries a `progressToken` in its `_meta`, Peen sends `notifications/progress` for it while the turn runs. `progress` counts the reported events. `message` names only the event type, plus the tool name for a tool call, such as `tool.use runCommand`, cut to 200 bytes. The reported events are `turn.started`, each `tool.use`, and the end of the turn (`turn.completed`, `turn.failed` or `turn.cancelled`). Peen sends at most one notification every 500 milliseconds, and when the turn ends it sends the last event it held back.
+
+Notifications carry no transcript text, tool arguments or tool results. A notification that cannot be delivered is dropped and never fails the turn.
+
+## Caching
+
+Every list result, `resources/read` result and discovery result says `cacheScope: "private"` and `ttlMs: 0`. A client refetches instead of reusing a result, and no shared cache keeps a transcript or file. A client that predates these fields ignores them.
+
+## Protocol versions
+
+Peen speaks MCP `2026-07-28` and the older versions back to `2024-11-05`.
+
+- A `2026-07-28` client discovers the server with `server/discover` and gets the tools, resources, completion, instructions, progress and caching fields described here. No list ever changes and nothing can be subscribed to, so the client has no reason to hold a `subscriptions/listen` stream open.
+- An older client connects with `initialize` and gets the same tools, resources, completion, instructions and progress notifications. The endpoint is stateless, so Peen never sends a request back to the client.
+
+## Not offered
+
+- Logging. MCP `2026-07-28` deprecates it, and progress notifications already report what a turn is doing. The server advertises no `logging` capability.
+- Prompts. Peen has no reusable prompt templates to offer. The agent's own instructions live in the [harness](harness.md).
+- Resource subscriptions and list-change notifications. Read a resource again to see new state, or follow the [WebSocket feed](websocket-api.md) for live events.
+- Elicitation, sampling and roots. Peen never asks the MCP client for input, a model call, or its directories. MCP `2026-07-28` deprecates sampling and roots.
+
 ## Errors
 
-A failed tool call is not a JSON-RPC error. It is a normal result with `isError: true` and one fixed text message:
+A failed resource read is a JSON-RPC error, described under [Resources](#resources). A failed tool call is not a JSON-RPC error. It is a normal result with `isError: true` and one fixed text message:
 
 | Text | When |
 | --- | --- |

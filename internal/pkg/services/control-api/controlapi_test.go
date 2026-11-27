@@ -267,7 +267,7 @@ func runAPIService(t *testing.T, fixture apiFixture) {
 		cancel()
 
 		select {
-		case <-done:
+		case <-done: //nolint:errcheck // Only waits for the API to stop.
 		case <-time.After(apiTestShutdownTimeout):
 			t.Fatal("control API did not stop")
 		}

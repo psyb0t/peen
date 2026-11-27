@@ -267,7 +267,7 @@ func TestHandleCommandWaitsForTheRuntime(t *testing.T) {
 	<-started
 
 	select {
-	case <-finished:
+	case <-finished: //nolint:errcheck // Any answer here fails the test.
 		t.Fatal("the command was answered before the runtime existed")
 	case <-time.After(testReadyGracePeriod):
 	}

@@ -7,9 +7,11 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/psyb0t/peen/internal/pkg/control"
 	"github.com/psyb0t/peen/internal/pkg/http/api"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -24,6 +26,12 @@ type testBoundary struct {
 	)
 	messages func(context.Context, api.ListMessagesParams) (
 		*api.MessagePage, error,
+	)
+	listing func(context.Context, uuid.UUID, string) (
+		control.WorkspaceFileListing, error,
+	)
+	read func(context.Context, uuid.UUID, string) (
+		control.WorkspaceFileContent, error,
 	)
 }
 
@@ -101,6 +109,14 @@ func (f *testBoundary) CancelSessionTurn(
 
 func testClient(t *testing.T, deps Dependencies) *mcp.ClientSession {
 	t.Helper()
+
+	return testClientWith(t, deps, nil)
+}
+
+func testClientWith(
+	t *testing.T, deps Dependencies, options *mcp.ClientOptions,
+) *mcp.ClientSession {
+	t.Helper()
 	server, err := New(deps)
 	require.NoError(t, err)
 	st, ct := mcp.NewInMemoryTransports()
@@ -108,7 +124,7 @@ func testClient(t *testing.T, deps Dependencies) *mcp.ClientSession {
 	require.NoError(t, err)
 	client := mcp.NewClient(&mcp.Implementation{
 		Name: "test", Version: "1",
-	}, nil)
+	}, options)
 	cs, err := client.Connect(t.Context(), ct, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -129,6 +145,36 @@ func callTool(
 	require.NoError(t, err)
 
 	return result
+}
+
+// readFailure reads a resource that must fail and returns its JSON-RPC error.
+func readFailure(
+	t *testing.T, c *mcp.ClientSession, uri string,
+) *jsonrpc.Error {
+	t.Helper()
+	result, err := c.ReadResource(t.Context(), &mcp.ReadResourceParams{
+		URI: uri,
+	})
+	require.Error(t, err, "%+v", result)
+	var failure *jsonrpc.Error
+	require.ErrorAs(t, err, &failure)
+
+	return failure
+}
+
+// readText reads a resource with one text part and returns that part.
+func readText(
+	t *testing.T, c *mcp.ClientSession, uri string,
+) *mcp.ResourceContents {
+	t.Helper()
+	result, err := c.ReadResource(t.Context(), &mcp.ReadResourceParams{
+		URI: uri,
+	})
+	require.NoError(t, err)
+	require.Len(t, result.Contents, 1)
+	assert.Equal(t, uri, result.Contents[0].URI)
+
+	return result.Contents[0]
 }
 
 //nolint:ireturn // The type parameter is the decoded JSON value.

@@ -46,6 +46,13 @@ type Server struct {
 
 	// Tools limits the server's tools to these names. Empty keeps them all.
 	Tools []string
+
+	// Instructions, Resources, and Prompts say whether the agent gets the
+	// server's instructions, resources, and prompts. Each is on unless
+	// mcp.json sets it to false.
+	Instructions bool
+	Resources    bool
+	Prompts      bool
 }
 
 // LoadOptions says where to read mcp.json and what it may use.
@@ -75,6 +82,14 @@ type rawServer struct {
 	Headers        map[string]string `json:"headers"`
 	BearerTokenEnv string            `json:"bearerTokenEnv"`
 	Tools          []string          `json:"tools"`
+	Instructions   *bool             `json:"instructions"`
+	Resources      *bool             `json:"resources"`
+	Prompts        *bool             `json:"prompts"`
+}
+
+// enabled is an optional switch's value. A switch mcp.json leaves out is on.
+func enabled(value *bool) bool {
+	return value == nil || *value
 }
 
 // Load reads the config directory's mcp.json and, when allowed, the
@@ -250,6 +265,10 @@ func parseServer(
 		Name: name, Source: source,
 		Transport: serverTransport(raw),
 		Tools:     slices.Clone(raw.Tools),
+
+		Instructions: enabled(raw.Instructions),
+		Resources:    enabled(raw.Resources),
+		Prompts:      enabled(raw.Prompts),
 	}
 
 	if err := validateServerName(name); err != nil {

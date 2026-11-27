@@ -376,7 +376,7 @@ func (s agentRunCompactionSink) persist(
 // alternative to a stored summary is dropping conversation the caller can
 // neither see in the response nor reconstruct afterwards.
 //
-//nolint:funlen,nonamedreturns // One compaction safety boundary.
+//nolint:funlen // One compaction safety boundary.
 func (c *compactor) handle(
 	ctx context.Context,
 	event *elelem.TokenLimitEvent,

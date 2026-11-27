@@ -391,7 +391,7 @@ func TestIdleWakeRecheckSkipsCancelledWorkflowRootFinish(t *testing.T) {
 	cancel()
 
 	select {
-	case <-finished:
+	case <-finished: //nolint:errcheck // Only the return matters here.
 	case <-time.After(wakeTestTimeout):
 		t.Fatal("the cancelled turn never returned")
 	}

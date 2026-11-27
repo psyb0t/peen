@@ -61,7 +61,7 @@ func assertResponsePastDeadline(t *testing.T, extend bool) {
 	response, err := client.Do(request)
 	if !extend {
 		require.Error(t, err)
-		<-completed
+		<-completed //nolint:errcheck // Only waits for the handler to end.
 
 		return
 	}

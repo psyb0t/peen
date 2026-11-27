@@ -6,7 +6,7 @@ nav_order: 7
 
 # The harness
 
-The harness is everything Peen tells the model besides your message: `AGENTS.md` instructions, rules, skills, named agents, event handlers, and hooks. You write it as plain files beside your code. Peen reads those files fresh at the start of every turn and whenever an agent calls `changeDirectory`. An edit takes effect on the next message or directory hop without a restart. Peen reads `SYSTEM.md`, `APPEND_SYSTEM.md` and scheduled jobs once at controller startup. MCP server configuration is read when a session's worker starts.
+The harness is everything Peen tells the model besides your message: `AGENTS.md` instructions, rules, skills, named agents, event handlers, and hooks. You write it as plain files beside your code. Peen reads those files fresh at the start of every turn and whenever an agent calls `changeDirectory`. An edit takes effect on the next message or directory hop without a restart. Peen reads `SYSTEM.md`, `APPEND_SYSTEM.md` and scheduled jobs once at controller startup. MCP server configuration is read at the start of every turn.
 
 | Piece | File | What it does | Details |
 | --- | --- | --- | --- |
@@ -19,7 +19,7 @@ The harness is everything Peen tells the model besides your message: `AGENTS.md`
 | Learned rules and skills | `.agents/learned/rules/**/*.md`, `.agents/learned/skills/<name>/SKILL.md` | Rules and skills an auto-evolving agent saved for itself | [Auto-evolve](#auto-evolve) |
 | Operator commands | `.agents/bin/` in `PEEN_CONFIG_DIR` | Executables added to `PATH` for agent commands and hooks | [Operator commands](#operator-commands) |
 | Scheduled jobs | `.agents/cron.yaml` in `PEEN_CONFIG_DIR` | Operator-defined scheduled turns, read at startup when enabled | [Scheduled turns](cron.md) |
-| MCP servers | `.agents/mcp.json` in `PEEN_CONFIG_DIR`, and in the workspace with `PEEN_WORKSPACE_MCP=true` | Tool servers whose tools the agent can call. Read once when the session's worker starts, not per directory. | [MCP servers](mcp.md) |
+| MCP servers | `.agents/mcp.json` in `PEEN_CONFIG_DIR`, and in the workspace with `PEEN_WORKSPACE_MCP=true` | Servers whose tools, resources, and prompts the agent can use, and whose instructions go into the system prompt as `<mcpInstructions>` blocks. Read at the start of every turn, not per directory. | [MCP servers](mcp.md) |
 
 ## Where Peen looks
 
@@ -133,8 +133,9 @@ The system prompt for a root turn is assembled in this order:
 4. The skill catalogue in a `<skills>` block: one line per skill with its name and description, core skills first under their `core:` names, then the rest.
 5. The named-agent catalogue in an `<agents>` block: one line per agent with its name and description, and its allowed tools when it has a limit, core agents first under their `core:` names, then the rest.
 6. Harness diagnostics in a `<diagnostics>` block, when a file was invalid.
-7. An `<environment>` block with today's UTC date, the current directory, operating system, architecture, and CPU count.
-8. Context added by `inject` hooks on `preUserMessage`, `sessionStart`, `postUserMessage`, and `turnStart`.
+7. Each running MCP server's instructions in an `<mcpInstructions server="..." source="...">` block, in configuration order, cut to `PEEN_MCP_MAX_INSTRUCTIONS_BYTES`. See [MCP tool servers](mcp.md#instructions).
+8. An `<environment>` block with today's UTC date, the current directory, operating system, architecture, and CPU count.
+9. Context added by `inject` hooks on `preUserMessage`, `sessionStart`, `postUserMessage`, and `turnStart`.
 
 Apart from context your own `inject` hooks and the date add, the system prompt holds nothing that changes from turn to turn, so a provider can reuse the cached prompt. Peen marks cache breakpoints for providers that need them, such as Anthropic. The `<environment>` block gives the date without a time of day, so the prompt changes at most once a day, and the agent runs `date -u` when it needs the time. A child agent's prompt has the same parts, with a `<childContext>` block and the child's own `<agent>` block in place of the root agent's.
 
@@ -142,7 +143,7 @@ A skill you name with `:skill-name` is not part of the system prompt. It reaches
 
 ## The prompt budget
 
-Every rule and `AGENTS.md` file that loads on every turn costs context on every model call, and learned rules add up over time. Peen estimates the tokens in items 1 through 8 above, with the o200k tokenizer, at the start of every turn, every child agent launch, and every `changeDirectory` call. When the estimate is over `PEEN_MAX_SYSTEM_PROMPT_PERCENT` of `PEEN_MAX_CONTEXT_TOKENS`, 25 percent by default, Peen refuses the turn before it stores anything. The sender gets `message.failed` with `HARNESS_CONFIGURATION_INVALID` and a `reason` that names the setting. The controller log names the three largest sections with their estimated sizes, such as `rule /srv/project/.agents/learned/rules/go-errors.md (6120)`. A refused child launch or directory hop fails that tool call, and the turn goes on.
+Every rule and `AGENTS.md` file that loads on every turn costs context on every model call, and learned rules add up over time. Peen estimates the tokens in items 1 through 9 above, with the o200k tokenizer, at the start of every turn, every child agent launch, and every `changeDirectory` call. When the estimate is over `PEEN_MAX_SYSTEM_PROMPT_PERCENT` of `PEEN_MAX_CONTEXT_TOKENS`, 25 percent by default, Peen refuses the turn before it stores anything. The sender gets `message.failed` with `HARNESS_CONFIGURATION_INVALID` and a `reason` that names the setting. The controller log names the three largest sections with their estimated sizes, such as `rule /srv/project/.agents/learned/rules/go-errors.md (6120)`, and names an MCP server's instructions as `mcp server <name>`. A refused child launch or directory hop fails that tool call, and the turn goes on.
 
 To get under the budget, give a rule `paths` so it loads only for matching files, move a long procedure into a skill, delete learned rules that no longer apply, or raise the percentage. Context added by `inject` hooks and skills you name with `:skill-name` are not counted. `PEEN_MAX_SYSTEM_PROMPT_PERCENT=0` turns the check off.
 

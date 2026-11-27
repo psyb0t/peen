@@ -39,6 +39,14 @@ type activeUserMessageQueue struct {
 	// is.
 	arrived chan struct{}
 
+	// interactive says a person can answer while the turn runs: the turn
+	// came from a message no caller waits on, not from an event or an entry
+	// point such as the OpenAI API, the MCP control server, or cron.
+	// answerWaiters each take the text of one message queued after they
+	// registered, in order, for MCP elicitations waiting for the user.
+	interactive   bool
+	answerWaiters []chan string
+
 	// snapshot and skills resolve a :name in a queued message the way the
 	// turn's own first message was resolved. skills is the ledger of every
 	// skill the turn has already delivered.
@@ -103,12 +111,14 @@ func newActiveUserMessageQueue(
 	}
 
 	return &activeUserMessageQueue{
-		queue:          queue,
-		turn:           prepared.turn,
-		workspace:      prepared.workspace,
-		capacity:       capacity,
-		arrived:        make(chan struct{}),
-		retired:        make(chan struct{}),
+		queue:     queue,
+		turn:      prepared.turn,
+		workspace: prepared.workspace,
+		capacity:  capacity,
+		arrived:   make(chan struct{}),
+		retired:   make(chan struct{}),
+		interactive: !prepared.input.RequireNewTurn &&
+			prepared.input.Origin == nil,
 		stopRevision:   prepared.opened.Session.StopRevision,
 		snapshot:       prepared.snapshot,
 		skills:         prepared.skillLedger,
@@ -230,6 +240,7 @@ func (q *activeUserMessageQueue) enqueueLegacyMessage(
 		skills:        skills,
 	})
 
+	q.handAnswer(input.Message)
 	close(q.arrived)
 	q.arrived = make(chan struct{})
 

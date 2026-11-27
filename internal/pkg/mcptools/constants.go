@@ -4,7 +4,10 @@
 // Servers are read from .agents/mcp.json in PEEN_CONFIG_DIR and, when the
 // operator allows it, in the session workspace. A stdio server runs as a
 // child of the worker, with the agent's access. A Streamable HTTP server is
-// reached from the worker's network. Only tools are supported.
+// reached from the worker's network. The Manager exposes each server's tools,
+// instructions, resources, and prompts, and routes a server's elicitation to
+// the Elicitor the agent runtime sets. Roots, sampling, and logging, which
+// MCP 2026-07-28 deprecates, are never offered.
 package mcptools
 
 import (
@@ -36,6 +39,26 @@ const (
 
 	httpSchemePrefix  = "http://"
 	httpsSchemePrefix = "https://"
+
+	// maxServerInfoBytes bounds each server-written identity field a status
+	// reports.
+	maxServerInfoBytes = 128
+	// maxStatusPrompts bounds the prompts a status lists per server, and
+	// maxPromptTextBytes each prompt's title, description, and argument
+	// descriptions.
+	maxStatusPrompts   = 50
+	maxPromptTextBytes = 256
+)
+
+// Feature is an MCP capability a server advertised.
+type Feature = string
+
+const (
+	FeatureTools             Feature = "tools"
+	FeatureResources         Feature = "resources"
+	FeatureResourceSubscribe Feature = "resourceSubscribe"
+	FeaturePrompts           Feature = "prompts"
+	FeatureCompletions       Feature = "completions"
 )
 
 // Transport is how Peen reaches an MCP server.

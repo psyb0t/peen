@@ -127,7 +127,7 @@ func workflowEmbeddingOptions(t *testing.T, driver elelem.Driver) Options {
 
 	return Options{
 		ConfigDirectory: config, Workspace: t.TempDir(), StateDirectory: t.TempDir(),
-		RootAgent: "default", DefaultModel: "example/mock", MaxContextTokens: 8192,
+		RootAgent: "default", DefaultModel: "example/mock", MaxContextTokens: 16384,
 		Models: map[string]ModelClient{"example/mock": {
 			Client: elelem.New(driver), Model: elelem.Model{ID: "mock"},
 		}},

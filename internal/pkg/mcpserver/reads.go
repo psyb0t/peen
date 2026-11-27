@@ -5,7 +5,9 @@ import (
 	"errors"
 	"slices"
 
+	"github.com/google/uuid"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/http/api"
 )
@@ -30,8 +32,32 @@ func (t tools) listSessions(
 		return toolFailure(err), api.SessionPage{}, nil
 	}
 
-	visible := make([]api.Session, 0, len(page.Items))
+	page.Items, err = t.visibleSessions(ctx, page.Items)
+	if err != nil {
+		return toolFailure(err), api.SessionPage{}, nil
+	}
+
+	links := make([]mcp.Content, 0, len(page.Items))
 	for _, item := range page.Items {
+		links = append(links, sessionLink(item.Id))
+	}
+
+	result, err := linkedResult(page, links)
+	if err != nil {
+		return toolFailure(err), api.SessionPage{}, nil
+	}
+
+	return result, page, nil
+}
+
+// visibleSessions drops sessions that current policy refuses or that went
+// away after paging, as listSessions does.
+func (t tools) visibleSessions(
+	ctx context.Context,
+	items []api.Session,
+) ([]api.Session, error) {
+	visible := make([]api.Session, 0, len(items))
+	for _, item := range items {
 		err := t.dependencies.Sessions.ValidateWorkspaceSession(ctx, item.Id)
 		if errors.Is(err, commerr.ErrPermissionDenied) ||
 			errors.Is(err, commerr.ErrNotFound) {
@@ -39,15 +65,13 @@ func (t tools) listSessions(
 		}
 
 		if err != nil {
-			return toolFailure(err), api.SessionPage{}, nil
+			return nil, ctxerrors.Wrap(err, "validate listed MCP session")
 		}
 
 		visible = append(visible, item)
 	}
 
-	page.Items = visible
-
-	return nil, page, nil
+	return visible, nil
 }
 
 func (t tools) getSession(
@@ -60,16 +84,21 @@ func (t tools) getSession(
 		return toolFailure(err), nil, nil
 	}
 
-	result, err := t.dependencies.Reader.Session(ctx, id)
+	stored, err := t.dependencies.Reader.Session(ctx, id)
 	if err != nil {
 		return toolFailure(err), nil, nil
 	}
 
-	if result == nil {
+	if stored == nil {
 		return toolFailure(commerr.ErrInvalidState), nil, nil
 	}
 
-	return nil, result, nil
+	result, err := linkedResult(stored, sessionLinks(id))
+	if err != nil {
+		return toolFailure(err), nil, nil
+	}
+
+	return result, stored, nil
 }
 
 func (t tools) readMessages(
@@ -87,23 +116,38 @@ func (t tools) readMessages(
 		return toolFailure(err), nil, nil
 	}
 
+	page, err := t.latestMessages(ctx, id, limit)
+	if err != nil {
+		return toolFailure(err), nil, nil
+	}
+
+	return nil, page, nil
+}
+
+// latestMessages reads the newest limit messages, oldest first.
+func (t tools) latestMessages(
+	ctx context.Context,
+	id uuid.UUID,
+	limit int32,
+) (*api.MessagePage, error) {
 	order := api.ListMessagesParamsOrderDesc
 
 	page, err := t.dependencies.Reader.ListMessages(ctx,
 		api.ListMessagesParams{XSessionID: id, Limit: &limit, Order: &order})
 	if err != nil {
-		return toolFailure(err), nil, nil
+		return nil, ctxerrors.Wrap(err, "list MCP session messages")
 	}
 
 	if page == nil {
-		return toolFailure(commerr.ErrInvalidState), nil, nil
+		return nil, ctxerrors.Wrap(commerr.ErrInvalidState,
+			"MCP message page is missing")
 	}
 
 	result := *page
 	result.Items = slices.Clone(page.Items)
 	slices.Reverse(result.Items)
 
-	return nil, &result, nil
+	return &result, nil
 }
 
 func (t tools) listModels(

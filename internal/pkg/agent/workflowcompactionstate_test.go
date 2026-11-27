@@ -18,22 +18,25 @@ func workflowCompactionStateFixture(
 ) (*compactor, []elelem.Message) {
 	t.Helper()
 
-	return &compactor{
-			options: compactionOptions{
-				ModelReference: "example/model", Prompt: "summarize prior work",
-				PromptHash: "example-hash", MaxOutputTokens: 50,
-				Timeout: time.Minute,
-			},
-			plan: reconstructionPlan{LeadCount: 1, Units: []reconstructionUnit{{
-				FromMessageID: uuid.New(), ToMessageID: uuid.New(), TurnID: uuid.New(),
-				FromSequence: 1, ToSequence: 2, MessageCount: 2,
-				Roles: []elelem.Role{elelem.RoleUser, elelem.RoleAssistant},
-			}}},
-		}, []elelem.Message{
-			{Role: elelem.RoleSystem, Content: elelem.Text("instructions")},
-			{Role: elelem.RoleUser, Content: elelem.Text("completed request")},
-			{Role: elelem.RoleAssistant, Content: elelem.Text("completed answer")},
-		}
+	compaction := &compactor{
+		options: compactionOptions{
+			ModelReference: "example/model", Prompt: "summarize prior work",
+			PromptHash: "example-hash", MaxOutputTokens: 50,
+			Timeout: time.Minute,
+		},
+		plan: reconstructionPlan{LeadCount: 1, Units: []reconstructionUnit{{
+			FromMessageID: uuid.New(), ToMessageID: uuid.New(), TurnID: uuid.New(),
+			FromSequence: 1, ToSequence: 2, MessageCount: 2,
+			Roles: []elelem.Role{elelem.RoleUser, elelem.RoleAssistant},
+		}}},
+	}
+	messages := []elelem.Message{
+		{Role: elelem.RoleSystem, Content: elelem.Text("instructions")},
+		{Role: elelem.RoleUser, Content: elelem.Text("completed request")},
+		{Role: elelem.RoleAssistant, Content: elelem.Text("completed answer")},
+	}
+
+	return compaction, messages
 }
 
 func TestWorkflowCompactionStateFreezesAndRoundTrips(t *testing.T) {

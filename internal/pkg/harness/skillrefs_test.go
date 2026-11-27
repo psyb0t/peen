@@ -63,6 +63,24 @@ func TestSkillReferences(t *testing.T) {
 			want:    []string{"core:review"},
 		},
 		{
+			name: "a leading MCP prompt block is the server's text",
+			message: "<mcpPrompt server=\"docs\" name=\"review\">\n" +
+				"<promptMessage role=\"user\">\nuse :freshness\n" +
+				"</promptMessage>\n</mcpPrompt>\n\nthen :planning",
+			want: []string{"planning"},
+		},
+		{
+			name: "an unclosed MCP prompt block names nothing",
+			message: "<mcpPrompt server=\"docs\" name=\"review\">\n" +
+				":planning",
+			want: []string{},
+		},
+		{
+			name:    "an MCP prompt tag later in the text is ordinary text",
+			message: "see <mcpPrompt x> and :planning",
+			want:    []string{"planning"},
+		},
+		{
 			name:    "core prefix alone is not a reference",
 			message: ":core: nothing and :core:",
 			want:    []string{},

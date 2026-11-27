@@ -363,24 +363,24 @@ func (r *Runtime) recoveredChildLaunch(
 		)
 	}
 
-	return &launchAgentDeps{
-			runtime:            r,
-			executor:           jobExecutor,
-			snapshot:           snapshot,
-			model:              model,
-			modelReference:     stored.ModelReference,
-			workerGenerationID: r.workerGenerationID.String(),
-			sessionID:          stored.SessionID,
-			parentTurnID:       stored.ParentTurnID,
-			requestID:          stored.RequestID,
-		}, preparedChildLaunch{
-			definition:       definition,
-			depth:            int(stored.Depth),
-			systemPrompt:     prompt,
-			allowedToolsJSON: stored.AllowedToolsJSON,
-			registry:         registry,
-			skillLedger:      newSkillLedger(),
-		}, nil
+	deps := &launchAgentDeps{
+		runtime:            r,
+		executor:           jobExecutor,
+		snapshot:           snapshot,
+		model:              model,
+		modelReference:     stored.ModelReference,
+		workerGenerationID: r.workerGenerationID.String(),
+		sessionID:          stored.SessionID,
+		parentTurnID:       stored.ParentTurnID,
+		requestID:          stored.RequestID,
+	}
+	launch := preparedChildLaunch{
+		definition: definition, depth: int(stored.Depth),
+		systemPrompt: prompt, allowedToolsJSON: stored.AllowedToolsJSON,
+		registry: registry, skillLedger: newSkillLedger(),
+	}
+
+	return deps, launch, nil
 }
 
 func (r *Runtime) recoveredChildModel(

@@ -72,6 +72,7 @@ func (q *activeUserMessageQueue) acceptWorkflowMessage(
 			}
 		}
 
+		q.handAnswer(input.Message)
 		close(q.arrived)
 		q.arrived = make(chan struct{})
 	}

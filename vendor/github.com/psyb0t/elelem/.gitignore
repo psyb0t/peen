@@ -3,11 +3,9 @@
 .env.local
 .env.*
 !.env.example
-AGENTS.md
 CODEX.local.md
 *coverage.*
 *.out
-CLAUDE.md
 .test*
 .research_files
 .agent_notes
@@ -42,3 +40,6 @@ pyrightconfig.json
 !scripts/test-coverage.sh
 
 .testing/
+/website/.docusaurus/
+/website/build/
+/website/node_modules/

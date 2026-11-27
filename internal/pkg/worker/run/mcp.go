@@ -45,6 +45,9 @@ func startMCP(
 		BaseEnvironment: environment,
 		LookupEnv:       os.LookupEnv,
 		StartTimeout:    deployment.MCPStartTimeout,
+		// The worker reads the setting; the agent takes each server's
+		// instructions, already cut to it, from the Manager.
+		MaxInstructionsBytes: deployment.MCPMaxInstructionsBytes,
 		// Every turn reads mcp.json again, so an edit applies at the next
 		// turn without a new worker.
 		Reload: func() ([]mcptools.Server, []mcptools.Status) {

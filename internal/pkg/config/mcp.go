@@ -38,6 +38,12 @@ func (c Config) validateMCP() error {
 			"PEEN_MCP_START_TIMEOUT is negative")
 	}
 
+	// Zero leaves every server's instructions out of the prompt.
+	if c.MCPMaxInstructionsBytes < 0 {
+		return ctxerrors.Wrap(ErrInvalidConfig,
+			"PEEN_MCP_MAX_INSTRUCTIONS_BYTES is negative")
+	}
+
 	for _, name := range c.MCPEnvNames() {
 		if !environmentVariableNamePattern.MatchString(name) {
 			return ctxerrors.Wrapf(ErrInvalidConfig,

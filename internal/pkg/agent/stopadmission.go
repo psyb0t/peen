@@ -42,6 +42,17 @@ func (r *Runtime) admitRequest(
 		return nil, nil, ctxerrors.Wrap(err, "admit turn request")
 	}
 
+	// A prompt is expanded in admission order, so the expanded message keeps
+	// its place among the messages queued for the session.
+	expanded, err := r.expandMCPPrompt(bound, admitted.input)
+	if err != nil {
+		admitted.close()
+
+		return nil, nil, ctxerrors.Wrap(err, "expand the MCP prompt")
+	}
+
+	admitted.input = expanded
+
 	return bound, admitted, nil
 }
 

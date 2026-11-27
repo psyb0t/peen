@@ -15,14 +15,23 @@ const (
 
 	// skillReferenceBoundaryRunes end a reference besides whitespace.
 	skillReferenceBoundaryRunes = ",.;!?)]}"
+
+	// mcpPromptBlockStart and mcpPromptBlockEnd delimit the MCP prompt a
+	// user message starts with after the agent expands /mcp:<server>:<name>.
+	// The block's text is the server's, which escapes its own closing tag.
+	mcpPromptBlockStart = "<mcpPrompt "
+	mcpPromptBlockEnd   = "\n</mcpPrompt>"
 )
 
 // SkillReferences finds standalone :skill-name references in a user message or
 // in a skill body. A reference is exact, not semantic: it starts the text or
 // follows whitespace, and it ends at a normal token boundary. A core skill is
 // written :core:skill-name, and only that exact prefix may carry a colon. Each
-// name appears once, in the order of its first reference.
+// name appears once, in the order of its first reference. An MCP prompt
+// block that starts the text is skipped: an MCP server wrote it, and a
+// server never picks the skills a message loads.
 func SkillReferences(text string) []string {
+	text = withoutMCPPromptBlock(text)
 	names := make([]string, 0)
 
 	for index := 0; index < len(text); index++ {
@@ -41,6 +50,21 @@ func SkillReferences(text string) []string {
 	}
 
 	return uniqueSkillNames(names)
+}
+
+// withoutMCPPromptBlock is text after the MCP prompt block it starts with,
+// or text itself when it starts with none.
+func withoutMCPPromptBlock(text string) string {
+	if !strings.HasPrefix(text, mcpPromptBlockStart) {
+		return text
+	}
+
+	_, rest, found := strings.Cut(text, mcpPromptBlockEnd)
+	if !found {
+		return ""
+	}
+
+	return rest
 }
 
 // skillReferenceNameEnd returns where the skill name starting at start ends.

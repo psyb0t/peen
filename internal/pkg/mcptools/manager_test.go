@@ -149,7 +149,10 @@ func TestManagerStartsServersAndReportsStatus(t *testing.T) {
 		Tools: []string{
 			"mcp__fixture__echo", "mcp__fixture__secret", "mcp__fixture__exit",
 		},
-		Warnings: []string{},
+		Warnings:        []string{},
+		ProtocolVersion: "2025-11-25",
+		ServerInfo:      &ServerInfo{Name: "fixture", Version: "1.0.0"},
+		Features:        []Feature{FeatureTools},
 	}, byName["fixture"])
 
 	assert.Equal(t, StateFailed, byName["broken"].State)

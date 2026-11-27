@@ -156,6 +156,13 @@ linters:
           - maintidx
           - wrapcheck
           - wsl_v5
+      # Servicepack owns these tests and a framework update overwrites them.
+      # errcheck from golangci-lint v2.15 reports their bare receives from a
+      # channel of errors; the fix belongs upstream in Servicepack.
+      - path: ^internal/(app|pkg/service-manager)/.*_test\.go$
+        linters:
+          - errcheck
+        text: Error return value is not checked
 
 formatters:
   enable:

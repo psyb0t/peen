@@ -1,20 +1,46 @@
 package mcpserver
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
+	"github.com/psyb0t/peen/internal/pkg/session"
 )
 
-// New registers Peen's controller tools. HTTP authentication, origin policy,
-// transport limits and request cancellation belong to the mounting server.
+// New registers Peen's controller tools, resources and completion. HTTP
+// authentication, origin policy, transport limits and request cancellation
+// belong to the mounting server.
 func New(dependencies Dependencies) (*mcp.Server, error) {
-	if dependencies.Runner == nil || dependencies.Sessions == nil ||
-		dependencies.Reader == nil || dependencies.Turns == nil ||
-		dependencies.Files == nil || dependencies.MaxOutputSchemaBytes < 0 {
-		return nil, ctxerrors.Wrap(commerr.ErrValidationFailed,
+	dependencies, err := withDefaults(dependencies)
+	if err != nil {
+		return nil, err
+	}
+
+	tools := tools{dependencies: dependencies}
+	server := mcp.NewServer(&mcp.Implementation{
+		Name: serverName, Version: serverVersion,
+	}, &mcp.ServerOptions{
+		Instructions:      serverInstructions,
+		Capabilities:      serverCapabilities(),
+		CompletionHandler: tools.complete,
+		SetCacheable:      privateUncached,
+	})
+	tools.registerMessages(server)
+	tools.registerReads(server)
+	tools.registerFiles(server)
+	tools.registerResources(server)
+
+	return server, nil
+}
+
+func withDefaults(dependencies Dependencies) (Dependencies, error) {
+	if !dependencies.complete() || dependencies.MaxOutputSchemaBytes < 0 ||
+		dependencies.MaxResourceMessages < 0 ||
+		dependencies.MaxResourceMessages > session.MaximumPageLimit {
+		return dependencies, ctxerrors.Wrap(commerr.ErrValidationFailed,
 			"MCP tool dependencies are invalid")
 	}
 
@@ -22,15 +48,29 @@ func New(dependencies Dependencies) (*mcp.Server, error) {
 		dependencies.MaxOutputSchemaBytes = defaultMaxOutputSchemaBytes
 	}
 
-	server := mcp.NewServer(&mcp.Implementation{
-		Name: serverName, Version: serverVersion,
-	}, nil)
-	tools := tools{dependencies: dependencies}
-	tools.registerMessages(server)
-	tools.registerReads(server)
-	tools.registerFiles(server)
+	if dependencies.MaxResourceMessages == 0 {
+		dependencies.MaxResourceMessages = defaultMaxResourceMessages
+	}
 
-	return server, nil
+	return dependencies, nil
+}
+
+// serverCapabilities replaces the SDK default, which advertises the
+// deprecated logging feature. Nothing here changes after startup, so no list
+// sends change notifications, and resources offer no subscriptions.
+func serverCapabilities() *mcp.ServerCapabilities {
+	return &mcp.ServerCapabilities{
+		Tools:       &mcp.ToolCapabilities{},
+		Resources:   &mcp.ResourceCapabilities{},
+		Completions: &mcp.CompletionCapabilities{},
+	}
+}
+
+// privateUncached keeps transcripts and files out of shared caches and makes
+// every list and read result stale at once.
+func privateUncached(_ context.Context, _ mcp.Request, cache *mcp.Cacheable) {
+	cache.TTLMs = 0
+	cache.CacheScope = cacheScopePrivate
 }
 
 func toolDefinition(name, description string) *mcp.Tool {

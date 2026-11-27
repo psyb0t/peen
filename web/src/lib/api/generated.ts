@@ -1347,6 +1347,60 @@ export interface components {
 			error?: string;
 			/** @description Problems that did not stop the server, such as a name in its `tools` list that the server does not offer. Absent when there are none. */
 			warnings?: string[];
+			/** @description The MCP protocol version the connection speaks, such as `2026-07-28`, or `2025-11-25` for a server that predates it. At most 128 bytes. Absent for a failed server. */
+			protocolVersion?: string;
+			serverInfo?: components["schemas"]["MCPServerInfo"];
+			/** @description The MCP capabilities the server advertised, whether or not its mcp.json entry turns them off. Absent for a failed server. */
+			features?: components["schemas"]["MCPServerFeature"][];
+			/** @description The size in bytes of the instructions the server sent, after the `PEEN_MCP_MAX_INSTRUCTIONS_BYTES` cut when that limit is above zero. Absent when the server sent none or failed. */
+			instructionsBytes?: number;
+			/** @description Whether the server's instructions reach the agent's system prompt. They do when the server sent some, its mcp.json entry does not set `instructions` to false, and `PEEN_MCP_MAX_INSTRUCTIONS_BYTES` is above zero. Absent when false. */
+			instructionsIncluded?: boolean;
+			/** @description Whether the server's instructions were longer than `PEEN_MCP_MAX_INSTRUCTIONS_BYTES` and only their start is kept. Absent when false. */
+			instructionsCut?: boolean;
+			/** @description The prompts the server offers, which a user invokes with a message that starts with `/mcp:<server>:<prompt>`. At most the first 50 of the server's first page. Absent when the server offers none, its mcp.json entry sets `prompts` to false, or it failed. */
+			prompts?: components["schemas"]["MCPPrompt"][];
+		};
+		/** @description What an MCP server says it is. The server writes every field, each cut to 128 bytes. Absent when the server gave no name. */
+		MCPServerInfo: {
+			/** @description The server implementation's name. */
+			name: string;
+			/** @description The server's display name. Absent when it gave none. */
+			title?: string;
+			/** @description The server's version. Absent when it gave none. */
+			version?: string;
+		};
+		/**
+		 * @description An MCP capability a server advertised.
+		 *
+		 *     - `tools`: tools the agent can call.
+		 *     - `resources`: resources and resource templates, which the agent reads with `listMcpResources` and `readMcpResource`.
+		 *     - `resourceSubscribe`: change notifications for single resources. Peen does not subscribe.
+		 *     - `prompts`: prompts a user invokes with `/mcp:<server>:<prompt>` and the agent reads with `listMcpPrompts` and `getMcpPrompt`.
+		 *     - `completions`: argument completion for prompts and resource templates. Peen does not use it.
+		 * @enum {string}
+		 */
+		MCPServerFeature:
+			"tools" | "resources" | "resourceSubscribe" | "prompts" | "completions";
+		/** @description One prompt an MCP server offers. The server writes every field. */
+		MCPPrompt: {
+			/** @description The prompt name to put after `/mcp:<server>:`. */
+			name: string;
+			/** @description The prompt's display name, cut to 256 bytes. Absent when it gave none. */
+			title?: string;
+			/** @description What the prompt does, cut to 256 bytes. Absent when it gave none. */
+			description?: string;
+			/** @description The arguments the prompt takes, each passed as `name=value`. Empty when it takes none. */
+			arguments: components["schemas"]["MCPPromptArgument"][];
+		};
+		/** @description One argument an MCP prompt takes. */
+		MCPPromptArgument: {
+			/** @description The argument name. */
+			name: string;
+			/** @description What the argument holds, cut to 256 bytes. Absent when the server gave none. */
+			description?: string;
+			/** @description Whether the prompt needs the argument. */
+			required: boolean;
 		};
 		/** @description One learned file and its text. Returned by `GET /session/learned/file`. */
 		LearnedFileContent: {

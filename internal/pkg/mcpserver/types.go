@@ -46,6 +46,13 @@ type Dependencies struct {
 	Turns                Turns
 	Files                control.WorkspaceFileService
 	MaxOutputSchemaBytes int
+	// MaxResourceMessages bounds the messages resource. Zero means 50.
+	MaxResourceMessages int32
+}
+
+func (d Dependencies) complete() bool {
+	return d.Runner != nil && d.Sessions != nil && d.Reader != nil &&
+		d.Turns != nil && d.Files != nil
 }
 
 type tools struct {
@@ -119,4 +126,18 @@ type writeFileInput struct {
 
 type deleteResult struct {
 	Deleted bool `json:"deleted"`
+}
+
+// sessionIndexItem is a listed session with the URI that reads it.
+type sessionIndexItem struct {
+	api.Session
+
+	URI string `json:"uri"`
+}
+
+type sessionIndex struct {
+	Items   []sessionIndexItem `json:"items"`
+	Limit   int32              `json:"limit"`
+	Offset  int32              `json:"offset"`
+	HasMore bool               `json:"hasMore"`
 }

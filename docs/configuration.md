@@ -49,6 +49,7 @@ These values decide where Peen keeps its state and which model handles a task. S
 | `PEEN_WORKSPACE_MCP` | `false` | `true` also reads `<workspace>/.agents/mcp.json`. Opening a session then runs any stdio server the workspace names. A workspace server gets no secrets. |
 | `PEEN_MCP_ENV` | empty | Comma-separated variables that `mcp.json` may hand a server through `envFrom` or `bearerTokenEnv`. Peen passes them to workers and removes them from every command the agent runs. A `PEEN_` setting is refused. |
 | `PEEN_MCP_START_TIMEOUT` | `30s` | Limits starting one MCP server and listing its tools. Zero takes the default. |
+| `PEEN_MCP_MAX_INSTRUCTIONS_BYTES` | `4096` | Limits the instructions each MCP server adds to the system prompt, in bytes. Longer instructions are cut with a note. `0` leaves every server's instructions out. A negative value stops startup. See [Instructions](mcp.md#instructions). |
 | `PEEN_UPSTREAMS` | required, JSON | Named provider list. See [providers](#providers). |
 | `PEEN_DEFAULT_MODEL` | required | `provider/model` for the root agent and, unless `PEEN_COMPACTION_MODEL` is set, compaction. |
 | `PEEN_COMPACTION_MODEL` | `PEEN_DEFAULT_MODEL` | `provider/model` used only for the summarization call. See [compaction](#compaction). |

@@ -418,7 +418,8 @@ func TestBusConcurrentPublishAndDrain(t *testing.T) {
 	defer stop()
 
 	go func() {
-		for range stream { //nolint:revive // Draining so fan-out never fills.
+		// Draining so fan-out never fills.
+		for range stream {
 		}
 	}()
 

@@ -4896,6 +4896,26 @@ type McpServerStatus struct {
 	Error *string `json:"error,omitempty"`
 	// Problems that did not stop the server, such as an allowlisted tool the server does not offer. Absent when there are none.
 	Warnings []string `json:"warnings,omitempty"`
+	// The MCP protocol version the connection speaks, such as `2026-07-28`, or `2025-11-25` for a server that predates it. At most 128 bytes. Absent for a failed server.
+	ProtocolVersion *string `json:"protocolVersion,omitempty"`
+	// What the server says it is. The server writes every field, each cut to 128 bytes. Absent when the server gave no name.
+	ServerInfo *McpServerInfo `json:"serverInfo,omitempty"`
+	// The MCP capabilities the server advertised, whether or not its mcp.json entry turns them off. Absent for a failed server.
+	//
+	// - `tools`: tools the agent can call.
+	// - `resources`: resources and resource templates, which the agent reads with `listMcpResources` and `readMcpResource`.
+	// - `resourceSubscribe`: change notifications for single resources. Peen does not subscribe.
+	// - `prompts`: prompts a user invokes with `/mcp:<server>:<prompt>` and the agent reads with `listMcpPrompts` and `getMcpPrompt`.
+	// - `completions`: argument completion for prompts and resource templates. Peen does not use it.
+	Features []McpServerFeature `json:"features,omitempty"`
+	// The size in bytes of the instructions the server sent, after the `PEEN_MCP_MAX_INSTRUCTIONS_BYTES` cut when that limit is above zero. Absent when the server sent none or failed.
+	InstructionsBytes *int64 `json:"instructionsBytes,omitempty"`
+	// Whether the server's instructions reach the agent's system prompt. They do when the server sent some, its mcp.json entry does not set `instructions` to false, and `PEEN_MCP_MAX_INSTRUCTIONS_BYTES` is above zero. Absent when false.
+	InstructionsIncluded *bool `json:"instructionsIncluded,omitempty"`
+	// Whether the server's instructions were longer than `PEEN_MCP_MAX_INSTRUCTIONS_BYTES` and only their start is kept. Absent when false.
+	InstructionsCut *bool `json:"instructionsCut,omitempty"`
+	// The prompts the server offers, which a user invokes with a message that starts with `/mcp:<server>:<prompt>`. At most the first 50 of the server's first page. Absent when the server offers none, its mcp.json entry sets `prompts` to false, or it failed.
+	Prompts []McpPrompt `json:"prompts,omitempty"`
 }
 
 // UnmarshalJSON decodes McpServerStatus strictly. Required properties must be
@@ -4911,7 +4931,7 @@ func (v *McpServerStatus) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	if err := asyncapirt.RejectUnknownKeys("McpServerStatus", members, "name", "source", "transport", "state", "tools", "error", "warnings"); err != nil {
+	if err := asyncapirt.RejectUnknownKeys("McpServerStatus", members, "name", "source", "transport", "state", "tools", "error", "warnings", "protocolVersion", "serverInfo", "features", "instructionsBytes", "instructionsIncluded", "instructionsCut", "prompts"); err != nil {
 		return err
 	}
 
@@ -4939,6 +4959,26 @@ func (v McpServerStatus) Validate() error {
 	}
 	if err := v.State.Validate(); err != nil {
 		return ctxerrors.Wrap(err, "state")
+	}
+	if v.ServerInfo != nil {
+		if err := (*v.ServerInfo).Validate(); err != nil {
+			return ctxerrors.Wrap(err, "serverInfo")
+		}
+	}
+	for i0, item0 := range v.Features {
+		if err := item0.Validate(); err != nil {
+			return ctxerrors.Wrap(err, fmt.Sprintf("%s[%d]", "features", i0))
+		}
+	}
+	if v.InstructionsBytes != nil {
+		if err := asyncapirt.CheckMinimum("instructionsBytes", float64((*v.InstructionsBytes)), 0); err != nil {
+			return err
+		}
+	}
+	for i0, item0 := range v.Prompts {
+		if err := item0.Validate(); err != nil {
+			return ctxerrors.Wrap(err, fmt.Sprintf("%s[%d]", "prompts", i0))
+		}
 	}
 
 	return nil
@@ -5010,7 +5050,170 @@ func (v McpServerState) Validate() error {
 	return asyncapirt.Invalid("McpServerState", fmt.Sprintf("unknown value %v", v))
 }
 
-// The root conversation asked you a question with the `ask` tool and is waiting. Send your answer as the next `message.send`: it joins the running turn's queue and reaches the waiting model. A `question.answered` frame follows when the ask ends. A child agent's questions arrive as `agent.run.question` instead. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
+// What the server says it is. The server writes every field, each cut to 128 bytes. Absent when the server gave no name.
+type McpServerInfo struct {
+	// The server implementation's name.
+	Name string `json:"name"`
+	// The server's display name. Absent when it gave none.
+	Title *string `json:"title,omitempty"`
+	// The server's version. Absent when it gave none.
+	Version *string `json:"version,omitempty"`
+}
+
+// UnmarshalJSON decodes McpServerInfo strictly. Required properties must be
+// present and the decoded value must pass Validate.
+// Properties the schema does not declare are rejected.
+func (v *McpServerInfo) UnmarshalJSON(data []byte) error {
+	members, err := asyncapirt.DecodeObject(data, "McpServerInfo")
+	if err != nil {
+		return err
+	}
+
+	if err := asyncapirt.RequireKeys("McpServerInfo", members, "name"); err != nil {
+		return err
+	}
+
+	if err := asyncapirt.RejectUnknownKeys("McpServerInfo", members, "name", "title", "version"); err != nil {
+		return err
+	}
+
+	type plain McpServerInfo
+
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return asyncapirt.DecodeError("McpServerInfo", err)
+	}
+
+	*v = McpServerInfo(decoded)
+
+	return v.Validate()
+}
+
+// Validate checks the constraints the schema declares for McpServerInfo.
+func (v McpServerInfo) Validate() error {
+
+	return nil
+}
+
+type McpServerFeature string
+
+// Values of McpServerFeature.
+const (
+	McpServerFeatureTools             McpServerFeature = "tools"
+	McpServerFeatureResources         McpServerFeature = "resources"
+	McpServerFeatureResourceSubscribe McpServerFeature = "resourceSubscribe"
+	McpServerFeaturePrompts           McpServerFeature = "prompts"
+	McpServerFeatureCompletions       McpServerFeature = "completions"
+)
+
+// Validate reports whether v is one of the values the schema lists.
+func (v McpServerFeature) Validate() error {
+	switch v {
+	case McpServerFeatureTools, McpServerFeatureResources, McpServerFeatureResourceSubscribe, McpServerFeaturePrompts, McpServerFeatureCompletions:
+		return nil
+	}
+
+	return asyncapirt.Invalid("McpServerFeature", fmt.Sprintf("unknown value %v", v))
+}
+
+// One prompt an MCP server offers. The server writes every field.
+type McpPrompt struct {
+	// The prompt name to put after `/mcp:<server>:`.
+	Name string `json:"name"`
+	// The prompt's display name, cut to 256 bytes. Absent when it gave none.
+	Title *string `json:"title,omitempty"`
+	// What the prompt does, cut to 256 bytes. Absent when it gave none.
+	Description *string `json:"description,omitempty"`
+	// The arguments the prompt takes, each passed as `name=value`. Empty when it takes none.
+	Arguments []McpPromptArgument `json:"arguments"`
+}
+
+// UnmarshalJSON decodes McpPrompt strictly. Required properties must be
+// present and the decoded value must pass Validate.
+// Properties the schema does not declare are rejected.
+func (v *McpPrompt) UnmarshalJSON(data []byte) error {
+	members, err := asyncapirt.DecodeObject(data, "McpPrompt")
+	if err != nil {
+		return err
+	}
+
+	if err := asyncapirt.RequireKeys("McpPrompt", members, "name", "arguments"); err != nil {
+		return err
+	}
+
+	if err := asyncapirt.RejectUnknownKeys("McpPrompt", members, "name", "title", "description", "arguments"); err != nil {
+		return err
+	}
+
+	type plain McpPrompt
+
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return asyncapirt.DecodeError("McpPrompt", err)
+	}
+
+	*v = McpPrompt(decoded)
+
+	return v.Validate()
+}
+
+// Validate checks the constraints the schema declares for McpPrompt.
+func (v McpPrompt) Validate() error {
+	for i0, item0 := range v.Arguments {
+		if err := item0.Validate(); err != nil {
+			return ctxerrors.Wrap(err, fmt.Sprintf("%s[%d]", "arguments", i0))
+		}
+	}
+
+	return nil
+}
+
+// One argument an MCP prompt takes.
+type McpPromptArgument struct {
+	// The argument name.
+	Name string `json:"name"`
+	// What the argument holds, cut to 256 bytes. Absent when the server gave none.
+	Description *string `json:"description,omitempty"`
+	// Whether the prompt needs the argument.
+	Required bool `json:"required"`
+}
+
+// UnmarshalJSON decodes McpPromptArgument strictly. Required properties must be
+// present and the decoded value must pass Validate.
+// Properties the schema does not declare are rejected.
+func (v *McpPromptArgument) UnmarshalJSON(data []byte) error {
+	members, err := asyncapirt.DecodeObject(data, "McpPromptArgument")
+	if err != nil {
+		return err
+	}
+
+	if err := asyncapirt.RequireKeys("McpPromptArgument", members, "name", "required"); err != nil {
+		return err
+	}
+
+	if err := asyncapirt.RejectUnknownKeys("McpPromptArgument", members, "name", "description", "required"); err != nil {
+		return err
+	}
+
+	type plain McpPromptArgument
+
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return asyncapirt.DecodeError("McpPromptArgument", err)
+	}
+
+	*v = McpPromptArgument(decoded)
+
+	return v.Validate()
+}
+
+// Validate checks the constraints the schema declares for McpPromptArgument.
+func (v McpPromptArgument) Validate() error {
+
+	return nil
+}
+
+// The root conversation asked you a question with the `ask` tool, or an MCP server asked one while its call ran, and is waiting. Send your answer as the next `message.send`: it joins the running turn's queue and reaches the waiting model, and for an MCP server's question also goes back to the server. A `question.answered` frame follows when the ask ends. A child agent's questions arrive as `agent.run.question` instead. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
 type QuestionAskedEvent struct {
 	// The ID of the stored record this frame renders. It is the same live and on replay through `GET /api/v1/session/feed`, so you can use it to skip a frame you already applied.
 	//
@@ -5018,7 +5221,7 @@ type QuestionAskedEvent struct {
 	ID string `json:"id"`
 	// The frame type, `question.asked`. Switch on it to read `data`.
 	Type string `json:"type"`
-	// A question an agent asked with the `ask` tool. It is the `data` of a root `question.asked` frame and the `event` of a child's `agent.run.question` frame. The agent waits until a message reaches it or the ask times out. For the root conversation, your next message is the answer.
+	// A question an agent asked with the `ask` tool, or a question an MCP server asked the user while one of its calls ran. It is the `data` of a root `question.asked` frame and the `event` of a child's `agent.run.question` frame. The agent or server waits until a message reaches it or the question times out. For the root conversation, your next message is the answer. An MCP server's question names the server and quotes its text, lists the fields it asks for, and takes a JSON object, the bare value of a one-field form, `decline`, or `cancel`.
 	Data QuestionAsked `json:"data"`
 	// When Peen stored the record, in Unix seconds. It is the same live and on replay, so it does not tell you which path delivered the frame.
 	Timestamp int64 `json:"timestamp"`
@@ -5092,11 +5295,11 @@ func (v QuestionAskedEvent) Validate() error {
 	return nil
 }
 
-// A question an agent asked with the `ask` tool. It is the `data` of a root `question.asked` frame and the `event` of a child's `agent.run.question` frame. The agent waits until a message reaches it or the ask times out. For the root conversation, your next message is the answer.
+// A question an agent asked with the `ask` tool, or a question an MCP server asked the user while one of its calls ran. It is the `data` of a root `question.asked` frame and the `event` of a child's `agent.run.question` frame. The agent or server waits until a message reaches it or the question times out. For the root conversation, your next message is the answer. An MCP server's question names the server and quotes its text, lists the fields it asks for, and takes a JSON object, the bare value of a one-field form, `decline`, or `cancel`.
 type QuestionAsked struct {
-	// The question text.
+	// The question text. For an MCP server's question, the part between the `---` lines is the server's own text, at most 4096 bytes.
 	Question string `json:"question"`
-	// The call ID of the `ask` tool call, matching its `tool.use` and the later answer frame. Present on every frame Peen sends now; absent only on frames stored before Peen recorded it.
+	// The call ID of the `ask` tool call, or of the MCP tool call the server's question belongs to, matching its `tool.use` and the later answer frame. Absent on frames stored before Peen recorded it, and on an MCP server question that arrives outside the call's own request, from a server on a protocol before 2026-07-28.
 	CallID *string `json:"callId,omitempty"`
 }
 
@@ -7915,7 +8118,7 @@ type AgentRunQuestionData struct {
 	//
 	// Not enforced by the generated code: format uuid.
 	ParentAgentRunID *string `json:"parentAgentRunId,omitempty"`
-	// A question an agent asked with the `ask` tool. It is the `data` of a root `question.asked` frame and the `event` of a child's `agent.run.question` frame. The agent waits until a message reaches it or the ask times out. For the root conversation, your next message is the answer.
+	// A question an agent asked with the `ask` tool, or a question an MCP server asked the user while one of its calls ran. It is the `data` of a root `question.asked` frame and the `event` of a child's `agent.run.question` frame. The agent or server waits until a message reaches it or the question times out. For the root conversation, your next message is the answer. An MCP server's question names the server and quotes its text, lists the fields it asks for, and takes a JSON object, the bare value of a one-field form, `decline`, or `cancel`.
 	Event QuestionAsked `json:"event"`
 }
 

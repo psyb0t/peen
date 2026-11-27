@@ -35,6 +35,9 @@ type Options struct {
 	// Reload reads the configuration again, for Refresh. Nil keeps the
 	// configuration the Manager was built with.
 	Reload func() ([]Server, []Status)
+	// MaxInstructionsBytes is PEEN_MCP_MAX_INSTRUCTIONS_BYTES: the most of
+	// each server's instructions Instructions returns. Zero returns none.
+	MaxInstructionsBytes int
 }
 
 // Manager owns a worker's MCP server connections. Start connects them,
@@ -50,6 +53,12 @@ type Manager struct {
 	mutex   sync.RWMutex
 	servers []*serverState
 	closed  bool
+
+	// elicitor asks the user a server's question. It has its own mutex
+	// because a question arrives while a tool call runs, and Refresh can
+	// hold mutex for as long as servers take to start.
+	elicitorMutex sync.RWMutex
+	elicitor      Elicitor
 }
 
 type serverState struct {
@@ -57,6 +66,8 @@ type serverState struct {
 	connection *mcp.Connection
 	// failure says why the server did not start. Nil when it did.
 	failure error
+	// prompts are the first prompts the server listed, for the status.
+	prompts []PromptInfo
 }
 
 // New returns a Manager for options. It starts nothing.
@@ -125,7 +136,8 @@ func (m *Manager) Status(ctx context.Context) []Status {
 
 	statuses := make([]Status, 0, len(m.servers)+len(m.options.Failures))
 	for _, server := range m.servers {
-		statuses = append(statuses, server.status())
+		statuses = append(statuses,
+			server.status(m.options.MaxInstructionsBytes > 0))
 	}
 
 	for _, failure := range m.options.Failures {
@@ -135,7 +147,7 @@ func (m *Manager) Status(ctx context.Context) []Status {
 	return statuses
 }
 
-func (s *serverState) status() Status {
+func (s *serverState) status(includeInstructions bool) Status {
 	config := s.config
 
 	if s.failure != nil {
@@ -147,18 +159,7 @@ func (s *serverState) status() Status {
 		return failedStatus(config.Name, config.Source, config.Transport, err)
 	}
 
-	tools := s.connection.Tools()
-	names := make([]string, 0, len(tools))
-
-	for _, tool := range tools {
-		names = append(names, tool.Name)
-	}
-
-	return Status{
-		Name: config.Name, Source: config.Source,
-		Transport: config.Transport, State: StateReady,
-		Tools: names, Warnings: s.connection.Warnings(),
-	}
+	return s.readyStatus(includeInstructions)
 }
 
 // Close stops every server. It is safe to call more than once.
@@ -271,7 +272,7 @@ func (m *Manager) connect(
 		}
 	}()
 
-	target, err := m.target(server)
+	target, err := m.target(ctx, server)
 	if err != nil {
 		state.failure = err
 
@@ -302,15 +303,27 @@ func (m *Manager) connect(
 	)
 
 	state.connection = connection
+	state.listPrompts(ctx, m.options.StartTimeout)
 
 	return state
 }
 
 // target is the elelem server for a configured one, with its secrets read
-// from the worker's environment.
-func (m *Manager) target(server Server) (mcp.Server, error) {
+// from the worker's environment. Elicitation is always advertised: a
+// question no user can answer is declined, never left unanswered.
+func (m *Manager) target(
+	ctx context.Context,
+	server Server,
+) (mcp.Server, error) {
+	logger := runtimecontext.Logger(ctx)
 	target := mcp.Server{
 		Name: server.Name, Tools: server.Tools, ClientName: clientName,
+		MaxInstructionsBytes: m.options.MaxInstructionsBytes,
+		Elicit:               m.elicitHandler(server.Name),
+		OnListChanged: func(kind mcp.ListKind) {
+			logger.Debug("MCP server list changed",
+				"server", server.Name, "list", kind)
+		},
 	}
 
 	if server.Transport == TransportHTTP {

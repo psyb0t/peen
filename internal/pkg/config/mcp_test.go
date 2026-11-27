@@ -24,16 +24,21 @@ func TestValidateMCP(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		name    string
-		env     string
-		timeout time.Duration
-		wantErr string
+		name         string
+		env          string
+		timeout      time.Duration
+		instructions int
+		wantErr      string
 	}{
 		{name: "valid", env: "GITHUB_TOKEN,_X1"},
 		{name: "zero timeout takes the default", env: "", timeout: 0},
 		{
 			name: "negative timeout", timeout: -time.Second,
 			wantErr: "PEEN_MCP_START_TIMEOUT is negative",
+		},
+		{
+			name: "negative instructions bytes", instructions: -1,
+			wantErr: "PEEN_MCP_MAX_INSTRUCTIONS_BYTES is negative",
 		},
 		{
 			name: "invalid name", env: "1BAD",
@@ -49,7 +54,10 @@ func TestValidateMCP(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			config := Config{MCPEnv: tc.env, MCPStartTimeout: tc.timeout}
+			config := Config{
+				MCPEnv: tc.env, MCPStartTimeout: tc.timeout,
+				MCPMaxInstructionsBytes: tc.instructions,
+			}
 
 			err := config.validateMCP()
 			if tc.wantErr == "" {

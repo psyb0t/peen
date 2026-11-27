@@ -930,11 +930,18 @@ func (r *Runtime) childSystemPrompt(
 		return "", err
 	}
 
-	sections = append(sections, learningBlock, childContextText, agentBlock,
-		environment)
+	mcpBlocks, err := r.mcpInstructionBlocks()
+	if err != nil {
+		return "", err
+	}
+
+	sections = append(sections, learningBlock)
+	sections = append(sections, promptBlockContents(mcpBlocks)...)
+	sections = append(sections, childContextText, agentBlock, environment)
 
 	prompt := joinSystemSections(sections...)
-	if err := r.checkSystemPromptBudget(prompt, blocks); err != nil {
+	if err := r.checkSystemPromptBudget(prompt,
+		slices.Concat(blocks, mcpBlocks)); err != nil {
 		return "", err
 	}
 

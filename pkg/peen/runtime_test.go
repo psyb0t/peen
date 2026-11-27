@@ -20,7 +20,7 @@ const (
 	testModelReference = "test/mock-model"
 	testModelID        = "mock-model"
 	testRootAgent      = "default"
-	testMaxContextSize = 8192
+	testMaxContextSize = 16384
 	testFileMode       = 0o600
 	testDirectoryMode  = 0o700
 	testAgentDocument  = "---\nname: default\ndescription: test agent\n---\nFollow the test agent rules."

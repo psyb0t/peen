@@ -10,17 +10,25 @@ import (
 )
 
 func (f *testBoundary) ListWorkspaceFiles(
-	_ context.Context, _ uuid.UUID, path string,
+	ctx context.Context, id uuid.UUID, path string,
 ) (control.WorkspaceFileListing, error) {
 	f.accesses.Add(1)
+
+	if f.listing != nil {
+		return f.listing(ctx, id, path)
+	}
 
 	return control.WorkspaceFileListing{Path: path}, nil
 }
 
 func (f *testBoundary) ReadWorkspaceFile(
-	_ context.Context, _ uuid.UUID, path string,
+	ctx context.Context, id uuid.UUID, path string,
 ) (control.WorkspaceFileContent, error) {
 	f.accesses.Add(1)
+
+	if f.read != nil {
+		return f.read(ctx, id, path)
+	}
 
 	return control.WorkspaceFileContent{Path: path, ContentBase64: "aGk="}, nil
 }

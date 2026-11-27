@@ -8,8 +8,10 @@ import (
 	"errors"
 	"log/slog"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -60,12 +62,15 @@ type Runtime struct {
 	hookCommandRunner hooks.CommandRunner
 	extraTools        []elelem.Tool
 	mcp               *mcptools.Manager
-	disableTools      []string
-	observeEvent      func(uuid.UUID, Event)
-	lifecycle         runtimeLifecycle
-	store             session.Storage
-	resolver          HarnessResolver
-	models            ModelResolver
+	// mcpElicitations counts the MCP server questions the user was asked,
+	// so an MCP call's result can say one was asked while it ran.
+	mcpElicitations atomic.Int64
+	disableTools    []string
+	observeEvent    func(uuid.UUID, Event)
+	lifecycle       runtimeLifecycle
+	store           session.Storage
+	resolver        HarnessResolver
+	models          ModelResolver
 
 	// workerGenerationID names the worker process this runtime runs inside. It
 	// is zero for the direct pkg/peen form, which has no control plane to
@@ -343,6 +348,8 @@ func NewRuntime(ctx context.Context, options RuntimeOptions) (*Runtime, error) {
 	}
 
 	runtime.wireIdleWakeRecheck()
+	// MCP servers ask the user through this runtime's turns.
+	runtime.mcp.SetElicitor(runtime.elicitMCP)
 
 	return runtime, nil
 }
@@ -719,6 +726,11 @@ func (r *Runtime) resolveTurnBasis(
 	if err != nil {
 		return turnBasis{}, ctxerrors.Wrap(err, "resolve input")
 	}
+
+	// The servers come up to date before the system prompt is built, so the
+	// turn's prompt carries the instructions of the servers it can call. A
+	// session with no mcp.json when its worker started may have one now.
+	r.mcp.Refresh(ctx)
 
 	directory, err := r.currentDirectoryRecord(
 		ctx, storedSession.ID, storedSession.Workspace,
@@ -1757,10 +1769,18 @@ func (r *Runtime) systemPromptForAgent(
 		return "", err
 	}
 
-	sections = append(sections, learningBlock, environment)
+	mcpBlocks, err := r.mcpInstructionBlocks()
+	if err != nil {
+		return "", err
+	}
+
+	sections = append(sections, learningBlock)
+	sections = append(sections, promptBlockContents(mcpBlocks)...)
+	sections = append(sections, environment)
 
 	prompt := joinSystemSections(sections...)
-	if err := r.checkSystemPromptBudget(prompt, blocks); err != nil {
+	if err := r.checkSystemPromptBudget(prompt,
+		slices.Concat(blocks, mcpBlocks)); err != nil {
 		return "", err
 	}
 

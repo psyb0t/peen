@@ -349,6 +349,7 @@ func appCoverageFor(root string) (appCoverage, error) {
 		)
 	}
 
+	//nolint:gosec // The checks above keep the path inside the app root.
 	info, err := os.Stat(coverageDirectory)
 	if err != nil {
 		return appCoverage{}, ctxerrors.Wrap(err, "inspect coverage directory")

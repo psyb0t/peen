@@ -2413,6 +2413,40 @@ export interface McpServerStatus {
    * Problems that did not stop the server, such as an allowlisted tool the server does not offer. Absent when there are none.
    */
   warnings?: Array<string>;
+  /**
+   * The MCP protocol version the connection speaks, such as `2026-07-28`, or `2025-11-25` for a server that predates it. At most 128 bytes. Absent for a failed server.
+   */
+  protocolVersion?: string;
+  /**
+   * What the server says it is. The server writes every field, each cut to 128 bytes. Absent when the server gave no name.
+   */
+  serverInfo?: McpServerInfo;
+  /**
+   * The MCP capabilities the server advertised, whether or not its mcp.json entry turns them off. Absent for a failed server.
+   *
+   * - `tools`: tools the agent can call.
+   * - `resources`: resources and resource templates, which the agent reads with `listMcpResources` and `readMcpResource`.
+   * - `resourceSubscribe`: change notifications for single resources. Peen does not subscribe.
+   * - `prompts`: prompts a user invokes with `/mcp:<server>:<prompt>` and the agent reads with `listMcpPrompts` and `getMcpPrompt`.
+   * - `completions`: argument completion for prompts and resource templates. Peen does not use it.
+   */
+  features?: Array<McpServerFeature>;
+  /**
+   * The size in bytes of the instructions the server sent, after the `PEEN_MCP_MAX_INSTRUCTIONS_BYTES` cut when that limit is above zero. Absent when the server sent none or failed.
+   */
+  instructionsBytes?: number;
+  /**
+   * Whether the server's instructions reach the agent's system prompt. They do when the server sent some, its mcp.json entry does not set `instructions` to false, and `PEEN_MCP_MAX_INSTRUCTIONS_BYTES` is above zero. Absent when false.
+   */
+  instructionsIncluded?: boolean;
+  /**
+   * Whether the server's instructions were longer than `PEEN_MCP_MAX_INSTRUCTIONS_BYTES` and only their start is kept. Absent when false.
+   */
+  instructionsCut?: boolean;
+  /**
+   * The prompts the server offers, which a user invokes with a message that starts with `/mcp:<server>:<prompt>`. At most the first 50 of the server's first page. Absent when the server offers none, its mcp.json entry sets `prompts` to false, or it failed.
+   */
+  prompts?: Array<McpPrompt>;
 }
 
 /** validateMcpServerStatus throws a ValidationError when value is not a valid McpServerStatus. */
@@ -2422,7 +2456,7 @@ export function validateMcpServerStatus(
 ): asserts value is McpServerStatus {
   const object = rtObject(value, path);
   rtRequire(path, object, ["name", "source", "state", "tools"]);
-  rtKnownKeys(path, object, ["name", "source", "transport", "state", "tools", "error", "warnings"]);
+  rtKnownKeys(path, object, ["name", "source", "transport", "state", "tools", "error", "warnings", "protocolVersion", "serverInfo", "features", "instructionsBytes", "instructionsIncluded", "instructionsCut", "prompts"]);
   rtString(object["name"], path + ".name");
   validateMcpServerSource(object["source"], path + ".source");
   if (object["transport"] !== undefined) {
@@ -2440,6 +2474,34 @@ export function validateMcpServerStatus(
     const a6 = rtArray(object["warnings"], path + ".warnings");
     for (let i7 = 0; i7 < a6.length; i7++) {
       rtString(a6[i7], path + ".warnings" + "[" + i7 + "]");
+    }
+  }
+  if (object["protocolVersion"] !== undefined) {
+    rtString(object["protocolVersion"], path + ".protocolVersion");
+  }
+  if (object["serverInfo"] !== undefined) {
+    validateMcpServerInfo(object["serverInfo"], path + ".serverInfo");
+  }
+  if (object["features"] !== undefined) {
+    const a10 = rtArray(object["features"], path + ".features");
+    for (let i11 = 0; i11 < a10.length; i11++) {
+      validateMcpServerFeature(a10[i11], path + ".features" + "[" + i11 + "]");
+    }
+  }
+  if (object["instructionsBytes"] !== undefined) {
+    const v12 = rtInteger(object["instructionsBytes"], path + ".instructionsBytes");
+    rtMinimum(path + ".instructionsBytes", v12, 0);
+  }
+  if (object["instructionsIncluded"] !== undefined) {
+    rtBoolean(object["instructionsIncluded"], path + ".instructionsIncluded");
+  }
+  if (object["instructionsCut"] !== undefined) {
+    rtBoolean(object["instructionsCut"], path + ".instructionsCut");
+  }
+  if (object["prompts"] !== undefined) {
+    const a15 = rtArray(object["prompts"], path + ".prompts");
+    for (let i16 = 0; i16 < a15.length; i16++) {
+      validateMcpPrompt(a15[i16], path + ".prompts" + "[" + i16 + "]");
     }
   }
 }
@@ -2502,7 +2564,131 @@ export function validateMcpServerState(
 }
 
 /**
- * The root conversation asked you a question with the `ask` tool and is waiting. Send your answer as the next `message.send`: it joins the running turn's queue and reaches the waiting model. A `question.answered` frame follows when the ask ends. A child agent's questions arrive as `agent.run.question` instead. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
+ * What the server says it is. The server writes every field, each cut to 128 bytes. Absent when the server gave no name.
+ */
+export interface McpServerInfo {
+  /**
+   * The server implementation's name.
+   */
+  name: string;
+  /**
+   * The server's display name. Absent when it gave none.
+   */
+  title?: string;
+  /**
+   * The server's version. Absent when it gave none.
+   */
+  version?: string;
+}
+
+/** validateMcpServerInfo throws a ValidationError when value is not a valid McpServerInfo. */
+export function validateMcpServerInfo(
+  value: unknown,
+  path: string = "McpServerInfo",
+): asserts value is McpServerInfo {
+  const object = rtObject(value, path);
+  rtRequire(path, object, ["name"]);
+  rtKnownKeys(path, object, ["name", "title", "version"]);
+  rtString(object["name"], path + ".name");
+  if (object["title"] !== undefined) {
+    rtString(object["title"], path + ".title");
+  }
+  if (object["version"] !== undefined) {
+    rtString(object["version"], path + ".version");
+  }
+}
+
+export type McpServerFeature = "tools" | "resources" | "resourceSubscribe" | "prompts" | "completions";
+
+/** Values of McpServerFeature. */
+export const McpServerFeatureValues = ["tools", "resources", "resourceSubscribe", "prompts", "completions"] as const;
+
+/** validateMcpServerFeature throws a ValidationError when value is not a valid McpServerFeature. */
+export function validateMcpServerFeature(
+  value: unknown,
+  path: string = "McpServerFeature",
+): asserts value is McpServerFeature {
+  rtEnum(path, value, McpServerFeatureValues);
+}
+
+/**
+ * One prompt an MCP server offers. The server writes every field.
+ */
+export interface McpPrompt {
+  /**
+   * The prompt name to put after `/mcp:<server>:`.
+   */
+  name: string;
+  /**
+   * The prompt's display name, cut to 256 bytes. Absent when it gave none.
+   */
+  title?: string;
+  /**
+   * What the prompt does, cut to 256 bytes. Absent when it gave none.
+   */
+  description?: string;
+  /**
+   * The arguments the prompt takes, each passed as `name=value`. Empty when it takes none.
+   */
+  arguments: Array<McpPromptArgument>;
+}
+
+/** validateMcpPrompt throws a ValidationError when value is not a valid McpPrompt. */
+export function validateMcpPrompt(
+  value: unknown,
+  path: string = "McpPrompt",
+): asserts value is McpPrompt {
+  const object = rtObject(value, path);
+  rtRequire(path, object, ["name", "arguments"]);
+  rtKnownKeys(path, object, ["name", "title", "description", "arguments"]);
+  rtString(object["name"], path + ".name");
+  if (object["title"] !== undefined) {
+    rtString(object["title"], path + ".title");
+  }
+  if (object["description"] !== undefined) {
+    rtString(object["description"], path + ".description");
+  }
+  const a4 = rtArray(object["arguments"], path + ".arguments");
+  for (let i5 = 0; i5 < a4.length; i5++) {
+    validateMcpPromptArgument(a4[i5], path + ".arguments" + "[" + i5 + "]");
+  }
+}
+
+/**
+ * One argument an MCP prompt takes.
+ */
+export interface McpPromptArgument {
+  /**
+   * The argument name.
+   */
+  name: string;
+  /**
+   * What the argument holds, cut to 256 bytes. Absent when the server gave none.
+   */
+  description?: string;
+  /**
+   * Whether the prompt needs the argument.
+   */
+  required: boolean;
+}
+
+/** validateMcpPromptArgument throws a ValidationError when value is not a valid McpPromptArgument. */
+export function validateMcpPromptArgument(
+  value: unknown,
+  path: string = "McpPromptArgument",
+): asserts value is McpPromptArgument {
+  const object = rtObject(value, path);
+  rtRequire(path, object, ["name", "required"]);
+  rtKnownKeys(path, object, ["name", "description", "required"]);
+  rtString(object["name"], path + ".name");
+  if (object["description"] !== undefined) {
+    rtString(object["description"], path + ".description");
+  }
+  rtBoolean(object["required"], path + ".required");
+}
+
+/**
+ * The root conversation asked you a question with the `ask` tool, or an MCP server asked one while its call ran, and is waiting. Send your answer as the next `message.send`: it joins the running turn's queue and reaches the waiting model, and for an MCP server's question also goes back to the server. A `question.answered` frame follows when the ask ends. A child agent's questions arrive as `agent.run.question` instead. Peen stores the frame before it sends it, gives it a `metadata.sequence`, and sends it to every socket that is not filtered and to every socket filtered to its session. `GET /api/v1/session/feed` replays it with the same `id`, `timestamp`, and data.
  */
 export interface QuestionAskedEvent {
   /**
@@ -2516,7 +2702,7 @@ export interface QuestionAskedEvent {
    */
   type: "question.asked";
   /**
-   * A question an agent asked with the `ask` tool. It is the `data` of a root `question.asked` frame and the `event` of a child's `agent.run.question` frame. The agent waits until a message reaches it or the ask times out. For the root conversation, your next message is the answer.
+   * A question an agent asked with the `ask` tool, or a question an MCP server asked the user while one of its calls ran. It is the `data` of a root `question.asked` frame and the `event` of a child's `agent.run.question` frame. The agent or server waits until a message reaches it or the question times out. For the root conversation, your next message is the answer. An MCP server's question names the server and quotes its text, lists the fields it asks for, and takes a JSON object, the bare value of a one-field form, `decline`, or `cancel`.
    */
   data: QuestionAsked;
   /**
@@ -2554,15 +2740,15 @@ export function validateQuestionAskedEvent(
 }
 
 /**
- * A question an agent asked with the `ask` tool. It is the `data` of a root `question.asked` frame and the `event` of a child's `agent.run.question` frame. The agent waits until a message reaches it or the ask times out. For the root conversation, your next message is the answer.
+ * A question an agent asked with the `ask` tool, or a question an MCP server asked the user while one of its calls ran. It is the `data` of a root `question.asked` frame and the `event` of a child's `agent.run.question` frame. The agent or server waits until a message reaches it or the question times out. For the root conversation, your next message is the answer. An MCP server's question names the server and quotes its text, lists the fields it asks for, and takes a JSON object, the bare value of a one-field form, `decline`, or `cancel`.
  */
 export interface QuestionAsked {
   /**
-   * The question text.
+   * The question text. For an MCP server's question, the part between the `---` lines is the server's own text, at most 4096 bytes.
    */
   question: string;
   /**
-   * The call ID of the `ask` tool call, matching its `tool.use` and the later answer frame. Present on every frame Peen sends now; absent only on frames stored before Peen recorded it.
+   * The call ID of the `ask` tool call, or of the MCP tool call the server's question belongs to, matching its `tool.use` and the later answer frame. Absent on frames stored before Peen recorded it, and on an MCP server question that arrives outside the call's own request, from a server on a protocol before 2026-07-28.
    */
   callId?: string;
 }
@@ -4564,7 +4750,7 @@ export interface AgentRunQuestionData {
    */
   parentAgentRunId?: string;
   /**
-   * A question an agent asked with the `ask` tool. It is the `data` of a root `question.asked` frame and the `event` of a child's `agent.run.question` frame. The agent waits until a message reaches it or the ask times out. For the root conversation, your next message is the answer.
+   * A question an agent asked with the `ask` tool, or a question an MCP server asked the user while one of its calls ran. It is the `data` of a root `question.asked` frame and the `event` of a child's `agent.run.question` frame. The agent or server waits until a message reaches it or the question times out. For the root conversation, your next message is the answer. An MCP server's question names the server and quotes its text, lists the fields it asks for, and takes a JSON object, the bare value of a one-field form, `decline`, or `cancel`.
    */
   event: QuestionAsked;
 }

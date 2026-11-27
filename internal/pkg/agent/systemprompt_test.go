@@ -32,7 +32,8 @@ func TestDefaultSystemPromptNamesTheInjectedTags(t *testing.T) {
 		"<instructions>", "<rule>", "<agent>", "<skills>", "<agents>",
 		"<environment>", "<skill>", "<hook>", "<handler>", "<note>",
 		"<summary>", "<message>", "<events>", "<toolOutput>",
-		"<outputSchema>", "<priorConversation>",
+		"<outputSchema>", "<priorConversation>", "<mcpInstructions>",
+		"<mcpPrompt>", "<promptMessage>",
 	} {
 		assert.Contains(t, defaultSystemPrompt, tag)
 	}

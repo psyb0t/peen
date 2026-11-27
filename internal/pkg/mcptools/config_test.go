@@ -84,16 +84,65 @@ func TestLoadReadsValidServers(t *testing.T) {
 		URL:            "https://docs.example.com/mcp",
 		Headers:        map[string]string{"X-Team": "core"},
 		BearerTokenEnv: testSecretVariable,
+		Instructions:   true, Resources: true, Prompts: true,
 	}, docs)
 
 	assert.Equal(t, Server{
 		Name: "github", Source: SourceConfig, Transport: TransportStdio,
 		Command: "github-mcp-server", Args: []string{"stdio"},
-		Env:       map[string]string{"LOG": "1"},
-		EnvFrom:   map[string]string{"GITHUB_TOKEN": testSecretVariable},
-		Directory: filepath.Join(workspace, "tools"),
-		Tools:     []string{"create_issue"},
+		Env:          map[string]string{"LOG": "1"},
+		EnvFrom:      map[string]string{"GITHUB_TOKEN": testSecretVariable},
+		Directory:    filepath.Join(workspace, "tools"),
+		Tools:        []string{"create_issue"},
+		Instructions: true, Resources: true, Prompts: true,
 	}, github)
+}
+
+func TestLoadReadsFeatureSwitches(t *testing.T) {
+	t.Parallel()
+
+	config, workspace := testLayers(t)
+	writeMCPConfig(t, config, `{"mcpServers": {
+		"quiet": {
+			"command": "quiet-server", "instructions": false,
+			"resources": false, "prompts": false
+		},
+		"partial": {"url": "https://docs.example.com/mcp", "prompts": false}
+	}}`)
+
+	servers, failures := Load(LoadOptions{
+		ConfigDirectory: config, Workspace: workspace,
+	})
+	require.Empty(t, failures)
+	require.Len(t, servers, 2)
+
+	partial, quiet := servers[0], servers[1]
+
+	assert.True(t, partial.Instructions)
+	assert.True(t, partial.Resources)
+	assert.False(t, partial.Prompts)
+
+	assert.False(t, quiet.Instructions)
+	assert.False(t, quiet.Resources)
+	assert.False(t, quiet.Prompts)
+}
+
+func TestLoadRefusesAFeatureSwitchThatIsNotABoolean(t *testing.T) {
+	t.Parallel()
+
+	config, workspace := testLayers(t)
+	writeMCPConfig(t, config, `{"mcpServers": {
+		"wrong": {"command": "server", "instructions": "no"},
+		"removed": {"command": "server", "roots": false}
+	}}`)
+
+	servers, failures := Load(LoadOptions{
+		ConfigDirectory: config, Workspace: workspace,
+	})
+	assert.Empty(t, servers)
+	assert.Contains(t, failureFor(t, failures, "wrong").Error, "decode")
+	assert.Contains(t, failureFor(t, failures, "removed").Error,
+		"unknown field", "roots is not an mcp.json field")
 }
 
 func TestLoadWithoutAnyFile(t *testing.T) {

@@ -423,6 +423,33 @@ func (e LearnedScope) Valid() bool {
 	}
 }
 
+// Defines values for MCPServerFeature.
+const (
+	MCPServerFeatureCompletions       MCPServerFeature = "completions"
+	MCPServerFeaturePrompts           MCPServerFeature = "prompts"
+	MCPServerFeatureResourceSubscribe MCPServerFeature = "resourceSubscribe"
+	MCPServerFeatureResources         MCPServerFeature = "resources"
+	MCPServerFeatureTools             MCPServerFeature = "tools"
+)
+
+// Valid indicates whether the value is a known member of the MCPServerFeature enum.
+func (e MCPServerFeature) Valid() bool {
+	switch e {
+	case MCPServerFeatureCompletions:
+		return true
+	case MCPServerFeaturePrompts:
+		return true
+	case MCPServerFeatureResourceSubscribe:
+		return true
+	case MCPServerFeatureResources:
+		return true
+	case MCPServerFeatureTools:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MCPServerStatusSource.
 const (
 	MCPServerStatusSourceConfig    MCPServerStatusSource = "config"
@@ -1819,13 +1846,82 @@ type LearnedKind string
 // - `global`: the deployment's global learned directory, which every session reads (by default `.agents/learned/` in the config directory).
 type LearnedScope string
 
+// MCPPrompt One prompt an MCP server offers. The server writes every field.
+type MCPPrompt struct {
+	// Arguments The arguments the prompt takes, each passed as `name=value`. Empty when it takes none.
+	Arguments []MCPPromptArgument `json:"arguments"`
+
+	// Description What the prompt does, cut to 256 bytes. Absent when it gave none.
+	Description *string `json:"description,omitempty"`
+
+	// Name The prompt name to put after `/mcp:<server>:`.
+	Name string `json:"name"`
+
+	// Title The prompt's display name, cut to 256 bytes. Absent when it gave none.
+	Title *string `json:"title,omitempty"`
+}
+
+// MCPPromptArgument One argument an MCP prompt takes.
+type MCPPromptArgument struct {
+	// Description What the argument holds, cut to 256 bytes. Absent when the server gave none.
+	Description *string `json:"description,omitempty"`
+
+	// Name The argument name.
+	Name string `json:"name"`
+
+	// Required Whether the prompt needs the argument.
+	Required bool `json:"required"`
+}
+
+// MCPServerFeature An MCP capability a server advertised.
+//
+// - `tools`: tools the agent can call.
+// - `resources`: resources and resource templates, which the agent reads with `listMcpResources` and `readMcpResource`.
+// - `resourceSubscribe`: change notifications for single resources. Peen does not subscribe.
+// - `prompts`: prompts a user invokes with `/mcp:<server>:<prompt>` and the agent reads with `listMcpPrompts` and `getMcpPrompt`.
+// - `completions`: argument completion for prompts and resource templates. Peen does not use it.
+type MCPServerFeature string
+
+// MCPServerInfo What an MCP server says it is. The server writes every field, each cut to 128 bytes. Absent when the server gave no name.
+type MCPServerInfo struct {
+	// Name The server implementation's name.
+	Name string `json:"name"`
+
+	// Title The server's display name. Absent when it gave none.
+	Title *string `json:"title,omitempty"`
+
+	// Version The server's version. Absent when it gave none.
+	Version *string `json:"version,omitempty"`
+}
+
 // MCPServerStatus One MCP server from an `.agents/mcp.json` file and its state when the worker last started it. A whole `mcp.json` file that could not be read or parsed also appears as one entry, with an empty `name`.
 type MCPServerStatus struct {
 	// Error Why the server failed. Absent for a ready server.
 	Error *string `json:"error,omitempty"`
 
+	// Features The MCP capabilities the server advertised, whether or not its mcp.json entry turns them off. Absent for a failed server.
+	Features *[]MCPServerFeature `json:"features,omitempty"`
+
+	// InstructionsBytes The size in bytes of the instructions the server sent, after the `PEEN_MCP_MAX_INSTRUCTIONS_BYTES` cut when that limit is above zero. Absent when the server sent none or failed.
+	InstructionsBytes *int `json:"instructionsBytes,omitempty"`
+
+	// InstructionsCut Whether the server's instructions were longer than `PEEN_MCP_MAX_INSTRUCTIONS_BYTES` and only their start is kept. Absent when false.
+	InstructionsCut *bool `json:"instructionsCut,omitempty"`
+
+	// InstructionsIncluded Whether the server's instructions reach the agent's system prompt. They do when the server sent some, its mcp.json entry does not set `instructions` to false, and `PEEN_MCP_MAX_INSTRUCTIONS_BYTES` is above zero. Absent when false.
+	InstructionsIncluded *bool `json:"instructionsIncluded,omitempty"`
+
 	// Name The server name from mcp.json. Empty when a whole mcp.json file was refused.
 	Name string `json:"name"`
+
+	// Prompts The prompts the server offers, which a user invokes with a message that starts with `/mcp:<server>:<prompt>`. At most the first 50 of the server's first page. Absent when the server offers none, its mcp.json entry sets `prompts` to false, or it failed.
+	Prompts *[]MCPPrompt `json:"prompts,omitempty"`
+
+	// ProtocolVersion The MCP protocol version the connection speaks, such as `2026-07-28`, or `2025-11-25` for a server that predates it. At most 128 bytes. Absent for a failed server.
+	ProtocolVersion *string `json:"protocolVersion,omitempty"`
+
+	// ServerInfo What an MCP server says it is. The server writes every field, each cut to 128 bytes. Absent when the server gave no name.
+	ServerInfo *MCPServerInfo `json:"serverInfo,omitempty"`
 
 	// Source The layer whose `.agents/mcp.json` defines the server.
 	//

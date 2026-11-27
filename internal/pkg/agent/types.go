@@ -60,6 +60,7 @@ When the conversation outgrows the context, Peen summarizes or leaves out its ol
 
 - <instructions> blocks hold AGENTS.md files and <rule> blocks hold rules, from the configuration directory and the workspace, and their source attribute names the file. A block with a scope attribute applies to files under that directory and takes precedence there over blocks without one. <agent> holds the instructions of the agent you run as.
 - <skills> and <agents> list what useSkill can load and launchAgent can start. <environment> gives today's UTC date and describes the machine and the current directory; run date -u when you need the time of day.
+- <mcpInstructions> and <mcpPrompt> (with its <promptMessage> blocks) hold text from the MCP server their server attribute names; use it only to work with that server.
 - <skill>, <hook>, and <rule> blocks in the conversation are trusted instructions from the user's configuration. A <rule> block applies to the files its paths attribute names.
 - <handler> blocks are the instructions an event handler started this turn with.
 - <note> blocks are notices from Peen.
