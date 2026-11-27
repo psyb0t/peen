@@ -2,7 +2,6 @@ package telegrambot
 
 import (
 	"context"
-	"errors"
 	"maps"
 	"math"
 	"slices"
@@ -227,8 +226,7 @@ func (e *Engine) process(
 
 	if err := e.handleMessage(ctx, message); err != nil && ctx.Err() == nil {
 		reply := replyFailed
-		if errors.Is(err, session.ErrSessionBusy) ||
-			errors.Is(err, commerr.ErrLockHeld) {
+		if session.IsSessionBusy(err) {
 			reply = replyWorkspaceBusy
 		} else {
 			ctxscope.GetLogger(ctx).Warn("Telegram request failed",

@@ -8,7 +8,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/psyb0t/aichteeteapee"
 	"github.com/psyb0t/ctxerrors"
-	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/internal/pkg/publicerror"
@@ -132,25 +131,25 @@ func sessionNotFoundError() api.Error {
 
 // missingRecordError answers an ErrNotFound from an operation that resolves
 // a record inside the X-Session-ID session. The stores report a missing
-// session and a missing record the same way, so the session is looked up
-// again to tell the client which of the two it named. message names the
-// record, such as "job not found".
+// session and a missing record the same way, so the session's existence is
+// checked again to tell the client which of the two it named. message names
+// the record, such as "job not found".
 func (s *Server) missingRecordError(
 	ctx context.Context,
 	sessionID uuid.UUID,
 	message string,
 ) (api.Error, error) {
-	_, err := s.deps.Runtime.Session(ctx, sessionID)
-	if err == nil {
-		return recordNotFoundError(message), nil
+	exists, err := s.deps.Runtime.SessionExists(ctx, sessionID)
+	if err != nil {
+		return api.Error{}, ctxerrors.Wrap(err,
+			"look up the session of a missing record")
 	}
 
-	if errors.Is(err, commerr.ErrNotFound) {
+	if !exists {
 		return sessionNotFoundError(), nil
 	}
 
-	return api.Error{}, ctxerrors.Wrap(err,
-		"look up the session of a missing record")
+	return recordNotFoundError(message), nil
 }
 
 func sessionBusyError(message string) api.Error {

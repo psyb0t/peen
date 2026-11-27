@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/psyb0t/ctxerrors"
 	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/cronconfig"
 	"github.com/psyb0t/peen/internal/pkg/cronstore"
@@ -70,13 +71,24 @@ func TestSchedulerRefusesOutsidePolicyAndReplayedTick(t *testing.T) {
 
 func TestSchedulerBusyAndExpandedMessageLimit(t *testing.T) {
 	t.Parallel()
-	for _, busy := range []bool{true, false} {
-		t.Run(map[bool]string{true: "busy", false: "expanded limit"}[busy], func(t *testing.T) {
+	// A session worker reports a busy session as ErrConflict, and an
+	// in-process runtime as ErrLockHeld. Both skip the tick.
+	for _, tc := range []struct {
+		name    string
+		busyErr error
+	}{
+		{name: "busy in process", busyErr: commerr.ErrLockHeld},
+		{name: "busy session worker", busyErr: ctxerrors.Wrap(
+			commerr.ErrConflict, "session already has an active turn")},
+		{name: "expanded limit"},
+	} {
+		busy := tc.busyErr != nil
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			f := newSchedulerFixture(t)
 			options := f.options(f.job())
 			if busy {
-				f.err = commerr.ErrLockHeld
+				f.err = tc.busyErr
 			} else {
 				options.MaxMessageBytes = 1
 			}

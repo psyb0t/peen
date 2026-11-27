@@ -43,14 +43,19 @@ func TestFreshCompletionPreservesEarlierAndCurrentImages(t *testing.T) {
 		_ context.Context,
 		request control.ConversationRequest,
 	) (*control.ConversationResult, error) {
-		require.Len(t, request.Message.Images, 2)
-		assert.Equal(t, first, request.Message.Images[0].Data)
-		assert.Equal(t, last, request.Message.Images[1].Data)
-		assert.Equal(t, mediaTypePNG, request.Message.Images[0].MediaType)
-		assert.Contains(t, request.Message.Message,
+		require.NotNil(t, request.CreatedMessage)
+		created := *request.CreatedMessage
+		require.Len(t, created.Images, 2)
+		assert.Equal(t, first, created.Images[0].Data)
+		assert.Equal(t, last, created.Images[1].Data)
+		assert.Equal(t, mediaTypePNG, created.Images[0].MediaType)
+		assert.Contains(t, created.Message,
 			`<message role="user">Before [Attached image 1]</message>`)
-		assert.True(t, strings.HasSuffix(request.Message.Message,
+		assert.True(t, strings.HasSuffix(created.Message,
 			"After [Attached image 2]"))
+		require.Len(t, request.Message.Images, 1)
+		assert.Equal(t, last, request.Message.Images[0].Data)
+		assert.Equal(t, "After [Attached image 1]", request.Message.Message)
 
 		return testResult(), nil
 	}))

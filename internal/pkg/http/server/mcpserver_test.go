@@ -44,6 +44,17 @@ func TestMCPMountPolicyAndAuthentication(t *testing.T) {
 		{name: "cross-site post without origin", token: true, host: "localhost", fetch: "cross-site", status: http.StatusForbidden, envelope: &aichteeteapee.ErrorResponseForbidden},
 		{name: "allowed origin", token: true, host: "localhost", origins: []string{"http://localhost:8080"}, status: http.StatusMethodNotAllowed},
 		{name: "no origin", token: true, host: "localhost", status: http.StatusMethodNotAllowed},
+		{name: "loopback address on any port", token: true, host: "127.0.0.1:1234", status: http.StatusMethodNotAllowed},
+		{name: "bracketed loopback address", token: true, host: "[::1]:8080", status: http.StatusMethodNotAllowed},
+		{name: "lookalike host", token: true, host: "localhost.attacker", status: http.StatusMisdirectedRequest, envelope: &aichteeteapee.ErrorResponseMisdirectedRequest},
+		{name: "non-numeric port", token: true, host: "localhost:bad", status: http.StatusMisdirectedRequest, envelope: &aichteeteapee.ErrorResponseMisdirectedRequest},
+		{name: "signed port", token: true, host: "localhost:+80", status: http.StatusMisdirectedRequest, envelope: &aichteeteapee.ErrorResponseMisdirectedRequest},
+		{name: "empty port", token: true, host: "localhost:", status: http.StatusMisdirectedRequest, envelope: &aichteeteapee.ErrorResponseMisdirectedRequest},
+		{name: "port out of range", token: true, host: "localhost:70000", status: http.StatusMisdirectedRequest, envelope: &aichteeteapee.ErrorResponseMisdirectedRequest},
+		{name: "null origin", token: true, host: "localhost", origins: []string{"null"}, status: http.StatusForbidden, envelope: &aichteeteapee.ErrorResponseForbidden},
+		{name: "origin without the port", token: true, host: "localhost", origins: []string{"http://localhost"}, status: http.StatusForbidden, envelope: &aichteeteapee.ErrorResponseForbidden},
+		{name: "origin with a path", token: true, host: "localhost", origins: []string{"http://localhost:8080/"}, status: http.StatusForbidden, envelope: &aichteeteapee.ErrorResponseForbidden},
+		{name: "origin with a fragment", token: true, host: "localhost", origins: []string{"http://localhost:8080#"}, status: http.StatusForbidden, envelope: &aichteeteapee.ErrorResponseForbidden},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

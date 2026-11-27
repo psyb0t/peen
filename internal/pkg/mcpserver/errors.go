@@ -34,19 +34,13 @@ func failureMessage(err error) string {
 		return failureDenied
 	case errors.Is(err, commerr.ErrNotFound):
 		return failureMissing
-	case busyFailure(err):
+	case session.IsSessionBusy(err):
 		return failureBusy
 	case invalidFailure(err):
 		return failureInvalid
 	default:
 		return failureInternal
 	}
-}
-
-func busyFailure(err error) bool {
-	return errors.Is(err, session.ErrSessionBusy) ||
-		errors.Is(err, commerr.ErrConflict) ||
-		errors.Is(err, commerr.ErrLockHeld)
 }
 
 func invalidFailure(err error) bool {

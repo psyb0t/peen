@@ -1443,7 +1443,7 @@ type CronJobList struct {
 
 // CronRun One durable record of a scheduled occurrence: when it was due, how it ended, and the session it ran in. Records are kept for jobs that are no longer configured.
 type CronRun struct {
-	// Error A fixed reason for a `failed`, `cancelled` or `skipped` run, one of `scheduled run failed`, `scheduled turn failed`, `scheduled turn cancelled`, `scheduled turn timed out`, `previous run still running`, `controller was offline`, `scheduled turn interrupted`, `workspace unavailable`, `session unavailable`, `workspace agent space conflict` or `scheduled output invalid`. It never holds prompts, provider errors or schemas. Absent on running and completed runs. Treat any other value as an unknown failure.
+	// Error A fixed reason for a `failed`, `cancelled` or `skipped` run, one of `scheduled run failed`, `scheduled turn failed`, `scheduled turn cancelled`, `scheduled turn timed out`, `previous run still running`, `workspace session is busy`, `controller was offline`, `scheduled turn interrupted`, `workspace unavailable`, `session unavailable`, `workspace agent space conflict` or `scheduled output invalid`. It never holds prompts, provider errors or schemas. Absent on running and completed runs. Treat any other value as an unknown failure.
 	Error *string `json:"error,omitempty"`
 
 	// FinishedAt When the run ended, as an RFC 3339 time. Absent while the run is `running`.
@@ -1458,10 +1458,10 @@ type CronRun struct {
 	// ScheduledAt The occurrence this run was for, as an RFC 3339 UTC time. A job never records two runs for the same occurrence.
 	ScheduledAt time.Time `json:"scheduledAt"`
 
-	// SessionId The session the run's turn used. Pass it as `X-Session-ID` to read the conversation. Absent when no session was opened, such as on most skipped runs or a run whose session could not be prepared.
+	// SessionId The session the run's turn used. Pass it as `X-Session-ID` to read the conversation. Absent when no session was opened: on a run skipped because the previous run was still going or the controller was offline, and on a run whose session could not be prepared. A run skipped because the workspace session was busy names that session.
 	SessionId *openapi_types.UUID `json:"sessionId,omitempty"`
 
-	// StartedAt When Peen began the run, as an RFC 3339 time. Absent on a run skipped because the previous run was still going or the controller was offline.
+	// StartedAt When Peen began the run, as an RFC 3339 time. Absent on a run skipped because the previous run was still going or the controller was offline. A run skipped because the workspace session was busy has it, because Peen began that run before it found the session busy.
 	StartedAt *time.Time `json:"startedAt,omitempty"`
 
 	// State The state of a scheduled run. After downtime Peen records one `skipped` run for the latest missed occurrence and does not replay missed work.
@@ -1470,7 +1470,7 @@ type CronRun struct {
 	// - `completed`: the turn finished, with valid structured output when the job asked for it.
 	// - `failed`: the run or its turn failed, including a turn that ended without valid structured output; `error` says why.
 	// - `cancelled`: the turn was cancelled or reached its deadline; `error` says which.
-	// - `skipped`: the occurrence did not run because the job's previous run was still going or the controller was offline at the time; `error` says why.
+	// - `skipped`: the occurrence did not run because the job's previous run was still going, the workspace session already had an active turn, or the controller was offline at the time; `error` says why.
 	State CronRunState `json:"state"`
 }
 
@@ -1495,7 +1495,7 @@ type CronRunPage struct {
 // - `completed`: the turn finished, with valid structured output when the job asked for it.
 // - `failed`: the run or its turn failed, including a turn that ended without valid structured output; `error` says why.
 // - `cancelled`: the turn was cancelled or reached its deadline; `error` says which.
-// - `skipped`: the occurrence did not run because the job's previous run was still going or the controller was offline at the time; `error` says why.
+// - `skipped`: the occurrence did not run because the job's previous run was still going, the workspace session already had an active turn, or the controller was offline at the time; `error` says why.
 type CronRunState string
 
 // Error The body of every REST error response. The table on the API's front page lists each `code`.

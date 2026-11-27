@@ -2,6 +2,17 @@
 
 All notable Peen changes per release. Versions follow [semver](https://semver.org). Peen release history starts at v0.1.0. Entries below that document the Servicepack baseline Peen was created from.
 
+## v0.53.1 (2026-11-27)
+
+Fixes OpenAI requests by workspace replaying the client's history into the shared workspace session, and corrects the REST reference where it still described several sessions per workspace. No configuration or API migration is needed.
+
+- Fixes the shared workspace transcript receiving an OpenAI client's whole history again on every call. A stock client that sends no `X-Peen-Session-ID` resends its conversation each time, and each call added all of it to the session the browser, cron, and every other entry point use, with its system messages appended to the system prompt again. Only the request that creates the workspace's session folds in the history and system messages now. A request to an existing session sends only its last message, the same as a request with `X-Peen-Session-ID`.
+- Fixes a scheduled run that comes while its workspace session runs another turn, such as one from the control surface or the OpenAI API, being recorded as `failed` with `scheduled run failed`. It is recorded as `skipped` with `workspace session is busy`, as v0.53.0 described.
+- Fixes the Telegram bot answering "The request failed." when a message arrives while its chat directory's session runs another turn. It answers that the workspace is busy, as it already did when the busy session was found before the turn reached its worker. A message refused because the workspace runs in another agent space is no longer counted as busy by the bot, cron, the OpenAI API, or the MCP control server.
+- Fixes a `404` from a REST operation that reads a record inside a session, such as a job's output, turning into a `500` when Peen failed to read the session's running turn while it checked that the session exists. The check reads only the session now, and the answer stays `404 NOT_FOUND` or `404 SESSION_NOT_FOUND`.
+- Fixes the REST reference leaving out the `workspace session is busy` reason for a skipped scheduled run, and saying a skipped run never has `startedAt` or `sessionId`. A run skipped because the workspace session was busy has both.
+- Fixes the REST reference, the troubleshooting and MCP control server error tables, and the `PEEN_OPENAI_WORKSPACE` row of the configuration reference still describing several sessions per workspace, and `POST /sessions/open` claiming to be the only operation that creates a session when `POST /sessions/system` creates the system session.
+
 ## v0.53.0 (2026-11-26)
 
 Each workspace directory has one session. Cron and OpenAI requests by workspace use the same conversation you open in the browser. Telegram uses the session for its chat directory.

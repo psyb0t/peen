@@ -240,6 +240,27 @@ func TestConversationBusyFailureCannotCancelAnotherRequest(t *testing.T) {
 	assert.Equal(t, models.TurnStateRunning, turn.State)
 }
 
+func TestConversationSendsOnlyMessageToAnExistingWorkspaceSession(
+	t *testing.T,
+) {
+	fixture := newRoutingFixture(t)
+	fixture.launcher.onTurn = finishConversationTurn
+	conversation, err := control.NewConversation(fixture.registry,
+		fixture.router, fixture.feed)
+	require.NoError(t, err)
+	result, err := conversation.Run(t.Context(), control.ConversationRequest{
+		Workspace:      fixture.launcher.workspace,
+		Message:        agent.MessageRequest{Message: routedMessage},
+		CreatedMessage: &agent.MessageRequest{Message: "history"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, fixture.sessionID, result.SessionID)
+	require.Len(t, fixture.launcher.workers, 1)
+	turns := fixture.launcher.workers[0].turns
+	require.Len(t, turns, 1)
+	assert.Equal(t, routedMessage, turns[0].Message)
+}
+
 func TestConversationRefusesAmbiguousAndPrivilegedRouting(t *testing.T) {
 	fixture := newRoutingFixture(t)
 	conversation, err := control.NewConversation(fixture.registry,
@@ -252,6 +273,8 @@ func TestConversationRefusesAmbiguousAndPrivilegedRouting(t *testing.T) {
 		{SessionID: fixture.sessionID, Message: agent.MessageRequest{System: true}},
 		{SessionID: fixture.sessionID, Message: agent.MessageRequest{To: &fixture.sessionID}},
 		{SessionID: fixture.sessionID, Message: agent.MessageRequest{Origin: &agent.TurnOrigin{}}},
+		{SessionID: fixture.sessionID, CreatedMessage: &agent.MessageRequest{}},
+		{Workspace: fixture.launcher.workspace, CreatedMessage: &agent.MessageRequest{System: true}},
 	} {
 		_, err := conversation.Run(t.Context(), input)
 		require.ErrorIs(t, err, commerr.ErrValidationFailed)

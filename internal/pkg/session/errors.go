@@ -122,3 +122,16 @@ func (e *AgentSpaceConflictError) Error() string {
 func (e *AgentSpaceConflictError) Is(target error) bool {
 	return target == commerr.ErrConflict
 }
+
+// IsSessionBusy reports whether err means the session already runs a turn.
+// The store reports that as ErrSessionBusy, and a session worker's runtime
+// API reports it as commerr.ErrConflict, the class that crosses its
+// transport. An AgentSpaceConflictError also matches commerr.ErrConflict, so
+// it is excluded: it is a refusal to open, not a busy session.
+func IsSessionBusy(err error) bool {
+	if conflict := (*AgentSpaceConflictError)(nil); errors.As(err, &conflict) {
+		return false
+	}
+
+	return errors.Is(err, ErrSessionBusy) || errors.Is(err, commerr.ErrConflict)
+}

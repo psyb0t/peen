@@ -391,7 +391,7 @@ These optional entry points are off by default and belong only to the controller
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `PEEN_OPENAI_API` | `false` | Enables the [OpenAI API](openai-api.md) at `/openai/v1`, with the same token as the REST API. |
-| `PEEN_OPENAI_WORKSPACE` | empty | Absolute fallback workspace for a fresh OpenAI conversation. A request's `X-Peen-Workspace` overrides it, and the workspace policy applies to both. |
+| `PEEN_OPENAI_WORKSPACE` | empty | Absolute fallback workspace for an OpenAI request without `X-Peen-Session-ID`. The request opens that workspace's one session, the same one the control surface, cron, and every other entry point use for it. A request's `X-Peen-Workspace` overrides it, and the workspace policy applies to both. |
 | `PEEN_MCP_SERVER` | `false` | Enables the [MCP control server](mcp-server.md) at `/mcp/v1`. |
 | `PEEN_MCP_SERVER_ALLOWED_HOSTS` | `localhost,127.0.0.1,[::1]` | Comma-separated hostnames without ports that `/mcp/v1` accepts. See [MCP control server](mcp-server.md). |
 | `PEEN_MCP_SERVER_ALLOWED_ORIGINS` | `http://localhost:8080,http://127.0.0.1:8080,http://[::1]:8080` | Exact comma-separated origins that `/mcp/v1` accepts. |

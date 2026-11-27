@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
+	"errors"
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/agent"
 	api "github.com/psyb0t/peen/internal/pkg/http/api"
 	"github.com/psyb0t/peen/internal/pkg/session"
@@ -18,6 +20,7 @@ type testRuntime struct {
 	runQueued  bool
 	runEvent   agent.Event
 	sessionErr error
+	existsErr  error
 	listErr    error
 	cancelErr  error
 	eventsErr  error
@@ -85,6 +88,24 @@ func (r *testRuntime) Session(
 	}
 
 	return &api.Session{Id: r.sessionID}, nil
+}
+
+// SessionExists answers from sessionErr only when it says the session is
+// missing, so a test can fail the full Session read without failing this
+// check. existsErr fails the check itself.
+func (r *testRuntime) SessionExists(
+	_ context.Context,
+	_ uuid.UUID,
+) (bool, error) {
+	if r.existsErr != nil {
+		return false, r.existsErr
+	}
+
+	if errors.Is(r.sessionErr, commerr.ErrNotFound) {
+		return false, nil
+	}
+
+	return true, nil
 }
 
 func (r *testRuntime) ListMessages(

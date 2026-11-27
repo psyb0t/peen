@@ -73,7 +73,7 @@ A failed tool call is not a JSON-RPC error. It is a normal result with `isError:
 | `Invalid request. Check the tool parameters.` | Both or neither of `sessionId` and `workspace`, `agentSpace` with `sessionId`, a blank `message`, a malformed session ID, an unknown `model` or `reasoningEffort`, an invalid `outputSchema`, `timeoutSeconds` outside 1 through 86400, a `limit` outside 1 through 200, a negative `offset`, invalid base64, or a file that is too large or not a regular file. |
 | `The session or workspace is not allowed.` | Workspace policy refuses it, the path leaves the workspace or is not clean, or the request names the system session. |
 | `The requested resource was not found.` | An unknown session, a missing workspace directory, or a missing file. |
-| `this workspace runs in agent space "<current>", not "<requested>"` | `sendMessage` named an `agentSpace` other than the one the workspace's sessions use. |
+| `this workspace runs in agent space "<current>", not "<requested>"` | `sendMessage` named an `agentSpace` other than the one the workspace's session runs in. |
 | `The session already has a running turn.` | `sendMessage` named a busy session. |
 | `The request was cancelled.` | The client cancelled the call. |
 | `The turn timed out.` | The turn reached `timeoutSeconds` or `PEEN_TURN_TIMEOUT`. |

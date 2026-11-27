@@ -151,21 +151,49 @@ func TestRecordRoutesAnswer500WhenTheSessionLookupFails(t *testing.T) {
 	t.Parallel()
 
 	route := notFoundRoutes()[0]
-	recorder := serveNotFoundRoute(t, route, commerr.ErrInvalidState)
+	recorder := serveNotFoundRoute(t, route, nil,
+		func(runtime *testRuntime) {
+			runtime.existsErr = commerr.ErrInvalidState
+		})
 	assert.Equal(t, http.StatusInternalServerError, recorder.Code)
 	assertErrorCode(t, recorder, aichteeteapee.ErrorCodeInternalServerError)
+}
+
+// Telling the two 404s apart checks only that the session exists. A failure
+// of the full session read, such as its active-turn feed lookup, must not
+// turn a correct 404 into a 500.
+func TestRecordRoutesCheckOnlySessionExistence(t *testing.T) {
+	t.Parallel()
+
+	for _, route := range notFoundRoutes() {
+		t.Run(route.name, func(t *testing.T) {
+			t.Parallel()
+
+			recorder := serveNotFoundRoute(t, route, commerr.ErrInvalidState)
+			require.Equal(t, http.StatusNotFound, recorder.Code,
+				recorder.Body.String())
+			assertErrorEnvelope(t, recorder,
+				aichteeteapee.ErrorCodeNotFound, route.wantMessage)
+		})
+	}
 }
 
 func serveNotFoundRoute(
 	t *testing.T,
 	route notFoundRoute,
 	sessionErr error,
+	configure ...func(runtime *testRuntime),
 ) *httptest.ResponseRecorder {
 	t.Helper()
 
 	sessionID := uuid.New()
 	runtime := newTestRuntime(sessionID)
 	runtime.sessionErr = sessionErr
+
+	for _, apply := range configure {
+		apply(runtime)
+	}
+
 	registry := &testSessionRegistry{}
 	route.fail(runtime, registry)
 

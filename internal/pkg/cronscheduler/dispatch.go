@@ -8,7 +8,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/psyb0t/ctxerrors"
-	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/ctxscope"
 	"github.com/psyb0t/peen/internal/pkg/agent"
 	"github.com/psyb0t/peen/internal/pkg/control"
@@ -175,8 +174,7 @@ func (s *Scheduler) resultState(
 	result *control.ConversationResult,
 	runErr error,
 ) (models.CronRunState, string) {
-	if errors.Is(runErr, session.ErrSessionBusy) ||
-		errors.Is(runErr, commerr.ErrLockHeld) {
+	if session.IsSessionBusy(runErr) {
 		return models.CronRunStateSkipped, cronstore.ErrorWorkspaceBusy
 	}
 

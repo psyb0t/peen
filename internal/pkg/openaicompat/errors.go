@@ -38,9 +38,7 @@ func runnerError(err error) (int, responseError) {
 			Message: messageNotFound,
 			Type:    errorTypeRequest, Code: codeNotFound,
 		}
-	case errors.Is(err, session.ErrSessionBusy),
-		errors.Is(err, commerr.ErrLockHeld),
-		errors.Is(err, commerr.ErrConflict):
+	case session.IsSessionBusy(err):
 		return http.StatusConflict, responseError{
 			Message: messageSessionBusy,
 			Type:    errorTypeRequest, Code: codeSessionBusy,

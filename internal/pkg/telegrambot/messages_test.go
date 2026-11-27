@@ -9,6 +9,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/psyb0t/ctxerrors"
+	"github.com/psyb0t/ctxerrors/commerr"
 	"github.com/psyb0t/peen/internal/pkg/agent"
 	"github.com/psyb0t/peen/internal/pkg/session"
 	"github.com/psyb0t/peen/internal/pkg/telegram"
@@ -80,11 +82,33 @@ func TestTelegramAllowlistsAndBusyCancellation(t *testing.T) {
 
 func TestTelegramReportsBusyWorkspace(t *testing.T) {
 	t.Parallel()
-	f := newBotFixture(t)
-	f.runErr = session.ErrSessionBusy
-	runUpdate(t, f, chatUpdate("Explain"))
-	require.Len(t, f.client.messages, 1)
-	assert.Equal(t, replyWorkspaceBusy, f.client.messages[0].Text)
+
+	tests := []struct {
+		name  string
+		err   error
+		reply string
+	}{
+		{
+			name: "store busy", err: session.ErrSessionBusy,
+			reply: replyWorkspaceBusy,
+		},
+		{name: "worker busy", err: ctxerrors.Wrap(commerr.ErrConflict,
+			"session already has an active turn"), reply: replyWorkspaceBusy},
+		{name: "agent space conflict", err: &session.AgentSpaceConflictError{
+			Current: "docker:default", Requested: "control",
+		}, reply: replyFailed},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			f := newBotFixture(t)
+			f.runErr = test.err
+			runUpdate(t, f, chatUpdate("Explain"))
+			require.Len(t, f.client.messages, 1)
+			assert.Equal(t, test.reply, f.client.messages[0].Text)
+		})
+	}
 }
 
 func TestTelegramUploadsAndFetchUseWorkspaceConfinement(t *testing.T) {

@@ -172,6 +172,53 @@ func TestChildReportTargetsRootAndFullNestedInbox(t *testing.T) {
 	}
 }
 
+// A report to a running child parent is a queued message on that parent's
+// run, linked to the inbox row. A parent that already finished takes no more
+// steps, so its run records no queued step for the report.
+func TestChildReportQueuedStepFollowsTheParentState(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		finished bool
+	}{
+		{name: "running parent"},
+		{name: "finished parent", finished: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fixture := newExecutionFixture(t)
+			parent := executionChildForTest(t, fixture, fixture.root)
+			child := executionChildForTest(t, fixture, parent)
+			if tc.finished {
+				repository := fixture.store.query.Execution
+				_, err := repository.WithContext(t.Context()).Where(
+					repository.ID.Eq(parent.ID),
+				).UpdateSimple(repository.State.Value(
+					string(models.ExecutionStateFailed)))
+				require.NoError(t, err)
+			}
+			completeChildForTest(t, fixture, child)
+			page, err := fixture.store.ListExecutionMessages(t.Context(),
+				fixture.sessionID, parent.ID, ListExecutionInboxOptions{})
+			require.NoError(t, err)
+			require.Len(t, page.Items, 1)
+			report := page.Items[0]
+			steps := childInboxSteps(t, fixture, *parent.AgentRunID)
+			if tc.finished {
+				assert.Empty(t, steps)
+
+				return
+			}
+
+			assert.Equal(t, []childInboxStep{
+				{EventTypeAgentRunMessageQueued, childInboxEventPayload{
+					Message: report.Message, AcceptanceID: report.RequestID,
+				}},
+			}, steps)
+		})
+	}
+}
+
 func TestChildReportRequiresOutcome(t *testing.T) {
 	t.Parallel()
 	require.NoError(t, validateChildReportWithoutOutcome(""))

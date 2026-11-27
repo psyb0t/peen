@@ -26,7 +26,11 @@ type ConversationRequest struct {
 	Workspace  string
 	AgentSpace string
 	Message    agent.MessageRequest
-	OnEvent    func(session.FeedItem) error
+	// CreatedMessage replaces Message when opening Workspace created the
+	// session. A caller seeds a new session with history this way without
+	// replaying it into a session that already holds its own.
+	CreatedMessage *agent.MessageRequest
+	OnEvent        func(session.FeedItem) error
 }
 
 // ConversationResult carries a terminal worker turn and its persisted output.
@@ -78,7 +82,7 @@ func (c *Conversation) Run(
 	ctx context.Context,
 	input ConversationRequest,
 ) (*ConversationResult, error) {
-	stored, err := c.resolve(ctx, input)
+	stored, created, err := c.resolve(ctx, input)
 	if err != nil {
 		return nil, err
 	}
@@ -110,6 +114,10 @@ func (c *Conversation) Run(
 	}()
 
 	request := input.Message
+	if created && input.CreatedMessage != nil {
+		request = *input.CreatedMessage
+	}
+
 	request.RequireNewTurn = true
 	request.SessionID = &stored.ID
 
@@ -140,31 +148,39 @@ func (c *Conversation) turnContext(
 	}
 }
 
+// resolve reports whether opening the workspace created the session.
 func (c *Conversation) resolve(
 	ctx context.Context,
 	input ConversationRequest,
-) (*models.Session, error) {
+) (*models.Session, bool, error) {
 	if err := validateConversationRequest(input); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	if input.SessionID == uuid.Nil {
 		opened, err := c.registry.Open(ctx,
 			input.Workspace, input.AgentSpace)
 		if err != nil {
-			return nil, ctxerrors.Wrap(err, "open conversation workspace")
+			return nil, false, ctxerrors.Wrap(err,
+				"open conversation workspace")
 		}
 
-		return c.registry.workspaceSession(ctx, opened.Session.ID)
+		stored, err := c.registry.workspaceSession(ctx, opened.Session.ID)
+
+		return stored, opened.Created, err
 	}
 
-	return c.registry.workspaceSession(ctx, input.SessionID)
+	stored, err := c.registry.workspaceSession(ctx, input.SessionID)
+
+	return stored, false, err
 }
 
 func validateConversationRequest(input ConversationRequest) error {
 	if (input.SessionID == uuid.Nil) == (input.Workspace == "") ||
-		input.Message.System || input.Message.To != nil ||
-		input.Message.Origin != nil ||
+		privilegedMessage(input.Message) ||
+		(input.CreatedMessage != nil &&
+			(input.SessionID != uuid.Nil ||
+				privilegedMessage(*input.CreatedMessage))) ||
 		(input.SessionID != uuid.Nil &&
 			input.AgentSpace != "") {
 		return ctxerrors.Wrap(commerr.ErrValidationFailed,
@@ -172,6 +188,10 @@ func validateConversationRequest(input ConversationRequest) error {
 	}
 
 	return nil
+}
+
+func privilegedMessage(message agent.MessageRequest) bool {
+	return message.System || message.To != nil || message.Origin != nil
 }
 
 type conversationOutcome struct {

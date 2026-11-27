@@ -196,6 +196,102 @@ func TestChildDeliverySequenceExhaustionRollsBackTranscript(t *testing.T) {
 	assert.Nil(t, row.DeliveredActivityID)
 }
 
+// childInboxStep is one agent run event, with its inbox payload when it has
+// one.
+type childInboxStep struct {
+	kind    string
+	payload childInboxEventPayload
+}
+
+func childInboxSteps(
+	t *testing.T,
+	fixture executionFixture,
+	agentRunID uuid.UUID,
+) []childInboxStep {
+	t.Helper()
+	page, err := fixture.store.ListAgentRunEvents(t.Context(),
+		fixture.sessionID, agentRunID, ListAgentRunEventsOptions{})
+	require.NoError(t, err)
+	steps := make([]childInboxStep, 0, len(page.Items))
+	previous := int64(0)
+	for _, event := range page.Items {
+		assert.Greater(t, event.FeedSequence, previous)
+		previous = event.FeedSequence
+		step := childInboxStep{kind: event.EventType}
+		switch event.EventType {
+		case EventTypeAgentRunMessageQueued, EventTypeAgentRunMessageDelivered,
+			EventTypeAgentRunMessageUndelivered:
+			require.NoError(t, json.Unmarshal([]byte(event.PayloadJSON),
+				&step.payload))
+		}
+		steps = append(steps, step)
+	}
+
+	return steps
+}
+
+// A child that fails in its own finish step, rather than being cancelled,
+// still reports each message it never read as undelivered, before its
+// terminal event.
+func TestFailedChildRecordsUnreadMessagesAsUndelivered(t *testing.T) {
+	t.Parallel()
+	fixture := newExecutionFixture(t)
+	child := executionChildForTest(t, fixture, fixture.root)
+	unread := inboxTestInput()
+	unread.Message = "a message the failed child never reads"
+	_, err := fixture.store.AcceptChildExecutionMessage(t.Context(),
+		fixture.sessionID, child.ID, unread)
+	require.NoError(t, err)
+	claim, err := fixture.store.BeginExecutionActivity(t.Context(),
+		fixture.sessionID, child.ID, uuid.New(), finishActivityTestInput())
+	require.NoError(t, err)
+	input := finishActivityTestResult()
+	input.Finish.State = models.ExecutionStateFailed
+	input.Finish.FailureDetail = "child provider interrupted"
+	input.Finish.Child = &ExecutionFinishChild{
+		State:         models.AgentRunStateFailed,
+		FailureDetail: input.Finish.FailureDetail,
+	}
+	_, err = fixture.store.CompleteExecutionActivity(t.Context(),
+		fixture.sessionID, claim.Lease, input)
+	require.NoError(t, err)
+	want := childInboxEventPayload{
+		Message: unread.Message, AcceptanceID: unread.RequestID,
+	}
+	assert.Equal(t, []childInboxStep{
+		{EventTypeAgentRunMessageQueued, want},
+		{EventTypeAgentRunMessageUndelivered, want},
+		{kind: EventTypeAgentRunFailed},
+	}, childInboxSteps(t, fixture, *child.AgentRunID))
+}
+
+// A child cannot complete over a message it has not read, so completion
+// leaves the message queued and records no undelivered step.
+func TestCompletingChildCannotLeaveAMessageUndelivered(t *testing.T) {
+	t.Parallel()
+	fixture := newExecutionFixture(t)
+	child := executionChildForTest(t, fixture, fixture.root)
+	unread := inboxTestInput()
+	_, err := fixture.store.AcceptChildExecutionMessage(t.Context(),
+		fixture.sessionID, child.ID, unread)
+	require.NoError(t, err)
+	claim, err := fixture.store.BeginExecutionActivity(t.Context(),
+		fixture.sessionID, child.ID, uuid.New(), finishActivityTestInput())
+	require.NoError(t, err)
+	input := finishActivityTestResult()
+	input.Finish.Child = &ExecutionFinishChild{
+		State: models.AgentRunStateCompleted, ResponseText: "completed child",
+	}
+	_, err = fixture.store.CompleteExecutionActivity(t.Context(),
+		fixture.sessionID, claim.Lease, input)
+	require.ErrorIs(t, err, ErrExecutionInboxPending)
+	assert.Equal(t, []childInboxStep{
+		{EventTypeAgentRunMessageQueued, childInboxEventPayload{
+			Message: unread.Message, AcceptanceID: unread.RequestID,
+		}},
+	}, childInboxSteps(t, fixture, *child.AgentRunID))
+}
+
 // A durable child's inbox reports each message on the run's own event stream:
 // queued when it is accepted, delivered when the model takes it, and
 // undelivered when the child ends before reading it. The acceptance ID links

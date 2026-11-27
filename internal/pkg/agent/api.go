@@ -54,6 +54,7 @@ type MessageAPI interface {
 // SessionAPI reads session metadata and stops an active turn.
 type SessionAPI interface {
 	Session(ctx context.Context, sessionID uuid.UUID) (*api.Session, error)
+	SessionExists(ctx context.Context, sessionID uuid.UUID) (bool, error)
 	CancelSession(
 		ctx context.Context,
 		sessionID uuid.UUID,
@@ -279,6 +280,23 @@ func (r *Runtime) Session(
 	}
 
 	return &result, nil
+}
+
+// SessionExists reports whether a durable session exists. It reads only the
+// session row, without the active-turn lookups Session adds.
+func (r *Runtime) SessionExists(
+	ctx context.Context,
+	sessionID uuid.UUID,
+) (bool, error) {
+	if _, err := r.store.Get(ctx, sessionID); err != nil {
+		if errors.Is(err, commerr.ErrNotFound) {
+			return false, nil
+		}
+
+		return false, ctxerrors.Wrap(err, "check session exists")
+	}
+
+	return true, nil
 }
 
 // activeTurnFeedSequence finds the first feed sequence of the session's

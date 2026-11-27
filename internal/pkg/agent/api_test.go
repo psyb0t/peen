@@ -121,6 +121,31 @@ func TestMessageRequestToTurnRequest(t *testing.T) {
 	}
 }
 
+func TestRuntimeSessionExists(t *testing.T) {
+	fixture := newRuntimeFixture(
+		t,
+		elelemtest.NewScriptedDriver(elelemtest.Text("done")),
+	)
+
+	opened, err := fixture.store.OpenWorkspace(
+		t.Context(),
+		fixture.workspace,
+		session.OpenSessionOptions{
+			RootAgent: runtimeTestAgentName,
+			ModelID:   runtimeTestModelReference,
+		},
+	)
+	require.NoError(t, err)
+
+	exists, err := fixture.runtime.SessionExists(t.Context(), opened.Session.ID)
+	require.NoError(t, err)
+	assert.True(t, exists)
+
+	exists, err = fixture.runtime.SessionExists(t.Context(), uuid.New())
+	require.NoError(t, err)
+	assert.False(t, exists)
+}
+
 func TestRuntimeRunsAndListsMessages(t *testing.T) {
 	driver := elelemtest.NewScriptedDriver(
 		elelemtest.Text("first response"),

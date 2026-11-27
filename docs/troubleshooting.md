@@ -85,7 +85,7 @@ Error responses carry `{"code", "message"}`. These are the codes Peen adds to th
 | `OUTPUT_SCHEMA_INVALID` | WebSocket | The schema cannot compile without external resources or exceeds `PEEN_MAX_OUTPUT_SCHEMA_BYTES`. |
 | `USER_MESSAGE_QUEUE_FULL` | WebSocket | The active turn cannot accept another queued message. |
 | `AGENT_SPACE_NOT_ALLOWED` | REST | The deployment does not offer that agent space, and the response never names the ones it does. A reconfigure of the system session also answers this, because the system session's agent space cannot change. |
-| `AGENT_SPACE_CONFLICT` | REST, WebSocket | The request named an agent space other than the one its workspace's sessions share. The message names the current one. Leave the agent space out, name that one, or change it with [`POST /api/v1/session/reconfigure`](https://psyb0t.github.io/peen/api/reconfigure-session/). |
+| `AGENT_SPACE_CONFLICT` | REST, WebSocket | The request named an agent space other than the one its workspace's session runs in. The message names the current one. Leave the agent space out, name that one, or change it with [`POST /api/v1/session/reconfigure`](https://psyb0t.github.io/peen/api/reconfigure-session/). |
 | `SYSTEM_AGENT_OFF` | REST | A system session was requested while `PEEN_SYSTEM_AGENT` is off. |
 | `WORKSPACE_NOT_ALLOWED` | REST | The workspace falls outside the workspace root, or would expose Peen's own directories, or a file path leaves the workspace. See [workspaces](where-it-runs.md#workspaces-that-would-expose-peens-own-directories). |
 | `WORKSPACE_NOT_FOUND` | REST | The workspace is allowed, but its directory no longer exists. |

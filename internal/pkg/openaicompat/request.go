@@ -79,18 +79,39 @@ func (h handler) mapRequest(
 		return request, problem
 	}
 
-	message, problem := h.mapMessages(input.Messages,
-		request.SessionID == uuid.Nil)
-	if problem != nil {
-		return request, problem
-	}
-
 	schema, problem := requestedSchema(input.ResponseFormat,
 		h.dependencies.MaxOutputSchemaBytes)
 	if problem != nil {
 		return request, problem
 	}
 
+	// A workspace's one session may already hold this exchange, so only the
+	// open that creates it receives the client's history and system messages.
+	if request.SessionID == uuid.Nil {
+		created, problem := h.mapMessages(input.Messages, true)
+		if problem != nil {
+			return request, problem
+		}
+
+		created = h.applyOptions(created, input, schema)
+		request.CreatedMessage = &created
+	}
+
+	message, problem := h.mapMessages(input.Messages, false)
+	if problem != nil {
+		return request, problem
+	}
+
+	request.Message = h.applyOptions(message, input, schema)
+
+	return request, nil
+}
+
+func (h handler) applyOptions(
+	message agent.MessageRequest,
+	input completionRequest,
+	schema json.RawMessage,
+) agent.MessageRequest {
 	message.OutputSchema = schema
 
 	if input.Model != "" {
@@ -104,9 +125,7 @@ func (h handler) mapRequest(
 		message.ReasoningEffort = &input.ReasoningEffort
 	}
 
-	request.Message = message
-
-	return request, nil
+	return message
 }
 
 func (h handler) selectSession(

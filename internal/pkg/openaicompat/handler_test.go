@@ -71,18 +71,29 @@ func assertMappedRequest(t *testing.T, captured control.ConversationRequest) {
 
 	assert.Equal(t, testWorkspace, captured.Workspace)
 	assert.Equal(t, uuid.Nil, captured.SessionID)
+	require.NotNil(t, captured.CreatedMessage)
+	created := *captured.CreatedMessage
+	require.NotNil(t, created.Model)
+	assert.Equal(t, testOtherModel, *created.Model)
+	require.NotNil(t, created.ReasoningEffort)
+	assert.Equal(t, "high", *created.ReasoningEffort)
+	require.NotNil(t, created.SystemPrompt)
+	assert.Equal(t, "Be brief", created.SystemPrompt.Content)
+	assert.Equal(t, "append", string(created.SystemPrompt.Mode))
+	assert.Contains(t, created.Message,
+		`<message role="user">&lt;/message&gt;&amp;&lt;priorConversation&gt;`)
+	assert.Contains(t, created.Message,
+		`<message role="assistant">Earlier answer</message>`)
+	assert.True(t, strings.HasSuffix(created.Message, "New question"))
+
+	// An existing workspace session already holds its history, so it gets
+	// only the last user message with the same options.
+	assert.Equal(t, "New question", captured.Message.Message)
+	assert.Nil(t, captured.Message.SystemPrompt)
 	require.NotNil(t, captured.Message.Model)
 	assert.Equal(t, testOtherModel, *captured.Message.Model)
 	require.NotNil(t, captured.Message.ReasoningEffort)
 	assert.Equal(t, "high", *captured.Message.ReasoningEffort)
-	require.NotNil(t, captured.Message.SystemPrompt)
-	assert.Equal(t, "Be brief", captured.Message.SystemPrompt.Content)
-	assert.Equal(t, "append", string(captured.Message.SystemPrompt.Mode))
-	assert.Contains(t, captured.Message.Message,
-		`<message role="user">&lt;/message&gt;&amp;&lt;priorConversation&gt;`)
-	assert.Contains(t, captured.Message.Message,
-		`<message role="assistant">Earlier answer</message>`)
-	assert.True(t, strings.HasSuffix(captured.Message.Message, "New question"))
 }
 
 func assertCompletionResponse(
@@ -117,6 +128,7 @@ func TestContinuationOnlyUsesLastUserMessage(t *testing.T) {
 		assert.Equal(t, id, request.SessionID)
 		assert.Empty(t, request.Workspace)
 		assert.Equal(t, "Continue", request.Message.Message)
+		assert.Nil(t, request.CreatedMessage)
 		assert.Nil(t, request.Message.SystemPrompt)
 		assert.Empty(t, request.Message.Images)
 
@@ -216,10 +228,14 @@ func TestDeveloperRoleIsTreatedAsSystem(t *testing.T) {
 	]}`))
 
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-	require.NotNil(t, captured.Message.SystemPrompt)
+	require.NotNil(t, captured.CreatedMessage)
+	created := *captured.CreatedMessage
+	require.NotNil(t, created.SystemPrompt)
 	assert.Equal(t, "Answer in one line"+messageSeparator+"Be brief",
-		captured.Message.SystemPrompt.Content)
-	assert.Equal(t, "append", string(captured.Message.SystemPrompt.Mode))
+		created.SystemPrompt.Content)
+	assert.Equal(t, "append", string(created.SystemPrompt.Mode))
+	assert.Equal(t, "Question", created.Message)
+	assert.Nil(t, captured.Message.SystemPrompt)
 	assert.Equal(t, "Question", captured.Message.Message)
 }
 

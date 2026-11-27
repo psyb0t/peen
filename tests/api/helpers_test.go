@@ -6,7 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/http"
 	"path"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +26,9 @@ const (
 	freshWorkspaceFixtureContent = "a workspace only this test opens"
 
 	apiTestFrameSkillInjected = "skill.injected"
+
+	// variantMessagesPageLimit is the largest page GET /messages serves.
+	variantMessagesPageLimit = 200
 )
 
 const apiTestToolOutputOpen = "<toolOutput tool="
@@ -228,6 +233,83 @@ func storedMessages(t *testing.T, sessionID uuid.UUID) []api.Message {
 	t.Helper()
 
 	return collectAllMessages(t, sessionID)
+}
+
+// variantSessionRequest sends a body-less request for one session to a
+// variant controller.
+func variantSessionRequest(
+	t *testing.T,
+	variant *testinfra.Infra,
+	method string,
+	requestPath string,
+	sessionID uuid.UUID,
+) *apiResponse {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(t.Context(), requestTimeout)
+	defer cancel()
+
+	request, err := http.NewRequestWithContext(ctx, method,
+		variant.APIURL(requestPath), nil)
+	require.NoError(t, err)
+
+	for name, value := range authenticatedHeaders() {
+		if name == headerContentType {
+			continue
+		}
+
+		request.Header.Set(name, value)
+	}
+
+	request.Header.Set(headerSessionID, sessionID.String())
+
+	response, err := variant.HTTPClient().Do(request)
+	require.NoError(t, err)
+
+	defer func() { require.NoError(t, response.Body.Close()) }()
+
+	return readAPIResponse(t, response)
+}
+
+// variantMessages returns a variant session's stored messages, oldest first.
+func variantMessages(
+	t *testing.T,
+	variant *testinfra.Infra,
+	sessionID uuid.UUID,
+) []api.Message {
+	t.Helper()
+
+	messages := make([]api.Message, 0)
+
+	for {
+		response := variantSessionRequest(t, variant, http.MethodGet,
+			messagesPath+"?limit="+strconv.Itoa(variantMessagesPageLimit)+
+				"&order=asc&offset="+strconv.Itoa(len(messages)), sessionID)
+		requireAPIStatus(t, response, http.StatusOK)
+		page := decodeResponse[api.MessagePage](t, response)
+		messages = append(messages, page.Items...)
+
+		if !page.HasMore {
+			return messages
+		}
+	}
+}
+
+// userMessageContents keeps the messages a person or a client wrote: user
+// messages Peen did not inject itself.
+func userMessageContents(messages []api.Message) []string {
+	contents := make([]string, 0, len(messages))
+
+	for _, message := range messages {
+		if message.Role != api.MessageRoleUser ||
+			(message.Injected != nil && *message.Injected) {
+			continue
+		}
+
+		contents = append(contents, message.Content)
+	}
+
+	return contents
 }
 
 // hostToolsContainerPath places a scenario fixture under the app's immutable

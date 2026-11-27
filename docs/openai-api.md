@@ -64,7 +64,7 @@ Without `X-Peen-Session-ID`, Peen opens or resumes the one session for the works
 
 A successful response carries `X-Peen-Session-ID`. Send it on a later request to continue that session. A non-streaming error response carries no session header. To find a session by workspace, [list the sessions](https://psyb0t.github.io/peen/api/list-sessions/). A session ID must be a canonical UUID. When you send a session ID, only the last message is read and sent; earlier messages and system prompts in the request are ignored. The last message must have role `user`. A running turn refuses another request as busy rather than queueing it. System sessions cannot be reached through this surface.
 
-When you send a workspace path, system messages become an appended system prompt, joined in order. Earlier user and assistant messages become escaped text in a `<priorConversation>` block before the last user message. Images are attached in their original order, and each leaves a numbered `[Attached image N]` placeholder where it appeared, in the history or in the last message. These messages and images enter the durable transcript and provider requests.
+When you send a workspace path and that request creates the workspace's session, system messages become an appended system prompt, joined in order. Earlier user and assistant messages become escaped text in a `<priorConversation>` block before the last user message. Images are attached in their original order, and each leaves a numbered `[Attached image N]` placeholder where it appeared, in the history or in the last message. These messages and images enter the durable transcript and provider requests. When the workspace's session already exists, because an earlier request, the control surface, cron, or another entry point opened it, only the last message is read and sent, the same as with a session ID, because the session already holds its own history. A client that resends its whole history on every call adds each exchange to the transcript once.
 
 ## Request fields
 
@@ -93,7 +93,7 @@ Every other field, such as `temperature`, `max_tokens`, `stop`, `stream_options`
 
 ## Limits
 
-The request body must be `application/json` (otherwise `415`) and fit the same frame limit as a WebSocket `message.send` (otherwise `413`). On a request that selects a workspace by path, the prior messages are folded into the new user message, so the whole history plus the last message must fit `PEEN_MAX_MESSAGE_BYTES`, and the joined system messages must fit `PEEN_MAX_SYSTEM_PROMPT_BYTES`. [Configuration](configuration.md) lists the defaults.
+The request body must be `application/json` (otherwise `415`) and fit the same frame limit as a WebSocket `message.send` (otherwise `413`). On a request that creates a workspace's session, the prior messages are folded into the new user message, so the whole history plus the last message must fit `PEEN_MAX_MESSAGE_BYTES`, and the joined system messages must fit `PEEN_MAX_SYSTEM_PROMPT_BYTES`. [Configuration](configuration.md) lists the defaults.
 
 Images must be base64 `data:` URLs of PNG, JPEG, GIF or WebP whose bytes match the named type, each at most `PEEN_MAX_IMAGE_BYTES`. `PEEN_MAX_IMAGES_PER_MESSAGE` counts every image in the request, not each message. Remote HTTP and HTTPS images are refused without fetching them. Image parts on system, developer or assistant messages are refused.
 

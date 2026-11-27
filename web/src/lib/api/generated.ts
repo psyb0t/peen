@@ -110,7 +110,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Open or resume the session for a workspace
-		 * @description Resolves a workspace directory to its session and returns it, creating the session the first time the directory is opened. This is the only REST operation that creates a session, so a controller starts with none and a client must name the workspace it wants. It takes no `X-Session-ID` header; use the returned `session.id` as `X-Session-ID` on later REST calls and as `metadata.sessionId` on the WebSocket. The response also carries it in the `X-Session-ID` response header.
+		 * @description Resolves a workspace directory to its session and returns it, creating the session the first time the directory is opened. This is the only REST operation that creates a workspace session, so a controller starts with none and a client must name the workspace it wants. `POST /sessions/system` creates the system session. It takes no `X-Session-ID` header; use the returned `session.id` as `X-Session-ID` on later REST calls and as `metadata.sessionId` on the WebSocket. The response also carries it in the `X-Session-ID` response header.
 		 *
 		 *     The path is resolved through its symbolic links, so opening the same directory again by any of its names resumes the same session. All entry points targeting that directory use its session.
 		 *
@@ -2854,7 +2854,7 @@ export interface components {
 		 *     - `completed`: the turn finished, with valid structured output when the job asked for it.
 		 *     - `failed`: the run or its turn failed, including a turn that ended without valid structured output; `error` says why.
 		 *     - `cancelled`: the turn was cancelled or reached its deadline; `error` says which.
-		 *     - `skipped`: the occurrence did not run because the job's previous run was still going or the controller was offline at the time; `error` says why.
+		 *     - `skipped`: the occurrence did not run because the job's previous run was still going, the workspace session already had an active turn, or the controller was offline at the time; `error` says why.
 		 * @enum {string}
 		 */
 		CronRunState: "running" | "completed" | "failed" | "cancelled" | "skipped";
@@ -2874,7 +2874,7 @@ export interface components {
 			scheduledAt: string;
 			/**
 			 * Format: date-time
-			 * @description When Peen began the run, as an RFC 3339 time. Absent on a run skipped because the previous run was still going or the controller was offline.
+			 * @description When Peen began the run, as an RFC 3339 time. Absent on a run skipped because the previous run was still going or the controller was offline. A run skipped because the workspace session was busy has it, because Peen began that run before it found the session busy.
 			 */
 			startedAt?: string;
 			/**
@@ -2884,11 +2884,11 @@ export interface components {
 			finishedAt?: string;
 			/**
 			 * Format: uuid
-			 * @description The session the run's turn used. Pass it as `X-Session-ID` to read the conversation. Absent when no session was opened, such as on most skipped runs or a run whose session could not be prepared.
+			 * @description The session the run's turn used. Pass it as `X-Session-ID` to read the conversation. Absent when no session was opened: on a run skipped because the previous run was still going or the controller was offline, and on a run whose session could not be prepared. A run skipped because the workspace session was busy names that session.
 			 */
 			sessionId?: string;
 			state: components["schemas"]["CronRunState"];
-			/** @description A fixed reason for a `failed`, `cancelled` or `skipped` run, one of `scheduled run failed`, `scheduled turn failed`, `scheduled turn cancelled`, `scheduled turn timed out`, `previous run still running`, `controller was offline`, `scheduled turn interrupted`, `workspace unavailable`, `session unavailable`, `workspace agent space conflict` or `scheduled output invalid`. It never holds prompts, provider errors or schemas. Absent on running and completed runs. Treat any other value as an unknown failure. */
+			/** @description A fixed reason for a `failed`, `cancelled` or `skipped` run, one of `scheduled run failed`, `scheduled turn failed`, `scheduled turn cancelled`, `scheduled turn timed out`, `previous run still running`, `workspace session is busy`, `controller was offline`, `scheduled turn interrupted`, `workspace unavailable`, `session unavailable`, `workspace agent space conflict` or `scheduled output invalid`. It never holds prompts, provider errors or schemas. Absent on running and completed runs. Treat any other value as an unknown failure. */
 			error?: string;
 		};
 		/** @description One page of scheduled runs, newest scheduled occurrence first, as `GET /cron/runs` returns it. */
@@ -2982,7 +2982,7 @@ export interface components {
 				"application/json": components["schemas"]["Error"];
 			};
 		};
-		/** @description The request conflicts with the current state. `code` is `SESSION_BUSY` when the session has an active turn, `AGENT_SPACE_CONFLICT` when the request names an agent space other than the one the workspace's sessions share (the message names the current one), and `CONFLICT` when a workspace directory to delete is not empty or a reconfiguration names the agent space the workspace already runs in. */
+		/** @description The request conflicts with the current state. `code` is `SESSION_BUSY` when the session has an active turn, `AGENT_SPACE_CONFLICT` when the request names an agent space other than the one the workspace's session runs in (the message names the current one), and `CONFLICT` when a workspace directory to delete is not empty or a reconfiguration names the agent space the workspace already runs in. */
 		ErrorConflict: {
 			headers: {
 				[name: string]: unknown;

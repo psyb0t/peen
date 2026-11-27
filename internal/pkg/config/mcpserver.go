@@ -3,16 +3,22 @@ package config
 import (
 	"maps"
 	"net"
+	"net/http"
 	"net/netip"
 	"net/url"
 	"slices"
 	"strconv"
 	"strings"
 
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+	emseepee "github.com/psyb0t/aichteeteapee/serbewr/em-see-pee"
 	"github.com/psyb0t/ctxerrors"
 )
 
 const (
+	// mcpPolicyCheckPath is where checkRoute builds its throwaway route.
+	mcpPolicyCheckPath = "/"
+
 	defaultMCPHosts = "localhost,127.0.0.1,[::1]"
 	//nolint:lll // Exact origins mirror the default HTTP listener.
 	defaultMCPOrigins       = "http://localhost:8080,http://127.0.0.1:8080,http://[::1]:8080"
@@ -55,6 +61,10 @@ func (c Config) MCPServerPolicy() (MCPServerPolicy, error) {
 			"PEEN_MCP_SERVER_ALLOWED_ORIGINS is invalid")
 	}
 
+	if err := policy.checkRoute(); err != nil {
+		return MCPServerPolicy{}, err
+	}
+
 	return policy, nil
 }
 
@@ -94,35 +104,25 @@ func (p *MCPServerPolicy) addOrigins(value string) error {
 	return nil
 }
 
-func (p MCPServerPolicy) AllowsHost(authority string) bool {
-	host := authority
-	if parsed, port, err := net.SplitHostPort(authority); err == nil {
-		if !validMCPPort(port) {
-			return false
-		}
+// checkRoute refuses a policy the MCP route that enforces it would refuse,
+// so every value startup accepts is one the route accepts too.
+func (p MCPServerPolicy) checkRoute() error {
+	server := func(*http.Request) *mcp.Server { return nil }
 
-		host = parsed
+	if _, err := emseepee.NewRoute(mcpPolicyCheckPath, server,
+		emseepee.WithAllowedHosts(p.Hosts()...)); err != nil {
+		return ctxerrors.Wrap(ErrInvalidConfig,
+			"PEEN_MCP_SERVER_ALLOWED_HOSTS holds a host the MCP route refuses")
 	}
 
-	normalized, valid := mcpHostname(host)
-	if !valid {
-		return false
+	if _, err := emseepee.NewRoute(mcpPolicyCheckPath, server,
+		emseepee.WithAllowedOrigins(p.Origins()...)); err != nil {
+		return ctxerrors.Wrap(ErrInvalidConfig,
+			"PEEN_MCP_SERVER_ALLOWED_ORIGINS holds an origin the MCP route "+
+				"refuses")
 	}
 
-	_, allowed := p.hosts[normalized]
-
-	return allowed
-}
-
-func (p MCPServerPolicy) AllowsOrigin(origin string) bool {
-	normalized, valid := mcpOrigin(origin)
-	if !valid {
-		return false
-	}
-
-	_, allowed := p.origins[normalized]
-
-	return allowed
+	return nil
 }
 
 // Hosts returns the allowed hosts in sorted order: lowercase DNS names and
